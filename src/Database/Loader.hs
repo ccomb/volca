@@ -398,12 +398,14 @@ loadDatabaseWithLocationAliases locationAliases path = do
     isFile <- doesFileExist path
     isDir <- doesDirectoryExist path
 
-    if isFile && map toLower (takeExtension path) == ".csv"
-        then loadSimaProCSV path
-        else
-            if isDir
-                then loadEcoSpoldDirectory locationAliases path
-                else return $ Left $ T.pack $ "Path is neither a CSV file nor a directory: " ++ path
+    if isFile
+        then case map toLower (takeExtension path) of
+            ".csv" -> loadSimaProCSV path
+            ".xml" -> loadSingleEcoSpold1File locationAliases path
+            _      -> return $ Left $ T.pack $ "Unsupported file type: " ++ path
+        else if isDir
+            then loadEcoSpoldDirectory locationAliases path
+            else return $ Left $ T.pack $ "Path does not exist: " ++ path
 
 -- | Load SimaPro CSV file
 loadSimaProCSV :: FilePath -> IO (Either T.Text SimpleDatabase)

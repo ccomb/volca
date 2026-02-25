@@ -156,6 +156,7 @@ uploadDatabaseHandler dbManager req = do
                             , dcDescription = urDescription req
                             , dcLoad = False  -- Don't auto-load
                             , dcDefault = False
+                            , dcDepends = []
                             , dcLocationAliases = M.empty
                             , dcFormat = Just (urFormat uploadResult)
                             , dcIsUploaded = True  -- Freshly uploaded database

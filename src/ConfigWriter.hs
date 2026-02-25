@@ -116,12 +116,15 @@ formatDatabaseSection DatabaseConfig{..} = T.unlines $
     maybeField "description" dcDescription ++
     [ "load = " <> boolToText dcLoad
     , "default = " <> boolToText dcDefault
-    ]
+    ] ++
+    dependsField dcDepends
   where
     quote t = "\"" <> escapeToml t <> "\""
     boolToText True = "true"
     boolToText False = "false"
     maybeField name = maybe [] (\v -> [name <> " = " <> quote v])
+    dependsField [] = []
+    dependsField ds = ["depends = [" <> T.intercalate ", " (map quote ds) <> "]"]
 
 -- | Escape special characters in TOML strings
 escapeToml :: Text -> Text

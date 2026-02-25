@@ -12,6 +12,7 @@ module Database.Upload
     , ProgressEvent(..)
       -- * Upload handling
     , handleUpload
+    , extractArchiveFile
     , detectDatabaseFormat
     , findDataDirectory
     , findAllDataDirectories
@@ -168,6 +169,13 @@ detectArchiveFormat content
              || matchesMagic [0xEF, 0xBB, 0xBF, 0x3C, 0x3F]
     -- Check if first byte is printable ASCII (plain text / CSV)
     isPlainText = let b = BL.head content in b == 0x7B || (b >= 0x20 && b < 0x7F)
+
+-- | Extract an archive file on disk to a target directory.
+-- Reuses extractUpload (reads file, detects format, extracts).
+extractArchiveFile :: FilePath -> FilePath -> IO (Either Text ())
+extractArchiveFile archivePath targetDir = do
+    content <- BL.readFile archivePath
+    extractUpload content targetDir
 
 -- | Extract upload data to target directory.
 -- Supports ZIP, 7z, tar.gz, tar.xz archives (auto-detected), plain XML, and CSV files.

@@ -20,6 +20,8 @@ module Config
       -- * Utilities
     , getDefaultDatabase
     , getLoadableDatabases
+      -- * Dependency resolution
+    , resolveLoadOrder
     ) where
 
 import Data.Text (Text)
@@ -27,10 +29,11 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import GHC.Generics (Generic)
 import qualified TOML
 import TOML (DecodeTOML(..), Decoder, getField, getFieldOpt, getFieldOptWith, getArrayOf, decodeFile)
-import Control.Monad (when)
+import Control.Monad (when, forM_)
 import System.Directory (doesFileExist)
 import Database.Upload (DatabaseFormat(..))
 
@@ -57,6 +60,7 @@ data DatabaseConfig = DatabaseConfig
     , dcDescription :: !(Maybe Text)
     , dcLoad        :: !Bool           -- Load at startup (renamed from dcActive)
     , dcDefault     :: !Bool
+    , dcDepends     :: ![Text]         -- Names of databases this one depends on (for cross-DB linking)
     , dcLocationAliases :: !(Map Text Text)  -- Wrong location → correct location (e.g., "ENTSO" → "ENTSO-E")
     , dcFormat      :: !(Maybe DatabaseFormat)  -- Detected format (EcoSpold2, EcoSpold1, SimaProCSV)
     , dcIsUploaded  :: !Bool           -- True for uploaded databases (vs. configured in TOML)
@@ -140,6 +144,9 @@ instance DecodeTOML DatabaseConfig where
         dcDefault <- getFieldOpt "default" >>= \case
             Just d  -> pure d
             Nothing -> pure False
+        dcDepends <- getFieldOptWith (getArrayOf tomlDecoder) "depends" >>= \case
+            Just ds -> pure ds
+            Nothing -> pure []
         dcLocationAliases <- getFieldOpt "locationAliases" >>= \case
             Just m  -> pure m
             Nothing -> pure M.empty
@@ -206,10 +213,19 @@ validateConfig cfg = do
     when (length defaultDbs > 1) $
         Left $ "Multiple databases marked as default: " <> T.intercalate ", " (map dcName defaultDbs)
 
-    -- Note: we no longer require any databases to have load=true
-    -- The user can load databases on demand via the UI
+    -- Validate dependency references exist
+    let nameSet = S.fromList dbNames
+    forM_ (cfgDatabases cfg) $ \db ->
+        forM_ (dcDepends db) $ \dep ->
+            when (not $ S.member dep nameSet) $
+                Left $ "Database \"" <> dcName db <> "\" depends on unknown database: \"" <> dep <> "\""
 
-    Right cfg
+    -- Validate no dependency cycles (resolveLoadOrder detects this)
+    -- Run it with all databases marked as load=true to check the full graph
+    let allLoaded = map (\db -> db { dcLoad = True }) (cfgDatabases cfg)
+    case resolveLoadOrder allLoaded of
+        Left err -> Left err
+        Right _  -> Right cfg
 
 -- | Find duplicates in a list
 findDuplicates :: Eq a => [a] -> [a]
@@ -232,3 +248,39 @@ getDefaultDatabase cfg =
 -- | Get all databases configured to load at startup
 getLoadableDatabases :: Config -> [DatabaseConfig]
 getLoadableDatabases = filter dcLoad . cfgDatabases
+
+-- | Expand load=true transitively through depends, then topologically sort.
+-- Returns Left on cycle, Right with ordered list of DB names to load.
+resolveLoadOrder :: [DatabaseConfig] -> Either Text [Text]
+resolveLoadOrder configs =
+    let configMap = M.fromList [(dcName c, c) | c <- configs]
+        seeds = [dcName c | c <- configs, dcLoad c]
+        expanded = expandTransitive configMap seeds S.empty
+    in topoSort configMap (S.toList expanded)
+  where
+    -- Transitively expand seed set through depends
+    expandTransitive _ [] visited = visited
+    expandTransitive cfgMap (name:rest) visited
+        | S.member name visited = expandTransitive cfgMap rest visited
+        | otherwise = case M.lookup name cfgMap of
+            Nothing  -> expandTransitive cfgMap rest visited  -- unknown, skip
+            Just cfg -> expandTransitive cfgMap (dcDepends cfg ++ rest) (S.insert name visited)
+
+    -- Kahn's algorithm: dependencies come first
+    topoSort cfgMap names =
+        let nameSet = S.fromList names
+            depsOf n = maybe [] (filter (`S.member` nameSet) . dcDepends) (M.lookup n cfgMap)
+            inDeg = M.fromList [(n, length (depsOf n)) | n <- names]
+            queue = [n | (n, 0) <- M.toList inDeg]
+            -- Reverse adjacency: dep → [nodes that depend on dep]
+            revAdj = M.fromListWith (++) [(dep, [n]) | n <- names, dep <- depsOf n]
+        in go revAdj inDeg queue [] (length names)
+
+    go _ _ [] result expected
+        | length result == expected = Right (reverse result)
+        | otherwise = Left "Cycle detected in database dependencies"
+    go revAdj degrees (n:q) result expected =
+        let dependents = M.findWithDefault [] n revAdj
+            degrees' = foldl (\d dep -> M.adjust (subtract 1) dep d) degrees dependents
+            newReady = [dep | dep <- dependents, M.findWithDefault 1 dep degrees' == 0]
+        in go revAdj degrees' (q ++ newReady) (n : result) expected

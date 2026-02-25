@@ -55,16 +55,17 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector.Unboxed as U
 import GHC.Generics (Generic)
-import System.Directory (doesFileExist, doesDirectoryExist, listDirectory, removeFile)
+import System.Directory (createDirectoryIfMissing, doesFileExist, doesDirectoryExist, listDirectory, removeFile)
 import System.FilePath (takeExtension)
 import Data.Char (toLower)
 import Data.List (isPrefixOf, nub, sortOn)
 import Data.Ord (Down(..))
 
 import Config
+import Data.Time (diffUTCTime, getCurrentTime)
 import Matrix (precomputeMatrixFactorization, addFactorizationToDatabase, clearCachedKspSolver)
 import SharedSolver (SharedSolver, createSharedSolver)
-import Progress (reportProgress, reportError, ProgressLevel(..))
+import Progress (reportProgress, reportProgressWithTiming, reportError, ProgressLevel(..))
 import Database (buildDatabaseWithMatrices)
 import SynonymDB (SynonymDB)
 import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), Exchange(..), UUID, exchangeFlowId, exchangeIsReference, CrossDBLink(..))
@@ -255,15 +256,15 @@ initDatabaseManager :: Config -> SynonymDB -> Bool -> Maybe FilePath -> IO Datab
 initDatabaseManager config synonymDB noCache _configPath = do
     -- Get configured databases and detect their format
     configuredDbs <- forM (cfgDatabases config) $ \dbConfig -> do
-        format <- Upload.detectDatabaseFormat (dcPath dbConfig)
-        return dbConfig { dcFormat = Just format }
+        resolvedPath <- resolveDataPath (dcPath dbConfig)
+        format <- Upload.detectDatabaseFormat resolvedPath
+        return dbConfig { dcPath = resolvedPath, dcFormat = Just format }
 
     -- Discover uploaded databases from uploads/ directory (self-describing with meta.toml)
     uploadedDbs <- discoverUploadedDatabases
 
     -- Merge configured + uploaded
     let allDbs = configuredDbs ++ uploadedDbs
-        loadableDbs = filter dcLoad allDbs
 
     -- Build UnitConfig from config (or use defaults)
     unitConfig <- case cfgUnits config of
@@ -298,25 +299,35 @@ initDatabaseManager config synonymDB noCache _configPath = do
             , dmUnitConfig = unitConfig
             }
 
-    -- Pre-load databases with load=true at startup
-    -- Load in sequence to enable cross-DB linking (earlier DBs available to later ones)
-    reportProgress Info $ "Pre-loading " ++ show (length loadableDbs) ++ " database(s) with load=true..."
-    forM_ loadableDbs $ \dbConfig -> do
-        reportProgress Info $ "Loading database: " <> T.unpack (dcDisplayName dbConfig)
-        -- Get currently loaded IndexedDatabases for cross-DB linking
-        currentIndexedDbs <- readTVarIO indexedDbsVar
-        let otherIndexes = M.elems currentIndexedDbs
-        result <- loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherIndexes
-        case result of
-            Right loaded -> do
-                -- Build index from the loaded Database for future cross-DB linking
-                let indexedDb = buildIndexedDatabaseFromDB (dcName dbConfig) synonymDB (ldDatabase loaded)
-                atomically $ do
-                    modifyTVar' loadedDbsVar (M.insert (dcName dbConfig) loaded)
-                    modifyTVar' indexedDbsVar (M.insert (dcName dbConfig) indexedDb)
-                reportProgress Info $ "  [OK] Loaded:" <> T.unpack (dcDisplayName dbConfig)
-            Left err ->
-                reportError $ "  [FAIL] Failed to load" <> T.unpack (dcName dbConfig) <> ": " <> T.unpack err
+    -- Resolve load order: expand load=true transitively through depends, then topo-sort
+    let allDbConfigs = allDbs
+        configMap = M.fromList [(dcName c, c) | c <- allDbConfigs]
+    case resolveLoadOrder allDbConfigs of
+        Left err -> reportError $ "Dependency resolution failed: " <> T.unpack err
+        Right loadOrder -> do
+            let dbsToLoad = [configMap M.! name | name <- loadOrder, M.member name configMap]
+            reportProgress Info $ "Loading " ++ show (length dbsToLoad) ++ " database(s) in dependency order: "
+                ++ T.unpack (T.intercalate " → " loadOrder)
+            totalStart <- getCurrentTime
+            forM_ dbsToLoad $ \dbConfig -> do
+                reportProgress Info $ "Loading database: " <> T.unpack (dcDisplayName dbConfig)
+                -- Get currently loaded IndexedDatabases for cross-DB linking
+                currentIndexedDbs <- readTVarIO indexedDbsVar
+                let otherIndexes = M.elems currentIndexedDbs
+                result <- loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherIndexes
+                case result of
+                    Right loaded -> do
+                        -- Build index from the loaded Database for future cross-DB linking
+                        let indexedDb = buildIndexedDatabaseFromDB (dcName dbConfig) synonymDB (ldDatabase loaded)
+                        atomically $ do
+                            modifyTVar' loadedDbsVar (M.insert (dcName dbConfig) loaded)
+                            modifyTVar' indexedDbsVar (M.insert (dcName dbConfig) indexedDb)
+                        reportProgress Info $ "  [OK] Loaded: " <> T.unpack (dcDisplayName dbConfig)
+                    Left err ->
+                        reportError $ "  [FAIL] Failed to load " <> T.unpack (dcName dbConfig) <> ": " <> T.unpack err
+            totalEnd <- getCurrentTime
+            let totalDuration = realToFrac (diffUTCTime totalEnd totalStart) :: Double
+            reportProgressWithTiming Info "Total database loading time" totalDuration
 
     -- Report final status
     loadedCount <- atomically $ M.size <$> readTVar loadedDbsVar
@@ -345,6 +356,7 @@ uploadMetaToConfig slug dirPath meta = DatabaseConfig
     , dcDescription = UploadedDB.umDescription meta
     , dcLoad = False  -- Never auto-load uploads
     , dcDefault = False
+    , dcDepends = []
     , dcLocationAliases = M.empty
     , dcFormat = Just (UploadedDB.umFormat meta)
     , dcIsUploaded = True  -- Discovered from uploads/ directory
@@ -354,16 +366,18 @@ uploadMetaToConfig slug dirPath meta = DatabaseConfig
 -- Creates a config with one database and initializes it
 initSingleDatabaseManager :: FilePath -> SynonymDB -> Bool -> IO DatabaseManager
 initSingleDatabaseManager dataPath synonymDB noCache = do
-    -- Detect format for the data path
-    format <- Upload.detectDatabaseFormat dataPath
+    -- Resolve archives and detect format
+    resolvedPath <- resolveDataPath dataPath
+    format <- Upload.detectDatabaseFormat resolvedPath
 
     let dbConfig = DatabaseConfig
             { dcName = "default"
             , dcDisplayName = T.pack dataPath  -- Use path as display name
-            , dcPath = dataPath
+            , dcPath = resolvedPath
             , dcDescription = Just "Single database mode (--data)"
             , dcLoad = True
             , dcDefault = True
+            , dcDepends = []
             , dcLocationAliases = M.empty
             , dcFormat = Just format
             , dcIsUploaded = False  -- Command-line specified, not uploaded
@@ -417,6 +431,44 @@ loadDatabaseFromConfig :: DatabaseConfig -> SynonymDB -> Bool -> IO (Either Text
 loadDatabaseFromConfig dbConfig synonymDB noCache =
     loadDatabaseFromConfigWithCrossDB dbConfig synonymDB UnitConversion.defaultUnitConfig noCache []
 
+-- | Resolve a database path: if it's an archive, extract it first.
+-- Extracts to "{archivePath}.d/" and finds the actual data directory inside.
+-- Plain files/directories pass through unchanged.
+resolveDataPath :: FilePath -> IO FilePath
+resolveDataPath path = do
+    isDir <- doesDirectoryExist path
+    if isDir then return path
+    else do
+        isFile <- doesFileExist path
+        if not isFile then return path  -- missing: let caller handle
+        else
+            let ext = map toLower (takeExtension path)
+            in if ext `elem` [".zip", ".7z", ".gz", ".xz"]
+                then extractAndFind path
+                else return path
+  where
+    extractAndFind archive = do
+        let extractDir = archive ++ ".d"
+        dirExists <- doesDirectoryExist extractDir
+        alreadyExtracted <- if dirExists
+            then not . null <$> listDirectory extractDir
+            else return False
+        if alreadyExtracted
+            then do
+                reportProgress Info $ "Using cached extraction: " <> extractDir
+                Upload.findDataDirectory extractDir
+            else do
+                createDirectoryIfMissing True extractDir
+                reportProgress Info $ "Extracting archive: " <> archive
+                result <- Upload.extractArchiveFile archive extractDir
+                case result of
+                    Left err -> do
+                        reportError $ "Archive extraction failed: " <> T.unpack err
+                        return archive  -- let caller report the meaningful error
+                    Right () -> do
+                        reportProgress Info "Extraction complete"
+                        Upload.findDataDirectory extractDir
+
 -- | Load a database from its configuration with cross-database linking support
 loadDatabaseFromConfigWithCrossDB
     :: DatabaseConfig
@@ -426,8 +478,8 @@ loadDatabaseFromConfigWithCrossDB
     -> [IndexedDatabase]  -- Pre-built indexes from other databases for cross-DB linking
     -> IO (Either Text LoadedDatabase)
 loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherIndexes = do
-    let path = dcPath dbConfig
-        locationAliases = dcLocationAliases dbConfig
+    path <- resolveDataPath (dcPath dbConfig)
+    let locationAliases = dcLocationAliases dbConfig
 
     -- Check if path exists
     isFile <- doesFileExist path
