@@ -57,7 +57,8 @@ viewSearchBar maybeDatabaseList currentDbName query isLoading =
         , -- Search input on the right (expanded)
           div [ class "control has-icons-left is-expanded", class (if isLoading then "is-loading" else "") ]
             [ input
-                [ class "input is-large"
+                [ id "activity-search"
+                , class "input is-large"
                 , type_ "text"
                 , placeholder "Search activities by name..."
                 , value query

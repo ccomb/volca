@@ -73,11 +73,14 @@ init shared flags =
             else
                 NotSearched
       }
-    , if shouldSearch then
-        Effect.fromCmd (searchActivities flags.db searchQuery)
+    , Effect.batch
+        [ if shouldSearch then
+            Effect.fromCmd (searchActivities flags.db searchQuery)
 
-      else
-        Effect.none
+          else
+            Effect.none
+        , Effect.fromCmd (Browser.Dom.focus "activity-search" |> Task.attempt (\_ -> ScrollDone))
+        ]
     )
 
 
@@ -241,8 +244,7 @@ update shared msg model =
                     model.results == NotSearched && not (String.isEmpty newQuery) && dbNowLoaded
             in
             if newQuery == model.searchQuery && not needsRetry then
-                -- Flags from our own replaceUrl — ignore to preserve focus
-                ( model, Effect.none )
+                ( model, Effect.fromCmd (Browser.Dom.focus "activity-search" |> Task.attempt (\_ -> ScrollDone)) )
 
             else
                 init shared flags
