@@ -32,13 +32,14 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
     nav [ classList [ ( "left-menu", True ), ( "is-active", menuOpen ) ], style "display" "flex", style "flex-direction" "column", style "height" "100%" ]
         [ -- Top section (scrollable content)
           div [ style "flex" "1", style "overflow-y" "auto" ]
-            [ -- Database name as header (not clickable)
-              div
+            [ div
                 [ class "database-header"
                 , style "padding" "1.25rem 1rem"
                 , style "font-size" "1.4rem"
                 , style "font-weight" "bold"
                 , style "text-align" "center"
+                , style "cursor" "pointer"
+                , onClick (NavigateTo HomeActive)
                 ]
                 [ case currentDatabaseName of
                     Just dbName ->

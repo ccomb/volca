@@ -9,6 +9,7 @@ import Json.Decode
 import Models.Database exposing (DatabaseList)
 import Pages.Activities
 import Pages.DatabaseSetup
+import Pages.Home
 import Pages.Databases
 import Pages.Emissions
 import Pages.Graph
@@ -253,6 +254,9 @@ navigateToPage shared page =
                             firstLoadedDb |> Maybe.withDefault ""
     in
     case page of
+        HomeActive ->
+            Shared.NavigateTo RootRoute
+
         DatabasesActive ->
             Shared.NavigateTo DatabasesRoute
 
@@ -408,6 +412,7 @@ main =
         { defaultView = View.defaultView
         , extractIdentity = \_ -> Just ()
         }
+        |> Spa.addPublicPage mappers Route.matchHome Pages.Home.page
         |> Spa.addPublicPage mappers Route.matchActivities Pages.Activities.page
         |> Spa.addPublicPage mappers Route.matchUpstream Pages.Upstream.page
         |> Spa.addPublicPage mappers Route.matchEmissions Pages.Emissions.page

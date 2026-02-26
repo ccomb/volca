@@ -133,55 +133,18 @@ update msg model =
             )
 
         RouteChanged route ->
-            let
-                -- Check if we need to redirect from root
-                needsRedirect =
-                    case route of
-                        RootRoute ->
-                            True
-
-                        _ ->
-                            False
-
-                cmd =
-                    if needsRedirect then
-                        case model.databases of
-                            Loaded dbList ->
-                                -- Find first loaded database to redirect to
-                                case List.filter .loaded dbList.databases |> List.head of
-                                    Just db ->
-                                        Nav.replaceUrl model.key
-                                            (Route.routeToUrl
-                                                (ActivitiesRoute { db = db.name, name = Nothing, limit = Just 20 })
-                                            )
-
-                                    Nothing ->
-                                        -- No loaded database, go to databases page
-                                        Nav.replaceUrl model.key (Route.routeToUrl DatabasesRoute)
-
-                            _ ->
-                                -- Databases still loading, redirect will happen when they arrive
-                                Cmd.none
-
-                    else
-                        Cmd.none
-            in
             ( { model
                 | currentRoute = route
                 , menuOpen = False
                 , lastActivitiesRoute =
                     case Route.matchActivities route of
                         Just flags ->
-                            if String.isEmpty flags.db then
-                                model.lastActivitiesRoute
-
-                            else
-                                Just flags
+                            Just flags
 
                         Nothing ->
                             model.lastActivitiesRoute
               }
-            , cmd
+            , Cmd.none
             )
 
         LoadDatabases ->
@@ -202,30 +165,6 @@ update msg model =
                         _ ->
                             False
 
-                -- Check if we need to redirect from root to default database
-                needsRootRedirect =
-                    case model.currentRoute of
-                        RootRoute ->
-                            True
-
-                        _ ->
-                            model.lastActivitiesRoute == Nothing && model.currentRoute == ActivitiesRoute { db = "", name = Nothing, limit = Just 20 }
-
-                cmd =
-                    if needsRootRedirect then
-                        case List.filter .loaded dbList.databases |> List.head of
-                            Just db ->
-                                Nav.replaceUrl model.key
-                                    (Route.routeToUrl
-                                        (ActivitiesRoute { db = db.name, name = Nothing, limit = Just 20 })
-                                    )
-
-                            Nothing ->
-                                Cmd.none
-
-                    else
-                        Cmd.none
-
                 -- Databases that are now confirmed loaded — remove from loading set
                 stillLoading =
                     Set.filter
@@ -241,14 +180,11 @@ update msg model =
                 , authState = Authenticated
                 , loadingDatabases = stillLoading
               }
-            , Cmd.batch
-                [ cmd
-                , if shouldReloadPage then
-                    Nav.replaceUrl model.key (Route.routeToUrl model.currentRoute)
+            , if shouldReloadPage then
+                Nav.replaceUrl model.key (Route.routeToUrl model.currentRoute)
 
-                  else
-                    Cmd.none
-                ]
+              else
+                Cmd.none
             )
 
         DatabasesLoaded (Err error) ->
@@ -490,38 +426,50 @@ isDatabaseLoading model dbName =
 
 viewLoadDatabasePrompt : Model -> String -> msg -> Html msg
 viewLoadDatabasePrompt model dbName loadMsg =
-    let
-        loading =
-            isDatabaseLoading model dbName
-
-        displayName =
-            getDatabaseDisplayName model dbName
-    in
-    Html.div [ Html.Attributes.class "notification is-warning", Html.Attributes.style "margin" "2rem" ]
-        [ Html.p [] [ Html.text ("Database '" ++ displayName ++ "' is not loaded.") ]
-        , Html.button
-            [ Html.Attributes.class
-                ("button is-primary"
-                    ++ (if loading then
-                            " is-loading"
-
-                        else
-                            ""
-                       )
-                )
-            , Html.Attributes.style "margin-top" "1rem"
-            , Html.Attributes.disabled loading
-            , Html.Events.onClick loadMsg
+    if String.isEmpty dbName then
+        Html.div [ Html.Attributes.class "notification is-warning", Html.Attributes.style "margin" "2rem" ]
+            [ Html.p [] [ Html.text "No database selected." ]
+            , Html.a
+                [ Html.Attributes.href (Route.routeToUrl DatabasesRoute)
+                , Html.Attributes.class "button is-primary"
+                , Html.Attributes.style "margin-top" "1rem"
+                ]
+                [ Html.text "Go to Databases" ]
             ]
-            [ Html.text
-                (if loading then
-                    "Loading..."
 
-                 else
-                    "Load " ++ displayName
-                )
+    else
+        let
+            loading =
+                isDatabaseLoading model dbName
+
+            displayName =
+                getDatabaseDisplayName model dbName
+        in
+        Html.div [ Html.Attributes.class "notification is-warning", Html.Attributes.style "margin" "2rem" ]
+            [ Html.p [] [ Html.text ("Database '" ++ displayName ++ "' is not loaded.") ]
+            , Html.button
+                [ Html.Attributes.class
+                    ("button is-primary"
+                        ++ (if loading then
+                                " is-loading"
+
+                            else
+                                ""
+                           )
+                    )
+                , Html.Attributes.style "margin-top" "1rem"
+                , Html.Attributes.disabled loading
+                , Html.Events.onClick loadMsg
+                ]
+                [ Html.text
+                    (if loading then
+                        "Loading..."
+
+                     else
+                        "Load " ++ displayName
+                    )
+                ]
             ]
-        ]
 
 
 

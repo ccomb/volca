@@ -15,6 +15,7 @@ module Route exposing
     , matchDatabases
     , matchUpload
     , matchDatabaseSetup
+    , matchHome
     , routeToDatabase
     , ActivePage(..)
     , routeToActivePage
@@ -48,7 +49,8 @@ type Route
 Replaces the old Page type.
 -}
 type ActivePage
-    = ActivitiesActive
+    = HomeActive
+    | ActivitiesActive
     | UpstreamActive
     | EmissionsActive
     | ResourcesActive
@@ -66,7 +68,7 @@ routeToActivePage : Route -> ActivePage
 routeToActivePage route =
     case route of
         RootRoute ->
-            ActivitiesActive
+            HomeActive
 
         ActivitiesRoute _ ->
             ActivitiesActive
@@ -268,14 +270,21 @@ type alias ActivitiesFlags =
     { db : String, name : Maybe String, limit : Maybe Int }
 
 
+matchHome : Route -> Maybe ()
+matchHome route =
+    case route of
+        RootRoute ->
+            Just ()
+
+        _ ->
+            Nothing
+
+
 matchActivities : Route -> Maybe ActivitiesFlags
 matchActivities route =
     case route of
         ActivitiesRoute flags ->
             Just flags
-
-        RootRoute ->
-            Just { db = "", name = Nothing, limit = Just 20 }
 
         _ ->
             Nothing
