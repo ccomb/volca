@@ -115,12 +115,12 @@ viewSetupContent setupInfo =
                 , viewMissingSuppliersCard setupInfo
                 ]
             , div [ class "column is-4" ]
-                [ viewDependenciesCard setupInfo
-                , if not setupInfo.isLoaded then
+                [ if not setupInfo.isLoaded then
                     viewFinalizeCard setupInfo
 
                   else
                     text ""
+                , viewDependenciesCard setupInfo
                 ]
             ]
         ]
