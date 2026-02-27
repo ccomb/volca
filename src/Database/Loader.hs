@@ -48,6 +48,8 @@ module Database.Loader
       -- * Database Analysis
     , countTotalTechInputs
     , countUnlinkedExchanges
+      -- * Reporting
+    , reportCrossDBLinkingStats
     ) where
 
 import qualified Codec.Compression.Zstd as Zstd
@@ -61,7 +63,8 @@ import Data.Bits (xor)
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
 import Data.Hashable (hash)
-import Data.List (sortBy, group, sort, unzip7)
+import Data.List (sortBy, sortOn, group, sort, unzip7)
+import Data.Ord (Down(..))
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
@@ -1046,7 +1049,8 @@ loadDatabaseWithCrossDBLinking locationAliases otherIndexes synonymDB unitConfig
             if null otherIndexes
                 then do
                     -- No cross-DB linking needed
-                    let stats = emptyCrossDBLinkingStats { cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs }
+                    let !stats = emptyCrossDBLinkingStats { cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs }
+                    reportCrossDBLinkingStats (M.size (sdbActivities simpleDb)) stats
                     return $ Right (simpleDb, stats)
                 else do
                     -- Perform cross-database linking using pre-built indexes
@@ -1111,16 +1115,12 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig db = do
                     linkingCtx (sdbFlows db) (sdbUnits db) (sdbActivities db)
 
             -- Report statistics
-            reportCrossDBLinkingStats stats
-
-            when (not (null (cdlLinks stats))) $
-                reportProgress Info $
-                    printf "Found %d cross-database links (stored for chained solving)"
-                        (length (cdlLinks stats))
+            let !stats' = stats { cdlTotalInputs = totalInputs }
+            reportCrossDBLinkingStats (M.size (sdbActivities db)) stats'
 
             -- Return the original database unchanged, along with the cross-DB links
             -- The links will be stored in the Database.dbCrossDBLinks field later
-            return (db, stats { cdlTotalInputs = totalInputs })
+            return (db, stats')
 
 -- | Collect unlinked product names from a database (for databases without cross-DB linking)
 collectUnlinkedProductNames :: SimpleDatabase -> M.Map T.Text Int
@@ -1234,25 +1234,59 @@ findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID (Tech
 findExchangeCrossDBLink _ _ _ _ _ _ = emptyCrossDBLinkingStats
 
 -- | Report cross-database linking statistics
-reportCrossDBLinkingStats :: CrossDBLinkingStats -> IO ()
-reportCrossDBLinkingStats stats = do
-    let nLinks = crossDBLinksCount stats
-        nUnresolved = unresolvedCount stats
-        total = nLinks + nUnresolved
-        resolutionRate = if total > 0
-            then 100.0 * fromIntegral nLinks / fromIntegral total
-            else 0.0 :: Double
+reportCrossDBLinkingStats :: Int -> CrossDBLinkingStats -> IO ()
+reportCrossDBLinkingStats nActivities stats = do
+    let !nInputs = cdlTotalInputs stats
+        !nCrossDB = crossDBLinksCount stats
+        !nUnresolved = unresolvedCount stats
+        !nInternal = max 0 (nInputs - nCrossDB - nUnresolved)
+        !nResolved = nInternal + nCrossDB
+        !completeness = if nInputs > 0
+            then 100.0 * fromIntegral nResolved / fromIntegral nInputs
+            else 100.0 :: Double
 
+    -- Summary line
     reportProgress Info $
-        printf "Cross-DB linking: %d/%d resolved (%.1f%%)"
-            nLinks total resolutionRate
+        printf "Supply chain: %.1f%% complete (%d/%d inputs resolved), %d activities"
+            completeness nResolved nInputs nActivities
 
-    -- Report per-database breakdown
-    forM_ (M.toList (crossDBBySource stats)) $ \(dbName, count) ->
+    -- Link breakdown
+    reportProgress Info $
+        printf "  Internal: %d, Cross-DB: %d, Unresolved: %d" nInternal nCrossDB nUnresolved
+
+    -- Per-database breakdown
+    forM_ (M.toList (crossDBBySource stats)) $ \(srcDb, count) ->
         reportProgress Info $
-            printf "  - %s: %d links resolved" (T.unpack dbName) count
+            printf "  - %s: %d links" (T.unpack srcDb) count
 
-    when (nUnresolved > 0) $
+    -- Missing suppliers
+    let !missing = sortOn (\(_, (cnt, _)) -> Down cnt) $ M.toList (cdlUnresolvedProducts stats)
+    when (not (null missing)) $ do
         reportProgress Warning $
-            printf "%d exchanges could not be linked (no matching supplier found)"
-                nUnresolved
+            printf "Missing suppliers: %d products unresolved" (length missing)
+        forM_ (take 20 missing) $ \(name, (cnt, blocker)) ->
+            reportProgress Warning $
+                printf "  - %s (%d activities) — %s" (T.unpack name) cnt (showBlocker blocker)
+        when (length missing > 20) $
+            reportProgress Warning $
+                printf "  ... and %d more" (length missing - 20)
+
+    -- Unknown units
+    let !unknowns = S.toList (cdlUnknownUnits stats)
+    when (not (null unknowns)) $
+        reportProgress Warning $
+            printf "Unknown units: %s" (T.unpack $ T.intercalate ", " unknowns)
+
+    -- Location fallbacks
+    let !fallbacks = cdlLocationFallbacks stats
+    when (not (null fallbacks)) $ do
+        reportProgress Info $
+            printf "Location fallbacks: %d products matched with different location" (length fallbacks)
+        forM_ fallbacks $ \(product, requested, actual) ->
+            reportProgress Info $
+                printf "  - %s: %s → %s" (T.unpack product) (T.unpack requested) (T.unpack actual)
+
+showBlocker :: LinkBlocker -> String
+showBlocker NoNameMatch = "Not found"
+showBlocker (UnitIncompatible q s) = printf "Unit: %s vs %s" (T.unpack q) (T.unpack s)
+showBlocker (LocationUnavailable loc) = printf "Location: %s" (T.unpack loc)

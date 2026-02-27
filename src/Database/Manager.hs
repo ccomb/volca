@@ -691,7 +691,9 @@ loadDatabaseRawWithCrossDB dbName locationAliases path noCache synonymDB unitCon
             -- Direct cache file - no cross-DB linking needed (already built)
             mDb <- Loader.loadDatabaseFromCacheFile path
             case mDb of
-                Just db -> return $ Right db
+                Just db -> do
+                    Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
+                    return $ Right db
                 Nothing -> return $ Left $ "Failed to load cache file: " <> T.pack path
         else do
             format <- detectDirectoryFormat path
@@ -713,11 +715,14 @@ loadDatabaseRawWithCrossDB dbName locationAliases path noCache synonymDB unitCon
                             reportProgress Info $ "Building database from " <> show (length activities) <> " activities"
                             let activityMap = buildActivityMap activities
                             !db <- buildDatabaseWithMatrices activityMap flowDB unitDB
+                            Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
                             return $ Right db
                         else do
                             mCachedDb <- Loader.loadCachedDatabaseWithMatrices dbName path
                             case mCachedDb of
-                                Just db -> return $ Right db
+                                Just db -> do
+                                    Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
+                                    return $ Right db
                                 Nothing -> do
                                     reportProgress Info $ "Parsing SimaPro CSV: " <> csvFile
                                     (activities, flowDB, unitDB) <- SimaPro.parseSimaProCSV csvFile
@@ -740,7 +745,9 @@ loadDatabaseRawWithCrossDB dbName locationAliases path noCache synonymDB unitCon
                             Just _  -> True
                             Nothing -> False
                     case (cacheUsable, mCachedDb) of
-                        (True, Just db) -> return $ Right db
+                        (True, Just db) -> do
+                            Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
+                            return $ Right db
                         _ -> do
                             when (isJust mCachedDb && not cacheUsable) $
                                 reportProgress Info "Cache has unresolved links, rebuilding with available dependencies..."
