@@ -4,7 +4,7 @@ import Html exposing (Html, button, div, input, option, select, table, tbody, te
 import Html.Attributes exposing (class, disabled, id, placeholder, selected, style, type_, value)
 import Html.Events exposing (onInput, onClick)
 import Models.Activity exposing (ActivitySummary, SearchResults)
-import Models.Database exposing (DatabaseList, DatabaseStatus)
+import Models.Database exposing (DatabaseList, DatabaseLoadStatus(..), DatabaseStatus)
 import Views.ActivityRow as ActivityRow
 
 
@@ -45,7 +45,7 @@ viewSearchBar maybeDatabaseList currentDbName query isLoading =
             Just dbList ->
                 let
                     loadedDatabases =
-                        List.filter .loaded dbList.databases
+                        List.filter (\db -> db.status == DbLoaded) dbList.databases
                 in
                 div [ class "control" ]
                     [ div [ class "select is-large" ]

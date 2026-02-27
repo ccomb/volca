@@ -30,7 +30,6 @@ import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (liftIO)
 import Data.List (isPrefixOf)
 import Data.Text (Text)
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as M
@@ -41,12 +40,14 @@ import System.FilePath ((</>))
 
 import qualified Config
 import Config (DatabaseConfig(..))
+import Types (Database(..), unresolvedCount)
 import Data.Aeson (Value)
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
 import Database.Manager
     ( DatabaseManager
     , DatabaseStatus(..)
+    , DatabaseLoadStatus(..)
     , DatabaseSetupInfo(..)
     , SetupError(..)
     , DepLoadResult(..)
@@ -94,8 +95,7 @@ loadDatabaseHandler dbManager dbName = do
             return $ LoadFailed ("Server exception: " <> T.pack (show ex))
         Right (Left err) -> return $ LoadFailed err
         Right (Right (loadedDb, depResults)) -> do
-            let config = ldConfig loadedDb
-                status = makeStatusFromConfig config
+            let status = makeStatusFromLoadedDb loadedDb
             return $ LoadSucceeded status depResults
 
 -- | Unload a database from memory
@@ -177,13 +177,15 @@ convertDbStatus ds = DatabaseStatusAPI
     , dsaDisplayName = dsDisplayName ds
     , dsaDescription = dsDescription ds
     , dsaLoadAtStartup = dsLoadAtStartup ds
-    , dsaLoaded = dsLoaded ds
-    , dsaCached = dsCached ds
+    , dsaStatus = statusToText (dsStatus ds)
     , dsaIsUploaded = dsIsUploaded ds
     , dsaPath = dsPath ds
     , dsaFormat = formatToDisplayText <$> dsFormat ds
     }
   where
+    statusToText Unloaded        = "unloaded"
+    statusToText PartiallyLinked = "partially_linked"
+    statusToText Loaded          = "loaded"
     formatToDisplayText EcoSpold2 = "EcoSpold 2"
     formatToDisplayText EcoSpold1 = "EcoSpold 1"
     formatToDisplayText SimaProCSV = "SimaPro CSV"
@@ -191,23 +193,26 @@ convertDbStatus ds = DatabaseStatusAPI
 
 -- | Convert LoadedDatabase to DatabaseStatusAPI
 convertLoadedDbToStatus :: LoadedDatabase -> DatabaseStatusAPI
-convertLoadedDbToStatus loaded =
-    let config = ldConfig loaded
-    in makeStatusFromConfig config
+convertLoadedDbToStatus = makeStatusFromLoadedDb
 
--- | Create DatabaseStatusAPI from config (loaded database)
-makeStatusFromConfig :: DatabaseConfig -> DatabaseStatusAPI
-makeStatusFromConfig config = DatabaseStatusAPI
-    { dsaName = Config.dcName config
-    , dsaDisplayName = Config.dcDisplayName config
-    , dsaDescription = Config.dcDescription config
-    , dsaLoadAtStartup = Config.dcLoad config
-    , dsaLoaded = True
-    , dsaCached = True
-    , dsaIsUploaded = Config.dcIsUploaded config
-    , dsaPath = T.pack (Config.dcPath config)
-    , dsaFormat = formatToDisplayText <$> Config.dcFormat config
-    }
+-- | Create DatabaseStatusAPI from a loaded database (derives status from linking stats)
+makeStatusFromLoadedDb :: LoadedDatabase -> DatabaseStatusAPI
+makeStatusFromLoadedDb loaded =
+    let config = ldConfig loaded
+        db = ldDatabase loaded
+        status = if unresolvedCount (dbLinkingStats db) > 0
+                 then "partially_linked"
+                 else "loaded"
+    in DatabaseStatusAPI
+        { dsaName = Config.dcName config
+        , dsaDisplayName = Config.dcDisplayName config
+        , dsaDescription = Config.dcDescription config
+        , dsaLoadAtStartup = Config.dcLoad config
+        , dsaStatus = status
+        , dsaIsUploaded = Config.dcIsUploaded config
+        , dsaPath = T.pack (Config.dcPath config)
+        , dsaFormat = formatToDisplayText <$> Config.dcFormat config
+        }
   where
     formatToDisplayText EcoSpold2 = "EcoSpold 2"
     formatToDisplayText EcoSpold1 = "EcoSpold 1"
@@ -288,6 +293,5 @@ finalizeDatabaseHandler dbManager dbName = do
             return $ ActivateResponse False ("Server exception: " <> T.pack (show ex)) Nothing
         Right (Left err) -> return $ ActivateResponse False err Nothing
         Right (Right loaded) -> do
-            let config = ldConfig loaded
-                status = makeStatusFromConfig config
-            return $ ActivateResponse True ("Finalized database: " <> Config.dcDisplayName config) (Just status)
+            let status = makeStatusFromLoadedDb loaded
+            return $ ActivateResponse True ("Finalized database: " <> Config.dcDisplayName (ldConfig loaded)) (Just status)

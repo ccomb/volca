@@ -74,7 +74,20 @@ viewHeader maybeSetupInfo =
                     ]
                 ]
             ]
-        , p [ class "subtitle" ] [ text "Configure supply chain dependencies" ]
+        , p [ class "subtitle" ]
+            [ text
+                (maybeSetupInfo
+                    |> Maybe.map
+                        (\info ->
+                            if info.isLoaded then
+                                "Database information"
+
+                            else
+                                "Configure supply chain dependencies"
+                        )
+                    |> Maybe.withDefault "Configure supply chain dependencies"
+                )
+            ]
         ]
 
 
@@ -91,7 +104,11 @@ viewSetupContent setupInfo =
     div [ style "padding" "1rem" ]
         [ div [ class "columns" ]
             [ div [ class "column is-8" ]
-                [ viewDataSourceCard setupInfo
+                [ if not setupInfo.isLoaded then
+                    viewDataSourceCard setupInfo
+
+                  else
+                    text ""
                 , viewCompletenessCard setupInfo
                 , viewUnknownUnitsCard setupInfo
                 , viewLocationFallbacksCard setupInfo
@@ -99,7 +116,11 @@ viewSetupContent setupInfo =
                 ]
             , div [ class "column is-4" ]
                 [ viewDependenciesCard setupInfo
-                , viewFinalizeCard setupInfo
+                , if not setupInfo.isLoaded then
+                    viewFinalizeCard setupInfo
+
+                  else
+                    text ""
                 ]
             ]
         ]
@@ -419,16 +440,27 @@ viewDependenciesCard setupInfo =
                 ]
             , div [ class "content" ]
                 [ if List.isEmpty setupInfo.selectedDependencies then
-                    p [ class "has-text-grey" ] [ text "No dependencies selected" ]
+                    p [ class "has-text-grey" ] [ text "No dependencies" ]
 
                   else
                     div []
                         [ p [ class "has-text-grey is-size-7", style "margin-bottom" "0.5rem" ]
                             [ text "Using data from:" ]
                         , div [ class "tags" ]
-                            (List.map viewSelectedDependency setupInfo.selectedDependencies)
+                            (List.map
+                                (if setupInfo.isLoaded then
+                                    viewSelectedDependency
+
+                                 else
+                                    viewSelectedDependencyEditable
+                                )
+                                setupInfo.selectedDependencies
+                            )
                         ]
-                , if List.isEmpty setupInfo.suggestions && List.isEmpty setupInfo.selectedDependencies then
+                , if setupInfo.isLoaded then
+                    text ""
+
+                  else if List.isEmpty setupInfo.suggestions && List.isEmpty setupInfo.selectedDependencies then
                     p [ class "has-text-grey is-size-7", style "margin-top" "0.5rem" ]
                         [ text "Load a database first, then add it here as a dependency." ]
 
@@ -449,6 +481,12 @@ viewDependenciesCard setupInfo =
 
 viewSelectedDependency : String -> Html Msg
 viewSelectedDependency depName =
+    span [ class "tag is-success is-medium" ]
+        [ text depName ]
+
+
+viewSelectedDependencyEditable : String -> Html Msg
+viewSelectedDependencyEditable depName =
     span [ class "tag is-success is-medium" ]
         [ text depName
         , button

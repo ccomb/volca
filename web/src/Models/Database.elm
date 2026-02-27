@@ -2,6 +2,7 @@ module Models.Database exposing
     ( ActivateResponse
     , DataPathCandidate
     , DatabaseList
+    , DatabaseLoadStatus(..)
     , DatabaseSetupInfo
     , DatabaseStatus
     , DepLoadResult(..)
@@ -23,6 +24,14 @@ import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline exposing (optional, required)
 
 
+{-| Load status: unloaded, partially linked, or fully loaded
+-}
+type DatabaseLoadStatus
+    = Unloaded
+    | PartiallyLinked
+    | DbLoaded
+
+
 {-| Database status from the API
 -}
 type alias DatabaseStatus =
@@ -30,8 +39,7 @@ type alias DatabaseStatus =
     , displayName : String
     , description : Maybe String
     , loadAtStartup : Bool
-    , loaded : Bool
-    , cached : Bool
+    , status : DatabaseLoadStatus
     , isUploaded : Bool
     , path : String
     , format : Maybe String
@@ -54,6 +62,28 @@ type alias ActivateResponse =
     }
 
 
+{-| JSON decoder for DatabaseLoadStatus
+-}
+databaseLoadStatusDecoder : Decoder DatabaseLoadStatus
+databaseLoadStatusDecoder =
+    Decode.string
+        |> Decode.andThen
+            (\s ->
+                case s of
+                    "loaded" ->
+                        Decode.succeed DbLoaded
+
+                    "partially_linked" ->
+                        Decode.succeed PartiallyLinked
+
+                    "unloaded" ->
+                        Decode.succeed Unloaded
+
+                    _ ->
+                        Decode.fail ("Unknown DatabaseLoadStatus: " ++ s)
+            )
+
+
 {-| JSON decoder for DatabaseStatus
 -}
 databaseStatusDecoder : Decoder DatabaseStatus
@@ -63,8 +93,7 @@ databaseStatusDecoder =
         |> required "dsaDisplayName" Decode.string
         |> optional "dsaDescription" (Decode.nullable Decode.string) Nothing
         |> required "dsaLoadAtStartup" Decode.bool
-        |> required "dsaLoaded" Decode.bool
-        |> required "dsaCached" Decode.bool
+        |> required "dsaStatus" databaseLoadStatusDecoder
         |> required "dsaIsUploaded" Decode.bool
         |> required "dsaPath" Decode.string
         |> optional "dsaFormat" (Decode.nullable Decode.string) Nothing
@@ -220,6 +249,7 @@ type alias DatabaseSetupInfo =
     , locationFallbacks : List LocationFallback
     , dataPath : String
     , availablePaths : List DataPathCandidate
+    , isLoaded : Bool
     }
 
 
@@ -266,6 +296,7 @@ databaseSetupInfoDecoder =
         |> optional "locationFallbacks" (Decode.list locationFallbackDecoder) []
         |> optional "dataPath" Decode.string ""
         |> optional "availablePaths" (Decode.list dataPathCandidateDecoder) []
+        |> optional "isLoaded" Decode.bool False
 
 
 {-| JSON decoder for DataPathCandidate

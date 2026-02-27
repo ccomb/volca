@@ -257,8 +257,7 @@ data DatabaseStatusAPI = DatabaseStatusAPI
     , dsaDisplayName   :: Text           -- Human-readable name for UI
     , dsaDescription   :: Maybe Text
     , dsaLoadAtStartup :: Bool           -- Configured to load at startup
-    , dsaLoaded        :: Bool           -- Currently in memory
-    , dsaCached        :: Bool           -- Cache file exists
+    , dsaStatus        :: Text           -- "unloaded" | "partially_linked" | "loaded"
     , dsaIsUploaded    :: Bool           -- True if path starts with "uploads/"
     , dsaPath          :: Text           -- Data path
     , dsaFormat        :: Maybe Text     -- Database format (EcoSpold 2, EcoSpold 1, SimaPro CSV)

@@ -1001,41 +1001,9 @@ saveCachedDatabaseWithMatrices dbName dataDir db = do
 -- Cross-Database Linking
 --------------------------------------------------------------------------------
 
--- | Statistics from cross-database linking
--- Only essential state is stored; counts are derived via accessor functions.
-data CrossDBLinkingStats = CrossDBLinkingStats
-    { cdlLinks              :: ![CrossDBLink]                        -- ^ Resolved cross-DB links
-    , cdlUnresolvedProducts :: !(M.Map T.Text (Int, LinkBlocker))   -- ^ Product name → (count, reason)
-    , cdlUnknownUnits       :: !(S.Set T.Text)                      -- ^ Unknown units from sdbUnits
-    , cdlLocationFallbacks  :: ![(T.Text, T.Text, T.Text)]          -- ^ (product, requestedLoc, actualLoc)
-    }
-
--- | Empty stats
-emptyCrossDBLinkingStats :: CrossDBLinkingStats
-emptyCrossDBLinkingStats = CrossDBLinkingStats [] M.empty S.empty []
-
--- | Merge two CrossDBLinkingStats
-mergeCrossDBStats :: CrossDBLinkingStats -> CrossDBLinkingStats -> CrossDBLinkingStats
-mergeCrossDBStats s1 s2 = CrossDBLinkingStats
-    { cdlLinks = cdlLinks s1 ++ cdlLinks s2
-    , cdlUnresolvedProducts = M.unionWith mergeUnresolved (cdlUnresolvedProducts s1) (cdlUnresolvedProducts s2)
-    , cdlUnknownUnits = S.union (cdlUnknownUnits s1) (cdlUnknownUnits s2)
-    , cdlLocationFallbacks = cdlLocationFallbacks s1 ++ cdlLocationFallbacks s2
-    }
-  where
-    mergeUnresolved (c1, b) (c2, _) = (c1 + c2, b)
-
--- | Number of resolved cross-DB links
-crossDBLinksCount :: CrossDBLinkingStats -> Int
-crossDBLinksCount = length . cdlLinks
-
--- | Number of unresolved inputs
-unresolvedCount :: CrossDBLinkingStats -> Int
-unresolvedCount = sum . map fst . M.elems . cdlUnresolvedProducts
-
--- | Cross-DB links grouped by source database
-crossDBBySource :: CrossDBLinkingStats -> M.Map T.Text Int
-crossDBBySource = M.fromListWith (+) . map (\l -> (cdlSourceDatabase l, 1)) . cdlLinks
+-- | CrossDBLinkingStats, emptyCrossDBLinkingStats, mergeCrossDBStats,
+--   crossDBLinksCount, unresolvedCount, crossDBBySource
+--   are now defined in Types and re-exported from this module.
 
 {- | Load EcoSpold files with cross-database linking support.
 
@@ -1074,10 +1042,11 @@ loadDatabaseWithCrossDBLinking locationAliases otherIndexes synonymDB unitConfig
                     (T.unpack $ T.intercalate ", " $ map (\u -> "\"" <> u <> "\"") $ S.toList unknownUnits)
 
             -- If there are other databases to search, perform cross-DB linking
+            let !totalInputs = countTotalTechInputs simpleDb
             if null otherIndexes
                 then do
                     -- No cross-DB linking needed
-                    let stats = emptyCrossDBLinkingStats { cdlUnknownUnits = unknownUnits }
+                    let stats = emptyCrossDBLinkingStats { cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs }
                     return $ Right (simpleDb, stats)
                 else do
                     -- Perform cross-database linking using pre-built indexes
@@ -1109,12 +1078,13 @@ fixActivityLinksWithCrossDB
 fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig db = do
     -- Count unlinked exchanges before
     let unlinkedBefore = countUnlinkedExchanges db
+        !totalInputs = countTotalTechInputs db
 
     -- If no unlinked exchanges, skip
     if unlinkedBefore == 0
         then do
             reportProgress Info "No unlinked exchanges to resolve via cross-DB linking"
-            return (db, emptyCrossDBLinkingStats)
+            return (db, emptyCrossDBLinkingStats { cdlTotalInputs = totalInputs })
         else do
             reportProgress Info $
                 printf "Cross-database linking: %d unlinked exchanges, searching %d database(s)..."
@@ -1150,7 +1120,7 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig db = do
 
             -- Return the original database unchanged, along with the cross-DB links
             -- The links will be stored in the Database.dbCrossDBLinks field later
-            return (db, stats)
+            return (db, stats { cdlTotalInputs = totalInputs })
 
 -- | Collect unlinked product names from a database (for databases without cross-DB linking)
 collectUnlinkedProductNames :: SimpleDatabase -> M.Map T.Text Int
@@ -1255,10 +1225,10 @@ findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID (Tech
                                 , cdlSourceDatabase = dbName
                                 }
                             fallbacks = [ (prodName, req, act) | UpperLocationUsed req act <- warnings ]
-                        in CrossDBLinkingStats [crossLink] M.empty S.empty fallbacks
+                        in CrossDBLinkingStats [crossLink] M.empty S.empty fallbacks 0
                     CrossDBNotLinked blocker ->
                         -- Record as unresolved with the blocker reason
-                        CrossDBLinkingStats [] (M.singleton (flowName flow) (1, blocker)) S.empty []
+                        CrossDBLinkingStats [] (M.singleton (flowName flow) (1, blocker)) S.empty [] 0
     | otherwise =
         emptyCrossDBLinkingStats
 findExchangeCrossDBLink _ _ _ _ _ _ = emptyCrossDBLinkingStats

@@ -259,6 +259,7 @@ buildDatabaseWithMatrices activityMap flowDB unitDB = do
             -- Cross-database linking (empty by default, populated during cross-DB linking)
             , dbCrossDBLinks = []
             , dbDependsOn = []
+            , dbLinkingStats = emptyCrossDBLinkingStats
             -- Runtime-only fields (not cached)
             , dbCachedFactorization = Nothing
             , dbSynonymDB = Nothing  -- Will be populated at runtime from embedded DB

@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick)
 import Json.Decode
-import Models.Database exposing (DatabaseList)
+import Models.Database exposing (DatabaseList, DatabaseLoadStatus(..))
 import Pages.Activities
 import Pages.DatabaseSetup
 import Pages.Home
@@ -233,7 +233,7 @@ navigateToPage shared page =
         firstLoadedDb =
             case shared.databases of
                 Loaded dbList ->
-                    List.filter .loaded dbList.databases
+                    List.filter (\db -> db.status == DbLoaded) dbList.databases
                         |> List.head
                         |> Maybe.map .name
 

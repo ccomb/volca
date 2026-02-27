@@ -2,7 +2,7 @@ module Pages.Home exposing (Model, Msg, page)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Models.Database exposing (DatabaseList, DatabaseStatus)
+import Models.Database exposing (DatabaseList, DatabaseLoadStatus(..), DatabaseStatus)
 import Route exposing (Route(..))
 import Shared exposing (RemoteData(..))
 import Spa.Page
@@ -101,27 +101,31 @@ viewDatabases databases =
 
 viewDbLink : DatabaseStatus -> Html msg
 viewDbLink db =
+    let
+        ( dotClass, content ) =
+            case db.status of
+                DbLoaded ->
+                    ( "has-text-success"
+                    , a
+                        [ href (Route.routeToUrl (ActivitiesRoute { db = db.name, name = Nothing, limit = Just 20 }))
+                        , style "font-weight" "500"
+                        ]
+                        [ text db.displayName ]
+                    )
+
+                PartiallyLinked ->
+                    ( "has-text-warning"
+                    , span [ class "has-text-grey" ] [ text db.displayName ]
+                    )
+
+                Unloaded ->
+                    ( "has-text-grey-lighter"
+                    , span [ class "has-text-grey" ] [ text db.displayName ]
+                    )
+    in
     div [ style "margin-bottom" "0.3rem", style "display" "flex", style "align-items" "center", style "gap" "0.4rem" ]
-        [ span
-            [ style "font-size" "0.7rem"
-            , class
-                (if db.loaded then
-                    "has-text-success"
-
-                 else
-                    "has-text-grey-lighter"
-                )
-            ]
-            [ text "\u{25CF}" ]
-        , if db.loaded then
-            a
-                [ href (Route.routeToUrl (ActivitiesRoute { db = db.name, name = Nothing, limit = Just 20 }))
-                , style "font-weight" "500"
-                ]
-                [ text db.displayName ]
-
-          else
-            span [ class "has-text-grey" ] [ text db.displayName ]
+        [ span [ style "font-size" "0.7rem", class dotClass ] [ text "\u{25CF}" ]
+        , content
         ]
 
 

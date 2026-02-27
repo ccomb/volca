@@ -25,7 +25,7 @@ import Http
 import Json.Decode
 import Json.Encode
 import Models.Activity exposing (ActivityInfo, ActivityTree)
-import Models.Database exposing (DatabaseList, LoadDatabaseResponse(..), databaseListDecoder, loadDatabaseResponseDecoder)
+import Models.Database exposing (DatabaseList, DatabaseLoadStatus(..), LoadDatabaseResponse(..), databaseListDecoder, loadDatabaseResponseDecoder)
 import Models.Graph exposing (GraphData)
 import Models.Inventory exposing (InventoryExport)
 import Route exposing (Route(..))
@@ -172,7 +172,7 @@ update msg model =
                 -- Databases that are now confirmed loaded — remove from loading set
                 stillLoading =
                     Set.filter
-                        (\name -> not (List.any (\db -> db.name == name && db.loaded) dbList.databases))
+                        (\name -> not (List.any (\db -> db.name == name && db.status /= Unloaded) dbList.databases))
                         model.loadingDatabases
 
                 -- Trigger page re-init on initial load or when a database just finished loading
@@ -425,13 +425,13 @@ subscriptions model =
             Sub.none
 
 
-{-| Check if a database is currently loaded
+{-| Check if a database is fully loaded (resolved all links)
 -}
 isDatabaseLoaded : Model -> String -> Bool
 isDatabaseLoaded model dbName =
     case model.databases of
         Loaded dbList ->
-            List.any (\db -> db.name == dbName && db.loaded) dbList.databases
+            List.any (\db -> db.name == dbName && db.status == DbLoaded) dbList.databases
 
         _ ->
             False

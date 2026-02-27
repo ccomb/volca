@@ -61,7 +61,7 @@ import Data.UUID (UUID)
 
 import SynonymDB (SynonymDB, lookupSynonymGroup, normalizeName)
 import qualified UnitConversion as UC
-import Types (SimpleDatabase(..), Database(..), Activity(..), Exchange(..), Flow(..), UUID, getActivity)
+import Types (SimpleDatabase(..), Database(..), Activity(..), Exchange(..), Flow(..), UUID, getActivity, LinkBlocker(..))
 import qualified Data.Vector as V
 
 -- | Pre-indexed database for fast cross-DB supplier lookup
@@ -112,12 +112,7 @@ data LinkWarning
     = UpperLocationUsed !Text !Text    -- ^ requestedLoc, actualLoc (e.g. FR → RER)
     deriving (Show, Eq)
 
--- | Blocking reason: link failed, here's why
-data LinkBlocker
-    = NoNameMatch                      -- ^ Product not found at all
-    | UnitIncompatible !Text !Text     -- ^ queryUnit, supplierUnit
-    | LocationUnavailable !Text        -- ^ requestedLoc (no fallback found above threshold)
-    deriving (Show, Eq)
+-- | LinkBlocker is defined in Types and re-exported here
 
 -- | Default threshold for automatic linking
 -- Requires at minimum: product name match (45-50) + some location match (10+)

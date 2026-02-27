@@ -377,6 +377,8 @@ data Database = Database
     -- Cross-database linking (serialized to cache)
     , dbCrossDBLinks :: ![CrossDBLink] -- Cross-database supplier links (for chained solving)
     , dbDependsOn :: ![Text] -- Names of databases this database depends on
+    -- Linking statistics (serialized to cache for setup page)
+    , dbLinkingStats :: !CrossDBLinkingStats -- Cross-DB linking statistics (completeness, fallbacks, etc.)
     -- Runtime-only fields (not serialized to cache)
     , dbCachedFactorization :: !(Maybe MatrixFactorization) -- Pre-computed (I - A) for fast solves
     , dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
@@ -405,6 +407,7 @@ instance Store Database where
         + getSize (dbBiosphereCount db)
         + getSize (dbCrossDBLinks db)
         + getSize (dbDependsOn db)
+        + getSize (dbLinkingStats db)
 
     poke db = do
         poke (dbProcessIdTable db)
@@ -425,6 +428,7 @@ instance Store Database where
         -- Cross-database linking fields
         poke (dbCrossDBLinks db)
         poke (dbDependsOn db)
+        poke (dbLinkingStats db)
         -- Runtime-only fields are NOT serialized
 
     peek = do
@@ -445,6 +449,7 @@ instance Store Database where
         biosphereCount <- peek
         crossDBLinks <- peek
         dependsOn <- peek
+        linkingStats <- peek
         return Database
             { dbProcessIdTable = processIdTable
             , dbProcessIdLookup = processIdLookup
@@ -464,6 +469,7 @@ instance Store Database where
             -- Cross-database linking fields
             , dbCrossDBLinks = crossDBLinks
             , dbDependsOn = dependsOn
+            , dbLinkingStats = linkingStats
             -- Runtime-only fields set to defaults
             , dbCachedFactorization = Nothing
             , dbSynonymDB = Nothing
@@ -589,6 +595,51 @@ data ImpactCategory = ImpactCategory
     , categoryName :: !Text
     }
     deriving (Eq, Ord, Show)
+
+-- | Blocking reason for cross-database linking failure
+data LinkBlocker
+    = NoNameMatch                      -- ^ Product not found at all
+    | UnitIncompatible !Text !Text     -- ^ queryUnit, supplierUnit
+    | LocationUnavailable !Text        -- ^ requestedLoc (no fallback found above threshold)
+    deriving (Show, Eq, Generic, NFData, Store)
+
+-- | Statistics from cross-database linking
+-- Only essential state is stored; counts are derived via accessor functions.
+data CrossDBLinkingStats = CrossDBLinkingStats
+    { cdlLinks              :: ![CrossDBLink]                        -- ^ Resolved cross-DB links
+    , cdlUnresolvedProducts :: !(M.Map Text (Int, LinkBlocker))     -- ^ Product name -> (count, reason)
+    , cdlUnknownUnits       :: !(S.Set Text)                        -- ^ Unknown units from sdbUnits
+    , cdlLocationFallbacks  :: ![(Text, Text, Text)]                -- ^ (product, requestedLoc, actualLoc)
+    , cdlTotalInputs        :: !Int                                 -- ^ Total technosphere inputs at time of linking
+    } deriving (Generic, NFData, Store)
+
+-- | Empty stats
+emptyCrossDBLinkingStats :: CrossDBLinkingStats
+emptyCrossDBLinkingStats = CrossDBLinkingStats [] M.empty S.empty [] 0
+
+-- | Merge two CrossDBLinkingStats
+mergeCrossDBStats :: CrossDBLinkingStats -> CrossDBLinkingStats -> CrossDBLinkingStats
+mergeCrossDBStats s1 s2 = CrossDBLinkingStats
+    { cdlLinks = cdlLinks s1 ++ cdlLinks s2
+    , cdlUnresolvedProducts = M.unionWith mergeUnresolved (cdlUnresolvedProducts s1) (cdlUnresolvedProducts s2)
+    , cdlUnknownUnits = S.union (cdlUnknownUnits s1) (cdlUnknownUnits s2)
+    , cdlLocationFallbacks = cdlLocationFallbacks s1 ++ cdlLocationFallbacks s2
+    , cdlTotalInputs = cdlTotalInputs s1 + cdlTotalInputs s2
+    }
+  where
+    mergeUnresolved (c1, b) (c2, _) = (c1 + c2, b)
+
+-- | Number of resolved cross-DB links
+crossDBLinksCount :: CrossDBLinkingStats -> Int
+crossDBLinksCount = length . cdlLinks
+
+-- | Number of unresolved inputs
+unresolvedCount :: CrossDBLinkingStats -> Int
+unresolvedCount = sum . map fst . M.elems . cdlUnresolvedProducts
+
+-- | Cross-DB links grouped by source database
+crossDBBySource :: CrossDBLinkingStats -> M.Map Text Int
+crossDBBySource = M.fromListWith (+) . map (\l -> (cdlSourceDatabase l, 1)) . cdlLinks
 
 -- | Cross-database link: records that an exchange in this database
 -- sources from a supplier in another database.

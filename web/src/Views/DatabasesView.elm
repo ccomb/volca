@@ -4,7 +4,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, stopPropagationOn)
 import Json.Decode as Decode
-import Models.Database exposing (DatabaseList, DatabaseStatus)
+import Models.Database exposing (DatabaseList, DatabaseLoadStatus(..), DatabaseStatus)
 
 
 type Msg
@@ -92,41 +92,42 @@ viewDatabasesList dbList confirmingDelete =
 viewDatabaseRow : Maybe String -> DatabaseStatus -> Html Msg
 viewDatabaseRow confirmingDelete db =
     let
-        isLoaded =
-            db.loaded
-
-        -- Permission checks
-        canLoad =
-            not isLoaded
+        isInMemory =
+            db.status /= Unloaded
 
         canUnload =
-            isLoaded
+            isInMemory
 
         canDelete =
-            db.isUploaded && not isLoaded
+            db.isUploaded && not isInMemory
 
         statusIndicator =
-            if isLoaded then
-                span [ class "has-text-success", style "font-size" "1.5rem" ] [ text "●" ]
+            case db.status of
+                DbLoaded ->
+                    span [ class "has-text-success", style "font-size" "1.5rem" ] [ text "●" ]
 
-            else
-                span [ class "has-text-grey-lighter", style "font-size" "1.5rem" ] [ text "○" ]
+                PartiallyLinked ->
+                    span [ class "has-text-warning", style "font-size" "1.5rem" ] [ text "●" ]
+
+                Unloaded ->
+                    span [ class "has-text-grey-lighter", style "font-size" "1.5rem" ] [ text "○" ]
 
         rowAttrs =
-            if isLoaded then
-                [ class "is-clickable"
-                , style "cursor" "pointer"
-                , onClick (NavigateToDatabase db.name)
-                ]
+            case db.status of
+                DbLoaded ->
+                    [ class "is-clickable"
+                    , style "cursor" "pointer"
+                    , onClick (NavigateToDatabase db.name)
+                    ]
 
-            else
-                []
+                _ ->
+                    []
     in
     tr rowAttrs
         [ td [ style "text-align" "center", style "vertical-align" "middle" ]
             [ statusIndicator ]
         , td []
-            [ viewActionButtons db canLoad canUnload canDelete (confirmingDelete == Just db.name) ]
+            [ viewActionButtons db canUnload canDelete (confirmingDelete == Just db.name) ]
         , td []
             [ text db.displayName ]
         , td [ class "has-text-grey" ]
@@ -143,38 +144,63 @@ viewDatabaseRow confirmingDelete db =
         ]
 
 
-viewActionButtons : DatabaseStatus -> Bool -> Bool -> Bool -> Bool -> Html Msg
-viewActionButtons db canLoad canUnload canDelete isConfirming =
+viewActionButtons : DatabaseStatus -> Bool -> Bool -> Bool -> Html Msg
+viewActionButtons db canUnload canDelete isConfirming =
     div [ class "buttons are-small" ]
-        [ if canLoad then
-            button
-                [ class "button is-primary is-small"
-                , stopPropagationOn "click"
-                    (Decode.succeed
-                        ( if db.isUploaded then
-                            SetupDatabase db.name
+        [ case db.status of
+            Unloaded ->
+                button
+                    [ class "button is-primary is-small"
+                    , stopPropagationOn "click"
+                        (Decode.succeed
+                            ( if db.isUploaded then
+                                SetupDatabase db.name
 
-                          else
-                            LoadDatabase db.name
-                        , True
+                              else
+                                LoadDatabase db.name
+                            , True
+                            )
                         )
-                    )
-                ]
-                [ span [ class "icon is-small" ] [ i [ class "fas fa-folder-open" ] [] ]
-                , span [] [ text "Open" ]
-                ]
+                    ]
+                    [ span [ class "icon is-small" ] [ i [ class "fas fa-folder-open" ] [] ]
+                    , span [] [ text "Open" ]
+                    ]
 
-          else if canUnload then
-            button
-                [ class "button is-warning is-small"
-                , stopPropagationOn "click" (Decode.succeed ( UnloadDatabase db.name, True ))
-                ]
-                [ span [ class "icon is-small" ] [ i [ class "fas fa-times" ] [] ]
-                , span [] [ text "Close" ]
-                ]
+            PartiallyLinked ->
+                span [ class "buttons are-small", style "display" "inline-flex" ]
+                    [ button
+                        [ class "button is-info is-small"
+                        , stopPropagationOn "click" (Decode.succeed ( SetupDatabase db.name, True ))
+                        ]
+                        [ span [ class "icon is-small" ] [ i [ class "fas fa-info-circle" ] [] ]
+                        , span [] [ text "Info" ]
+                        ]
+                    , button
+                        [ class "button is-warning is-small"
+                        , stopPropagationOn "click" (Decode.succeed ( UnloadDatabase db.name, True ))
+                        ]
+                        [ span [ class "icon is-small" ] [ i [ class "fas fa-times" ] [] ]
+                        , span [] [ text "Close" ]
+                        ]
+                    ]
 
-          else
-            text ""
+            DbLoaded ->
+                span [ class "buttons are-small", style "display" "inline-flex" ]
+                    [ button
+                        [ class "button is-info is-small is-outlined"
+                        , stopPropagationOn "click" (Decode.succeed ( SetupDatabase db.name, True ))
+                        ]
+                        [ span [ class "icon is-small" ] [ i [ class "fas fa-info-circle" ] [] ]
+                        , span [] [ text "Info" ]
+                        ]
+                    , button
+                        [ class "button is-warning is-small"
+                        , stopPropagationOn "click" (Decode.succeed ( UnloadDatabase db.name, True ))
+                        ]
+                        [ span [ class "icon is-small" ] [ i [ class "fas fa-times" ] [] ]
+                        , span [] [ text "Close" ]
+                        ]
+                    ]
         , if canDelete then
             if isConfirming then
                 span [ class "buttons are-small", style "display" "inline-flex" ]
