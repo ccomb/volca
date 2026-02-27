@@ -1099,16 +1099,13 @@ buildSetupResult manager dbName = do
         Nothing -> case M.lookup dbName loadedDbs of
             Just loaded ->
                 let info = buildLoadedSetupInfo (ldConfig loaded) (ldDatabase loaded)
-                in if unresolvedCount (dbLinkingStats (ldDatabase loaded)) > 0
-                    then do
-                        -- Partially linked: return editable info with suggestions
-                        let suggestions = buildDependencySuggestions' availableDbs indexedDbs
-                        return $ Right info
-                            { dsiIsLoaded = False
-                            , dsiIsReady = False
-                            , dsiSuggestions = suggestions
-                            }
-                    else return $ Right info
+                    suggestions = buildDependencySuggestions' availableDbs indexedDbs
+                    nUnresolved = unresolvedCount (dbLinkingStats (ldDatabase loaded))
+                in return $ Right info
+                    { dsiIsLoaded = False
+                    , dsiIsReady = nUnresolved == 0
+                    , dsiSuggestions = suggestions
+                    }
             Nothing -> return $ Left $ SetupFailed $ "Failed to stage database: " <> dbName
 
 -- | Build setup info from a staged database
@@ -1318,9 +1315,8 @@ getOrStageDatabase manager dbName = do
         Nothing -> do
             loadedDbs <- readTVarIO (dmLoadedDbs manager)
             case M.lookup dbName loadedDbs of
-                Just ld | unresolvedCount (dbLinkingStats (ldDatabase ld)) > 0 ->
-                    Right <$> restageLoadedDatabase manager dbName ld
-                _ -> return $ Left $ "Database not found or fully linked: " <> dbName
+                Just ld -> Right <$> restageLoadedDatabase manager dbName ld
+                Nothing -> return $ Left $ "Database not found: " <> dbName
 
 -- | Add a dependency to a staged (or partially-linked loaded) database
 -- Runs cross-DB linking against the new dependency
