@@ -1391,7 +1391,12 @@ finalizeDatabase manager dbName = do
     stagedDbs <- readTVarIO (dmStagedDbs manager)
 
     case M.lookup dbName stagedDbs of
-        Nothing -> return $ Left $ "Staged database not found: " <> dbName
+        Nothing -> do
+            -- Not staged — check if already loaded (no-op finalize)
+            loadedDbs <- readTVarIO (dmLoadedDbs manager)
+            case M.lookup dbName loadedDbs of
+                Just loaded -> return $ Right loaded
+                Nothing -> return $ Left $ "Staged database not found: " <> dbName
         Just staged -> do
             -- Reject finalization if there are unresolved links
             let unlinked = Loader.countUnlinkedExchanges (sdSimpleDB staged)
