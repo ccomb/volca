@@ -1,6 +1,5 @@
 module Pages.Inventory exposing (Model, Msg, page)
 
-import Browser.Navigation as Nav
 import Dict
 import Effect exposing (Effect)
 import Html exposing (..)
@@ -10,7 +9,6 @@ import Http
 import Api
 import Models.Activity exposing (ActivityInfo)
 import Models.Inventory exposing (InventoryExport, inventoryExportDecoder)
-import Route
 import Shared exposing (RemoteData(..))
 import Spa.Page
 import View exposing (View)
@@ -138,7 +136,7 @@ update shared msg model =
 
         NavigateBack ->
             ( model
-            , Effect.fromCmd (Nav.back shared.key 1)
+            , Effect.fromShared Shared.NavigateBackToParent
             )
 
         RequestLoadDatabase ->

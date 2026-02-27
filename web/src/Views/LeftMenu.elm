@@ -5,7 +5,7 @@ import Html exposing (Html, button, div, i, nav, p, span, text)
 import Html.Attributes exposing (class, classList, style)
 import Html.Events exposing (onClick, stopPropagationOn)
 import Json.Decode
-import Route exposing (ActivePage(..))
+import Route exposing (ActivePage(..), ActivityTab(..))
 
 
 type Msg
@@ -75,15 +75,15 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                         , style "border-radius" "6px 0 0 6px"
                         ]
                         [ menuLabel "Explore"
-                        , menuItem currentPage UpstreamActive "fas fa-arrow-up" "Upstream activities" False
-                        , menuItem currentPage EmissionsActive "fas fa-cloud" "Direct emissions" False
-                        , menuItem currentPage ResourcesActive "fas fa-leaf" "Natural resources" False
-                        , menuItem currentPage ProductsActive "fas fa-box" "Outgoing products" False
-                        , menuItem currentPage InventoryActive "fas fa-list-ul" "Inventory" False
+                        , menuItem currentPage (ActivityActive Upstream) "fas fa-arrow-up" "Upstream activities" False
+                        , menuItem currentPage (ActivityActive Emissions) "fas fa-cloud" "Direct emissions" False
+                        , menuItem currentPage (ActivityActive Resources) "fas fa-leaf" "Natural resources" False
+                        , menuItem currentPage (ActivityActive Products) "fas fa-box" "Outgoing products" False
+                        , menuItem currentPage (ActivityActive Inventory) "fas fa-list-ul" "Inventory" False
                         , menuLabel "Lab"
-                        , menuItem currentPage LCIAActive "fas fa-chart-bar" "Impacts" True
-                        , menuItem currentPage TreeActive "fas fa-project-diagram" "Tree" True
-                        , menuItem currentPage GraphActive "fas fa-network-wired" "Graph" True
+                        , menuItem currentPage (ActivityActive LCIA) "fas fa-chart-bar" "Impacts" True
+                        , menuItem currentPage (ActivityActive Tree) "fas fa-project-diagram" "Tree" True
+                        , menuItem currentPage (ActivityActive Graph) "fas fa-network-wired" "Graph" True
                         ]
 
                 Nothing ->

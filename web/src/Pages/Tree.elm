@@ -120,7 +120,10 @@ update shared msg model =
                                 Just processId ->
                                     if processId /= model.activityId then
                                         ( { model | tree = TreeReady { ready | viewModel = updatedViewModel } }
-                                        , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivityTreeRoute model.dbName processId)))
+                                        , Effect.batch
+                                            [ Effect.fromShared (Shared.PushActivity model.dbName model.activityId)
+                                            , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivityRoute Route.Tree model.dbName processId)))
+                                            ]
                                         )
 
                                     else
@@ -149,7 +152,7 @@ update shared msg model =
                             case currentNode.parentId of
                                 Just parentId ->
                                     ( model
-                                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivityTreeRoute model.dbName parentId)))
+                                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivityRoute Route.Tree model.dbName parentId)))
                                     )
 
                                 Nothing ->

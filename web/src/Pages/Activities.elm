@@ -7,7 +7,7 @@ import Html exposing (..)
 import Http
 import Models.Activity exposing (ActivitySummary, SearchResults, activitySummaryDecoder, searchResultsDecoder)
 import Models.Database exposing (DatabaseList)
-import Route exposing (Route(..))
+import Route exposing (ActivityTab(..), Route(..))
 import Shared exposing (RemoteData(..))
 import Spa.Page
 import Task
@@ -137,7 +137,7 @@ update shared msg model =
 
                 ActivitiesView.SelectActivity activityId ->
                     ( model
-                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (ActivityUpstreamRoute model.dbName activityId)))
+                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (ActivityRoute Upstream model.dbName activityId)))
                     )
 
                 ActivitiesView.LoadMore ->

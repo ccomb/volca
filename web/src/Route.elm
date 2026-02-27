@@ -1,5 +1,6 @@
 module Route exposing
     ( Route(..)
+    , ActivityTab(..)
     , ActivitiesFlags
     , toRoute
     , routeToUrl
@@ -19,6 +20,7 @@ module Route exposing
     , routeToDatabase
     , ActivePage(..)
     , routeToActivePage
+    , withActivity
     )
 
 import Url exposing (Url)
@@ -27,18 +29,21 @@ import Url.Parser as Parser exposing ((</>), (<?>), Parser, oneOf, string, top)
 import Url.Parser.Query as Query
 
 
+type ActivityTab
+    = Upstream
+    | Emissions
+    | Resources
+    | Products
+    | Tree
+    | Inventory
+    | Graph
+    | LCIA
+
+
 type Route
     = RootRoute
     | ActivitiesRoute { db : String, name : Maybe String, limit : Maybe Int }
-    | ActivityRoute String String
-    | ActivityUpstreamRoute String String
-    | ActivityEmissionsRoute String String
-    | ActivityResourcesRoute String String
-    | ActivityProductsRoute String String
-    | ActivityTreeRoute String String
-    | ActivityInventoryRoute String String
-    | ActivityGraphRoute String String
-    | ActivityLCIARoute String String
+    | ActivityRoute ActivityTab String String -- tab, db, processId
     | DatabasesRoute
     | UploadRoute
     | DatabaseSetupRoute String
@@ -46,19 +51,11 @@ type Route
 
 
 {-| Simplified page identity for left menu highlighting.
-Replaces the old Page type.
 -}
 type ActivePage
     = HomeActive
     | ActivitiesActive
-    | UpstreamActive
-    | EmissionsActive
-    | ResourcesActive
-    | ProductsActive
-    | TreeActive
-    | InventoryActive
-    | GraphActive
-    | LCIAActive
+    | ActivityActive ActivityTab
     | DatabasesActive
     | UploadActive
     | DatabaseSetupActive
@@ -67,38 +64,14 @@ type ActivePage
 routeToActivePage : Route -> ActivePage
 routeToActivePage route =
     case route of
+        ActivityRoute tab _ _ ->
+            ActivityActive tab
+
         RootRoute ->
             HomeActive
 
         ActivitiesRoute _ ->
             ActivitiesActive
-
-        ActivityRoute _ _ ->
-            UpstreamActive
-
-        ActivityUpstreamRoute _ _ ->
-            UpstreamActive
-
-        ActivityEmissionsRoute _ _ ->
-            EmissionsActive
-
-        ActivityResourcesRoute _ _ ->
-            ResourcesActive
-
-        ActivityProductsRoute _ _ ->
-            ProductsActive
-
-        ActivityTreeRoute _ _ ->
-            TreeActive
-
-        ActivityInventoryRoute _ _ ->
-            InventoryActive
-
-        ActivityGraphRoute _ _ ->
-            GraphActive
-
-        ActivityLCIARoute _ _ ->
-            LCIAActive
 
         DatabasesRoute ->
             DatabasesActive
@@ -111,6 +84,19 @@ routeToActivePage route =
 
         NotFoundRoute ->
             ActivitiesActive
+
+
+{-| Rewrite the db/processId inside an ActivityRoute, preserving the tab.
+Non-activity routes fall back to ActivityRoute Upstream.
+-}
+withActivity : String -> String -> Route -> Route
+withActivity db pid route =
+    case route of
+        ActivityRoute tab _ _ ->
+            ActivityRoute tab db pid
+
+        _ ->
+            ActivityRoute Upstream db pid
 
 
 
@@ -133,15 +119,15 @@ routeParser =
         , Parser.map DatabasesRoute (Parser.s "databases")
         , Parser.map (\db query -> ActivitiesRoute { db = db, name = query.name, limit = query.limit })
             (Parser.s "db" </> string </> Parser.s "activities" <?> activitiesQueryParser)
-        , Parser.map ActivityUpstreamRoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "upstream")
-        , Parser.map ActivityEmissionsRoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "emissions")
-        , Parser.map ActivityResourcesRoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "resources")
-        , Parser.map ActivityProductsRoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "products")
-        , Parser.map ActivityTreeRoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "tree")
-        , Parser.map ActivityInventoryRoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "inventory")
-        , Parser.map ActivityGraphRoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "graph")
-        , Parser.map ActivityLCIARoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia")
-        , Parser.map ActivityRoute (Parser.s "db" </> string </> Parser.s "activity" </> string)
+        , Parser.map (ActivityRoute Upstream) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "upstream")
+        , Parser.map (ActivityRoute Emissions) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "emissions")
+        , Parser.map (ActivityRoute Resources) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "resources")
+        , Parser.map (ActivityRoute Products) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "products")
+        , Parser.map (ActivityRoute Tree) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "tree")
+        , Parser.map (ActivityRoute Inventory) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "inventory")
+        , Parser.map (ActivityRoute Graph) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "graph")
+        , Parser.map (ActivityRoute LCIA) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia")
+        , Parser.map (ActivityRoute Upstream) (Parser.s "db" </> string </> Parser.s "activity" </> string)
         ]
 
 
@@ -149,6 +135,34 @@ toRoute : Url -> Route
 toRoute url =
     Parser.parse routeParser url
         |> Maybe.withDefault NotFoundRoute
+
+
+activityTabSlug : ActivityTab -> String
+activityTabSlug tab =
+    case tab of
+        Upstream ->
+            "upstream"
+
+        Emissions ->
+            "emissions"
+
+        Resources ->
+            "resources"
+
+        Products ->
+            "products"
+
+        Tree ->
+            "tree"
+
+        Inventory ->
+            "inventory"
+
+        Graph ->
+            "graph"
+
+        LCIA ->
+            "lcia"
 
 
 routeToUrl : Route -> String
@@ -173,32 +187,8 @@ routeToUrl route =
                         Url.Builder.toQuery queryParams
                    )
 
-        ActivityRoute db processId ->
-            "/db/" ++ db ++ "/activity/" ++ processId
-
-        ActivityUpstreamRoute db processId ->
-            "/db/" ++ db ++ "/activity/" ++ processId ++ "/upstream"
-
-        ActivityEmissionsRoute db processId ->
-            "/db/" ++ db ++ "/activity/" ++ processId ++ "/emissions"
-
-        ActivityResourcesRoute db processId ->
-            "/db/" ++ db ++ "/activity/" ++ processId ++ "/resources"
-
-        ActivityProductsRoute db processId ->
-            "/db/" ++ db ++ "/activity/" ++ processId ++ "/products"
-
-        ActivityTreeRoute db processId ->
-            "/db/" ++ db ++ "/activity/" ++ processId ++ "/tree"
-
-        ActivityInventoryRoute db processId ->
-            "/db/" ++ db ++ "/activity/" ++ processId ++ "/inventory"
-
-        ActivityGraphRoute db processId ->
-            "/db/" ++ db ++ "/activity/" ++ processId ++ "/graph"
-
-        ActivityLCIARoute db processId ->
-            "/db/" ++ db ++ "/activity/" ++ processId ++ "/lcia"
+        ActivityRoute tab db processId ->
+            "/db/" ++ db ++ "/activity/" ++ processId ++ "/" ++ activityTabSlug tab
 
         DatabasesRoute ->
             "/databases"
@@ -216,49 +206,16 @@ routeToUrl route =
 routeToDatabase : Route -> Maybe String
 routeToDatabase route =
     case route of
-        RootRoute ->
-            Nothing
-
         ActivitiesRoute { db } ->
             Just db
 
-        ActivityRoute db _ ->
+        ActivityRoute _ db _ ->
             Just db
-
-        ActivityUpstreamRoute db _ ->
-            Just db
-
-        ActivityEmissionsRoute db _ ->
-            Just db
-
-        ActivityResourcesRoute db _ ->
-            Just db
-
-        ActivityProductsRoute db _ ->
-            Just db
-
-        ActivityTreeRoute db _ ->
-            Just db
-
-        ActivityInventoryRoute db _ ->
-            Just db
-
-        ActivityGraphRoute db _ ->
-            Just db
-
-        ActivityLCIARoute db _ ->
-            Just db
-
-        DatabasesRoute ->
-            Nothing
-
-        UploadRoute ->
-            Nothing
 
         DatabaseSetupRoute dbName ->
             Just dbName
 
-        NotFoundRoute ->
+        _ ->
             Nothing
 
 
@@ -290,13 +247,24 @@ matchActivities route =
             Nothing
 
 
+matchTab : ActivityTab -> Route -> Maybe ( String, String )
+matchTab target route =
+    case route of
+        ActivityRoute tab db pid ->
+            if tab == target then
+                Just ( db, pid )
+
+            else
+                Nothing
+
+        _ ->
+            Nothing
+
+
 matchUpstream : Route -> Maybe ( String, String )
 matchUpstream route =
     case route of
-        ActivityRoute db pid ->
-            Just ( db, pid )
-
-        ActivityUpstreamRoute db pid ->
+        ActivityRoute Upstream db pid ->
             Just ( db, pid )
 
         _ ->
@@ -304,73 +272,38 @@ matchUpstream route =
 
 
 matchEmissions : Route -> Maybe ( String, String )
-matchEmissions route =
-    case route of
-        ActivityEmissionsRoute db pid ->
-            Just ( db, pid )
-
-        _ ->
-            Nothing
+matchEmissions =
+    matchTab Emissions
 
 
 matchResources : Route -> Maybe ( String, String )
-matchResources route =
-    case route of
-        ActivityResourcesRoute db pid ->
-            Just ( db, pid )
-
-        _ ->
-            Nothing
+matchResources =
+    matchTab Resources
 
 
 matchProducts : Route -> Maybe ( String, String )
-matchProducts route =
-    case route of
-        ActivityProductsRoute db pid ->
-            Just ( db, pid )
-
-        _ ->
-            Nothing
+matchProducts =
+    matchTab Products
 
 
 matchTree : Route -> Maybe ( String, String )
-matchTree route =
-    case route of
-        ActivityTreeRoute db pid ->
-            Just ( db, pid )
-
-        _ ->
-            Nothing
+matchTree =
+    matchTab Tree
 
 
 matchInventory : Route -> Maybe ( String, String )
-matchInventory route =
-    case route of
-        ActivityInventoryRoute db pid ->
-            Just ( db, pid )
-
-        _ ->
-            Nothing
+matchInventory =
+    matchTab Inventory
 
 
 matchGraph : Route -> Maybe ( String, String )
-matchGraph route =
-    case route of
-        ActivityGraphRoute db pid ->
-            Just ( db, pid )
-
-        _ ->
-            Nothing
+matchGraph =
+    matchTab Graph
 
 
 matchLCIA : Route -> Maybe ( String, String )
-matchLCIA route =
-    case route of
-        ActivityLCIARoute db pid ->
-            Just ( db, pid )
-
-        _ ->
-            Nothing
+matchLCIA =
+    matchTab LCIA
 
 
 matchDatabases : Route -> Maybe ()

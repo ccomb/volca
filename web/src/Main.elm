@@ -20,7 +20,7 @@ import Pages.Resources
 import Pages.Tree
 import Pages.Upload
 import Pages.Upstream
-import Route exposing (ActivePage(..), Route(..))
+import Route exposing (ActivePage(..), ActivityTab(..), Route(..))
 import Shared exposing (ConsoleVisibility(..), RemoteData(..))
 import Spa
 import View exposing (View)
@@ -271,29 +271,8 @@ navigateToPage shared page =
                 Nothing ->
                     Shared.NavigateTo (ActivitiesRoute { db = dbName, name = Nothing, limit = Just 20 })
 
-        UpstreamActive ->
-            Shared.NavigateTo (ActivityUpstreamRoute dbName currentActivityId)
-
-        EmissionsActive ->
-            Shared.NavigateTo (ActivityEmissionsRoute dbName currentActivityId)
-
-        ResourcesActive ->
-            Shared.NavigateTo (ActivityResourcesRoute dbName currentActivityId)
-
-        ProductsActive ->
-            Shared.NavigateTo (ActivityProductsRoute dbName currentActivityId)
-
-        TreeActive ->
-            Shared.NavigateTo (ActivityTreeRoute dbName currentActivityId)
-
-        InventoryActive ->
-            Shared.NavigateTo (ActivityInventoryRoute dbName currentActivityId)
-
-        GraphActive ->
-            Shared.NavigateTo (ActivityGraphRoute dbName currentActivityId)
-
-        LCIAActive ->
-            Shared.NavigateTo (ActivityLCIARoute dbName currentActivityId)
+        ActivityActive tab ->
+            Shared.NavigateTo (ActivityRoute tab dbName currentActivityId)
 
         DatabaseSetupActive ->
             Shared.NavigateTo DatabasesRoute
@@ -302,31 +281,7 @@ navigateToPage shared page =
 routeToActivityId : Route -> Maybe String
 routeToActivityId route =
     case route of
-        ActivityRoute _ pid ->
-            Just pid
-
-        ActivityUpstreamRoute _ pid ->
-            Just pid
-
-        ActivityEmissionsRoute _ pid ->
-            Just pid
-
-        ActivityResourcesRoute _ pid ->
-            Just pid
-
-        ActivityProductsRoute _ pid ->
-            Just pid
-
-        ActivityTreeRoute _ pid ->
-            Just pid
-
-        ActivityInventoryRoute _ pid ->
-            Just pid
-
-        ActivityGraphRoute _ pid ->
-            Just pid
-
-        ActivityLCIARoute _ pid ->
+        ActivityRoute _ _ pid ->
             Just pid
 
         _ ->

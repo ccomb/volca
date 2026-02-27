@@ -1,6 +1,5 @@
 module Pages.Emissions exposing (Model, Msg, page)
 
-import Browser.Navigation as Nav
 import Dict
 import Effect exposing (Effect)
 import Html exposing (..)
@@ -9,7 +8,6 @@ import Html.Events exposing (..)
 import Http
 import Api
 import Models.Activity exposing (ActivityInfo, ExchangeType(..))
-import Route
 import Shared exposing (RemoteData(..))
 import Spa.Page
 import View exposing (View)
@@ -91,7 +89,7 @@ update shared msg model =
 
         NavigateBack ->
             ( model
-            , Effect.fromCmd (Nav.back shared.key 1)
+            , Effect.fromShared Shared.NavigateBackToParent
             )
 
         RequestLoadDatabase ->

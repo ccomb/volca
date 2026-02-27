@@ -101,12 +101,15 @@ update shared msg model =
                             ( model.dbName, processId )
             in
             ( model
-            , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivityUpstreamRoute dbName actualProcessId)))
+            , Effect.batch
+                [ Effect.fromShared (Shared.PushActivity model.dbName model.activityId)
+                , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivityRoute Route.Upstream dbName actualProcessId)))
+                ]
             )
 
         NavigateBack ->
             ( model
-            , Effect.fromCmd (Nav.back shared.key 1)
+            , Effect.fromShared Shared.NavigateBackToParent
             )
 
         RequestLoadDatabase ->
