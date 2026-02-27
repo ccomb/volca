@@ -153,13 +153,9 @@ viewBody shared model =
                         exchanges =
                             List.filter (\ex -> ex.exchangeType == TechnosphereExchangeType && ex.isInput && not ex.isReference) activityInfo.exchanges
                     in
-                    div [ style "display" "flex", style "flex-direction" "column", style "height" "100%" ]
-                        [ div [ style "flex-shrink" "0" ]
-                            [ Views.ActivityHeader.viewActivityHeader activityInfo "Upstream Activities" NavigateBack
-                            ]
-                        , div [ style "flex" "1", style "display" "flex", style "flex-direction" "column", style "min-height" "0" ]
-                            [ DetailsView.viewUpstreamExchanges exchanges NavigateToActivity
-                            ]
+                    div []
+                        [ Views.ActivityHeader.viewActivityHeader activityInfo "Upstream Activities" NavigateBack
+                        , DetailsView.viewUpstreamExchanges exchanges NavigateToActivity
                         ]
 
                 NotAsked ->

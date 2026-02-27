@@ -17,8 +17,8 @@ type Msg
 
 viewActivitiesPage : String -> String -> Maybe (SearchResults ActivitySummary) -> Bool -> Bool -> Maybe String -> Maybe DatabaseList -> Html Msg
 viewActivitiesPage currentDbName searchQuery searchResults searchLoading loadingMore error maybeDatabaseList =
-    div [ class "activities-page", style "display" "flex", style "flex-direction" "column", style "height" "100%" ]
-        [ div [ class "box", style "margin-bottom" "0", style "flex-shrink" "0" ]
+    div [ class "activities-page" ]
+        [ div [ class "box" ]
             [ h2 [ class "title is-3" ] [ text "Search Activities" ]
             , p [ class "subtitle" ] [ text "Find activities by name and view their environmental inventory" ]
             , viewSearchBar maybeDatabaseList currentDbName searchQuery searchLoading
@@ -89,13 +89,13 @@ viewSearchResults maybeResults isLoading loadingMore =
                     [ div [ class "is-size-5 has-text-grey" ] [ text "No activities found" ]
                     ]
             else
-                div [ style "flex" "1", style "display" "flex", style "flex-direction" "column", style "min-height" "0" ]
-                    [ div [ style "flex-shrink" "0", style "padding" "0.5rem 0" ]
+                div []
+                    [ div [ style "padding" "0.5rem 0" ]
                         [ span [ class "tag is-info is-light" ]
                             [ text (String.fromInt (List.length results.results) ++ " / " ++ String.fromInt results.totalCount ++ " activities")
                             ]
                         ]
-                    , table [ class "table is-fullwidth", style "flex-shrink" "0", style "margin-bottom" "0" ]
+                    , table [ class "table is-striped is-hoverable is-fullwidth" ]
                         [ thead []
                             [ tr []
                                 [ th [] [ text "Activity Name" ]
@@ -105,15 +105,11 @@ viewSearchResults maybeResults isLoading loadingMore =
                                 , th [] [ text "Location" ]
                                 ]
                             ]
-                        ]
-                    , div [ id "search-results-container", style "flex" "1", style "overflow-y" "auto", style "min-height" "0" ]
-                        [ table [ class "table is-hoverable is-fullwidth", style "margin-top" "0" ]
-                            [ tbody []
-                                (List.map viewActivityRow results.results)
-                            ]
+                        , tbody []
+                            (List.map viewActivityRow results.results)
                         ]
                     , if results.hasMore then
-                        div [ class "has-text-centered", style "flex-shrink" "0", style "padding" "1rem 0" ]
+                        div [ class "has-text-centered", style "padding" "1rem 0" ]
                             [ button
                                 [ class (if loadingMore then "button is-primary is-loading" else "button is-primary")
                                 , onClick LoadMore

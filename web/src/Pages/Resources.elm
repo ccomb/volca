@@ -126,11 +126,9 @@ view shared model =
                             exchanges =
                                 List.filter (\ex -> ex.exchangeType == BiosphereResourceType) activityInfo.exchanges
                         in
-                        div [ style "display" "flex", style "flex-direction" "column", style "height" "100%" ]
-                            [ div [ style "flex-shrink" "0" ]
-                                [ Views.ActivityHeader.viewActivityHeader activityInfo "Natural Resources" NavigateBack ]
-                            , div [ style "flex" "1", style "display" "flex", style "flex-direction" "column", style "min-height" "0" ]
-                                [ DetailsView.viewNaturalResourcesExchanges exchanges ]
+                        div []
+                            [ Views.ActivityHeader.viewActivityHeader activityInfo "Natural Resources" NavigateBack
+                            , DetailsView.viewNaturalResourcesExchanges exchanges
                             ]
 
                     NotAsked ->

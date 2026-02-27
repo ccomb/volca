@@ -28,7 +28,7 @@ type Msg
 
 viewDatabaseSetupPage : Maybe DatabaseSetupInfo -> Bool -> Maybe String -> Html Msg
 viewDatabaseSetupPage maybeSetupInfo loading error =
-    div [ class "database-setup-page", style "display" "flex", style "flex-direction" "column", style "height" "100%" ]
+    div [ class "database-setup-page" ]
         [ viewHeader maybeSetupInfo
         , case error of
             Just err ->
@@ -55,7 +55,7 @@ viewDatabaseSetupPage maybeSetupInfo loading error =
 
 viewHeader : Maybe DatabaseSetupInfo -> Html Msg
 viewHeader maybeSetupInfo =
-    div [ class "box", style "margin-bottom" "0", style "flex-shrink" "0" ]
+    div [ class "box" ]
         [ div [ class "level" ]
             [ div [ class "level-left" ]
                 [ div [ class "level-item" ]
@@ -88,7 +88,7 @@ viewLoading =
 
 viewSetupContent : DatabaseSetupInfo -> Html Msg
 viewSetupContent setupInfo =
-    div [ style "flex" "1", style "overflow-y" "auto", style "padding" "1rem" ]
+    div [ style "padding" "1rem" ]
         [ div [ class "columns" ]
             [ div [ class "column is-8" ]
                 [ viewDataSourceCard setupInfo

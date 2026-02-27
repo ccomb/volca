@@ -212,7 +212,7 @@ update shared msg model =
                                     , hasMore = newResults.hasMore
                                 }
                       }
-                    , Effect.fromCmd (scrollToBottom "search-results-container")
+                    , Effect.fromCmd (scrollToBottom "main-content")
                     )
 
                 _ ->

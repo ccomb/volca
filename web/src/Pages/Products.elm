@@ -147,11 +147,9 @@ viewBody shared model =
                         [ strong [] [ text "Error: " ], text err ]
 
                 Loaded activityInfo ->
-                    div [ style "display" "flex", style "flex-direction" "column", style "height" "100%" ]
-                        [ div [ style "flex-shrink" "0" ]
-                            [ Views.ActivityHeader.viewActivityHeader activityInfo "Outgoing Products" NavigateBack ]
-                        , div [ style "flex" "1", style "display" "flex", style "flex-direction" "column", style "min-height" "0" ]
-                            [ DetailsView.viewAllProducts activityInfo.allProducts model.activityId NavigateToActivity ]
+                    div []
+                        [ Views.ActivityHeader.viewActivityHeader activityInfo "Outgoing Products" NavigateBack
+                        , DetailsView.viewAllProducts activityInfo.allProducts model.activityId NavigateToActivity
                         ]
 
                 NotAsked ->

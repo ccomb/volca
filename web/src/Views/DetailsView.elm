@@ -280,22 +280,20 @@ viewUpstreamExchanges exchanges onNavigate =
         p [ class "has-text-grey" ] [ text "No direct upstream activities" ]
 
     else
-        div [ style "flex" "1", style "overflow-y" "auto", style "min-height" "0" ]
-            [ table [ class "table is-striped is-hoverable is-fullwidth" ]
-                [ thead [ style "position" "sticky", style "top" "0", style "background-color" "white", style "z-index" "10" ]
-                    [ tr []
-                        [ th [ style "background-color" "white" ] [ text "Activity Name" ]
-                        , th [ class "has-text-right", style "background-color" "white" ] [ text "Amount" ]
-                        , th [ style "background-color" "white" ] [ text "Unit" ]
-                        , th [ style "background-color" "white" ] [ text "Product" ]
-                        , th [ style "background-color" "white" ] [ text "Location" ]
-                        ]
+        table [ class "table is-striped is-hoverable is-fullwidth" ]
+            [ thead []
+                [ tr []
+                    [ th [] [ text "Activity Name" ]
+                    , th [ class "has-text-right" ] [ text "Amount" ]
+                    , th [] [ text "Unit" ]
+                    , th [] [ text "Product" ]
+                    , th [] [ text "Location" ]
                     ]
-                , tbody []
-                    (exchanges
-                        |> List.map (viewUpstreamActivityFromInfoRow onNavigate)
-                    )
                 ]
+            , tbody []
+                (exchanges
+                    |> List.map (viewUpstreamActivityFromInfoRow onNavigate)
+                )
             ]
 
 
@@ -365,16 +363,14 @@ viewEmissionsExchanges exchanges =
                 ]
                     |> List.filter (\( _, subgroups ) -> not (List.isEmpty subgroups))
         in
-        div [ style "flex" "1", style "overflow-y" "auto", style "min-height" "0" ]
-            [ div [ class "columns is-multiline" ]
-                (columns
-                    |> List.map
-                        (\( mainName, subgroups ) ->
-                            div [ class "column" ]
-                                [ viewEmissionCompartmentWithSubgroups mainName subgroups ]
-                        )
-                )
-            ]
+        div [ class "columns is-multiline" ]
+            (columns
+                |> List.map
+                    (\( mainName, subgroups ) ->
+                        div [ class "column" ]
+                            [ viewEmissionCompartmentWithSubgroups mainName subgroups ]
+                    )
+            )
 
 
 {-| Group exchanges by their sub-compartment (extracted from flowCategory)
@@ -448,11 +444,11 @@ viewSubcompartmentTable subName exchanges =
         [ h4 [ class "subtitle is-6 has-text-grey-dark mb-2", style "padding-left" "0.5rem" ] [ text subName ]
         , div [ class "table-container" ]
             [ table [ class "table is-striped is-fullwidth is-narrow" ]
-                [ thead [ style "position" "sticky", style "top" "0", style "background-color" "white", style "z-index" "10" ]
+                [ thead []
                     [ tr []
-                        [ th [ style "background-color" "white" ] [ text "Flow" ]
-                        , th [ class "has-text-right", style "background-color" "white" ] [ text "Quantity" ]
-                        , th [ style "background-color" "white" ] [ text "Unit" ]
+                        [ th [] [ text "Flow" ]
+                        , th [ class "has-text-right" ] [ text "Quantity" ]
+                        , th [] [ text "Unit" ]
                         ]
                     ]
                 , tbody []
@@ -517,19 +513,17 @@ viewAllProducts products currentProcessId onNavigate =
         p [ class "has-text-grey" ] [ text "No products" ]
 
     else
-        div [ style "flex" "1", style "overflow-y" "auto", style "min-height" "0" ]
-            [ table [ class "table is-striped is-fullwidth" ]
-                [ thead [ style "position" "sticky", style "top" "0", style "background-color" "white", style "z-index" "10" ]
-                    [ tr []
-                        [ th [ style "background-color" "white" ] [ text "Product" ]
-                        , th [ style "background-color" "white" ] [ text "Location" ]
-                        ]
+        table [ class "table is-striped is-fullwidth" ]
+            [ thead []
+                [ tr []
+                    [ th [] [ text "Product" ]
+                    , th [] [ text "Location" ]
                     ]
-                , tbody []
-                    (products
-                        |> List.map (viewAllProductRow currentProcessId onNavigate)
-                    )
                 ]
+            , tbody []
+                (products
+                    |> List.map (viewAllProductRow currentProcessId onNavigate)
+                )
             ]
 
 
@@ -585,16 +579,14 @@ viewNaturalResourcesExchanges exchanges =
                 ]
                     |> List.filter (\( _, items ) -> not (List.isEmpty items))
         in
-        div [ style "flex" "1", style "overflow-y" "auto", style "min-height" "0" ]
-            [ div [ class "columns is-multiline" ]
-                (compartments
-                    |> List.map
-                        (\( name, items ) ->
-                            div [ class "column" ]
-                                [ viewExchangeCompartmentColumn name items ]
-                        )
-                )
-            ]
+        div [ class "columns is-multiline" ]
+            (compartments
+                |> List.map
+                    (\( name, items ) ->
+                        div [ class "column" ]
+                            [ viewExchangeCompartmentColumn name items ]
+                    )
+            )
 
 
 type alias ResourceCompartmentGroups =
@@ -670,11 +662,11 @@ viewExchangeCompartmentColumn compartmentName exchanges =
         [ h3 [ class "title is-6 has-text-grey mb-2", style "padding-left" "0.5rem" ] [ text compartmentName ]
         , div [ class "table-container" ]
             [ table [ class "table is-striped is-fullwidth is-narrow" ]
-                [ thead [ style "position" "sticky", style "top" "0", style "background-color" "white", style "z-index" "10" ]
+                [ thead []
                     [ tr []
-                        [ th [ style "background-color" "white" ] [ text "Flow" ]
-                        , th [ class "has-text-right", style "background-color" "white" ] [ text "Quantity" ]
-                        , th [ style "background-color" "white" ] [ text "Unit" ]
+                        [ th [] [ text "Flow" ]
+                        , th [ class "has-text-right" ] [ text "Quantity" ]
+                        , th [] [ text "Unit" ]
                         ]
                     ]
                 , tbody []

@@ -191,11 +191,9 @@ viewBody shared model =
                         emissionsCount =
                             List.length (List.filter .ifdIsEmission inventory.ieFlows)
                     in
-                    div [ style "display" "flex", style "flex-direction" "column", style "height" "100%" ]
-                        [ div [ style "flex-shrink" "0" ]
-                            [ Views.ActivityHeader.viewActivityHeader activityInfo "Life Cycle Inventory (LCI)" NavigateBack
-                            ]
-                        , div [ style "flex" "1", style "display" "flex", style "flex-direction" "column", style "min-height" "0", style "padding" "0.5rem" ]
+                    div []
+                        [ Views.ActivityHeader.viewActivityHeader activityInfo "Life Cycle Inventory (LCI)" NavigateBack
+                        , div [ style "padding" "0.5rem" ]
                             [ Html.map InventoryViewMsg
                                 (InventoryView.viewInventoryTables
                                     model.resourcesSearch

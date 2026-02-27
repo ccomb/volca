@@ -97,7 +97,7 @@ toDocument shared pageView =
                       else
                         text ""
                     , viewLeftMenu shared
-                    , div [ class "main-content" ]
+                    , div [ id "main-content", class "main-content" ]
                         [ pageView.body
                         ]
                     , case shared.console.visibility of
