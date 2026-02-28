@@ -520,7 +520,7 @@ extractLocation name =
                 (loc:_) | isGeoCode loc ->
                     Just (T.strip (T.dropWhileEnd (== '/') before), loc)
                 _ -> Nothing
-    isGeoCode t = not (T.null t) && isUpper (T.head t)
+    isGeoCode t = T.length t >= 2 && isUpper (T.head t)
 
 -- | Convert ProcessBlock to list of Activities (one per product)
 -- This matches EcoSpold behavior where multi-product processes create multiple activities
