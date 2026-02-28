@@ -50,7 +50,7 @@ module Database.CrossLinking
     , normalizeUnicode
     ) where
 
-import Data.Char (isUpper, isAlpha, isDigit)
+import Data.Char (isUpper, isAlpha)
 import Data.List (maximumBy)
 import Data.Maybe (mapMaybe, fromMaybe)
 import qualified Data.Map.Strict as M
@@ -219,10 +219,10 @@ extractBracketedLocation name =
             Just loc | looksLikeGeo loc -> loc
             _ -> ""
   where
-    -- Accept only short uppercase codes (e.g. "GLO", "FR", "RER", "RoW")
+    -- Accept only short codes starting uppercase (e.g. "GLO", "FR", "RER", "RoW")
     looksLikeGeo t =
-        T.length t >= 2 && T.length t <= 5
-        && T.all (\c -> isUpper c || isDigit c) t
+        T.length t >= 2 && T.length t <= 3
+        && isUpper (T.head t)
     extractFromBrackets :: Char -> Char -> Text -> Maybe Text
     extractFromBrackets open close txt =
         let (_, afterOpen) = T.breakOn (T.singleton open) txt

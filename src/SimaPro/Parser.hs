@@ -507,18 +507,20 @@ extractLocation name =
                 _ -> (name, "")
         _ -> -- No {XX} found — try WFLDB-style /XX suffix
             case extractSlashLocation name of
-                Just loc -> (T.strip name, loc)
-                Nothing  -> (name, "")
+                Just (cleanName, loc) -> (cleanName, loc)
+                Nothing               -> (name, "")
   where
     -- Extract a trailing /XX location code from WFLDB-style names like
     -- "Product (WFLDB)/CN U" or "Product (WFLDB)/RNA S"
-    -- Takes the first word after the last slash (ignoring trailing unit marker)
+    -- Returns (cleaned name without /XX suffix, location code)
     extractSlashLocation n =
         case T.breakOnEnd "/" n of
             ("", _) -> Nothing  -- no slash
-            (_, suffix) -> case T.words (T.strip suffix) of
-                (loc:_) | T.length loc >= 2, T.length loc <= 3, T.all isUpper loc -> Just loc
+            (before, suffix) -> case T.words (T.strip suffix) of
+                (loc:_) | isGeoCode loc ->
+                    Just (T.strip (T.dropWhileEnd (== '/') before), loc)
                 _ -> Nothing
+    isGeoCode t = not (T.null t) && isUpper (T.head t)
 
 -- | Convert ProcessBlock to list of Activities (one per product)
 -- This matches EcoSpold behavior where multi-product processes create multiple activities
@@ -561,10 +563,10 @@ processBlockToActivity ProcessBlock{..} =
         makeActivity :: ProductRow -> (Activity, [Flow], [Unit])
         makeActivity prod =
             let productExchange = productToExchange True prod
-                (_, locFromProduct) = extractLocation (prName prod)
+                (cleanProductName, locFromProduct) = extractLocation (prName prod)
                 effectiveLoc = if T.null location then locFromProduct else location
                 activity = Activity
-                    { activityName = prName prod
+                    { activityName = cleanProductName
                     , activityDescription = if T.null pbComment then [] else [pbComment]
                     , activitySynonyms = M.empty
                     , activityClassification = M.empty
@@ -579,7 +581,8 @@ processBlockToActivity ProcessBlock{..} =
 -- | Convert product row to exchange
 productToExchange :: Bool -> ProductRow -> Exchange
 productToExchange isRef ProductRow{..} =
-    let flowUUID = generateFlowUUID prName "" prUnit
+    let cleanName = fst (extractLocation prName)
+        flowUUID = generateFlowUUID cleanName "" prUnit
         unitUUID = generateUnitUUID prUnit
     in TechnosphereExchange
         { techFlowId = flowUUID
@@ -597,8 +600,8 @@ techRowToExchange :: Bool -> TechExchangeRow -> [Exchange]
 techRowToExchange isInput TechExchangeRow{..}
     | terAmount == 0 = []
     | otherwise =
-        let (_, location) = extractLocation terName
-            flowUUID = generateFlowUUID terName "" terUnit
+        let (cleanName, location) = extractLocation terName
+            flowUUID = generateFlowUUID cleanName "" terUnit
             unitUUID = generateUnitUUID terUnit
         in [TechnosphereExchange
             { techFlowId = flowUUID
@@ -632,9 +635,11 @@ collectFlows products techs bios =
         bioFlows = map bioToFlow bios
     in productFlows ++ techFlows ++ bioFlows
   where
-    productToFlow ProductRow{..} = Flow
-        { flowId = generateFlowUUID prName "" prUnit
-        , flowName = prName
+    productToFlow ProductRow{..} =
+        let cleanName = fst (extractLocation prName)
+        in Flow
+        { flowId = generateFlowUUID cleanName "" prUnit
+        , flowName = cleanName
         , flowCategory = prCategory
         , flowSubcompartment = Nothing
         , flowUnitId = generateUnitUUID prUnit
@@ -643,9 +648,11 @@ collectFlows products techs bios =
         , flowCAS = Nothing
         , flowSubstanceId = Nothing
         }
-    techToFlow TechExchangeRow{..} = Flow
-        { flowId = generateFlowUUID terName "" terUnit
-        , flowName = terName
+    techToFlow TechExchangeRow{..} =
+        let cleanName = fst (extractLocation terName)
+        in Flow
+        { flowId = generateFlowUUID cleanName "" terUnit
+        , flowName = cleanName
         , flowCategory = ""
         , flowSubcompartment = Nothing
         , flowUnitId = generateUnitUUID terUnit
