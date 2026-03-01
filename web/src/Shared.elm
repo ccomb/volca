@@ -1,9 +1,9 @@
-module Shared exposing
+port module Shared exposing
     ( Model
     , Msg(..)
     , AuthState(..)
+    , ConsoleState(..)
     , RemoteData(..)
-    , ConsoleVisibility(..)
     , init
     , update
     , subscriptions
@@ -14,7 +14,6 @@ module Shared exposing
     , viewLoadDatabasePrompt
     )
 
-import Browser.Dom
 import Browser.Events
 import Browser.Navigation as Nav
 import Dict exposing (Dict)
@@ -28,10 +27,10 @@ import Models.Activity exposing (ActivityInfo, ActivityTree)
 import Models.Database exposing (DatabaseList, DatabaseLoadStatus(..), LoadDatabaseResponse(..), databaseListDecoder, loadDatabaseResponseDecoder)
 import Models.Graph exposing (GraphData)
 import Models.Inventory exposing (InventoryExport)
+import Process
 import Route exposing (Route(..))
 import Set exposing (Set)
 import Task
-import Time
 
 
 type RemoteData a
@@ -47,16 +46,9 @@ type AuthState
     | Authenticated
 
 
-type alias ConsoleModel =
-    { logs : List String
-    , nextIndex : Int
-    , visibility : ConsoleVisibility
-    }
-
-
-type ConsoleVisibility
-    = Hidden
-    | Visible { atBottom : Bool }
+type ConsoleState
+    = Closed
+    | Expanded
 
 
 type alias Model =
@@ -65,19 +57,22 @@ type alias Model =
     , lastActivitiesRoute : Maybe Route.ActivitiesFlags
     , databases : RemoteData DatabaseList
     , version : String
-    , console : ConsoleModel
+    , consoleState : ConsoleState
     , menuOpen : Bool
     , cachedTrees : Dict String ActivityTree
     , cachedActivityInfo : Dict String ActivityInfo
     , cachedInventories : Dict String InventoryExport
     , cachedGraphs : Dict String GraphData
     , loadingDatabases : Set String
+    , activeOperations : Int
     , loadProgressLines : List String
-    , loadProgressSince : Int
     , loadError : Maybe String
     , authState : AuthState
     , activityStack : List ( String, String )
     }
+
+
+port onBackendProgress : (List String -> msg) -> Sub msg
 
 
 type Msg
@@ -89,9 +84,6 @@ type Msg
     | LoadDatabaseResult String (Result Http.Error LoadDatabaseResponse)
     | ToggleConsole
     | CloseConsole
-    | PollConsoleLogs Time.Posix
-    | ConsoleLogsLoaded (Result Http.Error { lines : List String, nextIndex : Int })
-    | ConsoleScrolled Bool
     | CacheTree String ActivityTree
     | CacheActivityInfo String ActivityInfo
     | CacheInventory String InventoryExport
@@ -100,8 +92,8 @@ type Msg
     | CloseMenu
     | PushActivity String String
     | NavigateBackToParent
-    | PollLoadProgress Time.Posix
-    | LoadProgressResult (Result Http.Error { lines : List String, nextIndex : Int })
+    | BackendProgressLines (List String)
+    | ClearProgress
     | UpdateAuthCode String
     | SubmitAuthCode
     | AuthResult (Result Http.Error ())
@@ -115,19 +107,15 @@ init flags key =
       , lastActivitiesRoute = Nothing
       , databases = Loading
       , version = flags.version
-      , console =
-            { logs = []
-            , nextIndex = 0
-            , visibility = Hidden
-            }
+      , consoleState = Closed
       , menuOpen = False
       , cachedTrees = Dict.empty
       , cachedActivityInfo = Dict.empty
       , cachedInventories = Dict.empty
       , cachedGraphs = Dict.empty
       , loadingDatabases = Set.empty
+      , activeOperations = 0
       , loadProgressLines = []
-      , loadProgressSince = 0
       , loadError = Nothing
       , authState = AuthChecking
       , activityStack = []
@@ -148,6 +136,7 @@ update msg model =
             ( { model
                 | currentRoute = route
                 , menuOpen = False
+                , loadProgressLines = []
                 , lastActivitiesRoute =
                     case Route.matchActivities route of
                         Just flags ->
@@ -177,32 +166,25 @@ update msg model =
                         _ ->
                             False
 
-                -- Databases that are now confirmed loaded — remove from loading set
-                stillLoading =
+                loadingNow =
                     Set.filter
                         (\name -> not (List.any (\db -> db.name == name && db.status /= Unloaded) dbList.databases))
                         model.loadingDatabases
 
                 -- Trigger page re-init on initial load or when a database just finished loading
                 shouldReloadPage =
-                    isInitialLoad || Set.size stillLoading < Set.size model.loadingDatabases
+                    isInitialLoad || Set.size loadingNow < Set.size model.loadingDatabases
             in
             ( { model
                 | databases = Loaded dbList
                 , authState = Authenticated
-                , loadingDatabases = stillLoading
+                , loadingDatabases = loadingNow
                 , loadProgressLines =
-                    if Set.isEmpty stillLoading then
+                    if Set.size loadingNow < Set.size model.loadingDatabases then
                         []
 
                     else
                         model.loadProgressLines
-                , loadProgressSince =
-                    if Set.isEmpty stillLoading then
-                        0
-
-                    else
-                        model.loadProgressSince
               }
             , if shouldReloadPage then
                 Nav.replaceUrl model.key (Route.routeToUrl model.currentRoute)
@@ -214,12 +196,12 @@ update msg model =
         DatabasesLoaded (Err error) ->
             case error of
                 Http.BadStatus 401 ->
-                    ( { model | authState = NeedsAuth { code = "", error = Nothing }, loadingDatabases = Set.empty, loadProgressLines = [], loadProgressSince = 0 }
+                    ( { model | authState = NeedsAuth { code = "", error = Nothing }, loadingDatabases = Set.empty, loadProgressLines = [] }
                     , Cmd.none
                     )
 
                 _ ->
-                    ( { model | databases = Failed (httpErrorToString error), loadingDatabases = Set.empty, loadProgressLines = [], loadProgressSince = 0 }
+                    ( { model | databases = Failed (httpErrorToString error), loadingDatabases = Set.empty, loadProgressLines = [] }
                     , Cmd.none
                     )
 
@@ -227,7 +209,6 @@ update msg model =
             ( { model
                 | loadingDatabases = Set.insert dbName model.loadingDatabases
                 , loadProgressLines = []
-                , loadProgressSince = model.console.nextIndex
                 , loadError = Nothing
               }
             , loadDatabaseCmd dbName
@@ -251,7 +232,6 @@ update msg model =
                     ( { model
                         | loadingDatabases = Set.remove dbName model.loadingDatabases
                         , loadProgressLines = []
-                        , loadProgressSince = 0
                         , loadError = Just err
                       }
                     , Cmd.none
@@ -261,104 +241,61 @@ update msg model =
             ( { model
                 | loadingDatabases = Set.remove dbName model.loadingDatabases
                 , loadProgressLines = []
-                , loadProgressSince = 0
                 , loadError = Just (httpErrorToString err)
               }
             , Cmd.none
             )
 
         ToggleConsole ->
-            let
-                newConsole =
-                    model.console
+            ( { model
+                | consoleState =
+                    case model.consoleState of
+                        Expanded ->
+                            Closed
 
-                isVisible =
-                    case newConsole.visibility of
-                        Visible _ ->
-                            True
-
-                        Hidden ->
-                            False
-            in
-            if isVisible then
-                ( { model | console = { newConsole | visibility = Hidden } }
-                , Cmd.none
-                )
-
-            else
-                ( { model | console = { newConsole | visibility = Visible { atBottom = True } } }
-                , Cmd.batch [ loadConsoleLogs newConsole.nextIndex, scrollConsoleToBottom ]
-                )
+                        _ ->
+                            Expanded
+              }
+            , Cmd.none
+            )
 
         CloseConsole ->
-            let
-                console =
-                    model.console
-            in
-            ( { model | console = { console | visibility = Hidden } }
-            , Cmd.none
-            )
+            ( { model | consoleState = Closed }, Cmd.none )
 
-        PollConsoleLogs _ ->
-            ( model, loadConsoleLogs model.console.nextIndex )
+        BackendProgressLines lines ->
+            if List.isEmpty lines then
+                ( model, Cmd.none )
 
-        ConsoleLogsLoaded (Ok result) ->
-            let
-                console =
-                    model.console
+            else
+                let
+                    startingCount =
+                        List.length (List.filter (String.contains "[STARTING]") lines)
 
-                isAtBottom =
-                    case console.visibility of
-                        Visible visibleState ->
-                            visibleState.atBottom
+                    okCount =
+                        List.length (List.filter (String.contains "[OK]") lines)
 
-                        Hidden ->
-                            True
-            in
-            ( { model
-                | console =
-                    { console
-                        | logs = console.logs ++ result.lines
-                        , nextIndex = result.nextIndex
-                    }
-              }
-            , if isAtBottom && not (List.isEmpty result.lines) then
-                scrollConsoleToBottom
+                    newOps =
+                        max 0 (model.activeOperations + startingCount - okCount)
+                in
+                ( { model
+                    | loadProgressLines = model.loadProgressLines ++ lines
+                    , activeOperations = newOps
+                  }
+                , if okCount > 0 && newOps == 0 then
+                    Process.sleep 2000 |> Task.perform (\_ -> ClearProgress)
 
-              else
-                Cmd.none
-            )
+                  else
+                    Cmd.none
+                )
 
-        ConsoleLogsLoaded (Err _) ->
-            ( model, Cmd.none )
+        ClearProgress ->
+            if model.activeOperations > 0 then
+                ( model, Cmd.none )
 
-        ConsoleScrolled atBottom ->
-            let
-                console =
-                    model.console
-            in
-            ( { model
-                | console =
-                    { console
-                        | visibility = Visible { atBottom = atBottom }
-                    }
-              }
-            , Cmd.none
-            )
-
-        PollLoadProgress _ ->
-            ( model, loadProgressLogs model.loadProgressSince )
-
-        LoadProgressResult (Ok result) ->
-            ( { model
-                | loadProgressLines = model.loadProgressLines ++ result.lines
-                , loadProgressSince = result.nextIndex
-              }
-            , Cmd.none
-            )
-
-        LoadProgressResult (Err _) ->
-            ( model, Cmd.none )
+            else
+                ( { model | loadProgressLines = [] }
+                , Cmd.none
+                )
 
         CacheTree activityId tree ->
             ( { model | cachedTrees = Dict.insert activityId tree model.cachedTrees }
@@ -454,30 +391,23 @@ update msg model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ case model.console.visibility of
-            Visible _ ->
-                Sub.batch
-                    [ Time.every 2000 PollConsoleLogs
-                    , Browser.Events.onKeyDown
-                        (Json.Decode.field "key" Json.Decode.string
-                            |> Json.Decode.andThen
-                                (\key ->
-                                    if key == "Escape" then
-                                        Json.Decode.succeed CloseConsole
+        [ onBackendProgress BackendProgressLines
+        , case model.consoleState of
+            Expanded ->
+                Browser.Events.onKeyDown
+                    (Json.Decode.field "key" Json.Decode.string
+                        |> Json.Decode.andThen
+                            (\key ->
+                                if key == "Escape" then
+                                    Json.Decode.succeed CloseConsole
 
-                                    else
-                                        Json.Decode.fail "not Escape"
-                                )
-                        )
-                    ]
+                                else
+                                    Json.Decode.fail ""
+                            )
+                    )
 
-            Hidden ->
+            Closed ->
                 Sub.none
-        , if not (Set.isEmpty model.loadingDatabases) then
-            Time.every 500 PollLoadProgress
-
-          else
-            Sub.none
         ]
 
 
@@ -590,38 +520,6 @@ postAuthCode code =
         , expect = Http.expectWhatever AuthResult
         }
 
-
-loadConsoleLogs : Int -> Cmd Msg
-loadConsoleLogs since =
-    Http.get
-        { url = "/api/v1/logs?since=" ++ String.fromInt since
-        , expect =
-            Http.expectJson ConsoleLogsLoaded
-                (Json.Decode.map2 (\lines nextIndex -> { lines = lines, nextIndex = nextIndex })
-                    (Json.Decode.field "lines" (Json.Decode.list Json.Decode.string))
-                    (Json.Decode.field "nextIndex" Json.Decode.int)
-                )
-        }
-
-
-loadProgressLogs : Int -> Cmd Msg
-loadProgressLogs since =
-    Http.get
-        { url = "/api/v1/logs?since=" ++ String.fromInt since
-        , expect =
-            Http.expectJson LoadProgressResult
-                (Json.Decode.map2 (\lines nextIndex -> { lines = lines, nextIndex = nextIndex })
-                    (Json.Decode.field "lines" (Json.Decode.list Json.Decode.string))
-                    (Json.Decode.field "nextIndex" Json.Decode.int)
-                )
-        }
-
-
-scrollConsoleToBottom : Cmd Msg
-scrollConsoleToBottom =
-    Browser.Dom.getViewportOf "console-log-container"
-        |> Task.andThen (\info -> Browser.Dom.setViewportOf "console-log-container" 0 info.scene.height)
-        |> Task.attempt (\_ -> NoOp)
 
 
 httpErrorToString : Http.Error -> String

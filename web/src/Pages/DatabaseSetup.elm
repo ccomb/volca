@@ -122,39 +122,27 @@ update shared msg model =
 
 
 view : Shared.Model -> Model -> View Msg
-view _ model =
+view shared model =
     let
-        maybeSetupInfo =
+        ( maybeSetupInfo, error ) =
             case model.setupInfo of
                 Loaded info ->
-                    Just info
+                    ( Just info, Nothing )
 
-                _ ->
-                    Nothing
-
-        loading =
-            case model.setupInfo of
-                Loading ->
-                    True
-
-                _ ->
-                    False
-
-        error =
-            case model.setupInfo of
                 Failed err ->
-                    Just err
+                    ( Nothing, Just err )
 
                 _ ->
-                    Nothing
+                    ( Nothing, Nothing )
     in
     { title = "Database Setup"
     , body =
         Html.map DatabaseSetupViewMsg
             (DatabaseSetupView.viewDatabaseSetupPage
+                model.dbName
                 maybeSetupInfo
-                loading
                 error
+                shared.loadProgressLines
             )
     }
 

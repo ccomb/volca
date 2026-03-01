@@ -21,7 +21,7 @@ import Pages.Tree
 import Pages.Upload
 import Pages.Upstream
 import Route exposing (ActivePage(..), ActivityTab(..), Route(..))
-import Shared exposing (ConsoleVisibility(..), RemoteData(..))
+import Shared exposing (RemoteData(..))
 import Spa
 import View exposing (View)
 import Views.LeftMenu as LeftMenu
@@ -100,12 +100,7 @@ toDocument shared pageView =
                     , div [ id "main-content", class "main-content" ]
                         [ pageView.body
                         ]
-                    , case shared.console.visibility of
-                        Visible _ ->
-                            viewConsoleOverlay shared
-
-                        Hidden ->
-                            text ""
+                    , viewConsole shared
                     ]
                 ]
             }
@@ -196,12 +191,7 @@ viewLeftMenu shared =
                     Nothing
 
         showConsole =
-            case shared.console.visibility of
-                Visible _ ->
-                    True
-
-                Hidden ->
-                    False
+            shared.consoleState /= Shared.Closed
     in
     Html.map
         (\leftMenuMsg ->
@@ -288,78 +278,62 @@ routeToActivityId route =
             Nothing
 
 
-viewConsoleOverlay : Shared.Model -> Html (Spa.Msg Shared.Msg pageMsg)
-viewConsoleOverlay shared =
-    div
-        [ style "position" "fixed"
-        , style "top" "0"
-        , style "left" "0"
-        , style "right" "0"
-        , style "bottom" "0"
-        , style "background" "rgba(0, 0, 0, 0.5)"
-        , style "z-index" "100"
-        , style "display" "flex"
-        , style "flex-direction" "column"
-        , style "padding" "2rem"
-        , onClick (Spa.mapSharedMsg Shared.ToggleConsole)
-        ]
-        [ div
-            [ style "display" "flex"
-            , style "flex-direction" "column"
-            , style "flex" "1"
-            , style "background" "#1a1a2e"
-            , style "border-radius" "8px"
-            , style "overflow" "hidden"
-            , Html.Events.stopPropagationOn "click" (Json.Decode.succeed ( Spa.mapSharedMsg Shared.NoOp, True ))
-            ]
-            [ div
-                [ style "display" "flex"
-                , style "justify-content" "space-between"
-                , style "align-items" "center"
-                , style "padding" "0.75rem 1rem"
-                , style "background" "#16213e"
-                , style "color" "#e0e0e0"
+viewConsole : Shared.Model -> Html (Spa.Msg Shared.Msg pageMsg)
+viewConsole shared =
+    case shared.consoleState of
+        Shared.Closed ->
+            text ""
+
+        Shared.Expanded ->
+            div
+                [ style "position" "fixed"
+                , style "top" "0"
+                , style "left" "0"
+                , style "right" "0"
+                , style "bottom" "0"
+                , style "z-index" "100"
+                , style "display" "flex"
+                , style "flex-direction" "column"
+                , style "background" "rgba(26, 26, 46, 0.95)"
+                , style "backdrop-filter" "blur(8px)"
                 ]
-                [ span [ style "font-weight" "bold" ] [ text "Console output" ]
-                , button
-                    [ onClick (Spa.mapSharedMsg Shared.ToggleConsole)
-                    , style "background" "none"
-                    , style "border" "none"
-                    , style "color" "#e0e0e0"
-                    , style "cursor" "pointer"
-                    , style "font-size" "1.2rem"
-                    , style "padding" "0.25rem 0.5rem"
+                [ div
+                    [ style "display" "flex"
+                    , style "justify-content" "space-between"
+                    , style "align-items" "center"
+                    , style "padding" "0.75rem 1rem"
+                    , style "background" "rgba(22, 33, 62, 0.8)"
+                    , style "flex-shrink" "0"
                     ]
-                    [ text "\u{00D7}" ]
-                ]
-            , div
-                [ style "flex" "1"
-                , style "overflow-y" "auto"
-                , style "color" "#c8c8c8"
-                , style "font-family" "'Consolas', 'Monaco', monospace"
-                , style "font-size" "0.85rem"
-                , style "line-height" "1.5"
-                , style "padding" "1rem"
-                , id "console-log-container"
-                , Html.Events.on "scroll" decodeScrollAtBottom
-                ]
-                (List.map
-                    (\line -> div [] [ text line ])
-                    shared.console.logs
-                )
-            ]
-        ]
+                    [ span [ style "color" "#e0e0e0", style "font-weight" "bold", style "font-size" "0.9rem" ] [ text "Console" ]
+                    , button
+                        [ onClick (Spa.mapSharedMsg Shared.CloseConsole)
+                        , style "background" "none"
+                        , style "border" "none"
+                        , style "color" "#e0e0e0"
+                        , style "cursor" "pointer"
+                        , style "font-size" "1.2rem"
+                        , style "padding" "0.25rem 0.5rem"
+                        ]
+                        [ text "\u{00D7}" ]
+                    ]
+                , div
+                    [ style "flex" "1"
+                    , style "overflow-y" "auto"
+                    , style "color" "#c8c8c8"
+                    , style "font-family" "'Consolas', 'Monaco', monospace"
+                    , style "font-size" "0.85rem"
+                    , style "line-height" "1.5"
+                    , style "padding" "0.75rem 1rem"
+                    , id "console-log-container"
+                    ]
+                    (if List.isEmpty shared.loadProgressLines then
+                        [ div [ style "color" "#666" ] [ text "No output yet." ] ]
 
-
-decodeScrollAtBottom : Json.Decode.Decoder (Spa.Msg Shared.Msg pageMsg)
-decodeScrollAtBottom =
-    Json.Decode.map3
-        (\scrollTop scrollHeight clientHeight ->
-            Spa.mapSharedMsg (Shared.ConsoleScrolled (scrollTop + clientHeight >= scrollHeight - 10))
-        )
-        (Json.Decode.at [ "target", "scrollTop" ] Json.Decode.float)
-        (Json.Decode.at [ "target", "scrollHeight" ] Json.Decode.float)
-        (Json.Decode.at [ "target", "clientHeight" ] Json.Decode.float)
+                     else
+                        List.map (\line -> div [] [ text line ]) shared.loadProgressLines
+                    )
+                ]
 
 
 main =

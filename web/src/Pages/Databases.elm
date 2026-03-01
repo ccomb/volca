@@ -80,7 +80,7 @@ update shared msg model =
                     )
 
                 DatabasesView.DeleteDatabase dbName ->
-                    ( { model | pendingAction = Just (DeletingDb dbName), actionError = Nothing, confirmingDelete = Nothing }
+                    ( { model | pendingAction = Just (DeletingDb dbName), actionError = Nothing }
                     , Effect.fromCmd (deleteDatabaseCmd dbName)
                     )
 
@@ -117,41 +117,47 @@ view shared model =
                 _ ->
                     Nothing
 
-        loading =
-            case shared.databases of
-                Loading ->
-                    True
-
-                _ ->
-                    model.pendingAction /= Nothing
-
         error =
-            case model.actionError of
-                Just err ->
+            case ( model.actionError, shared.loadError, shared.databases ) of
+                ( Just err, _, _ ) ->
                     Just err
 
-                Nothing ->
-                    case shared.loadError of
-                        Just err ->
-                            Just err
+                ( _, Just err, _ ) ->
+                    Just err
 
-                        Nothing ->
-                            case shared.databases of
-                                Failed err ->
-                                    Just err
+                ( _, _, Failed err ) ->
+                    Just err
 
-                                _ ->
-                                    Nothing
+                _ ->
+                    Nothing
+    in
+    let
+        unloadingDb =
+            case model.pendingAction of
+                Just (UnloadingDb name) ->
+                    Just name
+
+                _ ->
+                    Nothing
+
+        deletingDb =
+            case model.pendingAction of
+                Just (DeletingDb name) ->
+                    Just name
+
+                _ ->
+                    Nothing
     in
     { title = "Databases"
     , body =
         Html.map DatabasesViewMsg
             (DatabasesView.viewDatabasesPage
                 maybeDatabases
-                loading
                 error
                 model.confirmingDelete
                 shared.loadingDatabases
+                unloadingDb
+                deletingDb
                 shared.loadProgressLines
             )
     }

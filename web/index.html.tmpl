@@ -201,10 +201,34 @@
 
     <script src="/static/{{JS_FILE}}"></script>
     <script>
-        Elm.Main.init({
+        var app = Elm.Main.init({
             node: document.getElementById('app'),
             flags: { version: "{{VERSION}}" }
         });
+        // Batch progress lines and flush once per animation frame
+        var progressBuffer = [];
+        var flushScheduled = false;
+        var logSource = null;
+        window.__fplcaProgress = function(line) {
+            progressBuffer.push(line);
+            if (!flushScheduled) {
+                flushScheduled = true;
+                requestAnimationFrame(function() {
+                    if (app.ports && app.ports.onBackendProgress && progressBuffer.length) {
+                        app.ports.onBackendProgress.send(progressBuffer);
+                    }
+                    progressBuffer = [];
+                    flushScheduled = false;
+                });
+            }
+        };
+        // SSE for web (desktop gets lines via Tauri eval)
+        if (!window.__TAURI__) {
+            logSource = new EventSource('/api/v1/logs/stream');
+            logSource.onmessage = function(e) {
+                window.__fplcaProgress(e.data);
+            };
+        }
     </script>
 </body>
 </html>

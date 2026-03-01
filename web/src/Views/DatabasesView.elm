@@ -18,8 +18,8 @@ type Msg
     | SetupDatabase String
 
 
-viewDatabasesPage : Maybe DatabaseList -> Bool -> Maybe String -> Maybe String -> Set String -> List String -> Html Msg
-viewDatabasesPage maybeDatabases loading error confirmingDelete loadingDbs progressLines =
+viewDatabasesPage : Maybe DatabaseList -> Maybe String -> Maybe String -> Set String -> Maybe String -> Maybe String -> List String -> Html Msg
+viewDatabasesPage maybeDatabases error confirmingDelete loadingDbs unloadingDb deletingDb progressLines =
     div [ class "databases-page" ]
         [ div [ class "box" ]
             [ div [ class "level" ]
@@ -46,24 +46,20 @@ viewDatabasesPage maybeDatabases loading error confirmingDelete loadingDbs progr
                 Nothing ->
                     text ""
             ]
-        , case ( loading, maybeDatabases ) of
-            ( True, _ ) ->
+        , case maybeDatabases of
+            Just dbList ->
+                viewDatabasesList dbList confirmingDelete loadingDbs unloadingDb deletingDb progressLines
+
+            Nothing ->
                 div [ class "has-text-centered", style "padding" "2rem" ]
-                    [ div [ class "is-size-4" ] [ text "Loading databases..." ]
-                    , progress [ class "progress is-primary", attribute "max" "100" ] []
+                    [ span [ class "icon is-large has-text-primary" ]
+                        [ i [ class "fas fa-spinner fa-spin fa-2x" ] [] ]
                     ]
-
-            ( False, Just dbList ) ->
-                viewDatabasesList dbList confirmingDelete loadingDbs progressLines
-
-            ( False, Nothing ) ->
-                div [ class "notification is-warning", style "margin" "1rem" ]
-                    [ text "No database information available" ]
         ]
 
 
-viewDatabasesList : DatabaseList -> Maybe String -> Set String -> List String -> Html Msg
-viewDatabasesList dbList confirmingDelete loadingDbs progressLines =
+viewDatabasesList : DatabaseList -> Maybe String -> Set String -> Maybe String -> Maybe String -> List String -> Html Msg
+viewDatabasesList dbList confirmingDelete loadingDbs unloadingDb deletingDb progressLines =
     let
         dbCount =
             List.length dbList.databases
@@ -85,25 +81,54 @@ viewDatabasesList dbList confirmingDelete loadingDbs progressLines =
                     ]
                 ]
             , tbody []
-                (List.map (viewDatabaseRow confirmingDelete loadingDbs progressLines) dbList.databases)
+                (List.concatMap (viewDatabaseRowWithProgress confirmingDelete loadingDbs unloadingDb deletingDb progressLines) dbList.databases)
             ]
         ]
 
 
-viewDatabaseRow : Maybe String -> Set String -> List String -> DatabaseStatus -> Html Msg
-viewDatabaseRow confirmingDelete loadingDbs progressLines db =
+viewDatabaseRowWithProgress : Maybe String -> Set String -> Maybe String -> Maybe String -> List String -> DatabaseStatus -> List (Html Msg)
+viewDatabaseRowWithProgress confirmingDelete loadingDbs unloadingDb deletingDb progressLines db =
     let
         isLoading =
             Set.member db.name loadingDbs
 
-        isInMemory =
-            db.status /= Unloaded
+        lastLines =
+            List.reverse progressLines |> List.take 3 |> List.reverse
+    in
+    viewDatabaseRow confirmingDelete loadingDbs unloadingDb deletingDb db
+        :: (if isLoading && not (List.isEmpty lastLines) then
+                [ tr []
+                    [ td [ attribute "colspan" "6", style "padding" "0.25rem 1rem 0.75rem", style "border-top" "none" ]
+                        [ div
+                            [ style "font-family" "'Consolas', 'Monaco', monospace"
+                            , style "font-size" "0.75rem"
+                            , style "color" "#7a7a7a"
+                            , style "line-height" "1.5"
+                            ]
+                            (List.map (\line -> div [] [ text line ]) lastLines)
+                        ]
+                    ]
+                ]
 
-        canUnload =
-            isInMemory
+            else
+                []
+           )
+
+
+viewDatabaseRow : Maybe String -> Set String -> Maybe String -> Maybe String -> DatabaseStatus -> Html Msg
+viewDatabaseRow confirmingDelete loadingDbs unloadingDb deletingDb db =
+    let
+        isLoading =
+            Set.member db.name loadingDbs
+
+        isUnloading =
+            unloadingDb == Just db.name
+
+        isDeleting =
+            deletingDb == Just db.name
 
         canDelete =
-            db.isUploaded && not isInMemory
+            db.isUploaded && db.status == Unloaded
 
         statusIndicator =
             if isLoading then
@@ -131,30 +156,16 @@ viewDatabaseRow confirmingDelete loadingDbs progressLines db =
 
                 _ ->
                     []
-
-        latestProgress =
-            progressLines
-                |> List.reverse
-                |> List.head
-                |> Maybe.withDefault "Loading..."
     in
     tr rowAttrs
         [ td [ style "text-align" "center", style "vertical-align" "middle" ]
             [ statusIndicator ]
-        , td [ if isLoading then style "min-width" "300px" else style "" "" ]
+        , td []
             [ if isLoading then
-                span
-                    [ class "has-text-grey is-size-7"
-                    , style "max-width" "400px"
-                    , style "overflow" "hidden"
-                    , style "text-overflow" "ellipsis"
-                    , style "white-space" "nowrap"
-                    , style "display" "block"
-                    ]
-                    [ text latestProgress ]
+                span [ class "has-text-grey is-size-7" ] [ text "Loading..." ]
 
               else
-                viewActionButtons db canUnload canDelete (confirmingDelete == Just db.name)
+                viewActionButtons db canDelete (confirmingDelete == Just db.name) isUnloading isDeleting
             ]
         , td []
             [ text db.displayName ]
@@ -172,8 +183,27 @@ viewDatabaseRow confirmingDelete loadingDbs progressLines db =
         ]
 
 
-viewActionButtons : DatabaseStatus -> Bool -> Bool -> Bool -> Html Msg
-viewActionButtons db canUnload canDelete isConfirming =
+viewActionButtons : DatabaseStatus -> Bool -> Bool -> Bool -> Bool -> Html Msg
+viewActionButtons db canDelete isConfirming isUnloading isDeleting =
+    let
+        closeButton =
+            button
+                [ class
+                    ("button is-warning is-small"
+                        ++ (if isUnloading then
+                                " is-loading"
+
+                            else
+                                ""
+                           )
+                    )
+                , Html.Attributes.disabled isUnloading
+                , stopPropagationOn "click" (Decode.succeed ( UnloadDatabase db.name, True ))
+                ]
+                [ span [ class "icon is-small" ] [ i [ class "fas fa-times" ] [] ]
+                , span [] [ text "Close" ]
+                ]
+    in
     div [ class "buttons are-small" ]
         [ case db.status of
             Unloaded ->
@@ -203,13 +233,7 @@ viewActionButtons db canUnload canDelete isConfirming =
                         [ span [ class "icon is-small" ] [ i [ class "fas fa-info-circle" ] [] ]
                         , span [] [ text "Info" ]
                         ]
-                    , button
-                        [ class "button is-warning is-small"
-                        , stopPropagationOn "click" (Decode.succeed ( UnloadDatabase db.name, True ))
-                        ]
-                        [ span [ class "icon is-small" ] [ i [ class "fas fa-times" ] [] ]
-                        , span [] [ text "Close" ]
-                        ]
+                    , closeButton
                     ]
 
             DbLoaded ->
@@ -221,25 +245,29 @@ viewActionButtons db canUnload canDelete isConfirming =
                         [ span [ class "icon is-small" ] [ i [ class "fas fa-info-circle" ] [] ]
                         , span [] [ text "Info" ]
                         ]
-                    , button
-                        [ class "button is-warning is-small"
-                        , stopPropagationOn "click" (Decode.succeed ( UnloadDatabase db.name, True ))
-                        ]
-                        [ span [ class "icon is-small" ] [ i [ class "fas fa-times" ] [] ]
-                        , span [] [ text "Close" ]
-                        ]
+                    , closeButton
                     ]
         , if canDelete then
             if isConfirming then
                 span [ class "buttons are-small", style "display" "inline-flex" ]
                     [ span [ class "has-text-danger", style "font-weight" "bold", style "margin-right" "0.25rem", style "line-height" "2em" ] [ text "Delete?" ]
                     , button
-                        [ class "button is-danger is-small"
+                        [ class
+                            ("button is-danger is-small"
+                                ++ (if isDeleting then
+                                        " is-loading"
+
+                                    else
+                                        ""
+                                   )
+                            )
+                        , Html.Attributes.disabled isDeleting
                         , stopPropagationOn "click" (Decode.succeed ( DeleteDatabase db.name, True ))
                         ]
                         [ text "Yes" ]
                     , button
                         [ class "button is-light is-small"
+                        , Html.Attributes.disabled isDeleting
                         , stopPropagationOn "click" (Decode.succeed ( CancelDeleteDatabase, True ))
                         ]
                         [ text "No" ]
@@ -256,3 +284,5 @@ viewActionButtons db canUnload canDelete isConfirming =
           else
             text ""
         ]
+
+

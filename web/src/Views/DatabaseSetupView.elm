@@ -26,10 +26,10 @@ type Msg
     | GoBack
 
 
-viewDatabaseSetupPage : Maybe DatabaseSetupInfo -> Bool -> Maybe String -> Html Msg
-viewDatabaseSetupPage maybeSetupInfo loading error =
+viewDatabaseSetupPage : String -> Maybe DatabaseSetupInfo -> Maybe String -> List String -> Html Msg
+viewDatabaseSetupPage dbName maybeSetupInfo error progressLines =
     div [ class "database-setup-page" ]
-        [ viewHeader maybeSetupInfo
+        [ viewHeader dbName maybeSetupInfo
         , case error of
             Just err ->
                 div [ class "notification is-danger", style "margin" "1rem" ]
@@ -37,24 +37,46 @@ viewDatabaseSetupPage maybeSetupInfo loading error =
 
             Nothing ->
                 text ""
-        , case ( loading, maybeSetupInfo, error ) of
-            ( True, _, _ ) ->
-                viewLoading
-
-            ( False, Just setupInfo, _ ) ->
+        , case maybeSetupInfo of
+            Just setupInfo ->
                 viewSetupContent setupInfo
 
-            ( False, Nothing, Just _ ) ->
-                text ""
+            Nothing ->
+                if error == Nothing then
+                    let
+                        lastLines =
+                            List.reverse progressLines |> List.take 3 |> List.reverse
+                    in
+                    div [ class "has-text-centered", style "padding" "3rem" ]
+                        [ span [ class "icon is-large has-text-primary" ]
+                            [ i [ class "fas fa-spinner fa-spin fa-2x" ] [] ]
+                        , p [ class "has-text-grey", style "margin-top" "1rem" ]
+                            [ text "Loading database information..." ]
+                        , if not (List.isEmpty lastLines) then
+                            div
+                                [ style "margin-top" "1rem"
+                                , style "font-family" "'Consolas', 'Monaco', monospace"
+                                , style "font-size" "0.75rem"
+                                , style "color" "#7a7a7a"
+                                , style "line-height" "1.5"
+                                , style "text-align" "left"
+                                , style "max-width" "600px"
+                                , style "margin-left" "auto"
+                                , style "margin-right" "auto"
+                                ]
+                                (List.map (\line -> div [] [ text line ]) lastLines)
 
-            ( False, Nothing, Nothing ) ->
-                div [ class "notification is-warning", style "margin" "1rem" ]
-                    [ text "No setup information available" ]
+                          else
+                            text ""
+                        ]
+
+                else
+                    text ""
         ]
 
 
-viewHeader : Maybe DatabaseSetupInfo -> Html Msg
-viewHeader maybeSetupInfo =
+viewHeader : String -> Maybe DatabaseSetupInfo -> Html Msg
+viewHeader dbName maybeSetupInfo =
     div [ class "box" ]
         [ div [ class "level" ]
             [ div [ class "level-left" ]
@@ -68,7 +90,7 @@ viewHeader maybeSetupInfo =
                         [ text
                             (maybeSetupInfo
                                 |> Maybe.map .displayName
-                                |> Maybe.withDefault "Database Setup"
+                                |> Maybe.withDefault dbName
                             )
                         ]
                     ]
@@ -88,14 +110,6 @@ viewHeader maybeSetupInfo =
                     |> Maybe.withDefault "Configure supply chain dependencies"
                 )
             ]
-        ]
-
-
-viewLoading : Html Msg
-viewLoading =
-    div [ class "has-text-centered", style "padding" "2rem" ]
-        [ div [ class "is-size-4" ] [ text "Loading setup information..." ]
-        , progress [ class "progress is-primary", attribute "max" "100" ] []
         ]
 
 
