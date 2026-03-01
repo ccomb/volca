@@ -135,11 +135,15 @@ view shared model =
                 _ ->
                     ( Nothing, Nothing )
     in
+    let
+        displayName =
+            Shared.getDatabaseDisplayName shared model.dbName
+    in
     { title = "Database Setup"
     , body =
         Html.map DatabaseSetupViewMsg
             (DatabaseSetupView.viewDatabaseSetupPage
-                model.dbName
+                displayName
                 maybeSetupInfo
                 error
                 shared.loadProgressLines
