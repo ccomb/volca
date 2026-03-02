@@ -459,24 +459,28 @@ findAllMethodDirectories root = go root
         childResults <- concat <$> mapM go subdirs
         if hasMethod then return (dir : childResults) else return childResults
 
--- | Count ILCD method XML files in a single directory (non-recursive).
+-- | Count method files (ILCD XML or CSV) in a single directory (non-recursive).
 countMethodFilesIn :: FilePath -> IO Int
 countMethodFilesIn dir = do
     fs <- listDirectory dir
     let xmlFiles = [dir </> f | f <- fs, map toLower (takeExtension f) == ".xml"]
-    counts <- mapM (\f -> do b <- isMethodXml f; return $ if b then 1 else 0) xmlFiles
-    return $ sum counts
+        csvCount = length [f | f <- fs, map toLower (takeExtension f) == ".csv"]
+    xmlCount <- sum <$> mapM (\f -> do b <- isMethodXml f; return $ if b then 1 else 0) xmlFiles
+    return $ xmlCount + csvCount
 
--- | Check if a directory contains ILCD method XML files directly.
--- Content-aware: reads the first few bytes of an XML file to check for
+-- | Check if a directory contains method files (ILCD XML or CSV) directly.
+-- Content-aware for XML: reads the first few bytes to check for
 -- LCIAMethodDataSet marker, avoiding false positives on contacts/, flows/, etc.
 anyMethodFilesIn :: FilePath -> IO Bool
 anyMethodFilesIn d = do
     fs <- listDirectory d
-    let xmlFiles = [d </> f | f <- fs, map toLower (takeExtension f) == ".xml"]
-    case xmlFiles of
-        []    -> return False
-        (f:_) -> isMethodXml f
+    let csvFiles = [f | f <- fs, map toLower (takeExtension f) == ".csv"]
+        xmlFiles = [d </> f | f <- fs, map toLower (takeExtension f) == ".xml"]
+    if not (null csvFiles)
+        then return True
+        else case xmlFiles of
+            []    -> return False
+            (f:_) -> isMethodXml f
 
 -- | Check if an XML file is an ILCD LCIA method dataset
 isMethodXml :: FilePath -> IO Bool

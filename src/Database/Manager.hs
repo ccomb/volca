@@ -93,6 +93,7 @@ import System.Directory (removeDirectoryRecursive)
 import API.Types (DepLoadResult(..))
 import Method.Types (Method(..))
 import Method.Parser (parseMethodFile)
+import Method.ParserCSV (parseMethodCSV)
 
 -- | A fully loaded database with solver ready for queries
 data LoadedDatabase = LoadedDatabase
@@ -1554,11 +1555,16 @@ loadMethodCollectionFromConfig mc = do
         else do
             files <- listDirectory dir
             let xmlFiles = filter (\f -> map toLower (takeExtension f) == ".xml") files
-            if null xmlFiles
-                then return $ Left $ "No XML files found in: " <> T.pack dir
+                csvFiles = filter (\f -> map toLower (takeExtension f) == ".csv") files
+            if null xmlFiles && null csvFiles
+                then return $ Left $ "No method files (.xml/.csv) found in: " <> T.pack dir
                 else do
-                    results <- forM xmlFiles $ \f -> parseMethodFile (dir </> f)
-                    let (errs, methods) = partitionEithers results
+                    xmlResults <- forM xmlFiles $ \f -> parseMethodFile (dir </> f)
+                    csvResults <- forM csvFiles $ \f -> parseMethodCSV (dir </> f)
+                    let (xmlErrs, xmlMethods) = partitionEithers xmlResults
+                        (csvErrs, csvMethodLists) = partitionEithers csvResults
+                        methods = xmlMethods ++ concat csvMethodLists
+                        errs = xmlErrs ++ csvErrs
                     if null methods && not (null errs)
                         then return $ Left $ "All method files failed to parse: " <> T.pack (head errs)
                         else do

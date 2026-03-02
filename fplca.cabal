@@ -90,6 +90,7 @@ executable fplca
                      , SynonymDB.Types
                      , Method.Types
                      , Method.Parser
+                     , Method.ParserCSV
                      , Method.Mapping
                      , API.Routes
                      , API.Types
@@ -162,6 +163,7 @@ test-suite acv-tests
                      , CLI.Types
                      , Method.Types
                      , Method.Parser
+                     , Method.ParserCSV
                      , Method.Mapping
                      , API.Types
                      , SynonymDB

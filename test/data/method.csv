@@ -1,0 +1,9 @@
+# methodology: Test Method
+;;global warming (GWP100);acidification;abiotic depletion
+;;kg CO2 eq.;kg SO2 eq.;kg antimony eq.
+substance;compartment;;;
+Carbon dioxide;air;1.0;;
+Methane;air;28.0;;
+Sulfur dioxide;air;;1.0;
+Nitrogen oxides;air;0.0;0.7;
+Crude oil;resources;;;42.0
