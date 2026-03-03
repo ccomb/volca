@@ -1568,6 +1568,9 @@ loadMethodCollectionFromConfig mc = do
                     if null methods && not (null errs)
                         then return $ Left $ "All method files failed to parse: " <> T.pack (head errs)
                         else do
+                            let xmlOk = length xmlMethods
+                                csvOk = length csvMethodLists
+                            reportProgress Info $ "  Parsed " <> show xmlOk <> " XML, " <> show csvOk <> " CSV file(s)"
                             when (not (null errs)) $
                                 reportProgress Warning $ "  " <> show (length errs) <> " method file(s) failed to parse"
                             return $ Right methods
@@ -1612,8 +1615,10 @@ loadMethodCollection manager name = do
                             return $ Left err
                         Right methods -> do
                             atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert name methods)
+                            let totalCFs = sum $ map (length . methodFactors) methods
                             reportProgress Info $ "  [OK] Loaded: " <> T.unpack name
-                                <> " (" <> show (length methods) <> " impact categories)"
+                                <> " (" <> show (length methods) <> " impact categories, "
+                                <> show totalCFs <> " characterization factors)"
                             return $ Right ()
 
 -- | Unload a method collection from memory

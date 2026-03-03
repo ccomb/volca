@@ -16,7 +16,7 @@ import qualified Database.Manager as DM
 import Database.Upload (DatabaseFormat(..))
 import API.DatabaseHandlers (simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
-import Progress (getLogLines)
+import Progress (getLogLines, reportProgress, ProgressLevel(Info))
 import Database
 import qualified Service
 import Tree (buildLoopAwareTree)
@@ -36,7 +36,10 @@ import qualified Data.UUID as UUID
 import GHC.Generics
 import Servant
 import Control.Concurrent.STM (readTVarIO)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
+import Data.List (intercalate)
+import Numeric (showFFloat)
 import Network.HTTP.Types.Header (hSetCookie)
 
 -- | API type definition - RESTful design with focused endpoints
@@ -306,6 +309,28 @@ lcaServer dbManager maxTreeDepth password =
                 -- Map method flows to database flows
                 let mappings = mapMethodFlows synDB flowsByUUID flowsByName method
                     stats = computeMappingStats mappings
+                    mapped = msTotal stats - msUnmatched stats
+
+                -- Log mapping diagnostics
+                liftIO $ do
+                    let pct :: Double
+                        pct = if msTotal stats > 0
+                              then fromIntegral mapped / fromIntegral (msTotal stats) * 100
+                              else 0
+                        unmappedNames = take 10
+                            [ T.unpack (mcfFlowName cf)
+                            | (cf, Nothing) <- mappings ]
+                    reportProgress Info $ "[LCIA] " <> T.unpack (methodName method)
+                        <> " (" <> T.unpack (methodUnit method) <> ")"
+                    reportProgress Info $ "  Flow mapping: " <> show mapped <> "/" <> show (msTotal stats)
+                        <> " (" <> showFFloat (Just 1) pct "" <> "%)"
+                        <> " — UUID: " <> show (msByUUID stats)
+                        <> ", Name: " <> show (msByName stats)
+                        <> ", Synonym: " <> show (msBySynonym stats)
+                    when (msUnmatched stats > 0) $
+                        reportProgress Info $ "  Unmapped (" <> show (msUnmatched stats) <> "): "
+                            <> intercalate " | " unmappedNames
+                            <> if msUnmatched stats > 10 then " | ..." else ""
 
                 -- Compute LCIA score: sum of (inventory quantity * CF value) for mapped flows
                 let score = computeLCIAScore inventory mappings
