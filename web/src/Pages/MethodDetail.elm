@@ -1,31 +1,41 @@
 module Pages.MethodDetail exposing (Model, Msg, page)
 
+import Api
 import Browser.Navigation as Nav
+import Dict exposing (Dict)
 import Effect exposing (Effect)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick)
+import Html.Events exposing (onClick, onInput)
 import Http
-import Models.LCIA exposing (MethodSummary, methodsListDecoder)
-import Route
+import Models.Database exposing (DatabaseLoadStatus(..))
+import Models.LCIA exposing (MappingStatus, MethodSummary, methodsListDecoder)
+import Route exposing (MethodDetailFlags)
 import Shared exposing (RemoteData(..))
 import Spa.Page
 import Url
 import View exposing (View)
+import Views.MappingView as MappingView
 
 
 type alias Model =
     { collectionName : String
+    , selectedDb : Maybe String
     , methods : RemoteData (List MethodSummary)
+    , mappings : Dict String MappingStatus
+    , mappingLoading : Bool
     }
 
 
 type Msg
     = MethodsLoaded (Result Http.Error (List MethodSummary))
+    | SelectDatabase String
+    | MappingLoaded String (Result Http.Error MappingStatus)
+    | ClickMethod String
     | GoBack
 
 
-page : Shared.Model -> Spa.Page.Page String Shared.Msg (View Msg) Model Msg
+page : Shared.Model -> Spa.Page.Page MethodDetailFlags Shared.Msg (View Msg) Model Msg
 page shared =
     Spa.Page.element
         { init = init shared
@@ -35,14 +45,17 @@ page shared =
         }
 
 
-init : Shared.Model -> String -> ( Model, Effect Shared.Msg Msg )
-init _ rawName =
+init : Shared.Model -> MethodDetailFlags -> ( Model, Effect Shared.Msg Msg )
+init _ flags =
     let
         collectionName =
-            Url.percentDecode rawName |> Maybe.withDefault rawName
+            Url.percentDecode flags.collection |> Maybe.withDefault flags.collection
     in
     ( { collectionName = collectionName
+      , selectedDb = flags.db
       , methods = Loading
+      , mappings = Dict.empty
+      , mappingLoading = False
       }
     , Effect.fromCmd fetchMethods
     )
@@ -55,14 +68,70 @@ update shared msg model =
             let
                 filtered =
                     List.filter (\m -> m.msmCollection == model.collectionName) allMethods
+
+                newModel =
+                    { model | methods = Loaded filtered }
             in
-            ( { model | methods = Loaded filtered }
+            case model.selectedDb of
+                Just dbName ->
+                    ( { newModel | mappingLoading = True }
+                    , Effect.batch (List.map (\m -> Effect.fromCmd (Api.loadMethodMapping (MappingLoaded m.msmId) m.msmId dbName)) filtered)
+                    )
+
+                Nothing ->
+                    ( newModel, Effect.none )
+
+        MethodsLoaded (Err err) ->
+            ( { model | methods = Shared.Failed (Shared.httpErrorToString err) }
             , Effect.none
             )
 
-        MethodsLoaded (Err err) ->
-            ( { model | methods = Failed (Shared.httpErrorToString err) }
+        SelectDatabase name ->
+            if name == "" then
+                ( { model | selectedDb = Nothing, mappings = Dict.empty, mappingLoading = False }
+                , Effect.fromShared (Shared.NavigateTo (Route.MethodDetailRoute model.collectionName Nothing))
+                )
+
+            else
+                let
+                    methods =
+                        case model.methods of
+                            Loaded ms ->
+                                ms
+
+                            _ ->
+                                []
+                in
+                ( { model | selectedDb = Just name, mappings = Dict.empty, mappingLoading = True }
+                , Effect.batch
+                    (Effect.fromShared (Shared.NavigateTo (Route.MethodDetailRoute model.collectionName (Just name)))
+                        :: List.map (\m -> Effect.fromCmd (Api.loadMethodMapping (MappingLoaded m.msmId) m.msmId name)) methods
+                    )
+                )
+
+        MappingLoaded methodId (Ok mapping) ->
+            let
+                newMappings =
+                    Dict.insert methodId mapping model.mappings
+
+                allLoaded =
+                    case model.methods of
+                        Loaded ms ->
+                            Dict.size newMappings >= List.length ms
+
+                        _ ->
+                            False
+            in
+            ( { model | mappings = newMappings, mappingLoading = not allLoaded }
             , Effect.none
+            )
+
+        MappingLoaded _ (Err _) ->
+            ( { model | mappingLoading = False }, Effect.none )
+
+        ClickMethod methodId ->
+            ( model
+            , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.FlowMappingRoute methodId model.selectedDb)))
             )
 
         GoBack ->
@@ -72,7 +141,7 @@ update shared msg model =
 
 
 view : Shared.Model -> Model -> View Msg
-view _ model =
+view shared model =
     { title = "Method: " ++ model.collectionName
     , body =
         div [ class "databases-page" ]
@@ -90,7 +159,7 @@ view _ model =
                             ]
                         ]
                     ]
-                , p [ class "subtitle", style "margin-top" "0.5rem" ] [ text "Impact categories in this method collection" ]
+                , viewDbPicker shared model
                 ]
             , case model.methods of
                 Loading ->
@@ -103,12 +172,63 @@ view _ model =
                     div [ class "notification is-danger" ] [ text err ]
 
                 Loaded methods ->
-                    viewMethodsTable methods
+                    if model.selectedDb /= Nothing then
+                        MappingView.viewMappingOverview
+                            { methods = methods
+                            , mappings = model.mappings
+                            , loading = model.mappingLoading
+                            , onClickMethod = ClickMethod
+                            }
+
+                    else
+                        viewMethodsTable methods
 
                 NotAsked ->
                     text ""
             ]
     }
+
+
+viewDbPicker : Shared.Model -> Model -> Html Msg
+viewDbPicker shared model =
+    case shared.databases of
+        Loaded dbList ->
+            let
+                loadedDbs =
+                    List.filter (\db -> db.status == DbLoaded) dbList.databases
+            in
+            if List.isEmpty loadedDbs then
+                p [ class "subtitle", style "margin-top" "0.5rem" ]
+                    [ text "No databases loaded." ]
+
+            else
+                div [ class "field has-addons", style "margin-top" "0.75rem" ]
+                    [ div [ class "control" ]
+                        [ span [ class "button is-static" ]
+                            [ span [ class "icon" ] [ i [ class "fas fa-database" ] [] ]
+                            , span [] [ text "Check mapping" ]
+                            ]
+                        ]
+                    , div [ class "control is-expanded" ]
+                        [ div [ class "select is-fullwidth" ]
+                            [ select [ onInput SelectDatabase ]
+                                (option [ value "" ] [ text "-- Select a database --" ]
+                                    :: List.map
+                                        (\db ->
+                                            option
+                                                [ value db.name
+                                                , selected (model.selectedDb == Just db.name)
+                                                ]
+                                                [ text db.displayName ]
+                                        )
+                                        loadedDbs
+                                )
+                            ]
+                        ]
+                    ]
+
+        _ ->
+            text ""
 
 
 viewMethodsTable : List MethodSummary -> Html Msg

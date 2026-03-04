@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -9,6 +10,7 @@ import qualified Matrix
 import Matrix (Inventory)
 import SharedSolver (SharedSolver)
 import Method.Mapping (computeLCIAScore, mapMethodFlows, MatchStrategy(..), MappingStats(..), computeMappingStats)
+import qualified Data.Vector as V
 import Method.Types (Method(..), MethodCF(..), FlowDirection(..))
 import SynonymDB (SynonymDB, emptySynonymDB)
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), DatabaseSetupInfo(..), getDatabase, MethodCollectionStatus(..))
@@ -21,7 +23,7 @@ import Database
 import qualified Service
 import Tree (buildLoopAwareTree)
 import Types
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIARequest (..), LCIAResult (..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), NodeType (..), SearchResults (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), UnmappedFlowAPI (..), DatabaseListResponse(..), DatabaseStatusAPI(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowCFEntry (..), FlowCFMapping (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIARequest (..), LCIAResult (..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), NodeType (..), SearchResults (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), UnmappedFlowAPI (..), DatabaseListResponse(..), DatabaseStatusAPI(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
 import Data.Aeson
 import Data.Aeson.Types (Result (..), fromJSON)
 import qualified Data.ByteString.Lazy as BSL
@@ -55,12 +57,14 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> Get '[JSON] InventoryExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "graph" :> QueryParam "cutoff" Double :> Get '[JSON] GraphExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "methodId" Text :> Get '[JSON] LCIAResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia-batch" :> Capture "collection" Text :> Get '[JSON] [LCIAResult]
                 :<|> "flow" :> Capture "flowId" Text :> QueryParam "db" Text :> Get '[JSON] FlowDetail
                 :<|> "flow" :> Capture "flowId" Text :> "activities" :> QueryParam "db" Text :> Get '[JSON] [ActivitySummary]
                 :<|> "methods" :> Get '[JSON] [MethodSummary]
                 :<|> "method" :> Capture "methodId" Text :> Get '[JSON] MethodDetail
                 :<|> "method" :> Capture "methodId" Text :> "factors" :> Get '[JSON] [MethodFactorAPI]
                 :<|> "method" :> Capture "methodId" Text :> "mapping" :> QueryParam "db" Text :> Get '[JSON] MappingStatus
+                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "flow-mapping" :> Get '[JSON] FlowCFMapping
                 :<|> "search" :> "flows" :> QueryParam "db" Text :> QueryParam "q" Text :> QueryParam "lang" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> Get '[JSON] (SearchResults FlowSearchResult)
                 :<|> "search" :> "activities" :> QueryParam "db" Text :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> Get '[JSON] (SearchResults ActivitySummary)
                 :<|> "db" :> Capture "dbName" Text :> "lcia" :> Capture "processId" Text :> ReqBody '[JSON] LCIARequest :> Post '[JSON] Value
@@ -152,12 +156,14 @@ lcaServer dbManager maxTreeDepth password =
         :<|> getActivityInventory
         :<|> getActivityGraph
         :<|> getActivityLCIA
+        :<|> getActivityLCIABatch
         :<|> getFlowDetail
         :<|> getFlowActivities
         :<|> getMethods
         :<|> getMethodDetail
         :<|> getMethodFactors
         :<|> getMethodMapping
+        :<|> getFlowCFMapping
         :<|> searchFlows
         :<|> searchActivitiesWithCount
         :<|> postLCIA
@@ -285,65 +291,101 @@ lcaServer dbManager maxTreeDepth password =
             Left _ -> throwError err500{errBody = "Internal server error"}
             Right graphExport -> return graphExport
 
-    -- Activity LCIA endpoint
+    -- Activity LCIA endpoint (single method)
     getActivityLCIA :: Text -> Text -> Text -> Handler LCIAResult
     getActivityLCIA dbName processIdText methodIdText = do
         (db, _) <- requireDatabaseByName dbManager dbName
-        -- Load the method
         method <- loadMethodByUUID methodIdText
-
-        -- Resolve activity and ProcessId from text
         case Service.resolveActivityAndProcessId db processIdText of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
             Right (actProcessId, _activity) -> do
-                -- Compute inventory using matrix solver
                 inventory <- liftIO $ Matrix.computeInventoryMatrix db actProcessId
+                let result = computeCategoryResult db inventory method
+                liftIO $ logLCIAResult result method
+                return result
 
-                -- Get synonym DB and flow indexes
-                let synDB = fromMaybe emptySynonymDB (dbSynonymDB db)
-                    flowsByUUID = dbFlows db
-                    flowsByName = dbFlowsByName db
+    -- Batch LCIA endpoint (all methods in a collection)
+    getActivityLCIABatch :: Text -> Text -> Text -> Handler [LCIAResult]
+    getActivityLCIABatch dbName processIdText collectionName = do
+        (db, _) <- requireDatabaseByName dbManager dbName
+        -- Look up collection
+        loadedMethods <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
+        methods <- case M.lookup collectionName loadedMethods of
+            Just ms -> return ms
+            Nothing -> throwError err404{errBody = "Collection not loaded: " <> BSL.fromStrict (T.encodeUtf8 collectionName)}
+        case Service.resolveActivityAndProcessId db processIdText of
+            Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
+            Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
+            Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
+            Right (actProcessId, activity) -> do
+                t0 <- liftIO getCurrentTime
+                inventory <- liftIO $ Matrix.computeInventoryMatrix db actProcessId
+                t1 <- liftIO getCurrentTime
+                let !invSize = M.size inventory
+                liftIO $ reportProgress Info $ "[LCIA batch] " <> T.unpack collectionName
+                    <> " for " <> T.unpack (activityName activity)
+                liftIO $ reportProgress Info $ "  Inventory: "
+                    <> show invSize <> " flows ("
+                    <> showFFloat (Just 2) (realToFrac (diffUTCTime t1 t0) :: Double) "" <> "s)"
+                -- Log sample inventory UUIDs when empty for debugging
+                when (invSize == 0) $
+                    liftIO $ reportProgress Info "  WARNING: inventory is empty — check matrix computation"
+                when (invSize > 0 && invSize <= 5) $
+                    liftIO $ reportProgress Info $ "  Inventory UUIDs: "
+                        <> intercalate ", " (map UUID.toString $ M.keys inventory)
+                let results = map (computeCategoryResult db inventory) methods
+                t2 <- liftIO getCurrentTime
+                -- Log per-category results
+                liftIO $ mapM_ (logBatchCategory invSize) results
+                liftIO $ reportProgress Info $ "  Total: "
+                    <> show (length results) <> " categories ("
+                    <> showFFloat (Just 2) (realToFrac (diffUTCTime t2 t0) :: Double) "" <> "s)"
+                return results
 
-                -- Map method flows to database flows
-                let mappings = mapMethodFlows synDB flowsByUUID flowsByName method
-                    stats = computeMappingStats mappings
-                    mapped = msTotal stats - msUnmatched stats
+    -- Log a single category result in the batch
+    logBatchCategory :: Int -> LCIAResult -> IO ()
+    logBatchCategory invSize result = do
+        let mapped = lrMappedFlows result
+            total = mapped + lrUnmappedFlows result
+            scoreTxt = showFFloat (Just 4) (lrScore result) ""
+        reportProgress Info $ "  " <> T.unpack (lrMethodName result) <> ": "
+            <> scoreTxt <> " " <> T.unpack (lrUnit result)
+            <> " (" <> show mapped <> "/" <> show total <> " CFs mapped)"
 
-                -- Log mapping diagnostics
-                liftIO $ do
-                    let pct :: Double
-                        pct = if msTotal stats > 0
-                              then fromIntegral mapped / fromIntegral (msTotal stats) * 100
-                              else 0
-                        unmappedNames = take 10
-                            [ T.unpack (mcfFlowName cf)
-                            | (cf, Nothing) <- mappings ]
-                    reportProgress Info $ "[LCIA] " <> T.unpack (methodName method)
-                        <> " (" <> T.unpack (methodUnit method) <> ")"
-                    reportProgress Info $ "  Flow mapping: " <> show mapped <> "/" <> show (msTotal stats)
-                        <> " (" <> showFFloat (Just 1) pct "" <> "%)"
-                        <> " — UUID: " <> show (msByUUID stats)
-                        <> ", Name: " <> show (msByName stats)
-                        <> ", Synonym: " <> show (msBySynonym stats)
-                    when (msUnmatched stats > 0) $
-                        reportProgress Info $ "  Unmapped (" <> show (msUnmatched stats) <> "): "
-                            <> intercalate " | " unmappedNames
-                            <> if msUnmatched stats > 10 then " | ..." else ""
+    -- Pure helper: compute LCIA result for a single method against an inventory
+    computeCategoryResult :: Database -> Inventory -> Method -> LCIAResult
+    computeCategoryResult db inventory method =
+        let synDB = fromMaybe emptySynonymDB (dbSynonymDB db)
+            flowsByUUID = dbFlows db
+            flowsByName = dbFlowsByName db
+            mappings = mapMethodFlows synDB flowsByUUID flowsByName method
+            stats = computeMappingStats mappings
+            score = computeLCIAScore inventory mappings
+            unmappedNames = take 50 [mcfFlowName cf | (cf, Nothing) <- mappings]
+        in LCIAResult
+            { lrMethodId = methodId method
+            , lrMethodName = methodName method
+            , lrCategory = methodCategory method
+            , lrScore = score
+            , lrUnit = methodUnit method
+            , lrMappedFlows = msTotal stats - msUnmatched stats
+            , lrUnmappedFlows = msUnmatched stats
+            , lrUnmappedNames = unmappedNames
+            }
 
-                -- Compute LCIA score: sum of (inventory quantity * CF value) for mapped flows
-                let score = computeLCIAScore inventory mappings
-
-                return $ LCIAResult
-                    { lrMethodId = methodId method
-                    , lrMethodName = methodName method
-                    , lrCategory = methodCategory method
-                    , lrScore = score
-                    , lrUnit = methodUnit method
-                    , lrMappedFlows = msTotal stats - msUnmatched stats
-                    , lrUnmappedFlows = msUnmatched stats
-                    }
+    logLCIAResult :: LCIAResult -> Method -> IO ()
+    logLCIAResult result method = do
+        let mapped = lrMappedFlows result
+            total = mapped + lrUnmappedFlows result
+            pct :: Double
+            pct = if total > 0 then fromIntegral mapped / fromIntegral total * 100 else 0
+        reportProgress Info $ "[LCIA] " <> T.unpack (methodName method)
+            <> ": " <> showFFloat (Just 4) (lrScore result) ""
+            <> " " <> T.unpack (methodUnit method)
+        reportProgress Info $ "  Flow mapping: " <> show mapped <> "/" <> show total
+            <> " (" <> showFFloat (Just 1) pct "" <> "%)"
 
     -- Flow detail endpoint
     getFlowDetail :: Text -> Maybe Text -> Handler FlowDetail
@@ -422,6 +464,7 @@ lcaServer dbManager maxTreeDepth password =
                 }
                 | (cf, Nothing) <- mappings
                 ]
+            uniqueDbFlows = S.size $ S.fromList [flowId f | (_, Just (f, _)) <- mappings]
         return MappingStatus
             { mstMethodId = methodId method
             , mstMethodName = methodName method
@@ -431,8 +474,53 @@ lcaServer dbManager maxTreeDepth password =
             , mstMappedBySynonym = msBySynonym stats
             , mstUnmapped = msUnmatched stats
             , mstCoverage = coverage
+            , mstDbBiosphereCount = fromIntegral (dbBiosphereCount db)
+            , mstUniqueDbFlowsMatched = uniqueDbFlows
             , mstUnmappedFlows = unmappedFlows
             }
+
+    -- DB-flow-centric mapping: all biosphere flows with their CF assignments
+    getFlowCFMapping :: Text -> Text -> Handler FlowCFMapping
+    getFlowCFMapping dbName methodIdText = do
+        (db, _) <- requireDatabaseByName dbManager dbName
+        method <- loadMethodByUUID methodIdText
+        let synDB = fromMaybe emptySynonymDB (dbSynonymDB db)
+            flowsByUUID = dbFlows db
+            flowsByName = dbFlowsByName db
+            mappings = mapMethodFlows synDB flowsByUUID flowsByName method
+            -- Build reverse index: DB flow UUID → (MethodCF, MatchStrategy)
+            reverseIndex = M.fromList
+                [(flowId f, (cf, strat)) | (cf, Just (f, strat)) <- mappings]
+            -- Build entries for all biosphere flows
+            entries = map (buildFlowEntry db reverseIndex) (V.toList (dbBiosphereFlows db))
+            matchedCount = length [() | e <- entries, fceCfValue e /= Nothing]
+        return FlowCFMapping
+            { fcmMethodName = methodName method
+            , fcmMethodUnit = methodUnit method
+            , fcmTotalFlows = fromIntegral (dbBiosphereCount db)
+            , fcmMatchedFlows = matchedCount
+            , fcmFlows = entries
+            }
+
+    buildFlowEntry :: Database -> M.Map UUID (MethodCF, MatchStrategy) -> UUID -> FlowCFEntry
+    buildFlowEntry db reverseIndex uuid =
+        let mFlow = M.lookup uuid (dbFlows db)
+            mMatch = M.lookup uuid reverseIndex
+        in FlowCFEntry
+            { fceFlowId = uuid
+            , fceFlowName = maybe "" flowName mFlow
+            , fceFlowCategory = maybe "" flowCategory mFlow
+            , fceCfValue = fmap (mcfValue . fst) mMatch
+            , fceCfFlowName = fmap (mcfFlowName . fst) mMatch
+            , fceMatchStrategy = fmap (strategyToText . snd) mMatch
+            }
+
+    strategyToText :: MatchStrategy -> Text
+    strategyToText ByUUID = "uuid"
+    strategyToText ByName = "name"
+    strategyToText BySynonym = "synonym"
+    strategyToText ByFuzzy = "fuzzy"
+    strategyToText NoMatch = "none"
 
     -- Helper to load a method by UUID from the loaded collections
     loadMethodByUUID :: Text -> Handler Method

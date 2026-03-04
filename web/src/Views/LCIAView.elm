@@ -1,423 +1,255 @@
-module Views.LCIAView exposing (Msg(..), viewLCIAPage, viewPageNavbar)
+module Views.LCIAView exposing (viewLCIAPage, viewPageNavbar)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Models.LCIA exposing (LCIAResult, MappingStatus, MethodSummary)
+import Models.LCIA exposing (LCIAResult)
+import Models.Method exposing (MethodCollectionStatus)
+import Shared exposing (RemoteData(..))
 import Utils.Format as Format
 
 
-type Msg
-    = SelectCollection String
-    | SelectCategory String
-    | SelectMethod String
-    | ComputeLCIA String
+type alias ViewConfig msg =
+    { collections : RemoteData (List MethodCollectionStatus)
+    , selectedCollection : Maybe String
+    , results : RemoteData (List LCIAResult)
+    , expandedRow : Maybe String
+    , activityInfo : Maybe ( String, String )
+    , onSelectCollection : String -> msg
+    , onToggleRow : String -> msg
+    }
 
 
-viewLCIAPage :
-    Maybe (List MethodSummary)
-    -> Maybe String
-    -> Maybe String
-    -> Maybe MethodSummary
-    -> Maybe LCIAResult
-    -> Maybe MappingStatus
-    -> Bool
-    -> Bool
-    -> Maybe String
-    -> Maybe ( String, String )
-    -> Html Msg
-viewLCIAPage maybeMethods selectedCollection selectedCategory selectedMethod maybeLCIAResult maybeMappingStatus loadingMethods loadingLCIA error maybeActivityInfo =
+viewLCIAPage : ViewConfig msg -> Html msg
+viewLCIAPage config =
     div [ class "lcia-page" ]
-        [ viewPageNavbar "Impact Assessment (LCIA)" maybeActivityInfo
-        , div []
-            [ case ( loadingMethods, error, maybeMethods ) of
-                ( True, _, _ ) ->
-                    div [ class "has-text-centered" ]
-                        [ div [ class "is-size-3" ] [ text "Loading methods..." ]
-                        , progress [ class "progress is-primary", attribute "max" "100" ] []
-                        ]
-
-                ( _, Just errorMsg, _ ) ->
-                    div [ class "notification is-danger" ]
-                        [ strong [] [ text "Error: " ]
-                        , text errorMsg
-                        ]
-
-                ( _, _, Just methods ) ->
-                    div []
-                        [ viewMethodSelector methods selectedCollection selectedCategory selectedMethod
-                        , case selectedMethod of
-                            Just method ->
-                                div []
-                                    [ viewSelectedMethod method loadingLCIA
-                                    , viewLCIAResults maybeLCIAResult loadingLCIA
-                                    , viewMappingStatus maybeMappingStatus
-                                    ]
-
-                            Nothing ->
-                                text ""
-                        ]
-
-                ( _, _, Nothing ) ->
-                    div [ class "notification is-warning" ]
-                        [ text "No methods available. Make sure the server was started with --methods option pointing to ILCD method files." ]
-            ]
+        [ viewPageNavbar "Impact Assessment (LCIA)" config.activityInfo
+        , viewCollectionPicker config
+        , viewResults config
         ]
 
 
-viewMethodSelector : List MethodSummary -> Maybe String -> Maybe String -> Maybe MethodSummary -> Html Msg
-viewMethodSelector methods selectedCollection selectedCategory selectedMethod =
-    let
-        collections =
-            unique (List.map .msmCollection methods)
+viewCollectionPicker : ViewConfig msg -> Html msg
+viewCollectionPicker config =
+    case config.collections of
+        Loading ->
+            div [ class "has-text-centered", style "padding" "2rem" ]
+                [ progress [ class "progress is-primary", attribute "max" "100" ] [] ]
 
-        categoriesForCollection col =
-            methods
-                |> List.filter (\m -> m.msmCollection == col)
-                |> List.map .msmCategory
-                |> unique
+        Failed err ->
+            div [ class "notification is-danger" ]
+                [ strong [] [ text "Error: " ], text err ]
 
-        methodsForCategoryInCollection col cat =
-            methods
-                |> List.filter (\m -> m.msmCollection == col && m.msmCategory == cat)
-
-        -- Skip impact-level dropdown when all methods in the category have name == category
-        skipImpactLevel col cat =
-            methodsForCategoryInCollection col cat
-                |> List.all (\m -> m.msmName == m.msmCategory)
-    in
-    div [ class "box" ]
-        [ h2 [ class "title is-5" ] [ text "Select Impact Category" ]
-        , div [ class "columns" ]
-            [ -- Level 1: Collection
-              div [ class "column" ]
-                [ div [ class "field" ]
-                    [ label [ class "label is-small" ] [ text "Collection" ]
-                    , div [ class "control" ]
-                        [ div [ class "select is-fullwidth" ]
-                            [ select [ onInput SelectCollection ]
-                                (option [ value "" ] [ text "-- Collection --" ]
-                                    :: List.map
-                                        (\col ->
-                                            option
-                                                [ value col
-                                                , selected (selectedCollection == Just col)
-                                                ]
-                                                [ text col ]
-                                        )
-                                        collections
-                                )
-                            ]
-                        ]
-                    ]
-                ]
-
-            , -- Level 2: Category (visible when collection selected)
-              case selectedCollection of
-                Just col ->
-                    let
-                        cats =
-                            categoriesForCollection col
-                    in
-                    div [ class "column" ]
-                        [ div [ class "field" ]
-                            [ label [ class "label is-small" ] [ text "Category" ]
-                            , div [ class "control" ]
-                                [ div [ class "select is-fullwidth" ]
-                                    [ select [ onInput SelectCategory ]
-                                        (option [ value "" ] [ text "-- Category --" ]
-                                            :: List.map
-                                                (\cat ->
-                                                    option
-                                                        [ value cat
-                                                        , selected (selectedCategory == Just cat)
-                                                        ]
-                                                        [ text cat ]
-                                                )
-                                                cats
-                                        )
-                                    ]
-                                ]
-                            ]
-                        ]
-
-                Nothing ->
-                    text ""
-
-            , -- Level 3: Impact (visible when category selected, skipped if redundant)
-              case ( selectedCollection, selectedCategory ) of
-                ( Just col, Just cat ) ->
-                    if skipImpactLevel col cat then
-                        text ""
-
-                    else
-                        let
-                            impacts =
-                                methodsForCategoryInCollection col cat
-                        in
-                        div [ class "column" ]
-                            [ div [ class "field" ]
-                                [ label [ class "label is-small" ] [ text "Impact" ]
-                                , div [ class "control" ]
-                                    [ div [ class "select is-fullwidth" ]
-                                        [ select [ onInput SelectMethod ]
-                                            (option [ value "" ] [ text "-- Impact --" ]
-                                                :: List.map
-                                                    (\m ->
-                                                        option
-                                                            [ value m.msmId
-                                                            , selected (Maybe.map .msmId selectedMethod == Just m.msmId)
-                                                            ]
-                                                            [ text (m.msmName ++ " (" ++ m.msmUnit ++ ")") ]
-                                                    )
-                                                    impacts
-                                            )
-                                        ]
-                                    ]
-                                ]
-                            ]
-
-                _ ->
-                    text ""
-            ]
-        , p [ class "help" ] [ text (String.fromInt (List.length methods) ++ " methods available") ]
-        ]
-
-
-unique : List comparable -> List comparable
-unique =
-    List.foldl
-        (\x acc ->
-            if List.member x acc then
-                acc
-
-            else
-                acc ++ [ x ]
-        )
-        []
-
-
-viewSelectedMethod : MethodSummary -> Bool -> Html Msg
-viewSelectedMethod method loading =
-    div [ class "box" ]
-        [ h3 [ class "title is-5" ] [ text method.msmName ]
-        , div [ class "columns" ]
-            [ div [ class "column" ]
-                [ p [] [ strong [] [ text "Category: " ], text method.msmCategory ]
-                , p [] [ strong [] [ text "Unit: " ], text method.msmUnit ]
-                , p [] [ strong [] [ text "Characterization factors: " ], text (String.fromInt method.msmFactorCount) ]
-                ]
-            , div [ class "column is-narrow" ]
-                [ button
-                    [ class
-                        (if loading then
-                            "button is-primary is-loading"
-
-                         else
-                            "button is-primary"
-                        )
-                    , onClick (ComputeLCIA method.msmId)
-                    , disabled loading
-                    ]
-                    [ span [ class "icon" ] [ i [ class "fas fa-calculator" ] [] ]
-                    , span [] [ text "Compute Impact" ]
-                    ]
-                ]
-            ]
-        ]
-
-
-viewLCIAResults : Maybe LCIAResult -> Bool -> Html msg
-viewLCIAResults maybeResult loading =
-    case maybeResult of
-        Nothing ->
-            if loading then
-                div [ class "box" ]
-                    [ h3 [ class "title is-5" ] [ text "Computing..." ]
-                    , progress [ class "progress is-primary", attribute "max" "100" ] []
-                    ]
-
-            else
-                text ""
-
-        Just result ->
-            div [ class "box" ]
-                [ h3 [ class "title is-5" ] [ text "Impact Assessment Result" ]
-                , div [ class "level" ]
-                    [ div [ class "level-item has-text-centered" ]
-                        [ div []
-                            [ p [ class "heading" ] [ text "Impact Score" ]
-                            , p [ class "title is-2" ]
-                                [ text (Format.formatScientific result.lrScore)
-                                ]
-                            , p [ class "subtitle is-5" ] [ text result.lrUnit ]
-                            ]
-                        ]
-                    ]
-                , div [ class "columns" ]
-                    [ div [ class "column" ]
-                        [ div [ class "notification is-success is-light" ]
-                            [ p []
-                                [ strong [] [ text "Mapped flows: " ]
-                                , text (String.fromInt result.lrMappedFlows)
-                                ]
-                            ]
-                        ]
-                    , div [ class "column" ]
-                        [ div
-                            [ class
-                                (if result.lrUnmappedFlows > 0 then
-                                    "notification is-warning is-light"
-
-                                 else
-                                    "notification is-success is-light"
-                                )
-                            ]
-                            [ p []
-                                [ strong [] [ text "Unmapped flows: " ]
-                                , text (String.fromInt result.lrUnmappedFlows)
-                                ]
-                            ]
-                        ]
-                    ]
-                ]
-
-
-viewMappingStatus : Maybe MappingStatus -> Html msg
-viewMappingStatus maybeMappingStatus =
-    case maybeMappingStatus of
-        Nothing ->
+        NotAsked ->
             text ""
 
-        Just status ->
-            div [ class "box" ]
-                [ h3 [ class "title is-5" ] [ text "Flow Mapping Details" ]
-                , div [ class "columns" ]
-                    [ div [ class "column" ]
-                        [ viewMappingBar status
+        Loaded collections ->
+            if List.isEmpty collections then
+                div [ class "notification is-warning", style "margin" "1rem" ]
+                    [ text "No method collections loaded. Go to Methods to load one." ]
+
+            else
+                div [ style "padding" "0 1rem" ]
+                    [ div [ class "field has-addons", style "margin-bottom" "0.5rem" ]
+                        [ div [ class "control" ]
+                            [ span [ class "button is-static" ]
+                                [ span [ class "icon" ] [ i [ class "fas fa-flask" ] [] ]
+                                , span [] [ text "Method" ]
+                                ]
+                            ]
+                        , div [ class "control is-expanded" ]
+                            [ div [ class "select is-fullwidth" ]
+                                [ select [ onInput config.onSelectCollection ]
+                                    (option [ value "" ] [ text "-- Select a method collection --" ]
+                                        :: List.map
+                                            (\c ->
+                                                option
+                                                    [ value c.name
+                                                    , selected (config.selectedCollection == Just c.name)
+                                                    ]
+                                                    [ text (c.displayName ++ " (" ++ String.fromInt c.methodCount ++ " categories)") ]
+                                            )
+                                            collections
+                                    )
+                                ]
+                            ]
                         ]
                     ]
-                , div [ class "columns is-multiline" ]
-                    [ viewMappingStat "fas fa-fingerprint" "By UUID" status.mstMappedByUUID "is-info"
-                    , viewMappingStat "fas fa-font" "By Name" status.mstMappedByName "is-success"
-                    , viewMappingStat "fas fa-exchange-alt" "By Synonym" status.mstMappedBySynonym "is-link"
-                    , viewMappingStat "fas fa-question-circle" "Unmapped" status.mstUnmapped "is-warning"
-                    ]
-                , if List.length status.mstUnmappedFlows > 0 then
-                    viewUnmappedFlows status.mstUnmappedFlows
 
-                  else
-                    text ""
+
+viewResults : ViewConfig msg -> Html msg
+viewResults config =
+    case config.results of
+        NotAsked ->
+            text ""
+
+        Loading ->
+            div [ class "has-text-centered", style "padding" "2rem" ]
+                [ div [ class "is-size-5" ] [ text "Computing impacts..." ]
+                , progress [ class "progress is-primary", attribute "max" "100", style "margin-top" "1rem" ] []
                 ]
 
+        Failed err ->
+            div [ class "notification is-danger", style "margin" "1rem" ]
+                [ strong [] [ text "Error: " ], text err ]
 
-viewMappingBar : MappingStatus -> Html msg
-viewMappingBar status =
+        Loaded results ->
+            if List.isEmpty results then
+                div [ class "notification is-warning", style "margin" "1rem" ]
+                    [ text "No impact categories in this collection." ]
+
+            else
+                viewResultsTable config.onToggleRow config.expandedRow results
+
+
+viewResultsTable : (String -> msg) -> Maybe String -> List LCIAResult -> Html msg
+viewResultsTable onToggleRow expandedRow results =
     let
-        total =
-            toFloat status.mstTotalFactors
-
-        uuidPct =
-            toFloat status.mstMappedByUUID / total * 100
-
-        namePct =
-            toFloat status.mstMappedByName / total * 100
-
-        synPct =
-            toFloat status.mstMappedBySynonym / total * 100
-
-        unmappedPct =
-            toFloat status.mstUnmapped / total * 100
+        maxScore =
+            results
+                |> List.map (\r -> abs r.lrScore)
+                |> List.maximum
+                |> Maybe.withDefault 1.0
     in
-    div []
-        [ p [ class "mb-2" ]
-            [ strong [] [ text "Coverage: " ]
-            , text (String.fromFloat (toFloat (round (status.mstCoverage * 10)) / 10) ++ "%")
-            , text (" (" ++ String.fromInt (status.mstTotalFactors - status.mstUnmapped) ++ "/" ++ String.fromInt status.mstTotalFactors ++ " flows)")
-            ]
-        , div [ class "progress-wrapper" ]
-            [ progress
-                [ class "progress is-success"
-                , value (String.fromFloat status.mstCoverage)
-                , attribute "max" "100"
+    div [ class "table-container", style "padding" "0 1rem" ]
+        [ table [ class "table is-fullwidth is-hoverable" ]
+            [ thead []
+                [ tr []
+                    [ th [ style "width" "30%" ] [ text "Category" ]
+                    , th [ style "width" "15%", style "text-align" "right" ] [ text "Score" ]
+                    , th [ style "width" "15%" ] [ text "Unit" ]
+                    , th [ style "width" "15%", style "text-align" "center" ] [ text "Mapping" ]
+                    , th [ style "width" "25%" ] [ text "Relative" ]
+                    ]
                 ]
+            , tbody []
+                (List.concatMap (viewResultRow onToggleRow expandedRow maxScore) results)
+            ]
+        ]
+
+
+viewResultRow : (String -> msg) -> Maybe String -> Float -> LCIAResult -> List (Html msg)
+viewResultRow onToggleRow expandedRow maxScore result =
+    let
+        isExpanded =
+            expandedRow == Just result.lrMethodId
+
+        pct =
+            if maxScore > 0 then
+                abs result.lrScore / maxScore * 100
+
+            else
+                0
+
+        total =
+            result.lrMappedFlows + result.lrUnmappedFlows
+
+        mappingPct =
+            if total > 0 then
+                toFloat result.lrMappedFlows / toFloat total * 100
+
+            else
+                0
+    in
+    [ tr
+        ([ style "cursor"
+            (if result.lrUnmappedFlows > 0 then
+                "pointer"
+
+             else
+                "default"
+            )
+         ]
+            ++ (if result.lrUnmappedFlows > 0 then
+                    [ onClick (onToggleRow result.lrMethodId) ]
+
+                else
+                    []
+               )
+        )
+        [ td [ style "font-weight" "500" ] [ text result.lrMethodName ]
+        , td [ style "text-align" "right", style "font-family" "monospace" ]
+            [ text (Format.formatScientific result.lrScore) ]
+        , td [ class "has-text-grey" ] [ text result.lrUnit ]
+        , td [ style "text-align" "center" ]
+            [ viewMappingBadge result.lrMappedFlows result.lrUnmappedFlows mappingPct ]
+        , td [] [ viewRelativeBar pct ]
+        ]
+    ]
+        ++ (if isExpanded && not (List.isEmpty result.lrUnmappedNames) then
+                [ viewExpandedRow result ]
+
+            else
                 []
-            ]
-        ]
+           )
 
 
-viewMappingStat : String -> String -> Int -> String -> Html msg
-viewMappingStat icon label count colorClass =
-    div [ class "column is-3" ]
-        [ div [ class ("notification " ++ colorClass ++ " is-light") ]
-            [ div [ class "level" ]
-                [ div [ class "level-left" ]
-                    [ div [ class "level-item" ]
-                        [ span [ class "icon" ] [ i [ class icon ] [] ]
-                        ]
-                    , div [ class "level-item" ]
-                        [ span [] [ text label ]
-                        ]
-                    ]
-                , div [ class "level-right" ]
-                    [ div [ class "level-item" ]
-                        [ strong [] [ text (String.fromInt count) ]
-                        ]
-                    ]
+viewMappingBadge : Int -> Int -> Float -> Html msg
+viewMappingBadge mapped unmapped pct =
+    span []
+        [ span [ class "tag is-success is-light", style "font-size" "0.75rem" ]
+            [ text (String.fromInt mapped) ]
+        , if unmapped > 0 then
+            span
+                [ class "tag is-warning is-light"
+                , style "font-size" "0.75rem"
+                , style "margin-left" "0.25rem"
+                , title ("Mapping coverage: " ++ String.fromInt (round pct) ++ "%")
                 ]
-            ]
+                [ text (String.fromInt unmapped ++ " unmapped") ]
+
+          else
+            text ""
         ]
 
 
-viewUnmappedFlows : List Models.LCIA.UnmappedFlow -> Html msg
-viewUnmappedFlows unmappedFlows =
-    details [ class "mt-4" ]
-        [ summary [ class "has-text-weight-semibold", style "cursor" "pointer" ]
-            [ text ("Show unmapped flows (" ++ String.fromInt (List.length unmappedFlows) ++ ")") ]
-        , div [ class "table-container mt-2" ]
-            [ table [ class "table is-striped is-hoverable is-fullwidth is-narrow" ]
-                [ thead []
-                    [ tr []
-                        [ th [] [ text "Flow Name" ]
-                        , th [] [ text "Direction" ]
-                        , th [] [ text "UUID" ]
-                        ]
-                    ]
-                , tbody []
-                    (List.map viewUnmappedFlowRow unmappedFlows)
-                ]
+viewRelativeBar : Float -> Html msg
+viewRelativeBar pct =
+    div
+        [ style "background" "#f0f0f0"
+        , style "border-radius" "3px"
+        , style "height" "16px"
+        , style "width" "100%"
+        , style "overflow" "hidden"
+        ]
+        [ div
+            [ style "background" "#3273dc"
+            , style "height" "100%"
+            , style "width" (String.fromFloat pct ++ "%")
+            , style "border-radius" "3px"
+            , style "transition" "width 0.3s ease"
             ]
+            []
         ]
 
 
-viewUnmappedFlowRow : Models.LCIA.UnmappedFlow -> Html msg
-viewUnmappedFlowRow flow =
+viewExpandedRow : LCIAResult -> Html msg
+viewExpandedRow result =
     tr []
-        [ td [] [ text flow.ufaFlowName ]
-        , td []
-            [ span
-                [ class
-                    (if flow.ufaDirection == "Input" then
-                        "tag is-info"
-
-                     else
-                        "tag is-warning"
+        [ td [ colspan 5, style "padding" "0.5rem 1rem", style "background" "#fafafa" ]
+            [ div [ style "max-height" "200px", style "overflow-y" "auto" ]
+                [ p [ class "has-text-weight-semibold is-size-7", style "margin-bottom" "0.5rem" ]
+                    [ text ("Unmapped flows (" ++ String.fromInt result.lrUnmappedFlows ++ " total, showing first " ++ String.fromInt (List.length result.lrUnmappedNames) ++ "):") ]
+                , div [ class "tags" ]
+                    (List.map
+                        (\name ->
+                            span [ class "tag is-light", style "font-size" "0.7rem" ] [ text name ]
+                        )
+                        result.lrUnmappedNames
                     )
                 ]
-                [ text flow.ufaDirection ]
             ]
-        , td [] [ small [ class "has-text-grey" ] [ text flow.ufaFlowRef ] ]
         ]
 
 
 {-| Shared navbar component for all pages
 -}
 viewPageNavbar : String -> Maybe ( String, String ) -> Html msg
-viewPageNavbar title maybeActivity =
+viewPageNavbar pageTitle maybeActivity =
     nav [ class "navbar is-light" ]
         [ div [ class "navbar-brand" ]
             [ div [ class "navbar-item" ]
-                [ h1 [ class "title is-4" ] [ text title ]
+                [ h1 [ class "title is-4" ] [ text pageTitle ]
                 ]
             ]
         , div [ class "navbar-menu is-active" ]

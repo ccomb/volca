@@ -31,6 +31,8 @@ import qualified Data.Vector.Generic.Mutable as VGM
 import qualified Data.Vector.Unboxed.Mutable as VUM
 import GHC.Generics (Generic, Generic1)
 
+import Data.List (nub)
+import SynonymDB (normalizeName)
 import SynonymDB.Types (SynonymDB)
 
 -- | Orphan Store instance for UUID (16 bytes, host-native word order)
@@ -557,8 +559,14 @@ addSynonymDBToDatabase db synDB = db { dbSynonymDB = Just synDB }
 -- Groups flows by their normalized names for efficient lookup
 buildFlowNameIndex :: FlowDB -> M.Map Text [Flow]
 buildFlowNameIndex flowDB =
-    M.fromListWith (++)
-        [(T.toLower (flowName f), [f]) | f <- M.elems flowDB]
+    M.fromListWith (++) $ concatMap flowEntries (M.elems flowDB)
+  where
+    flowEntries f =
+        let primary = normalizeName (flowName f)
+            synKeys = [ normalizeName syn
+                      | syns <- M.elems (flowSynonyms f)
+                      , syn <- S.toList syns ]
+        in [(k, [f]) | k <- nub (primary : synKeys)]
 
 -- | Add flow name index to a Database
 addFlowNameIndexToDatabase :: Database -> Database

@@ -107,7 +107,7 @@ update shared msg model =
 
                 MethodsView.NavigateToMethod name ->
                     ( model
-                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.MethodDetailRoute name)))
+                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.MethodDetailRoute name Nothing)))
                     )
 
         ActionResult (Ok response) ->

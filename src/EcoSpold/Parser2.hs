@@ -368,9 +368,15 @@ parseWithXeno xmlContent processId =
                     state{psContext = InElementaryExchange edata{edUnitName = txt}, psPath = tail (psPath state), psTextAccum = []}
                 _ -> state{psPath = tail (psPath state), psTextAccum = []}
         | isElement tagName "synonym" =
-            -- Synonym text is accumulated but not yet stored in exchange data
-            -- For now just clear text and pop path, keeping parent exchange context
-            state{psPath = tail (psPath state), psTextAccum = []}
+            let txt = T.strip $ T.concat $ reverse $ map bsToText (psTextAccum state)
+            in case psContext state of
+                InIntermediateExchange idata | not (T.null txt) ->
+                    let syns = M.insertWith S.union "en" (S.singleton txt) (idSynonyms idata)
+                    in state{psContext = InIntermediateExchange idata{idSynonyms = syns}, psPath = tail (psPath state), psTextAccum = []}
+                InElementaryExchange edata | not (T.null txt) ->
+                    let syns = M.insertWith S.union "en" (S.singleton txt) (edSynonyms edata)
+                    in state{psContext = InElementaryExchange edata{edSynonyms = syns}, psPath = tail (psPath state), psTextAccum = []}
+                _ -> state{psPath = tail (psPath state), psTextAccum = []}
         | isElement tagName "inputGroup" =
             let txt = T.strip $ T.concat $ reverse $ map bsToText (psTextAccum state)
             -- DON'T change psContext - preserve the parent exchange context

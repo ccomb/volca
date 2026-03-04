@@ -240,6 +240,7 @@ data LCIAResult = LCIAResult
     , lrUnit :: Text            -- Unit (e.g., "kg CO2 eq")
     , lrMappedFlows :: Int      -- Number of flows successfully mapped
     , lrUnmappedFlows :: Int    -- Number of flows not mapped
+    , lrUnmappedNames :: [Text] -- First N unmapped CF names (for diagnostics)
     }
     deriving (Generic)
 
@@ -253,6 +254,8 @@ data MappingStatus = MappingStatus
     , mstMappedBySynonym :: Int -- Matched via synonym group
     , mstUnmapped :: Int        -- Not matched
     , mstCoverage :: Double     -- Percentage of mapped flows (0-100)
+    , mstDbBiosphereCount :: Int      -- Total biosphere flows in the DB
+    , mstUniqueDbFlowsMatched :: Int  -- Unique DB flows hit by this method's CFs
     , mstUnmappedFlows :: [UnmappedFlowAPI] -- Details of unmapped flows
     }
     deriving (Generic)
@@ -262,6 +265,27 @@ data UnmappedFlowAPI = UnmappedFlowAPI
     { ufaFlowRef :: UUID        -- Flow UUID in method
     , ufaFlowName :: Text       -- Flow name in method
     , ufaDirection :: Text      -- "Input" or "Output"
+    }
+    deriving (Generic)
+
+-- | DB-flow-centric mapping: all biosphere flows with their CF assignments
+data FlowCFMapping = FlowCFMapping
+    { fcmMethodName :: Text
+    , fcmMethodUnit :: Text
+    , fcmTotalFlows :: Int          -- Total biosphere flows in DB
+    , fcmMatchedFlows :: Int        -- How many have a CF
+    , fcmFlows :: [FlowCFEntry]
+    }
+    deriving (Generic)
+
+-- | A single DB biosphere flow with its CF assignment (if any)
+data FlowCFEntry = FlowCFEntry
+    { fceFlowId :: UUID
+    , fceFlowName :: Text
+    , fceFlowCategory :: Text
+    , fceCfValue :: Maybe Double     -- CF value (Nothing if no match)
+    , fceCfFlowName :: Maybe Text    -- Method CF flow name
+    , fceMatchStrategy :: Maybe Text -- "uuid" | "name" | "synonym"
     }
     deriving (Generic)
 
@@ -445,6 +469,8 @@ instance ToJSON MethodFactorAPI
 instance ToJSON LCIAResult
 instance ToJSON MappingStatus
 instance ToJSON UnmappedFlowAPI
+instance ToJSON FlowCFMapping
+instance ToJSON FlowCFEntry
 
 -- FromJSON instances needed for API conversion
 instance (FromJSON a) => FromJSON (SearchResults a)

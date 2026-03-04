@@ -1,8 +1,12 @@
 module Models.LCIA exposing
-    ( LCIAResult
+    ( FlowCFEntry
+    , FlowCFMapping
+    , LCIAResult
     , MappingStatus
     , MethodSummary
     , UnmappedFlow
+    , flowCFMappingDecoder
+    , lciaBatchDecoder
     , lciaResultDecoder
     , mappingStatusDecoder
     , methodSummaryDecoder
@@ -35,6 +39,7 @@ type alias LCIAResult =
     , lrUnit : String
     , lrMappedFlows : Int
     , lrUnmappedFlows : Int
+    , lrUnmappedNames : List String
     }
 
 
@@ -49,6 +54,8 @@ type alias MappingStatus =
     , mstMappedBySynonym : Int
     , mstUnmapped : Int
     , mstCoverage : Float
+    , mstDbBiosphereCount : Int
+    , mstUniqueDbFlowsMatched : Int
     , mstUnmappedFlows : List UnmappedFlow
     }
 
@@ -59,6 +66,29 @@ type alias UnmappedFlow =
     { ufaFlowRef : String
     , ufaFlowName : String
     , ufaDirection : String
+    }
+
+
+{-| DB-flow-centric mapping: all biosphere flows with their CF assignments
+-}
+type alias FlowCFMapping =
+    { fcmMethodName : String
+    , fcmMethodUnit : String
+    , fcmTotalFlows : Int
+    , fcmMatchedFlows : Int
+    , fcmFlows : List FlowCFEntry
+    }
+
+
+{-| A single DB biosphere flow with its CF assignment (if any)
+-}
+type alias FlowCFEntry =
+    { fceFlowId : String
+    , fceFlowName : String
+    , fceFlowCategory : String
+    , fceCfValue : Maybe Float
+    , fceCfFlowName : Maybe String
+    , fceMatchStrategy : Maybe String
     }
 
 
@@ -92,6 +122,12 @@ lciaResultDecoder =
         |> required "lrUnit" D.string
         |> required "lrMappedFlows" D.int
         |> required "lrUnmappedFlows" D.int
+        |> optional "lrUnmappedNames" (D.list D.string) []
+
+
+lciaBatchDecoder : Decoder (List LCIAResult)
+lciaBatchDecoder =
+    D.list lciaResultDecoder
 
 
 unmappedFlowDecoder : Decoder UnmappedFlow
@@ -113,4 +149,27 @@ mappingStatusDecoder =
         |> required "mstMappedBySynonym" D.int
         |> required "mstUnmapped" D.int
         |> required "mstCoverage" D.float
+        |> required "mstDbBiosphereCount" D.int
+        |> required "mstUniqueDbFlowsMatched" D.int
         |> required "mstUnmappedFlows" (D.list unmappedFlowDecoder)
+
+
+flowCFEntryDecoder : Decoder FlowCFEntry
+flowCFEntryDecoder =
+    D.succeed FlowCFEntry
+        |> required "fceFlowId" D.string
+        |> required "fceFlowName" D.string
+        |> required "fceFlowCategory" D.string
+        |> optional "fceCfValue" (D.nullable D.float) Nothing
+        |> optional "fceCfFlowName" (D.nullable D.string) Nothing
+        |> optional "fceMatchStrategy" (D.nullable D.string) Nothing
+
+
+flowCFMappingDecoder : Decoder FlowCFMapping
+flowCFMappingDecoder =
+    D.succeed FlowCFMapping
+        |> required "fcmMethodName" D.string
+        |> required "fcmMethodUnit" D.string
+        |> required "fcmTotalFlows" D.int
+        |> required "fcmMatchedFlows" D.int
+        |> required "fcmFlows" (D.list flowCFEntryDecoder)

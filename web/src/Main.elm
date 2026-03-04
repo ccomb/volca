@@ -15,6 +15,8 @@ import Pages.Emissions
 import Pages.Graph
 import Pages.Inventory
 import Pages.LCIA
+import Pages.DatabaseDetail
+import Pages.FlowMapping
 import Pages.MethodDetail
 import Pages.Methods
 import Pages.MethodUpload
@@ -264,6 +266,9 @@ navigateToPage shared page =
                 Nothing ->
                     Shared.NavigateTo (ActivitiesRoute { db = dbName, name = Nothing, limit = Just 20 })
 
+        ActivityActive LCIA ->
+            Shared.NavigateTo (LCIARoute dbName currentActivityId Nothing)
+
         ActivityActive tab ->
             Shared.NavigateTo (ActivityRoute tab dbName currentActivityId)
 
@@ -279,11 +284,20 @@ navigateToPage shared page =
         MethodDetailActive ->
             Shared.NavigateTo MethodsRoute
 
+        DatabaseDetailActive ->
+            Shared.NavigateTo DatabasesRoute
+
+        FlowMappingActive ->
+            Shared.NavigateTo MethodsRoute
+
 
 routeToActivityId : Route -> Maybe String
 routeToActivityId route =
     case route of
         ActivityRoute _ _ pid ->
+            Just pid
+
+        LCIARoute _ pid _ ->
             Just pid
 
         _ ->
@@ -380,9 +394,11 @@ main =
         |> Spa.addPublicPage mappers Route.matchDatabases Pages.Databases.page
         |> Spa.addPublicPage mappers Route.matchUpload Pages.Upload.page
         |> Spa.addPublicPage mappers Route.matchDatabaseSetup Pages.DatabaseSetup.page
+        |> Spa.addPublicPage mappers Route.matchDatabaseDetail Pages.DatabaseDetail.page
         |> Spa.addPublicPage mappers Route.matchMethods Pages.Methods.page
         |> Spa.addPublicPage mappers Route.matchMethodUpload Pages.MethodUpload.page
         |> Spa.addPublicPage mappers Route.matchMethodDetail Pages.MethodDetail.page
+        |> Spa.addPublicPage mappers Route.matchFlowMapping Pages.FlowMapping.page
         |> Spa.beforeRouteChange Shared.RouteChanged
         |> Spa.application View.map
             { toRoute = Route.toRoute

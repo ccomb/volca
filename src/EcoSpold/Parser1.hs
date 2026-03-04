@@ -338,7 +338,8 @@ parseWithXeno xmlContent =
                         Nothing
                         exchangeLocation
 
-            flow = Flow flowId (exName edata) category Nothing unitId flowType M.empty Nothing Nothing
+            cas  = if T.null (exCASNumber edata) then Nothing else Just (exCASNumber edata)
+            flow = Flow flowId (exName edata) category Nothing unitId flowType M.empty cas Nothing
 
             unit = Unit unitId (exUnit edata) (exUnit edata) ""
 
@@ -627,7 +628,8 @@ parseAllWithXeno xmlContent =
                         UUID.nil
                         Nothing
                         exchangeLocation
-            flow = Flow flowId (exName edata) category Nothing unitId flowType M.empty Nothing Nothing
+            cas  = if T.null (exCASNumber edata) then Nothing else Just (exCASNumber edata)
+            flow = Flow flowId (exName edata) category Nothing unitId flowType M.empty cas Nothing
             unit = Unit unitId (exUnit edata) (exUnit edata) ""
         in (exchange, flow, unit)
 
