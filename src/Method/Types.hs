@@ -33,6 +33,7 @@ import Data.UUID (UUID)
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
+import Data.Store (Store)
 
 -- | Direction of a biosphere flow (input from or output to environment)
 data FlowDirection
@@ -45,7 +46,7 @@ data FlowDirection
 -- subcompartment: "non-urban air or from high stacks", "surface water", etc.
 -- qualifier: "long-term" or ""
 data Compartment = Compartment !Text !Text !Text
-    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+    deriving (Eq, Show, Generic, NFData, Store, ToJSON, FromJSON)
 
 -- | A characterization factor from a method file
 --

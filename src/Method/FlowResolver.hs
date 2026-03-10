@@ -1,5 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Parse ILCD flow XML files to extract baseName, compartment, and CAS.
 --
@@ -7,6 +10,9 @@
 -- Each XML has: UUID, baseName, elementaryFlowCategorization (compartment),
 -- and optionally a CASNumber. This module builds a lookup map from UUID
 -- to enrichment data, used to annotate MethodCFs during method parsing.
+--
+-- Parsed flow data is cached to disk (zstd-compressed) to avoid re-parsing
+-- 94K+ XML files on every startup (~30s → <1s).
 module Method.FlowResolver
     ( ILCDFlowInfo(..)
     , resolveFlowDirectory
@@ -14,20 +20,28 @@ module Method.FlowResolver
     , parseFlowXML
     ) where
 
+import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.Async (mapConcurrently)
+import Control.DeepSeq (NFData, force)
+import Control.Exception (SomeException, catch, evaluate)
+import qualified Codec.Compression.Zstd as Zstd
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
+import Data.Store (Store, encode, decodeEx)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import qualified Xeno.SAX as X
-import System.Directory (doesDirectoryExist, listDirectory)
-import System.FilePath ((</>), takeExtension)
+import GHC.Generics (Generic)
+import System.Directory (doesDirectoryExist, doesFileExist, listDirectory, createDirectoryIfMissing, removeFile, getModificationTime)
+import System.FilePath ((</>), takeExtension, takeFileName)
 import Data.Char (toLower)
 
 import EcoSpold.Common (bsToText, isElement)
 import EcoSpold.Parser2 (normalizeCAS)
 import Method.Types (Compartment(..))
+import Progress (reportProgress, ProgressLevel(..))
 
 -- | Enrichment data extracted from an ILCD flow XML
 data ILCDFlowInfo = ILCDFlowInfo
@@ -35,7 +49,7 @@ data ILCDFlowInfo = ILCDFlowInfo
     , ilcdCompartment :: !(Maybe Compartment)
     , ilcdCAS         :: !(Maybe Text)  -- normalized CAS
     , ilcdSynonyms    :: ![Text]        -- from <common:synonyms xml:lang="en">, semicolon-split
-    } deriving (Show)
+    } deriving (Show, Generic, NFData, Store)
 
 -- | Given a method directory (containing lciamethods/), find the sibling flows/ directory.
 -- ILCD packages have structure: ILCD/{lciamethods/, flows/, ...}
@@ -51,17 +65,88 @@ resolveFlowDirectory methodDir = do
     -- Go up one directory level
     takeParentDir = reverse . dropWhile (/= '/') . dropWhile (== '/') . reverse
 
--- | Parse all flow XMLs in a directory, returning UUID → ILCDFlowInfo map
+-- | Parse all flow XMLs in a directory, returning UUID → ILCDFlowInfo map.
+--   Uses a zstd-compressed cache to skip re-parsing on subsequent startups.
+--   Falls back to worker-based parallel parsing on cache miss.
 parseFlowDirectory :: FilePath -> IO (M.Map UUID ILCDFlowInfo)
 parseFlowDirectory dir = do
+    let cacheFile = flowCacheFile dir
+    cached <- loadFlowCache cacheFile dir
+    case cached of
+        Just info -> return info
+        Nothing -> do
+            info <- parseFlowDirectoryFresh dir
+            saveFlowCache cacheFile info
+            return info
+
+-- | Parse all flow XMLs from scratch using worker-based parallelism
+parseFlowDirectoryFresh :: FilePath -> IO (M.Map UUID ILCDFlowInfo)
+parseFlowDirectoryFresh dir = do
     files <- listDirectory dir
     let xmlFiles = [dir </> f | f <- files, map toLower (takeExtension f) == ".xml"]
-    results <- mapM parseOneFile xmlFiles
-    return $! M.fromList [(uuid, info) | Just (uuid, info) <- results]
+    numWorkers <- getNumCapabilities
+    let workers = distributeFiles numWorkers xmlFiles
+    workerResults <- mapConcurrently parseWorker workers
+    return $! M.unions workerResults
   where
+    parseWorker paths = do
+        results <- mapM parseOneFile paths
+        return $! M.fromList [(uuid, info) | Just (uuid, info) <- results]
     parseOneFile path = do
         bytes <- BS.readFile path
         return $ parseFlowXML bytes
+
+-- | Distribute files evenly across N workers (same pattern as Database.Loader)
+distributeFiles :: Int -> [a] -> [[a]]
+distributeFiles n xs =
+    let len = length xs
+        baseSize = len `div` n
+        remainder = len `mod` n
+        sizes = replicate remainder (baseSize + 1) ++ replicate (n - remainder) baseSize
+    in go sizes xs
+  where
+    go [] _ = []
+    go (s:ss) ys = let (h, t) = splitAt s ys in h : go ss t
+
+-- | Cache file path for a flows directory
+flowCacheFile :: FilePath -> FilePath
+flowCacheFile dir = dir </> ".fplca.flows.cache.zst"
+
+-- | Load flow info from cache if valid (file exists and is newer than directory)
+loadFlowCache :: FilePath -> FilePath -> IO (Maybe (M.Map UUID ILCDFlowInfo))
+loadFlowCache cacheFile dir = do
+    exists <- doesFileExist cacheFile
+    if not exists then return Nothing
+    else catch
+        (do cacheTime <- getModificationTime cacheFile
+            dirTime <- getModificationTime dir
+            if cacheTime < dirTime
+                then do
+                    reportProgress Info "[FLOWS-CACHE] Stale, reparsing"
+                    removeFile cacheFile
+                    return Nothing
+                else do
+                    compressed <- BS.readFile cacheFile
+                    case Zstd.decompress compressed of
+                        Zstd.Decompress raw -> do
+                            let !info = decodeEx raw
+                            result <- evaluate (force info)
+                            reportProgress Info $ "[FLOWS-CACHE] Loaded " <> show (M.size result) <> " flow definitions from cache"
+                            return (Just result)
+                        _ -> do
+                            reportProgress Warning "[FLOWS-CACHE] Decompression failed, reparsing"
+                            removeFile cacheFile
+                            return Nothing)
+        (\(_ :: SomeException) -> return Nothing)
+
+-- | Save parsed flow info to cache
+saveFlowCache :: FilePath -> M.Map UUID ILCDFlowInfo -> IO ()
+saveFlowCache cacheFile info = catch
+    (do let serialized = encode info
+            compressed = Zstd.compress 1 serialized
+        BS.writeFile cacheFile compressed
+        reportProgress Info $ "[FLOWS-CACHE] Saved " <> show (M.size info) <> " flow definitions to cache")
+    (\(_ :: SomeException) -> return ())
 
 -- | SAX parse state for flow XML
 data FlowParseState = FlowParseState

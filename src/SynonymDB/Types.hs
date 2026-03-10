@@ -10,6 +10,7 @@ module SynonymDB.Types
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Store (Store)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
@@ -21,7 +22,7 @@ import Control.DeepSeq (NFData)
 data SynonymDB = SynonymDB
     { synNameToId  :: !(Map Text Int)
     , synIdToNames :: !(Map Int [Text])
-    } deriving (Eq, Show, Generic, NFData)
+    } deriving (Eq, Show, Generic, NFData, Store)
 
 -- | Empty synonym database
 emptySynonymDB :: SynonymDB

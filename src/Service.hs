@@ -4,7 +4,7 @@
 module Service where
 
 import CLI.Types (DebugMatricesOptions (..))
-import Matrix (Inventory, applySparseMatrix, buildDemandVectorFromIndex, computeInventoryMatrix, solveSparseLinearSystem, toList, fromList)
+import Matrix (Inventory, applySparseMatrix, buildDemandVectorFromIndex, computeInventoryMatrix, toList, fromList)
 import qualified Matrix.Export as MatrixExport
 import SharedSolver (SharedSolver, solveWithSharedSolver)
 import Database (findActivitiesByFields, findFlowsBySynonym)
@@ -201,28 +201,15 @@ getActivityInventoryWithSharedSolver sharedSolver db processIdText = do
             case validateProcessIdInMatrixIndex db processId of
                 Left validationErr -> return $ Left validationErr
                 Right () -> do
-                    -- Inline matrix calculation with shared solver to avoid circular dependency
-                    let activityCount = dbActivityCount db
-                        bioFlowCount = dbBiosphereCount db
-                        techTriples = dbTechnosphereTriples db
+                    -- Inline matrix calculation with shared solver
+                    let bioFlowCount = dbBiosphereCount db
                         bioTriples = dbBiosphereTriples db
                         activityIndex = dbActivityIndex db
                         bioFlowUUIDs = dbBiosphereFlows db
-                        -- Build demand vector (will not fail after validation)
                         demandVec = buildDemandVectorFromIndex activityIndex processId
 
-                    -- Use shared solver with MVar synchronization - this is thread-safe
-                    -- The shared solver uses the cached factorization from the database
-                    supplyVec <- case dbCachedFactorization db of
-                        Just _ -> do
-                            -- Use shared solver with cached factorization - thread-safe and fast
-                            solveWithSharedSolver sharedSolver demandVec
-                        Nothing -> do
-                            -- Fallback: use direct matrix computation if no cached factorization
-                            -- Convert Int32 to Int for solveSparseLinearSystem
-                            let techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
-                                activityCountInt = fromIntegral activityCount
-                            solveSparseLinearSystem techTriplesInt activityCountInt demandVec
+                    -- Use shared solver (lazy factorization on first call, cached thereafter)
+                    supplyVec <- solveWithSharedSolver sharedSolver demandVec
 
                     -- Calculate inventory using sparse biosphere matrix: g = B * supply
                     -- Convert Int32 to Int for applySparseMatrix
@@ -515,15 +502,12 @@ buildActivityGraph :: Database -> SharedSolver -> Text -> Double -> IO (Either S
 buildActivityGraph db sharedSolver queryText cutoffPercent = do
     case resolveActivityAndProcessId db queryText of
         Left err -> return $ Left err
-        Right (processId, _activity) ->
-            case dbCachedFactorization db of
-                Nothing -> return $ Left $ MatrixError "No cached factorization available for graph computation"
-                Just _ -> do
+        Right (processId, _activity) -> do
                     -- Step 1: Get factorized column (cumulative amounts) by solving
                     let activityIndex = dbActivityIndex db
                         demandVec = buildDemandVectorFromIndex activityIndex processId
 
-                    -- Solve to get cumulative amounts
+                    -- Solve to get cumulative amounts (lazy factorization on first call)
                     supplyVec <- solveWithSharedSolver sharedSolver demandVec
                     let supplyList = toList supplyVec
                         totalSupply = sum [abs val | val <- supplyList]

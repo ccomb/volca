@@ -94,11 +94,12 @@ import Data.Ord (Down(..))
 import Config
 import qualified Data.ByteString.Lazy as BL
 import Data.Time (diffUTCTime, getCurrentTime)
-import Matrix (precomputeMatrixFactorization, addFactorizationToDatabase, clearCachedKspSolver)
+import Control.Concurrent.Async (mapConcurrently_)
+import Matrix (clearCachedKspSolver)
 import SharedSolver (SharedSolver, createSharedSolver)
 import Progress (reportProgress, reportProgressWithTiming, reportError, ProgressLevel(..))
 import Database (buildDatabaseWithMatrices)
-import SynonymDB (SynonymDB(..), emptySynonymDB, buildFromCSV, mergeSynonymDBs, synonymCount)
+import SynonymDB (SynonymDB(..), emptySynonymDB, buildFromCSV, buildFromPairs, loadFromCSVFileWithCache, mergeSynonymDBs, synonymCount)
 import Method.Types (CompartmentMap, buildCompartmentMapFromCSV, compartmentMapSize)
 import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), Exchange(..), UUID, Flow(..), exchangeFlowId, exchangeIsReference, CrossDBLink(..), CrossDBLinkingStats(..), emptyCrossDBLinkingStats, crossDBLinksCount, crossDBBySource, unresolvedCount, LinkBlocker(..), deduplicateFallbacks)
 import qualified UnitConversion as UnitConversion
@@ -397,61 +398,36 @@ initDatabaseManager config noCache _configPath = do
             }
 
     -- Auto-load active reference data (flow synonyms, compartment mappings, units)
-    autoLoadRefData flowSynOps loadedFlowSynsVar allFlowSyns
+    -- Flow synonyms use binary cache for fast loading (161K pairs → <1s vs 15s)
+    autoLoadFlowSynonyms loadedFlowSynsVar allFlowSyns
     autoLoadRefData compMapOps loadedCompMapsVar allCompMaps
     autoLoadRefData unitDefOps loadedUnitDefsVar allUnitDefs
 
-    -- Resolve load order: expand load=true transitively through depends, then topo-sort
+    totalStart <- getCurrentTime
+
+    -- Load databases with level-based parallelism
     let allDbConfigs = allDbs
         configMap = M.fromList [(dcName c, c) | c <- allDbConfigs]
     case resolveLoadOrder allDbConfigs of
         Left err -> reportError $ "Dependency resolution failed: " <> T.unpack err
         Right loadOrder -> do
-            let dbsToLoad = [configMap M.! name | name <- loadOrder, M.member name configMap]
-            reportProgress Info $ "Loading " ++ show (length dbsToLoad) ++ " database(s) in dependency order: "
-                ++ T.unpack (T.intercalate " → " loadOrder)
-            totalStart <- getCurrentTime
             synonymDB <- getMergedSynonymDB manager
             unitConfig <- getMergedUnitConfig manager
-            forM_ dbsToLoad $ \dbConfig -> do
-                reportProgress Info $ "[STARTING] Loading database: " <> T.unpack (dcDisplayName dbConfig)
+            let dbsToLoad = [configMap M.! name | name <- loadOrder, M.member name configMap]
+                levels = computeDepLevels configMap loadOrder
+            reportProgress Info $ "Loading " ++ show (length dbsToLoad) ++ " database(s) in " ++ show (length levels) ++ " parallel levels: "
+                ++ T.unpack (T.intercalate " → " [T.intercalate "," names | names <- levels])
+            forM_ (zip [1::Int ..] levels) $ \(levelNum, levelNames) -> do
+                let levelConfigs = [configMap M.! name | name <- levelNames, M.member name configMap]
+                reportProgress Info $ "  Level " ++ show levelNum ++ ": loading " ++ show (length levelConfigs)
+                    ++ " database(s) in parallel"
                 currentIndexedDbs <- readTVarIO indexedDbsVar
                 let otherIndexes = M.elems currentIndexedDbs
-                result <- loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherIndexes
-                case result of
-                    Right loaded -> do
-                        let indexedDb = buildIndexedDatabaseFromDB (dcName dbConfig) synonymDB (ldDatabase loaded)
-                        atomically $ do
-                            modifyTVar' loadedDbsVar (M.insert (dcName dbConfig) loaded)
-                            modifyTVar' indexedDbsVar (M.insert (dcName dbConfig) indexedDb)
-                        reportProgress Info $ "  [OK] Loaded: " <> T.unpack (dcDisplayName dbConfig)
-                        -- Auto-extract synonyms from biosphere flows
-                        let db = ldDatabase loaded
-                            bioUUIDs = S.fromList (V.toList (dbBiosphereFlows db))
-                            !pairs = extractFromEcoSpold2 (dbFlows db) bioUUIDs
-                            -- Count biosphere flows that have synonyms
-                            !bioFlowsWithSyns = length
-                                [ () | f <- M.elems (dbFlows db)
-                                     , S.member (flowId f) bioUUIDs
-                                     , not (M.null (flowSynonyms f))
-                                ]
-                        reportProgress Info $ "  [EXTRACT] " <> T.unpack (dcName dbConfig)
-                            <> ": " <> show (S.size bioUUIDs) <> " bio flows, "
-                            <> show bioFlowsWithSyns <> " with synonyms, "
-                            <> show (length pairs) <> " pairs"
-                        autoCreateFlowSynonyms manager (dcName dbConfig)
-                            ("Auto-extracted from " <> dcDisplayName dbConfig) pairs
-                    Left err ->
-                        reportError $ "  [FAIL] Failed to load " <> T.unpack (dcName dbConfig) <> ": " <> T.unpack err
-            totalEnd <- getCurrentTime
-            let totalDuration = realToFrac (diffUTCTime totalEnd totalStart) :: Double
-            reportProgressWithTiming Info "Total database loading time" totalDuration
+                mapConcurrently_ (loadOneDatabase synonymDB unitConfig noCache otherIndexes loadedDbsVar indexedDbsVar manager) levelConfigs
+            loadedCount <- atomically $ M.size <$> readTVar loadedDbsVar
+            reportProgress Info $ "Multi-database mode: " ++ show loadedCount ++ " database(s) loaded"
 
-    -- Report final status
-    loadedCount <- atomically $ M.size <$> readTVar loadedDbsVar
-    reportProgress Info $ "Multi-database mode: " ++ show loadedCount ++ " database(s) loaded"
-
-    -- Auto-load active method collections
+    -- Load method collections
     let activeMethods = filter mcActive (cfgMethods config)
     forM_ activeMethods $ \mc -> do
         result <- loadMethodCollectionFromConfig mc
@@ -460,14 +436,70 @@ initDatabaseManager config noCache _configPath = do
                 atomically $ modifyTVar' loadedMethodsVar (M.insert (mcName mc) methods)
                 reportProgress Info $ "  [OK] Loaded method: " <> T.unpack (mcName mc)
                     <> " (" <> show (length methods) <> " impact categories)"
-                -- Auto-extract synonyms from ILCD flow definitions
                 let !pairs = extractFromILCDFlows flowInfo
                 autoCreateFlowSynonyms manager (mcName mc)
                     ("Auto-extracted from " <> mcName mc) pairs
             Left err ->
                 reportError $ "  [FAIL] Failed to load method " <> T.unpack (mcName mc) <> ": " <> T.unpack err
 
+    totalEnd <- getCurrentTime
+    let totalDuration = realToFrac (diffUTCTime totalEnd totalStart) :: Double
+    reportProgressWithTiming Info "Total startup loading time" totalDuration
+
     return manager
+
+-- | Load a single database with per-database timing, then register it
+loadOneDatabase
+    :: SynonymDB -> UnitConversion.UnitConfig -> Bool -> [IndexedDatabase]
+    -> TVar (Map Text LoadedDatabase) -> TVar (Map Text IndexedDatabase)
+    -> DatabaseManager -> DatabaseConfig -> IO ()
+loadOneDatabase synonymDB unitConfig noCache otherIndexes loadedDbsVar indexedDbsVar manager dbConfig = do
+    dbStart <- getCurrentTime
+    reportProgress Info $ "[STARTING] Loading database: " <> T.unpack (dcDisplayName dbConfig)
+    result <- loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherIndexes
+    case result of
+        Right loaded -> do
+            let indexedDb = buildIndexedDatabaseFromDB (dcName dbConfig) synonymDB (ldDatabase loaded)
+            atomically $ do
+                modifyTVar' loadedDbsVar (M.insert (dcName dbConfig) loaded)
+                modifyTVar' indexedDbsVar (M.insert (dcName dbConfig) indexedDb)
+            dbEnd <- getCurrentTime
+            let !dbDuration = realToFrac (diffUTCTime dbEnd dbStart) :: Double
+            reportProgressWithTiming Info ("  [OK] Loaded: " <> T.unpack (dcDisplayName dbConfig)) dbDuration
+            -- Auto-extract synonyms from biosphere flows
+            let db = ldDatabase loaded
+                bioUUIDs = S.fromList (V.toList (dbBiosphereFlows db))
+                !pairs = extractFromEcoSpold2 (dbFlows db) bioUUIDs
+                !bioFlowsWithSyns = length
+                    [ () | f <- M.elems (dbFlows db)
+                         , S.member (flowId f) bioUUIDs
+                         , not (M.null (flowSynonyms f))
+                    ]
+            reportProgress Info $ "  [EXTRACT] " <> T.unpack (dcName dbConfig)
+                <> ": " <> show (S.size bioUUIDs) <> " bio flows, "
+                <> show bioFlowsWithSyns <> " with synonyms, "
+                <> show (length pairs) <> " pairs"
+            autoCreateFlowSynonyms manager (dcName dbConfig)
+                ("Auto-extracted from " <> dcDisplayName dbConfig) pairs
+        Left err ->
+            reportError $ "  [FAIL] Failed to load " <> T.unpack (dcName dbConfig) <> ": " <> T.unpack err
+
+-- | Compute dependency levels from topo-sorted load order for parallel loading.
+--   Level 0 = no deps, level N = depends only on levels 0..N-1.
+computeDepLevels :: Map Text DatabaseConfig -> [Text] -> [[Text]]
+computeDepLevels configMap loadOrder =
+    let -- Compute level for each name: max(levels of deps) + 1, or 0 if no deps
+        levelOf :: Map Text Int -> Text -> Int
+        levelOf levels name = case M.lookup name configMap of
+            Nothing -> 0
+            Just cfg -> case dcDepends cfg of
+                [] -> 0
+                deps -> 1 + maximum [M.findWithDefault 0 d levels | d <- deps]
+        -- Fold through topo-sorted order to assign levels
+        levels = foldl (\acc name -> M.insert name (levelOf acc name) acc) M.empty loadOrder
+        -- Group by level
+        maxLevel = if M.null levels then 0 else maximum (M.elems levels)
+    in [[name | name <- loadOrder, M.findWithDefault 0 name levels == lvl] | lvl <- [0..maxLevel]]
 
 -- | Discover uploaded databases from uploads/ directory
 -- Reads meta.toml from each subdirectory and converts to DatabaseConfig
@@ -624,22 +656,15 @@ loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherInd
                     -- Initialize runtime fields (synonym DB and flow name index)
                     let database = initializeRuntimeFields dbRaw synonymDB
 
-                    -- Pre-compute matrix factorization
-                    reportProgress Info "Pre-computing matrix factorization..."
+                    -- Create shared solver with lazy factorization (deferred to first query)
                     let techTriples = dbTechnosphereTriples database
                         activityCount = dbActivityCount database
                         techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
                         activityCountInt = fromIntegral activityCount
-
-                    factorization <- precomputeMatrixFactorization (dcName dbConfig) techTriplesInt activityCountInt
-                    let databaseWithFact = addFactorizationToDatabase database factorization
-
-                    -- Create shared solver
-                    reportProgress Info "Creating shared solver..."
-                    sharedSolver <- createSharedSolver (dbCachedFactorization databaseWithFact) techTriplesInt activityCountInt
+                    sharedSolver <- createSharedSolver (dcName dbConfig) techTriplesInt activityCountInt
 
                     return $ Right LoadedDatabase
-                        { ldDatabase = databaseWithFact
+                        { ldDatabase = database
                         , ldSharedSolver = sharedSolver
                         , ldConfig = dbConfig
                         }
@@ -1559,30 +1584,26 @@ finalizeDatabase manager dbName = do
                 synonymDB <- getMergedSynonymDB manager
                 let dbWithRuntime = initializeRuntimeFields dbWithLinks synonymDB
 
-                -- Precompute factorization and create shared solver
+                -- Create shared solver with lazy factorization (deferred to first query)
                 let techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples dbWithRuntime)]
                     activityCountInt = fromIntegral $ dbActivityCount dbWithRuntime
-                factorization <- precomputeMatrixFactorization dbName techTriplesInt activityCountInt
-                let dbWithFactorization = addFactorizationToDatabase dbWithRuntime factorization
-
-                -- Create shared solver with the factorization
-                sharedSolver <- createSharedSolver (Just factorization) techTriplesInt activityCountInt
+                sharedSolver <- createSharedSolver dbName techTriplesInt activityCountInt
 
                 let loaded = LoadedDatabase
-                        { ldDatabase = dbWithFactorization
+                        { ldDatabase = dbWithRuntime
                         , ldSharedSolver = sharedSolver
                         , ldConfig = sdConfig staged
                         }
 
                 -- Move from staged to loaded
-                let indexedDb = buildIndexedDatabaseFromDB dbName synonymDB dbWithFactorization
+                let indexedDb = buildIndexedDatabaseFromDB dbName synonymDB dbWithRuntime
                 atomically $ do
                     modifyTVar' (dmStagedDbs manager) (M.delete dbName)
                     modifyTVar' (dmLoadedDbs manager) (M.insert dbName loaded)
                     modifyTVar' (dmIndexedDbs manager) (M.insert dbName indexedDb)
 
                 -- Save to cache
-                Loader.saveCachedDatabaseWithMatrices dbName (dcPath (sdConfig staged)) dbWithFactorization
+                Loader.saveCachedDatabaseWithMatrices dbName (dcPath (sdConfig staged)) dbWithRuntime
 
                 reportProgress Info $ "  [OK] Finalized: " <> T.unpack dbName
                 return $ Right loaded
@@ -1889,6 +1910,19 @@ removeRefDataG ops manager name = do
                     atomically $ modifyTVar' (rdoAvailableVar ops manager) (M.delete name)
                     return $ Right ()
 
+-- | Auto-load active flow synonyms using binary cache for speed
+autoLoadFlowSynonyms :: TVar (Map Text SynonymDB) -> [RefDataConfig] -> IO ()
+autoLoadFlowSynonyms loadedVar configs =
+    forM_ (filter rdActive configs) $ \rd -> do
+        result <- loadFromCSVFileWithCache (rdPath rd)
+        case result of
+            Right synDB -> do
+                atomically $ modifyTVar' loadedVar (M.insert (rdName rd) synDB)
+                reportProgress Info $ "  [OK] Loaded flow synonyms: " <> T.unpack (rdName rd)
+                    <> " (" <> show (synonymCount synDB) <> " entries)"
+            Left err ->
+                reportError $ "  [FAIL] Failed to load flow synonyms " <> T.unpack (rdName rd) <> ": " <> err
+
 -- | Auto-load active reference data at startup
 autoLoadRefData :: RefDataOps a -> TVar (Map Text a) -> [RefDataConfig] -> IO ()
 autoLoadRefData ops loadedVar configs =
@@ -1990,7 +2024,7 @@ discoverUploadedRefData baseDir = do
                 return $ Just RefDataConfig
                     { rdName = name
                     , rdPath = csvPath
-                    , rdActive = False  -- Never auto-load uploaded
+                    , rdActive = isAuto  -- Auto-extracted synonyms are always active
                     , rdIsUploaded = True
                     , rdIsAuto = isAuto
                     , rdDescription = Nothing
@@ -2017,26 +2051,26 @@ autoCreateFlowSynonyms :: DatabaseManager -> Text -> Text -> [(Text, Text)] -> I
 autoCreateFlowSynonyms _ _ _ [] = return ()
 autoCreateFlowSynonyms manager sourceName description pairs = do
     let slug = "auto-" <> sourceName
-        dir  = "uploads/flow-synonyms" </> T.unpack slug
-        path = dir </> "data.csv"
-    createDirectoryIfMissing True dir
-    BL.writeFile path (synonymPairsToCSV pairs)
-    let rd = RefDataConfig
-            { rdName = slug
-            , rdPath = path
-            , rdActive = True
-            , rdIsUploaded = True
-            , rdIsAuto = True
-            , rdDescription = Just description
-            }
-    addFlowSynonyms manager rd
-    -- Auto-load immediately
-    csvResult <- loadRefDataCSV path
-    case csvResult of
-        Right csvData -> case buildFromCSV csvData of
-            Right synDB -> do
-                atomically $ modifyTVar' (dmLoadedFlowSyns manager) (M.insert slug synDB)
-                reportProgress Info $ "  [AUTO] " <> T.unpack slug
-                    <> ": " <> show (length pairs) <> " synonym pairs"
-            Left err -> reportError $ "  [FAIL] Auto synonym parse: " <> err
-        Left err -> reportError $ "  [FAIL] Auto synonym read: " <> T.unpack err
+    -- Skip if already loaded (persisted CSV from previous run, loaded by autoLoadRefData)
+    alreadyLoaded <- atomically $ M.member slug <$> readTVar (dmLoadedFlowSyns manager)
+    if alreadyLoaded
+        then reportProgress Info $ "  [AUTO] " <> T.unpack slug <> ": already loaded (cached)"
+        else do
+            let dir  = "uploads/flow-synonyms" </> T.unpack slug
+                path = dir </> "data.csv"
+            createDirectoryIfMissing True dir
+            BL.writeFile path (synonymPairsToCSV pairs)
+            let rd = RefDataConfig
+                    { rdName = slug
+                    , rdPath = path
+                    , rdActive = True
+                    , rdIsUploaded = True
+                    , rdIsAuto = True
+                    , rdDescription = Just description
+                    }
+            addFlowSynonyms manager rd
+            -- Build SynonymDB directly from pairs (skip CSV round-trip)
+            let !synDB = buildFromPairs pairs
+            atomically $ modifyTVar' (dmLoadedFlowSyns manager) (M.insert slug synDB)
+            reportProgress Info $ "  [AUTO] " <> T.unpack slug
+                <> ": " <> show (length pairs) <> " synonym pairs"

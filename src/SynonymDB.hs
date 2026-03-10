@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Synonym Database
 --
@@ -10,6 +11,8 @@
 module SynonymDB
     ( -- * Building
       buildFromCSV
+    , buildFromPairs
+    , loadFromCSVFileWithCache
       -- * Lookup
     , lookupSynonymGroup
     , getSynonyms
@@ -21,12 +24,18 @@ module SynonymDB
     , emptySynonymDB
     ) where
 
+import Control.DeepSeq (force)
+import Control.Exception (SomeException, catch, evaluate)
+import qualified Codec.Compression.Zstd as Zstd
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Csv (HasHeader(..), decode)
 import qualified Data.Map.Strict as M
+import Data.Store (encode, decodeEx)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import System.Directory (doesFileExist, getModificationTime)
 
 import SynonymDB.Types (SynonymDB(..), emptySynonymDB)
 
@@ -37,22 +46,20 @@ buildFromCSV :: BL.ByteString -> Either String SynonymDB
 buildFromCSV csvData =
     case decode HasHeader csvData of
         Left err -> Left $ "CSV parse error: " <> err
-        Right rows ->
-            let pairs = V.toList (rows :: V.Vector (Text, Text))
-                -- Union-Find on normalized names
-                uf = foldl addPair M.empty pairs
-                -- Collect original names per normalized key (first occurrence wins)
-                originals = foldl collectOriginals M.empty pairs
-                -- Resolve all normalized names to their root
-                allNorm = M.keys uf
-                resolved = M.fromList [(n, findRoot uf n) | n <- allNorm]
-                -- Group by root, but store original display names
-                groups = M.fromListWith (++) [(root, [lookupOriginal originals name]) | (name, root) <- M.toList resolved]
-                -- Filter out groups > 100, assign IDs
-                validGroups = filter ((<= 100) . length . snd) (zip [0..] (M.elems groups))
-                nameToId = M.fromList [(normalizeName name, gid) | (gid, names) <- validGroups, name <- names]
-                idToNames = M.fromList [(gid, names) | (gid, names) <- validGroups]
-            in Right $ SynonymDB nameToId idToNames
+        Right rows -> Right $ buildFromPairs (V.toList (rows :: V.Vector (Text, Text)))
+
+-- | Build SynonymDB directly from pairs (avoids CSV round-trip)
+buildFromPairs :: [(Text, Text)] -> SynonymDB
+buildFromPairs pairs =
+    let uf = foldl addPair M.empty pairs
+        originals = foldl collectOriginals M.empty pairs
+        allNorm = M.keys uf
+        resolved = M.fromList [(n, findRoot uf n) | n <- allNorm]
+        groups = M.fromListWith (++) [(root, [lookupOriginal originals name]) | (name, root) <- M.toList resolved]
+        validGroups = filter ((<= 100) . length . snd) (zip [0..] (M.elems groups))
+        nameToId = M.fromList [(normalizeName name, gid) | (gid, names) <- validGroups, name <- names]
+        idToNames = M.fromList [(gid, names) | (gid, names) <- validGroups]
+    in SynonymDB nameToId idToNames
   where
     addPair :: M.Map Text Text -> (Text, Text) -> M.Map Text Text
     addPair uf (raw1, raw2) =
@@ -62,7 +69,6 @@ buildFromCSV csvData =
            then uf
            else union uf n1 n2
 
-    -- Keep the first original name seen for each normalized form
     collectOriginals :: M.Map Text Text -> (Text, Text) -> M.Map Text Text
     collectOriginals acc (raw1, raw2) =
         M.insertWith (\_ old -> old) (normalizeName raw1) (T.strip raw1) $
@@ -71,7 +77,6 @@ buildFromCSV csvData =
     lookupOriginal :: M.Map Text Text -> Text -> Text
     lookupOriginal originals norm = M.findWithDefault norm norm originals
 
-    -- Simple union-find via path-compressed map
     findRoot :: M.Map Text Text -> Text -> Text
     findRoot uf name = case M.lookup name uf of
         Nothing -> name
@@ -82,11 +87,47 @@ buildFromCSV csvData =
     union uf a b =
         let rootA = findRoot uf a
             rootB = findRoot uf b
-            -- Ensure both names exist in map
             uf1 = M.insertWith (\_ old -> old) a a uf
             uf2 = M.insertWith (\_ old -> old) b b uf1
         in if rootA == rootB then uf2
            else M.insert rootB rootA uf2
+
+-- | Load a SynonymDB from a CSV file, using a binary cache for speed.
+--   On first load: parse CSV → build SynonymDB → save .cache.zst
+--   On subsequent loads: load .cache.zst directly (if newer than CSV)
+loadFromCSVFileWithCache :: FilePath -> IO (Either String SynonymDB)
+loadFromCSVFileWithCache csvPath = do
+    let cachePath = csvPath ++ ".cache.zst"
+    cached <- loadCache cachePath csvPath
+    case cached of
+        Just db -> return (Right db)
+        Nothing -> do
+            csvData <- BL.readFile csvPath
+            case buildFromCSV csvData of
+                Left err -> return (Left err)
+                Right db -> do
+                    saveCache cachePath db
+                    return (Right db)
+  where
+    loadCache cachePath srcPath = do
+        exists <- doesFileExist cachePath
+        if not exists then return Nothing
+        else catch
+            (do cacheTime <- getModificationTime cachePath
+                srcTime <- getModificationTime srcPath
+                if cacheTime < srcTime then return Nothing
+                else do
+                    compressed <- BS.readFile cachePath
+                    case Zstd.decompress compressed of
+                        Zstd.Decompress raw -> do
+                            let !db = decodeEx raw
+                            result <- evaluate (force db)
+                            return (Just result)
+                        _ -> return Nothing)
+            (\(_ :: SomeException) -> return Nothing)
+    saveCache cachePath db = catch
+        (BS.writeFile cachePath (Zstd.compress 1 (encode db)))
+        (\(_ :: SomeException) -> return ())
 
 -- | Merge multiple SynonymDBs into one (later entries take priority on ID conflicts).
 mergeSynonymDBs :: [SynonymDB] -> SynonymDB
