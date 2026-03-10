@@ -663,7 +663,7 @@ if [[ "$USE_SYSTEM_LIBS" == "true" ]]; then
     log_info "Using system libraries: $PETSC_LIB_NAME, $SLEPC_LIB_NAME"
 fi
 
-cabal build
+cabal build -j
 
 log_success "fplca built successfully"
 echo ""

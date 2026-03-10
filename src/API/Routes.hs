@@ -546,6 +546,7 @@ lcaServer dbManager maxTreeDepth password =
 
     strategyToText :: MatchStrategy -> Text
     strategyToText ByUUID = "uuid"
+    strategyToText ByCAS = "cas"
     strategyToText ByName = "name"
     strategyToText BySynonym = "synonym"
     strategyToText ByFuzzy = "fuzzy"
