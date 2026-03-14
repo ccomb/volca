@@ -230,6 +230,25 @@ fplca lcia "12345678-..." --method ./EF-3.1.xml
 fplca export-matrices ./output_dir
 ```
 
+### Flow Mapping Diagnostics
+
+```bash
+# Summary: how well does a method match a database?
+fplca --db "Agribalyse 3.2" mapping METHOD_UUID
+
+# See every mapped CF with its match strategy (uuid/cas/name/synonym)
+fplca --db "Agribalyse 3.2" mapping METHOD_UUID --matched
+
+# List CFs that found no DB flow
+fplca --db "Agribalyse 3.2" mapping METHOD_UUID --unmatched
+
+# List DB biosphere flows with no CF
+fplca --db "Agribalyse 3.2" mapping METHOD_UUID --uncharacterized
+
+# Machine-readable
+fplca --db "Agribalyse 3.2" mapping METHOD_UUID --matched --format json
+```
+
 ### Database and Method Management
 
 ```bash
@@ -243,6 +262,54 @@ fplca method                                    # list (default)
 fplca method upload EF-3.1.zip --name "EF 3.1"  # upload
 fplca method delete ef-31                        # delete
 ```
+
+---
+
+## API and CLI Feature Matrix
+
+| Feature | REST API | CLI |
+|---------|----------|-----|
+| **Search** | | |
+| Search activities | `GET /database/{db}/activities?name=&geo=&product=` | `activities --name --geo --product` |
+| Search flows | `GET /database/{db}/flows?q=&lang=` | `flows --query --lang` |
+| **Analysis** | | |
+| Activity details | `GET /database/{db}/activity/{id}` | `activity ID` |
+| Supply chain tree | `GET /database/{db}/activity/{id}/tree` | `tree ID --depth N` |
+| Supply chain graph | `GET /database/{db}/activity/{id}/graph?cutoff=` | — |
+| Life cycle inventory | `GET /database/{db}/activity/{id}/inventory` | `inventory ID` |
+| LCIA (single method) | `GET /database/{db}/activity/{id}/lcia/{methodId}` | `lcia ID --method FILE` |
+| LCIA batch | `GET /database/{db}/activity/{id}/lcia-batch/{col}` | — |
+| Flow details | `GET /database/{db}/flow/{flowId}` | `flow FLOW_ID` |
+| Flow activities | `GET /database/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
+| **Flow Mapping** | | |
+| Mapping coverage | `GET /database/{db}/method/{id}/mapping` | `mapping METHOD_UUID` |
+| Per-flow mapping | `GET /database/{db}/method/{id}/flow-mapping` | `mapping METHOD_UUID --matched` |
+| Unmatched CFs | included in mapping response | `mapping METHOD_UUID --unmatched` |
+| Uncharacterized flows | — | `mapping METHOD_UUID --uncharacterized` |
+| **Database Management** | | |
+| List databases | `GET /database` | `database` |
+| Upload database | `POST /database/upload` | `database upload FILE --name NAME` |
+| Load database | `POST /database/{name}/load` | — (use config `load = true`) |
+| Delete database | `DELETE /database/{name}` | `database delete NAME` |
+| Finalize linking | `POST /database/{name}/finalize` | — |
+| **Method Management** | | |
+| List methods | `GET /methods` | `methods` |
+| Method details | `GET /method/{id}` | — |
+| Method factors | `GET /method/{id}/factors` | — |
+| List collections | `GET /method-collections` | `method` |
+| Upload collection | `POST /method-collections/upload` | `method upload FILE --name NAME` |
+| Delete collection | `DELETE /method-collections/{name}` | `method delete NAME` |
+| **Reference Data** | | |
+| Flow synonyms | `GET /flow-synonyms` | `synonyms` |
+| Compartment mappings | `GET /compartment-mappings` | `compartment-mappings` |
+| Units | `GET /units` | `units` |
+| **Matrix Export** | | |
+| Universal format | — | `export-matrices DIR` |
+| Debug matrices | — | `debug-matrices ID --output FILE` |
+| **Auth** | | |
+| Login | `POST /auth` | — |
+
+All API routes are prefixed with `/api/v1/`. A dash (—) means the feature is only available in one interface.
 
 ---
 
