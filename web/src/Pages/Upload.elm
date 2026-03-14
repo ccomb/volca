@@ -168,7 +168,7 @@ view _ model =
 uploadDatabase : Json.Encode.Value -> Cmd Msg
 uploadDatabase body =
     Http.post
-        { url = "/api/v1/databases/upload"
+        { url = "/api/v1/database/upload"
         , body = Http.jsonBody body
         , expect = Http.expectJson UploadResult uploadResponseDecoder
         }

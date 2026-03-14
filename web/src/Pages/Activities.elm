@@ -326,9 +326,8 @@ searchActivities dbName query =
     Http.get
         { url =
             Url.Builder.absolute
-                [ "api", "v1", "search", "activities" ]
+                [ "api", "v1", "database", dbName, "activities" ]
                 [ Url.Builder.string "name" query
-                , Url.Builder.string "db" dbName
                 , Url.Builder.int "limit" 20
                 ]
         , expect = Http.expectJson SearchResultsLoaded (searchResultsDecoder activitySummaryDecoder)
@@ -347,9 +346,8 @@ searchActivitiesWithOffset dbName query offset limit =
     Http.get
         { url =
             Url.Builder.absolute
-                [ "api", "v1", "search", "activities" ]
+                [ "api", "v1", "database", dbName, "activities" ]
                 [ Url.Builder.string "name" query
-                , Url.Builder.string "db" dbName
                 , Url.Builder.int "limit" limit
                 , Url.Builder.int "offset" offset
                 ]

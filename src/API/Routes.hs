@@ -45,40 +45,40 @@ import Numeric (showFFloat)
 type LCAAPI =
     "api"
         :> "v1"
-        :> ( "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> Get '[JSON] ActivityInfo
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "flows" :> Get '[JSON] [FlowSummary]
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inputs" :> Get '[JSON] [ExchangeDetail]
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "outputs" :> Get '[JSON] [ExchangeDetail]
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "reference-product" :> Get '[JSON] FlowDetail
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "tree" :> Get '[JSON] TreeExport
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> Get '[JSON] InventoryExport
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "graph" :> QueryParam "cutoff" Double :> Get '[JSON] GraphExport
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "methodId" Text :> Get '[JSON] LCIAResult
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia-batch" :> Capture "collection" Text :> Get '[JSON] [LCIAResult]
-                :<|> "flow" :> Capture "flowId" Text :> QueryParam "db" Text :> Get '[JSON] FlowDetail
-                :<|> "flow" :> Capture "flowId" Text :> "activities" :> QueryParam "db" Text :> Get '[JSON] [ActivitySummary]
+        :> ( "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> Get '[JSON] ActivityInfo
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "flows" :> Get '[JSON] [FlowSummary]
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inputs" :> Get '[JSON] [ExchangeDetail]
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "outputs" :> Get '[JSON] [ExchangeDetail]
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "reference-product" :> Get '[JSON] FlowDetail
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "tree" :> Get '[JSON] TreeExport
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> Get '[JSON] InventoryExport
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "graph" :> QueryParam "cutoff" Double :> Get '[JSON] GraphExport
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "methodId" Text :> Get '[JSON] LCIAResult
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia-batch" :> Capture "collection" Text :> Get '[JSON] [LCIAResult]
+                :<|> "database" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
+                :<|> "database" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> Get '[JSON] [ActivitySummary]
                 :<|> "methods" :> Get '[JSON] [MethodSummary]
                 :<|> "method" :> Capture "methodId" Text :> Get '[JSON] MethodDetail
                 :<|> "method" :> Capture "methodId" Text :> "factors" :> Get '[JSON] [MethodFactorAPI]
-                :<|> "method" :> Capture "methodId" Text :> "mapping" :> QueryParam "db" Text :> Get '[JSON] MappingStatus
-                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "flow-mapping" :> Get '[JSON] FlowCFMapping
-                :<|> "search" :> "flows" :> QueryParam "db" Text :> QueryParam "q" Text :> QueryParam "lang" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> Get '[JSON] (SearchResults FlowSearchResult)
-                :<|> "search" :> "activities" :> QueryParam "db" Text :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> Get '[JSON] (SearchResults ActivitySummary)
-                :<|> "db" :> Capture "dbName" Text :> "lcia" :> Capture "processId" Text :> ReqBody '[JSON] LCIARequest :> Post '[JSON] Value
+                :<|> "database" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "mapping" :> Get '[JSON] MappingStatus
+                :<|> "database" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "flow-mapping" :> Get '[JSON] FlowCFMapping
+                :<|> "database" :> Capture "dbName" Text :> "flows" :> QueryParam "q" Text :> QueryParam "lang" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> Get '[JSON] (SearchResults FlowSearchResult)
+                :<|> "database" :> Capture "dbName" Text :> "activities" :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> Get '[JSON] (SearchResults ActivitySummary)
+                :<|> "database" :> Capture "dbName" Text :> "lcia" :> Capture "processId" Text :> ReqBody '[JSON] LCIARequest :> Post '[JSON] Value
                 -- Database management endpoints
-                :<|> "databases" :> Get '[JSON] DatabaseListResponse
+                :<|> "database" :> Get '[JSON] DatabaseListResponse
                 -- Load/Unload/Delete endpoints
-                :<|> "databases" :> Capture "dbName" Text :> "load" :> Post '[JSON] LoadDatabaseResponse
-                :<|> "databases" :> Capture "dbName" Text :> "unload" :> Post '[JSON] ActivateResponse
-                :<|> "databases" :> Capture "dbName" Text :> Delete '[JSON] ActivateResponse
+                :<|> "database" :> Capture "dbName" Text :> "load" :> Post '[JSON] LoadDatabaseResponse
+                :<|> "database" :> Capture "dbName" Text :> "unload" :> Post '[JSON] ActivateResponse
+                :<|> "database" :> Capture "dbName" Text :> Delete '[JSON] ActivateResponse
                 -- Upload endpoint (base64-encoded ZIP in JSON body)
-                :<|> "databases" :> "upload" :> ReqBody '[JSON] UploadRequest :> Post '[JSON] UploadResponse
+                :<|> "database" :> "upload" :> ReqBody '[JSON] UploadRequest :> Post '[JSON] UploadResponse
                 -- Database setup endpoints (for cross-DB linking configuration)
-                :<|> "databases" :> Capture "dbName" Text :> "setup" :> Get '[JSON] DatabaseSetupInfo
-                :<|> "databases" :> Capture "dbName" Text :> "add-dependency" :> Capture "depName" Text :> Post '[JSON] DatabaseSetupInfo
-                :<|> "databases" :> Capture "dbName" Text :> "remove-dependency" :> Capture "depName" Text :> Post '[JSON] DatabaseSetupInfo
-                :<|> "databases" :> Capture "dbName" Text :> "set-data-path" :> ReqBody '[JSON] Value :> Post '[JSON] DatabaseSetupInfo
-                :<|> "databases" :> Capture "dbName" Text :> "finalize" :> Post '[JSON] ActivateResponse
+                :<|> "database" :> Capture "dbName" Text :> "setup" :> Get '[JSON] DatabaseSetupInfo
+                :<|> "database" :> Capture "dbName" Text :> "add-dependency" :> Capture "depName" Text :> Post '[JSON] DatabaseSetupInfo
+                :<|> "database" :> Capture "dbName" Text :> "remove-dependency" :> Capture "depName" Text :> Post '[JSON] DatabaseSetupInfo
+                :<|> "database" :> Capture "dbName" Text :> "set-data-path" :> ReqBody '[JSON] Value :> Post '[JSON] DatabaseSetupInfo
+                :<|> "database" :> Capture "dbName" Text :> "finalize" :> Post '[JSON] ActivateResponse
                 -- Method collection endpoints
                 :<|> "method-collections" :> Get '[JSON] MethodCollectionListResponse
                 :<|> "method-collections" :> Capture "name" Text :> "load" :> Post '[JSON] ActivateResponse
@@ -117,14 +117,6 @@ requireDatabaseByName dbManager dbName = do
         Just loaded -> return (ldDatabase loaded, ldSharedSolver loaded)
         Nothing -> throwError err404{errBody = "Database not loaded: " <> BSL.fromStrict (T.encodeUtf8 dbName)}
 
--- | Get database from explicit db query param, falling back to first loaded database
-requireDatabaseByParam :: DatabaseManager -> Maybe Text -> Handler (Database, SharedSolver)
-requireDatabaseByParam dbManager (Just dbName) = requireDatabaseByName dbManager dbName
-requireDatabaseByParam dbManager Nothing = do
-    allDbs <- liftIO $ readTVarIO (dmLoadedDbs dbManager)
-    case M.elems allDbs of
-        (ld:_) -> return (ldDatabase ld, ldSharedSolver ld)
-        [] -> throwError err404{errBody = "No database loaded"}
 
 -- | Helper function to validate ProcessId and lookup activity
 withValidatedActivity :: Database -> Text -> (Activity -> Handler a) -> Handler a
@@ -422,18 +414,18 @@ lcaServer dbManager maxTreeDepth password =
             <> " (" <> showFFloat (Just 1) pct "" <> "%)"
 
     -- Flow detail endpoint
-    getFlowDetail :: Text -> Maybe Text -> Handler FlowDetail
-    getFlowDetail flowIdText dbParam = do
-        (db, _) <- requireDatabaseByParam dbManager dbParam
+    getFlowDetail :: Text -> Text -> Handler FlowDetail
+    getFlowDetail dbName flowIdText = do
+        (db, _) <- requireDatabaseByName dbManager dbName
         withValidatedFlow db flowIdText $ \flow -> do
             let usageCount = Service.getFlowUsageCount db (flowId flow)
             let flowUnitName = getUnitNameForFlow (dbUnits db) flow
             return $ FlowDetail flow flowUnitName usageCount
 
     -- Activities using a specific flow
-    getFlowActivities :: Text -> Maybe Text -> Handler [ActivitySummary]
-    getFlowActivities flowIdText dbParam = do
-        (db, _) <- requireDatabaseByParam dbManager dbParam
+    getFlowActivities :: Text -> Text -> Handler [ActivitySummary]
+    getFlowActivities dbName flowIdText = do
+        (db, _) <- requireDatabaseByName dbManager dbName
         withValidatedFlow db flowIdText $ \flow ->
             return $ Service.getActivitiesUsingFlow db (flowId flow)
 
@@ -473,9 +465,9 @@ lcaServer dbManager maxTreeDepth password =
         return $ map cfToAPI (methodFactors method)
 
     -- Get method flow mapping status
-    getMethodMapping :: Text -> Maybe Text -> Handler MappingStatus
-    getMethodMapping methodIdText dbParam = do
-        (db, _) <- requireDatabaseByParam dbManager dbParam
+    getMethodMapping :: Text -> Text -> Handler MappingStatus
+    getMethodMapping dbName methodIdText = do
+        (db, _) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
         let mappings = mapMethodToFlows db method
             stats = computeMappingStats mappings
@@ -602,15 +594,15 @@ lcaServer dbManager maxTreeDepth password =
         }
 
     -- Search flows by name or synonym with optional language filtering and pagination
-    searchFlows :: Maybe Text -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> Handler (SearchResults FlowSearchResult)
-    searchFlows dbParam queryParam langParam limitParam offsetParam = do
-        (db, _) <- requireDatabaseByParam dbManager dbParam
+    searchFlows :: Text -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> Handler (SearchResults FlowSearchResult)
+    searchFlows dbName queryParam langParam limitParam offsetParam = do
+        (db, _) <- requireDatabaseByName dbManager dbName
         searchFlowsInternal db queryParam langParam limitParam offsetParam
 
     -- Search activities by specific fields with pagination and count
-    searchActivitiesWithCount :: Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> Handler (SearchResults ActivitySummary)
-    searchActivitiesWithCount dbParam nameParam geoParam productParam limitParam offsetParam = do
-        (db, _) <- requireDatabaseByParam dbManager dbParam
+    searchActivitiesWithCount :: Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> Handler (SearchResults ActivitySummary)
+    searchActivitiesWithCount dbName nameParam geoParam productParam limitParam offsetParam = do
+        (db, _) <- requireDatabaseByName dbManager dbName
         -- Use Service.searchActivities which paginates BEFORE calling findProcessIdForActivity
         -- This avoids O(n*m) performance issue where n=results, m=total activities
         result <- liftIO $ Service.searchActivities db nameParam geoParam productParam limitParam offsetParam

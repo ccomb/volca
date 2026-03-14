@@ -101,13 +101,53 @@ commandParser =
             <> OA.command "lcia" (info (lciaParser <**> helper) (progDesc "Compute LCIA scores with characterization method"))
             <> OA.command "debug-matrices" (info (debugMatricesParser <**> helper) (progDesc "Export targeted matrix slices for debugging"))
             <> OA.command "export-matrices" (info (exportMatricesParser <**> helper) (progDesc "Export matrices in universal format (Ecoinvent-compatible)"))
-            <> OA.command "databases" (info (pure Databases <**> helper) (progDesc "List databases"))
-            <> OA.command "method-collections" (info (pure MethodCollections <**> helper) (progDesc "List method collections"))
-            <> OA.command "methods" (info (pure Methods <**> helper) (progDesc "List loaded methods"))
+            <> OA.command "database" (info (databaseParser <**> helper) (progDesc "Manage databases (list, upload, delete)"))
+            <> OA.command "method" (info (methodParser <**> helper) (progDesc "Manage method collections (list, upload, delete)"))
+            <> OA.command "methods" (info (pure Methods <**> helper) (progDesc "List loaded methods (flattened)"))
             <> OA.command "synonyms" (info (pure Synonyms <**> helper) (progDesc "List synonym sources"))
             <> OA.command "compartment-mappings" (info (pure CompartmentMappings <**> helper) (progDesc "List compartment mappings"))
             <> OA.command "units" (info (pure Units <**> helper) (progDesc "List unit definitions"))
         )
+
+-- | Database command parser with optional subcommand (defaults to list)
+databaseParser :: Parser Command
+databaseParser = Database . maybe DbList id <$> optional
+    (subparser
+        ( OA.command "list" (info (pure DbList) (progDesc "List databases"))
+            <> OA.command "upload" (info (DbUpload <$> uploadArgsParser) (progDesc "Upload a database from a local file"))
+            <> OA.command "delete" (info (DbDelete <$> deleteNameParser) (progDesc "Delete a database"))
+        ))
+
+-- | Method command parser with optional subcommand (defaults to list)
+methodParser :: Parser Command
+methodParser = Method . maybe McList id <$> optional
+    (subparser
+        ( OA.command "list" (info (pure McList) (progDesc "List method collections"))
+            <> OA.command "upload" (info (McUpload <$> uploadArgsParser) (progDesc "Upload a method collection from a local file"))
+            <> OA.command "delete" (info (McDelete <$> deleteNameParser) (progDesc "Delete a method collection"))
+        ))
+
+-- | Shared upload arguments parser (positional FILE, --name, --description)
+uploadArgsParser :: Parser UploadArgs
+uploadArgsParser = do
+    uaFile <- argument str (metavar "FILE" <> help "Archive or data file to upload (ZIP, 7z, tar.gz, tar.xz, XML, CSV)")
+    uaName <- T.pack <$> strOption
+        ( long "name"
+            <> short 'n'
+            <> metavar "NAME"
+            <> help "Display name (required)"
+        )
+    uaDescription <- optional $
+        T.pack <$> strOption
+            ( long "description"
+                <> metavar "TEXT"
+                <> help "Optional description"
+            )
+    pure UploadArgs{..}
+
+-- | Delete name parser (positional NAME)
+deleteNameParser :: Parser Text
+deleteNameParser = T.pack <$> argument str (metavar "NAME" <> help "Name of the resource to delete")
 
 -- | Server command parser
 serverParser :: Parser Command
@@ -374,5 +414,9 @@ cliParserInfo =
                 \  fplca --config fplca.toml activity UUID\n\
                 \  fplca --config fplca.toml tree UUID --depth 3\n\
                 \  fplca --config fplca.toml inventory UUID --format json\n\
-                \  fplca --config fplca.toml lcia UUID --method pef.xml --csv results.csv"
+                \  fplca --config fplca.toml lcia UUID --method pef.xml --csv results.csv\n\
+                \  fplca --config fplca.toml database upload mydb.7z --name \"My Database\"\n\
+                \  fplca --config fplca.toml database delete my-database\n\
+                \  fplca --config fplca.toml method upload pef.zip --name \"PEF\"\n\
+                \  fplca --config fplca.toml method delete pef"
         )

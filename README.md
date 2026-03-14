@@ -53,16 +53,20 @@ cabal run fplca -- --config fplca.toml server --port 8081
 
 ```bash
 # Search activities
-fplca --data ./ECOINVENT3.12 activities --name "electricity" --geo "DE"
+fplca --config fplca.toml activities --name "electricity" --geo "DE"
 
 # Supply chain tree
-fplca --data ./ECOINVENT3.12 tree "12345678-..." --tree-depth 3
+fplca --config fplca.toml tree "12345678-..." --tree-depth 3
 
 # Life cycle inventory
-fplca --data ./ECOINVENT3.12 inventory "12345678-..."
+fplca --config fplca.toml inventory "12345678-..."
 
 # Impact assessment
-fplca --data ./ECOINVENT3.12 lcia "12345678-..." --method ./EF-3.1.xml
+fplca --config fplca.toml lcia "12345678-..." --method ./EF-3.1.xml
+
+# Database and method management
+fplca --config fplca.toml database upload mydb.7z --name "My Database"
+fplca --config fplca.toml method upload EF-3.1.zip --name "EF 3.1"
 ```
 
 ---
@@ -143,35 +147,42 @@ The `depends` field ensures dependency databases load first and their flows are 
 
 ## REST API
 
+All per-database resources are scoped under `/api/v1/database/{name}/`:
+
 ```
-GET  /api/v1/databases                                      List databases and status
-POST /api/v1/databases/upload                               Upload a database archive
-POST /api/v1/databases/{name}/load                          Load a configured database
-POST /api/v1/databases/{name}/finalize                      Finalize cross-DB linking
-GET  /api/v1/db/{name}/activity/{id}                        Activity details
-GET  /api/v1/db/{name}/activity/{id}/tree                   Supply chain tree
-GET  /api/v1/db/{name}/activity/{id}/inventory              Life cycle inventory
-GET  /api/v1/db/{name}/activity/{id}/lcia/{methodId}        LCIA score (single method)
-GET  /api/v1/db/{name}/activity/{id}/lcia-batch/{collection} LCIA batch (all categories)
-GET  /api/v1/search/activities?db=&name=&geo=               Search activities
-GET  /api/v1/search/flows?db=&q=                            Search flows
-GET  /api/v1/methods                                        List individual methods
-GET  /api/v1/method/{id}                                    Method details
-GET  /api/v1/method/{id}/factors                            Characterization factors
-GET  /api/v1/method/{id}/mapping?db=                        Mapping coverage stats
-GET  /api/v1/db/{name}/method/{id}/flow-mapping             Per-flow mapping detail
-GET  /api/v1/method-collections                             List method collections
-POST /api/v1/method-collections/{name}/load                 Load a method collection
-POST /api/v1/method-collections/{name}/unload               Unload a method collection
-POST /api/v1/method-collections/upload                      Upload a method package
-GET  /api/v1/flow-synonyms                                  List synonym sets
-POST /api/v1/flow-synonyms/{name}/load                      Activate a synonym set
-POST /api/v1/flow-synonyms/{name}/unload                    Deactivate a synonym set
-GET  /api/v1/flow-synonyms/{name}/groups                    Browse synonym groups
-GET  /api/v1/flow-synonyms/{name}/download                  Download synonym CSV
-GET  /api/v1/compartment-mappings                           List compartment mappings
-GET  /api/v1/units                                          List unit definitions
-POST /api/v1/auth                                           Login (returns session cookie)
+GET    /api/v1/database/{name}/activity/{id}                  Activity details
+GET    /api/v1/database/{name}/activity/{id}/tree             Supply chain tree
+GET    /api/v1/database/{name}/activity/{id}/inventory        Life cycle inventory
+GET    /api/v1/database/{name}/activity/{id}/graph?cutoff=    Supply chain graph
+GET    /api/v1/database/{name}/activity/{id}/lcia/{methodId}  LCIA score (single method)
+GET    /api/v1/database/{name}/activity/{id}/lcia-batch/{col} LCIA batch (all categories)
+GET    /api/v1/database/{name}/activities?name=&geo=&product= Search activities
+GET    /api/v1/database/{name}/flows?q=&lang=                 Search flows
+GET    /api/v1/database/{name}/flow/{flowId}                  Flow details
+GET    /api/v1/database/{name}/flow/{flowId}/activities       Activities using a flow
+GET    /api/v1/database/{name}/method/{id}/mapping            Mapping coverage stats
+GET    /api/v1/database/{name}/method/{id}/flow-mapping       Per-flow mapping detail
+GET    /api/v1/database                                       List databases and status
+POST   /api/v1/database/upload                                Upload a database archive
+POST   /api/v1/database/{name}/load                           Load a configured database
+POST   /api/v1/database/{name}/finalize                       Finalize cross-DB linking
+DELETE /api/v1/database/{name}                                Delete a database
+GET    /api/v1/methods                                        List individual methods
+GET    /api/v1/method/{id}                                    Method details
+GET    /api/v1/method/{id}/factors                            Characterization factors
+GET    /api/v1/method-collections                             List method collections
+POST   /api/v1/method-collections/{name}/load                 Load a method collection
+POST   /api/v1/method-collections/{name}/unload               Unload a method collection
+POST   /api/v1/method-collections/upload                      Upload a method package
+DELETE /api/v1/method-collections/{name}                      Delete a method collection
+GET    /api/v1/flow-synonyms                                  List synonym sets
+POST   /api/v1/flow-synonyms/{name}/load                      Activate a synonym set
+POST   /api/v1/flow-synonyms/{name}/unload                    Deactivate a synonym set
+GET    /api/v1/flow-synonyms/{name}/groups                    Browse synonym groups
+GET    /api/v1/flow-synonyms/{name}/download                  Download synonym CSV
+GET    /api/v1/compartment-mappings                           List compartment mappings
+GET    /api/v1/units                                          List unit definitions
+POST   /api/v1/auth                                           Login (returns session cookie)
 ```
 
 ---
@@ -183,7 +194,7 @@ POST /api/v1/auth                                           Login (returns sessi
 | Option | Description |
 |--------|-------------|
 | `--config FILE` | TOML config file for multi-database setup |
-| `--data PATH` | Single database path (alternative to `--config`) |
+| `--db NAME` | Database name to query (from config file) |
 | `--format FORMAT` | Output format: `json` (default), `csv`, `table`, `pretty` |
 | `--jsonpath PATH` | Field to extract for CSV output (e.g., `srResults`) |
 | `--tree-depth N` | Maximum tree depth (default: 2) |
@@ -217,6 +228,20 @@ fplca lcia "12345678-..." --method ./EF-3.1.xml
 
 # Matrix export (Ecoinvent universal format)
 fplca export-matrices ./output_dir
+```
+
+### Database and Method Management
+
+```bash
+# List, upload, delete databases
+fplca database                                  # list (default)
+fplca database upload mydb.7z --name "My DB"    # upload
+fplca database delete my-db                     # delete
+
+# List, upload, delete method collections
+fplca method                                    # list (default)
+fplca method upload EF-3.1.zip --name "EF 3.1"  # upload
+fplca method delete ef-31                        # delete
 ```
 
 ---

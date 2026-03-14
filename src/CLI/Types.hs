@@ -41,14 +41,36 @@ data Command =
   | LCIA Text LCIAOptions                 -- LCIA computation
   | DebugMatrices Text DebugMatricesOptions -- Matrix debugging for activity
   | ExportMatrices FilePath               -- Export matrices in universal format
+    -- Resource management (symmetric subcommands)
+  | Database DatabaseAction                -- Database management
+  | Method MethodAction                    -- Method collection management
     -- Listing commands (mirror API)
-  | Databases                              -- List loaded databases
-  | MethodCollections                      -- List method collections
   | Methods                                -- List loaded methods (flattened)
   | Synonyms                               -- List synonym sources
   | CompartmentMappings                    -- List compartment mappings
   | Units                                  -- List unit definitions
   deriving (Eq, Show, Generic)
+
+-- | Database management actions
+data DatabaseAction
+  = DbList
+  | DbUpload UploadArgs
+  | DbDelete Text
+  deriving (Eq, Show, Generic)
+
+-- | Method collection management actions
+data MethodAction
+  = McList
+  | McUpload UploadArgs
+  | McDelete Text
+  deriving (Eq, Show, Generic)
+
+-- | Shared upload arguments for database and method uploads
+data UploadArgs = UploadArgs
+  { uaFile        :: FilePath        -- File to upload (archive or CSV)
+  , uaName        :: Text            -- Display name (--name)
+  , uaDescription :: Maybe Text      -- Optional description (--description)
+  } deriving (Eq, Show, Generic)
 
 -- | Server-specific options
 data ServerOptions = ServerOptions

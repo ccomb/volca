@@ -3,9 +3,9 @@
 
 module CLI.Command where
 
-import CLI.Types (Command(..), FlowSubCommand(..), GlobalOptions(..), CLIConfig(..), OutputFormat(..), TreeOptions(..), SearchActivitiesOptions(..), SearchFlowsOptions(..), LCIAOptions(..), DebugMatricesOptions(..))
+import CLI.Types (Command(..), DatabaseAction(..), MethodAction(..), UploadArgs(..), FlowSubCommand(..), GlobalOptions(..), CLIConfig(..), OutputFormat(..), TreeOptions(..), SearchActivitiesOptions(..), SearchFlowsOptions(..), LCIAOptions(..), DebugMatricesOptions(..))
 import qualified Database.Manager as DM
-import Database.Manager (DatabaseManager(..), LoadedDatabase(..))
+import Database.Manager (DatabaseManager(..), LoadedDatabase(..), addDatabase, addMethodCollection)
 import Progress
 import qualified Service
 import Types (Database)
@@ -13,11 +13,18 @@ import UnitConversion (defaultUnitConfig)
 import SharedSolver (SharedSolver)
 import Data.Aeson (Value, encode, toJSON, (.=), object)
 import Data.Aeson.Encode.Pretty (encodePretty)
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Map as M
+import Config (DatabaseConfig(..), MethodConfig(..))
+import qualified Database.Upload
+import Database.Upload (UploadData(..), UploadResult(..), handleUpload, findMethodDirectory)
+import qualified Database.UploadedDatabase as UploadedDB
 import Control.Concurrent.STM (readTVarIO)
+import Data.List (isPrefixOf)
+import System.FilePath ((</>))
 import System.Exit (exitFailure)
 
 -- | Default output format for different command types
@@ -73,11 +80,23 @@ executeCommand (CLIConfig globalOpts _) cmd manager = do
       reportError "Server mode should be handled in Main.hs"
       exitFailure
 
-    Databases ->
+    Database DbList ->
       DM.listDatabases manager >>= outputResult outputFormat jsonPathOpt . toJSON
 
-    MethodCollections ->
+    Database (DbUpload args) ->
+      executeDbUpload outputFormat jsonPathOpt manager args
+
+    Database (DbDelete name) ->
+      executeDbDelete outputFormat jsonPathOpt manager name
+
+    Method McList ->
       DM.listMethodCollections manager >>= outputResult outputFormat jsonPathOpt . toJSON
+
+    Method (McUpload args) ->
+      executeMcUpload outputFormat jsonPathOpt manager args
+
+    Method (McDelete name) ->
+      executeMcDelete outputFormat jsonPathOpt manager name
 
     Methods -> do
       pairs <- DM.getLoadedMethods manager
@@ -253,6 +272,146 @@ executeExportMatricesCommand database outputDir = do
 outputResult :: OutputFormat -> Maybe Text -> Value -> IO ()
 outputResult fmt jsonPathOpt result =
   BSL.putStrLn $ formatOutputWithPath fmt jsonPathOpt result
+
+-- | Execute database upload command
+executeDbUpload :: OutputFormat -> Maybe Text -> DatabaseManager -> UploadArgs -> IO ()
+executeDbUpload fmt jp manager args = do
+  reportProgress Info $ "Reading file: " ++ uaFile args
+  fileData <- BL.readFile (uaFile args)
+
+  let uploadData = UploadData
+        { udName = uaName args
+        , udDescription = uaDescription args
+        , udZipData = fileData
+        }
+
+  uploadsDir <- UploadedDB.getDatabaseUploadsDir
+
+  let progress pe = reportProgress Info $ T.unpack (Database.Upload.pePhase pe) ++ ": " ++ T.unpack (Database.Upload.peMessage pe)
+
+  result <- handleUpload uploadsDir uploadData progress
+  case result of
+    Left err -> do
+      reportError $ "Upload failed: " ++ T.unpack err
+      exitFailure
+    Right uploadResult -> do
+      let slug = urSlug uploadResult
+          uploadDir = uploadsDir </> T.unpack slug
+
+      let meta = UploadedDB.UploadMeta
+            { UploadedDB.umVersion = 1
+            , UploadedDB.umDisplayName = uaName args
+            , UploadedDB.umDescription = uaDescription args
+            , UploadedDB.umFormat = urFormat uploadResult
+            , UploadedDB.umDataPath = makeRelative uploadDir (urPath uploadResult)
+            }
+      UploadedDB.writeUploadMeta uploadDir meta
+
+      let dbConfig = DatabaseConfig
+            { dcName = slug
+            , dcDisplayName = uaName args
+            , dcPath = urPath uploadResult
+            , dcDescription = uaDescription args
+            , dcLoad = False
+            , dcDefault = False
+            , dcDepends = []
+            , dcLocationAliases = M.empty
+            , dcFormat = Just (urFormat uploadResult)
+            , dcIsUploaded = True
+            }
+      addDatabase manager dbConfig
+      reportProgress Info $ "Database uploaded: " ++ T.unpack slug
+
+      outputResult fmt jp $ object
+        [ "slug" .= slug
+        , "format" .= urFormat uploadResult
+        , "fileCount" .= urFileCount uploadResult
+        , "path" .= urPath uploadResult
+        ]
+  where
+    makeRelative base path
+      | base `isPrefixOf` path = drop (length base + 1) path
+      | otherwise = path
+
+-- | Execute method upload command
+executeMcUpload :: OutputFormat -> Maybe Text -> DatabaseManager -> UploadArgs -> IO ()
+executeMcUpload fmt jp manager args = do
+  reportProgress Info $ "Reading file: " ++ uaFile args
+  fileData <- BL.readFile (uaFile args)
+
+  let uploadData = UploadData
+        { udName = uaName args
+        , udDescription = uaDescription args
+        , udZipData = fileData
+        }
+
+  uploadsDir <- UploadedDB.getMethodUploadsDir
+
+  let progress pe = reportProgress Info $ T.unpack (Database.Upload.pePhase pe) ++ ": " ++ T.unpack (Database.Upload.peMessage pe)
+
+  result <- handleUpload uploadsDir uploadData progress
+  case result of
+    Left err -> do
+      reportError $ "Upload failed: " ++ T.unpack err
+      exitFailure
+    Right uploadResult -> do
+      let slug = urSlug uploadResult
+          uploadDir = uploadsDir </> T.unpack slug
+
+      let meta = UploadedDB.UploadMeta
+            { UploadedDB.umVersion = 1
+            , UploadedDB.umDisplayName = uaName args
+            , UploadedDB.umDescription = uaDescription args
+            , UploadedDB.umFormat = urFormat uploadResult
+            , UploadedDB.umDataPath = makeRelative uploadDir (urPath uploadResult)
+            }
+      UploadedDB.writeUploadMeta uploadDir meta
+
+      methodDir <- findMethodDirectory uploadDir
+      let mc = MethodConfig
+            { mcName = uaName args
+            , mcPath = methodDir
+            , mcActive = False
+            , mcIsUploaded = True
+            , mcDescription = uaDescription args
+            }
+      addMethodCollection manager mc
+      reportProgress Info $ "Method uploaded: " ++ T.unpack slug
+
+      outputResult fmt jp $ object
+        [ "slug" .= slug
+        , "format" .= urFormat uploadResult
+        , "fileCount" .= urFileCount uploadResult
+        , "path" .= urPath uploadResult
+        ]
+  where
+    makeRelative base path
+      | base `isPrefixOf` path = drop (length base + 1) path
+      | otherwise = path
+
+-- | Execute database delete command
+executeDbDelete :: OutputFormat -> Maybe Text -> DatabaseManager -> Text -> IO ()
+executeDbDelete fmt jp manager name = do
+  result <- DM.removeDatabase manager name
+  case result of
+    Left err -> do
+      reportError $ "Delete failed: " ++ T.unpack err
+      exitFailure
+    Right () -> do
+      reportProgress Info $ "Deleted database: " ++ T.unpack name
+      outputResult fmt jp $ object ["deleted" .= name]
+
+-- | Execute method delete command
+executeMcDelete :: OutputFormat -> Maybe Text -> DatabaseManager -> Text -> IO ()
+executeMcDelete fmt jp manager name = do
+  result <- DM.removeMethodCollection manager name
+  case result of
+    Left err -> do
+      reportError $ "Delete failed: " ++ T.unpack err
+      exitFailure
+    Right () -> do
+      reportProgress Info $ "Deleted method: " ++ T.unpack name
+      outputResult fmt jp $ object ["deleted" .= name]
 
 -- | Report service errors to stderr and exit
 reportServiceError :: Service.ServiceError -> IO ()

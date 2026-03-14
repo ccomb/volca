@@ -131,6 +131,7 @@ parseFormat :: Text -> Maybe DatabaseFormat
 parseFormat "ecospold2" = Just EcoSpold2
 parseFormat "ecospold1" = Just EcoSpold1
 parseFormat "simapro" = Just SimaProCSV
+parseFormat "ilcd" = Just ILCDProcess
 parseFormat _ = Just UnknownFormat
 
 -- | Format meta.toml content
@@ -156,6 +157,7 @@ formatMetaToml UploadMeta{..} = T.unlines $
     formatToText EcoSpold2 = "ecospold2"
     formatToText EcoSpold1 = "ecospold1"
     formatToText SimaProCSV = "simapro"
+    formatToText ILCDProcess = "ilcd"
     formatToText UnknownFormat = "unknown"
 
 -- | Scan a directory for subdirectories with meta.toml

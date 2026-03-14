@@ -485,7 +485,7 @@ viewLoadDatabasePrompt model dbName loadMsg =
 loadDatabases : Cmd Msg
 loadDatabases =
     Http.get
-        { url = "/api/v1/databases"
+        { url = "/api/v1/database"
         , expect = Http.expectJson DatabasesLoaded databaseListDecoder
         }
 
@@ -493,7 +493,7 @@ loadDatabases =
 loadDatabaseCmd : String -> Cmd Msg
 loadDatabaseCmd dbName =
     Http.post
-        { url = "/api/v1/databases/" ++ dbName ++ "/load"
+        { url = "/api/v1/database/" ++ dbName ++ "/load"
         , body = Http.emptyBody
         , expect = Http.expectJson (LoadDatabaseResult dbName) loadDatabaseResponseDecoder
         }
