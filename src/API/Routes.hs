@@ -9,10 +9,9 @@ module API.Routes where
 import qualified Matrix
 import Matrix (Inventory)
 import SharedSolver (SharedSolver)
-import Method.Mapping (computeLCIAScore, mapMethodFlows, MatchStrategy(..), MappingStats(..), computeMappingStats)
+import Method.Mapping (computeLCIAScore, mapMethodToFlows, MatchStrategy(..), MappingStats(..), computeMappingStats)
 import qualified Data.Vector as V
 import Method.Types (Method(..), MethodCF(..), FlowDirection(..))
-import SynonymDB (emptySynonymDB)
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), DatabaseSetupInfo(..), getDatabase, MethodCollectionStatus(..), getMergedUnitConfig)
 import qualified Database.Manager as DM
 import API.DatabaseHandlers (simpleAction)
@@ -642,12 +641,6 @@ searchFlowsInternal db (Just query) _langParam limitParam offsetParam = do
     let flows = findFlowsBySynonym db query
         flowSearchResults = [FlowSearchResult (flowId flow) (flowName flow) (flowCategory flow) (getUnitNameForFlow (dbUnits db) flow) (M.map S.toList (flowSynonyms flow)) | flow <- flows]
     liftIO $ paginateResults flowSearchResults limitParam offsetParam
-
--- | Map method CFs to database flows (pure helper to avoid duplication)
-mapMethodToFlows :: Database -> Method -> [(MethodCF, Maybe (Flow, MatchStrategy))]
-mapMethodToFlows db method =
-    let synDB = fromMaybe emptySynonymDB (dbSynonymDB db)
-    in mapMethodFlows synDB (dbFlows db) (dbFlowsByName db) (dbFlowsByCAS db) method
 
 -- | Proxy for the API
 lcaAPI :: Proxy LCAAPI

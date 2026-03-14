@@ -107,6 +107,7 @@ commandParser =
             <> OA.command "synonyms" (info (pure Synonyms <**> helper) (progDesc "List synonym sources"))
             <> OA.command "compartment-mappings" (info (pure CompartmentMappings <**> helper) (progDesc "List compartment mappings"))
             <> OA.command "units" (info (pure Units <**> helper) (progDesc "List unit definitions"))
+            <> OA.command "mapping" (info (mappingParser <**> helper) (progDesc "Analyze flow mapping coverage between a method and database"))
         )
 
 -- | Database command parser with optional subcommand (defaults to list)
@@ -394,6 +395,29 @@ exportMatricesParser :: Parser Command
 exportMatricesParser = do
     outputDir <- argument str (metavar "OUTPUT_DIR" <> help "Output directory for matrix export")
     pure $ ExportMatrices outputDir
+
+-- | Mapping command parser
+mappingParser :: Parser Command
+mappingParser = do
+    methodId <- argument textReader (metavar "METHOD_UUID" <> help "UUID of the characterization method")
+    showMatched <- switch
+        ( long "matched"
+            <> help "List mapped CFs with their match strategy and DB flow"
+        )
+    showUnmatched <- switch
+        ( long "unmatched"
+            <> help "List method CFs that found no matching DB flow"
+        )
+    showUncharacterized <- switch
+        ( long "uncharacterized"
+            <> help "List DB biosphere flows that no CF matched"
+        )
+    pure $ Mapping MappingOptions
+        { mappingMethodId = methodId
+        , mappingShowMatched = showMatched
+        , mappingShowUnmatched = showUnmatched
+        , mappingShowUncharacterized = showUncharacterized
+        }
 
 -- | Text reader for UUID arguments
 textReader :: ReadM Text

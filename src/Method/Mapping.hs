@@ -12,6 +12,7 @@
 module Method.Mapping
     ( -- * Mapping functions
       mapMethodFlows
+    , mapMethodToFlows
     , mapSingleFlow
       -- * LCIA scoring
     , computeLCIAScore
@@ -35,7 +36,7 @@ import qualified Data.Text as T
 import Data.UUID (UUID)
 
 import Matrix (Inventory)
-import Types (Flow(..))
+import Types (Database(..), Flow(..))
 import Method.Types
 import SynonymDB
 
@@ -179,6 +180,12 @@ computeMappingStats mappings = MappingStats
     }
   where
     count strategy = length $ filter ((== Just strategy) . fmap snd . snd) mappings
+
+-- | Convenience wrapper: map method CFs to database flows using DB indexes
+mapMethodToFlows :: Database -> Method -> [(MethodCF, Maybe (Flow, MatchStrategy))]
+mapMethodToFlows db method =
+    let synDB = maybe emptySynonymDB id (dbSynonymDB db)
+    in mapMethodFlows synDB (dbFlows db) (dbFlowsByName db) (dbFlowsByCAS db) method
 
 -- | Compute LCIA score from inventory and flow mappings
 --

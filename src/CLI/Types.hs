@@ -49,6 +49,7 @@ data Command =
   | Synonyms                               -- List synonym sources
   | CompartmentMappings                    -- List compartment mappings
   | Units                                  -- List unit definitions
+  | Mapping MappingOptions                 -- Flow mapping coverage analysis
   deriving (Eq, Show, Generic)
 
 -- | Database management actions
@@ -131,6 +132,14 @@ data LCIAOptions = LCIAOptions
 data DebugMatricesOptions = DebugMatricesOptions
   { debugOutput :: FilePath           -- --output base filename (required)
   , debugFlowFilter :: Maybe Text     -- --flow-filter (e.g., "Sulphur dioxide")
+  } deriving (Eq, Show, Generic)
+
+-- | Mapping command options
+data MappingOptions = MappingOptions
+  { mappingMethodId :: Text              -- Method UUID
+  , mappingShowMatched :: Bool           -- --matched: list mapped CFs with strategy
+  , mappingShowUnmatched :: Bool         -- --unmatched: list CFs with no DB match
+  , mappingShowUncharacterized :: Bool   -- --uncharacterized: list DB flows with no CF
   } deriving (Eq, Show, Generic)
 
 -- | Complete CLI configuration

@@ -3,11 +3,12 @@
 
 module CLI.Command where
 
-import CLI.Types (Command(..), DatabaseAction(..), MethodAction(..), UploadArgs(..), FlowSubCommand(..), GlobalOptions(..), CLIConfig(..), OutputFormat(..), TreeOptions(..), SearchActivitiesOptions(..), SearchFlowsOptions(..), LCIAOptions(..), DebugMatricesOptions(..))
+import CLI.Types (Command(..), DatabaseAction(..), MethodAction(..), UploadArgs(..), FlowSubCommand(..), GlobalOptions(..), CLIConfig(..), OutputFormat(..), TreeOptions(..), SearchActivitiesOptions(..), SearchFlowsOptions(..), LCIAOptions(..), DebugMatricesOptions(..), MappingOptions(..))
 import qualified Database.Manager as DM
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), addDatabase, addMethodCollection)
 import Progress
 import qualified Service
+import qualified Types
 import Types (Database)
 import UnitConversion (defaultUnitConfig)
 import SharedSolver (SharedSolver)
@@ -24,8 +25,14 @@ import Database.Upload (UploadData(..), UploadResult(..), handleUpload, findMeth
 import qualified Database.UploadedDatabase as UploadedDB
 import Control.Concurrent.STM (readTVarIO)
 import Data.List (isPrefixOf)
+import qualified Data.Set as S
+import qualified Data.UUID as UUID
+import qualified Data.Vector as V
 import System.FilePath ((</>))
 import System.Exit (exitFailure)
+import Method.Mapping (mapMethodToFlows, computeMappingStats, MappingStats(..), MatchStrategy(..))
+import Method.Types (MethodCF(..))
+import qualified Method.Types
 
 -- | Default output format for different command types
 defaultFormat :: Command -> OutputFormat
@@ -111,6 +118,10 @@ executeCommand (CLIConfig globalOpts _) cmd manager = do
 
     Units ->
       DM.listUnitDefs manager >>= outputResult outputFormat jsonPathOpt . toJSON
+
+    Mapping opts -> do
+      (database, _solver) <- requireDatabase manager (dbName globalOpts)
+      executeMappingCommand outputFormat jsonPathOpt database manager opts
 
     -- Database-level commands
     _ -> do
@@ -412,6 +423,133 @@ executeMcDelete fmt jp manager name = do
     Right () -> do
       reportProgress Info $ "Deleted method: " ++ T.unpack name
       outputResult fmt jp $ object ["deleted" .= name]
+
+-- | Execute mapping command: analyze flow mapping coverage
+executeMappingCommand :: OutputFormat -> Maybe Text -> Types.Database -> DatabaseManager -> MappingOptions -> IO ()
+executeMappingCommand fmt jp database manager opts = do
+  -- Find method by UUID
+  loadedMethods <- DM.getLoadedMethods manager
+  let allMethods = map snd loadedMethods
+  case UUID.fromText (mappingMethodId opts) of
+    Nothing -> do
+      reportError $ "Invalid method UUID: " ++ T.unpack (mappingMethodId opts)
+      exitFailure
+    Just uuid ->
+      case filter (\m -> Method.Types.methodId m == uuid) allMethods of
+        [] -> do
+          reportError $ "Method not found: " ++ T.unpack (mappingMethodId opts)
+          exitFailure
+        (method:_) -> do
+          let mappings = mapMethodToFlows database method
+              stats = computeMappingStats mappings
+              totalMatched = msTotal stats - msUnmatched stats
+              coverage = if msTotal stats > 0
+                         then fromIntegral totalMatched / fromIntegral (msTotal stats) * 100 :: Double
+                         else 0.0
+              dbBioCount = fromIntegral (Types.dbBiosphereCount database) :: Int
+              -- Compute characterized DB flows (unique DB flows that got a CF)
+              characterizedUUIDs = S.fromList
+                  [Types.flowId f | (_cf, Just (f, _)) <- mappings]
+              characterizedCount = S.size characterizedUUIDs
+              uncharacterizedCount = dbBioCount - characterizedCount
+              charCoverage = if dbBioCount > 0
+                             then fromIntegral characterizedCount / fromIntegral dbBioCount * 100 :: Double
+                             else 0.0
+
+          case fmt of
+            JSON -> outputResult fmt jp $ toJSON $ object
+              [ "method" .= Method.Types.methodName method
+              , "totalCFs" .= msTotal stats
+              , "matched" .= totalMatched
+              , "matchedPercent" .= coverage
+              , "byUUID" .= msByUUID stats
+              , "byCAS" .= msByCAS stats
+              , "byName" .= msByName stats
+              , "bySynonym" .= msBySynonym stats
+              , "byFuzzy" .= msByFuzzy stats
+              , "unmatched" .= msUnmatched stats
+              , "dbBiosphereFlows" .= dbBioCount
+              , "characterized" .= characterizedCount
+              , "uncharacterized" .= uncharacterizedCount
+              , "characterizedPercent" .= charCoverage
+              , "matchedCFs" .= if mappingShowMatched opts
+                  then toJSON [object [ "cfName" .= mcfFlowName cf
+                                      , "dbFlowName" .= Types.flowName f
+                                      , "strategy" .= strategyText strat
+                                      , "cfUUID" .= mcfFlowRef cf
+                                      , "dbFlowUUID" .= Types.flowId f
+                                      ]
+                              | (cf, Just (f, strat)) <- mappings]
+                  else toJSON (Nothing :: Maybe Value)
+              , "unmatchedCFs" .= if mappingShowUnmatched opts
+                  then toJSON [object ["name" .= mcfFlowName cf, "uuid" .= mcfFlowRef cf, "cas" .= mcfCAS cf]
+                              | (cf, Nothing) <- mappings]
+                  else toJSON (Nothing :: Maybe Value)
+              , "uncharacterizedFlows" .= if mappingShowUncharacterized opts
+                  then toJSON (uncharacterizedFlowNames database characterizedUUIDs)
+                  else toJSON (Nothing :: Maybe Value)
+              ]
+            _ -> do
+              -- Pretty/Table output
+              putStrLn $ "Method: " ++ T.unpack (Method.Types.methodName method)
+              putStrLn $ "Total CFs: " ++ show (msTotal stats)
+              putStrLn $ "Matched:   " ++ show totalMatched ++ " (" ++ showPercent coverage ++ ")"
+              putStrLn $ "  by UUID:    " ++ show (msByUUID stats)
+              putStrLn $ "  by CAS:     " ++ show (msByCAS stats)
+              putStrLn $ "  by Name:    " ++ show (msByName stats)
+              putStrLn $ "  by Synonym: " ++ show (msBySynonym stats)
+              when (msByFuzzy stats > 0) $
+                putStrLn $ "  by Fuzzy:   " ++ show (msByFuzzy stats)
+              putStrLn $ "Unmatched:  " ++ show (msUnmatched stats)
+              putStrLn ""
+              putStrLn $ "DB biosphere flows: " ++ show dbBioCount
+              putStrLn $ "Characterized:      " ++ show characterizedCount ++ " (" ++ showPercent charCoverage ++ ")"
+              putStrLn $ "Uncharacterized:    " ++ show uncharacterizedCount
+
+              when (mappingShowMatched opts) $ do
+                putStrLn ""
+                putStrLn "--- Matched CFs ---"
+                mapM_ (\(cf, f, strat) ->
+                    putStrLn $ "  [" ++ T.unpack (strategyText strat) ++ "] "
+                        ++ T.unpack (mcfFlowName cf)
+                        ++ " → " ++ T.unpack (Types.flowName f))
+                    [(cf, f, strat) | (cf, Just (f, strat)) <- mappings]
+
+              when (mappingShowUnmatched opts) $ do
+                putStrLn ""
+                putStrLn "--- Unmatched CFs (no DB flow found) ---"
+                mapM_ (\(cf, _) -> putStrLn $ "  " ++ T.unpack (mcfFlowName cf)
+                            ++ maybe "" (\c -> " [CAS " ++ T.unpack c ++ "]") (mcfCAS cf))
+                    [(cf, m) | (cf, m@Nothing) <- mappings]
+
+              when (mappingShowUncharacterized opts) $ do
+                putStrLn ""
+                putStrLn "--- Uncharacterized DB flows (no CF matched) ---"
+                mapM_ (\name -> putStrLn $ "  " ++ T.unpack name)
+                    (uncharacterizedFlowNames database characterizedUUIDs)
+  where
+    showPercent :: Double -> String
+    showPercent p = show (round (p * 10) `div` 10 :: Int) ++ "." ++ show (round (p * 10) `mod` 10 :: Int) ++ "%"
+
+    when True  action = action
+    when False _      = pure ()
+
+strategyText :: MatchStrategy -> Text
+strategyText ByUUID   = "uuid"
+strategyText ByCAS    = "cas"
+strategyText ByName   = "name"
+strategyText BySynonym = "synonym"
+strategyText ByFuzzy  = "fuzzy"
+strategyText NoMatch  = "none"
+
+-- | Get names of biosphere flows not matched by any CF
+uncharacterizedFlowNames :: Types.Database -> S.Set UUID.UUID -> [Text]
+uncharacterizedFlowNames db characterized =
+    [ Types.flowName f
+    | uuid <- V.toList (Types.dbBiosphereFlows db)
+    , not (S.member uuid characterized)
+    , Just f <- [M.lookup uuid (Types.dbFlows db)]
+    ]
 
 -- | Report service errors to stderr and exit
 reportServiceError :: Service.ServiceError -> IO ()
