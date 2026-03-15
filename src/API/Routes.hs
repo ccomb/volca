@@ -10,7 +10,7 @@ import qualified Matrix
 import Matrix (Inventory)
 import SharedSolver (SharedSolver)
 import Method.Mapping (computeLCIAScore, mapMethodToFlows, MatchStrategy(..), MappingStats(..), computeMappingStats)
-import Plugin.Types (PluginRegistry(..))
+import Plugin.Types (PluginRegistry(..), AnalyzeHandle(..), AnalyzeContext(..))
 import qualified Data.Vector as V
 import Method.Types (Method(..), MethodCF(..), FlowDirection(..))
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), DatabaseSetupInfo(..), getDatabase, MethodCollectionStatus(..), getMergedUnitConfig)
@@ -55,6 +55,7 @@ type LCAAPI =
                 :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "graph" :> QueryParam "cutoff" Double :> Get '[JSON] GraphExport
                 :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "methodId" Text :> Get '[JSON] LCIAResult
                 :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia-batch" :> Capture "collection" Text :> Get '[JSON] [LCIAResult]
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "analyze" :> Capture "analyzerName" Text :> Get '[JSON] Value
                 :<|> "database" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
                 :<|> "database" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> Get '[JSON] [ActivitySummary]
                 :<|> "methods" :> Get '[JSON] [MethodSummary]
@@ -164,6 +165,7 @@ lcaServer dbManager maxTreeDepth password =
         :<|> getActivityGraph
         :<|> getActivityLCIA
         :<|> getActivityLCIABatch
+        :<|> getActivityAnalyze
         :<|> getFlowDetail
         :<|> getFlowActivities
         :<|> getMethods
@@ -300,7 +302,8 @@ lcaServer dbManager maxTreeDepth password =
     getActivityInventory :: Text -> Text -> Handler InventoryExport
     getActivityInventory dbName processId = do
         (db, sharedSolver) <- requireDatabaseByName dbManager dbName
-        result <- liftIO $ Service.getActivityInventoryWithSharedSolver sharedSolver db processId
+        let validators = prValidators (dmPlugins dbManager)
+        result <- liftIO $ Service.getActivityInventoryWithSharedSolver validators sharedSolver db processId
         case result of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
@@ -331,7 +334,7 @@ lcaServer dbManager maxTreeDepth password =
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
             Right (actProcessId, _activity) -> do
                 inventory <- liftIO $ Matrix.computeInventoryMatrix db actProcessId
-                let result = computeCategoryResult db inventory method
+                result <- liftIO $ computeCategoryResult db inventory method
                 liftIO $ logLCIAResult result method
                 return result
 
@@ -364,7 +367,7 @@ lcaServer dbManager maxTreeDepth password =
                 when (invSize > 0 && invSize <= 5) $
                     liftIO $ reportProgress Info $ "  Inventory UUIDs: "
                         <> intercalate ", " (map UUID.toString $ M.keys inventory)
-                let results = map (computeCategoryResult db inventory) methods
+                results <- liftIO $ mapM (computeCategoryResult db inventory) methods
                 t2 <- liftIO getCurrentTime
                 -- Log per-category results
                 liftIO $ mapM_ (logBatchCategory invSize) results
@@ -383,15 +386,38 @@ lcaServer dbManager maxTreeDepth password =
             <> scoreTxt <> " " <> T.unpack (lrUnit result)
             <> " (" <> show mapped <> "/" <> show total <> " CFs mapped)"
 
-    -- Pure helper: compute LCIA result for a single method against an inventory
-    computeCategoryResult :: Database -> Inventory -> Method -> LCIAResult
-    computeCategoryResult db inventory method =
+    -- Activity analysis endpoint (dispatches to registered analyzers)
+    getActivityAnalyze :: Text -> Text -> Text -> Handler Value
+    getActivityAnalyze dbName processIdText analyzerName = do
+        (db, _) <- requireDatabaseByName dbManager dbName
+        case M.lookup analyzerName (prAnalyzers (dmPlugins dbManager)) of
+            Nothing -> throwError err404{errBody = "Analyzer not found: " <> BSL.fromStrict (T.encodeUtf8 analyzerName)}
+            Just analyzer -> do
+                case Service.resolveActivityAndProcessId db processIdText of
+                    Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
+                    Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
+                    Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
+                    Right (actProcessId, _) -> do
+                        inventory <- liftIO $ Matrix.computeInventoryMatrix db actProcessId
+                        loadedMethods <- liftIO $ DM.getLoadedMethods dbManager
+                        let methods = map snd loadedMethods
+                            ctx = AnalyzeContext
+                                { acDatabase   = db
+                                , acInventory  = inventory
+                                , acMethods    = methods
+                                , acParameters = M.empty
+                                }
+                        liftIO $ ahAnalyze analyzer ctx
+
+    -- Helper: compute LCIA result for a single method against an inventory
+    computeCategoryResult :: Database -> Inventory -> Method -> IO LCIAResult
+    computeCategoryResult db inventory method = do
         let mappers = prMappers (dmPlugins dbManager)
-            mappings = mapMethodToFlows mappers db method
-            stats = computeMappingStats mappings
+        mappings <- mapMethodToFlows mappers db method
+        let stats = computeMappingStats mappings
             score = computeLCIAScore inventory mappings
             unmappedNames = take 50 [mcfFlowName cf | (cf, Nothing) <- mappings]
-        in LCIAResult
+        pure LCIAResult
             { lrMethodId = methodId method
             , lrMethodName = methodName method
             , lrCategory = methodCategory method
@@ -471,8 +497,8 @@ lcaServer dbManager maxTreeDepth password =
         (db, _) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
         let mappers = prMappers (dmPlugins dbManager)
-            mappings = mapMethodToFlows mappers db method
-            stats = computeMappingStats mappings
+        mappings <- liftIO $ mapMethodToFlows mappers db method
+        let stats = computeMappingStats mappings
             totalFactors = length mappings
             coverage = if totalFactors > 0
                        then fromIntegral (totalFactors - msUnmatched stats) / fromIntegral totalFactors * 100
@@ -509,7 +535,8 @@ lcaServer dbManager maxTreeDepth password =
         (db, _) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
         let mappers = prMappers (dmPlugins dbManager)
-            mappings = mapMethodToFlows mappers db method
+        mappings <- liftIO $ mapMethodToFlows mappers db method
+        let
             -- Build reverse index: DB flow UUID → (MethodCF, MatchStrategy)
             reverseIndex = M.fromList
                 [(flowId f, (cf, strat)) | (cf, Just (f, strat)) <- mappings]

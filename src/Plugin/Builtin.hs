@@ -17,38 +17,55 @@ module Plugin.Builtin
     , tableReporter
     , prettyReporter
     , lciaAnalyzer
+    , hotspotAnalyzer
     , ecoinventMatrixExporter
     , debugMatrixExporter
+      -- * Built-in searchers
+    , nameSearcher
+    , casSearcher
+      -- * Built-in importers
+    , ecospold2Importer
+    , ecospold1Importer
+    , simaproImporter
+    , ilcdImporter
       -- * Default mappers list
     , defaultMappers
+      -- * Search
+    , searchWithPlugins
     ) where
 
 import Data.Aeson (encode, toJSON)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
+import qualified Data.Text as T
 
 import Plugin.Types
 
 import qualified Method.Mapping as Mapping
 import qualified Matrix.Export as MatrixExport
-import Method.Types (MethodCF(..))
+import Method.Types (MethodCF(..), Method(..))
 import Types (Flow(..), Database(..))
 import SynonymDB (emptySynonymDB)
-import Data.Maybe (fromMaybe)
+import Data.Char (toLower)
+import Data.List (sortOn)
+import Data.Maybe (fromMaybe, mapMaybe)
+import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
+import System.FilePath (takeExtension, (</>))
 
 -- | Default registry with all built-in plugins
 defaultRegistry :: PluginRegistry
 defaultRegistry = PluginRegistry
-    { prImporters  = []  -- Importers stay in Database.Loader for now (complex caching)
+    { prImporters  = [ecospold2Importer, ecospold1Importer, simaproImporter, ilcdImporter]
     , prExporters  = M.fromList
         [ ("ecoinvent-matrix", ecoinventMatrixExporter)
         , ("debug-matrix", debugMatrixExporter)
         ]
-    , prSearchers  = []  -- Search stays in Database.hs for now
+    , prSearchers  = [nameSearcher, casSearcher]
     , prMappers    = defaultMappers
     , prTransforms = []
     , prValidators = []
-    , prAnalyzers  = M.fromList [("lcia", lciaAnalyzer)]
+    , prAnalyzers  = M.fromList [("lcia", lciaAnalyzer), ("hotspot", hotspotAnalyzer)]
     , prReporters  = M.fromList
         [ ("json",   jsonReporter)
         , ("csv",    csvReporter)
@@ -70,7 +87,7 @@ uuidMapper = MapperHandle
     { mhName     = "uuid-mapper"
     , mhBackend  = Builtin
     , mhPriority = 0
-    , mhMatch    = \ctx query -> case query of
+    , mhMatch    = \ctx query -> pure $ case query of
         MatchCF cf ->
             fmap (\f -> MapResult (flowId f) "uuid" 1.0) $
                 Mapping.findFlowByUUID (mcFlowsByUUID ctx) (mcfFlowRef cf)
@@ -82,7 +99,7 @@ casMapper = MapperHandle
     { mhName     = "cas-mapper"
     , mhBackend  = Builtin
     , mhPriority = 10
-    , mhMatch    = \ctx query -> case query of
+    , mhMatch    = \ctx query -> pure $ case query of
         MatchCF cf -> do
             cas <- mcfCAS cf
             flow <- Mapping.findFlowByCAS (mcFlowsByCAS ctx) cas (mcfCompartment cf)
@@ -95,7 +112,7 @@ nameMapper = MapperHandle
     { mhName     = "name-mapper"
     , mhBackend  = Builtin
     , mhPriority = 20
-    , mhMatch    = \ctx query -> case query of
+    , mhMatch    = \ctx query -> pure $ case query of
         MatchCF cf ->
             fmap (\f -> MapResult (flowId f) "name" 0.9) $
                 Mapping.findFlowByNameComp (mcFlowsByName ctx) (mcfFlowName cf) (mcfCompartment cf)
@@ -107,7 +124,7 @@ synonymMapper = MapperHandle
     { mhName     = "synonym-mapper"
     , mhBackend  = Builtin
     , mhPriority = 30
-    , mhMatch    = \ctx query -> case query of
+    , mhMatch    = \ctx query -> pure $ case query of
         MatchCF cf ->
             fmap (\f -> MapResult (flowId f) "synonym" 0.8) $
                 Mapping.findFlowBySynonymComp (mcSynonymDB ctx) (mcFlowsByName ctx) (mcfFlowName cf) (mcfCompartment cf)
@@ -133,15 +150,165 @@ lciaAnalyzer = AnalyzeHandle
                 , mcSynonymDB   = fromMaybe emptySynonymDB (dbSynonymDB db)
                 , mcActivities  = M.empty
                 }
-            scores = [ toJSON $ M.fromList
-                        [ ("method" :: String, toJSON (show m))
-                        , ("score",  toJSON (Mapping.computeLCIAScore inv
-                            (Mapping.mapMethodFlows defaultMappers mapCtx m)))
-                        ]
-                     | m <- methods
-                     ]
+        scores <- mapM (\m -> do
+            mappings <- Mapping.mapMethodFlows defaultMappers mapCtx m
+            pure $ toJSON $ M.fromList
+                [ ("method" :: String, toJSON (show m))
+                , ("score",  toJSON (Mapping.computeLCIAScore inv mappings))
+                ]
+            ) methods
         pure $ toJSON scores
     }
+
+-- ──────────────────────────────────────────────
+-- Import handles (format detection probes)
+-- ──────────────────────────────────────────────
+-- Actual loading is managed by Database.Manager (caching, cross-DB linking).
+-- These handles enable format detection and external format plugin registration.
+
+ecospold2Importer :: ImportHandle
+ecospold2Importer = ImportHandle
+    { ihName    = "ecospold2"
+    , ihBackend = Builtin
+    , ihCanRead = hasFilesWithExt ".spold"
+    , ihRead    = \_ _ -> pure $ Left "Use Database.Manager for full loading with caching"
+    }
+
+ecospold1Importer :: ImportHandle
+ecospold1Importer = ImportHandle
+    { ihName    = "ecospold1"
+    , ihBackend = Builtin
+    , ihCanRead = hasFilesWithExt ".xml"
+    , ihRead    = \_ _ -> pure $ Left "Use Database.Manager for full loading with caching"
+    }
+
+simaproImporter :: ImportHandle
+simaproImporter = ImportHandle
+    { ihName    = "simapro-csv"
+    , ihBackend = Builtin
+    , ihCanRead = hasFilesWithExt ".csv"
+    , ihRead    = \_ _ -> pure $ Left "Use Database.Manager for full loading with caching"
+    }
+
+ilcdImporter :: ImportHandle
+ilcdImporter = ImportHandle
+    { ihName    = "ilcd"
+    , ihBackend = Builtin
+    , ihCanRead = \path -> do
+        isDir <- doesDirectoryExist path
+        if isDir
+            then doesDirectoryExist (path </> "processes")
+            else pure False
+    , ihRead    = \_ _ -> pure $ Left "Use Database.Manager for full loading with caching"
+    }
+
+-- | Check if path contains files with a given extension
+hasFilesWithExt :: String -> FilePath -> IO Bool
+hasFilesWithExt ext path = do
+    isFile <- doesFileExist path
+    if isFile
+        then pure $ map toLower (takeExtension path) == ext
+        else do
+            isDir <- doesDirectoryExist path
+            if isDir
+                then do
+                    files <- listDirectory path
+                    pure $ any (\f -> map toLower (takeExtension f) == ext) files
+                else pure False
+
+-- ──────────────────────────────────────────────
+-- Search handles (wrap Database search functions)
+-- ──────────────────────────────────────────────
+
+-- | Name-based flow search: substring match on flow name and synonyms
+nameSearcher :: SearchHandle
+nameSearcher = SearchHandle
+    { shName     = "name-searcher"
+    , shBackend  = Builtin
+    , shPriority = 0
+    , shSearch   = \db query -> do
+        let queryLower = T.toLower (sqText query)
+            flows = M.elems (dbFlows db)
+            matches = [ (f, score) | f <- flows
+                      , let nameLower = T.toLower (flowName f)
+                            synMatches = any (\syns -> any (T.isInfixOf queryLower . T.toLower) (S.toList syns))
+                                            (M.elems (flowSynonyms f))
+                      , T.isInfixOf queryLower nameLower || synMatches
+                      , let score = if queryLower == nameLower then 1.0
+                                    else if T.isPrefixOf queryLower nameLower then 0.9
+                                    else 0.7
+                      ]
+            limited = take (sqLimit query) matches
+        pure [ SearchResult (flowId f) (flowName f) s M.empty | (f, s) <- limited ]
+    }
+
+-- | CAS number search: exact CAS match on dbFlowsByCAS index
+casSearcher :: SearchHandle
+casSearcher = SearchHandle
+    { shName     = "cas-searcher"
+    , shBackend  = Builtin
+    , shPriority = 10
+    , shSearch   = \db query -> do
+        let cas = sqText query
+        pure $ case M.lookup cas (dbFlowsByCAS db) of
+            Just flows ->
+                [ SearchResult (flowId f) (flowName f) 1.0 (M.singleton "cas" cas) | f <- take (sqLimit query) flows ]
+            Nothing -> []
+    }
+
+-- | Run search across all plugin searchers, merge and deduplicate by UUID
+searchWithPlugins :: [SearchHandle] -> Database -> SearchQuery -> IO [SearchResult]
+searchWithPlugins searchers db query = do
+    allResults <- concat <$> mapM (\s -> shSearch s db query) searchers
+    -- Deduplicate: keep highest-scoring result per UUID
+    let byUUID = M.fromListWith (\a b -> if srScore a >= srScore b then a else b)
+                    [(srId r, r) | r <- allResults]
+    pure $ M.elems byUUID
+
+-- ──────────────────────────────────────────────
+-- Analyzer handles
+-- ──────────────────────────────────────────────
+
+-- | Hotspot analyzer: for each method, return top-N flows by contribution to the score.
+-- This answers "why is my product 2.5 kg CO2e?" by showing which flows contribute most.
+hotspotAnalyzer :: AnalyzeHandle
+hotspotAnalyzer = AnalyzeHandle
+    { ahName    = "hotspot"
+    , ahBackend = Builtin
+    , ahAnalyze = \ctx -> do
+        let db = acDatabase ctx
+            inv = acInventory ctx
+            methods = acMethods ctx
+            mapCtx = Mapping.buildMapContext db
+            topN = 20
+        results <- mapM (analyzeMethod mapCtx inv topN) methods
+        pure $ toJSON results
+    }
+  where
+    analyzeMethod mapCtx inv topN method = do
+        mappings <- Mapping.mapMethodFlows defaultMappers mapCtx method
+        let contributions = mapMaybe (flowContribution inv) mappings
+            sorted = take topN $ sortOn (\(_,_,c) -> negate (abs c)) contributions
+            total = sum [qty * mcfValue cf | (cf, Just (flow, _)) <- mappings
+                                            , Just qty <- [M.lookup (flowId flow) inv]]
+        pure $ toJSON $ M.fromList
+            [ ("method" :: String, toJSON (methodName method))
+            , ("unit", toJSON (methodUnit method))
+            , ("totalScore", toJSON total)
+            , ("topFlows", toJSON [ toJSON $ M.fromList
+                [ ("flowName" :: String, toJSON (flowName f))
+                , ("cfName", toJSON (mcfFlowName cf))
+                , ("contribution", toJSON contrib)
+                , ("percent", toJSON (if total /= 0 then contrib / total * 100 else 0 :: Double))
+                ]
+                | (cf, f, contrib) <- sorted
+                ])
+            ]
+
+    flowContribution inv (cf, Just (flow, _))
+        | Just qty <- M.lookup (flowId flow) inv =
+            Just (cf, flow, qty * mcfValue cf)
+    flowContribution _ _ = Nothing
 
 -- ──────────────────────────────────────────────
 -- Export handles (wrap Matrix.Export functions)

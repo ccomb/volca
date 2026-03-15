@@ -26,7 +26,11 @@ import Plugin.Types
 import Plugin.Builtin (defaultRegistry)
 import Plugin.Bridge (callPlugin)
 import Data.Aeson (Value(..), object, (.=), encode)
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Key as K
 import qualified Data.ByteString.Lazy.Char8 as BSL8
+import qualified Data.UUID as UUID
+import Method.Types (MethodCF(..))
 
 -- | Plugin type tag (matches TOML @type@ field)
 data PluginType
@@ -220,7 +224,25 @@ makeExternalMapper name path priority = MapperHandle
     { mhName     = name
     , mhBackend  = External path
     , mhPriority = priority
-    , mhMatch    = \_ _ -> Nothing  -- External mappers use IO; Phase 2 will add IO mapper support
+    , mhMatch    = \_ query -> do
+        let req = case query of
+                MatchCF cf -> object ["action" .= ("match" :: Text), "query" .= object
+                    [ "name" .= mcfFlowName cf
+                    , "uuid" .= show (mcfFlowRef cf)
+                    , "cas"  .= mcfCAS cf
+                    ]]
+                MatchMaterial mat mCas -> object ["action" .= ("match" :: Text), "query" .= object
+                    [ "name" .= mat, "cas" .= mCas ]]
+                MatchSupplier sName sLoc -> object ["action" .= ("match" :: Text), "query" .= object
+                    [ "supplier" .= sName, "location" .= sLoc ]]
+        result <- callPlugin path req
+        case result of
+            Right (Object obj) -> case (lookupKey "uuid" obj, lookupKey "strategy" obj) of
+                (Just (String u), Just (String s)) -> case UUID.fromText u of
+                    Just uid -> pure $ Just $ MapResult uid s 0.7
+                    Nothing  -> pure Nothing
+                _ -> pure Nothing
+            _ -> pure Nothing
     }
 
 makeExternalReporter :: Text -> FilePath -> Text -> Text -> ReportHandle
@@ -299,3 +321,7 @@ makeExternalSearcher name path priority = SearchHandle
     , shPriority = priority
     , shSearch   = \_ _ -> pure []  -- External searchers need IO bridge
     }
+
+-- | Look up a key in a JSON object
+lookupKey :: Text -> KM.KeyMap Value -> Maybe Value
+lookupKey k = KM.lookup (K.fromText k)

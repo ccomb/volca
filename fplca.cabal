@@ -139,6 +139,7 @@ test-suite acv-tests
                      , MethodSpec
                      , SimaProParserSpec
                      , UnitConversionSpec
+                     , PluginSpec
                      , Types
                      , Progress
                      , UnitConversion

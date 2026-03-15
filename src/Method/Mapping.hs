@@ -27,7 +27,6 @@ module Method.Mapping
     , computeMappingStats
     ) where
 
-import Data.Foldable (asum)
 import Data.List (find)
 import qualified Data.Map.Strict as M
 import Data.Maybe (isNothing, fromMaybe)
@@ -78,9 +77,9 @@ mapMethodFlows
     :: [MapperHandle]
     -> MapContext
     -> Method
-    -> [(MethodCF, Maybe (Flow, MatchStrategy))]
+    -> IO [(MethodCF, Maybe (Flow, MatchStrategy))]
 mapMethodFlows mappers ctx method =
-    map (\cf -> (cf, mapSingleFlow mappers ctx cf)) (methodFactors method)
+    mapM (\cf -> fmap (\r -> (cf, r)) (mapSingleFlow mappers ctx cf)) (methodFactors method)
 
 -- | Map a single CF using the mapper handle cascade.
 -- Each mapper is tried in order; the first match wins.
@@ -88,18 +87,19 @@ mapSingleFlow
     :: [MapperHandle]
     -> MapContext
     -> MethodCF
-    -> Maybe (Flow, MatchStrategy)
-mapSingleFlow mappers ctx cf =
-    asum [tryMapper m | m <- mappers]
+    -> IO (Maybe (Flow, MatchStrategy))
+mapSingleFlow mappers ctx cf = go mappers
   where
-    tryMapper m = case mhMatch m ctx (MatchCF cf) of
-        Just mr -> do
-            flow <- M.lookup (mrTargetId mr) (mcFlowsByUUID ctx)
-            pure (flow, strategyFromText (mrStrategy mr))
-        Nothing -> Nothing
+    go [] = pure Nothing
+    go (m:ms) = do
+        result <- mhMatch m ctx (MatchCF cf)
+        case result of
+            Just mr | Just flow <- M.lookup (mrTargetId mr) (mcFlowsByUUID ctx) ->
+                pure $ Just (flow, strategyFromText (mrStrategy mr))
+            _ -> go ms
 
 -- | Convenience wrapper: map method CFs using the given mappers + DB.
-mapMethodToFlows :: [MapperHandle] -> Database -> Method -> [(MethodCF, Maybe (Flow, MatchStrategy))]
+mapMethodToFlows :: [MapperHandle] -> Database -> Method -> IO [(MethodCF, Maybe (Flow, MatchStrategy))]
 mapMethodToFlows mappers db = mapMethodFlows mappers (buildMapContext db)
 
 -- | Convert strategy text back to MatchStrategy

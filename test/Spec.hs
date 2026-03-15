@@ -12,6 +12,7 @@ import qualified MatrixExportSpec
 import qualified MethodSpec
 import qualified UnitConversionSpec
 import qualified SimaProParserSpec
+import qualified PluginSpec
 
 main :: IO ()
 main = hspec $ do
@@ -23,3 +24,4 @@ main = hspec $ do
         describe "Method & SynonymDB" MethodSpec.spec
         describe "Unit Conversion" UnitConversionSpec.spec
         describe "SimaPro Parser" SimaProParserSpec.spec
+        describe "Plugin System" PluginSpec.spec

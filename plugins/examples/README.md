@@ -2,6 +2,32 @@
 
 Example plugins demonstrating the fpLCA external plugin protocol.
 
+## Plugin Handle Types
+
+fpLCA has 8 pluggable handle types covering the full LCA pipeline:
+
+```
+[Import] → [Transform] → [Map] → [Validate] → Compute → [Analyze] → [Report]
+                                                 (core)
+                          [Search] (orthogonal)
+```
+
+| Type | Built-ins | Purpose |
+|------|-----------|---------|
+| **importer** | ecospold2, ecospold1, simapro-csv, ilcd | Format detection and data loading |
+| **mapper** | uuid, cas, name, synonym | Match method CFs to database flows |
+| **searcher** | name-searcher, cas-searcher | Query loaded data by name or CAS |
+| **analyzer** | lcia, hotspot | Post-computation analysis |
+| **exporter** | ecoinvent-matrix, debug-matrix | Export data to files |
+| **reporter** | json, csv, table, pretty | Format output for display |
+| **transform** | *(none built-in)* | Modify data before computation |
+| **validator** | *(none built-in)* | Check data quality pre/post computation |
+
+List all registered plugins:
+```bash
+./fplca.sh --config fplca.toml plugin list --format json
+```
+
 ## Protocol
 
 External plugins communicate via **JSON on stdin/stdout**:
@@ -19,13 +45,20 @@ External plugins communicate via **JSON on stdin/stdout**:
 
 ### Action types by plugin type
 
-| Plugin type | Action    | Extra fields                                    |
-|------------|-----------|--------------------------------------------------|
-| mapper     | `match`   | `query: {name, cas, compartment}`                |
-| reporter   | `report`  | `data: <any JSON>`                               |
-| exporter   | `export`  | `output: "/path/to/output"`                      |
-| analyzer   | `analyze` | *(none currently)*                               |
-| validator  | `validate`| *(none currently)*                               |
+| Plugin type | Action     | Extra fields                                     |
+|-------------|------------|--------------------------------------------------|
+| mapper      | `match`    | `query: {name, uuid, cas}`                       |
+| reporter    | `report`   | `data: <any JSON>`                               |
+| exporter    | `export`   | `output: "/path/to/output"`                      |
+| analyzer    | `analyze`  | *(none currently)*                               |
+| validator   | `validate` | *(none currently)*                               |
+| searcher    | `search`   | `query: {text, limit}`                           |
+
+### Mapper response format
+
+```json
+{"uuid": "flow-uuid-string", "strategy": "fuzzy"}
+```
 
 ### Response format
 
@@ -71,5 +104,15 @@ echo '{"action":"report","data":{"name":"test"}}' | bash uppercase-reporter.sh
 1. Create an executable (any language) that reads JSON from stdin and writes JSON to stdout
 2. Add a `[[plugin]]` section to your `fplca.toml`
 3. Specify `name`, `type`, and `path` (relative to working directory or absolute)
-4. Optional: `priority` (for ordered types like mapper/transform), `format-id`, `mime-type`
+4. Optional: `priority` (for ordered types like mapper/transform/searcher), `format-id`, `mime-type`
 5. Set `enabled = false` to disable a built-in plugin by name
+
+## API Endpoints
+
+### Analyze endpoint
+
+```
+GET /api/v1/database/{dbName}/activity/{processId}/analyze/{analyzerName}
+```
+
+Available analyzers: `lcia`, `hotspot`. The hotspot analyzer returns top-20 flows by contribution to each loaded impact category.

@@ -190,8 +190,8 @@ getActivityInventory db processIdText =
             return $ Right $ toJSON inventoryExport
 
 -- | Shared solver-aware activity inventory export for concurrent processing
-getActivityInventoryWithSharedSolver :: SharedSolver -> Database -> Text -> IO (Either ServiceError InventoryExport)
-getActivityInventoryWithSharedSolver sharedSolver db processIdText = do
+getActivityInventoryWithSharedSolver :: [ValidateHandle] -> SharedSolver -> Database -> Text -> IO (Either ServiceError InventoryExport)
+getActivityInventoryWithSharedSolver validators sharedSolver db processIdText = do
     case resolveActivityAndProcessId db processIdText of
         Left err -> return $ Left err
         Right (processId, activity) -> do
@@ -199,24 +199,37 @@ getActivityInventoryWithSharedSolver sharedSolver db processIdText = do
             case validateProcessIdInMatrixIndex db processId of
                 Left validationErr -> return $ Left validationErr
                 Right () -> do
-                    -- Inline matrix calculation with shared solver
-                    let bioFlowCount = dbBiosphereCount db
-                        bioTriples = dbBiosphereTriples db
-                        activityIndex = dbActivityIndex db
-                        bioFlowUUIDs = dbBiosphereFlows db
-                        demandVec = buildDemandVectorFromIndex activityIndex processId
+                    -- Run pre-compute validators
+                    preIssues <- runPreComputeValidation validators db
+                    if hasValidationErrors preIssues
+                        then return $ Left $ MatrixError $
+                            T.intercalate "; " [viMessage i | i <- preIssues, viSeverity i == Error]
+                        else do
+                            -- Inline matrix calculation with shared solver
+                            let bioFlowCount = dbBiosphereCount db
+                                bioTriples = dbBiosphereTriples db
+                                activityIndex = dbActivityIndex db
+                                bioFlowUUIDs = dbBiosphereFlows db
+                                demandVec = buildDemandVectorFromIndex activityIndex processId
 
-                    -- Use shared solver (lazy factorization on first call, cached thereafter)
-                    supplyVec <- solveWithSharedSolver sharedSolver demandVec
+                            -- Use shared solver (lazy factorization on first call, cached thereafter)
+                            supplyVec <- solveWithSharedSolver sharedSolver demandVec
 
-                    -- Calculate inventory using sparse biosphere matrix: g = B * supply
-                    -- Convert Int32 to Int for applySparseMatrix
-                    let bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
-                        bioFlowCountInt = fromIntegral bioFlowCount
-                        inventoryVec = applySparseMatrix bioTriplesInt bioFlowCountInt supplyVec
-                        inventory = M.fromList $ zip (V.toList bioFlowUUIDs) (toList inventoryVec)
-                        inventoryExport = convertToInventoryExport db processId activity inventory
-                    return $ Right inventoryExport
+                            -- Calculate inventory using sparse biosphere matrix: g = B * supply
+                            -- Convert Int32 to Int for applySparseMatrix
+                            let bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
+                                bioFlowCountInt = fromIntegral bioFlowCount
+                                inventoryVec = applySparseMatrix bioTriplesInt bioFlowCountInt supplyVec
+                                inventory = M.fromList $ zip (V.toList bioFlowUUIDs) (toList inventoryVec)
+
+                            -- Run post-compute validators
+                            postIssues <- runPostComputeValidation validators db inventory
+                            if hasValidationErrors postIssues
+                                then return $ Left $ MatrixError $
+                                    T.intercalate "; " [viMessage i | i <- postIssues, viSeverity i == Error]
+                                else do
+                                    let inventoryExport = convertToInventoryExport db processId activity inventory
+                                    return $ Right inventoryExport
 
 -- | Simple stats tracking for tree processing
 data TreeStats = TreeStats Int Int Int -- total, loops, leaves

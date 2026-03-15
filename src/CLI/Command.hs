@@ -454,8 +454,8 @@ executeMappingCommand registry fmt database manager opts = do
           reportError $ "Method not found: " ++ T.unpack (mappingMethodId opts)
           exitFailure
         (method:_) -> do
-          let mappings = mapMethodToFlows (prMappers registry) database method
-              stats = computeMappingStats mappings
+          mappings <- mapMethodToFlows (prMappers registry) database method
+          let stats = computeMappingStats mappings
               totalMatched = msTotal stats - msUnmatched stats
               coverage = if msTotal stats > 0
                          then fromIntegral totalMatched / fromIntegral (msTotal stats) * 100 :: Double

@@ -116,7 +116,7 @@ data SearchResult = SearchResult
     , srName  :: !Text
     , srScore :: !Double
     , srMeta  :: !(Map Text Text)
-    }
+    } deriving (Show, Eq)
 
 -- ──────────────────────────────────────────────
 -- 4. MAPPER: match entities across domains
@@ -125,7 +125,7 @@ data MapperHandle = MapperHandle
     { mhName     :: !Text
     , mhBackend  :: !PluginBackend
     , mhPriority :: !Int
-    , mhMatch    :: MapContext -> MapQuery -> Maybe MapResult
+    , mhMatch    :: MapContext -> MapQuery -> IO (Maybe MapResult)
     }
 
 data MapContext = MapContext
@@ -145,7 +145,7 @@ data MapResult = MapResult
     { mrTargetId   :: !UUID
     , mrStrategy   :: !Text
     , mrConfidence :: !Double
-    }
+    } deriving (Show, Eq)
 
 -- ──────────────────────────────────────────────
 -- 5. TRANSFORM: modify data before computation
@@ -193,7 +193,7 @@ data ValidationIssue = ValidationIssue
     , viCategory :: !Text
     , viMessage  :: !Text
     , viEntity   :: !(Maybe UUID)
-    }
+    } deriving (Show, Eq)
 
 -- ──────────────────────────────────────────────
 -- 7. ANALYZE: post-computation analysis
