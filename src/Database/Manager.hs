@@ -92,7 +92,7 @@ import Data.List (isPrefixOf, nub, sortOn)
 import Data.Ord (Down(..))
 
 import Config
-import Plugin.Types (PluginRegistry)
+import Plugin.Types (PluginRegistry(..), TransformHandle(..), TransformContext(..), TransformResult(..))
 import Plugin.Config (buildRegistry)
 import qualified Data.ByteString.Lazy as BL
 import Data.Time (diffUTCTime, getCurrentTime)
@@ -459,7 +459,8 @@ loadOneDatabase
 loadOneDatabase synonymDB unitConfig noCache otherIndexes loadedDbsVar indexedDbsVar manager dbConfig = do
     dbStart <- getCurrentTime
     reportProgress Info $ "[STARTING] Loading database: " <> T.unpack (dcDisplayName dbConfig)
-    result <- loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherIndexes
+    let transforms = prTransforms (dmPlugins manager)
+    result <- loadDatabaseFromConfigWithCrossDBAndTransforms transforms dbConfig synonymDB unitConfig noCache otherIndexes
     case result of
         Right loaded -> do
             let indexedDb = buildIndexedDatabaseFromDB (dcName dbConfig) synonymDB (ldDatabase loaded)
@@ -638,7 +639,18 @@ loadDatabaseFromConfigWithCrossDB
     -> Bool  -- noCache
     -> [IndexedDatabase]  -- Pre-built indexes from other databases for cross-DB linking
     -> IO (Either Text LoadedDatabase)
-loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherIndexes = do
+loadDatabaseFromConfigWithCrossDB = loadDatabaseFromConfigWithCrossDBAndTransforms []
+
+-- | Load with optional transform pipeline
+loadDatabaseFromConfigWithCrossDBAndTransforms
+    :: [TransformHandle]
+    -> DatabaseConfig
+    -> SynonymDB
+    -> UnitConversion.UnitConfig
+    -> Bool  -- noCache
+    -> [IndexedDatabase]  -- Pre-built indexes from other databases for cross-DB linking
+    -> IO (Either Text LoadedDatabase)
+loadDatabaseFromConfigWithCrossDBAndTransforms transforms dbConfig synonymDB unitConfig noCache otherIndexes = do
     path <- resolveDataPath (dcPath dbConfig)
     let locationAliases = dcLocationAliases dbConfig
 
@@ -656,8 +668,14 @@ loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherInd
             case dbResult of
                 Left err -> return $ Left err
                 Right dbRaw -> do
+                    -- Apply transform plugins (sorted by priority) before runtime init
+                    transformed <- applyTransforms transforms (toSimpleDatabase dbRaw)
+                    dbRebuilt <- if null transforms
+                        then pure dbRaw
+                        else buildDatabaseWithMatrices (sdbActivities transformed) (sdbFlows transformed) (sdbUnits transformed)
+
                     -- Initialize runtime fields (synonym DB and flow name index)
-                    let database = initializeRuntimeFields dbRaw synonymDB
+                    let database = initializeRuntimeFields dbRebuilt synonymDB
 
                     -- Create shared solver with lazy factorization (deferred to first query)
                     let techTriples = dbTechnosphereTriples database
@@ -671,6 +689,14 @@ loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig noCache otherInd
                         , ldSharedSolver = sharedSolver
                         , ldConfig = dbConfig
                         }
+
+-- | Apply transform plugins sequentially (sorted by priority)
+applyTransforms :: [TransformHandle] -> SimpleDatabase -> IO SimpleDatabase
+applyTransforms [] db = pure db
+applyTransforms (t:ts) db = do
+    result <- thTransform t (TransformContext db M.empty)
+    mapM_ (reportProgress Info . T.unpack) (trLog result)
+    applyTransforms ts (trDatabase result)
 
 -- | Detected format of a database directory
 data DirectoryFormat = FormatSpold | FormatXML | FormatCSV | FormatILCD | FormatUnknown
@@ -865,7 +891,9 @@ loadDatabaseSingleFromConfig manager dbName = do
                     let otherIndexes = M.elems currentIndexedDbs
                     synonymDB <- getMergedSynonymDB manager
                     unitConfig <- getMergedUnitConfig manager
-                    eitherResult <- try $ loadDatabaseFromConfigWithCrossDB
+                    let transforms = prTransforms (dmPlugins manager)
+                    eitherResult <- try $ loadDatabaseFromConfigWithCrossDBAndTransforms
+                        transforms
                         dbConfig
                         synonymDB
                         unitConfig

@@ -106,7 +106,10 @@ applyConfig reg pc
         PTReporter -> applyReporter reg pc
         PTExporter -> applyExporter reg pc
         PTAnalyzer -> applyAnalyzer reg pc
-        _          -> reg  -- Other types: Phase 2
+        PTTransform -> applyTransform reg pc
+        PTValidator -> applyValidator reg pc
+        PTImporter  -> applyImporter reg pc
+        PTSearcher  -> applySearcher reg pc
 
 -- | Remove a plugin by name
 disablePlugin :: PluginRegistry -> PluginConfig -> PluginRegistry
@@ -115,8 +118,10 @@ disablePlugin reg pc = case pcType pc of
     PTReporter -> reg { prReporters = M.filter ((/= pcName pc) . rhName) (prReporters reg) }
     PTExporter -> reg { prExporters = M.filter ((/= pcName pc) . ehName) (prExporters reg) }
     PTAnalyzer -> reg { prAnalyzers = M.filter ((/= pcName pc) . ahName) (prAnalyzers reg) }
-    PTSearcher -> reg { prSearchers = filter ((/= pcName pc) . shName) (prSearchers reg) }
-    _          -> reg
+    PTSearcher  -> reg { prSearchers  = filter ((/= pcName pc) . shName) (prSearchers reg) }
+    PTTransform -> reg { prTransforms = filter ((/= pcName pc) . thName) (prTransforms reg) }
+    PTValidator -> reg { prValidators = filter ((/= pcName pc) . vhName) (prValidators reg) }
+    PTImporter  -> reg { prImporters  = filter ((/= pcName pc) . ihName) (prImporters reg) }
 
 -- | Apply mapper config: override priority of existing, or add external
 applyMapper :: PluginRegistry -> PluginConfig -> PluginRegistry
@@ -160,6 +165,51 @@ applyAnalyzer reg pc = case pcPath pc of
     Just path ->
         let handle = makeExternalAnalyzer (pcName pc) path
         in reg { prAnalyzers = M.insert (pcName pc) handle (prAnalyzers reg) }
+
+-- | Apply transform config: override priority of existing, or add external
+applyTransform :: PluginRegistry -> PluginConfig -> PluginRegistry
+applyTransform reg pc = case pcPath pc of
+    Nothing ->
+        let transforms' = map (\t -> if thName t == pcName pc
+                then t { thPriority = fromMaybe (thPriority t) (pcPriority pc) }
+                else t) (prTransforms reg)
+        in reg { prTransforms = transforms' }
+    Just path ->
+        let priority = fromMaybe 50 (pcPriority pc)
+            handle = makeExternalTransform (pcName pc) path priority
+        in reg { prTransforms = handle : prTransforms reg }
+
+-- | Apply validator config: add external validator
+applyValidator :: PluginRegistry -> PluginConfig -> PluginRegistry
+applyValidator reg pc = case pcPath pc of
+    Nothing -> reg
+    Just path ->
+        let phase = case pcPhase pc of
+                Just "post-compute" -> PostCompute
+                _                   -> PreCompute
+            handle = makeExternalValidator (pcName pc) path phase
+        in reg { prValidators = handle : prValidators reg }
+
+-- | Apply importer config: add external importer
+applyImporter :: PluginRegistry -> PluginConfig -> PluginRegistry
+applyImporter reg pc = case pcPath pc of
+    Nothing -> reg
+    Just path ->
+        let handle = makeExternalImporter (pcName pc) path
+        in reg { prImporters = handle : prImporters reg }
+
+-- | Apply searcher config: override priority of existing, or add external
+applySearcher :: PluginRegistry -> PluginConfig -> PluginRegistry
+applySearcher reg pc = case pcPath pc of
+    Nothing ->
+        let searchers' = map (\s -> if shName s == pcName pc
+                then s { shPriority = fromMaybe (shPriority s) (pcPriority pc) }
+                else s) (prSearchers reg)
+        in reg { prSearchers = searchers' }
+    Just path ->
+        let priority = fromMaybe 50 (pcPriority pc)
+            handle = makeExternalSearcher (pcName pc) path priority
+        in reg { prSearchers = handle : prSearchers reg }
 
 -- ──────────────────────────────────────────────
 -- External plugin handle constructors
@@ -209,4 +259,43 @@ makeExternalAnalyzer name path = AnalyzeHandle
         case result of
             Right val -> pure val
             Left err  -> pure $ object ["error" .= err]
+    }
+
+makeExternalTransform :: Text -> FilePath -> Int -> TransformHandle
+makeExternalTransform name path priority = TransformHandle
+    { thName      = name
+    , thBackend   = External path
+    , thPriority  = priority
+    , thTransform = \_ -> pure $ TransformResult
+        { trDatabase = error "External transform not yet supported"
+        , trLog = ["External transform plugins not yet supported"]
+        }
+    }
+
+makeExternalValidator :: Text -> FilePath -> ValidationPhase -> ValidateHandle
+makeExternalValidator name path phase = ValidateHandle
+    { vhName     = name
+    , vhBackend  = External path
+    , vhPhase    = phase
+    , vhValidate = \_ -> do
+        result <- callPlugin path (object ["action" .= ("validate" :: Text)])
+        case result of
+            Right _ -> pure []
+            Left err -> pure [ValidationIssue Warning "plugin" err Nothing]
+    }
+
+makeExternalImporter :: Text -> FilePath -> ImportHandle
+makeExternalImporter name path = ImportHandle
+    { ihName    = name
+    , ihBackend = External path
+    , ihCanRead = \_ -> pure False  -- External importers need explicit configuration
+    , ihRead    = \_ _ -> pure $ Left "External importer not yet supported"
+    }
+
+makeExternalSearcher :: Text -> FilePath -> Int -> SearchHandle
+makeExternalSearcher name path priority = SearchHandle
+    { shName     = name
+    , shBackend  = External path
+    , shPriority = priority
+    , shSearch   = \_ _ -> pure []  -- External searchers need IO bridge
     }

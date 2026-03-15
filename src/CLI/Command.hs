@@ -3,8 +3,8 @@
 
 module CLI.Command where
 
-import CLI.Types (Command(..), DatabaseAction(..), MethodAction(..), UploadArgs(..), FlowSubCommand(..), GlobalOptions(..), CLIConfig(..), OutputFormat(..), TreeOptions(..), SearchActivitiesOptions(..), SearchFlowsOptions(..), LCIAOptions(..), DebugMatricesOptions(..), MappingOptions(..))
-import Plugin.Types (PluginRegistry(..), ReportHandle(..))
+import CLI.Types (Command(..), DatabaseAction(..), MethodAction(..), PluginAction(..), UploadArgs(..), FlowSubCommand(..), GlobalOptions(..), CLIConfig(..), OutputFormat(..), TreeOptions(..), SearchActivitiesOptions(..), SearchFlowsOptions(..), LCIAOptions(..), DebugMatricesOptions(..), MappingOptions(..))
+import Plugin.Types (PluginRegistry(..), ReportHandle(..), ExportHandle(..), ExportContext(..), MapperHandle(..), TransformHandle(..), ValidateHandle(..), SearchHandle(..), AnalyzeHandle(..), ImportHandle(..), PluginBackend(..))
 import qualified Database.Manager as DM
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), addDatabase, addMethodCollection)
 import Progress
@@ -125,6 +125,9 @@ executeCommand (CLIConfig globalOpts _) cmd manager = do
     Units ->
       DM.listUnitDefs manager >>= out . toJSON
 
+    Plugin PluginList ->
+      executePluginList registry outputFormat
+
     Mapping opts -> do
       (database, _solver) <- requireDatabase manager (dbName globalOpts)
       executeMappingCommand registry outputFormat database manager opts
@@ -166,7 +169,7 @@ executeDbCommand registry fmt globalOpts database = \case
       executeDebugMatricesCommand database uuid debugOpts
 
     ExportMatrices outputDir ->
-      executeExportMatricesCommand database outputDir
+      executeExportMatricesCommand registry database outputDir
 
     -- Manager-level commands already handled above
     _ -> pure ()
@@ -254,16 +257,46 @@ executeDebugMatricesCommand database uuid opts = do
       reportProgress Info $ "Supply chain data: " ++ debugOutput opts ++ "_supply_chain.csv"
       reportProgress Info $ "Biosphere matrix: " ++ debugOutput opts ++ "_biosphere_matrix.csv"
 
--- | Execute export matrices command
-executeExportMatricesCommand :: Database -> FilePath -> IO ()
-executeExportMatricesCommand database outputDir = do
+-- | Execute export matrices command using plugin registry
+executeExportMatricesCommand :: PluginRegistry -> Database -> FilePath -> IO ()
+executeExportMatricesCommand registry database outputDir = do
   reportProgress Info $ "Exporting matrices to: " ++ outputDir
-  Service.exportUniversalMatrixFormat outputDir database
+  case M.lookup "ecoinvent-matrix" (prExporters registry) of
+    Just exporter -> do
+      let ctx = ExportContext { ecDatabase = database, ecInventory = Nothing, ecMethods = [] }
+      ehExport exporter ctx outputDir
+    Nothing -> Service.exportUniversalMatrixFormat outputDir database
   reportProgress Info "Matrix export completed"
   reportProgress Info $ "  - ie_index.csv (activity index)"
   reportProgress Info $ "  - ee_index.csv (biosphere flow index)"
   reportProgress Info $ "  - A_public.csv (technosphere matrix)"
   reportProgress Info $ "  - B_public.csv (biosphere matrix)"
+
+-- | Execute plugin list command
+executePluginList :: PluginRegistry -> OutputFormat -> IO ()
+executePluginList registry fmt = do
+  let noPriority = Nothing :: Maybe Int
+      plugins = concat
+        [ [ pluginEntry (mhName m) "mapper" (mhBackend m) (Just $ mhPriority m) | m <- prMappers registry ]
+        , [ pluginEntry (rhName r) "reporter" (rhBackend r) noPriority | r <- M.elems (prReporters registry) ]
+        , [ pluginEntry (ehName e) "exporter" (ehBackend e) noPriority | e <- M.elems (prExporters registry) ]
+        , [ pluginEntry (ahName a) "analyzer" (ahBackend a) noPriority | a <- M.elems (prAnalyzers registry) ]
+        , [ pluginEntry (thName t) "transform" (thBackend t) (Just $ thPriority t) | t <- prTransforms registry ]
+        , [ pluginEntry (vhName v) "validator" (vhBackend v) noPriority | v <- prValidators registry ]
+        , [ pluginEntry (shName s) "searcher" (shBackend s) (Just $ shPriority s) | s <- prSearchers registry ]
+        , [ pluginEntry (ihName i) "importer" (ihBackend i) noPriority | i <- prImporters registry ]
+        ]
+  outputResult registry fmt (toJSON plugins)
+  where
+    pluginEntry name typ backend mPriority = object $ concat
+      [ [ "name" .= name
+        , "type" .= (typ :: T.Text)
+        , "backend" .= backendText backend
+        ]
+      , maybe [] (\p -> ["priority" .= p]) mPriority
+      ]
+    backendText Builtin      = "builtin" :: T.Text
+    backendText (External p) = "external:" <> T.pack p
 
 -- | Execute database upload command
 executeDbUpload :: PluginRegistry -> OutputFormat -> DatabaseManager -> UploadArgs -> IO ()

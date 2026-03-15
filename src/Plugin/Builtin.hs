@@ -17,6 +17,8 @@ module Plugin.Builtin
     , tableReporter
     , prettyReporter
     , lciaAnalyzer
+    , ecoinventMatrixExporter
+    , debugMatrixExporter
       -- * Default mappers list
     , defaultMappers
     ) where
@@ -28,6 +30,7 @@ import qualified Data.Map.Strict as M
 import Plugin.Types
 
 import qualified Method.Mapping as Mapping
+import qualified Matrix.Export as MatrixExport
 import Method.Types (MethodCF(..))
 import Types (Flow(..), Database(..))
 import SynonymDB (emptySynonymDB)
@@ -37,7 +40,10 @@ import Data.Maybe (fromMaybe)
 defaultRegistry :: PluginRegistry
 defaultRegistry = PluginRegistry
     { prImporters  = []  -- Importers stay in Database.Loader for now (complex caching)
-    , prExporters  = M.empty  -- Matrix.Export stays as-is for now
+    , prExporters  = M.fromList
+        [ ("ecoinvent-matrix", ecoinventMatrixExporter)
+        , ("debug-matrix", debugMatrixExporter)
+        ]
     , prSearchers  = []  -- Search stays in Database.hs for now
     , prMappers    = defaultMappers
     , prTransforms = []
@@ -135,6 +141,27 @@ lciaAnalyzer = AnalyzeHandle
                      | m <- methods
                      ]
         pure $ toJSON scores
+    }
+
+-- ──────────────────────────────────────────────
+-- Export handles (wrap Matrix.Export functions)
+-- ──────────────────────────────────────────────
+
+ecoinventMatrixExporter :: ExportHandle
+ecoinventMatrixExporter = ExportHandle
+    { ehName     = "ecoinvent-matrix"
+    , ehBackend  = Builtin
+    , ehFormatId = "ecoinvent-matrix"
+    , ehExport   = \ctx outPath ->
+        MatrixExport.exportUniversalMatrixFormat outPath (ecDatabase ctx)
+    }
+
+debugMatrixExporter :: ExportHandle
+debugMatrixExporter = ExportHandle
+    { ehName     = "debug-matrix"
+    , ehBackend  = Builtin
+    , ehFormatId = "debug-matrix"
+    , ehExport   = \_ _ -> pure ()  -- Debug export requires MatrixDebugInfo, invoked via Service
     }
 
 -- ──────────────────────────────────────────────

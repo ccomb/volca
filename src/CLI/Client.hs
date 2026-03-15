@@ -149,6 +149,7 @@ executeRemoteCommand mgr rc globalOpts cmd = do
 
         -- Local-only commands should never reach here
         Server _         -> reportError "Server command is local-only" >> exitFailure
+        Plugin{}         -> reportError "plugin command is local-only" >> exitFailure
         DebugMatrices{}  -> reportError "debug-matrices is local-only" >> exitFailure
         ExportMatrices{} -> reportError "export-matrices is local-only" >> exitFailure
         Repl             -> reportError "repl should be handled in Main" >> exitFailure

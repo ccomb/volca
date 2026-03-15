@@ -13,6 +13,7 @@ import Types
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), EdgeType (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), NodeType (..), SearchResults (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
 import UnitConversion (UnitConfig, defaultUnitConfig, unitsCompatible)
 import Data.Aeson (Value, toJSON)
+import Plugin.Types (ValidateHandle(..), ValidateContext(..), ValidationPhase(..), ValidationIssue(..), Severity(..))
 import qualified Data.List as L
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -996,3 +997,23 @@ exportMatrixDebugData database processIdText opts = do
 -- | Export matrices in universal matrix format (delegates to Matrix.Export)
 exportUniversalMatrixFormat :: FilePath -> Database -> IO ()
 exportUniversalMatrixFormat = MatrixExport.exportUniversalMatrixFormat
+
+-- ──────────────────────────────────────────────
+-- Plugin validation hooks
+-- ──────────────────────────────────────────────
+
+-- | Run pre-compute validators (before matrix solve)
+runPreComputeValidation :: [ValidateHandle] -> Database -> IO [ValidationIssue]
+runPreComputeValidation validators db = do
+    let preValidators = filter ((== PreCompute) . vhPhase) validators
+    concat <$> mapM (\v -> vhValidate v (ValidateContext db Nothing)) preValidators
+
+-- | Run post-compute validators (after inventory is computed)
+runPostComputeValidation :: [ValidateHandle] -> Database -> Inventory -> IO [ValidationIssue]
+runPostComputeValidation validators db inv = do
+    let postValidators = filter ((== PostCompute) . vhPhase) validators
+    concat <$> mapM (\v -> vhValidate v (ValidateContext db (Just inv))) postValidators
+
+-- | Check if any validation issues are errors (should abort computation)
+hasValidationErrors :: [ValidationIssue] -> Bool
+hasValidationErrors = any ((== Error) . viSeverity)

@@ -74,6 +74,7 @@ loadConfigOrDie cfgFile = do
 isLocalCommand :: Command -> Bool
 isLocalCommand (DebugMatrices _ _) = True
 isLocalCommand (ExportMatrices _)  = True
+isLocalCommand (Plugin _)          = True
 isLocalCommand _                   = False
 
 -- | Run local-only CLI commands through DatabaseManager (loads DBs, PETSc)
