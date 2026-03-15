@@ -4,14 +4,17 @@
 
 module Main where
 
-import Control.Monad (forM_, unless)
+import Control.Concurrent (forkIO, threadDelay, myThreadId, throwTo, ThreadId)
+import Control.Monad (forM_, unless, when)
+import Data.IORef
 import Data.List (intercalate)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
+import Data.Time.Clock (getCurrentTime, diffUTCTime, UTCTime)
 import Options.Applicative
 import System.Environment (lookupEnv)
-import System.Exit (exitFailure, die)
+import System.Exit (exitFailure, die, ExitCode(..))
 import System.IO (hFlush, stdout)
 #ifndef mingw32_HOST_OS
 import System.Posix.Signals (installHandler, Handler(Ignore), sigPIPE)
@@ -38,7 +41,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Network.HTTP.Types (status200)
 import Network.HTTP.Types.Header (hCacheControl, hContentType, hPragma)
-import Network.Wai (Application, Request (..), Response, ResponseReceived, rawPathInfo, rawQueryString, requestMethod, requestHeaders, pathInfo, mapResponseHeaders, responseStream)
+import Network.Wai (Application, Request (..), Response, ResponseReceived, rawPathInfo, rawQueryString, requestMethod, requestHeaders, pathInfo, mapResponseHeaders, responseStream, responseLBS)
 import Network.Wai.Application.Static (defaultWebAppSettings, ssIndices, staticApp)
 import Network.Wai.Handler.Warp (runSettings, setPort, setTimeout, defaultSettings)
 import Servant (serve)
@@ -157,11 +160,26 @@ runServerWithConfig cliConfig serverOpts cfgFile = do
         Nothing -> reportProgress Info "Authentication: DISABLED (use --password or FPLCA_PASSWORD to enable)"
       reportProgress Info $ "Web interface available at: http://localhost:" ++ show port ++ "/"
 
+  -- Idle timeout: track last request time, watchdog activated on demand via API
+  mainTid <- myThreadId
+  lastRequestRef <- newIORef =<< getCurrentTime
+  idleActiveRef <- newIORef False
+
+  -- If --idle-timeout is set, activate immediately (for scripts)
+  let idleTimeout = serverIdleTimeout serverOpts
+  when (idleTimeout > 0) $ do
+      reportProgress Info $ "Idle timeout: " ++ show idleTimeout ++ "s"
+      writeIORef idleActiveRef True
+      _ <- forkIO $ idleWatchdog mainTid lastRequestRef idleActiveRef idleTimeout
+      pure ()
+
   -- Create app with DatabaseManager - API handlers fetch current DB dynamically
   let baseApp = Main.createServerApp dbManager (treeDepth (globalOptions cliConfig)) staticDir desktopMode password
+      appWithIdleAndShutdown = idleTrackingMiddleware lastRequestRef
+          $ shutdownEndpoint mainTid lastRequestRef idleActiveRef baseApp
       finalApp = case password of
-        Just pwd -> authMiddleware (C8.pack pwd) baseApp
-        Nothing -> baseApp
+        Just pwd -> authMiddleware (C8.pack pwd) appWithIdleAndShutdown
+        Nothing -> appWithIdleAndShutdown
       settings = setTimeout 600 $ setPort port defaultSettings
   runSettings settings finalApp
 
@@ -255,3 +273,60 @@ validateCLIConfig (CLIConfig globalOpts _) =
     (Just fmt, Just _) | fmt /= CSV ->
       die "--jsonpath can only be used with --format csv"
     _ -> pure ()
+
+-- | WAI middleware that updates last-request timestamp on every request
+idleTrackingMiddleware :: IORef UTCTime -> Application -> Application
+idleTrackingMiddleware ref app req respond = do
+    getCurrentTime >>= writeIORef ref
+    app req respond
+
+-- | Middleware that handles POST /api/v1/idle-timeout/{seconds} and POST /api/v1/shutdown
+-- 0 = cancel timeout, N>0 = activate/restart idle watchdog
+shutdownEndpoint :: ThreadId -> IORef UTCTime -> IORef Bool -> Application -> Application
+shutdownEndpoint mainTid lastRequestRef idleActiveRef app req respond = do
+    let path = rawPathInfo req
+        method = requestMethod req
+    case (method, BS.stripPrefix "/api/v1/idle-timeout/" path, path) of
+        ("POST", _, "/api/v1/shutdown") -> do
+            reportProgress Info "Shutdown requested via API"
+            _ <- forkIO $ threadDelay 500000 >> throwTo mainTid ExitSuccess
+            respond $ responseLBS status200
+                [(hContentType, "application/json")]
+                "{\"ok\":true}"
+        ("POST", Just secondsBS, _) -> do
+            let seconds = fromMaybe 30 (readMaybe (C8.unpack secondsBS)) :: Int
+            if seconds <= 0
+                then do
+                    writeIORef idleActiveRef False
+                    reportProgress Info "Idle timeout cancelled"
+                else do
+                    alreadyActive <- readIORef idleActiveRef
+                    writeIORef idleActiveRef True
+                    getCurrentTime >>= writeIORef lastRequestRef
+                    unless alreadyActive $ do
+                        _ <- forkIO $ idleWatchdog mainTid lastRequestRef idleActiveRef seconds
+                        pure ()
+                    reportProgress Info $ "Idle timeout: " ++ show seconds ++ "s"
+            respond $ responseLBS status200
+                [(hContentType, "application/json")]
+                "{\"ok\":true}"
+        (_, _, _) -> app req respond
+
+-- | Background thread that exits the server after idle timeout (in seconds)
+idleWatchdog :: ThreadId -> IORef UTCTime -> IORef Bool -> Int -> IO ()
+idleWatchdog mainTid ref activeRef timeoutSecs = go
+  where
+    checkInterval = min (timeoutSecs * 1000000) (5 * 1000000)  -- check every 5s or timeout, whichever is shorter
+    go = do
+        threadDelay checkInterval
+        active <- readIORef activeRef
+        if not active then pure ()
+        else do
+            now <- getCurrentTime
+            lastReq <- readIORef ref
+            let idleSeconds = realToFrac (diffUTCTime now lastReq) :: Double
+            if idleSeconds >= fromIntegral timeoutSecs
+                then do
+                    reportProgress Info $ "Idle for " ++ show timeoutSecs ++ "s, shutting down."
+                    throwTo mainTid ExitSuccess
+                else go

@@ -210,6 +210,14 @@ serverOptionsParser = do
                     <> metavar "PATH"
                     <> help "Override default static file directory (default: web/dist)"
                 )
+    serverIdleTimeout <-
+        option
+            auto
+            ( long "idle-timeout"
+                <> value 0
+                <> metavar "SECONDS"
+                <> help "Shutdown after N seconds of inactivity (0=disabled, default: 0)"
+            )
     pure ServerOptions{..}
 
 -- | Reader for comma-separated list of database names

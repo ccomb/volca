@@ -13,6 +13,7 @@ import qualified MethodSpec
 import qualified UnitConversionSpec
 import qualified SimaProParserSpec
 import qualified PluginSpec
+import qualified ServerSpec
 
 main :: IO ()
 main = hspec $ do
@@ -25,3 +26,4 @@ main = hspec $ do
         describe "Unit Conversion" UnitConversionSpec.spec
         describe "SimaPro Parser" SimaProParserSpec.spec
         describe "Plugin System" PluginSpec.spec
+        describe "Server Lifecycle" ServerSpec.spec

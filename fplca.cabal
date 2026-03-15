@@ -140,6 +140,7 @@ test-suite acv-tests
                      , SimaProParserSpec
                      , UnitConversionSpec
                      , PluginSpec
+                     , ServerSpec
                      , Types
                      , Progress
                      , UnitConversion
@@ -201,4 +202,6 @@ test-suite acv-tests
                      , cassava
                      , aeson-pretty
                      , toml-reader
+                     , http-client
+                     , http-types
   default-language:    Haskell2010

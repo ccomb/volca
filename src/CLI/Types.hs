@@ -88,6 +88,7 @@ data ServerOptions = ServerOptions
   , serverLoadDbs :: Maybe [Text]   -- Databases to load at startup (--load db1,db2)
   , serverDesktopMode :: Bool       -- Desktop mode (--desktop): print port and minimize logging
   , serverStaticDir :: Maybe FilePath -- Static directory (--static-dir): override default web/dist
+  , serverIdleTimeout :: Int        -- Idle timeout in minutes (--idle-timeout, 0=disabled). Server exits after being idle.
   } deriving (Eq, Show, Generic)
 
 -- | Activity sub-commands (kept for flow activities only now)

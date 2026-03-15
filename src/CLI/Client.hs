@@ -5,6 +5,7 @@ module CLI.Client
     , resolveRemoteConfig
     , executeRemoteCommand
     , apiGet
+    , apiPost
     ) where
 
 import CLI.Types
