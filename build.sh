@@ -626,26 +626,32 @@ cabal build -j
 {
     FPLCA_BIN_PATH=$(cabal list-bin exe:fplca 2>/dev/null || true)
     if [[ -n "$FPLCA_BIN_PATH" && -f "$FPLCA_BIN_PATH" ]]; then
-        ORIGINAL_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
-        log_info "Binary size before optimization: $ORIGINAL_SIZE"
-
-        # Strip debug symbols
-        log_info "Stripping debug symbols..."
-        if [[ "$OS" == "macos" ]]; then
-            strip -x "$FPLCA_BIN_PATH"
-        else
-            strip --strip-all "$FPLCA_BIN_PATH"
-        fi
-        STRIPPED_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
-        log_info "After strip: $STRIPPED_SIZE"
-
-        # UPX compression
-        log_info "Compressing with UPX..."
-        if upx "$FPLCA_BIN_PATH"; then
+        # Skip if already UPX-compressed (from a previous build)
+        if upx -t "$FPLCA_BIN_PATH" &>/dev/null; then
             FINAL_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
-            log_success "Binary optimized: $ORIGINAL_SIZE → $STRIPPED_SIZE (stripped) → $FINAL_SIZE (compressed)"
+            log_info "Binary already optimized ($FINAL_SIZE), skipping strip/UPX"
         else
-            log_warn "UPX compression failed — using stripped binary ($STRIPPED_SIZE)"
+            ORIGINAL_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+            log_info "Binary size before optimization: $ORIGINAL_SIZE"
+
+            # Strip debug symbols
+            log_info "Stripping debug symbols..."
+            if [[ "$OS" == "macos" ]]; then
+                strip -x "$FPLCA_BIN_PATH"
+            else
+                strip --strip-all "$FPLCA_BIN_PATH"
+            fi
+            STRIPPED_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+            log_info "After strip: $STRIPPED_SIZE"
+
+            # UPX compression
+            log_info "Compressing with UPX..."
+            if upx "$FPLCA_BIN_PATH"; then
+                FINAL_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+                log_success "Binary optimized: $ORIGINAL_SIZE → $STRIPPED_SIZE (stripped) → $FINAL_SIZE (compressed)"
+            else
+                log_warn "UPX compression failed — using stripped binary ($STRIPPED_SIZE)"
+            fi
         fi
     fi
 }
