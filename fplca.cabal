@@ -16,8 +16,7 @@ extra-source-files:  README.md CHANGELOG.md
 executable fplca
   main-is:             Main.hs
   hs-source-dirs:      src
-  -- for weeder: -fwrite-ide-info -hiedir=.hie
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall -j +RTS -A128m -RTS -fwrite-ide-info -hiedir=.hie
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall -j +RTS -A128m -RTS
   -- Use environment variables for PETSc paths
   -- Set PETSC_DIR before building:
   -- export PETSC_DIR=/path/to/petsc

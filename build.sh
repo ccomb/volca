@@ -192,6 +192,18 @@ for cmd in ghc cabal; do
     fi
 done
 
+# UPX (needed for binary compression)
+if ! check_command "upx"; then
+    MISSING_DEPS=true
+    if [[ "$OS" == "windows" ]]; then
+        log_warn "Install UPX with: pacman -S mingw-w64-ucrt-x86_64-upx"
+    elif [[ "$OS" == "macos" ]]; then
+        log_warn "Install UPX with: brew install upx"
+    else
+        log_warn "Install UPX with: sudo apt install upx-ucl  (or: sudo pacman -S upx)"
+    fi
+fi
+
 # Node.js (needed for frontend build)
 if ! check_command "npm"; then
     MISSING_DEPS=true
@@ -501,6 +513,7 @@ cd "$SCRIPT_DIR"
 if [[ "$USE_SYSTEM_LIBS" == "true" ]]; then
     cat > cabal.project.local << EOF
 optimization: 2
+split-sections: True
 
 extra-lib-dirs: $PETSC_LIB_DIR
 extra-include-dirs: $PETSC_INCLUDE_DIR
@@ -534,6 +547,7 @@ elif [[ "$OS" == "windows" ]]; then
 
     cat > cabal.project.local << EOF
 optimization: 2
+split-sections: True
 
 extra-lib-dirs: $W_PETSC_LIB_DIR
               , $MSYS2_LIB_DIR
@@ -564,6 +578,7 @@ elif [[ "$STATIC_BUILD" == "true" ]]; then
 
     cat > cabal.project.local << EOF
 optimization: 2
+split-sections: True
 
 extra-lib-dirs: $PETSC_LIB_DIR
 extra-include-dirs: $PETSC_INCLUDE_DIR
@@ -585,6 +600,7 @@ else
 
     cat > cabal.project.local << EOF
 optimization: 2
+split-sections: True
 
 extra-lib-dirs: $PETSC_LIB_DIR
 extra-include-dirs: $PETSC_INCLUDE_DIR
@@ -605,6 +621,34 @@ if [[ "$USE_SYSTEM_LIBS" == "true" ]]; then
 fi
 
 cabal build -j
+
+# Strip and compress the binary
+{
+    FPLCA_BIN_PATH=$(cabal list-bin exe:fplca 2>/dev/null || true)
+    if [[ -n "$FPLCA_BIN_PATH" && -f "$FPLCA_BIN_PATH" ]]; then
+        ORIGINAL_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+        log_info "Binary size before optimization: $ORIGINAL_SIZE"
+
+        # Strip debug symbols
+        log_info "Stripping debug symbols..."
+        if [[ "$OS" == "macos" ]]; then
+            strip -x "$FPLCA_BIN_PATH"
+        else
+            strip --strip-all "$FPLCA_BIN_PATH"
+        fi
+        STRIPPED_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+        log_info "After strip: $STRIPPED_SIZE"
+
+        # UPX compression
+        log_info "Compressing with UPX..."
+        if upx "$FPLCA_BIN_PATH"; then
+            FINAL_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+            log_success "Binary optimized: $ORIGINAL_SIZE → $STRIPPED_SIZE (stripped) → $FINAL_SIZE (compressed)"
+        else
+            log_warn "UPX compression failed — using stripped binary ($STRIPPED_SIZE)"
+        fi
+    fi
+}
 
 log_success "fplca built successfully"
 echo ""
