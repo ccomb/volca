@@ -18,10 +18,9 @@ executable fplca
   hs-source-dirs:      src
   -- for weeder: -fwrite-ide-info -hiedir=.hie
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall -j +RTS -A128m -RTS -fwrite-ide-info -hiedir=.hie
-  -- Use environment variables for PETSc/SLEPc paths
-  -- Set PETSC_DIR and SLEPC_DIR before building:
+  -- Use environment variables for PETSc paths
+  -- Set PETSC_DIR before building:
   -- export PETSC_DIR=/path/to/petsc
-  -- export SLEPC_DIR=/path/to/slepc
   build-depends:       base >=4.14 && <5
                      , optparse-applicative
                      , text

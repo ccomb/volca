@@ -1,18 +1,16 @@
--- Example cabal.project.local for PETSc/SLEPc integration
+-- Example cabal.project.local for PETSc integration
 -- Copy this to cabal.project.local and adjust paths as needed
 
--- PETSc/SLEPc paths (adjust to your installation)
+-- PETSc paths (adjust to your installation)
 extra-lib-dirs:
     /usr/local/petsc/lib
-  , /usr/local/slepc/lib
 
 extra-include-dirs:
     /usr/local/petsc/include
-  , /usr/local/slepc/include
 
 -- Alternative: Use environment variables
--- extra-lib-dirs: ${PETSC_DIR}/${PETSC_ARCH}/lib, ${SLEPC_DIR}/${PETSC_ARCH}/lib
--- extra-include-dirs: ${PETSC_DIR}/${PETSC_ARCH}/include, ${SLEPC_DIR}/${PETSC_ARCH}/include
+-- extra-lib-dirs: ${PETSC_DIR}/${PETSC_ARCH}/lib
+-- extra-include-dirs: ${PETSC_DIR}/${PETSC_ARCH}/include
 
 -- Local petsc-hs dependency
 packages: ., ../petsc-hs

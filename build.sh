@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # =============================================================================
-# fplca build script with PETSc/SLEPc
+# fplca build script with PETSc
 # =============================================================================
-# This script builds fplca with PETSc/SLEPc integration.
-# It can automatically download and build PETSc/SLEPc if not found.
+# This script builds fplca with PETSc integration.
+# It can automatically download and build PETSc if not found.
 # Works on Linux, macOS, and Windows (via MSYS2).
 #
 # Usage:
@@ -13,20 +13,21 @@
 # Options:
 #   --help              Show this help message
 #   --clean             Clean build artifacts before building
-#   --all               Force re-download and rebuild of PETSc/SLEPc
+#   --all               Force re-download and rebuild of PETSc
 #   --test              Run tests after building
+#   --static            Build a statically-linked binary
 #   --desktop           Build desktop application (Tauri bundle, release)
 #   --desktop-dev       Build desktop application (debug, no LTO — faster)
 #
 # Environment variables:
 #   PETSC_DIR           Path to PETSc installation
-#   SLEPC_DIR           Path to SLEPc installation
 #   PETSC_ARCH          PETSc architecture (default: auto-detected)
 #
 # Examples:
 #   ./build.sh                      # Download deps if needed and build
 #   ./build.sh --all                # Force re-download everything
 #   ./build.sh --test               # Build and run tests
+#   ./build.sh --static             # Build statically-linked binary
 #
 # Windows:
 #   Run from MSYS2 UCRT64 terminal:
@@ -77,6 +78,7 @@ FORCE_REBUILD=false
 RUN_TESTS=false
 CLEAN_BUILD=false
 BUILD_DESKTOP=false
+STATIC_BUILD=false
 
 # -----------------------------------------------------------------------------
 # Parse arguments
@@ -97,6 +99,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --test)
             RUN_TESTS=true
+            shift
+            ;;
+        --static)
+            STATIC_BUILD=true
             shift
             ;;
         --desktop)
@@ -120,14 +126,16 @@ done
 # Auto-detect existing PETSC_ARCH if not set
 if [[ -z "$PETSC_ARCH" ]]; then
     PETSC_DIR_CHECK=${PETSC_DIR:-"$SCRIPT_DIR/petsc"}
-    SLEPC_DIR_CHECK=${SLEPC_DIR:-"$SCRIPT_DIR/slepc"}
-    PETSC_ARCH=$(detect_existing_petsc_arch "$PETSC_DIR_CHECK" "$SLEPC_DIR_CHECK")
+    PETSC_ARCH=$(detect_existing_petsc_arch "$PETSC_DIR_CHECK")
 fi
 
 echo ""
 log_info "Build configuration:"
 log_info "  OS: $OS"
 log_info "  PETSC_ARCH: $PETSC_ARCH"
+if [[ "$STATIC_BUILD" == "true" ]]; then
+    log_info "  Static linking: enabled"
+fi
 echo ""
 
 # Check MSYS2 environment on Windows
@@ -261,10 +269,10 @@ fi
 echo ""
 
 # -----------------------------------------------------------------------------
-# Locate or download PETSc/SLEPc
+# Locate or download PETSc
 # -----------------------------------------------------------------------------
 
-# Check for system PETSc/SLEPc (Debian/Ubuntu packages) - Linux only
+# Check for system PETSc (Debian/Ubuntu packages) - Linux only
 detect_system_petsc() {
     local petsc_base="/usr/lib/petscdir"
     if [[ -d "$petsc_base" ]]; then
@@ -278,44 +286,26 @@ detect_system_petsc() {
     return 1
 }
 
-detect_system_slepc() {
-    local slepc_base="/usr/lib/slepcdir"
-    if [[ -d "$slepc_base" ]]; then
-        local latest
-        latest=$(ls -d "$slepc_base"/slepc*/x86_64-linux-gnu-real 2>/dev/null | sort -V | tail -1)
-        if [[ -n "$latest" && -d "$latest" ]]; then
-            echo "$latest"
-            return 0
-        fi
-    fi
-    return 1
-}
-
 # Check for system packages first (Linux only)
 USE_SYSTEM_PETSC=false
 SYSTEM_PETSC_DIR=""
-SYSTEM_SLEPC_DIR=""
 
 if [[ "$OS" == "linux" ]]; then
-    if SYSTEM_PETSC_DIR=$(detect_system_petsc) && SYSTEM_SLEPC_DIR=$(detect_system_slepc); then
+    if SYSTEM_PETSC_DIR=$(detect_system_petsc); then
         if [[ "$FORCE_REBUILD" != "true" ]]; then
             USE_SYSTEM_PETSC=true
             log_success "Found system PETSc: $SYSTEM_PETSC_DIR"
-            log_success "Found system SLEPc: $SYSTEM_SLEPC_DIR"
 
             SYSTEM_PETSC_VERSION=$(echo "$SYSTEM_PETSC_DIR" | grep -oP 'petsc\K[0-9.]+')
-            SYSTEM_SLEPC_VERSION=$(echo "$SYSTEM_SLEPC_DIR" | grep -oP 'slepc\K[0-9.]+')
             log_info "System PETSc version: $SYSTEM_PETSC_VERSION"
-            log_info "System SLEPc version: $SYSTEM_SLEPC_VERSION"
         else
-            log_info "System PETSc/SLEPc found but --all forces rebuild from source"
+            log_info "System PETSc found but --all forces rebuild from source"
         fi
     fi
 fi
 
 # Default paths (used when building from source)
 PETSC_DIR=${PETSC_DIR:-"$SCRIPT_DIR/petsc"}
-SLEPC_DIR=${SLEPC_DIR:-"$SCRIPT_DIR/slepc"}
 
 # Get platform-specific configure options
 get_petsc_configure_platform() {
@@ -404,52 +394,6 @@ download_and_build_petsc() {
     echo ""
 }
 
-download_and_build_slepc() {
-    log_info "Downloading and building SLEPc $SLEPC_VERSION..."
-    echo ""
-
-    local SLEPC_URL="${SLEPC_URL_BASE}/slepc-$SLEPC_VERSION.tar.gz"
-
-    cd "$SCRIPT_DIR"
-
-    if [[ ! -f "slepc-$SLEPC_VERSION.tar.gz" ]]; then
-        log_info "Downloading SLEPc from $SLEPC_URL..."
-        curl -L -o "slepc-$SLEPC_VERSION.tar.gz" "$SLEPC_URL"
-    else
-        log_info "Using cached SLEPc tarball"
-    fi
-
-    if [[ ! -d "slepc-$SLEPC_VERSION" ]]; then
-        log_info "Extracting SLEPc..."
-        tar xzf "slepc-$SLEPC_VERSION.tar.gz"
-    fi
-
-    # Create symlink
-    if [[ "$OS" == "windows" ]]; then
-        rm -rf slepc
-        cp -r "slepc-$SLEPC_VERSION" slepc
-    else
-        ln -sfn "slepc-$SLEPC_VERSION" slepc
-    fi
-    SLEPC_DIR="$SCRIPT_DIR/slepc"
-
-    cd "$SLEPC_DIR"
-
-    # Configure and build SLEPc
-    log_info "Configuring SLEPc..."
-    export PETSC_DIR
-    export SLEPC_DIR
-    export PETSC_ARCH
-
-    $PYTHON ./configure
-
-    log_info "Building SLEPc..."
-    make -j SLEPC_DIR="$SLEPC_DIR" PETSC_DIR="$PETSC_DIR" PETSC_ARCH="$PETSC_ARCH"
-
-    log_success "SLEPc built successfully"
-    echo ""
-}
-
 # Clone petsc-hs if needed
 PETSC_HS_DIR="$SCRIPT_DIR/petsc-hs"
 if [[ ! -d "$PETSC_HS_DIR" ]]; then
@@ -472,20 +416,16 @@ fi
 if [[ "$USE_SYSTEM_PETSC" == "true" ]]; then
     # Use system packages
     PETSC_DIR="$SYSTEM_PETSC_DIR"
-    SLEPC_DIR="$SYSTEM_SLEPC_DIR"
     PETSC_ARCH=""  # System packages don't use PETSC_ARCH
     USE_SYSTEM_LIBS=true
 
-    # Debian uses libpetsc_real.so and libslepc_real.so
+    # Debian uses libpetsc_real.so
     PETSC_LIB_NAME="petsc_real"
-    SLEPC_LIB_NAME="slepc_real"
 
     log_success "Using system PETSc: $PETSC_DIR"
-    log_success "Using system SLEPc: $SLEPC_DIR"
 else
     USE_SYSTEM_LIBS=false
     PETSC_LIB_NAME="petsc"
-    SLEPC_LIB_NAME="slepc"
 
     # Download/build PETSc if needed or forced
     if [[ "$FORCE_REBUILD" == "true" ]] || [[ ! -d "$PETSC_DIR/$PETSC_ARCH" ]]; then
@@ -496,17 +436,7 @@ else
         download_and_build_petsc
     fi
 
-    # Download/build SLEPc if needed or forced
-    if [[ "$FORCE_REBUILD" == "true" ]] || [[ ! -d "$SLEPC_DIR/$PETSC_ARCH" ]]; then
-        if [[ "$FORCE_REBUILD" == "true" && -d "$SLEPC_DIR" ]]; then
-            log_info "Removing existing SLEPc for rebuild..."
-            rm -rf "$SLEPC_DIR" slepc-*.tar.gz slepc-[0-9]*
-        fi
-        download_and_build_slepc
-    fi
-
     log_success "Using PETSc: $PETSC_DIR/$PETSC_ARCH"
-    log_success "Using SLEPc: $SLEPC_DIR/$PETSC_ARCH"
 fi
 echo ""
 
@@ -516,37 +446,31 @@ echo ""
 
 if [[ "$USE_SYSTEM_LIBS" == "true" ]]; then
     PETSC_LIB_DIR="/usr/lib/x86_64-linux-gnu"
-    SLEPC_LIB_DIR="/usr/lib/x86_64-linux-gnu"
     PETSC_INCLUDE_DIR="$PETSC_DIR/include"
-    SLEPC_INCLUDE_DIR="$SLEPC_DIR/include"
 else
     PETSC_LIB_DIR="$PETSC_DIR/$PETSC_ARCH/lib"
-    SLEPC_LIB_DIR="$SLEPC_DIR/$PETSC_ARCH/lib"
     PETSC_INCLUDE_DIR="$PETSC_DIR/include"
     PETSC_ARCH_INCLUDE_DIR="$PETSC_DIR/$PETSC_ARCH/include"
-    SLEPC_INCLUDE_DIR="$SLEPC_DIR/include"
-    SLEPC_ARCH_INCLUDE_DIR="$SLEPC_DIR/$PETSC_ARCH/include"
 fi
 
-export LD_LIBRARY_PATH="$PETSC_LIB_DIR:$SLEPC_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="$PETSC_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 if [[ "$USE_SYSTEM_LIBS" == "true" ]]; then
-    export C_INCLUDE_PATH="$PETSC_INCLUDE_DIR:$SLEPC_INCLUDE_DIR${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
-    export CPLUS_INCLUDE_PATH="$PETSC_INCLUDE_DIR:$SLEPC_INCLUDE_DIR${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+    export C_INCLUDE_PATH="$PETSC_INCLUDE_DIR${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
+    export CPLUS_INCLUDE_PATH="$PETSC_INCLUDE_DIR${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
 else
-    export C_INCLUDE_PATH="$PETSC_INCLUDE_DIR:$PETSC_ARCH_INCLUDE_DIR:$SLEPC_INCLUDE_DIR:$SLEPC_ARCH_INCLUDE_DIR${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
-    export CPLUS_INCLUDE_PATH="$PETSC_INCLUDE_DIR:$PETSC_ARCH_INCLUDE_DIR:$SLEPC_INCLUDE_DIR:$SLEPC_ARCH_INCLUDE_DIR${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+    export C_INCLUDE_PATH="$PETSC_INCLUDE_DIR:$PETSC_ARCH_INCLUDE_DIR${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
+    export CPLUS_INCLUDE_PATH="$PETSC_INCLUDE_DIR:$PETSC_ARCH_INCLUDE_DIR${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
 fi
 
 export PETSC_DIR
-export SLEPC_DIR
 export PETSC_ARCH
 
 # On Windows, add MSYS2 bin dir to PATH for DLL discovery
 if [[ "$OS" == "windows" ]]; then
     # Resolve real MSYS2 bin path (native Windows processes can't use /ucrt64 mount)
     MSYS2_BIN_WIN="$(dirname "$(command -v gcc)")"
-    export PATH="$PETSC_LIB_DIR:$SLEPC_LIB_DIR:$MSYS2_BIN_WIN:$PATH"
+    export PATH="$PETSC_LIB_DIR:$MSYS2_BIN_WIN:$PATH"
     export PKG_CONFIG_PATH="$MSYS2_BIN_WIN/../lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 fi
 
@@ -579,16 +503,14 @@ if [[ "$USE_SYSTEM_LIBS" == "true" ]]; then
 optimization: 2
 
 extra-lib-dirs: $PETSC_LIB_DIR
-              , $SLEPC_LIB_DIR
 extra-include-dirs: $PETSC_INCLUDE_DIR
-                  , $SLEPC_INCLUDE_DIR
 
--- System packages use petsc_real/slepc_real library names and system MPI
+-- System packages use petsc_real library name and system MPI
 package petsc-hs
-  ghc-options: -optl-lpetsc_real -optl-lslepc_real -optl-lmpi
+  ghc-options: -optl-lpetsc_real -optl-lmpi
 
 package fplca
-  ghc-options: -optl-lpetsc_real -optl-lslepc_real -optl-lmpi
+  ghc-options: -optl-lpetsc_real -optl-lmpi
 EOF
 elif [[ "$OS" == "windows" ]]; then
     # Windows needs additional library paths and linker options
@@ -607,22 +529,16 @@ elif [[ "$OS" == "windows" ]]; then
     # Convert MSYS2 paths (/c/Users/...) to Windows paths (C:/Users/...) for GHC's lld
     win_path() { echo "$1" | sed 's|^/\([a-zA-Z]\)/|\1:/|'; }
     W_PETSC_LIB_DIR=$(win_path "$PETSC_LIB_DIR")
-    W_SLEPC_LIB_DIR=$(win_path "$SLEPC_LIB_DIR")
     W_PETSC_INCLUDE_DIR=$(win_path "$PETSC_INCLUDE_DIR")
     W_PETSC_ARCH_INCLUDE_DIR=$(win_path "$PETSC_ARCH_INCLUDE_DIR")
-    W_SLEPC_INCLUDE_DIR=$(win_path "$SLEPC_INCLUDE_DIR")
-    W_SLEPC_ARCH_INCLUDE_DIR=$(win_path "$SLEPC_ARCH_INCLUDE_DIR")
 
     cat > cabal.project.local << EOF
 optimization: 2
 
 extra-lib-dirs: $W_PETSC_LIB_DIR
-              , $W_SLEPC_LIB_DIR
               , $MSYS2_LIB_DIR
 extra-include-dirs: $W_PETSC_INCLUDE_DIR
                   , $W_PETSC_ARCH_INCLUDE_DIR
-                  , $W_SLEPC_INCLUDE_DIR
-                  , $W_SLEPC_ARCH_INCLUDE_DIR
                   , $(win_path "$MPI_INCLUDE_DIR")
 
 -- Link MinGW runtime libs and OpenBLAS needed by PETSc (built with UCRT64)
@@ -638,29 +554,54 @@ EOF
             cp "$src" "$SCRIPT_DIR/"
         fi
     done
-else
-    # Linux/macOS custom build
+elif [[ "$STATIC_BUILD" == "true" ]]; then
+    # Static linking: embed PETSc and all transitive deps into the binary
+    # Uses -Bstatic/-Bdynamic sandwich: PETSc/MUMPS/MPI statically, gfortran/libc dynamically
+    # Uses --start-group/--end-group to resolve circular deps between static archives
+    log_info "Generating cabal.project.local for static linking..."
+
+    STATIC_LINK_FLAGS="-optl-Wl,-Bstatic -optl-Wl,--start-group -optl-lpetsc -optl-ldmumps -optl-lmumps_common -optl-lpord -optl-lscalapack -optl-lfblas -optl-lflapack -optl-lmpifort -optl-lmpi -optl-Wl,--end-group -optl-Wl,-Bdynamic -optl-lgfortran -optl-lquadmath -optl-lpthread -optl-lm -optl-ldl -optl-lrt"
+
     cat > cabal.project.local << EOF
 optimization: 2
 
 extra-lib-dirs: $PETSC_LIB_DIR
-              , $SLEPC_LIB_DIR
 extra-include-dirs: $PETSC_INCLUDE_DIR
                   , $PETSC_ARCH_INCLUDE_DIR
-                  , $SLEPC_INCLUDE_DIR
-                  , $SLEPC_ARCH_INCLUDE_DIR
 
--- MPI library (MPICH downloaded by PETSc)
+-- Static linking: PETSc + MUMPS + ScaLAPACK + BLAS/LAPACK + MPI (static)
+-- gfortran runtime stays dynamic (system libgfortran.a lacks -fPIC)
 package petsc-hs
-  ghc-options: -optl-lmpi
+  ghc-options: $STATIC_LINK_FLAGS
 
 package fplca
-  ghc-options: -optl-lmpi
+  ghc-options: $STATIC_LINK_FLAGS
+EOF
+else
+    # Linux/macOS custom build
+    # PETSc is built with --with-shared-libraries=0 (static .a files)
+    # Static link PETSc/MUMPS/MPI, keep gfortran/libc dynamic
+    STATIC_LINK_FLAGS="-optl-Wl,-Bstatic -optl-Wl,--start-group -optl-lpetsc -optl-ldmumps -optl-lmumps_common -optl-lpord -optl-lscalapack -optl-lfblas -optl-lflapack -optl-lmpifort -optl-lmpi -optl-Wl,--end-group -optl-Wl,-Bdynamic -optl-lgfortran -optl-lquadmath -optl-lpthread -optl-lm -optl-ldl -optl-lrt"
+
+    cat > cabal.project.local << EOF
+optimization: 2
+
+extra-lib-dirs: $PETSC_LIB_DIR
+extra-include-dirs: $PETSC_INCLUDE_DIR
+                  , $PETSC_ARCH_INCLUDE_DIR
+
+-- Static linking: PETSc + MUMPS + ScaLAPACK + BLAS/LAPACK + MPI (static)
+-- gfortran runtime stays dynamic (system libgfortran.a lacks -fPIC)
+package petsc-hs
+  ghc-options: $STATIC_LINK_FLAGS
+
+package fplca
+  ghc-options: $STATIC_LINK_FLAGS
 EOF
 fi
 
 if [[ "$USE_SYSTEM_LIBS" == "true" ]]; then
-    log_info "Using system libraries: $PETSC_LIB_NAME, $SLEPC_LIB_NAME"
+    log_info "Using system library: $PETSC_LIB_NAME"
 fi
 
 cabal build -j
@@ -721,14 +662,16 @@ log_success "Build completed successfully!"
 echo "============================================================================="
 echo ""
 
-if [[ "$OS" == "windows" ]]; then
+if [[ "$STATIC_BUILD" == "true" ]]; then
+    echo "Static build — no LD_LIBRARY_PATH needed."
+elif [[ "$OS" == "windows" ]]; then
     echo "To run fplca, first ensure the DLLs are in PATH:"
     echo ""
-    echo "  export PATH=\"$PETSC_LIB_DIR:$SLEPC_LIB_DIR:/ucrt64/bin:\$PATH\""
+    echo "  export PATH=\"$PETSC_LIB_DIR:/ucrt64/bin:\$PATH\""
 else
     echo "To run fplca, first set up the library path:"
     echo ""
-    echo "  export LD_LIBRARY_PATH=\"$PETSC_DIR/$PETSC_ARCH/lib:$SLEPC_DIR/$PETSC_ARCH/lib:\$LD_LIBRARY_PATH\""
+    echo "  export LD_LIBRARY_PATH=\"$PETSC_DIR/$PETSC_ARCH/lib:\$LD_LIBRARY_PATH\""
 fi
 echo ""
 echo "Then run:"
@@ -740,6 +683,11 @@ echo ""
 FPLCA_BIN=$(cabal list-bin exe:fplca 2>/dev/null || true)
 if [[ -n "$FPLCA_BIN" ]]; then
     echo "Executable: $FPLCA_BIN"
+    if [[ "$STATIC_BUILD" == "true" ]]; then
+        echo ""
+        echo "Verify static linking with: ldd $FPLCA_BIN"
+        echo "(should show no PETSc/MUMPS/MPI entries)"
+    fi
     echo ""
 fi
 

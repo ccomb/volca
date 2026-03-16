@@ -6,7 +6,7 @@
 # Builds the desktop application using Tauri, bundling:
 # - fplca Haskell backend
 # - Elm frontend
-# - PETSc/SLEPc libraries
+# - PETSc libraries
 #
 # Works on Linux, macOS, and Windows (via MSYS2).
 #
@@ -95,16 +95,15 @@ log_info "Building version: $VERSION"
 echo ""
 
 # -----------------------------------------------------------------------------
-# Detect PETSc/SLEPc paths
+# Detect PETSc paths
 # -----------------------------------------------------------------------------
 
-# Find PETSc/SLEPc directories
+# Find PETSc directory
 PETSC_DIR="${PETSC_DIR:-$PROJECT_DIR/petsc}"
-SLEPC_DIR="${SLEPC_DIR:-$PROJECT_DIR/slepc}"
 
 # Auto-detect PETSC_ARCH
 if [[ -z "$PETSC_ARCH" ]]; then
-    PETSC_ARCH=$(detect_existing_petsc_arch "$PETSC_DIR" "$SLEPC_DIR")
+    PETSC_ARCH=$(detect_existing_petsc_arch "$PETSC_DIR")
 fi
 
 if [[ ! -d "$PETSC_DIR/$PETSC_ARCH" ]]; then
@@ -114,7 +113,6 @@ if [[ ! -d "$PETSC_DIR/$PETSC_ARCH" ]]; then
 fi
 
 log_info "Using PETSc: $PETSC_DIR/$PETSC_ARCH"
-log_info "Using SLEPc: $SLEPC_DIR/$PETSC_ARCH"
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -176,15 +174,14 @@ else
     log_warn "No web/dist directory found - frontend may not be built"
 fi
 
-# Copy PETSc/SLEPc libraries
-log_info "Copying PETSc/SLEPc libraries..."
+# Copy PETSc libraries
+log_info "Copying PETSc libraries..."
 
 PETSC_LIB_DIR="$PETSC_DIR/$PETSC_ARCH/lib"
-SLEPC_LIB_DIR="$SLEPC_DIR/$PETSC_ARCH/lib"
 
 if [[ "$OS" == "windows" ]]; then
     # On Windows, DLLs must be next to the executable
-    for lib_dir in "$PETSC_LIB_DIR" "$SLEPC_LIB_DIR"; do
+    for lib_dir in "$PETSC_LIB_DIR"; do
         if [[ -d "$lib_dir" ]]; then
             find "$lib_dir" -maxdepth 1 -name "*.dll" -exec cp {} "$RESOURCES_DIR/" \; 2>/dev/null || true
         fi
@@ -218,7 +215,7 @@ if [[ "$OS" == "windows" ]]; then
     fi
 else
     # On Linux/macOS, copy .so files
-    for lib_dir in "$PETSC_LIB_DIR" "$SLEPC_LIB_DIR"; do
+    for lib_dir in "$PETSC_LIB_DIR"; do
         if [[ -d "$lib_dir" ]]; then
             find "$lib_dir" -maxdepth 1 -name "*.so*" -type f -exec cp -L {} "$RESOURCES_DIR/lib/" \; 2>/dev/null || true
             find "$lib_dir" -maxdepth 1 -name "*.so*" -type l -exec cp -L {} "$RESOURCES_DIR/lib/" \; 2>/dev/null || true

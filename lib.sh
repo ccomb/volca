@@ -69,29 +69,28 @@ detect_petsc_arch() {
 }
 
 # Auto-detect existing PETSC_ARCH from built directories
-# Usage: detect_existing_petsc_arch PETSC_DIR SLEPC_DIR
+# Usage: detect_existing_petsc_arch PETSC_DIR
 detect_existing_petsc_arch() {
     local petsc_dir="$1"
-    local slepc_dir="$2"
     local os
     os=$(detect_os)
 
     # For Windows, check msys2 arch first
     if [[ "$os" == "windows" ]]; then
-        if [[ -d "$petsc_dir/arch-msys2-c-opt" && -d "$slepc_dir/arch-msys2-c-opt" ]]; then
+        if [[ -d "$petsc_dir/arch-msys2-c-opt" ]]; then
             echo "arch-msys2-c-opt"
             return 0
-        elif [[ -d "$petsc_dir/arch-msys2-c-debug" && -d "$slepc_dir/arch-msys2-c-debug" ]]; then
+        elif [[ -d "$petsc_dir/arch-msys2-c-debug" ]]; then
             echo "arch-msys2-c-debug"
             return 0
         fi
     fi
 
     # Standard detection for Linux/macOS
-    if [[ -d "$petsc_dir/arch-${os}-c-opt" && -d "$slepc_dir/arch-${os}-c-opt" ]]; then
+    if [[ -d "$petsc_dir/arch-${os}-c-opt" ]]; then
         echo "arch-${os}-c-opt"
         return 0
-    elif [[ -d "$petsc_dir/arch-${os}-c-debug" && -d "$slepc_dir/arch-${os}-c-debug" ]]; then
+    elif [[ -d "$petsc_dir/arch-${os}-c-debug" ]]; then
         echo "arch-${os}-c-debug"
         return 0
     fi
