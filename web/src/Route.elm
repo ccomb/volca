@@ -28,6 +28,10 @@ module Route exposing
     , matchFlowSynonyms
     , FlowSynonymDetailFlags
     , matchFlowSynonymDetail
+    , DatabaseMappingFlags
+    , matchDatabaseMapping
+    , matchDatabaseMappingOverview
+    , matchDatabaseDetailAsActivities
     , matchCompartmentMappings
     , matchUnits
     , matchHome
@@ -69,6 +73,7 @@ type Route
     | FlowMappingRoute String (Maybe String) -- methodId, ?db=dbName
     | FlowSynonymsRoute
     | FlowSynonymDetailRoute String -- resource name
+    | DatabaseMappingRoute String (Maybe String) -- dbName, ?method=methodId
     | CompartmentMappingsRoute
     | UnitsRoute
     | NotFoundRoute
@@ -88,6 +93,7 @@ type ActivePage
     | MethodUploadActive
     | MethodDetailActive
     | FlowMappingActive
+    | DatabaseMappingActive
     | FlowSynonymsActive
     | CompartmentMappingsActive
     | UnitsActive
@@ -138,6 +144,9 @@ routeToActivePage route =
         FlowSynonymDetailRoute _ ->
             FlowSynonymsActive
 
+        DatabaseMappingRoute _ _ ->
+            DatabaseMappingActive
+
         CompartmentMappingsRoute ->
             CompartmentMappingsActive
 
@@ -181,6 +190,7 @@ routeParser =
         [ Parser.map RootRoute top
         , Parser.map UploadRoute (Parser.s "databases" </> Parser.s "upload")
         , Parser.map DatabaseSetupRoute (Parser.s "databases" </> string </> Parser.s "setup")
+        , Parser.map DatabaseMappingRoute (Parser.s "databases" </> string </> Parser.s "mapping" <?> Query.string "method")
         , Parser.map DatabaseDetailRoute (Parser.s "databases" </> string <?> Query.string "method")
         , Parser.map DatabasesRoute (Parser.s "databases")
         , Parser.map FlowMappingRoute (Parser.s "mapping" </> string <?> Query.string "db")
@@ -299,6 +309,10 @@ routeToUrl route =
             "/mapping/" ++ methodId
                 ++ appendQuery [ Maybe.map (Url.Builder.string "db") db ]
 
+        DatabaseMappingRoute dbName method ->
+            "/databases/" ++ dbName ++ "/mapping"
+                ++ appendQuery [ Maybe.map (Url.Builder.string "method") method ]
+
         FlowSynonymsRoute ->
             "/flow-synonyms"
 
@@ -331,6 +345,9 @@ routeToDatabase route =
             Just dbName
 
         DatabaseDetailRoute dbName _ ->
+            Just dbName
+
+        DatabaseMappingRoute dbName _ ->
             Just dbName
 
         _ ->
@@ -544,6 +561,45 @@ matchFlowSynonymDetail route =
     case route of
         FlowSynonymDetailRoute name ->
             Just { name = name }
+
+        _ ->
+            Nothing
+
+
+type alias DatabaseMappingFlags =
+    { dbName : String, method : Maybe String }
+
+
+matchDatabaseMapping : Route -> Maybe DatabaseMappingFlags
+matchDatabaseMapping route =
+    case route of
+        DatabaseMappingRoute dbName method ->
+            Just { dbName = dbName, method = method }
+
+        _ ->
+            Nothing
+
+
+{-| Match DatabaseMappingRoute — shows the mapping overview page.
+The optional method query param persists the selected collection.
+-}
+matchDatabaseMappingOverview : Route -> Maybe DatabaseMappingFlags
+matchDatabaseMappingOverview route =
+    case route of
+        DatabaseMappingRoute dbName method ->
+            Just { dbName = dbName, method = method }
+
+        _ ->
+            Nothing
+
+
+{-| Old /databases/{dbName} URL redirects to activities.
+-}
+matchDatabaseDetailAsActivities : Route -> Maybe ActivitiesFlags
+matchDatabaseDetailAsActivities route =
+    case route of
+        DatabaseDetailRoute dbName _ ->
+            Just { db = dbName, name = Nothing, limit = Just 20 }
 
         _ ->
             Nothing

@@ -8,6 +8,7 @@ finalizing a database for use. It shows:
   - Supply chain completeness progress bar
   - Missing suppliers list
   - Dependency selection with match counts
+  - Link to method mapping analyzer
   - "Ready for Analysis" button
 
 -}
@@ -24,6 +25,8 @@ type Msg
     | SetDataPath String
     | FinalizeDatabase
     | GoBack
+    | GoToActivities
+    | GoToMapping
 
 
 viewDatabaseSetupPage : String -> Maybe DatabaseSetupInfo -> Maybe String -> List String -> Html Msg
@@ -127,13 +130,10 @@ viewSetupContent setupInfo =
                 , viewUnknownUnitsCard setupInfo
                 , viewLocationFallbacksCard setupInfo
                 , viewMissingSuppliersCard setupInfo
+                , viewMappingCard
                 ]
             , div [ class "column is-4" ]
-                [ if not setupInfo.isLoaded then
-                    viewFinalizeCard setupInfo
-
-                  else
-                    text ""
+                [ viewActionCard setupInfo
                 , viewDependenciesCard setupInfo
                 ]
             ]
@@ -295,20 +295,19 @@ viewCompletenessCard setupInfo =
 
 viewMissingSuppliersCard : DatabaseSetupInfo -> Html Msg
 viewMissingSuppliersCard setupInfo =
-    div [ class "card", style "margin-bottom" "1rem" ]
-        [ div [ class "card-content" ]
-            [ h3 [ class "title is-5" ]
-                [ span [ class "icon-text" ]
-                    [ span [ class "icon" ] [ i [ class "fas fa-exclamation-triangle" ] [] ]
-                    , span [] [ text "Missing Suppliers" ]
-                    ]
-                ]
-            , if List.isEmpty setupInfo.missingSuppliers then
-                div [ class "notification is-success is-light" ]
-                    [ text "All suppliers resolved!" ]
+    if List.isEmpty setupInfo.missingSuppliers then
+        text ""
 
-              else
-                div [ class "content" ]
+    else
+        div [ class "card", style "margin-bottom" "1rem" ]
+            [ div [ class "card-content" ]
+                [ h3 [ class "title is-5" ]
+                    [ span [ class "icon-text" ]
+                        [ span [ class "icon" ] [ i [ class "fas fa-exclamation-triangle" ] [] ]
+                        , span [] [ text "Missing Suppliers" ]
+                        ]
+                    ]
+                , div [ class "content" ]
                     [ p [ class "has-text-grey" ]
                         [ text "These products need suppliers from other databases:" ]
                     , table [ class "table is-striped is-fullwidth is-narrow" ]
@@ -323,8 +322,8 @@ viewMissingSuppliersCard setupInfo =
                             (List.map viewMissingSupplierRow setupInfo.missingSuppliers)
                         ]
                     ]
+                ]
             ]
-        ]
 
 
 viewMissingSupplierRow : MissingSupplier -> Html Msg
@@ -532,61 +531,77 @@ viewDependencySuggestion suggestion =
         ]
 
 
-viewFinalizeCard : DatabaseSetupInfo -> Html Msg
-viewFinalizeCard setupInfo =
-    div [ class "card" ]
+viewActionCard : DatabaseSetupInfo -> Html Msg
+viewActionCard setupInfo =
+    div [ class "card", style "margin-bottom" "1rem" ]
+        [ div [ class "card-content" ]
+            [ if setupInfo.isLoaded then
+                div []
+                    [ p [ class "has-text-success" ]
+                        [ span [ class "icon" ] [ i [ class "fas fa-check" ] [] ]
+                        , text " Database is loaded"
+                        ]
+                    , button
+                        [ class "button is-primary is-fullwidth", style "margin-top" "1rem"
+                        , onClick GoToActivities
+                        ]
+                        [ span [ class "icon" ] [ i [ class "fas fa-search" ] [] ]
+                        , span [] [ text "Search Activities" ]
+                        ]
+                    ]
+
+              else if setupInfo.isReady then
+                div []
+                    [ p [ class "has-text-success" ]
+                        [ span [ class "icon" ] [ i [ class "fas fa-check" ] [] ]
+                        , text " Database is ready for analysis"
+                        ]
+                    , button
+                        [ class "button is-primary is-fullwidth", style "margin-top" "1rem"
+                        , onClick FinalizeDatabase
+                        ]
+                        [ span [ class "icon" ] [ i [ class "fas fa-rocket" ] [] ]
+                        , span [] [ text "Ready for Analysis" ]
+                        ]
+                    ]
+
+              else if setupInfo.activityCount == 0 then
+                div []
+                    [ p [ class "has-text-danger" ]
+                        [ span [ class "icon" ] [ i [ class "fas fa-exclamation-circle" ] [] ]
+                        , text " No activities found."
+                        ]
+                    ]
+
+              else
+                div []
+                    [ p [ class "has-text-warning" ]
+                        [ span [ class "icon" ] [ i [ class "fas fa-exclamation-triangle" ] [] ]
+                        , text (" " ++ String.fromInt setupInfo.unresolvedLinks ++ " unresolved inputs")
+                        ]
+                    ]
+            ]
+        ]
+
+
+viewMappingCard : Html Msg
+viewMappingCard =
+    div [ class "card", style "margin-bottom" "1rem" ]
         [ div [ class "card-content" ]
             [ h3 [ class "title is-5" ]
                 [ span [ class "icon-text" ]
-                    [ span [ class "icon" ] [ i [ class "fas fa-check-circle" ] [] ]
-                    , span [] [ text "Finalize" ]
+                    [ span [ class "icon" ] [ i [ class "fas fa-flask" ] [] ]
+                    , span [] [ text "Method Mapping" ]
                     ]
                 ]
-            , div [ class "content" ]
-                [ if setupInfo.isReady then
-                    div []
-                        [ p [ class "has-text-success" ]
-                            [ span [ class "icon" ] [ i [ class "fas fa-check" ] [] ]
-                            , text " Database is ready for analysis"
-                            ]
-                        , button
-                            [ class "button is-primary is-fullwidth", style "margin-top" "1rem"
-                            , onClick FinalizeDatabase
-                            ]
-                            [ span [ class "icon" ] [ i [ class "fas fa-rocket" ] [] ]
-                            , span [] [ text "Ready for Analysis" ]
-                            ]
-                        ]
-
-                  else if setupInfo.activityCount == 0 then
-                    div []
-                        [ p [ class "has-text-danger" ]
-                            [ span [ class "icon" ] [ i [ class "fas fa-exclamation-circle" ] [] ]
-                            , text " No activities found. The data file may be corrupted or in an unsupported format."
-                            ]
-                        , button
-                            [ class "button is-fullwidth is-outlined", style "margin-top" "1rem"
-                            , attribute "disabled" "disabled"
-                            ]
-                            [ span [ class "icon" ] [ i [ class "fas fa-ban" ] [] ]
-                            , span [] [ text "Cannot finalize (0 activities)" ]
-                            ]
-                        ]
-
-                  else
-                    div []
-                        [ p [ class "has-text-warning" ]
-                            [ span [ class "icon" ] [ i [ class "fas fa-exclamation-triangle" ] [] ]
-                            , text " Add dependencies to resolve all inputs before finalizing"
-                            ]
-                        , button
-                            [ class "button is-fullwidth is-outlined", style "margin-top" "1rem"
-                            , attribute "disabled" "disabled"
-                            ]
-                            [ span [ class "icon" ] [ i [ class "fas fa-lock" ] [] ]
-                            , span [] [ text ("" ++ String.fromInt setupInfo.unresolvedLinks ++ " unresolved inputs") ]
-                            ]
-                        ]
+            , p [ class "has-text-grey", style "margin-bottom" "0.75rem" ]
+                [ text "Check how well biosphere flows match characterization factors." ]
+            , button
+                [ class "button is-outlined is-fullwidth"
+                , onClick GoToMapping
+                ]
+                [ span [ class "icon" ] [ i [ class "fas fa-microscope" ] [] ]
+                , span [] [ text "Analyse mapping" ]
                 ]
             ]
         ]

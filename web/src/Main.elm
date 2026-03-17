@@ -294,6 +294,9 @@ navigateToPage shared page =
         FlowMappingActive ->
             Shared.NavigateTo MethodsRoute
 
+        DatabaseMappingActive ->
+            Shared.NavigateTo DatabasesRoute
+
         FlowSynonymsActive ->
             Shared.NavigateTo FlowSynonymsRoute
 
@@ -407,7 +410,8 @@ main =
         |> Spa.addPublicPage mappers Route.matchDatabases Pages.Databases.page
         |> Spa.addPublicPage mappers Route.matchUpload Pages.Upload.page
         |> Spa.addPublicPage mappers Route.matchDatabaseSetup Pages.DatabaseSetup.page
-        |> Spa.addPublicPage mappers Route.matchDatabaseDetail Pages.DatabaseDetail.page
+        |> Spa.addPublicPage mappers Route.matchDatabaseMappingOverview Pages.DatabaseDetail.page
+        |> Spa.addPublicPage mappers Route.matchDatabaseDetailAsActivities Pages.Activities.page
         |> Spa.addPublicPage mappers Route.matchMethods Pages.Methods.page
         |> Spa.addPublicPage mappers Route.matchMethodUpload Pages.MethodUpload.page
         |> Spa.addPublicPage mappers Route.matchMethodDetail Pages.MethodDetail.page

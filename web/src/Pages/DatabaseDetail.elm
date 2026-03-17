@@ -11,7 +11,7 @@ import Http
 import Models.Database exposing (DatabaseLoadStatus(..), DatabaseStatus)
 import Models.LCIA exposing (MappingStatus, MethodSummary, methodsListDecoder)
 import Models.Method exposing (MethodCollectionList, MethodCollectionStatus)
-import Route exposing (DatabaseDetailFlags)
+import Route exposing (DatabaseMappingFlags)
 import Shared exposing (RemoteData(..))
 import Spa.Page
 import Url
@@ -39,7 +39,7 @@ type Msg
     | GoToActivities
 
 
-page : Shared.Model -> Spa.Page.Page DatabaseDetailFlags Shared.Msg (View Msg) Model Msg
+page : Shared.Model -> Spa.Page.Page DatabaseMappingFlags Shared.Msg (View Msg) Model Msg
 page shared =
     Spa.Page.element
         { init = init shared
@@ -49,7 +49,7 @@ page shared =
         }
 
 
-init : Shared.Model -> DatabaseDetailFlags -> ( Model, Effect Shared.Msg Msg )
+init : Shared.Model -> DatabaseMappingFlags -> ( Model, Effect Shared.Msg Msg )
 init _ flags =
     let
         dbName =
@@ -58,7 +58,13 @@ init _ flags =
     ( { dbName = dbName
       , selectedCollection = flags.method
       , collections = Loading
-      , methods = NotAsked
+      , methods =
+            case flags.method of
+                Just _ ->
+                    Loading
+
+                Nothing ->
+                    NotAsked
       , mappings = Dict.empty
       , mappingLoading = False
       }
@@ -110,13 +116,13 @@ update shared msg model =
         SelectCollection name ->
             if name == "" then
                 ( { model | selectedCollection = Nothing, methods = NotAsked, mappings = Dict.empty, mappingLoading = False }
-                , Effect.fromShared (Shared.NavigateTo (Route.DatabaseDetailRoute model.dbName Nothing))
+                , Effect.fromShared (Shared.NavigateTo (Route.DatabaseMappingRoute model.dbName Nothing))
                 )
 
             else
                 ( { model | selectedCollection = Just name, methods = Loading, mappings = Dict.empty, mappingLoading = False }
                 , Effect.batch
-                    [ Effect.fromShared (Shared.NavigateTo (Route.DatabaseDetailRoute model.dbName (Just name)))
+                    [ Effect.fromShared (Shared.NavigateTo (Route.DatabaseMappingRoute model.dbName (Just name)))
                     , Effect.fromCmd fetchMethods
                     ]
                 )
@@ -141,12 +147,12 @@ update shared msg model =
 
         ClickMethod methodId ->
             ( model
-            , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.FlowMappingRoute methodId (Just model.dbName))))
+            , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.DatabaseMappingRoute model.dbName (Just methodId))))
             )
 
         GoBack ->
             ( model
-            , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl Route.DatabasesRoute))
+            , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.DatabaseSetupRoute model.dbName)))
             )
 
         GoToActivities ->
@@ -167,7 +173,7 @@ view shared model =
                 _ ->
                     Nothing
     in
-    { title = "Database: " ++ model.dbName
+    { title = "Mapping: " ++ model.dbName
     , body =
         div [ class "databases-page" ]
             [ div [ class "box" ]

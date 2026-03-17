@@ -88,6 +88,16 @@ update shared msg model =
                     , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl Route.DatabasesRoute))
                     )
 
+                DatabaseSetupView.GoToActivities ->
+                    ( model
+                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivitiesRoute { db = model.dbName, name = Nothing, limit = Just 20 })))
+                    )
+
+                DatabaseSetupView.GoToMapping ->
+                    ( model
+                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.DatabaseMappingRoute model.dbName Nothing)))
+                    )
+
         DependencyActionResult (Ok info) ->
             ( { model | setupInfo = Loaded info }
             , Effect.none
@@ -218,3 +228,5 @@ finalizeDatabase dbName =
         , body = Http.emptyBody
         , expect = Http.expectJson FinalizeResult activateResponseDecoder
         }
+
+

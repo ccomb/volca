@@ -56,7 +56,7 @@ update shared msg model =
             case dbMsg of
                 DatabasesView.NavigateToDatabase dbName ->
                     ( model
-                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.DatabaseDetailRoute dbName Nothing)))
+                    , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivitiesRoute { db = dbName, name = Nothing, limit = Just 20 })))
                     )
 
                 DatabasesView.LoadDatabase dbName ->
