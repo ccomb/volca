@@ -672,7 +672,7 @@ searchFlows db (Just query) langParam limitParam offsetParam = do
 searchActivities :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> IO (Either ServiceError Value)
 searchActivities db nameParam geoParam productParam limitParam offsetParam = do
     startTime <- getCurrentTime
-    let limit = maybe 50 (min 1000) limitParam
+    let limit = maybe total id limitParam
         offset = maybe 0 (max 0) offsetParam
         allResults = findActivitiesByFields db nameParam geoParam productParam
         total = length allResults

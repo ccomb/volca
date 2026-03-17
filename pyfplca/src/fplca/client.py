@@ -60,10 +60,12 @@ class Client:
         name: str | None = None,
         geo: str | None = None,
         product: str | None = None,
-        limit: int = 100,
+        limit: int | None = None,
         offset: int = 0,
     ) -> list[Activity]:
-        params: dict = {"limit": limit, "offset": offset}
+        params: dict = {"offset": offset}
+        if limit is not None:
+            params["limit"] = limit
         if name:
             params["name"] = name
         if geo:
@@ -74,8 +76,10 @@ class Client:
         r.raise_for_status()
         return [Activity.from_json(a) for a in r.json()["srResults"]]
 
-    def search_flows(self, query: str | None = None, limit: int = 100) -> list[dict]:
-        params: dict = {"limit": limit}
+    def search_flows(self, query: str | None = None, limit: int | None = None) -> list[dict]:
+        params: dict = {}
+        if limit is not None:
+            params["limit"] = limit
         if query:
             params["q"] = query
         r = self._session.get(self._db_url("flows"), params=params)
@@ -105,10 +109,12 @@ class Client:
         self,
         process_id: str,
         name: str | None = None,
-        limit: int = 100,
+        limit: int | None = None,
         min_quantity: float = 0,
     ) -> SupplyChain:
-        params: dict = {"limit": limit}
+        params: dict = {}
+        if limit is not None:
+            params["limit"] = limit
         if name:
             params["name"] = name
         if min_quantity > 0:

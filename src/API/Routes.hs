@@ -684,7 +684,7 @@ paginateResults :: [a] -> Maybe Int -> Maybe Int -> IO (SearchResults a)
 paginateResults results limitParam offsetParam = do
     startTime <- getCurrentTime
     let totalCount = length results
-        limit = min 1000 (maybe 50 id limitParam) -- Default limit: 50, max: 1000
+        limit = maybe totalCount id limitParam -- Default: return all results
         offset = maybe 0 id offsetParam -- Default offset: 0
         paginatedResults = take limit $ drop offset results
         hasMore = offset + length paginatedResults < totalCount
