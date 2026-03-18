@@ -1,6 +1,6 @@
 cradle:
   cabal:
     - path: "src/"
-      component: "fplca:exe:fplca"
+      component: "volca:exe:volca"
     - path: "test/"
-      component: "fplca:test:acv-tests"
+      component: "volca:test:acv-tests"

@@ -384,7 +384,7 @@ viewUnknownUnitsCard setupInfo =
                     , div [ class "tags", style "margin-top" "0.5rem" ]
                         (List.map (\u -> span [ class "tag is-warning" ] [ text u ]) setupInfo.unknownUnits)
                     , p [ class "is-size-7 has-text-grey", style "margin-top" "0.5rem" ]
-                        [ text "Add them to [units.aliases] in fplca.toml" ]
+                        [ text "Add them to [units.aliases] in volca.toml" ]
                     ]
                 ]
             ]

@@ -113,7 +113,7 @@ distributeFiles n xs =
 
 -- | Cache file path for a flows directory
 flowCacheFile :: FilePath -> FilePath
-flowCacheFile dir = dir </> ".fplca.flows.cache.zst"
+flowCacheFile dir = dir </> ".volca.flows.cache.zst"
 
 -- | Load flow info from cache if valid (file exists and is newer than directory)
 loadFlowCache :: FilePath -> FilePath -> IO (Maybe (M.Map UUID ILCDFlowInfo))

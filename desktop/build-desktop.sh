@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # =============================================================================
-# fpLCA Desktop Build Script
+# VoLCA Desktop Build Script
 # =============================================================================
 # Builds the desktop application using Tauri, bundling:
-# - fplca Haskell backend
+# - volca Haskell backend
 # - Elm frontend
 # - PETSc libraries
 #
@@ -86,7 +86,7 @@ echo ""
 
 log_info "Detecting version..."
 
-VERSION=$(get_version "$PROJECT_DIR/fplca.cabal")
+VERSION=$(get_version "$PROJECT_DIR/volca.cabal")
 if [[ -z "$VERSION" ]]; then
     VERSION="0.1.0"
 fi
@@ -119,7 +119,7 @@ echo ""
 # Build backend and frontend
 # -----------------------------------------------------------------------------
 
-log_info "Building fplca backend and frontend..."
+log_info "Building volca backend and frontend..."
 cd "$PROJECT_DIR"
 
 # Touch source files to ensure cabal detects changes
@@ -145,25 +145,25 @@ if [[ "$OS" != "windows" ]]; then
     mkdir -p "$RESOURCES_DIR/lib"
 fi
 
-# Copy fplca binary
-FPLCA_BIN=$(cd "$PROJECT_DIR" && cabal list-bin fplca 2>/dev/null)
+# Copy volca binary
+VOLCA_BIN=$(cd "$PROJECT_DIR" && cabal list-bin volca 2>/dev/null)
 
-if [[ -z "$FPLCA_BIN" ]]; then
-    log_error "Could not find fplca binary"
+if [[ -z "$VOLCA_BIN" ]]; then
+    log_error "Could not find volca binary"
     exit 1
 fi
 
 if [[ "$OS" == "windows" ]]; then
-    # On Windows, copy as both fplca.exe and fplca (for Tauri resource bundling)
-    cp "$FPLCA_BIN" "$RESOURCES_DIR/fplca.exe"
-    cp "$FPLCA_BIN" "$RESOURCES_DIR/fplca"
+    # On Windows, copy as both volca.exe and volca (for Tauri resource bundling)
+    cp "$VOLCA_BIN" "$RESOURCES_DIR/volca.exe"
+    cp "$VOLCA_BIN" "$RESOURCES_DIR/volca"
 else
-    cp "$FPLCA_BIN" "$RESOURCES_DIR/fplca"
+    cp "$VOLCA_BIN" "$RESOURCES_DIR/volca"
 fi
-log_success "Copied fplca binary"
+log_success "Copied volca binary"
 
 # Copy default config file for BYOL mode
-cp "$SCRIPT_DIR/fplca.toml" "$RESOURCES_DIR/fplca.toml"
+cp "$SCRIPT_DIR/volca.toml" "$RESOURCES_DIR/volca.toml"
 log_success "Copied default config"
 
 # Copy web assets
@@ -341,22 +341,22 @@ TARGET_DIR="$SCRIPT_DIR/target/release"
 mkdir -p "$TARGET_DIR/web"
 
 if [[ "$OS" == "windows" ]]; then
-    cp "$RESOURCES_DIR/fplca.exe" "$TARGET_DIR/"
-    cp "$RESOURCES_DIR/fplca" "$TARGET_DIR/"
+    cp "$RESOURCES_DIR/volca.exe" "$TARGET_DIR/"
+    cp "$RESOURCES_DIR/volca" "$TARGET_DIR/"
     # Copy DLLs to same directory
     find "$RESOURCES_DIR" -maxdepth 1 -name "*.dll" -exec cp {} "$TARGET_DIR/" \; 2>/dev/null || true
     # Copy 7z binary if present
     cp "$RESOURCES_DIR/7z.exe" "$TARGET_DIR/" 2>/dev/null || true
 else
     mkdir -p "$TARGET_DIR/lib"
-    cp "$RESOURCES_DIR/fplca" "$TARGET_DIR/"
+    cp "$RESOURCES_DIR/volca" "$TARGET_DIR/"
     cp -r "$RESOURCES_DIR/lib/"* "$TARGET_DIR/lib/" 2>/dev/null || true
     # Copy 7z binary if present
     cp "$RESOURCES_DIR/7zz" "$TARGET_DIR/" 2>/dev/null || true
     cp "$RESOURCES_DIR/7z" "$TARGET_DIR/" 2>/dev/null || true
 fi
 
-cp "$RESOURCES_DIR/fplca.toml" "$TARGET_DIR/" 2>/dev/null || true
+cp "$RESOURCES_DIR/volca.toml" "$TARGET_DIR/" 2>/dev/null || true
 cp -r "$RESOURCES_DIR/web/"* "$TARGET_DIR/web/" 2>/dev/null || true
 log_success "Resources staged to target/release"
 

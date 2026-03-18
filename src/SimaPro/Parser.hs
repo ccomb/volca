@@ -2,8 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
--- | SimaPro CSV Parser for fplca
--- Parses SimaPro CSV exports (like Agribalyse) into fplca data structures
+-- | SimaPro CSV Parser for volca
+-- Parses SimaPro CSV exports (like Agribalyse) into volca data structures
 module SimaPro.Parser
     ( parseSimaProCSV
     , SimaProConfig(..)
@@ -547,7 +547,7 @@ generateUnitUUID unitName =
     UUID5.generateNamed simaproNamespace (BS.unpack $ TE.encodeUtf8 $ "unit:" <> unitName)
 
 -- ============================================================================
--- Conversion to fplca Types
+-- Conversion to volca Types
 -- ============================================================================
 
 -- | Extract location from SimaPro-style names

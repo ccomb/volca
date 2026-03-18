@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | Parse ILCD process datasets into fpLCA's SimpleDatabase.
+-- | Parse ILCD process datasets into VoLCA's SimpleDatabase.
 --
 -- ILCD packages have structure: ILCD/{processes/, flows/, flowproperties/, unitgroups/}
 -- This module parses all four to build a complete activity database.
@@ -29,7 +29,7 @@ import Method.Types (Compartment(..))
 import Types
 import Progress (reportProgress, ProgressLevel(..))
 
--- | Raw parsed ILCD process (before conversion to fpLCA types)
+-- | Raw parsed ILCD process (before conversion to VoLCA types)
 data ILCDProcessRaw = ILCDProcessRaw
     { iprUUID        :: !UUID
     , iprName        :: !Text

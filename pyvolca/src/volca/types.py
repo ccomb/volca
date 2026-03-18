@@ -1,4 +1,4 @@
-"""Data types for fpLCA API responses."""
+"""Data types for VoLCA API responses."""
 
 from dataclasses import dataclass, field
 

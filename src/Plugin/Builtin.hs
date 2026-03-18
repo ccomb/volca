@@ -2,7 +2,7 @@
 
 -- | Built-in Plugin Handles
 --
--- Wraps existing fpLCA features as plugin handles with zero behavior change.
+-- Wraps existing VoLCA features as plugin handles with zero behavior change.
 -- These are always registered; external plugins from TOML config extend or
 -- override them.
 module Plugin.Builtin

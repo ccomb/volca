@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>fpLCA</title>
+    <title>VoLCA</title>
 
     <!-- Bulma CSS -->
     <link rel="stylesheet" href="/static/bulma.min.css">
@@ -209,7 +209,7 @@
         var progressBuffer = [];
         var flushScheduled = false;
         var logSource = null;
-        window.__fplcaProgress = function(line) {
+        window.__volcaProgress = function(line) {
             progressBuffer.push(line);
             if (!flushScheduled) {
                 flushScheduled = true;
@@ -226,7 +226,7 @@
         if (!window.__TAURI__) {
             logSource = new EventSource('/api/v1/logs/stream');
             logSource.onmessage = function(e) {
-                window.__fplcaProgress(e.data);
+                window.__volcaProgress(e.data);
             };
         }
         // Auto-scroll console to bottom unless user scrolled up

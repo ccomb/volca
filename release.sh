@@ -1,9 +1,9 @@
 #!/bin/bash
 # =============================================================================
-# fplca release script
+# volca release script
 # =============================================================================
 # Creates a release by:
-#   1. Setting the release version in fplca.cabal and tauri.conf.json
+#   1. Setting the release version in volca.cabal and tauri.conf.json
 #   2. Committing and tagging
 #   3. Bumping to the next -dev version
 #   4. Pushing everything
@@ -18,7 +18,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CABAL_FILE="$SCRIPT_DIR/fplca.cabal"
+CABAL_FILE="$SCRIPT_DIR/volca.cabal"
 TAURI_CONF="$SCRIPT_DIR/desktop/tauri.conf.json"
 
 DRY_RUN=false

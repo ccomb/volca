@@ -36,7 +36,7 @@ import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import Progress (reportError)
 
--- | Configuration for connecting to a remote fpLCA server
+-- | Configuration for connecting to a remote VoLCA server
 data RemoteConfig = RemoteConfig
     { rcBaseUrl :: String
     , rcAuth    :: Maybe String
@@ -48,19 +48,19 @@ resolveRemoteConfig globalOpts mbConfig = do
     url <- case serverUrl globalOpts of
         Just u  -> return u
         Nothing -> do
-            envUrl <- lookupEnv "FPLCA_URL"
+            envUrl <- lookupEnv "VOLCA_URL"
             case envUrl of
                 Just u  -> return u
                 Nothing -> case cfgServer <$> mbConfig of
                     Just sc -> return $ "http://" ++ T.unpack (scHost sc) ++ ":" ++ show (scPort sc)
                     Nothing -> do
-                        reportError "No server URL: use --config, --url, or FPLCA_URL"
+                        reportError "No server URL: use --config, --url, or VOLCA_URL"
                         exitFailure
     pwd <- case serverPassword globalOpts of
         Just p  -> return (Just p)
         Nothing -> case mbConfig >>= scPassword . cfgServer of
             Just p  -> return (Just $ T.unpack p)
-            Nothing -> lookupEnv "FPLCA_PASSWORD"
+            Nothing -> lookupEnv "VOLCA_PASSWORD"
     return RemoteConfig { rcBaseUrl = url, rcAuth = pwd }
 
 -- | Execute a CLI command via HTTP against a running server
@@ -349,8 +349,8 @@ apiRequest mgr rc reqMethod path mBody = do
 -- | Format HTTP exceptions into user-friendly messages
 formatHttpError :: String -> HttpException -> String
 formatHttpError baseUrl (HttpExceptionRequest _ (ConnectionFailure _)) =
-    "Cannot connect to fpLCA server at " ++ baseUrl
-    ++ "\nStart it with: fplca --config fplca.toml server"
+    "Cannot connect to VoLCA server at " ++ baseUrl
+    ++ "\nStart it with: volca --config volca.toml server"
 formatHttpError _ (HttpExceptionRequest _ content) =
     "HTTP error: " ++ show content
 formatHttpError _ (InvalidUrlException url reason) =
@@ -358,7 +358,7 @@ formatHttpError _ (InvalidUrlException url reason) =
 
 -- | Format API error responses
 formatApiError :: Int -> BL.ByteString -> String
-formatApiError 401 _ = "Authentication failed. Check --password or FPLCA_PASSWORD"
+formatApiError 401 _ = "Authentication failed. Check --password or VOLCA_PASSWORD"
 formatApiError 404 body = "Not found" ++ bodyDetail body
 formatApiError status body = "Server error (HTTP " ++ show status ++ ")" ++ bodyDetail body
 

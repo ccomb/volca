@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # =============================================================================
-# fplca build script with PETSc
+# volca build script with PETSc
 # =============================================================================
-# This script builds fplca with PETSc integration.
+# This script builds volca with PETSc integration.
 # It can automatically download and build PETSc if not found.
 # Works on Linux, macOS, and Windows (via MSYS2).
 #
@@ -503,10 +503,10 @@ if [[ "$CLEAN_BUILD" == "true" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Build fplca (petsc-hs is built automatically as a dependency)
+# Build volca (petsc-hs is built automatically as a dependency)
 # -----------------------------------------------------------------------------
 
-log_info "Building fplca..."
+log_info "Building volca..."
 cd "$SCRIPT_DIR"
 
 # Write cabal.project.local with library paths
@@ -522,7 +522,7 @@ extra-include-dirs: $PETSC_INCLUDE_DIR
 package petsc-hs
   ghc-options: -optl-lpetsc_real -optl-lmpi
 
-package fplca
+package volca
   ghc-options: -optl-lpetsc_real -optl-lmpi
 EOF
 elif [[ "$OS" == "windows" ]]; then
@@ -556,7 +556,7 @@ extra-include-dirs: $W_PETSC_INCLUDE_DIR
                   , $(win_path "$MPI_INCLUDE_DIR")
 
 -- Link MinGW runtime libs and OpenBLAS needed by PETSc (built with UCRT64)
-package fplca
+package volca
   ghc-options: -optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$W_PETSC_LIB_DIR -optl-lscalapack -optl-ldmumps -optl-lmumps_common -optl-lpord -optl-l:libmsmpi.dll.a -optl-lopenblas -optl-lgfortran -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt
 EOF
 
@@ -589,7 +589,7 @@ extra-include-dirs: $PETSC_INCLUDE_DIR
 package petsc-hs
   ghc-options: $STATIC_LINK_FLAGS
 
-package fplca
+package volca
   ghc-options: $STATIC_LINK_FLAGS
 EOF
 else
@@ -611,7 +611,7 @@ extra-include-dirs: $PETSC_INCLUDE_DIR
 package petsc-hs
   ghc-options: $STATIC_LINK_FLAGS
 
-package fplca
+package volca
   ghc-options: $STATIC_LINK_FLAGS
 EOF
 fi
@@ -624,30 +624,30 @@ cabal build -j
 
 # Strip and compress the binary
 {
-    FPLCA_BIN_PATH=$(cabal list-bin exe:fplca 2>/dev/null || true)
-    if [[ -n "$FPLCA_BIN_PATH" && -f "$FPLCA_BIN_PATH" ]]; then
+    VOLCA_BIN_PATH=$(cabal list-bin exe:volca 2>/dev/null || true)
+    if [[ -n "$VOLCA_BIN_PATH" && -f "$VOLCA_BIN_PATH" ]]; then
         # Skip if already UPX-compressed (from a previous build)
-        if upx -t "$FPLCA_BIN_PATH" &>/dev/null; then
-            FINAL_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+        if upx -t "$VOLCA_BIN_PATH" &>/dev/null; then
+            FINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
             log_info "Binary already optimized ($FINAL_SIZE), skipping strip/UPX"
         else
-            ORIGINAL_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+            ORIGINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
             log_info "Binary size before optimization: $ORIGINAL_SIZE"
 
             # Strip debug symbols
             log_info "Stripping debug symbols..."
             if [[ "$OS" == "macos" ]]; then
-                strip -x "$FPLCA_BIN_PATH"
+                strip -x "$VOLCA_BIN_PATH"
             else
-                strip --strip-all "$FPLCA_BIN_PATH"
+                strip --strip-all "$VOLCA_BIN_PATH"
             fi
-            STRIPPED_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+            STRIPPED_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
             log_info "After strip: $STRIPPED_SIZE"
 
             # UPX compression
             log_info "Compressing with UPX..."
-            if upx "$FPLCA_BIN_PATH"; then
-                FINAL_SIZE=$(du -h "$FPLCA_BIN_PATH" | cut -f1)
+            if upx "$VOLCA_BIN_PATH"; then
+                FINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
                 log_success "Binary optimized: $ORIGINAL_SIZE → $STRIPPED_SIZE (stripped) → $FINAL_SIZE (compressed)"
             else
                 log_warn "UPX compression failed — using stripped binary ($STRIPPED_SIZE)"
@@ -656,7 +656,7 @@ cabal build -j
     fi
 }
 
-log_success "fplca built successfully"
+log_success "volca built successfully"
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -715,27 +715,27 @@ echo ""
 if [[ "$STATIC_BUILD" == "true" ]]; then
     echo "Static build — no LD_LIBRARY_PATH needed."
 elif [[ "$OS" == "windows" ]]; then
-    echo "To run fplca, first ensure the DLLs are in PATH:"
+    echo "To run volca, first ensure the DLLs are in PATH:"
     echo ""
     echo "  export PATH=\"$PETSC_LIB_DIR:/ucrt64/bin:\$PATH\""
 else
-    echo "To run fplca, first set up the library path:"
+    echo "To run volca, first set up the library path:"
     echo ""
     echo "  export LD_LIBRARY_PATH=\"$PETSC_DIR/$PETSC_ARCH/lib:\$LD_LIBRARY_PATH\""
 fi
 echo ""
 echo "Then run:"
 echo ""
-echo "  cabal run fplca -- --help"
+echo "  cabal run volca -- --help"
 echo ""
 
 # Find the built executable
-FPLCA_BIN=$(cabal list-bin exe:fplca 2>/dev/null || true)
-if [[ -n "$FPLCA_BIN" ]]; then
-    echo "Executable: $FPLCA_BIN"
+VOLCA_BIN=$(cabal list-bin exe:volca 2>/dev/null || true)
+if [[ -n "$VOLCA_BIN" ]]; then
+    echo "Executable: $VOLCA_BIN"
     if [[ "$STATIC_BUILD" == "true" ]]; then
         echo ""
-        echo "Verify static linking with: ldd $FPLCA_BIN"
+        echo "Verify static linking with: ldd $VOLCA_BIN"
         echo "(should show no PETSc/MUMPS/MPI entries)"
     fi
     echo ""

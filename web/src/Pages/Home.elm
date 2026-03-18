@@ -54,12 +54,8 @@ tile content =
 viewBranding : Html msg
 viewBranding =
     div [ style "text-align" "center", style "margin-bottom" "1.5rem", style "padding-top" "0.5rem" ]
-        [ h1 [ class "title is-2", style "margin-bottom" "0.5rem" ]
-            [ span [ style "color" "#00d1b2", style "font-style" "italic" ] [ text "f" ]
-            , text "\u{00B7}"
-            , span [ style "color" "#e87c23", style "font-style" "italic" ] [ text "p" ]
-            , text "\u{00B7}LCA"
-            ]
+        [ div [ style "margin-bottom" "0.5rem" ]
+            [ img [ src "/static/volca.svg", style "height" "3rem" ] [] ]
         , p [ class "subtitle is-5 has-text-grey" ] [ text "Life Cycle Assessment Engine" ]
         ]
 

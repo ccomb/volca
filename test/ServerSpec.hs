@@ -14,14 +14,14 @@ import Network.HTTP.Client (newManager, defaultManagerSettings, parseRequest, ht
 import Network.HTTP.Types (statusCode)
 import System.Exit (ExitCode(..))
 
--- | Find the fplca executable in the build directory
-findFplcaExe :: IO FilePath
-findFplcaExe = do
+-- | Find the volca executable in the build directory
+findVolcaExe :: IO FilePath
+findVolcaExe = do
     -- The executable is at a known location relative to the project root
-    let exe = "dist-newstyle/build/x86_64-linux/ghc-9.6.7/fplca-0.6.0/x/fplca/opt/build/fplca/fplca"
+    let exe = "dist-newstyle/build/x86_64-linux/ghc-9.6.7/volca-0.6.0/x/volca/opt/build/volca/volca"
     exists <- doesFileExist exe
     if exists then return exe
-    else error $ "fplca executable not found at " ++ exe ++ ". Run 'cabal build' first."
+    else error $ "volca executable not found at " ++ exe ++ ". Run 'cabal build' first."
 
 -- | Port for test server (high port to avoid conflicts)
 testPort :: Int
@@ -31,7 +31,7 @@ testPort = 18199
 withMinimalConfig :: (FilePath -> IO a) -> IO a
 withMinimalConfig action = do
     tmpDir <- getTemporaryDirectory
-    let cfgPath = tmpDir </> "fplca-test-server.toml"
+    let cfgPath = tmpDir </> "volca-test-server.toml"
     writeFile cfgPath "[server]\nport = 18199\nhost = \"127.0.0.1\"\n"
     result <- action cfgPath
     removeFile cfgPath
@@ -40,10 +40,10 @@ withMinimalConfig action = do
 -- | Start the server, run action, ensure cleanup
 withServer :: FilePath -> (ProcessHandle -> Manager -> IO a) -> IO a
 withServer cfgPath action = do
-    exe <- findFplcaExe
+    exe <- findVolcaExe
     mgr <- newManager defaultManagerSettings
     tmpDir <- getTemporaryDirectory
-    let logFile = tmpDir </> "fplca-test-server.log"
+    let logFile = tmpDir </> "volca-test-server.log"
     logHandle <- openFile logFile AppendMode
     let args = ["--config", cfgPath, "server", "--port", show testPort]
     (_, _, _, ph) <- createProcess (proc exe args)

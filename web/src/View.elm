@@ -18,6 +18,6 @@ map toMsg view =
 
 defaultView : View msg
 defaultView =
-    { title = "fpLCA"
+    { title = "VoLCA"
     , body = Html.text "Loading..."
     }

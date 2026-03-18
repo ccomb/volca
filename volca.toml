@@ -1,0 +1,103 @@
+# VoLCA Configuration File
+#
+# This is the default configuration. Databases and methods can be added
+# via the web interface, CLI upload commands, or by editing this file.
+#
+# For local overrides, copy this file to volca.local.toml and customize it:
+#   cp volca.toml volca.local.toml
+#   volca --config volca.local.toml server
+
+# ── Server ───────────────────────────────────────────────────────────
+
+[server]
+port = 8081                     # HTTP port
+host = "127.0.0.1"             # Bind address ("0.0.0.0" for all interfaces)
+# password = "changeme"        # Optional HTTP Basic Auth password
+
+# ── Databases ────────────────────────────────────────────────────────
+#
+# Supported formats: EcoSpold2 (.7z/.zip of .spold), EcoSpold1 (.xml),
+#                    SimaPro CSV (.csv/.csv.zip)
+#
+# Fields:
+#   name          (required) Internal identifier (URL-safe slug)
+#   path          (required) Path to database file
+#   displayName              Human-readable name (defaults to name)
+#   description              Short description
+#   load          = false    Load at startup (transitively loads dependencies)
+#   default       = false    Use as the default database
+#   depends       = []       Names of databases this one depends on
+#   locationAliases = {}     Location name corrections (e.g. {ENTSO = "ENTSO-E"})
+#
+# Example:
+#
+# [[databases]]
+# name = "ecoinvent-3.11"
+# displayName = "Ecoinvent 3.11"
+# path = "DBs/ecoinvent 3.11_cutoff_ecoSpold02.7z"
+# description = "Cutoff System Model"
+# load = true
+# default = true
+#
+# [[databases]]
+# name = "agribalyse-3.2"
+# displayName = "Agribalyse 3.2"
+# path = "DBs/AGB32_final.CSV.zip"
+# depends = ["ecoinvent-3.11"]
+# load = true
+
+# ── Methods ──────────────────────────────────────────────────────────
+#
+# LCIA characterization methods (ILCD format, .zip of XML files).
+#
+# Fields:
+#   name          (required) Method collection name
+#   path          (required) Path to method archive
+#   active        = true     Enable this method
+#   description              Short description
+#
+# Example:
+#
+# [[methods]]
+# name = "EF-3.1"
+# path = "DBs/EF-v3.1.zip"
+
+# ── Reference data (shipped with VoLCA) ──────────────────────────────
+
+[[flow-synonyms]]
+name = "Default flow synonyms"
+path = "data/flows.csv"
+active = true
+
+[[compartment-mappings]]
+name = "Default compartment mapping"
+path = "data/compartments.csv"
+active = true
+
+[[units]]
+name = "Default units"
+path = "data/units.csv"
+active = true
+
+# ── Plugins ──────────────────────────────────────────────────────────
+#
+# Extend VoLCA with external plugins (executables that speak JSON on stdin/stdout).
+#
+# Fields:
+#   name          (required) Plugin name
+#   type          (required) One of: importer, exporter, searcher, mapper,
+#                            transform, validator, analyzer, reporter
+#   path                     Path to plugin executable (omit to override built-in)
+#   enabled       = true     Set to false to disable a built-in plugin
+#   priority                 Execution order (lower = first)
+#   format-id                Format identifier (for exporter/reporter)
+#   phase                    "pre-compute" or "post-compute" (for validator)
+#   mime-type                MIME type (for reporter)
+#
+# Example:
+#
+# [[plugin]]
+# name = "my-exporter"
+# type = "exporter"
+# path = "/usr/local/bin/my-exporter"
+# format-id = "my-format"

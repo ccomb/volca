@@ -83,7 +83,7 @@ globalOptionsParser = do
             strOption
                 ( long "url"
                     <> metavar "URL"
-                    <> help "Server URL for HTTP client mode (or set FPLCA_URL env var)"
+                    <> help "Server URL for HTTP client mode (or set VOLCA_URL env var)"
                 )
 
     serverPassword <-
@@ -91,7 +91,7 @@ globalOptionsParser = do
             strOption
                 ( long "password"
                     <> metavar "PASSWORD"
-                    <> help "Password for authentication (or set FPLCA_PASSWORD env var)"
+                    <> help "Password for authentication (or set VOLCA_PASSWORD env var)"
                 )
 
     pure GlobalOptions{..}
@@ -202,7 +202,7 @@ serverOptionsParser = do
     serverDesktopMode <-
         switch
             ( long "desktop"
-                <> help "Desktop mode: print FPLCA_PORT=N on startup for launcher integration"
+                <> help "Desktop mode: print VOLCA_PORT=N on startup for launcher integration"
             )
     serverStaticDir <-
         optional $
@@ -456,18 +456,18 @@ cliParserInfo =
     info
         (cliParser <**> helper)
         ( fullDesc
-            <> progDesc "fpLCA - Life Cycle Assessment computation engine"
-            <> header "fplca - Command-line interface for fpLCA"
+            <> progDesc "VoLCA - Life Cycle Assessment computation engine"
+            <> header "volca - Command-line interface for VoLCA"
             <> footer
                 "Examples:\n\
-                \  fplca --config fplca.toml server --port 8081         # Start server\n\
-                \  fplca --config fplca.toml --db ecoinvent activities --name electricity\n\
-                \  fplca --config fplca.toml --db ecoinvent activity UUID\n\
-                \  fplca --config fplca.toml --db ecoinvent tree UUID --depth 3\n\
-                \  fplca --config fplca.toml --db ecoinvent inventory UUID\n\
-                \  fplca --config fplca.toml --db ecoinvent lcia UUID --method METHOD_UUID\n\
-                \  fplca --config fplca.toml database                   # List databases\n\
-                \  fplca --config fplca.toml database upload mydb.7z --name \"My DB\"\n\
-                \  fplca --config fplca.toml method upload pef.zip --name \"PEF\"\n\
-                \  fplca --config fplca.toml repl                       # Interactive mode"
+                \  volca --config volca.toml server --port 8081         # Start server\n\
+                \  volca --config volca.toml --db ecoinvent activities --name electricity\n\
+                \  volca --config volca.toml --db ecoinvent activity UUID\n\
+                \  volca --config volca.toml --db ecoinvent tree UUID --depth 3\n\
+                \  volca --config volca.toml --db ecoinvent inventory UUID\n\
+                \  volca --config volca.toml --db ecoinvent lcia UUID --method METHOD_UUID\n\
+                \  volca --config volca.toml database                   # List databases\n\
+                \  volca --config volca.toml database upload mydb.7z --name \"My DB\"\n\
+                \  volca --config volca.toml method upload pef.zip --name \"PEF\"\n\
+                \  volca --config volca.toml repl                       # Interactive mode"
         )

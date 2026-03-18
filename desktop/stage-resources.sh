@@ -7,12 +7,12 @@ TARGET_DIR="$SCRIPT_DIR/target/release"
 
 mkdir -p "$TARGET_DIR/lib" "$TARGET_DIR/web"
 
-# Copy fplca binary and config
-if [[ -f "$SCRIPT_DIR/resources/fplca" ]]; then
-    cp "$SCRIPT_DIR/resources/fplca" "$TARGET_DIR/"
+# Copy volca binary and config
+if [[ -f "$SCRIPT_DIR/resources/volca" ]]; then
+    cp "$SCRIPT_DIR/resources/volca" "$TARGET_DIR/"
 fi
-if [[ -f "$SCRIPT_DIR/resources/fplca.toml" ]]; then
-    cp "$SCRIPT_DIR/resources/fplca.toml" "$TARGET_DIR/"
+if [[ -f "$SCRIPT_DIR/resources/volca.toml" ]]; then
+    cp "$SCRIPT_DIR/resources/volca.toml" "$TARGET_DIR/"
 fi
 
 # Copy libraries

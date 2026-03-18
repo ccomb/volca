@@ -17,7 +17,7 @@ import qualified ServerSpec
 
 main :: IO ()
 main = hspec $ do
-    describe "fpLCA Test Suite" $ do
+    describe "VoLCA Test Suite" $ do
         describe "Matrix Construction" MatrixConstructionSpec.spec
         describe "Inventory Calculation" InventorySpec.spec
         describe "Parser" ParserSpec.spec

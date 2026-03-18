@@ -47,7 +47,7 @@ viewMethodsList methodList confirmingDelete loadingMethods unloadingMethod delet
             div [ class "notification is-info is-light", style "margin-top" "1rem" ]
                 [ text "No method collections configured. Add "
                 , code [] [ text "[[methods]]" ]
-                , text " entries to your fplca.toml, or upload a method package."
+                , text " entries to your volca.toml, or upload a method package."
                 ]
 
           else

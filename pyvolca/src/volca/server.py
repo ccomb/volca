@@ -1,4 +1,4 @@
-"""Server lifecycle management for fpLCA."""
+"""Server lifecycle management for VoLCA."""
 
 import shutil
 import subprocess
@@ -14,16 +14,16 @@ except ModuleNotFoundError:
 
 
 class Server:
-    """Manages the fpLCA server process.
+    """Manages the VoLCA server process.
 
     Usage::
 
-        with Server(config="fplca.toml") as srv:
+        with Server(config="volca.toml") as srv:
             client = Client(base_url=srv.base_url, db="agribalyse-3.2", password=srv.password)
             activities = client.search_activities(name="at plant")
     """
 
-    def __init__(self, config: str = "fplca.toml", port: int = 0, binary: str = "fplca"):
+    def __init__(self, config: str = "volca.toml", port: int = 0, binary: str = "volca"):
         self.config = config
         self.binary = binary
         self._process: subprocess.Popen | None = None
@@ -52,19 +52,19 @@ class Server:
         return {}
 
     def _find_binary(self) -> str:
-        """Find the fplca binary: explicit path, package bin/, or PATH."""
+        """Find the volca binary: explicit path, package bin/, or PATH."""
         if Path(self.binary).exists():
             return self.binary
         found = shutil.which(self.binary)
         if found:
             return found
         # Try common locations
-        for candidate in ["./fplca", "./dist/fplca"]:
+        for candidate in ["./volca", "./dist/volca"]:
             if Path(candidate).exists():
                 return candidate
         raise FileNotFoundError(
             f"Cannot find '{self.binary}' binary. "
-            "Set binary= parameter or add fplca to PATH."
+            "Set binary= parameter or add volca to PATH."
         )
 
     def is_alive(self) -> bool:

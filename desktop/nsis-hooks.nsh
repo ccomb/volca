@@ -1,5 +1,5 @@
 ; =============================================================================
-; fpLCA NSIS Installer Hooks
+; VoLCA NSIS Installer Hooks
 ; =============================================================================
 ; Installs the MS-MPI runtime silently if not already present.
 ;

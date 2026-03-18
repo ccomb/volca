@@ -236,10 +236,10 @@ extract7z archiveData targetDir = do
                 else return $ Right ()
   where
     -- Get platform-specific 7z command candidates
-    -- Checks for bundled binary in FPLCA_DATA_DIR first, then system paths
+    -- Checks for bundled binary in VOLCA_DATA_DIR first, then system paths
     get7zCommands :: IO [FilePath]
     get7zCommands = do
-        mDataDir <- lookupEnv "FPLCA_DATA_DIR"
+        mDataDir <- lookupEnv "VOLCA_DATA_DIR"
         let bundledPaths = case mDataDir of
                 Just d  -> if isWindows
                     then [d </> "7z.exe", d </> "7z"]
@@ -314,7 +314,7 @@ extractZip archiveData targetDir = do
   where
     getUnzipCommands :: IO [(FilePath, [String] -> [String])]
     getUnzipCommands = do
-        mDataDir <- lookupEnv "FPLCA_DATA_DIR"
+        mDataDir <- lookupEnv "VOLCA_DATA_DIR"
         let bundled7z = case mDataDir of
                 Just d -> if isWindows
                     then [(d </> "7z.exe", args7z), (d </> "7z", args7z)]

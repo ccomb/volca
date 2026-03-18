@@ -1,5 +1,5 @@
-# Stage 1: Build PETSc and SLEPc from source
-# Configuration is centralized in config/petsc.env and versions.env
+# Stage 1: Build PETSc from source (static libraries)
+# Configuration is centralized in petsc.env and versions.env
 FROM debian:bookworm-slim AS petsc-builder
 
 RUN apt-get update && apt-get install -y \
@@ -16,7 +16,6 @@ WORKDIR /opt
 COPY versions.env /tmp/
 COPY petsc.env /tmp/
 
-# Extract versions from env files using shell
 # Download and build PETSc (version from versions.env)
 RUN . /tmp/versions.env && \
     wget -q https://web.cels.anl.gov/projects/petsc/download/release-snapshots/petsc-${PETSC_VERSION}.tar.gz && \
@@ -28,8 +27,9 @@ WORKDIR /opt/petsc
 ENV PETSC_DIR=/opt/petsc
 ENV PETSC_ARCH=arch-linux-c-opt
 
-# Configure PETSc using options from petsc.env
-# Docker-specific: --download-cmake, --download-fblaslapack, --download-hdf5
+# Configure PETSc: shared libraries, MUMPS direct solver
+# Docker uses shared linking (simpler, runtime libs copied to final image)
+# --with-x=0 skips X11 (not needed in Docker)
 RUN . /tmp/versions.env && . /tmp/petsc.env && \
     python3 ./configure \
     --with-cxx=0 \
@@ -39,26 +39,14 @@ RUN . /tmp/versions.env && . /tmp/petsc.env && \
     --download-mumps \
     --download-scalapack \
     --with-debugging=no \
+    --with-x=0 \
     COPTFLAGS=-O3 \
     CXXOPTFLAGS=-O3 \
     FOPTFLAGS=-O3 \
     && make -j all
 
-# Download and build SLEPc (version from versions.env)
-WORKDIR /opt
-RUN . /tmp/versions.env && \
-    wget -q https://slepc.upv.es/download/distrib/slepc-${SLEPC_VERSION}.tar.gz && \
-    tar xzf slepc-${SLEPC_VERSION}.tar.gz && \
-    rm slepc-${SLEPC_VERSION}.tar.gz && \
-    mv slepc-${SLEPC_VERSION} slepc
-
-WORKDIR /opt/slepc
-ENV SLEPC_DIR=/opt/slepc
-
-RUN python3 ./configure && make -j
-
 # Stage 2: Build Haskell application
-# Build from fplca directory: docker build -t fplca .
+# Build from volca directory: docker build -t volca .
 FROM debian:bookworm AS haskell-builder
 
 # Install system dependencies (no ghc/cabal - we use ghcup)
@@ -74,6 +62,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     gfortran \
     libnuma-dev \
+    libncurses-dev \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -94,14 +83,12 @@ RUN . /tmp/versions.env && \
 # Install c2hs via cabal
 RUN cabal update && cabal install c2hs --install-method=copy --installdir=/usr/local/bin
 
-# Copy PETSc/SLEPc from builder
+# Copy PETSc from builder (no SLEPc)
 COPY --from=petsc-builder /opt/petsc /opt/petsc
-COPY --from=petsc-builder /opt/slepc /opt/slepc
 
 ENV PETSC_DIR=/opt/petsc
 ENV PETSC_ARCH=arch-linux-c-opt
-ENV SLEPC_DIR=/opt/slepc
-ENV LD_LIBRARY_PATH=/opt/petsc/${PETSC_ARCH}/lib:/opt/slepc/${PETSC_ARCH}/lib
+ENV LD_LIBRARY_PATH=/opt/petsc/${PETSC_ARCH}/lib
 
 WORKDIR /build
 
@@ -117,50 +104,45 @@ RUN cd /build/petsc-hs/src/Numerical/PETSc/Internal/C2HsGen && \
     runhaskell GenerateC2Hs.hs > TypesC2HsGen.chs && \
     c2hs -C -I/opt/petsc/include \
          -C -I/opt/petsc/${PETSC_ARCH}/include \
-         -C -I/opt/slepc/include \
-         -C -I/opt/slepc/${PETSC_ARCH}/include \
          TypesC2HsGen.chs
 
 # Copy ONLY dependency specification files first (for layer caching)
-COPY fplca.cabal /build/fplca/
+COPY volca.cabal /build/volca/
 
 # Set up cabal.project with petsc-hs as local package
-RUN echo "packages: ./fplca ./petsc-hs" > /build/cabal.project \
+# Docker uses shared linking (PETSc/MPI libs copied to runtime image)
+RUN echo "packages: ./volca ./petsc-hs" > /build/cabal.project \
     && echo "allow-newer: true" >> /build/cabal.project \
     && echo "optimization: 2" > /build/cabal.project.local \
     && echo "" >> /build/cabal.project.local \
     && echo "extra-lib-dirs: /opt/petsc/${PETSC_ARCH}/lib" >> /build/cabal.project.local \
-    && echo "            , /opt/slepc/${PETSC_ARCH}/lib" >> /build/cabal.project.local \
     && echo "extra-include-dirs: /opt/petsc/include" >> /build/cabal.project.local \
     && echo "                  , /opt/petsc/${PETSC_ARCH}/include" >> /build/cabal.project.local \
-    && echo "                  , /opt/slepc/include" >> /build/cabal.project.local \
-    && echo "                  , /opt/slepc/${PETSC_ARCH}/include" >> /build/cabal.project.local \
     && echo "" >> /build/cabal.project.local \
-    && echo "-- MPI library (MPICH downloaded by PETSc)" >> /build/cabal.project.local \
     && echo "package petsc-hs" >> /build/cabal.project.local \
     && echo "  ghc-options: -optl-L/opt/petsc/${PETSC_ARCH}/lib -optl-lmpi" >> /build/cabal.project.local \
     && echo "" >> /build/cabal.project.local \
-    && echo "package fplca" >> /build/cabal.project.local \
+    && echo "package volca" >> /build/cabal.project.local \
     && echo "  ghc-options: -optl-L/opt/petsc/${PETSC_ARCH}/lib -optl-lmpi" >> /build/cabal.project.local
 
 # Update cabal and build ONLY dependencies (cached layer)
 RUN cabal update \
-    && cd /build && cabal build --only-dependencies fplca
+    && cd /build && cabal build --only-dependencies volca
 
 # NOW copy the rest of the source
-COPY . /build/fplca
+COPY . /build/volca
 
-# Build fplca (only recompiles app code, deps already cached)
-RUN cd /build && cabal build fplca
+# Build volca (only recompiles app code, deps already cached)
+RUN cd /build && cabal build volca
 
 # Build Elm frontend (uses local npm packages)
-RUN cd /build/fplca/web && npm install && ./build.sh
+RUN cd /build/volca/web && npm install && ./build.sh
 
 # Find and copy the executable
 RUN mkdir -p /build/output \
-    && cp $(cd /build && cabal list-bin exe:fplca) /build/output/fplca
+    && cp $(cd /build && cabal list-bin exe:volca) /build/output/volca
 
-# Stage 3: Runtime image
+# Stage 3: Runtime image (slim — no PETSc libs needed, statically linked)
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
@@ -179,34 +161,33 @@ RUN apt-get update && apt-get install -y \
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
-# Copy PETSc/SLEPc runtime libraries
+# Copy PETSc runtime libraries (shared linking)
 COPY --from=petsc-builder /opt/petsc/arch-linux-c-opt/lib /opt/petsc/lib
-COPY --from=petsc-builder /opt/slepc/arch-linux-c-opt/lib /opt/slepc/lib
 
 # Copy application
-COPY --from=haskell-builder /build/output/fplca /usr/local/bin/fplca
-COPY --from=haskell-builder /build/fplca/web/dist /app/web/dist
+COPY --from=haskell-builder /build/output/volca /usr/local/bin/volca
+COPY --from=haskell-builder /build/volca/web/dist /app/web/dist
 
-ENV LD_LIBRARY_PATH=/opt/petsc/lib:/opt/slepc/lib
+ENV LD_LIBRARY_PATH=/opt/petsc/lib
 
-# PETSC_OPTIONS from config/petsc.env (MUMPS direct solver settings)
-# Note: -malloc_hbw false is Docker-specific (no high-bandwidth memory)
+# PETSC_OPTIONS: MUMPS direct solver settings
+# -malloc_hbw false is Docker-specific (no high-bandwidth memory)
 ENV PETSC_OPTIONS="-pc_type lu -pc_factor_mat_solver_type mumps -mat_mumps_icntl_14 80 -mat_mumps_icntl_24 1 -malloc_hbw false"
 
 WORKDIR /app
 
 # User data directory (uploads, cache) - mount as volume for persistence
-ENV FPLCA_DATA_DIR=/data
+ENV VOLCA_DATA_DIR=/data
 VOLUME /data
 
-# Copy runtime config (edit fplca.docker.toml to add/remove databases)
-COPY fplca.docker.toml /app/fplca.toml
+# Copy runtime config (edit volca.docker.toml to add/remove databases)
+COPY volca.docker.toml /app/volca.toml
 
 EXPOSE 8080
 
 # Copy all pre-generated cache files LAST for optimal layer caching
 # When only cache files change, only this layer needs rebuilding
-# Generate locally with: fplca --data /path/to/db
-COPY cache/fplca.cache.*.bin.zst /app/
+# Generate locally with: volca --data /path/to/db
+COPY cache/volca.cache.*.bin.zst /app/
 
-CMD ["fplca", "--config", "/app/fplca.toml", "server"]
+CMD ["volca", "--config", "/app/volca.toml", "server"]

@@ -1,10 +1,10 @@
-# fpLCA Plugin Examples
+# VoLCA Plugin Examples
 
-Example plugins demonstrating the fpLCA external plugin protocol.
+Example plugins demonstrating the VoLCA external plugin protocol.
 
 ## Plugin Handle Types
 
-fpLCA has 8 pluggable handle types covering the full LCA pipeline:
+VoLCA has 8 pluggable handle types covering the full LCA pipeline:
 
 ```
 [Import] → [Transform] → [Map] → [Validate] → Compute → [Analyze] → [Report]
@@ -25,14 +25,14 @@ fpLCA has 8 pluggable handle types covering the full LCA pipeline:
 
 List all registered plugins:
 ```bash
-./fplca.sh --config fplca.toml plugin list --format json
+./volca.sh --config volca.toml plugin list --format json
 ```
 
 ## Protocol
 
 External plugins communicate via **JSON on stdin/stdout**:
 
-1. fpLCA spawns your executable
+1. VoLCA spawns your executable
 2. Sends a single JSON object on stdin
 3. Reads a single JSON object from stdout
 4. Plugin exits
@@ -74,7 +74,7 @@ Fuzzy string matching for flow names. Uses `thefuzz` if installed, falls back to
 # Test standalone
 echo '{"action":"match","query":{"name":"carbon dioxide"}}' | python3 fuzzy-match.py
 
-# Configure in fplca.toml
+# Configure in volca.toml
 # [[plugin]]
 # name = "fuzzy-mapper"
 # type = "mapper"
@@ -90,7 +90,7 @@ Trivial shell reporter that upper-cases all string values in JSON output. Requir
 # Test standalone
 echo '{"action":"report","data":{"name":"test"}}' | bash uppercase-reporter.sh
 
-# Configure in fplca.toml
+# Configure in volca.toml
 # [[plugin]]
 # name = "uppercase"
 # type = "reporter"
@@ -102,7 +102,7 @@ echo '{"action":"report","data":{"name":"test"}}' | bash uppercase-reporter.sh
 ## Writing your own plugin
 
 1. Create an executable (any language) that reads JSON from stdin and writes JSON to stdout
-2. Add a `[[plugin]]` section to your `fplca.toml`
+2. Add a `[[plugin]]` section to your `volca.toml`
 3. Specify `name`, `type`, and `path` (relative to working directory or absolute)
 4. Optional: `priority` (for ordered types like mapper/transform/searcher), `format-id`, `mime-type`
 5. Set `enabled = false` to disable a built-in plugin by name

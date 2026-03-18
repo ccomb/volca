@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Shared functions for fpLCA build scripts
+# Shared functions for VoLCA build scripts
 # =============================================================================
 # Source this file from build.sh and desktop/build-desktop.sh
 #
@@ -102,7 +102,7 @@ detect_existing_petsc_arch() {
 # Version detection from git tag or cabal file
 # Usage: get_version [cabal_file]
 get_version() {
-    local cabal_file="${1:-fplca.cabal}"
+    local cabal_file="${1:-volca.cabal}"
 
     # Try git tag first
     if git describe --tags --exact-match HEAD 2>/dev/null; then

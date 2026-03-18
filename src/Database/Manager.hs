@@ -1080,7 +1080,7 @@ removeDatabase manager dbName = do
         Just dbConfig -> do
             -- Check if it's an uploaded database (only uploaded can be deleted)
             if not (dcIsUploaded dbConfig)
-                then return $ Left $ "Cannot delete configured database. Edit fplca.toml to remove it."
+                then return $ Left $ "Cannot delete configured database. Edit volca.toml to remove it."
                 else if M.member dbName loadedDbs
                     then return $ Left $ "Cannot delete loaded database. Close it first."
                     else do
@@ -1693,7 +1693,7 @@ removeMethodCollection manager name = do
         Nothing -> return $ Left $ "Method collection not found: " <> name
         Just mc
             | not (mcIsUploaded mc) ->
-                return $ Left "Cannot delete configured method. Edit fplca.toml to remove it."
+                return $ Left "Cannot delete configured method. Edit volca.toml to remove it."
             | M.member name loaded ->
                 return $ Left "Cannot delete loaded method. Close it first."
             | otherwise -> do

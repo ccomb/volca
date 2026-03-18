@@ -1,4 +1,4 @@
-"""HTTP client for all fpLCA API endpoints."""
+"""HTTP client for all VoLCA API endpoints."""
 
 import requests
 
@@ -6,7 +6,7 @@ from .types import Activity, SupplyChain, Variant
 
 
 class Client:
-    """HTTP client for the fpLCA REST API.
+    """HTTP client for the VoLCA REST API.
 
     Usage::
 

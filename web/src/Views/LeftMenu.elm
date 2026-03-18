@@ -1,8 +1,8 @@
 module Views.LeftMenu exposing (Msg(..), mapMsg, viewLeftMenu)
 
 import Char
-import Html exposing (Html, button, div, i, nav, p, span, text)
-import Html.Attributes exposing (class, classList, style)
+import Html exposing (Html, button, div, i, img, nav, p, span, text)
+import Html.Attributes exposing (class, classList, src, style)
 import Html.Events exposing (onClick, stopPropagationOn)
 import Json.Decode
 import Route exposing (ActivePage(..), ActivityTab(..))
@@ -46,12 +46,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                         span [ style "overflow" "hidden", style "text-overflow" "ellipsis", style "white-space" "nowrap", style "display" "block" ] [ text dbName ]
 
                     Nothing ->
-                        span [ style "color" "#888" ]
-                            [ span [ style "color" "#00d1b2", style "font-style" "italic" ] [ text "f" ]
-                            , text "\u{00B7}"
-                            , span [ style "color" "#e87c23", style "font-style" "italic" ] [ text "p" ]
-                            , text "\u{00B7}LCA"
-                            ]
+                        img [ src "/static/volca.svg", style "height" "2rem" ] []
                 ]
             , -- DATABASES section
               div [ class "menu-items" ]
@@ -122,11 +117,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                 ]
             , div [ style "border-top" "1px solid #ddd", style "margin" "0.5rem 0" ] []
             , div []
-                [ span [ style "color" "#00d1b2", style "font-style" "italic" ] [ text "f" ]
-                , text "\u{00B7}"
-                , span [ style "color" "#e87c23", style "font-style" "italic" ] [ text "p" ]
-                , text "\u{00B7}LCA"
-                ]
+                [ img [ src "/static/volca.svg", style "height" "1.2rem" ] [] ]
             , div [ style "font-size" "0.8em", style "margin-top" "0.25rem" ]
                 [ text (formatVersion version) ]
             ]

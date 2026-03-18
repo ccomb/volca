@@ -102,7 +102,7 @@ import Database.UploadedDatabase (getDataDir)
 import System.FilePath (takeBaseName, takeExtension, (</>))
 import Text.Printf (printf)
 
--- | Magic bytes to identify fpLCA cache files
+-- | Magic bytes to identify VoLCA cache files
 cacheMagic :: BS.ByteString
 cacheMagic = "FPLCACHE"
 
@@ -745,7 +745,7 @@ the cache file, not by the filename.
 -}
 generateMatrixCacheFilename :: T.Text -> FilePath -> IO FilePath
 generateMatrixCacheFilename dbName _dataPath = do
-    let cacheFilename = "fplca.cache." ++ T.unpack dbName ++ ".bin"
+    let cacheFilename = "volca.cache." ++ T.unpack dbName ++ ".bin"
     base <- getDataDir
     let cacheDir = base </> "cache"
     createDirectoryIfMissing True cacheDir
@@ -1048,7 +1048,7 @@ loadDatabaseWithCrossDBLinking locationAliases otherIndexes synonymDB unitConfig
                     , not (T.null (unitName u))
                     ]
             unless (S.null unknownUnits) $
-                reportProgress Warning $ printf "%d unknown unit(s): %s — add to [units.aliases] in fplca.toml"
+                reportProgress Warning $ printf "%d unknown unit(s): %s — add to [units.aliases] in volca.toml"
                     (S.size unknownUnits)
                     (T.unpack $ T.intercalate ", " $ map (\u -> "\"" <> u <> "\"") $ S.toList unknownUnits)
 

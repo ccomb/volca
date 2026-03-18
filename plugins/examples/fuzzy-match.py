@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example fuzzy mapper plugin for fpLCA.
+"""Example fuzzy mapper plugin for VoLCA.
 
 Demonstrates the JSON stdin/stdout protocol for mapper plugins.
 Reads a JSON request on stdin, returns a JSON response on stdout.
@@ -11,7 +11,7 @@ Protocol:
 
 Install: pip install thefuzz (optional, falls back to simple substring matching)
 
-Configure in fplca.toml:
+Configure in volca.toml:
   [[plugin]]
   name = "fuzzy-mapper"
   type = "mapper"

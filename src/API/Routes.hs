@@ -236,7 +236,7 @@ lcaServer dbManager maxTreeDepth password =
             Just pwd ->
                 if T.unpack (lrCode loginReq) == pwd
                 then
-                    let cookieValue = "fplca_session=" ++ pwd ++ "; Path=/; HttpOnly; SameSite=Strict"
+                    let cookieValue = "volca_session=" ++ pwd ++ "; Path=/; HttpOnly; SameSite=Strict"
                     in return $ addHeader cookieValue $ object ["ok" .= True]
                 else
                     throwError err401{errBody = "{\"error\":\"invalid code\"}"}

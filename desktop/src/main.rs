@@ -28,7 +28,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 /// -mat_mumps_icntl_24 1: Enable null pivot detection
 const DEFAULT_PETSC_OPTIONS: &str = "-pc_type lu -pc_factor_mat_solver_type mumps -mat_mumps_icntl_14 80 -mat_mumps_icntl_24 1";
 
-/// Solver configuration from fplca.toml
+/// Solver configuration from volca.toml
 #[derive(Debug, Deserialize, Default)]
 struct SolverConfig {
     petsc_options: Option<String>,
@@ -81,19 +81,19 @@ fn find_available_port(start: u16, end: u16) -> Option<u16> {
 }
 
 /// Get the binary name for the current platform
-/// On Windows, we look for both fplca.exe and fplca (for bundled resources)
+/// On Windows, we look for both volca.exe and volca (for bundled resources)
 fn get_binary_name() -> &'static str {
-    "fplca"
+    "volca"
 }
 
-/// Get the binary path, checking for both fplca and fplca.exe on Windows
+/// Get the binary path, checking for both volca and volca.exe on Windows
 fn get_binary_path(resource_dir: &PathBuf) -> PathBuf {
-    let base = resource_dir.join("fplca");
+    let base = resource_dir.join("volca");
 
     #[cfg(windows)]
     {
-        // On Windows, try fplca.exe first, then fplca
-        let exe_path = resource_dir.join("fplca.exe");
+        // On Windows, try volca.exe first, then volca
+        let exe_path = resource_dir.join("volca.exe");
         if exe_path.exists() {
             return exe_path;
         }
@@ -109,8 +109,8 @@ fn get_resource_dir_fallback() -> PathBuf {
     // Check for installed location first
     #[cfg(target_os = "linux")]
     {
-        // Debian package installs to /usr/lib/fplca
-        let installed_path = PathBuf::from("/usr/lib/fplca");
+        // Debian package installs to /usr/lib/volca
+        let installed_path = PathBuf::from("/usr/lib/volca");
         if installed_path.join(binary_name).exists() {
             return installed_path;
         }
@@ -120,9 +120,9 @@ fn get_resource_dir_fallback() -> PathBuf {
     {
         // Windows installer typically installs to Program Files
         if let Ok(program_files) = env::var("ProgramFiles") {
-            let installed_path = PathBuf::from(program_files).join("fplca");
-            // Check for both fplca.exe and fplca
-            if installed_path.join("fplca.exe").exists() || installed_path.join(binary_name).exists() {
+            let installed_path = PathBuf::from(program_files).join("volca");
+            // Check for both volca.exe and volca
+            if installed_path.join("volca.exe").exists() || installed_path.join(binary_name).exists() {
                 return installed_path;
             }
         }
@@ -146,7 +146,7 @@ fn get_resource_dir_fallback() -> PathBuf {
             return candidate.clone();
         }
         #[cfg(windows)]
-        if candidate.join("fplca.exe").exists() {
+        if candidate.join("volca.exe").exists() {
             return candidate.clone();
         }
     }
@@ -195,7 +195,7 @@ fn build_library_path(resource_dir: &PathBuf) -> String {
 
 /// Wait for the backend to be ready by polling the health endpoint
 async fn wait_for_backend(port: u16, timeout_secs: u64) -> bool {
-    let url = format!("http://127.0.0.1:{}/api/v1/databases", port);
+    let url = format!("http://127.0.0.1:{}/api/v1/database", port);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
@@ -218,27 +218,27 @@ async fn wait_for_backend(port: u16, timeout_secs: u64) -> bool {
     false
 }
 
-/// Spawn the fplca backend process
+/// Spawn the volca backend process
 fn spawn_backend(resource_dir: &PathBuf, port: u16, data_dir: &PathBuf) -> Result<Child, String> {
-    let fplca_binary = get_binary_path(resource_dir);
+    let volca_binary = get_binary_path(resource_dir);
     let web_dir = resource_dir.join("web");
     let lib_path = build_library_path(resource_dir);
     let lib_env_var = get_library_path_env_var();
 
     // Verify binary exists
-    if !fplca_binary.exists() {
+    if !volca_binary.exists() {
         return Err(format!(
-            "fplca binary not found at: {}",
-            fplca_binary.display()
+            "volca binary not found at: {}",
+            volca_binary.display()
         ));
     }
 
     // Build command with desktop mode flags
     // Use --config for BYOL mode (no database required at startup)
-    let config_file = resource_dir.join("fplca.toml");
-    let mut cmd = Command::new(&fplca_binary);
+    let config_file = resource_dir.join("volca.toml");
+    let mut cmd = Command::new(&volca_binary);
     cmd.env(lib_env_var, &lib_path);
-    cmd.env("FPLCA_DATA_DIR", data_dir);
+    cmd.env("VOLCA_DATA_DIR", data_dir);
     cmd.current_dir(data_dir);
 
     // Use config file if it exists (enables BYOL mode)
@@ -265,7 +265,7 @@ fn spawn_backend(resource_dir: &PathBuf, port: u16, data_dir: &PathBuf) -> Resul
     cmd.creation_flags(CREATE_NO_WINDOW);
 
     cmd.spawn()
-        .map_err(|e| format!("Failed to spawn fplca backend: {}", e))
+        .map_err(|e| format!("Failed to spawn volca backend: {}", e))
 }
 
 struct BackendState {
@@ -343,7 +343,7 @@ fn main() {
                                     let escaped = line.replace('\\', "\\\\").replace('\'', "\\'");
                                     let _ = window_for_stderr.eval(&format!(
                                         "if(typeof updateStatus==='function')updateStatus('{0}');\
-                                         else if(typeof window.__fplcaProgress==='function')window.__fplcaProgress('{0}');",
+                                         else if(typeof window.__volcaProgress==='function')window.__volcaProgress('{0}');",
                                         escaped
                                     ));
                                 }

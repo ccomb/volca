@@ -21,7 +21,7 @@ import System.Posix.Signals (installHandler, Handler(Ignore), sigPIPE)
 #endif
 import Text.Read (readMaybe)
 
--- fpLCA imports
+-- VoLCA imports
 import API.Auth (authMiddleware)
 import CLI.Client (RemoteConfig(..), resolveRemoteConfig, executeRemoteCommand)
 import CLI.Repl (runRepl)
@@ -143,13 +143,17 @@ runServerWithConfig cliConfig serverOpts cfgFile = do
   -- Initialize PETSc/MPI context
   reportProgress Info "Initializing PETSc/MPI for persistent matrix operations"
   initializePetscForServer
+  -- Flush stdout after PETSc init: PETSc's C printf may leave data in the
+  -- C buffer when stdout is piped (block-buffered), which blocks the Tauri
+  -- desktop launcher waiting for the next line.
+  hFlush stdout
 
   -- Get password from CLI, config, or env var
   password <- case CLI.Types.serverPassword (globalOptions cliConfig) of
     Just pwd -> return (Just pwd)
     Nothing -> case scPassword (cfgServer effectiveConfig) of
       Just pwd -> return (Just $ T.unpack pwd)
-      Nothing -> lookupEnv "FPLCA_PASSWORD"
+      Nothing -> lookupEnv "VOLCA_PASSWORD"
 
   -- Determine static directory (--static-dir or default "web/dist")
   let staticDir = fromMaybe "web/dist" (serverStaticDir serverOpts)
@@ -158,14 +162,14 @@ runServerWithConfig cliConfig serverOpts cfgFile = do
   -- In desktop mode, print machine-readable port for launcher, then minimal logging
   if desktopMode
     then do
-      putStrLn $ "FPLCA_PORT=" ++ show port
+      putStrLn $ "VOLCA_PORT=" ++ show port
       hFlush stdout
     else do
       reportProgress Info $ "Starting API server on port " ++ show port
       reportProgress Info $ "Tree depth: " ++ show (treeDepth (globalOptions cliConfig))
       case password of
         Just _ -> reportProgress Info "Authentication: ENABLED"
-        Nothing -> reportProgress Info "Authentication: DISABLED (use --password or FPLCA_PASSWORD to enable)"
+        Nothing -> reportProgress Info "Authentication: DISABLED (use --password or VOLCA_PASSWORD to enable)"
       reportProgress Info $ "Web interface available at: http://localhost:" ++ show port ++ "/"
 
   -- Idle timeout: track last request time, watchdog activated on demand via API

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Example shell reporter plugin for fpLCA.
+# Example shell reporter plugin for VoLCA.
 #
 # Demonstrates the JSON stdin/stdout protocol for reporter plugins.
 # Reads a JSON request on stdin, returns transformed JSON on stdout.
@@ -10,7 +10,7 @@
 #
 # This trivial example upper-cases all string values in the JSON.
 #
-# Configure in fplca.toml:
+# Configure in volca.toml:
 #   [[plugin]]
 #   name = "uppercase"
 #   type = "reporter"

@@ -236,7 +236,7 @@ executeSearchFlowsCommand registry fmt database opts = do
 -- | LCIA is now handled via HTTP client (see CLI.Client)
 executeLCIACommand :: PluginRegistry -> OutputFormat -> Database -> T.Text -> LCIAOptions -> IO ()
 executeLCIACommand _ _ _ _ _ = do
-  reportError "LCIA is only available via HTTP. Start the server first: fplca --config fplca.toml server"
+  reportError "LCIA is only available via HTTP. Start the server first: volca --config volca.toml server"
   exitFailure
 
 -- | Execute matrix debugging command

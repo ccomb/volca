@@ -56,7 +56,7 @@ The engine must:
 ## API Test Commands:
 ```bash
 # Test with mixed units
-cabal run fplca -- --data test-data --root steel-prod-test-0001 --method dummy --server
+cabal run volca -- --data test-data --root steel-prod-test-0001 --method dummy --server
 
 # Verify tree structure handles unit conversions
 curl "http://localhost:8080/api/v1/activity/steel-prod-test-0001/tree"

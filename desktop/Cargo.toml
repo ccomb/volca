@@ -1,8 +1,8 @@
 [package]
-name = "fplca-desktop"
+name = "volca-desktop"
 version = "0.1.0"
-description = "Desktop application for fpLCA - Life Cycle Assessment"
-authors = ["fpLCA Contributors"]
+description = "Desktop application for VoLCA - Life Cycle Assessment"
+authors = ["VoLCA Contributors"]
 edition = "2021"
 rust-version = "1.70"
 license = "MIT"

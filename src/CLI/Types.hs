@@ -23,7 +23,7 @@ data GlobalOptions = GlobalOptions
   , treeDepth :: Int             -- Maximum tree depth (--tree-depth)
   , noCache :: Bool              -- Disable caching (--no-cache)
   , serverUrl :: Maybe String    -- Server URL (--url) for HTTP client mode
-  , serverPassword :: Maybe String -- Auth password (--password, FPLCA_PASSWORD, or config)
+  , serverPassword :: Maybe String -- Auth password (--password, VOLCA_PASSWORD, or config)
   } deriving (Eq, Show, Generic)
 
 -- | Main CLI commands - all top-level for maximum discoverability

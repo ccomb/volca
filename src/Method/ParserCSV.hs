@@ -123,7 +123,7 @@ mkMethod methodology catName impactName unit colIdx rows delim =
 
 -- | Deterministic namespace for CSV-derived UUIDs.
 csvMethodNamespace :: UUID
-csvMethodNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ TE.encodeUtf8 "fplca:csv-method")
+csvMethodNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ TE.encodeUtf8 "volca:csv-method")
 
 -- | Direction: "resources" → Input, everything else → Output.
 directionFromCompartment :: Text -> FlowDirection

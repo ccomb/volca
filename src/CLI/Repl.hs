@@ -54,7 +54,7 @@ runRepl mgr rc globalOpts cfgFile = do
   where
     loop stateRef = do
         st <- liftIO $ readIORef stateRef
-        let prompt = "fplca" ++ maybe "" (\db -> "[" ++ T.unpack db ++ "]") (rsDb st) ++ "> "
+        let prompt = "volca" ++ maybe "" (\db -> "[" ++ T.unpack db ++ "]") (rsDb st) ++ "> "
         minput <- getInputLine prompt
         case minput of
             Nothing    -> return ()  -- Ctrl+D
@@ -164,7 +164,7 @@ startServerProcess globalOpts rc cfgFile = do
         args = ["--config", cfgFile, "server", "--port", show port]
             ++ maybe [] (\p -> ["--password", p]) (serverPassword globalOpts)
     tmpDir <- getTemporaryDirectory
-    let logFile = tmpDir </> "fplca-server.log"
+    let logFile = tmpDir </> "volca-server.log"
     logHandle <- openFile logFile AppendMode
     (_, _, _, ph) <- createProcess (proc exe args)
         { std_out = UseHandle logHandle

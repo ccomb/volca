@@ -1,6 +1,6 @@
-# fpLCA
+# VoLCA
 
-**fpLCA** is a Life Cycle Assessment engine that turns LCA databases into inspectable, queryable answers — fast.
+**VoLCA** is a Life Cycle Assessment engine that turns LCA databases into inspectable, queryable answers — fast.
 
 It loads EcoSpold2, EcoSpold1, SimaPro CSV, and ILCD process databases, builds supply chain dependency trees, computes life cycle inventories using sparse matrix algebra, and applies characterization methods for impact assessment. Everything runs in-memory against your own data.
 
@@ -44,7 +44,7 @@ Download and run the installer for Windows or Linux from the releases page. The 
 ./build.sh
 
 # Start the server
-fplca --config fplca.toml server --port 8081
+volca --config volca.toml server --port 8081
 # Open http://localhost:8081
 ```
 
@@ -54,28 +54,28 @@ The CLI is a lightweight HTTP client that connects to a running server (~0.2s pe
 
 ```bash
 # Start server (loads databases into memory once)
-fplca --config fplca.toml server --port 8081
+volca --config volca.toml server --port 8081
 
 # In another terminal — all commands talk to the server via HTTP
-fplca --config fplca.toml activities --name "electricity" --geo "FR"
-fplca --config fplca.toml --db agribalyse tree "12345678-..." --depth 3
-fplca --config fplca.toml --db agribalyse lcia "12345678-..." --method METHOD_UUID
+volca --config volca.toml activities --name "electricity" --geo "FR"
+volca --config volca.toml --db agribalyse tree "12345678-..." --depth 3
+volca --config volca.toml --db agribalyse lcia "12345678-..." --method METHOD_UUID
 ```
 
 ### Interactive REPL
 
 ```bash
 # Launch REPL (auto-starts the server if not running)
-fplca --config fplca.toml repl
+volca --config volca.toml repl
 
 # Inside the REPL:
-# fplca> activities --name "wheat"
-# fplca> use agribalyse
-# fplca[agribalyse]> inventory UUID
-# fplca[agribalyse]> :format table
-# fplca[agribalyse]> lcia UUID --method METHOD_UUID
-# fplca[agribalyse]> :help
-# fplca[agribalyse]> :quit
+# volca> activities --name "wheat"
+# volca> use agribalyse
+# volca[agribalyse]> inventory UUID
+# volca[agribalyse]> :format table
+# volca[agribalyse]> lcia UUID --method METHOD_UUID
+# volca[agribalyse]> :help
+# volca[agribalyse]> :quit
 ```
 
 ---
@@ -196,8 +196,8 @@ POST   /api/v1/auth                                           Login (returns ses
 | Option | Description |
 |--------|-------------|
 | `--config FILE` | TOML config file for multi-database setup |
-| `--url URL` | Server URL (default: from config; or set `FPLCA_URL`) |
-| `--password PWD` | Server password (or set `FPLCA_PASSWORD`) |
+| `--url URL` | Server URL (default: from config; or set `VOLCA_URL`) |
+| `--password PWD` | Server password (or set `VOLCA_PASSWORD`) |
 | `--db NAME` | Database name to query |
 | `--format FORMAT` | Output format: `pretty` (default), `json`, `table`, `csv` |
 | `--jsonpath PATH` | Field to extract for CSV output (e.g., `srResults`) |
@@ -208,73 +208,73 @@ POST   /api/v1/auth                                           Login (returns ses
 
 ```bash
 # Start server (loads databases — run once)
-fplca --config fplca.toml server --port 8081
+volca --config volca.toml server --port 8081
 
 # Single HTTP command (connects to running server, ~0.2s)
-fplca --config fplca.toml [--db NAME] COMMAND [OPTIONS]
+volca --config volca.toml [--db NAME] COMMAND [OPTIONS]
 
 # Interactive REPL (auto-starts server if not running)
-fplca --config fplca.toml repl
+volca --config volca.toml repl
 ```
 
 ### Search
 
 ```bash
-fplca activities --name "electricity" --geo "DE" --limit 10
-fplca activities --product "steel" --limit 10 --offset 20
-fplca flows --query "carbon dioxide" --limit 5
+volca activities --name "electricity" --geo "DE" --limit 10
+volca activities --product "steel" --limit 10 --offset 20
+volca flows --query "carbon dioxide" --limit 5
 ```
 
 ### Analysis
 
 ```bash
 # Activity details
-fplca activity "12345678-..."
+volca activity "12345678-..."
 
 # Supply chain tree
-fplca tree "12345678-..." --tree-depth 3
+volca tree "12345678-..." --tree-depth 3
 
 # Life cycle inventory
-fplca inventory "12345678-..."
+volca inventory "12345678-..."
 
 # Impact assessment (--method takes a method UUID, not a file path)
-fplca lcia "12345678-..." --method METHOD_UUID
+volca lcia "12345678-..." --method METHOD_UUID
 
 # Matrix export (Ecoinvent universal format — runs locally, not via HTTP)
-fplca export-matrices ./output_dir
+volca export-matrices ./output_dir
 ```
 
 ### Flow Mapping Diagnostics
 
 ```bash
 # Summary: how well does a method match a database?
-fplca --db agribalyse mapping METHOD_UUID
+volca --db agribalyse mapping METHOD_UUID
 
 # See every mapped CF with its match strategy (uuid/cas/name/synonym)
-fplca --db agribalyse mapping METHOD_UUID --matched
+volca --db agribalyse mapping METHOD_UUID --matched
 
 # List CFs that found no DB flow
-fplca --db agribalyse mapping METHOD_UUID --unmatched
+volca --db agribalyse mapping METHOD_UUID --unmatched
 
 # List DB biosphere flows with no CF
-fplca --db agribalyse mapping METHOD_UUID --uncharacterized
+volca --db agribalyse mapping METHOD_UUID --uncharacterized
 
 # Machine-readable output
-fplca --db agribalyse mapping METHOD_UUID --matched --format json
+volca --db agribalyse mapping METHOD_UUID --matched --format json
 ```
 
 ### Database and Method Management
 
 ```bash
 # List, upload, delete databases
-fplca database                                  # list (default)
-fplca database upload mydb.7z --name "My DB"    # upload
-fplca database delete my-db                     # delete
+volca database                                  # list (default)
+volca database upload mydb.7z --name "My DB"    # upload
+volca database delete my-db                     # delete
 
 # List, upload, delete method collections
-fplca method                                    # list (default)
-fplca method upload EF-3.1.zip --name "EF 3.1"  # upload
-fplca method delete ef-31                        # delete
+volca method                                    # list (default)
+volca method upload EF-3.1.zip --name "EF 3.1"  # upload
+volca method delete ef-31                        # delete
 ```
 
 ---
@@ -362,8 +362,8 @@ The build script downloads and compiles PETSc and SLEPc automatically if not alr
 ### Docker
 
 ```bash
-docker build -t fplca .
-docker run -p 8081:8081 -v /path/to/data:/data fplca
+docker build -t volca .
+docker run -p 8081:8081 -v /path/to/data:/data volca
 ```
 
 ---

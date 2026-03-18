@@ -1,7 +1,7 @@
 [project]
-name = "pyfplca"
+name = "pyvolca"
 version = "0.1.0"
-description = "Python client for fpLCA — Life Cycle Assessment engine"
+description = "Python client for VoLCA — Life Cycle Assessment engine"
 requires-python = ">=3.10"
 dependencies = ["requests>=2.28"]
 

@@ -1,8 +1,8 @@
 {
   "bundle": {
     "resources": {
-      "resources/fplca": "./",
-      "resources/fplca.toml": "./",
+      "resources/volca": "./",
+      "resources/volca.toml": "./",
       "resources/lib/*": "lib/",
       "resources/web/*": "web/",
       "resources/web/webfonts/*": "web/webfonts/",

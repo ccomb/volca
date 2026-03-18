@@ -41,12 +41,12 @@
 ## [0.3] - 2025-12-24
 
 ### Added
-- Multi-database support with `--config fplca.toml` configuration file
+- Multi-database support with `--config volca.toml` configuration file
 - EcoSpold1 parser for older LCA databases (Ecoinvent 2.x, BAFU)
 - SimaPro CSV parser for Agribalyse
 - LCIA impact assessment with method loading, flow mapping, and score computation
 - Activity aliases configuration for resolving EcoSpold1 supplier links
-- HTTP Basic Auth for API and web interface (`--password` or `FPLCA_PASSWORD`)
+- HTTP Basic Auth for API and web interface (`--password` or `VOLCA_PASSWORD`)
 - Database management API endpoints (`/databases`, `/databases/{name}/activate`)
 - LCIA methods API endpoint (`/methods`)
 - Databases page in web UI with table layout
@@ -54,7 +54,7 @@
 
 ### Changed
 - Cache system now uses automatic schema-based invalidation (no manual version bumping)
-- Cache filename simplified to `fplca.cache.{dbName}.bin.zst`
+- Cache filename simplified to `volca.cache.{dbName}.bin.zst`
 - Per-database PETSc solver cache for instant database switching
 - Web UI redesign: split details tabs into individual pages, sticky headers, improved left menu
 - Database name included in URLs for bookmarkable multi-database views
@@ -74,7 +74,7 @@
 - URL routing for bookmarkable views
 
 ### Changed
-- Renamed project from acv-engine to fplca
+- Renamed project from acv-engine to volca
 
 ## [0.1] - 2025-11-09
 

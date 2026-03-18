@@ -48,10 +48,10 @@ metaFileName :: FilePath
 metaFileName = "meta.toml"
 
 -- | Get the base data directory (uploads, cache, etc.)
--- Uses FPLCA_DATA_DIR env var, falls back to current directory
+-- Uses VOLCA_DATA_DIR env var, falls back to current directory
 getDataDir :: IO FilePath
 getDataDir = do
-    mdir <- lookupEnv "FPLCA_DATA_DIR"
+    mdir <- lookupEnv "VOLCA_DATA_DIR"
     case mdir of
         Just d  -> return d
         Nothing -> return "."

@@ -52,7 +52,7 @@ toDocument :
 toDocument shared pageView =
     case shared.authState of
         Shared.AuthChecking ->
-            { title = "Loading - fpLCA"
+            { title = "Loading - VoLCA"
             , body =
                 [ div
                     [ style "display" "flex"
@@ -70,13 +70,13 @@ toDocument shared pageView =
             }
 
         Shared.NeedsAuth state ->
-            { title = "Login - fpLCA"
+            { title = "Login - VoLCA"
             , body =
                 [ viewLoginForm state ]
             }
 
         Shared.Authenticated ->
-            { title = pageView.title ++ " - fpLCA"
+            { title = pageView.title ++ " - VoLCA"
             , body =
                 [ div [ class "app-container" ]
                     [ -- Hamburger button (mobile only)
@@ -129,7 +129,7 @@ viewLoginForm state =
             , style "width" "400px"
             , style "max-width" "90vw"
             ]
-            [ h2 [ class "title is-4 has-text-centered" ] [ text "fpLCA" ]
+            [ h2 [ class "title is-4 has-text-centered" ] [ text "VoLCA" ]
             , p [ class "has-text-centered", style "margin-bottom" "1.5rem" ]
                 [ text "Enter your access code to continue." ]
             , case state.error of

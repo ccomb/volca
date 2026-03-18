@@ -1,4 +1,4 @@
-"""fpLCA Python client — Life Cycle Assessment engine."""
+"""VoLCA Python client — Life Cycle Assessment engine."""
 
 from .client import Client
 from .server import Server

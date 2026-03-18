@@ -1,4 +1,4 @@
-"""Ingredient substitution workflow using fpLCA.
+"""Ingredient substitution workflow using VoLCA.
 
 Three phases:
 1. Find all "at plant" activities → export CSV
@@ -16,7 +16,7 @@ from pathlib import Path
 # Add parent to path for development (before pip install)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from fplca import Client, Server
+from volca import Client, Server
 
 
 def to_csv(rows: list, filename: str, fields: list[str]) -> None:
@@ -30,7 +30,7 @@ def to_csv(rows: list, filename: str, fields: list[str]) -> None:
 
 
 def main():
-    config = "fplca.toml"
+    config = "volca.toml"
     db_name = "agribalyse-3.2"
 
     with Server(config=config) as srv:

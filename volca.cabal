@@ -1,5 +1,5 @@
 cabal-version:       >=1.10
-name:                fplca
+name:                volca
 version:             0.6.0-dev
 build-type:          Simple
 
@@ -13,7 +13,7 @@ description:         This project is a Life Cycle Assessment (LCA) engine.
 
 extra-source-files:  README.md CHANGELOG.md
 
-executable fplca
+executable volca
   main-is:             Main.hs
   hs-source-dirs:      src
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall -j +RTS -A128m -RTS

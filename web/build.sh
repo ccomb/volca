@@ -10,7 +10,7 @@ if VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null); then
     VERSION="${VERSION#v}"  # Remove leading 'v' if present
     echo "Building version: $VERSION (from tag)"
 else
-    VERSION=$(grep "^version:" ../fplca.cabal | awk '{print $2}')
+    VERSION=$(grep "^version:" ../volca.cabal | awk '{print $2}')
     echo "Building version: $VERSION (development)"
 fi
 

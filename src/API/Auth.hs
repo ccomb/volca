@@ -14,7 +14,7 @@ import Network.HTTP.Types.Header (hAuthorization, hContentType)
 
 -- | WAI middleware for cookie + Bearer + Basic authentication
 -- Skips auth for POST /api/v1/auth (login endpoint)
--- Checks: 1) fplca_session cookie  2) Bearer token  3) Basic auth password
+-- Checks: 1) volca_session cookie  2) Bearer token  3) Basic auth password
 -- Returns plain 401 with JSON body (no WWW-Authenticate header, so no browser dialog)
 authMiddleware :: ByteString -> Middleware
 authMiddleware expectedPassword app req respond =
@@ -44,11 +44,11 @@ isAuthenticated expectedPassword req =
     || checkBearer expectedPassword req
     || checkBasic expectedPassword req
 
--- | Check fplca_session cookie
+-- | Check volca_session cookie
 checkCookie :: ByteString -> Request -> Bool
 checkCookie expectedPassword req =
     case lookup "Cookie" (requestHeaders req) of
-        Just cookieHeader -> parseCookieValue "fplca_session" cookieHeader == Just expectedPassword
+        Just cookieHeader -> parseCookieValue "volca_session" cookieHeader == Just expectedPassword
         Nothing -> False
 
 -- | Parse a specific cookie value from a Cookie header
