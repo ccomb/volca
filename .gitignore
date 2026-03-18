@@ -29,6 +29,7 @@ static/
 
 # Local configuration
 cabal.project.local
+volca.local.toml
 /fplca.toml
 
 run*.sh
