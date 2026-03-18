@@ -574,7 +574,7 @@ elif [[ "$STATIC_BUILD" == "true" ]]; then
     # Uses --start-group/--end-group to resolve circular deps between static archives
     log_info "Generating cabal.project.local for static linking..."
 
-    STATIC_LINK_FLAGS="-optl-Wl,-Bstatic -optl-Wl,--start-group -optl-lpetsc -optl-ldmumps -optl-lmumps_common -optl-lpord -optl-lscalapack -optl-lfblas -optl-lflapack -optl-lmpifort -optl-lmpi -optl-Wl,--end-group -optl-Wl,-Bdynamic -optl-lgfortran -optl-lquadmath -optl-lpthread -optl-lm -optl-ldl -optl-lrt"
+    STATIC_LINK_FLAGS="-optl-L$PETSC_LIB_DIR -optl-Wl,-Bstatic -optl-Wl,--start-group -optl-lpetsc -optl-ldmumps -optl-lmumps_common -optl-lpord -optl-lscalapack -optl-lfblas -optl-lflapack -optl-lmpifort -optl-lmpi -optl-Wl,--end-group -optl-Wl,-Bdynamic -optl-lgfortran -optl-lquadmath -optl-lpthread -optl-lm -optl-ldl -optl-lrt"
 
     cat > cabal.project.local << EOF
 optimization: 2
@@ -587,6 +587,7 @@ extra-include-dirs: $PETSC_INCLUDE_DIR
 -- Static linking: PETSc + MUMPS + ScaLAPACK + BLAS/LAPACK + MPI (static)
 -- gfortran runtime stays dynamic (system libgfortran.a lacks -fPIC)
 package petsc-hs
+  extra-lib-dirs: $PETSC_LIB_DIR
   ghc-options: $STATIC_LINK_FLAGS
 
 package volca
@@ -596,7 +597,7 @@ else
     # Linux/macOS custom build
     # PETSc is built with --with-shared-libraries=0 (static .a files)
     # Static link PETSc/MUMPS/MPI, keep gfortran/libc dynamic
-    STATIC_LINK_FLAGS="-optl-Wl,-Bstatic -optl-Wl,--start-group -optl-lpetsc -optl-ldmumps -optl-lmumps_common -optl-lpord -optl-lscalapack -optl-lfblas -optl-lflapack -optl-lmpifort -optl-lmpi -optl-Wl,--end-group -optl-Wl,-Bdynamic -optl-lgfortran -optl-lquadmath -optl-lpthread -optl-lm -optl-ldl -optl-lrt"
+    STATIC_LINK_FLAGS="-optl-L$PETSC_LIB_DIR -optl-Wl,-Bstatic -optl-Wl,--start-group -optl-lpetsc -optl-ldmumps -optl-lmumps_common -optl-lpord -optl-lscalapack -optl-lfblas -optl-lflapack -optl-lmpifort -optl-lmpi -optl-Wl,--end-group -optl-Wl,-Bdynamic -optl-lgfortran -optl-lquadmath -optl-lpthread -optl-lm -optl-ldl -optl-lrt"
 
     cat > cabal.project.local << EOF
 optimization: 2
@@ -609,6 +610,7 @@ extra-include-dirs: $PETSC_INCLUDE_DIR
 -- Static linking: PETSc + MUMPS + ScaLAPACK + BLAS/LAPACK + MPI (static)
 -- gfortran runtime stays dynamic (system libgfortran.a lacks -fPIC)
 package petsc-hs
+  extra-lib-dirs: $PETSC_LIB_DIR
   ghc-options: $STATIC_LINK_FLAGS
 
 package volca
