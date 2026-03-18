@@ -182,12 +182,8 @@ VOLUME /data
 
 # Copy runtime config (edit volca.docker.toml to add/remove databases)
 COPY volca.docker.toml /app/volca.toml
+COPY data/ /app/data/
 
 EXPOSE 8080
-
-# Copy all pre-generated cache files LAST for optimal layer caching
-# When only cache files change, only this layer needs rebuilding
-# Generate locally with: volca --data /path/to/db
-COPY cache/volca.cache.*.bin.zst /app/
 
 CMD ["volca", "--config", "/app/volca.toml", "server"]
