@@ -40,7 +40,7 @@ Download and run the installer for Windows or Linux from the releases page. The 
 ### Web Server
 
 ```bash
-# Build (requires PETSc/SLEPc — see Building section)
+# Build (requires PETSc — see Building section)
 ./build.sh
 
 # Start the server
@@ -332,12 +332,12 @@ All API routes are prefixed with `/api/v1/`. A dash (—) means the feature is o
 ### Linux / macOS
 
 ```bash
-./build.sh              # Download PETSc/SLEPc and build everything
+./build.sh              # Download PETSc and build everything
 ./build.sh --test       # Build and run tests
 ./build.sh --desktop    # Build desktop application
 ```
 
-The build script downloads and compiles PETSc and SLEPc automatically if not already present.
+The build script downloads and compiles PETSc automatically if not already present.
 
 ### Windows (MSYS2)
 
@@ -387,7 +387,7 @@ Matrix solving uses PETSc sparse solvers. Inventory computation for a typical su
 ./build.sh --test
 
 # Or manually
-export LD_LIBRARY_PATH="petsc-3.24.2/arch-linux-c-opt/lib:slepc-3.24.1/arch-linux-c-opt/lib"
+export LD_LIBRARY_PATH="petsc-3.24.2/arch-linux-c-opt/lib"
 cabal test --test-show-details=streaming
 ```
 
