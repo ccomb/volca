@@ -40,6 +40,7 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Data.List (intercalate)
 import Numeric (showFFloat)
+import qualified Version
 
 -- | API type definition - RESTful design with focused endpoints
 type LCAAPI =
@@ -110,6 +111,8 @@ type LCAAPI =
                 :<|> "logs" :> QueryParam "since" Int :> Get '[JSON] Value
                 -- Auth endpoint (login)
                 :<|> "auth" :> ReqBody '[JSON] LoginRequest :> Post '[JSON] (Headers '[Header "Set-Cookie" String] Value)
+                -- Version endpoint
+                :<|> "version" :> Get '[JSON] Value
            )
 
 -- | Get database by name, throw 404 if not loaded
@@ -217,7 +220,16 @@ lcaServer dbManager maxTreeDepth password =
         :<|> DBHandlers.uploadRefData DBHandlers.UnitDefs dbManager
         :<|> getLogsHandler
         :<|> postAuth
+        :<|> getVersion
   where
+    getVersion :: Handler Value
+    getVersion = return $ object
+        [ "version" .= Version.version
+        , "gitHash" .= Version.gitHash
+        , "gitTag" .= Version.gitTag
+        , "buildTarget" .= Version.buildTarget
+        ]
+
     getLogsHandler :: Maybe Int -> Handler Value
     getLogsHandler sinceMaybe = do
         let since = fromMaybe 0 sinceMaybe

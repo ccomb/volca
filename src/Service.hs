@@ -1070,7 +1070,7 @@ reconstructPath :: M.Map Int Int -> Int -> Int -> [Int]
 reconstructPath parents root target
     | target == root = [root]
     | M.notMember target parents = []  -- unreachable
-    | otherwise = reverse $ go target []
+    | otherwise = go target []
   where
     go node acc
         | node == root = root : acc

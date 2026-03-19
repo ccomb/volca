@@ -55,6 +55,7 @@ type alias Model =
     , lastActivitiesRoute : Maybe Route.ActivitiesFlags
     , databases : RemoteData DatabaseList
     , version : String
+    , gitHash : String
     , consoleState : ConsoleState
     , menuOpen : Bool
     , cachedTrees : Dict String ActivityTree
@@ -98,13 +99,14 @@ type Msg
     | NoOp
 
 
-init : { version : String } -> Nav.Key -> ( Model, Cmd Msg )
+init : { version : String, gitHash : String } -> Nav.Key -> ( Model, Cmd Msg )
 init flags key =
     ( { key = key
       , currentRoute = RootRoute
       , lastActivitiesRoute = Nothing
       , databases = Loading
       , version = flags.version
+      , gitHash = flags.gitHash
       , consoleState = Closed
       , menuOpen = False
       , cachedTrees = Dict.empty

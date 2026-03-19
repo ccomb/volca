@@ -747,7 +747,7 @@ buildActivityMap :: [Activity] -> M.Map (UUID, UUID) Activity
 buildActivityMap activities = M.fromList
     [ ((activityUUID, productUUID), activity)
     | activity <- activities
-    , let activityUUID = SimaPro.generateActivityUUID (activityName activity <> "@" <> activityLocation activity)
+    , let activityUUID = SimaPro.generateActivityUUID activity
     , let refExchanges = filter exchangeIsReference (exchanges activity)
     , refExchange <- take 1 refExchanges  -- Take first reference product
     , let productUUID = exchangeFlowId refExchange

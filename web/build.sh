@@ -57,9 +57,12 @@ JS_FILE="$JS_HASH.js"
 # Rename the temporary file to hashed name
 mv dist/main.tmp.js "dist/$JS_FILE"
 
+# Get git hash for frontend
+GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "")
+
 # Generate index.html from template
 echo "Generating index.html..."
-sed -e "s/{{JS_FILE}}/$JS_FILE/g" -e "s/{{VERSION}}/$VERSION/g" index.html.tmpl > dist/index.html
+sed -e "s/{{JS_FILE}}/$JS_FILE/g" -e "s/{{VERSION}}/$VERSION/g" -e "s/{{GIT_HASH}}/$GIT_HASH/g" index.html.tmpl > dist/index.html
 
 echo "Frontend build complete!"
 echo "Generated: dist/$JS_FILE"

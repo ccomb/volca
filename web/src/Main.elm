@@ -37,7 +37,9 @@ import Views.LeftMenu as LeftMenu
 
 
 type alias Flags =
-    { version : String }
+    { version : String
+    , gitHash : String
+    }
 
 
 mappers : ( (a -> b) -> View a -> View b, (c -> d) -> View c -> View d )
@@ -217,6 +219,7 @@ viewLeftMenu shared =
             currentDatabaseName
             currentActivityName
             shared.version
+            shared.gitHash
             showConsole
             shared.menuOpen
         )

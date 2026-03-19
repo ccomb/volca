@@ -531,10 +531,11 @@ setMetadata key value block = case key of
 simaproNamespace :: UUID
 simaproNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ TE.encodeUtf8 "simapro.pre.nl")
 
--- | Generate deterministic activity UUID from identifier
-generateActivityUUID :: Text -> UUID
-generateActivityUUID identifier =
-    UUID5.generateNamed simaproNamespace (BS.unpack $ TE.encodeUtf8 $ "activity:" <> identifier)
+-- | Generate deterministic activity UUID from Activity (uses name + location)
+generateActivityUUID :: Activity -> UUID
+generateActivityUUID act =
+    UUID5.generateNamed simaproNamespace
+        (BS.unpack $ TE.encodeUtf8 $ "activity:" <> activityName act <> "@" <> activityLocation act)
 
 -- | Generate deterministic flow UUID from name, compartment, unit
 generateFlowUUID :: Text -> Text -> Text -> UUID
@@ -599,9 +600,9 @@ processBlockToActivity :: ([(Text, Text)], [(Text, Text)], [(Text, Text)], [(Tex
                        -> ProcessBlock -> [(Activity, [Flow], [Unit])]
 processBlockToActivity (dbInputPs, dbCalcPs, projInputPs, projCalcPs) ProcessBlock{..} =
     let -- Build parameter environment: input params first, then calculated params
-        evalParam env (name, rawVal) = case Expr.evaluate env rawVal of
-            Right v -> M.insert name v env
-            Left _  -> env
+        evalParam acc (name, rawVal) = case Expr.evaluate acc rawVal of
+            Right v -> M.insert name v acc
+            Left _  -> acc
         env0 = foldl' evalParam M.empty (reverse dbInputPs)
         env1 = foldl' evalParam env0 (reverse projInputPs)
         env2 = foldl' evalParam env1 (reverse pbInputParams)

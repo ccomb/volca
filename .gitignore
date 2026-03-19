@@ -27,6 +27,9 @@ node_modules/
 # Generated frontend
 static/
 
+# Generated source
+src/Version.hs
+
 # Local configuration
 cabal.project.local
 volca.local.toml

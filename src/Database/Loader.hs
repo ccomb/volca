@@ -434,7 +434,7 @@ loadSimaProCSV csvPath = do
             -- For SimaPro: use the same UUID for both activity and product (like EcoSpold1)
             let procMap =
                     M.fromList
-                        [ ((SimaPro.generateActivityUUID (activityName act), getReferenceProductUUID act), act)
+                        [ ((SimaPro.generateActivityUUID act, getReferenceProductUUID act), act)
                         | act <- activities
                         ]
 

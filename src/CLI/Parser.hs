@@ -8,6 +8,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Options.Applicative
 import qualified Options.Applicative as OA
+import Version (version, gitHash, gitTag, buildTarget)
 
 -- | Main CLI parser combining global options and optional command
 -- If no command is given, just load database and exit (useful for cache generation)
@@ -451,10 +452,19 @@ textReader :: ReadM Text
 textReader = T.pack <$> str
 
 -- | Parser info for the complete CLI
+versionOption :: Parser (a -> a)
+versionOption = infoOption versionString
+    (long "version" <> help "Show version information")
+  where
+    versionString = "volca " <> version
+        <> " (" <> gitHash
+        <> (if null gitTag then "" else ", " <> gitTag)
+        <> ", " <> buildTarget <> ")"
+
 cliParserInfo :: ParserInfo CLIConfig
 cliParserInfo =
     info
-        (cliParser <**> helper)
+        (cliParser <**> versionOption <**> helper)
         ( fullDesc
             <> progDesc "VoLCA - Life Cycle Assessment computation engine"
             <> header "volca - Command-line interface for VoLCA"

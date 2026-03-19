@@ -27,8 +27,8 @@ mapMsg handlers msg =
             handlers.onCloseConsole
 
 
-viewLeftMenu : ActivePage -> String -> Maybe String -> Maybe String -> String -> Bool -> Bool -> Html Msg
-viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityName version showConsole menuOpen =
+viewLeftMenu : ActivePage -> String -> Maybe String -> Maybe String -> String -> String -> Bool -> Bool -> Html Msg
+viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityName version gitHash showConsole menuOpen =
     nav [ classList [ ( "left-menu", True ), ( "is-active", menuOpen ) ], style "display" "flex", style "flex-direction" "column", style "height" "100%" ]
         [ -- Top section (scrollable content)
           div [ style "flex" "1", style "overflow-y" "auto" ]
@@ -118,7 +118,11 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
             , div [ style "border-top" "1px solid #ddd", style "margin" "0.5rem 0" ] []
             , div []
                 [ img [ src "/static/volca.svg", style "height" "1.2rem" ] [] ]
-            , div [ style "font-size" "0.8em", style "margin-top" "0.25rem" ]
+            , div
+                [ style "font-size" "0.8em"
+                , style "margin-top" "0.25rem"
+                , Html.Attributes.title (if String.isEmpty gitHash then "" else "commit " ++ gitHash)
+                ]
                 [ text (formatVersion version) ]
             ]
         ]

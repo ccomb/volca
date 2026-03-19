@@ -19,7 +19,7 @@ import Text.Read (readMaybe)
 
 -- VoLCA imports
 import API.Auth (authMiddleware)
-import CLI.Client (RemoteConfig(..), resolveRemoteConfig, executeRemoteCommand)
+import CLI.Client (resolveRemoteConfig, executeRemoteCommand)
 import CLI.Repl (runRepl)
 import CLI.Command (executeCommand)
 import CLI.Parser (cliParserInfo)
