@@ -10,18 +10,19 @@ import Views.ActivityRow as ActivityRow
 
 type Msg
     = UpdateSearchQuery String
+    | UpdateProductQuery String
     | SelectActivity String
     | LoadMore
     | SelectDatabase String
 
 
-viewActivitiesPage : String -> String -> Maybe (SearchResults ActivitySummary) -> Bool -> Bool -> Maybe String -> Maybe DatabaseList -> Html Msg
-viewActivitiesPage currentDbName searchQuery searchResults searchLoading loadingMore error maybeDatabaseList =
+viewActivitiesPage : String -> String -> String -> Maybe (SearchResults ActivitySummary) -> Bool -> Bool -> Maybe String -> Maybe DatabaseList -> Html Msg
+viewActivitiesPage currentDbName searchQuery productQuery searchResults searchLoading loadingMore error maybeDatabaseList =
     div [ class "activities-page" ]
         [ div [ class "box" ]
             [ h2 [ class "title is-3" ] [ text "Search Activities" ]
             , p [ class "subtitle" ] [ text "Find activities by name and view their environmental inventory" ]
-            , viewSearchBar maybeDatabaseList currentDbName searchQuery searchLoading
+            , viewSearchBar maybeDatabaseList currentDbName searchQuery productQuery searchLoading
             , case error of
                 Just err ->
                     div [ class "notification is-danger" ]
@@ -34,39 +35,57 @@ viewActivitiesPage currentDbName searchQuery searchResults searchLoading loading
         ]
 
 
-viewSearchBar : Maybe DatabaseList -> String -> String -> Bool -> Html Msg
-viewSearchBar maybeDatabaseList currentDbName query isLoading =
-    div [ class "field is-grouped is-grouped-multiline", style "margin-bottom" "1.5rem" ]
-        [ -- Database selector on the left
-          case maybeDatabaseList of
-            Nothing ->
-                text ""
+viewSearchBar : Maybe DatabaseList -> String -> String -> String -> Bool -> Html Msg
+viewSearchBar maybeDatabaseList currentDbName query productQuery isLoading =
+    div [ style "margin-bottom" "1.5rem" ]
+        [ div [ class "field is-grouped is-grouped-multiline" ]
+            [ -- Database selector on the left
+              case maybeDatabaseList of
+                Nothing ->
+                    text ""
 
-            Just dbList ->
-                let
-                    loadedDatabases =
-                        List.filter (\db -> db.status == DbLoaded) dbList.databases
-                in
-                div [ class "control" ]
-                    [ div [ class "select is-large" ]
-                        [ select
-                            [ onInput SelectDatabase ]
-                            (List.map (viewDatabaseOption currentDbName) loadedDatabases)
+                Just dbList ->
+                    let
+                        loadedDatabases =
+                            List.filter (\db -> db.status == DbLoaded) dbList.databases
+                    in
+                    div [ class "control" ]
+                        [ div [ class "select is-large" ]
+                            [ select
+                                [ onInput SelectDatabase ]
+                                (List.map (viewDatabaseOption currentDbName) loadedDatabases)
+                            ]
                         ]
+            , -- Search input (expanded)
+              div [ class "control has-icons-left is-expanded", class (if isLoading then "is-loading" else "") ]
+                [ input
+                    [ id "activity-search"
+                    , class "input is-large"
+                    , type_ "text"
+                    , placeholder "Search by activity name..."
+                    , value query
+                    , onInput UpdateSearchQuery
                     ]
-        , -- Search input on the right (expanded)
-          div [ class "control has-icons-left is-expanded", class (if isLoading then "is-loading" else "") ]
-            [ input
-                [ id "activity-search"
-                , class "input is-large"
-                , type_ "text"
-                , placeholder "Search activities by name..."
-                , value query
-                , onInput UpdateSearchQuery
+                    []
+                , span [ class "icon is-left" ]
+                    [ Html.i [ class "fas fa-search" ] []
+                    ]
                 ]
-                []
-            , span [ class "icon is-left" ]
-                [ Html.i [ class "fas fa-search" ] []
+            ]
+        , div [ class "field", style "margin-top" "0.5rem" ]
+            [ div [ class "control has-icons-left" ]
+                [ input
+                    [ id "product-search"
+                    , class "input"
+                    , type_ "text"
+                    , placeholder "Filter by product..."
+                    , value productQuery
+                    , onInput UpdateProductQuery
+                    ]
+                    []
+                , span [ class "icon is-left" ]
+                    [ Html.i [ class "fas fa-cube" ] []
+                    ]
                 ]
             ]
         ]

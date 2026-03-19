@@ -103,7 +103,7 @@ viewDbLink db =
                 DbLoaded ->
                     ( "has-text-success"
                     , a
-                        [ href (Route.routeToUrl (ActivitiesRoute { db = db.name, name = Nothing, limit = Just 20 }))
+                        [ href (Route.routeToUrl (ActivitiesRoute { db = db.name, name = Nothing, product = Nothing, limit = Just 20 }))
                         , style "font-weight" "500"
                         ]
                         [ text db.displayName ]

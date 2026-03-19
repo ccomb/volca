@@ -271,7 +271,7 @@ navigateToPage shared page =
                     Shared.NavigateTo (ActivitiesRoute flags)
 
                 Nothing ->
-                    Shared.NavigateTo (ActivitiesRoute { db = dbName, name = Nothing, limit = Just 20 })
+                    Shared.NavigateTo (ActivitiesRoute { db = dbName, name = Nothing, product = Nothing, limit = Just 20 })
 
         ActivityActive LCIA ->
             Shared.NavigateTo (LCIARoute dbName currentActivityId Nothing)
