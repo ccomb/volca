@@ -196,11 +196,27 @@ fitToLayout layout =
     let
         margin =
             50
+
+        rawW =
+            layout.width + 2 * margin
+
+        rawH =
+            layout.height + 2 * margin
+
+        -- Ensure viewBox isn't flatter than ~16:10
+        minH =
+            rawW * 0.625
+
+        h =
+            max rawH minH
+
+        yOffset =
+            (h - rawH) / 2
     in
     { x = -margin
-    , y = -margin
-    , width = layout.width + 2 * margin
-    , height = layout.height + 2 * margin
+    , y = -margin - yOffset
+    , width = rawW
+    , height = h
     }
 
 

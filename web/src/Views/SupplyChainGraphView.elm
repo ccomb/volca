@@ -323,8 +323,23 @@ autoFit nodes =
 
         maxY =
             (List.maximum ys |> Maybe.withDefault svgH) + nodeHeight / 2 + margin
+        rawW =
+            maxX - minX
+
+        rawH =
+            maxY - minY
+
+        -- Ensure viewBox isn't flatter than ~16:10
+        minH =
+            rawW * 0.625
+
+        h =
+            max rawH minH
+
+        yOffset =
+            (h - rawH) / 2
     in
-    { x = minX, y = minY, w = maxX - minX, h = maxY - minY }
+    { x = minX, y = minY - yOffset, w = rawW, h = h }
 
 
 
