@@ -157,7 +157,7 @@ update shared msg model =
 
         GoToActivities ->
             ( model
-            , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivitiesRoute { db = model.dbName, name = Nothing, limit = Just 20 })))
+            , Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (Route.ActivitiesRoute { db = model.dbName, name = Nothing, product = Nothing, limit = Just 20 })))
             )
 
 

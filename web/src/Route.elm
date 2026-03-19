@@ -60,7 +60,7 @@ type ActivityTab
 
 type Route
     = RootRoute
-    | ActivitiesRoute { db : String, name : Maybe String, limit : Maybe Int }
+    | ActivitiesRoute { db : String, name : Maybe String, product : Maybe String, limit : Maybe Int }
     | ActivityRoute ActivityTab String String -- tab, db, processId
     | LCIARoute String String (Maybe String) -- db, processId, method collection
     | DatabasesRoute
@@ -177,10 +177,11 @@ withActivity db pid route =
 -- URL Parsing
 
 
-activitiesQueryParser : Query.Parser { name : Maybe String, limit : Maybe Int }
+activitiesQueryParser : Query.Parser { name : Maybe String, product : Maybe String, limit : Maybe Int }
 activitiesQueryParser =
-    Query.map2 (\name limit -> { name = name, limit = limit })
+    Query.map3 (\name product limit -> { name = name, product = product, limit = limit })
         (Query.string "name")
+        (Query.string "product")
         (Query.int "limit")
 
 
@@ -201,7 +202,7 @@ routeParser =
         , Parser.map FlowSynonymsRoute (Parser.s "flow-synonyms")
         , Parser.map CompartmentMappingsRoute (Parser.s "compartment-mappings")
         , Parser.map UnitsRoute (Parser.s "units")
-        , Parser.map (\db query -> ActivitiesRoute { db = db, name = query.name, limit = query.limit })
+        , Parser.map (\db query -> ActivitiesRoute { db = db, name = query.name, product = query.product, limit = query.limit })
             (Parser.s "db" </> string </> Parser.s "activities" <?> activitiesQueryParser)
         , Parser.map (ActivityRoute Upstream) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "upstream")
         , Parser.map (ActivityRoute Emissions) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "emissions")
@@ -268,10 +269,11 @@ routeToUrl route =
         RootRoute ->
             "/"
 
-        ActivitiesRoute { db, name, limit } ->
+        ActivitiesRoute { db, name, product, limit } ->
             "/db/" ++ db ++ "/activities"
                 ++ appendQuery
                     [ Maybe.map (Url.Builder.string "name") name
+                    , Maybe.map (Url.Builder.string "product") product
                     , Maybe.map (Url.Builder.int "limit") limit
                     ]
 
@@ -359,7 +361,7 @@ routeToDatabase route =
 
 
 type alias ActivitiesFlags =
-    { db : String, name : Maybe String, limit : Maybe Int }
+    { db : String, name : Maybe String, product : Maybe String, limit : Maybe Int }
 
 
 type alias LCIAFlags =
@@ -599,7 +601,7 @@ matchDatabaseDetailAsActivities : Route -> Maybe ActivitiesFlags
 matchDatabaseDetailAsActivities route =
     case route of
         DatabaseDetailRoute dbName _ ->
-            Just { db = dbName, name = Nothing, limit = Just 20 }
+            Just { db = dbName, name = Nothing, product = Nothing, limit = Just 20 }
 
         _ ->
             Nothing
