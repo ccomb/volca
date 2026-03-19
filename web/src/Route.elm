@@ -16,6 +16,8 @@ module Route exposing
     , matchTree
     , matchInventory
     , matchGraph
+    , matchSupplyChainGraph
+    , matchSupplyChainGraphDagre
     , matchLCIA
     , matchDatabases
     , matchDatabaseDetail
@@ -55,6 +57,8 @@ type ActivityTab
     | Tree
     | Inventory
     | Graph
+    | SupplyChainGraph
+    | SupplyChainGraphDagre
     | LCIA
 
 
@@ -211,6 +215,8 @@ routeParser =
         , Parser.map (ActivityRoute Tree) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "tree")
         , Parser.map (ActivityRoute Inventory) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "inventory")
         , Parser.map (ActivityRoute Graph) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "graph")
+        , Parser.map (ActivityRoute SupplyChainGraph) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "supply-chain-graph")
+        , Parser.map (ActivityRoute SupplyChainGraphDagre) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "supply-chain-dagre")
         , Parser.map LCIARoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia" <?> Query.string "method")
         , Parser.map (ActivityRoute Upstream) (Parser.s "db" </> string </> Parser.s "activity" </> string)
         ]
@@ -245,6 +251,12 @@ activityTabSlug tab =
 
         Graph ->
             "graph"
+
+        SupplyChainGraph ->
+            "supply-chain-graph"
+
+        SupplyChainGraphDagre ->
+            "supply-chain-dagre"
 
         LCIA ->
             "lcia"
@@ -452,6 +464,16 @@ matchInventory =
 matchGraph : Route -> Maybe ( String, String )
 matchGraph =
     matchTab Graph
+
+
+matchSupplyChainGraph : Route -> Maybe ( String, String )
+matchSupplyChainGraph =
+    matchTab SupplyChainGraph
+
+
+matchSupplyChainGraphDagre : Route -> Maybe ( String, String )
+matchSupplyChainGraphDagre =
+    matchTab SupplyChainGraphDagre
 
 
 matchLCIA : Route -> Maybe LCIAFlags
