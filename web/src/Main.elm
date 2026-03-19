@@ -13,6 +13,8 @@ import Pages.Home
 import Pages.Databases
 import Pages.Emissions
 import Pages.Graph
+import Pages.SupplyChainGraph
+import Pages.SupplyChainGraphDagre
 import Pages.Inventory
 import Pages.LCIA
 import Pages.DatabaseDetail
@@ -406,6 +408,8 @@ main =
         |> Spa.addPublicPage mappers Route.matchTree Pages.Tree.page
         |> Spa.addPublicPage mappers Route.matchInventory Pages.Inventory.page
         |> Spa.addPublicPage mappers Route.matchGraph Pages.Graph.page
+        |> Spa.addPublicPage mappers Route.matchSupplyChainGraph Pages.SupplyChainGraph.page
+        |> Spa.addPublicPage mappers Route.matchSupplyChainGraphDagre Pages.SupplyChainGraphDagre.page
         |> Spa.addPublicPage mappers Route.matchLCIA Pages.LCIA.page
         |> Spa.addPublicPage mappers Route.matchDatabases Pages.Databases.page
         |> Spa.addPublicPage mappers Route.matchUpload Pages.Upload.page

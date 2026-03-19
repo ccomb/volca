@@ -83,6 +83,8 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                         , menuItem currentPage (ActivityActive LCIA) "fas fa-chart-bar" "Impacts" True
                         , menuItem currentPage (ActivityActive Tree) "fas fa-project-diagram" "Tree" True
                         , menuItem currentPage (ActivityActive Graph) "fas fa-network-wired" "Graph" True
+                        , menuItem currentPage (ActivityActive SupplyChainGraph) "fas fa-sitemap" "Supply Chain" True
+                        , menuItem currentPage (ActivityActive SupplyChainGraphDagre) "fas fa-project-diagram" "SC Dagre" True
                         ]
 
                 Nothing ->
