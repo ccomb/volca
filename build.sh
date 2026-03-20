@@ -545,7 +545,7 @@ cabal build -j
 
             # UPX compression
             log_info "Compressing with UPX..."
-            if upx "$VOLCA_BIN_PATH"; then
+            if upx -1 "$VOLCA_BIN_PATH"; then
                 FINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
                 log_success "Binary optimized: $ORIGINAL_SIZE → $STRIPPED_SIZE (stripped) → $FINAL_SIZE (compressed)"
             else
