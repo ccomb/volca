@@ -1,9 +1,26 @@
-module Api exposing (computeLCIABatch, loadActivityInfo, loadActivityTree, loadFlowMapping, loadMethodCollections, loadMethodMapping)
+module Api exposing
+    ( computeLCIABatch
+    , createVariant
+    , loadActivityInfo
+    , loadActivityTree
+    , loadFlowActivities
+    , loadFlowMapping
+    , loadMethodCollections
+    , loadMethodMapping
+    , loadSupplyChain
+    , searchFlows
+    )
 
 import Http
-import Models.Activity exposing (ActivityInfo, ActivityTree, activityInfoDecoder, activityTreeDecoder)
+import Json.Decode as Decode
+import Json.Encode as Encode
+import Models.Activity exposing (ActivityInfo, ActivitySummary, ActivityTree, activityInfoDecoder, activitySummaryDecoder, activityTreeDecoder, SearchResults, searchResultsDecoder)
+import Models.Flow exposing (FlowSearchResult, flowSearchResultDecoder)
 import Models.LCIA exposing (FlowCFMapping, LCIAResult, MappingStatus, flowCFMappingDecoder, lciaBatchDecoder, mappingStatusDecoder)
 import Models.Method exposing (MethodCollectionList, methodCollectionListDecoder)
+import Models.SupplyChain exposing (SupplyChainResponse, supplyChainResponseDecoder)
+import Models.Variant exposing (VariantResponse, variantResponseDecoder)
+import Url.Builder
 
 
 loadActivityInfo : (Result Http.Error ActivityInfo -> msg) -> String -> String -> Cmd msg
@@ -51,4 +68,49 @@ loadFlowMapping toMsg dbName methodId =
     Http.get
         { url = "/api/v1/database/" ++ dbName ++ "/method/" ++ methodId ++ "/flow-mapping"
         , expect = Http.expectJson toMsg flowCFMappingDecoder
+        }
+
+
+loadSupplyChain : (Result Http.Error SupplyChainResponse -> msg) -> String -> String -> Cmd msg
+loadSupplyChain toMsg dbName activityId =
+    Http.get
+        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ activityId ++ "/supply-chain?limit=500"
+        , expect = Http.expectJson toMsg supplyChainResponseDecoder
+        }
+
+
+searchFlows : (Result Http.Error (SearchResults FlowSearchResult) -> msg) -> String -> String -> Int -> Int -> Cmd msg
+searchFlows toMsg dbName query limit offset =
+    Http.get
+        { url =
+            Url.Builder.absolute
+                [ "api", "v1", "database", dbName, "flows" ]
+                (List.filterMap identity
+                    [ if String.isEmpty query then
+                        Nothing
+
+                      else
+                        Just (Url.Builder.string "q" query)
+                    , Just (Url.Builder.int "limit" limit)
+                    , Just (Url.Builder.int "offset" offset)
+                    ]
+                )
+        , expect = Http.expectJson toMsg (searchResultsDecoder flowSearchResultDecoder)
+        }
+
+
+loadFlowActivities : (Result Http.Error (List ActivitySummary) -> msg) -> String -> String -> Cmd msg
+loadFlowActivities toMsg dbName flowId =
+    Http.get
+        { url = "/api/v1/database/" ++ dbName ++ "/flow/" ++ flowId ++ "/activities"
+        , expect = Http.expectJson toMsg (Decode.list activitySummaryDecoder)
+        }
+
+
+createVariant : (Result Http.Error VariantResponse -> msg) -> String -> String -> Encode.Value -> Cmd msg
+createVariant toMsg dbName activityId body =
+    Http.post
+        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ activityId ++ "/variant"
+        , body = Http.jsonBody body
+        , expect = Http.expectJson toMsg variantResponseDecoder
         }

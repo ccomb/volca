@@ -29,8 +29,11 @@ import Pages.Units
 import Pages.Products
 import Pages.Resources
 import Pages.Tree
+import Pages.FlowSearch
+import Pages.SupplyChainTable
 import Pages.Upload
 import Pages.Upstream
+import Pages.Variant
 import Route exposing (ActivePage(..), ActivityTab(..), Route(..))
 import Shared exposing (RemoteData(..))
 import Spa
@@ -302,6 +305,9 @@ navigateToPage shared page =
         DatabaseMappingActive ->
             Shared.NavigateTo DatabasesRoute
 
+        FlowSearchActive ->
+            Shared.NavigateTo (FlowSearchRoute { db = dbName, q = Nothing, limit = Just 20, offset = Nothing })
+
         FlowSynonymsActive ->
             Shared.NavigateTo FlowSynonymsRoute
 
@@ -413,6 +419,8 @@ main =
         |> Spa.addPublicPage mappers Route.matchGraph Pages.Graph.page
         |> Spa.addPublicPage mappers Route.matchSupplyChainGraph Pages.SupplyChainGraph.page
         |> Spa.addPublicPage mappers Route.matchSupplyChainGraphDagre Pages.SupplyChainGraphDagre.page
+        |> Spa.addPublicPage mappers Route.matchSupplyChainTable Pages.SupplyChainTable.page
+        |> Spa.addPublicPage mappers Route.matchVariant Pages.Variant.page
         |> Spa.addPublicPage mappers Route.matchLCIA Pages.LCIA.page
         |> Spa.addPublicPage mappers Route.matchDatabases Pages.Databases.page
         |> Spa.addPublicPage mappers Route.matchUpload Pages.Upload.page
@@ -423,6 +431,7 @@ main =
         |> Spa.addPublicPage mappers Route.matchMethodUpload Pages.MethodUpload.page
         |> Spa.addPublicPage mappers Route.matchMethodDetail Pages.MethodDetail.page
         |> Spa.addPublicPage mappers Route.matchFlowMapping Pages.FlowMapping.page
+        |> Spa.addPublicPage mappers Route.matchFlowSearch Pages.FlowSearch.page
         |> Spa.addPublicPage mappers Route.matchFlowSynonyms Pages.FlowSynonyms.page
         |> Spa.addPublicPage mappers Route.matchFlowSynonymDetail Pages.FlowSynonymDetail.page
         |> Spa.addPublicPage mappers Route.matchCompartmentMappings Pages.CompartmentMappings.page

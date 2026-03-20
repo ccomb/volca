@@ -4,6 +4,7 @@ module Models.SupplyChain exposing
     , SupplyChainEdge
     , ActivitySummary
     , supplyChainResponseDecoder
+    , supplyChainEntryDecoder
     )
 
 import Json.Decode as Decode exposing (Decoder)

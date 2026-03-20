@@ -53,7 +53,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                 [ menuLabel "Manage"
                 , menuItem currentPage DatabasesActive "fas fa-database" "Databases" False
                 , menuItem currentPage MethodsActive "fas fa-flask" "Methods" False
-                , menuItem currentPage FlowSynonymsActive "fas fa-exchange-alt" "Flows" False
+                , menuItem currentPage FlowSynonymsActive "fas fa-exchange-alt" "Synonyms" False
                 , menuItem currentPage CompartmentMappingsActive "fas fa-layer-group" "Compartments" False
                 , menuItem currentPage UnitsActive "fas fa-ruler" "Units" False
                 ]
@@ -61,6 +61,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
               div [ class "menu-items" ]
                 [ menuLabel "Search"
                 , menuItem currentPage ActivitiesActive "fas fa-search" "Activities" False
+                , menuItem currentPage FlowSearchActive "fas fa-atom" "Flows" False
                 ]
             , -- Activity section (only show if an activity is selected)
               -- White background to look like vertical tabs connected to main content
@@ -79,12 +80,14 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                         , menuItem currentPage (ActivityActive Resources) "fas fa-leaf" "Natural resources" False
                         , menuItem currentPage (ActivityActive Products) "fas fa-box" "Outgoing products" False
                         , menuItem currentPage (ActivityActive Inventory) "fas fa-list-ul" "Inventory" False
+                        , menuItem currentPage (ActivityActive SupplyChainTable) "fas fa-table" "Supply Chain" False
                         , menuLabel "Lab"
                         , menuItem currentPage (ActivityActive LCIA) "fas fa-chart-bar" "Impacts" True
                         , menuItem currentPage (ActivityActive Tree) "fas fa-project-diagram" "Tree" True
                         , menuItem currentPage (ActivityActive Graph) "fas fa-network-wired" "Graph" True
                         , menuItem currentPage (ActivityActive SupplyChainGraph) "fas fa-sitemap" "Supply Chain" True
                         , menuItem currentPage (ActivityActive SupplyChainGraphDagre) "fas fa-project-diagram" "SC Dagre" True
+                        , menuItem currentPage (ActivityActive Variant) "fas fa-exchange-alt" "Variant" True
                         ]
 
                 Nothing ->
