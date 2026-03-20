@@ -37,9 +37,7 @@ import Views.LeftMenu as LeftMenu
 
 
 type alias Flags =
-    { version : String
-    , gitHash : String
-    }
+    ()
 
 
 mappers : ( (a -> b) -> View a -> View b, (c -> d) -> View c -> View d )

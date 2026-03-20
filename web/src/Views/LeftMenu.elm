@@ -121,7 +121,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
             , div
                 [ style "font-size" "0.8em"
                 , style "margin-top" "0.25rem"
-                , Html.Attributes.title (if String.isEmpty gitHash then "" else "commit " ++ gitHash)
+                , Html.Attributes.title (if String.isEmpty gitHash then "" else gitHash)
                 ]
                 [ text (formatVersion version) ]
             ]

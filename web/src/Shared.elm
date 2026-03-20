@@ -56,6 +56,7 @@ type alias Model =
     , databases : RemoteData DatabaseList
     , version : String
     , gitHash : String
+    , buildTarget : String
     , consoleState : ConsoleState
     , menuOpen : Bool
     , cachedTrees : Dict String ActivityTree
@@ -93,20 +94,22 @@ type Msg
     | NavigateBackToParent
     | BackendProgressLines (List String)
     | ClearProgress
+    | VersionLoaded (Result Http.Error { version : String, gitHash : String, buildTarget : String })
     | UpdateAuthCode String
     | SubmitAuthCode
     | AuthResult (Result Http.Error ())
     | NoOp
 
 
-init : { version : String, gitHash : String } -> Nav.Key -> ( Model, Cmd Msg )
-init flags key =
+init : () -> Nav.Key -> ( Model, Cmd Msg )
+init () key =
     ( { key = key
       , currentRoute = RootRoute
       , lastActivitiesRoute = Nothing
       , databases = Loading
-      , version = flags.version
-      , gitHash = flags.gitHash
+      , version = ""
+      , gitHash = ""
+      , buildTarget = ""
       , consoleState = Closed
       , menuOpen = False
       , cachedTrees = Dict.empty
@@ -120,8 +123,22 @@ init flags key =
       , authState = AuthChecking
       , activityStack = []
       }
-    , loadDatabases
+    , Cmd.batch [ loadDatabases, loadVersion ]
     )
+
+
+loadVersion : Cmd Msg
+loadVersion =
+    Http.get
+        { url = "/api/v1/version"
+        , expect =
+            Http.expectJson VersionLoaded
+                (Json.Decode.map3 (\v g b -> { version = v, gitHash = g, buildTarget = b })
+                    (Json.Decode.field "version" Json.Decode.string)
+                    (Json.Decode.field "gitHash" Json.Decode.string)
+                    (Json.Decode.field "buildTarget" Json.Decode.string)
+                )
+        }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -146,6 +163,12 @@ update msg model =
               }
             , Cmd.none
             )
+
+        VersionLoaded (Ok info) ->
+            ( { model | version = info.version, gitHash = info.gitHash, buildTarget = info.buildTarget }, Cmd.none )
+
+        VersionLoaded (Err _) ->
+            ( model, Cmd.none )
 
         LoadDatabases ->
             case model.databases of
