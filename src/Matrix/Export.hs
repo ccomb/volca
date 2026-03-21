@@ -19,7 +19,6 @@ import qualified Data.Map as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 
@@ -275,7 +274,7 @@ exportEEIndex filePath db = do
                                 [] -> ("unspecified", "")
                                 [c] -> (T.strip c, "")
                                 (c:s:_) -> (T.strip c, T.strip s)
-                            unit = UUID.toText $ flowUnitId flow
+                            unit = getUnitNameForFlow (dbUnits db) flow
                         in escapeCsvField (flowName flow) <> ";" <>
                            escapeCsvField compartment <> ";" <>
                            escapeCsvField subcompartment <> ";" <>
