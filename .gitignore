@@ -38,6 +38,7 @@ volca.local.toml
 run*.sh
 
 # Data directories
+DBs/
 uploads/
 cache/
 

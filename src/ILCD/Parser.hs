@@ -7,6 +7,8 @@
 -- This module parses all four to build a complete activity database.
 module ILCD.Parser
     ( parseILCDDirectory
+    , parseProcessXML
+    , ILCDProcessRaw(..)
     ) where
 
 import Control.Concurrent (getNumCapabilities)
@@ -31,11 +33,12 @@ import Progress (reportProgress, ProgressLevel(..))
 
 -- | Raw parsed ILCD process (before conversion to VoLCA types)
 data ILCDProcessRaw = ILCDProcessRaw
-    { iprUUID        :: !UUID
-    , iprName        :: !Text
-    , iprLocation    :: !Text
-    , iprRefFlowIdx  :: !Int     -- dataSetInternalID of reference exchange
-    , iprExchanges   :: ![ILCDExchangeRaw]
+    { iprUUID            :: !UUID
+    , iprName            :: !Text
+    , iprLocation        :: !Text
+    , iprRefFlowIdx      :: !Int     -- dataSetInternalID of reference exchange
+    , iprExchanges       :: ![ILCDExchangeRaw]
+    , iprClassifications :: !(M.Map Text Text)
     }
 
 data ILCDExchangeRaw = ILCDExchangeRaw
@@ -240,25 +243,28 @@ buildFlowAndUnitDB flowInfoMap fpMap ugMap = (flows, allUnits)
 --------------------------------------------------------------------------------
 
 data ProcState = ProcState
-    { psUUID         :: !Text
-    , psBaseName     :: !Text
-    , psLocation     :: !Text
-    , psRefFlowIdx   :: !Int
-    , psExchanges    :: ![ILCDExchangeRaw]
-    , psInExchange   :: !Bool
-    , psExInternalId :: !Int
-    , psExFlowRef    :: !Text
-    , psExDirection  :: !Text
-    , psExAmount     :: !Double
-    , psExLocation   :: !Text
-    , psTextAccum    :: ![BS.ByteString]
-    , psInName       :: !Bool
+    { psUUID              :: !Text
+    , psBaseName          :: !Text
+    , psLocation          :: !Text
+    , psRefFlowIdx        :: !Int
+    , psExchanges         :: ![ILCDExchangeRaw]
+    , psInExchange        :: !Bool
+    , psExInternalId      :: !Int
+    , psExFlowRef         :: !Text
+    , psExDirection       :: !Text
+    , psExAmount          :: !Double
+    , psExLocation        :: !Text
+    , psTextAccum         :: ![BS.ByteString]
+    , psInName            :: !Bool
+    , psClassifications   :: !(M.Map Text Text)
+    , psPendingClassName  :: !Text
+    , psInClass           :: !Bool
     }
 
 parseProcessXML :: BS.ByteString -> Maybe ILCDProcessRaw
 parseProcessXML bytes =
     case X.fold openTag attr endOpen txt closeTag cdata
-        (ProcState "" "" "" 0 [] False (-1) "" "" 0 "" [] False) bytes of
+        (ProcState "" "" "" 0 [] False (-1) "" "" 0 "" [] False M.empty "" False) bytes of
         Left _  -> Nothing
         Right s -> buildProcess s
   where
@@ -269,6 +275,8 @@ parseProcessXML bytes =
               , psExDirection = "", psExAmount = 0, psExLocation = "" }
         | isElement tag "name" && not (psInExchange s) =
             s { psInName = True, psTextAccum = [] }
+        | isElement tag "class" && not (psInExchange s) =
+            s { psInClass = True, psTextAccum = [] }
         | otherwise = s { psTextAccum = [] }
 
     attr s name value
@@ -280,6 +288,8 @@ parseProcessXML bytes =
             s { psExFlowRef = bsToText value }
         | isElement name "location" && not (psInExchange s) && T.null (psLocation s) =
             s { psLocation = bsToText value }
+        | isElement name "name" && not (psInExchange s) && not (psInName s) =
+            s { psPendingClassName = bsToText value }
         | otherwise = s
 
     endOpen s _ = s
@@ -307,6 +317,16 @@ parseProcessXML bytes =
             s { psExAmount = parseDouble (accum s), psTextAccum = [] }
         | isElement tag "location" && psInExchange s =
             s { psExLocation = accum s, psTextAccum = [] }
+        | isElement tag "class" && psInClass s =
+            let txt = accum s
+                key = psPendingClassName s
+                existing = M.findWithDefault "" key (psClassifications s)
+                val = if T.null existing then txt else existing <> "/" <> txt
+            in s { psClassifications = if T.null txt then psClassifications s
+                                       else M.insert key val (psClassifications s)
+                 , psInClass = False, psTextAccum = [] }
+        | isElement tag "classification" =
+            s { psPendingClassName = "", psTextAccum = [] }
         | isElement tag "exchange" =
             let ex = ILCDExchangeRaw
                     { ierInternalId = psExInternalId s
@@ -332,6 +352,7 @@ parseProcessXML bytes =
             , iprLocation = psLocation s
             , iprRefFlowIdx = psRefFlowIdx s
             , iprExchanges = reverse (psExchanges s)
+            , iprClassifications = psClassifications s
             }
 
 -- | Parse process files in parallel using worker pattern
@@ -388,7 +409,7 @@ buildActivity flowInfoMap flowDB unitDB p = Activity
     { activityName = iprName p
     , activityDescription = []
     , activitySynonyms = M.empty
-    , activityClassification = M.empty
+    , activityClassification = iprClassifications p
     , activityLocation = iprLocation p
     , activityUnit = refUnit
     , exchanges = map (mkExchange (iprRefFlowIdx p)) (iprExchanges p)

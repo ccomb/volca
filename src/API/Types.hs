@@ -390,6 +390,7 @@ data SupplyChainEntry = SupplyChainEntry
     , sceQuantity :: Double       -- scalingFactor × reference product amount
     , sceUnit :: Text
     , sceScalingFactor :: Double   -- raw value from scaling vector
+    , sceClassifications :: M.Map Text Text  -- Classifications (ISIC, CPC, Category, etc.)
     }
     deriving (Generic)
 

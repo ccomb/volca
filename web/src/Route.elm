@@ -34,6 +34,7 @@ module Route exposing
     , matchDatabaseDetailAsActivities
     , matchCompartmentMappings
     , matchUnits
+    , matchComposition
     , matchHome
     , routeToDatabase
     , ActivePage(..)
@@ -56,6 +57,7 @@ type ActivityTab
     | Inventory
     | Graph
     | LCIA
+    | Composition
 
 
 type Route
@@ -211,6 +213,7 @@ routeParser =
         , Parser.map (ActivityRoute Inventory) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "inventory")
         , Parser.map (ActivityRoute Graph) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "graph")
         , Parser.map LCIARoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia" <?> Query.string "method")
+        , Parser.map (ActivityRoute Composition) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "composition")
         , Parser.map (ActivityRoute Upstream) (Parser.s "db" </> string </> Parser.s "activity" </> string)
         ]
 
@@ -247,6 +250,9 @@ activityTabSlug tab =
 
         LCIA ->
             "lcia"
+
+        Composition ->
+            "composition"
 
 
 appendQuery : List (Maybe Url.Builder.QueryParameter) -> String
@@ -623,3 +629,8 @@ matchUnits route =
 
         _ ->
             Nothing
+
+
+matchComposition : Route -> Maybe ( String, String )
+matchComposition =
+    matchTab Composition

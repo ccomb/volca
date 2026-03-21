@@ -32,6 +32,7 @@ class SupplyChainEntry:
     quantity: float
     unit: str
     scaling_factor: float
+    classifications: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_json(cls, d: dict) -> "SupplyChainEntry":
@@ -42,6 +43,7 @@ class SupplyChainEntry:
             quantity=d["sceQuantity"],
             unit=d["sceUnit"],
             scaling_factor=d["sceScalingFactor"],
+            classifications=d.get("sceClassifications", {}),
         )
 
 

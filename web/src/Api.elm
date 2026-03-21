@@ -1,9 +1,10 @@
-module Api exposing (computeLCIABatch, loadActivityInfo, loadActivityTree, loadFlowMapping, loadMethodCollections, loadMethodMapping)
+module Api exposing (computeLCIABatch, loadActivityInfo, loadActivityTree, loadFlowMapping, loadMethodCollections, loadMethodMapping, loadSupplyChain)
 
 import Http
 import Models.Activity exposing (ActivityInfo, ActivityTree, activityInfoDecoder, activityTreeDecoder)
 import Models.LCIA exposing (FlowCFMapping, LCIAResult, MappingStatus, flowCFMappingDecoder, lciaBatchDecoder, mappingStatusDecoder)
 import Models.Method exposing (MethodCollectionList, methodCollectionListDecoder)
+import Models.SupplyChain exposing (SupplyChainResponse, supplyChainResponseDecoder)
 
 
 loadActivityInfo : (Result Http.Error ActivityInfo -> msg) -> String -> String -> Cmd msg
@@ -51,4 +52,12 @@ loadFlowMapping toMsg dbName methodId =
     Http.get
         { url = "/api/v1/database/" ++ dbName ++ "/method/" ++ methodId ++ "/flow-mapping"
         , expect = Http.expectJson toMsg flowCFMappingDecoder
+        }
+
+
+loadSupplyChain : (Result Http.Error SupplyChainResponse -> msg) -> String -> String -> Cmd msg
+loadSupplyChain toMsg dbName activityId =
+    Http.get
+        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ activityId ++ "/supply-chain?limit=1000"
+        , expect = Http.expectJson toMsg supplyChainResponseDecoder
         }

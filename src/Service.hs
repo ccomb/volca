@@ -1024,6 +1024,7 @@ getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityPa
                                 , sceQuantity = scalingFactor * refAmount
                                 , sceUnit = activityUnit activity
                                 , sceScalingFactor = scalingFactor
+                                , sceClassifications = activityClassification activity
                                 }
 
                         rootSummary = ActivitySummary
@@ -1117,6 +1118,7 @@ createVariant db sharedSolver processIdText varReq = do
                                         , sceQuantity = scalingFactor * refAmount
                                         , sceUnit = activityUnit activity
                                         , sceScalingFactor = scalingFactor
+                                        , sceClassifications = activityClassification activity
                                         }
 
                                 subResults = [ SubstitutionResult

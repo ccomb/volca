@@ -28,6 +28,7 @@ import Pages.Products
 import Pages.Resources
 import Pages.Tree
 import Pages.Upload
+import Pages.Composition
 import Pages.Upstream
 import Route exposing (ActivePage(..), ActivityTab(..), Route(..))
 import Shared exposing (RemoteData(..))
@@ -407,6 +408,7 @@ main =
         |> Spa.addPublicPage mappers Route.matchTree Pages.Tree.page
         |> Spa.addPublicPage mappers Route.matchInventory Pages.Inventory.page
         |> Spa.addPublicPage mappers Route.matchGraph Pages.Graph.page
+        |> Spa.addPublicPage mappers Route.matchComposition Pages.Composition.page
         |> Spa.addPublicPage mappers Route.matchLCIA Pages.LCIA.page
         |> Spa.addPublicPage mappers Route.matchDatabases Pages.Databases.page
         |> Spa.addPublicPage mappers Route.matchUpload Pages.Upload.page
