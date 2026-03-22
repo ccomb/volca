@@ -333,24 +333,66 @@ parseParamRow cfg line =
             in if T.null n then Nothing else Just (n, v)
         _ -> Nothing
 
--- | Parse a product row (ByteString input, Text output)
+-- | Parse a reference product line.
+-- SimaPro CSV format:
+--   0. name
+--   1. unit
+--   2. value or formula
+--   3. allocation
+--   4. waste type
+--   5. category (separated by \)
+--   6. comment
+-- However, some waste treatment product rows omit the allocation field (field 3),
+-- producing only 6 fields. We detect this by checking whether field 3 looks numeric
+-- (allocation is a percentage like "100" or "33.5"). If it doesn't, we treat it as
+-- waste_type and shift the remaining fields accordingly.
+-- Without this detection, the comment (which often contains \x7f-separated EcoSpold
+-- property metadata) ends up being parsed as the category.
 parseProductRow :: SimaProConfig -> BS.ByteString -> Maybe ProductRow
 parseProductRow cfg line =
     let fields = splitCSV (spDelimiter cfg) line
         norm = Expr.normalizeExpr (spDecimal cfg) . decodeBS . BS8.strip
     in case fields of
-        (name:unit:amount:alloc:waste:cat:rest) -> Just ProductRow
+        -- 7+ fields with numeric allocation: name;unit;amount;alloc;waste;cat;comment
+        (name:unit:amount:alloc:waste:cat:rest)
+            | isNumericField (spDecimal cfg) alloc -> Just ProductRow
+                { prName = decodeBS (BS8.strip name)
+                , prUnit = decodeBS (BS8.strip unit)
+                , prAmount = parseAmount (spDecimal cfg) (BS8.strip amount)
+                , prAmountRaw = norm amount
+                , prAllocation = parseAmount (spDecimal cfg) (BS8.strip alloc)
+                , prAllocRaw = norm alloc
+                , prWasteType = decodeBS (BS8.strip waste)
+                , prCategory = decodeBS (BS8.strip cat)
+                , prComment = decodeBS (BS8.intercalate ";" rest)
+                }
+        -- 6+ fields without allocation: name;unit;amount;waste;cat;comment
+        (name:unit:amount:waste:cat:rest) -> Just ProductRow
             { prName = decodeBS (BS8.strip name)
             , prUnit = decodeBS (BS8.strip unit)
             , prAmount = parseAmount (spDecimal cfg) (BS8.strip amount)
             , prAmountRaw = norm amount
-            , prAllocation = parseAmount (spDecimal cfg) (BS8.strip alloc)
-            , prAllocRaw = norm alloc
+            , prAllocation = 100
+            , prAllocRaw = "100"
             , prWasteType = decodeBS (BS8.strip waste)
             , prCategory = decodeBS (BS8.strip cat)
             , prComment = decodeBS (BS8.intercalate ";" rest)
             }
         _ -> Nothing
+
+
+-- | Check if a ByteString field looks numeric (digits, decimal separator, sign,
+-- or scientific notation like "1.5E-3").
+-- Used to detect field ordering quirks in SimaPro CSV: the standard approach
+-- is "assume default ordering unless we find a number where we don't expect one"
+-- (or, conversely, a non-number where we expect one).
+isNumericField :: Char -> BS.ByteString -> Bool
+isNumericField decimalSep bs =
+    let s = BS8.strip bs
+    in not (BS.null s) && BS8.all (\c -> c >= '0' && c <= '9'
+                                      || c == '.' || c == decimalSep
+                                      || c == '-' || c == '+'
+                                      || c == 'e' || c == 'E') s
 
 -- | Parse a technosphere exchange row (ByteString input, Text output)
 parseTechRow :: SimaProConfig -> BS.ByteString -> Maybe TechExchangeRow
