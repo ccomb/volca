@@ -379,9 +379,9 @@ download_and_build_petsc() {
 
 # Clone petsc-hs if needed
 PETSC_HS_DIR="$SCRIPT_DIR/petsc-hs"
-if [[ ! -d "$PETSC_HS_DIR" ]]; then
-    log_info "Cloning petsc-hs..."
-    git clone https://github.com/ccomb/petsc-hs.git "$PETSC_HS_DIR"
+if [[ ! -d "$PETSC_HS_DIR" ]] || [[ -z "$(ls -A "$PETSC_HS_DIR" 2>/dev/null)" ]]; then
+    log_info "Initializing petsc-hs submodule..."
+    git -C "$SCRIPT_DIR" submodule update --init petsc-hs
 elif [[ "$FORCE_REBUILD" == "true" ]]; then
     log_info "Cleaning petsc-hs build artifacts..."
     rm -rf "$PETSC_HS_DIR/dist-newstyle"
