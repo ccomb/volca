@@ -116,7 +116,7 @@ import qualified SimaPro.Parser as SimaPro
 import System.FilePath (dropExtension, (</>))
 import System.Directory (removeDirectoryRecursive)
 import API.Types (DepLoadResult(..))
-import Method.Types (Method(..))
+import Method.Types (Method(..), MethodCollection(..))
 import qualified Method.Parser
 import Method.ParserCSV (parseMethodCSV)
 import Method.ParserSimaPro (isSimaProMethodCSV, parseSimaProMethodCSVBytes)
@@ -325,7 +325,7 @@ data DatabaseManager = DatabaseManager
     , dmIndexedDbs       :: !(TVar (Map Text IndexedDatabase)) -- Pre-built indexes for cross-DB linking
     , dmAvailableDbs     :: !(TVar (Map Text DatabaseConfig))  -- All configured databases
     , dmAvailableMethods :: !(TVar (Map Text MethodConfig))    -- All configured method collections
-    , dmLoadedMethods    :: !(TVar (Map Text [Method]))        -- name → parsed impact categories
+    , dmLoadedMethods    :: !(TVar (Map Text MethodCollection)) -- name → parsed methods + NW data
     -- Reference data: flow synonyms
     , dmAvailableFlowSyns :: !(TVar (Map Text RefDataConfig))
     , dmLoadedFlowSyns    :: !(TVar (Map Text SynonymDB))
@@ -437,10 +437,10 @@ initDatabaseManager config noCache _configPath = do
     forM_ activeMethods $ \mc -> do
         result <- loadMethodCollectionFromConfig mc
         case result of
-            Right (methods, flowInfo) -> do
-                atomically $ modifyTVar' loadedMethodsVar (M.insert (mcName mc) methods)
+            Right (collection, flowInfo) -> do
+                atomically $ modifyTVar' loadedMethodsVar (M.insert (mcName mc) collection)
                 reportProgress Info $ "  [OK] Loaded method: " <> T.unpack (mcName mc)
-                    <> " (" <> show (length methods) <> " impact categories)"
+                    <> " (" <> show (length (mcMethods collection)) <> " impact categories)"
                 let !pairs = extractFromILCDFlows flowInfo
                 autoCreateFlowSynonyms manager (mcName mc)
                     ("Auto-extracted from " <> mcName mc) pairs
@@ -1570,7 +1570,7 @@ finalizeDatabase manager dbName = do
 -- | Load methods from a MethodConfig path (directory or archive).
 -- Handles ZIP/7z archives via resolveDataPath, finds method XMLs,
 -- and enriches CFs from ILCD flow XMLs when available.
-loadMethodCollectionFromConfig :: MethodConfig -> IO (Either Text ([Method], M.Map UUID ILCDFlowInfo))
+loadMethodCollectionFromConfig :: MethodConfig -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
 loadMethodCollectionFromConfig mc = do
     -- Resolve archives (ZIP → extracted directory)
     resolvedPath <- resolveDataPath (mcPath mc)
@@ -1600,24 +1600,36 @@ loadMethodCollectionFromConfig mc = do
                     -- Parse method files with flow enrichment
                     xmlResults <- forM xmlFiles $ \f ->
                         Method.Parser.parseMethodFileWithFlows flowInfo (dir </> f)
-                    csvResults <- forM csvFiles $ \f -> do
+                    -- Split CSV files into SimaPro method exports and tabular CSVs
+                    csvParsed <- forM csvFiles $ \f -> do
                         bytes <- BS.readFile (dir </> f)
                         if isSimaProMethodCSV bytes
-                            then return $ parseSimaProMethodCSVBytes bytes
-                            else parseMethodCSV (dir </> f)
+                            then return $ fmap Left (parseSimaProMethodCSVBytes bytes)
+                            else fmap (fmap Right) (parseMethodCSV (dir </> f))
                     let (xmlErrs, xmlMethods) = partitionEithers xmlResults
-                        (csvErrs, csvMethodLists) = partitionEithers csvResults
-                        methods = xmlMethods ++ concat csvMethodLists
+                        (csvErrs, csvOks) = partitionEithers csvParsed
+                        -- Merge: SimaPro CSVs are MethodCollections, tabular CSVs are [Method]
+                        spCollections = [mc | Left mc <- csvOks]
+                        tabularMethods = concat [ms | Right ms <- csvOks]
+                        allMethods = xmlMethods ++ tabularMethods
+                                     ++ concatMap mcMethods spCollections
+                        -- Merge NW data from all SimaPro CSV sources
+                        allDamageCats = concatMap mcDamageCategories spCollections
+                        allNWSets = concatMap mcNormWeightSets spCollections
+                        collection = MethodCollection allMethods allDamageCats allNWSets
                         errs = xmlErrs ++ csvErrs
-                    if null methods && not (null errs)
+                    if null allMethods && not (null errs)
                         then return $ Left $ "All method files failed to parse: " <> T.pack (head errs)
                         else do
                             let xmlOk = length xmlMethods
-                                csvOk = length csvMethodLists
+                                csvOk = length csvOks
                             reportProgress Info $ "  Parsed " <> show xmlOk <> " XML, " <> show csvOk <> " CSV file(s)"
+                            when (not (null allDamageCats)) $
+                                reportProgress Info $ "  " <> show (length allDamageCats) <> " damage categories, "
+                                    <> show (length allNWSets) <> " normalization-weighting set(s)"
                             when (not (null errs)) $
                                 reportProgress Warning $ "  " <> show (length errs) <> " method file(s) failed to parse"
-                            return $ Right (methods, flowInfo)
+                            return $ Right (collection, flowInfo)
   where
     partitionEithers = foldr f ([], [])
       where f (Left  a) (ls, rs) = (a:ls, rs)
@@ -1635,7 +1647,7 @@ listMethodCollections manager = do
                 , mcsStatus = if M.member name loaded then Loaded else Unloaded
                 , mcsIsUploaded = mcIsUploaded mc
                 , mcsPath = T.pack (mcPath mc)
-                , mcsMethodCount = maybe 0 length (M.lookup name loaded)
+                , mcsMethodCount = maybe 0 (length . mcMethods) (M.lookup name loaded)
                 }
            | (name, mc) <- M.toList available
            ]
@@ -1657,9 +1669,10 @@ loadMethodCollection manager name = do
                         Left err -> do
                             reportProgress Error $ "  [FAIL] " <> T.unpack name <> ": " <> T.unpack err
                             return $ Left err
-                        Right (methods, flowInfo) -> do
-                            atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert name methods)
-                            let totalCFs = sum $ map (length . methodFactors) methods
+                        Right (collection, flowInfo) -> do
+                            atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert name collection)
+                            let methods = mcMethods collection
+                                totalCFs = sum $ map (length . methodFactors) methods
                             reportProgress Info $ "  [OK] Loaded: " <> T.unpack name
                                 <> " (" <> show (length methods) <> " impact categories, "
                                 <> show totalCFs <> " characterization factors)"
@@ -1684,7 +1697,7 @@ unloadMethodCollection manager name = do
 getLoadedMethods :: DatabaseManager -> IO [(Text, Method)]
 getLoadedMethods manager = do
     loaded <- readTVarIO (dmLoadedMethods manager)
-    return [(collName, m) | (collName, methods) <- M.toList loaded, m <- methods]
+    return [(collName, m) | (collName, coll) <- M.toList loaded, m <- mcMethods coll]
 
 -- | Add a new method collection to the available list
 addMethodCollection :: DatabaseManager -> MethodConfig -> IO ()

@@ -24,16 +24,19 @@ Category
 European
 
 Use Damage Assessment
-No
+Yes
 
 Use Normalization
-No
+Yes
 
 Use Weighting
-No
+Yes
 
 Use Addition
-No
+Yes
+
+Weighting unit
+Pt
 
 Impact category
 Climate change;kg CO2 eq
@@ -58,5 +61,36 @@ Water use;m3 depriv.
 Substances
 Raw;(unspecified);Water, lake;007732-18-5;1;m3
 Raw;(unspecified);Water, river;007732-18-5;1;m3
+
+Damage category
+Climate change;kg CO2 eq
+
+Impact categories
+Climate change;1
+
+Damage category
+Acidification;mol H+ eq
+
+Impact categories
+Acidification;1
+
+Damage category
+Water use;m3 depriv.
+
+Impact categories
+Water use;1
+
+Normalization-Weighting set
+Test NW set
+
+Normalization
+Climate change;1.32e-04
+Acidification;1.80e-02
+Water use;8.72e-05
+
+Weighting
+Climate change;0.2106
+Acidification;0.062
+Water use;0.0851
 
 End

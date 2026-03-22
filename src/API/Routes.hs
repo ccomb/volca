@@ -12,7 +12,7 @@ import SharedSolver (SharedSolver)
 import Method.Mapping (computeLCIAScore, mapMethodToFlows, MatchStrategy(..), MappingStats(..), computeMappingStats)
 import Plugin.Types (PluginRegistry(..), AnalyzeHandle(..), AnalyzeContext(..))
 import qualified Data.Vector as V
-import Method.Types (Method(..), MethodCF(..), FlowDirection(..))
+import Method.Types (Method(..), MethodCF(..), MethodCollection(..), FlowDirection(..))
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), DatabaseSetupInfo(..), getDatabase, MethodCollectionStatus(..), getMergedUnitConfig)
 import qualified Database.Manager as DM
 import API.DatabaseHandlers (simpleAction)
@@ -383,10 +383,11 @@ lcaServer dbManager maxTreeDepth password =
     getActivityLCIABatch dbName processIdText collectionName = do
         (db, _) <- requireDatabaseByName dbManager dbName
         -- Look up collection
-        loadedMethods <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
-        methods <- case M.lookup collectionName loadedMethods of
-            Just ms -> return ms
+        loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
+        collection <- case M.lookup collectionName loadedCollections of
+            Just mc -> return mc
             Nothing -> throwError err404{errBody = "Collection not loaded: " <> BSL.fromStrict (T.encodeUtf8 collectionName)}
+        let methods = mcMethods collection
         case Service.resolveActivityAndProcessId db processIdText of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}

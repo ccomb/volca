@@ -306,14 +306,14 @@ spec = do
             csv <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
-                Right methods -> length methods `shouldBe` 3
+                Right coll -> length (mcMethods coll) `shouldBe` 3
 
         it "parses Climate change category correctly" $ do
             csv <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
-                Right methods -> do
-                    let cc = head methods
+                Right coll -> do
+                    let cc = head (mcMethods coll)
                     methodName cc `shouldBe` "Climate change"
                     methodUnit cc `shouldBe` "kg CO2 eq"
                     methodCategory cc `shouldBe` "Climate change"
@@ -324,9 +324,8 @@ spec = do
             csv <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
-                Right methods -> do
-                    let cc = head methods
-                        co2 = head (methodFactors cc)
+                Right coll -> do
+                    let co2 = head (methodFactors (head (mcMethods coll)))
                     mcfFlowName co2 `shouldBe` "Carbon dioxide, fossil"
                     mcfValue co2 `shouldBe` 1.0
                     mcfDirection co2 `shouldBe` Output
@@ -336,9 +335,8 @@ spec = do
             csv <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
-                Right methods -> do
-                    let cc = head methods
-                        ch4 = (methodFactors cc) !! 1
+                Right coll -> do
+                    let ch4 = (methodFactors (head (mcMethods coll))) !! 1
                     mcfFlowName ch4 `shouldBe` "Methane, fossil"
                     mcfValue ch4 `shouldBe` 29.8
 
@@ -346,8 +344,8 @@ spec = do
             csv <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
-                Right methods -> do
-                    let wu = methods !! 2
+                Right coll -> do
+                    let wu = (mcMethods coll) !! 2
                     methodName wu `shouldBe` "Water use"
                     methodUnit wu `shouldBe` "m3 depriv."
                     let waterCF = head (methodFactors wu)
@@ -358,20 +356,41 @@ spec = do
             csv <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
-                Right methods -> do
-                    let acid = methods !! 1
-                        nh3 = head (methodFactors acid)
+                Right coll -> do
+                    let nh3 = head (methodFactors ((mcMethods coll) !! 1))
                     mcfCAS nh3 `shouldBe` Just "7664-41-7"
 
         it "produces deterministic UUIDs" $ do
             csv <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
-                Right methods1 -> do
+                Right coll1 ->
                     case parseSimaProMethodCSVBytes csv of
                         Left err -> expectationFailure $ "Parse failed: " ++ err
-                        Right methods2 ->
-                            map methodId methods1 `shouldBe` map methodId methods2
+                        Right coll2 ->
+                            map methodId (mcMethods coll1) `shouldBe` map methodId (mcMethods coll2)
+
+        it "parses 3 damage categories" $ do
+            csv <- BS.readFile "test/data/simapro_method.csv"
+            case parseSimaProMethodCSVBytes csv of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right coll -> do
+                    length (mcDamageCategories coll) `shouldBe` 3
+                    let dc = head (mcDamageCategories coll)
+                    dcName dc `shouldBe` "Climate change"
+                    dcUnit dc `shouldBe` "kg CO2 eq"
+                    dcImpacts dc `shouldBe` [("Climate change", 1.0)]
+
+        it "parses normalization-weighting set" $ do
+            csv <- BS.readFile "test/data/simapro_method.csv"
+            case parseSimaProMethodCSVBytes csv of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right coll -> do
+                    length (mcNormWeightSets coll) `shouldBe` 1
+                    let nw = head (mcNormWeightSets coll)
+                    nwName nw `shouldBe` "Test NW set"
+                    M.lookup "Climate change" (nwNormalization nw) `shouldBe` Just 1.32e-04
+                    M.lookup "Acidification" (nwWeighting nw) `shouldBe` Just 0.062
 
 -- Helper for testing Either values
 isLeft :: Either a b -> Bool

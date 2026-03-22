@@ -13,6 +13,11 @@ module Method.Types
     , MethodCF(..)
     , FlowDirection(..)
     , Compartment(..)
+      -- * Method Collection (with normalization/weighting)
+    , MethodCollection(..)
+    , DamageCategory(..)
+    , NormWeightSet(..)
+    , emptyMethodCollection
       -- * Compartment Mapping
     , CompartmentMap
     , buildCompartmentMapFromCSV
@@ -74,6 +79,35 @@ data Method = Method
     , methodMethodology :: !(Maybe Text) -- ^ Methodology (e.g., "Environmental Footprint")
     , methodFactors     :: ![MethodCF]  -- ^ List of characterization factors
     } deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+
+-- | Damage category: groups impact subcategories into a parent category.
+-- E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.
+-- Each impact maps with a factor (usually 1.0).
+data DamageCategory = DamageCategory
+    { dcName    :: !Text              -- ^ Damage category name
+    , dcUnit    :: !Text              -- ^ Unit (e.g., "CTUe")
+    , dcImpacts :: ![(Text, Double)]  -- ^ [(subcategory name, aggregation factor)]
+    } deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+
+-- | Normalization and weighting factor set.
+-- Normalization converts raw scores to person-equivalents.
+-- Weighting assigns relative importance for single-score aggregation.
+data NormWeightSet = NormWeightSet
+    { nwName          :: !Text                -- ^ Set name
+    , nwNormalization :: !(M.Map Text Double)  -- ^ Damage category → normalization factor
+    , nwWeighting     :: !(M.Map Text Double)  -- ^ Damage category → weight
+    } deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+
+-- | A method collection with optional damage categories and NW sets.
+data MethodCollection = MethodCollection
+    { mcMethods          :: ![Method]
+    , mcDamageCategories :: ![DamageCategory]
+    , mcNormWeightSets   :: ![NormWeightSet]
+    } deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+
+-- | Empty method collection (for wrapping plain method lists).
+emptyMethodCollection :: [Method] -> MethodCollection
+emptyMethodCollection ms = MethodCollection ms [] []
 
 -- | Compartment normalization map.
 -- Maps (lowercase source_medium, source_sub, source_qualifier) to target Compartment.
