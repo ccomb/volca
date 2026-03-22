@@ -149,26 +149,26 @@ The `depends` field ensures dependency databases load first and their flows are 
 
 ## REST API
 
-All per-database resources are scoped under `/api/v1/database/{name}/`:
+All per-database resources are scoped under `/api/v1/db/{name}/`:
 
 ```
-GET    /api/v1/database/{name}/activity/{id}                  Activity details
-GET    /api/v1/database/{name}/activity/{id}/tree             Supply chain tree
-GET    /api/v1/database/{name}/activity/{id}/inventory        Life cycle inventory
-GET    /api/v1/database/{name}/activity/{id}/graph?cutoff=    Supply chain graph
-GET    /api/v1/database/{name}/activity/{id}/lcia/{methodId}  LCIA score (single method)
-GET    /api/v1/database/{name}/activity/{id}/lcia-batch/{col} LCIA batch (all categories)
-GET    /api/v1/database/{name}/activities?name=&geo=&product= Search activities
-GET    /api/v1/database/{name}/flows?q=&lang=                 Search flows
-GET    /api/v1/database/{name}/flow/{flowId}                  Flow details
-GET    /api/v1/database/{name}/flow/{flowId}/activities       Activities using a flow
-GET    /api/v1/database/{name}/method/{id}/mapping            Mapping coverage stats
-GET    /api/v1/database/{name}/method/{id}/flow-mapping       Per-flow mapping detail
-GET    /api/v1/database                                       List databases and status
-POST   /api/v1/database/upload                                Upload a database archive
-POST   /api/v1/database/{name}/load                           Load a configured database
-POST   /api/v1/database/{name}/finalize                       Finalize cross-DB linking
-DELETE /api/v1/database/{name}                                Delete a database
+GET    /api/v1/db/{name}/activity/{id}                  Activity details
+GET    /api/v1/db/{name}/activity/{id}/tree             Supply chain tree
+GET    /api/v1/db/{name}/activity/{id}/inventory        Life cycle inventory
+GET    /api/v1/db/{name}/activity/{id}/graph?cutoff=    Supply chain graph
+GET    /api/v1/db/{name}/activity/{id}/lcia/{methodId}  LCIA score (single method)
+GET    /api/v1/db/{name}/activity/{id}/lcia-batch/{col} LCIA batch (all categories)
+GET    /api/v1/db/{name}/activities?name=&geo=&product= Search activities
+GET    /api/v1/db/{name}/flows?q=&lang=                 Search flows
+GET    /api/v1/db/{name}/flow/{flowId}                  Flow details
+GET    /api/v1/db/{name}/flow/{flowId}/activities       Activities using a flow
+GET    /api/v1/db/{name}/method/{id}/mapping            Mapping coverage stats
+GET    /api/v1/db/{name}/method/{id}/flow-mapping       Per-flow mapping detail
+GET    /api/v1/db                                       List databases and status
+POST   /api/v1/db/upload                                Upload a database archive
+POST   /api/v1/db/{name}/load                           Load a configured database
+POST   /api/v1/db/{name}/finalize                       Finalize cross-DB linking
+DELETE /api/v1/db/{name}                                Delete a database
 GET    /api/v1/methods                                        List individual methods
 GET    /api/v1/method/{id}                                    Method details
 GET    /api/v1/method/{id}/factors                            Characterization factors
@@ -284,28 +284,28 @@ volca method delete ef-31                        # delete
 | Feature | REST API | CLI |
 |---------|----------|-----|
 | **Search** | | |
-| Search activities | `GET /database/{db}/activities?name=&geo=&product=` | `activities --name --geo --product` |
-| Search flows | `GET /database/{db}/flows?q=&lang=` | `flows --query --lang` |
+| Search activities | `GET /db/{db}/activities?name=&geo=&product=` | `activities --name --geo --product` |
+| Search flows | `GET /db/{db}/flows?q=&lang=` | `flows --query --lang` |
 | **Analysis** | | |
-| Activity details | `GET /database/{db}/activity/{id}` | `activity ID` |
-| Supply chain tree | `GET /database/{db}/activity/{id}/tree` | `tree ID --depth N` |
-| Supply chain graph | `GET /database/{db}/activity/{id}/graph?cutoff=` | — |
-| Life cycle inventory | `GET /database/{db}/activity/{id}/inventory` | `inventory ID` |
-| LCIA (single method) | `GET /database/{db}/activity/{id}/lcia/{methodId}` | `lcia ID --method METHOD_UUID` |
-| LCIA batch | `GET /database/{db}/activity/{id}/lcia-batch/{col}` | — |
-| Flow details | `GET /database/{db}/flow/{flowId}` | `flow FLOW_ID` |
-| Flow activities | `GET /database/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
+| Activity details | `GET /db/{db}/activity/{id}` | `activity ID` |
+| Supply chain tree | `GET /db/{db}/activity/{id}/tree` | `tree ID --depth N` |
+| Supply chain graph | `GET /db/{db}/activity/{id}/graph?cutoff=` | — |
+| Life cycle inventory | `GET /db/{db}/activity/{id}/inventory` | `inventory ID` |
+| LCIA (single method) | `GET /db/{db}/activity/{id}/lcia/{methodId}` | `lcia ID --method METHOD_UUID` |
+| LCIA batch | `GET /db/{db}/activity/{id}/lcia-batch/{col}` | — |
+| Flow details | `GET /db/{db}/flow/{flowId}` | `flow FLOW_ID` |
+| Flow activities | `GET /db/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
 | **Flow Mapping** | | |
-| Mapping coverage | `GET /database/{db}/method/{id}/mapping` | `mapping METHOD_UUID` |
-| Per-flow mapping | `GET /database/{db}/method/{id}/flow-mapping` | `mapping METHOD_UUID --matched` |
+| Mapping coverage | `GET /db/{db}/method/{id}/mapping` | `mapping METHOD_UUID` |
+| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `mapping METHOD_UUID --matched` |
 | Unmatched CFs | included in mapping response | `mapping METHOD_UUID --unmatched` |
 | Uncharacterized flows | — | `mapping METHOD_UUID --uncharacterized` |
 | **Database Management** | | |
-| List databases | `GET /database` | `database` |
-| Upload database | `POST /database/upload` | `database upload FILE --name NAME` |
-| Load database | `POST /database/{name}/load` | — (use config `load = true`) |
-| Delete database | `DELETE /database/{name}` | `database delete NAME` |
-| Finalize linking | `POST /database/{name}/finalize` | — |
+| List databases | `GET /db` | `database` |
+| Upload database | `POST /db/upload` | `database upload FILE --name NAME` |
+| Load database | `POST /db/{name}/load` | — (use config `load = true`) |
+| Delete database | `DELETE /db/{name}` | `database delete NAME` |
+| Finalize linking | `POST /db/{name}/finalize` | — |
 | **Method Management** | | |
 | List methods | `GET /methods` | `methods` |
 | Method details | `GET /method/{id}` | — |

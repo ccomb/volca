@@ -68,10 +68,10 @@ class Server:
         )
 
     def is_alive(self) -> bool:
-        """Health check — GET /api/v1/database, return True if 200."""
+        """Health check — GET /api/v1/db, return True if 200."""
         try:
             r = requests.get(
-                f"{self.base_url}/api/v1/database",
+                f"{self.base_url}/api/v1/db",
                 headers=self._auth_headers(),
                 timeout=2,
             )

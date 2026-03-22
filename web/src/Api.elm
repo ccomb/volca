@@ -10,7 +10,7 @@ import Models.SupplyChain exposing (SupplyChainResponse, supplyChainResponseDeco
 loadActivityInfo : (Result Http.Error ActivityInfo -> msg) -> String -> String -> Cmd msg
 loadActivityInfo toMsg dbName activityId =
     Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ activityId
+        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ activityId
         , expect = Http.expectJson toMsg activityInfoDecoder
         }
 
@@ -18,7 +18,7 @@ loadActivityInfo toMsg dbName activityId =
 loadActivityTree : (Result Http.Error ActivityTree -> msg) -> String -> String -> Cmd msg
 loadActivityTree toMsg dbName activityId =
     Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ activityId ++ "/tree"
+        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ activityId ++ "/tree"
         , expect = Http.expectJson toMsg activityTreeDecoder
         }
 
@@ -34,7 +34,7 @@ loadMethodCollections toMsg =
 computeLCIABatch : (Result Http.Error LCIABatchResult -> msg) -> String -> String -> String -> Cmd msg
 computeLCIABatch toMsg dbName processId collection =
     Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ processId ++ "/lcia-batch/" ++ collection
+        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ processId ++ "/lcia-batch/" ++ collection
         , expect = Http.expectJson toMsg lciaBatchResultDecoder
         }
 
@@ -42,7 +42,7 @@ computeLCIABatch toMsg dbName processId collection =
 loadMethodMapping : (Result Http.Error MappingStatus -> msg) -> String -> String -> Cmd msg
 loadMethodMapping toMsg methodId dbName =
     Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/method/" ++ methodId ++ "/mapping"
+        { url = "/api/v1/db/" ++ dbName ++ "/method/" ++ methodId ++ "/mapping"
         , expect = Http.expectJson toMsg mappingStatusDecoder
         }
 
@@ -50,7 +50,7 @@ loadMethodMapping toMsg methodId dbName =
 loadFlowMapping : (Result Http.Error FlowCFMapping -> msg) -> String -> String -> Cmd msg
 loadFlowMapping toMsg dbName methodId =
     Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/method/" ++ methodId ++ "/flow-mapping"
+        { url = "/api/v1/db/" ++ dbName ++ "/method/" ++ methodId ++ "/flow-mapping"
         , expect = Http.expectJson toMsg flowCFMappingDecoder
         }
 
@@ -58,6 +58,6 @@ loadFlowMapping toMsg dbName methodId =
 loadSupplyChain : (Result Http.Error SupplyChainResponse -> msg) -> String -> String -> Cmd msg
 loadSupplyChain toMsg dbName activityId =
     Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ activityId ++ "/supply-chain?limit=1000"
+        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ activityId ++ "/supply-chain?limit=1000"
         , expect = Http.expectJson toMsg supplyChainResponseDecoder
         }

@@ -169,7 +169,7 @@ view shared model =
 unloadDatabaseCmd : String -> Cmd Msg
 unloadDatabaseCmd dbName =
     Http.post
-        { url = "/api/v1/database/" ++ dbName ++ "/unload"
+        { url = "/api/v1/db/" ++ dbName ++ "/unload"
         , body = Http.emptyBody
         , expect = Http.expectJson ActionResult activateResponseDecoder
         }
@@ -180,7 +180,7 @@ deleteDatabaseCmd dbName =
     Http.request
         { method = "DELETE"
         , headers = []
-        , url = "/api/v1/database/" ++ dbName
+        , url = "/api/v1/db/" ++ dbName
         , body = Http.emptyBody
         , expect = Http.expectJson ActionResult activateResponseDecoder
         , timeout = Nothing

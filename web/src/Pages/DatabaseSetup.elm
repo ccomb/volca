@@ -168,7 +168,7 @@ view shared model =
 loadSetupInfo : String -> Cmd Msg
 loadSetupInfo dbName =
     Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/setup"
+        { url = "/api/v1/db/" ++ dbName ++ "/setup"
         , expect = expectJsonWithBody SetupInfoLoaded databaseSetupInfoDecoder
         }
 
@@ -197,7 +197,7 @@ expectJsonWithBody toMsg decoder =
 addDependency : String -> String -> Cmd Msg
 addDependency dbName depName =
     Http.post
-        { url = "/api/v1/database/" ++ dbName ++ "/add-dependency/" ++ depName
+        { url = "/api/v1/db/" ++ dbName ++ "/add-dependency/" ++ depName
         , body = Http.emptyBody
         , expect = Http.expectJson DependencyActionResult databaseSetupInfoDecoder
         }
@@ -206,7 +206,7 @@ addDependency dbName depName =
 removeDependency : String -> String -> Cmd Msg
 removeDependency dbName depName =
     Http.post
-        { url = "/api/v1/database/" ++ dbName ++ "/remove-dependency/" ++ depName
+        { url = "/api/v1/db/" ++ dbName ++ "/remove-dependency/" ++ depName
         , body = Http.emptyBody
         , expect = Http.expectJson DependencyActionResult databaseSetupInfoDecoder
         }
@@ -215,7 +215,7 @@ removeDependency dbName depName =
 setDataPath : String -> String -> Cmd Msg
 setDataPath dbName path =
     Http.post
-        { url = "/api/v1/database/" ++ dbName ++ "/set-data-path"
+        { url = "/api/v1/db/" ++ dbName ++ "/set-data-path"
         , body = Http.jsonBody (Json.Encode.object [ ( "path", Json.Encode.string path ) ])
         , expect = Http.expectJson DependencyActionResult databaseSetupInfoDecoder
         }
@@ -224,7 +224,7 @@ setDataPath dbName path =
 finalizeDatabase : String -> Cmd Msg
 finalizeDatabase dbName =
     Http.post
-        { url = "/api/v1/database/" ++ dbName ++ "/finalize"
+        { url = "/api/v1/db/" ++ dbName ++ "/finalize"
         , body = Http.emptyBody
         , expect = Http.expectJson FinalizeResult activateResponseDecoder
         }

@@ -218,6 +218,6 @@ viewBody shared model =
 loadInventory : String -> String -> Cmd Msg
 loadInventory dbName activityId =
     Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ activityId ++ "/inventory"
+        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ activityId ++ "/inventory"
         , expect = Http.expectJson InventoryLoaded inventoryExportDecoder
         }

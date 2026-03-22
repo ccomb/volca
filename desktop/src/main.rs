@@ -195,7 +195,7 @@ fn build_library_path(resource_dir: &PathBuf) -> String {
 
 /// Wait for the backend to be ready by polling the health endpoint
 async fn wait_for_backend(port: u16, timeout_secs: u64) -> bool {
-    let url = format!("http://127.0.0.1:{}/api/v1/database", port);
+    let url = format!("http://127.0.0.1:{}/api/v1/db", port);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()

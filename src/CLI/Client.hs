@@ -70,13 +70,13 @@ executeRemoteCommand mgr rc globalOpts cmd = do
         jp  = jsonPath globalOpts
     case cmd of
         Database DbList ->
-            apiGet mgr rc "/api/v1/database" >>= output fmt jp
+            apiGet mgr rc "/api/v1/db" >>= output fmt jp
 
         Database (DbUpload args) ->
-            executeUpload mgr rc fmt jp "/api/v1/database/upload" args
+            executeUpload mgr rc fmt jp "/api/v1/db/upload" args
 
         Database (DbDelete name) ->
-            apiDelete mgr rc ("/api/v1/database/" ++ T.unpack name) >>= output fmt jp
+            apiDelete mgr rc ("/api/v1/db/" ++ T.unpack name) >>= output fmt jp
 
         Method McList ->
             apiGet mgr rc "/api/v1/method-collections" >>= output fmt jp
@@ -167,7 +167,7 @@ executeRemoteCommand mgr rc globalOpts cmd = do
 resolveDbName :: Manager -> RemoteConfig -> Maybe Text -> IO Text
 resolveDbName _ _ (Just name) = return name
 resolveDbName mgr rc Nothing = do
-    result <- apiGet mgr rc "/api/v1/database"
+    result <- apiGet mgr rc "/api/v1/db"
     case result of
         Right val -> case extractLoadedDbNames val of
             [name] -> return name
@@ -194,7 +194,7 @@ extractLoadedDbNames = fromMaybe [] . parseMaybe go
 
 -- | Build a database-scoped API path
 dbPath :: Text -> String
-dbPath name = "/api/v1/database/" ++ T.unpack name
+dbPath name = "/api/v1/db/" ++ T.unpack name
 
 -- | Build query string from optional parameters
 buildQuery :: [(String, Maybe String)] -> String

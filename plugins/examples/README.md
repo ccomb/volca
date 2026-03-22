@@ -112,7 +112,7 @@ echo '{"action":"report","data":{"name":"test"}}' | bash uppercase-reporter.sh
 ### Analyze endpoint
 
 ```
-GET /api/v1/database/{dbName}/activity/{processId}/analyze/{analyzerName}
+GET /api/v1/db/{dbName}/activity/{processId}/analyze/{analyzerName}
 ```
 
 Available analyzers: `lcia`, `hotspot`. The hotspot analyzer returns top-20 flows by contribution to each loaded impact category.

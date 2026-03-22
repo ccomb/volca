@@ -282,6 +282,6 @@ viewPageNavbar title maybeActivity =
 loadGraphData : String -> String -> Float -> Cmd Msg
 loadGraphData dbName activityId cutoff =
     Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ activityId ++ "/graph?cutoff=" ++ String.fromFloat cutoff
+        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ activityId ++ "/graph?cutoff=" ++ String.fromFloat cutoff
         , expect = Http.expectJson GraphLoaded graphDataDecoder
         }

@@ -23,7 +23,7 @@ class Client:
             self._session.headers["Authorization"] = f"Bearer {password}"
 
     def _db_url(self, path: str) -> str:
-        return f"{self.base_url}/api/v1/database/{self.db}/{path}"
+        return f"{self.base_url}/api/v1/db/{self.db}/{path}"
 
     def _api_url(self, path: str) -> str:
         return f"{self.base_url}/api/v1/{path}"

@@ -81,7 +81,7 @@ waitForReady mgr remaining = do
 isAlive :: Manager -> IO Bool
 isAlive mgr = do
     result <- try $ do
-        req <- parseRequest $ "http://127.0.0.1:" ++ show testPort ++ "/api/v1/database"
+        req <- parseRequest $ "http://127.0.0.1:" ++ show testPort ++ "/api/v1/db"
         resp <- httpLbs req mgr
         return $ statusCode (responseStatus resp)
     case result of

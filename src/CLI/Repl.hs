@@ -149,7 +149,7 @@ ensureServer mgr rc globalOpts cfgFile = do
 isServerAlive :: Manager -> RemoteConfig -> IO Bool
 isServerAlive mgr rc = do
     let noAuth = rc { rcAuth = Nothing }
-    result <- try (apiGet mgr noAuth "/api/v1/database") :: IO (Either SomeException (Either String Value))
+    result <- try (apiGet mgr noAuth "/api/v1/db") :: IO (Either SomeException (Either String Value))
     return $ case result of
         Right (Right _) -> True   -- 2xx response
         Right (Left e)  -> not ("Cannot connect" `isPrefixOf` e)  -- 401/404 = alive, connection error = not
