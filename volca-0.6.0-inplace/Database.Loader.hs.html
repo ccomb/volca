@@ -1,0 +1,1329 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE BangPatterns #-}
+<span class="lineno">    2 </span>{-# LANGUAGE DeriveAnyClass #-}
+<span class="lineno">    3 </span>{-# LANGUAGE DeriveGeneric #-}
+<span class="lineno">    4 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    5 </span>{-# LANGUAGE RecordWildCards #-}
+<span class="lineno">    6 </span>{-# LANGUAGE ScopedTypeVariables #-}
+<span class="lineno">    7 </span>
+<span class="lineno">    8 </span>{- |
+<span class="lineno">    9 </span>Module      : Database.Loader
+<span class="lineno">   10 </span>Description : High-performance EcoSpold XML loading with matrix caching
+<span class="lineno">   11 </span>
+<span class="lineno">   12 </span>This module provides optimized loading of EcoSpold XML files together with a
+<span class="lineno">   13 </span>single cache storing the fully indexed database and pre-computed sparse
+<span class="lineno">   14 </span>matrices. When the cache is absent or invalidated, the loader reparses all
+<span class="lineno">   15 </span>EcoSpold datasets, builds the in-memory structures, and writes the matrix cache
+<span class="lineno">   16 </span>for subsequent runs.
+<span class="lineno">   17 </span>
+<span class="lineno">   18 </span>Key performance features:
+<span class="lineno">   19 </span>- Parallel parsing with controlled concurrency (prevents resource exhaustion)
+<span class="lineno">   20 </span>- Automatic cache invalidation based on source file changes
+<span class="lineno">   21 </span>- Memory-efficient chunked processing for large databases
+<span class="lineno">   22 </span>- Hash-based cache filenames for multi-dataset support
+<span class="lineno">   23 </span>
+<span class="lineno">   24 </span>Cache performance (Ecoinvent 3.8 with 18K activities):
+<span class="lineno">   25 </span>- Cold start (XML parsing + matrix build): ~45s
+<span class="lineno">   26 </span>- Matrix cache hit: ~0.5s
+<span class="lineno">   27 </span>
+<span class="lineno">   28 </span>The cache keeps day-to-day execution fast while preserving reproducibility.
+<span class="lineno">   29 </span>-}
+<span class="lineno">   30 </span>module Database.Loader
+<span class="lineno">   31 </span>    ( -- * Main Loading Functions
+<span class="lineno">   32 </span>      loadDatabase
+<span class="lineno">   33 </span>    , loadDatabaseWithLocationAliases
+<span class="lineno">   34 </span>    , loadDatabaseWithCrossDBLinking
+<span class="lineno">   35 </span>      -- * Cache Operations
+<span class="lineno">   36 </span>    , loadCachedDatabaseWithMatrices
+<span class="lineno">   37 </span>    , saveCachedDatabaseWithMatrices
+<span class="lineno">   38 </span>    , loadDatabaseFromCacheFile
+<span class="lineno">   39 </span>    , generateMatrixCacheFilename
+<span class="lineno">   40 </span>      -- * Cross-Database Linking
+<span class="lineno">   41 </span>    , fixActivityLinksWithCrossDB
+<span class="lineno">   42 </span>    , CrossDBLinkingStats(..)
+<span class="lineno">   43 </span>    , emptyCrossDBLinkingStats
+<span class="lineno">   44 </span>    , crossDBLinksCount
+<span class="lineno">   45 </span>    , unresolvedCount
+<span class="lineno">   46 </span>    , crossDBBySource
+<span class="lineno">   47 </span>    , collectUnlinkedProductNames
+<span class="lineno">   48 </span>      -- * Database Analysis
+<span class="lineno">   49 </span>    , countTotalTechInputs
+<span class="lineno">   50 </span>    , countUnlinkedExchanges
+<span class="lineno">   51 </span>      -- * Internal Linking
+<span class="lineno">   52 </span>    , fixSimaProActivityLinks
+<span class="lineno">   53 </span>      -- * Reporting
+<span class="lineno">   54 </span>    , reportCrossDBLinkingStats
+<span class="lineno">   55 </span>    ) where
+<span class="lineno">   56 </span>
+<span class="lineno">   57 </span>import qualified Codec.Compression.Zstd as Zstd
+<span class="lineno">   58 </span>import Control.Concurrent.Async
+<span class="lineno">   59 </span>import Control.DeepSeq (force)
+<span class="lineno">   60 </span>import Control.Exception (SomeException, catch, evaluate)
+<span class="lineno">   61 </span>import Control.Monad
+<span class="lineno">   62 </span>import Data.Either (partitionEithers)
+<span class="lineno">   63 </span>import Data.Store (decodeEx, encode)
+<span class="lineno">   64 </span>import Data.Bits (xor)
+<span class="lineno">   65 </span>import qualified Data.ByteString as BS
+<span class="lineno">   66 </span>import Data.Char (toLower)
+<span class="lineno">   67 </span>import Data.List (sortBy, sortOn, group, sort, unzip7)
+<span class="lineno">   68 </span>import Data.Ord (Down(..))
+<span class="lineno">   69 </span>import qualified Data.Map as M
+<span class="lineno">   70 </span>import Data.Maybe (fromMaybe)
+<span class="lineno">   71 </span>import qualified Data.Set as S
+<span class="lineno">   72 </span>import qualified Data.Text as T
+<span class="lineno">   73 </span>import qualified Data.Text.Encoding as T
+<span class="lineno">   74 </span>import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
+<span class="lineno">   75 </span>import Data.Typeable (typeOf, typeRepFingerprint)
+<span class="lineno">   76 </span>import qualified Data.UUID as UUID
+<span class="lineno">   77 </span>import qualified Data.UUID.V5 as UUID5
+<span class="lineno">   78 </span>import qualified Data.Vector.Unboxed as VU
+<span class="lineno">   79 </span>import Data.Word (Word64)
+<span class="lineno">   80 </span>import EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile)
+<span class="lineno">   81 </span>import EcoSpold.Parser1 (streamParseActivityAndFlowsFromFile1, streamParseAllDatasetsFromFile1)
+<span class="lineno">   82 </span>import Database.CrossLinking
+<span class="lineno">   83 </span>    ( LinkingContext(..)
+<span class="lineno">   84 </span>    , CrossDBLinkResult(..)
+<span class="lineno">   85 </span>    , LinkWarning(..)
+<span class="lineno">   86 </span>    , IndexedDatabase(..)
+<span class="lineno">   87 </span>    , findSupplierAcrossDatabases
+<span class="lineno">   88 </span>    , defaultLinkingThreshold
+<span class="lineno">   89 </span>    , extractProductPrefixes
+<span class="lineno">   90 </span>    , normalizeUnicode
+<span class="lineno">   91 </span>    )
+<span class="lineno">   92 </span>import GHC.Conc (getNumCapabilities)
+<span class="lineno">   93 </span>import GHC.Fingerprint (Fingerprint (..))
+<span class="lineno">   94 </span>import Progress
+<span class="lineno">   95 </span>import Types
+<span class="lineno">   96 </span>import SynonymDB (SynonymDB)
+<span class="lineno">   97 </span>import qualified UnitConversion as UC
+<span class="lineno">   98 </span>import qualified SimaPro.Parser as SimaPro
+<span class="lineno">   99 </span>import qualified ILCD.Parser as ILCD
+<span class="lineno">  100 </span>import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, listDirectory, removeFile)
+<span class="lineno">  101 </span>import Database.UploadedDatabase (getDataDir)
+<span class="lineno">  102 </span>import System.FilePath (takeBaseName, takeExtension, (&lt;/&gt;))
+<span class="lineno">  103 </span>import Text.Printf (printf)
+<span class="lineno">  104 </span>
+<span class="lineno">  105 </span>-- | Magic bytes to identify VoLCA cache files
+<span class="lineno">  106 </span>cacheMagic :: BS.ByteString
+<span class="lineno">  107 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cacheMagic = &quot;FPLCACHE&quot;</span></span>
+<span class="lineno">  108 </span>
+<span class="lineno">  109 </span>-- | Merge two Flow records with the same UUID, combining their synonyms.
+<span class="lineno">  110 </span>-- When multiple .spold files reference the same biosphere flow, each may carry
+<span class="lineno">  111 </span>-- different synonyms. M.fromListWith mergeFlows ensures no synonym is lost.
+<span class="lineno">  112 </span>mergeFlows :: Flow -&gt; Flow -&gt; Flow
+<span class="lineno">  113 </span><span class="funcount">-- entered 88 times</span><span class="decl"><span class="istickedoff">mergeFlows a b = a { flowSynonyms = M.unionWith <span class="nottickedoff">S.union</span> (flowSynonyms a) (flowSynonyms b) }</span></span>
+<span class="lineno">  114 </span>
+<span class="lineno">  115 </span>{- |
+<span class="lineno">  116 </span>Schema signature automatically derived from the Database type structure.
+<span class="lineno">  117 </span>
+<span class="lineno">  118 </span>This signature changes when:
+<span class="lineno">  119 </span>- Fields are added/removed from Database or nested types
+<span class="lineno">  120 </span>- Type names change
+<span class="lineno">  121 </span>- Type structure changes
+<span class="lineno">  122 </span>
+<span class="lineno">  123 </span>The signature is stored inside the cache file and checked on load.
+<span class="lineno">  124 </span>If it doesn't match, the cache is automatically invalidated and rebuilt.
+<span class="lineno">  125 </span>-}
+<span class="lineno">  126 </span>schemaSignature :: Word64
+<span class="lineno">  127 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">schemaSignature =</span>
+<span class="lineno">  128 </span><span class="spaces">    </span><span class="nottickedoff">let Fingerprint hi lo = typeRepFingerprint (typeOf (undefined :: Database))</span>
+<span class="lineno">  129 </span><span class="spaces">     </span><span class="nottickedoff">in hi `xor` lo `xor` 4</span></span>
+<span class="lineno">  130 </span>
+<span class="lineno">  131 </span>{- |
+<span class="lineno">  132 </span>Helper function to parse UUID from Text with deterministic UUID generation fallback.
+<span class="lineno">  133 </span>Uses the same namespace as Parser.hs to ensure consistency.
+<span class="lineno">  134 </span>-}
+<span class="lineno">  135 </span>testDataNamespace :: UUID.UUID
+<span class="lineno">  136 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">testDataNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ T.encodeUtf8 &quot;acvengine.test&quot;)</span></span>
+<span class="lineno">  137 </span>
+<span class="lineno">  138 </span>parseUUID :: T.Text -&gt; UUID.UUID
+<span class="lineno">  139 </span><span class="funcount">-- entered 212 times</span><span class="decl"><span class="istickedoff">parseUUID txt = fromMaybe (UUID5.generateNamed testDataNamespace (BS.unpack $ T.encodeUtf8 txt)) (UUID.fromText txt)</span></span>
+<span class="lineno">  140 </span>
+<span class="lineno">  141 </span>-- | Namespace for EcoSpold1 UUID generation
+<span class="lineno">  142 </span>ecospold1Namespace :: UUID.UUID
+<span class="lineno">  143 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ecospold1Namespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ T.encodeUtf8 &quot;ecospold1.ecoinvent.org&quot;)</span></span>
+<span class="lineno">  144 </span>
+<span class="lineno">  145 </span>-- | Generate activity UUID from activity name and location (for EcoSpold1)
+<span class="lineno">  146 </span>generateActivityUUIDFromActivity :: Activity -&gt; UUID.UUID
+<span class="lineno">  147 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">generateActivityUUIDFromActivity act =</span>
+<span class="lineno">  148 </span><span class="spaces">    </span><span class="istickedoff">let key = activityName act &lt;&gt; &quot;:&quot; &lt;&gt; activityLocation act</span>
+<span class="lineno">  149 </span><span class="spaces">     </span><span class="istickedoff">in UUID5.generateNamed ecospold1Namespace (BS.unpack $ T.encodeUtf8 key)</span></span>
+<span class="lineno">  150 </span>
+<span class="lineno">  151 </span>-- | Get reference product UUID from activity exchanges
+<span class="lineno">  152 </span>getReferenceProductUUID :: Activity -&gt; UUID.UUID
+<span class="lineno">  153 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">getReferenceProductUUID act =</span>
+<span class="lineno">  154 </span><span class="spaces">    </span><span class="istickedoff">case filter exchangeIsReference (exchanges act) of</span>
+<span class="lineno">  155 </span><span class="spaces">        </span><span class="istickedoff">(ref : _) -&gt; exchangeFlowId ref</span>
+<span class="lineno">  156 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt; <span class="nottickedoff">UUID.nil</span></span></span> -- No reference product found
+<span class="lineno">  157 </span>
+<span class="lineno">  158 </span>-- | Type alias for supplier lookup index (with location)
+<span class="lineno">  159 </span>type SupplierIndex = M.Map (T.Text, T.Text) (UUID.UUID, UUID.UUID)
+<span class="lineno">  160 </span>
+<span class="lineno">  161 </span>{- | Type alias for name-only supplier lookup (for SimaPro)
+<span class="lineno">  162 </span>Maps normalizedProductName → (activityUUID, productUUID)
+<span class="lineno">  163 </span>-}
+<span class="lineno">  164 </span>type NameOnlyIndex = M.Map T.Text (UUID.UUID, UUID.UUID)
+<span class="lineno">  165 </span>
+<span class="lineno">  166 </span>{- | Type alias for name-only supplier lookup with location (for EcoSpold1)
+<span class="lineno">  167 </span>Maps normalizedProductName → (activityUUID, productUUID, location)
+<span class="lineno">  168 </span>Used when exchange has no location attribute to find the activity's actual location
+<span class="lineno">  169 </span>-}
+<span class="lineno">  170 </span>type SupplierByNameWithLocation = M.Map T.Text (UUID.UUID, UUID.UUID, T.Text)
+<span class="lineno">  171 </span>
+<span class="lineno">  172 </span>-- | Dataset number → (activityUUID, productUUID) for EcoSpold1 Tier 1 linking
+<span class="lineno">  173 </span>type DatasetNumberIndex = M.Map Int (UUID.UUID, UUID.UUID)
+<span class="lineno">  174 </span>
+<span class="lineno">  175 </span>-- | Information about an unlinked technosphere exchange
+<span class="lineno">  176 </span>data UnlinkedExchange = UnlinkedExchange
+<span class="lineno">  177 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ueFlowName</span></span></span> :: !T.Text
+<span class="lineno">  178 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ueLocation</span></span></span> :: !T.Text
+<span class="lineno">  179 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  180 </span>
+<span class="lineno">  181 </span>-- | Summary of unlinked exchanges grouped by consumer activity
+<span class="lineno">  182 </span>data UnlinkedSummary = UnlinkedSummary
+<span class="lineno">  183 </span>    { <span class="istickedoff"><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">usActivities</span></span></span> :: !(M.Map T.Text [UnlinkedExchange])  -- consumer name → list of unlinked exchanges
+<span class="lineno">  184 </span>    , <span class="istickedoff"><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">usTotalLinks</span></span></span> :: !Int
+<span class="lineno">  185 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">usFoundLinks</span></span></span> :: !Int
+<span class="lineno">  186 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">usMissingLinks</span></span></span> :: !Int
+<span class="lineno">  187 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  188 </span>
+<span class="lineno">  189 </span>-- | Empty unlinked summary
+<span class="lineno">  190 </span>emptyUnlinkedSummary :: UnlinkedSummary
+<span class="lineno">  191 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">emptyUnlinkedSummary = UnlinkedSummary M.empty 0 0 0</span></span>
+<span class="lineno">  192 </span>
+<span class="lineno">  193 </span>-- | Merge two unlinked summaries
+<span class="lineno">  194 </span>mergeUnlinkedSummaries :: UnlinkedSummary -&gt; UnlinkedSummary -&gt; UnlinkedSummary
+<span class="lineno">  195 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">mergeUnlinkedSummaries s1 s2 = UnlinkedSummary</span>
+<span class="lineno">  196 </span><span class="spaces">    </span><span class="istickedoff">{ usActivities = M.unionWith <span class="nottickedoff">(++)</span> (usActivities s1) (usActivities s2)</span>
+<span class="lineno">  197 </span><span class="spaces">    </span><span class="istickedoff">, usTotalLinks = usTotalLinks s1 + usTotalLinks s2</span>
+<span class="lineno">  198 </span><span class="spaces">    </span><span class="istickedoff">, usFoundLinks = usFoundLinks s1 + usFoundLinks s2</span>
+<span class="lineno">  199 </span><span class="spaces">    </span><span class="istickedoff">, usMissingLinks = usMissingLinks s1 + usMissingLinks s2</span>
+<span class="lineno">  200 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">  201 </span>
+<span class="lineno">  202 </span>-- | Report grouped summary of unlinked exchanges
+<span class="lineno">  203 </span>reportUnlinkedSummary :: UnlinkedSummary -&gt; IO ()
+<span class="lineno">  204 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">reportUnlinkedSummary summary</span>
+<span class="lineno">  205 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">M.null (usActivities summary)</span> = return <span class="nottickedoff">()</span>  -- Nothing to report</span>
+<span class="lineno">  206 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">do</span></span>
+<span class="lineno">  207 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">let activities = usActivities summary</span></span>
+<span class="lineno">  208 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">activityCount = M.size activities</span></span>
+<span class="lineno">  209 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">-- Sort activities by number of unlinked exchanges (descending)</span></span>
+<span class="lineno">  210 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">sortedActivities = take 10 $ reverse $ sortOn' (length . snd) $ M.toList activities</span></span>
+<span class="lineno">  211 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">remainingCount = activityCount - length sortedActivities</span></span>
+<span class="lineno">  212 </span><span class="spaces"></span><span class="istickedoff"><span class="nottickedoff"></span></span>
+<span class="lineno">  213 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">reportProgress Warning $</span></span>
+<span class="lineno">  214 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">printf &quot;Unlinked activities: %d activities affected&quot; activityCount</span></span>
+<span class="lineno">  215 </span><span class="spaces"></span><span class="istickedoff"><span class="nottickedoff"></span></span>
+<span class="lineno">  216 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">-- Report top activities with their missing suppliers</span></span>
+<span class="lineno">  217 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">forM_ sortedActivities $ \(actName, unlinkedExchanges) -&gt; do</span></span>
+<span class="lineno">  218 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">let uniqueExchanges = nub unlinkedExchanges  -- Remove duplicates</span></span>
+<span class="lineno">  219 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">flowCount = length uniqueExchanges</span></span>
+<span class="lineno">  220 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">topFlows = take 3 uniqueExchanges</span></span>
+<span class="lineno">  221 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">remainingFlows = flowCount - length topFlows</span></span>
+<span class="lineno">  222 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">reportProgress Warning $</span></span>
+<span class="lineno">  223 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">printf &quot;  - %s: %d missing suppliers&quot; (T.unpack actName) flowCount</span></span>
+<span class="lineno">  224 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">forM_ topFlows $ \ue -&gt;</span></span>
+<span class="lineno">  225 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">if T.null (ueLocation ue)</span></span>
+<span class="lineno">  226 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">then reportProgress Warning $ printf &quot;      * %s&quot; (T.unpack (ueFlowName ue))</span></span>
+<span class="lineno">  227 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">else reportProgress Warning $ printf &quot;      * %s [%s]&quot; (T.unpack (ueFlowName ue)) (T.unpack (ueLocation ue))</span></span>
+<span class="lineno">  228 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">when (remainingFlows &gt; 0) $</span></span>
+<span class="lineno">  229 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">reportProgress Warning $ printf &quot;      ... and %d more&quot; remainingFlows</span></span>
+<span class="lineno">  230 </span><span class="spaces"></span><span class="istickedoff"><span class="nottickedoff"></span></span>
+<span class="lineno">  231 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">when (remainingCount &gt; 0) $</span></span>
+<span class="lineno">  232 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">reportProgress Warning $ printf &quot;  ... and %d more activities&quot; remainingCount</span></span>
+<span class="lineno">  233 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  234 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">sortOn' f = sortBy (\a b -&gt; compare (f a) (f b))</span></span>
+<span class="lineno">  235 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">nub = map head . group . sort</span></span></span>
+<span class="lineno">  236 </span>
+<span class="lineno">  237 </span>-- | Normalize text for matching: lowercase, strip whitespace, normalize Unicode
+<span class="lineno">  238 </span>normalizeText :: T.Text -&gt; T.Text
+<span class="lineno">  239 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">normalizeText = T.toLower . T.strip . normalizeUnicode</span></span>
+<span class="lineno">  240 </span>
+<span class="lineno">  241 </span>{- | Build supplier index: (normalizedProductName, location) → (activityUUID, productUUID)
+<span class="lineno">  242 </span>For each activity, we index it by its reference product name + activity location
+<span class="lineno">  243 </span>-}
+<span class="lineno">  244 </span>buildSupplierIndex :: ActivityMap -&gt; FlowDB -&gt; SupplierIndex
+<span class="lineno">  245 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">buildSupplierIndex activities flowDb =</span>
+<span class="lineno">  246 </span><span class="spaces">    </span><span class="istickedoff">M.fromList</span>
+<span class="lineno">  247 </span><span class="spaces">        </span><span class="istickedoff">[ ((<span class="nottickedoff">normalizeText (flowName flow)</span>, <span class="nottickedoff">activityLocation act</span>), <span class="nottickedoff">(actUUID, prodUUID)</span>)</span>
+<span class="lineno">  248 </span><span class="spaces">        </span><span class="istickedoff">| ((actUUID, prodUUID), act) &lt;- M.toList activities</span>
+<span class="lineno">  249 </span><span class="spaces">        </span><span class="istickedoff">, ex &lt;- exchanges act</span>
+<span class="lineno">  250 </span><span class="spaces">        </span><span class="istickedoff">, exchangeIsReference ex</span>
+<span class="lineno">  251 </span><span class="spaces">        </span><span class="istickedoff">, Just flow &lt;- [M.lookup (exchangeFlowId ex) flowDb]</span>
+<span class="lineno">  252 </span><span class="spaces">        </span><span class="istickedoff">]</span></span>
+<span class="lineno">  253 </span>
+<span class="lineno">  254 </span>{- | Build name-only supplier index for SimaPro linking
+<span class="lineno">  255 </span>Uses the normalized product name + extracted prefixes (no location required).
+<span class="lineno">  256 </span>Exact names take priority via M.union.
+<span class="lineno">  257 </span>-}
+<span class="lineno">  258 </span>buildSupplierIndexByName :: ActivityMap -&gt; FlowDB -&gt; NameOnlyIndex
+<span class="lineno">  259 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">buildSupplierIndexByName activities flowDb =</span>
+<span class="lineno">  260 </span><span class="spaces">    </span><span class="nottickedoff">let entries =</span>
+<span class="lineno">  261 </span><span class="spaces">            </span><span class="nottickedoff">[ (flowName flow, (actUUID, prodUUID))</span>
+<span class="lineno">  262 </span><span class="spaces">            </span><span class="nottickedoff">| ((actUUID, prodUUID), act) &lt;- M.toList activities</span>
+<span class="lineno">  263 </span><span class="spaces">            </span><span class="nottickedoff">, ex &lt;- exchanges act</span>
+<span class="lineno">  264 </span><span class="spaces">            </span><span class="nottickedoff">, exchangeIsReference ex</span>
+<span class="lineno">  265 </span><span class="spaces">            </span><span class="nottickedoff">, Just flow &lt;- [M.lookup (exchangeFlowId ex) flowDb]</span>
+<span class="lineno">  266 </span><span class="spaces">            </span><span class="nottickedoff">]</span>
+<span class="lineno">  267 </span><span class="spaces">        </span><span class="nottickedoff">exactIndex = M.fromList [(normalizeText name, val) | (name, val) &lt;- entries]</span>
+<span class="lineno">  268 </span><span class="spaces">        </span><span class="nottickedoff">prefixIndex = M.fromList</span>
+<span class="lineno">  269 </span><span class="spaces">            </span><span class="nottickedoff">[ (normalizeText p, val)</span>
+<span class="lineno">  270 </span><span class="spaces">            </span><span class="nottickedoff">| (name, val) &lt;- entries</span>
+<span class="lineno">  271 </span><span class="spaces">            </span><span class="nottickedoff">, p &lt;- extractProductPrefixes name</span>
+<span class="lineno">  272 </span><span class="spaces">            </span><span class="nottickedoff">, normalizeText p /= normalizeText name</span>
+<span class="lineno">  273 </span><span class="spaces">            </span><span class="nottickedoff">]</span>
+<span class="lineno">  274 </span><span class="spaces">    </span><span class="nottickedoff">in M.union exactIndex prefixIndex</span></span>
+<span class="lineno">  275 </span>
+<span class="lineno">  276 </span>{- | Build name-only supplier index with location for EcoSpold1 linking
+<span class="lineno">  277 </span>Used when exchange has no location attribute to find the activity's actual location
+<span class="lineno">  278 </span>Maps normalizedProductName → (activityUUID, productUUID, activityLocation)
+<span class="lineno">  279 </span>-}
+<span class="lineno">  280 </span>buildSupplierIndexByNameWithLocation :: ActivityMap -&gt; FlowDB -&gt; SupplierByNameWithLocation
+<span class="lineno">  281 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">buildSupplierIndexByNameWithLocation activities flowDb =</span>
+<span class="lineno">  282 </span><span class="spaces">    </span><span class="istickedoff">M.fromList</span>
+<span class="lineno">  283 </span><span class="spaces">        </span><span class="istickedoff">[ (normalizeText (flowName flow), <span class="nottickedoff">(actUUID, prodUUID, activityLocation act)</span>)</span>
+<span class="lineno">  284 </span><span class="spaces">        </span><span class="istickedoff">| ((actUUID, prodUUID), act) &lt;- M.toList activities</span>
+<span class="lineno">  285 </span><span class="spaces">        </span><span class="istickedoff">, ex &lt;- exchanges act</span>
+<span class="lineno">  286 </span><span class="spaces">        </span><span class="istickedoff">, exchangeIsReference ex</span>
+<span class="lineno">  287 </span><span class="spaces">        </span><span class="istickedoff">, Just flow &lt;- [M.lookup (exchangeFlowId ex) flowDb]</span>
+<span class="lineno">  288 </span><span class="spaces">        </span><span class="istickedoff">]</span></span>
+<span class="lineno">  289 </span>
+<span class="lineno">  290 </span>{- | Fix EcoSpold1 activity links by resolving supplier references.
+<span class="lineno">  291 </span>Matches input exchanges to suppliers by (flowName, location).
+<span class="lineno">  292 </span>Unlinked exchanges stay unlinked so that cross-DB linking can resolve them.
+<span class="lineno">  293 </span>Location aliases map wrongLocation → correctLocation (e.g., &quot;ENTSO&quot; → &quot;ENTSO-E&quot;)
+<span class="lineno">  294 </span>-}
+<span class="lineno">  295 </span>fixEcoSpold1ActivityLinks :: M.Map T.Text T.Text -&gt; DatasetNumberIndex -&gt; M.Map UUID.UUID Int -&gt; SimpleDatabase -&gt; IO SimpleDatabase
+<span class="lineno">  296 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">fixEcoSpold1ActivityLinks locationAliases dsIndex supplierLinks db = do</span>
+<span class="lineno">  297 </span><span class="spaces">    </span><span class="istickedoff">-- Build supplier index</span>
+<span class="lineno">  298 </span><span class="spaces">    </span><span class="istickedoff">let supplierIndex = buildSupplierIndex (sdbActivities db) (sdbFlows db)</span>
+<span class="lineno">  299 </span><span class="spaces">    </span><span class="istickedoff">-- Build name-only index with location for exchanges missing location attribute</span>
+<span class="lineno">  300 </span><span class="spaces">    </span><span class="istickedoff">let nameIndex = buildSupplierIndexByNameWithLocation (sdbActivities db) (sdbFlows db)</span>
+<span class="lineno">  301 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info $</span>
+<span class="lineno">  302 </span><span class="spaces">        </span><span class="istickedoff">printf</span>
+<span class="lineno">  303 </span><span class="spaces">            </span><span class="istickedoff">&quot;Built supplier index with %d entries for activity linking (%d location aliases, %d name-only entries, %d dataset-number entries)&quot;</span>
+<span class="lineno">  304 </span><span class="spaces">            </span><span class="istickedoff">(M.size supplierIndex)</span>
+<span class="lineno">  305 </span><span class="spaces">            </span><span class="istickedoff">(M.size locationAliases)</span>
+<span class="lineno">  306 </span><span class="spaces">            </span><span class="istickedoff">(M.size nameIndex)</span>
+<span class="lineno">  307 </span><span class="spaces">            </span><span class="istickedoff">(M.size dsIndex)</span>
+<span class="lineno">  308 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  309 </span><span class="spaces">    </span><span class="istickedoff">-- Count and report statistics</span>
+<span class="lineno">  310 </span><span class="spaces">    </span><span class="istickedoff">let (fixedActivities, summary) = fixAllActivities <span class="nottickedoff">locationAliases</span> <span class="nottickedoff">supplierIndex</span> <span class="nottickedoff">nameIndex</span> <span class="nottickedoff">dsIndex</span> <span class="nottickedoff">supplierLinks</span> <span class="nottickedoff">(sdbFlows db)</span> (sdbActivities db)</span>
+<span class="lineno">  311 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  312 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info $</span>
+<span class="lineno">  313 </span><span class="spaces">        </span><span class="istickedoff">printf</span>
+<span class="lineno">  314 </span><span class="spaces">            </span><span class="istickedoff">&quot;Activity linking: %d/%d resolved (%.1f%%), %d unresolved&quot;</span>
+<span class="lineno">  315 </span><span class="spaces">            </span><span class="istickedoff">(usFoundLinks summary)</span>
+<span class="lineno">  316 </span><span class="spaces">            </span><span class="istickedoff">(usTotalLinks summary)</span>
+<span class="lineno">  317 </span><span class="spaces">            </span><span class="istickedoff">(if <span class="tickonlyfalse">usTotalLinks summary &gt; 0</span> then <span class="nottickedoff">100.0 * fromIntegral (usFoundLinks summary) / fromIntegral (usTotalLinks summary)</span> else 0.0 :: Double)</span>
+<span class="lineno">  318 </span><span class="spaces">            </span><span class="istickedoff">(usMissingLinks summary)</span>
+<span class="lineno">  319 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  320 </span><span class="spaces">    </span><span class="istickedoff">-- Report grouped summary of unlinked exchanges</span>
+<span class="lineno">  321 </span><span class="spaces">    </span><span class="istickedoff">reportUnlinkedSummary summary</span>
+<span class="lineno">  322 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  323 </span><span class="spaces">    </span><span class="istickedoff">return $ db{sdbActivities = fixedActivities}</span></span>
+<span class="lineno">  324 </span>
+<span class="lineno">  325 </span>-- | Fix all activities and return statistics with unlinked summary
+<span class="lineno">  326 </span>fixAllActivities :: M.Map T.Text T.Text -&gt; SupplierIndex -&gt; SupplierByNameWithLocation -&gt; DatasetNumberIndex -&gt; M.Map UUID.UUID Int -&gt; FlowDB -&gt; ActivityMap -&gt; (ActivityMap, UnlinkedSummary)
+<span class="lineno">  327 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">fixAllActivities locationAliases idx nameIdx dsIndex supplierLinks flowDb activities =</span>
+<span class="lineno">  328 </span><span class="spaces">    </span><span class="istickedoff">let results = M.map (fixActivityExchanges <span class="nottickedoff">locationAliases</span> <span class="nottickedoff">idx</span> <span class="nottickedoff">nameIdx</span> <span class="nottickedoff">dsIndex</span> <span class="nottickedoff">supplierLinks</span> <span class="nottickedoff">flowDb</span>) activities</span>
+<span class="lineno">  329 </span><span class="spaces">        </span><span class="istickedoff">summaries = map snd $ M.elems results</span>
+<span class="lineno">  330 </span><span class="spaces">        </span><span class="istickedoff">combinedSummary = foldr mergeUnlinkedSummaries emptyUnlinkedSummary summaries</span>
+<span class="lineno">  331 </span><span class="spaces">        </span><span class="istickedoff">fixedActivities = M.map fst results</span>
+<span class="lineno">  332 </span><span class="spaces">     </span><span class="istickedoff">in (fixedActivities, combinedSummary)</span></span>
+<span class="lineno">  333 </span>
+<span class="lineno">  334 </span>-- | Fix activity exchanges and return (fixed activity, UnlinkedSummary)
+<span class="lineno">  335 </span>fixActivityExchanges :: M.Map T.Text T.Text -&gt; SupplierIndex -&gt; SupplierByNameWithLocation -&gt; DatasetNumberIndex -&gt; M.Map UUID.UUID Int -&gt; FlowDB -&gt; Activity -&gt; (Activity, UnlinkedSummary)
+<span class="lineno">  336 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">fixActivityExchanges locationAliases idx nameIdx dsIndex supplierLinks flowDb act =</span>
+<span class="lineno">  337 </span><span class="spaces">    </span><span class="istickedoff">let (fixedExchanges, summaries) = unzip $ map (fixExchangeLink <span class="nottickedoff">locationAliases</span> <span class="nottickedoff">idx</span> <span class="nottickedoff">nameIdx</span> <span class="nottickedoff">dsIndex</span> <span class="nottickedoff">supplierLinks</span> <span class="nottickedoff">flowDb</span> <span class="nottickedoff">(activityName act)</span>) (exchanges act)</span>
+<span class="lineno">  338 </span><span class="spaces">        </span><span class="istickedoff">combinedSummary = foldr mergeUnlinkedSummaries emptyUnlinkedSummary summaries</span>
+<span class="lineno">  339 </span><span class="spaces">     </span><span class="istickedoff">in (act{exchanges = fixedExchanges}, combinedSummary)</span></span>
+<span class="lineno">  340 </span>
+<span class="lineno">  341 </span>{- | Fix a single exchange's activity link by (flowName, location) match.
+<span class="lineno">  342 </span>
+<span class="lineno">  343 </span>Unlinked exchanges stay unlinked for cross-DB resolution.
+<span class="lineno">  344 </span>Returns (fixed exchange, UnlinkedSummary)
+<span class="lineno">  345 </span>-}
+<span class="lineno">  346 </span>fixExchangeLink :: M.Map T.Text T.Text -&gt; SupplierIndex -&gt; SupplierByNameWithLocation -&gt; DatasetNumberIndex -&gt; M.Map UUID.UUID Int -&gt; FlowDB -&gt; T.Text -&gt; Exchange -&gt; (Exchange, UnlinkedSummary)
+<span class="lineno">  347 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">fixExchangeLink locationAliases idx nameIdx dsIndex supplierLinks flowDb consumerName ex@(TechnosphereExchange fid amt uid isInp isRef _ procLink loc)</span>
+<span class="lineno">  348 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">isInp</span> =</span>
+<span class="lineno">  349 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">let linked actUUID prodUUID = (TechnosphereExchange prodUUID amt uid isInp isRef actUUID procLink loc, UnlinkedSummary M.empty 1 1 0)</span></span>
+<span class="lineno">  350 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">unlinked flow lookupLoc =</span></span>
+<span class="lineno">  351 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">let ue = UnlinkedExchange (flowName flow) lookupLoc</span></span>
+<span class="lineno">  352 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">in (ex, UnlinkedSummary (M.singleton consumerName [ue]) 1 0 1)</span></span>
+<span class="lineno">  353 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">in case M.lookup fid flowDb of</span></span>
+<span class="lineno">  354 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">Just flow -&gt;</span></span>
+<span class="lineno">  355 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">-- Tier 1: dataset-number lookup with name validation</span></span>
+<span class="lineno">  356 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">case M.lookup fid supplierLinks &gt;&gt;= \dsNum -&gt; M.lookup dsNum dsIndex of</span></span>
+<span class="lineno">  357 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Just (actUUID, prodUUID)</span></span>
+<span class="lineno">  358 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">| Just supplierFlow &lt;- M.lookup prodUUID flowDb</span></span>
+<span class="lineno">  359 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, normalizeText (flowName supplierFlow) == normalizeText (flowName flow)</span></span>
+<span class="lineno">  360 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">-&gt; linked actUUID prodUUID</span></span>
+<span class="lineno">  361 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">_ -&gt;</span></span>
+<span class="lineno">  362 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">-- Tier 2: name + location lookup</span></span>
+<span class="lineno">  363 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">let normalizedLoc = fromMaybe loc (M.lookup loc locationAliases)</span></span>
+<span class="lineno">  364 </span><span class="spaces">                            </span><span class="istickedoff"><span class="nottickedoff">lookupLoc</span></span>
+<span class="lineno">  365 </span><span class="spaces">                                </span><span class="istickedoff"><span class="nottickedoff">| T.null normalizedLoc =</span></span>
+<span class="lineno">  366 </span><span class="spaces">                                    </span><span class="istickedoff"><span class="nottickedoff">case M.lookup (normalizeText (flowName flow)) nameIdx of</span></span>
+<span class="lineno">  367 </span><span class="spaces">                                        </span><span class="istickedoff"><span class="nottickedoff">Just (_, _, actLoc) -&gt; actLoc</span></span>
+<span class="lineno">  368 </span><span class="spaces">                                        </span><span class="istickedoff"><span class="nottickedoff">Nothing -&gt; normalizedLoc</span></span>
+<span class="lineno">  369 </span><span class="spaces">                                </span><span class="istickedoff"><span class="nottickedoff">| otherwise = normalizedLoc</span></span>
+<span class="lineno">  370 </span><span class="spaces">                            </span><span class="istickedoff"><span class="nottickedoff">key = (normalizeText (flowName flow), lookupLoc)</span></span>
+<span class="lineno">  371 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">in case M.lookup key idx of</span></span>
+<span class="lineno">  372 </span><span class="spaces">                            </span><span class="istickedoff"><span class="nottickedoff">Just (actUUID, prodUUID) -&gt; linked actUUID prodUUID</span></span>
+<span class="lineno">  373 </span><span class="spaces">                            </span><span class="istickedoff"><span class="nottickedoff">Nothing -&gt;</span></span>
+<span class="lineno">  374 </span><span class="spaces">                                </span><span class="istickedoff"><span class="nottickedoff">-- Tier 3: name-only fallback (safe for EcoSpold1 where names include {LOCATION})</span></span>
+<span class="lineno">  375 </span><span class="spaces">                                </span><span class="istickedoff"><span class="nottickedoff">case M.lookup (normalizeText (flowName flow)) nameIdx of</span></span>
+<span class="lineno">  376 </span><span class="spaces">                                    </span><span class="istickedoff"><span class="nottickedoff">Just (actUUID, prodUUID, _) -&gt; linked actUUID prodUUID</span></span>
+<span class="lineno">  377 </span><span class="spaces">                                    </span><span class="istickedoff"><span class="nottickedoff">Nothing -&gt; unlinked flow lookupLoc</span></span>
+<span class="lineno">  378 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">Nothing -&gt;</span></span>
+<span class="lineno">  379 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">(ex, UnlinkedSummary M.empty 1 0 1)</span></span>
+<span class="lineno">  380 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = (ex, emptyUnlinkedSummary)</span>
+<span class="lineno">  381 </span><span class="spaces"></span><span class="istickedoff">fixExchangeLink _ _ _ _ _ _ _ ex = (ex, emptyUnlinkedSummary)</span></span>
+<span class="lineno">  382 </span>
+<span class="lineno">  383 </span>{- |
+<span class="lineno">  384 </span>Load all EcoSpold files with optimized parallel processing and deduplication.
+<span class="lineno">  385 </span>
+<span class="lineno">  386 </span>This function implements a high-performance loading strategy:
+<span class="lineno">  387 </span>1. **Chunked Processing**: Split files into optimal chunks (500 files/chunk)
+<span class="lineno">  388 </span>2. **Controlled Parallelism**: Limit concurrent file handles (4 max)
+<span class="lineno">  389 </span>3. **Memory Management**: Process chunks sequentially to control memory usage
+<span class="lineno">  390 </span>4. **Deduplication**: Automatic flow and unit deduplication across files
+<span class="lineno">  391 </span>
+<span class="lineno">  392 </span>Performance characteristics:
+<span class="lineno">  393 </span>- Memory usage: ~2-4GB peak for Ecoinvent 3.8
+<span class="lineno">  394 </span>- Processing time: ~45s for 18K activities (cold start)
+<span class="lineno">  395 </span>- Parallelism: 4x concurrent file parsing within chunks
+<span class="lineno">  396 </span>- Chunk size: 500 files (optimal for memory vs parallelism trade-off)
+<span class="lineno">  397 </span>
+<span class="lineno">  398 </span>Used when no cache exists or caching is disabled.
+<span class="lineno">  399 </span>-}
+<span class="lineno">  400 </span>loadDatabase :: FilePath -&gt; IO (Either T.Text SimpleDatabase)
+<span class="lineno">  401 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">loadDatabase = loadDatabaseWithLocationAliases M.empty</span></span>
+<span class="lineno">  402 </span>
+<span class="lineno">  403 </span>{- | Load all EcoSpold files with location aliases
+<span class="lineno">  404 </span>Location aliases map wrongLocation → correctLocation (e.g., &quot;ENTSO&quot; → &quot;ENTSO-E&quot;)
+<span class="lineno">  405 </span>-}
+<span class="lineno">  406 </span>loadDatabaseWithLocationAliases :: M.Map T.Text T.Text -&gt; FilePath -&gt; IO (Either T.Text SimpleDatabase)
+<span class="lineno">  407 </span><span class="funcount">-- entered 35 times</span><span class="decl"><span class="istickedoff">loadDatabaseWithLocationAliases locationAliases path = do</span>
+<span class="lineno">  408 </span><span class="spaces">    </span><span class="istickedoff">-- Check if path is a file (SimaPro CSV) or directory (EcoSpold)</span>
+<span class="lineno">  409 </span><span class="spaces">    </span><span class="istickedoff">isFile &lt;- doesFileExist path</span>
+<span class="lineno">  410 </span><span class="spaces">    </span><span class="istickedoff">isDir &lt;- doesDirectoryExist path</span>
+<span class="lineno">  411 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  412 </span><span class="spaces">    </span><span class="istickedoff">if <span class="tickonlyfalse">isFile</span></span>
+<span class="lineno">  413 </span><span class="spaces">        </span><span class="istickedoff">then <span class="nottickedoff">case map toLower (takeExtension path) of</span></span>
+<span class="lineno">  414 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">&quot;.csv&quot; -&gt; loadSimaProCSV path</span></span>
+<span class="lineno">  415 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">&quot;.xml&quot; -&gt; loadSingleEcoSpold1File locationAliases path</span></span>
+<span class="lineno">  416 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">_      -&gt; return $ Left $ T.pack $ &quot;Unsupported file type: &quot; ++ path</span></span>
+<span class="lineno">  417 </span><span class="spaces">        </span><span class="istickedoff">else if <span class="tickonlytrue">isDir</span></span>
+<span class="lineno">  418 </span><span class="spaces">            </span><span class="istickedoff">then do</span>
+<span class="lineno">  419 </span><span class="spaces">                </span><span class="istickedoff">hasProcesses &lt;- doesDirectoryExist (path &lt;/&gt; &quot;processes&quot;)</span>
+<span class="lineno">  420 </span><span class="spaces">                </span><span class="istickedoff">if <span class="tickonlyfalse">hasProcesses</span></span>
+<span class="lineno">  421 </span><span class="spaces">                    </span><span class="istickedoff">then <span class="nottickedoff">ILCD.parseILCDDirectory path</span></span>
+<span class="lineno">  422 </span><span class="spaces">                    </span><span class="istickedoff">else loadEcoSpoldDirectory locationAliases path</span>
+<span class="lineno">  423 </span><span class="spaces">            </span><span class="istickedoff">else <span class="nottickedoff">return $ Left $ T.pack $ &quot;Path does not exist: &quot; ++ path</span></span></span>
+<span class="lineno">  424 </span>
+<span class="lineno">  425 </span>-- | Load SimaPro CSV file
+<span class="lineno">  426 </span>loadSimaProCSV :: FilePath -&gt; IO (Either T.Text SimpleDatabase)
+<span class="lineno">  427 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">loadSimaProCSV csvPath = do</span>
+<span class="lineno">  428 </span><span class="spaces">    </span><span class="nottickedoff">(activities, flowDB, unitDB) &lt;- SimaPro.parseSimaProCSV csvPath</span>
+<span class="lineno">  429 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  430 </span><span class="spaces">    </span><span class="nottickedoff">if null activities</span>
+<span class="lineno">  431 </span><span class="spaces">        </span><span class="nottickedoff">then return $ Left &quot;No activities found in SimaPro CSV file.&quot;</span>
+<span class="lineno">  432 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  433 </span><span class="spaces">            </span><span class="nottickedoff">-- Build ActivityMap with generated ProcessIds</span>
+<span class="lineno">  434 </span><span class="spaces">            </span><span class="nottickedoff">-- For SimaPro: use the same UUID for both activity and product (like EcoSpold1)</span>
+<span class="lineno">  435 </span><span class="spaces">            </span><span class="nottickedoff">let procMap =</span>
+<span class="lineno">  436 </span><span class="spaces">                    </span><span class="nottickedoff">M.fromList</span>
+<span class="lineno">  437 </span><span class="spaces">                        </span><span class="nottickedoff">[ ((SimaPro.generateActivityUUID act, getReferenceProductUUID act), act)</span>
+<span class="lineno">  438 </span><span class="spaces">                        </span><span class="nottickedoff">| act &lt;- activities</span>
+<span class="lineno">  439 </span><span class="spaces">                        </span><span class="nottickedoff">]</span>
+<span class="lineno">  440 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  441 </span><span class="spaces">            </span><span class="nottickedoff">-- Build initial database</span>
+<span class="lineno">  442 </span><span class="spaces">            </span><span class="nottickedoff">let simpleDb = SimpleDatabase procMap flowDB unitDB</span>
+<span class="lineno">  443 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  444 </span><span class="spaces">            </span><span class="nottickedoff">-- Fix activity links using supplier lookup (same as EcoSpold1)</span>
+<span class="lineno">  445 </span><span class="spaces">            </span><span class="nottickedoff">Right &lt;$&gt; fixSimaProActivityLinks simpleDb</span></span>
+<span class="lineno">  446 </span>
+<span class="lineno">  447 </span>{- | Fix SimaPro activity links by resolving supplier references
+<span class="lineno">  448 </span>Uses name-only matching (no location required) for SimaPro technosphere inputs
+<span class="lineno">  449 </span>-}
+<span class="lineno">  450 </span>fixSimaProActivityLinks :: SimpleDatabase -&gt; IO SimpleDatabase
+<span class="lineno">  451 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fixSimaProActivityLinks db = do</span>
+<span class="lineno">  452 </span><span class="spaces">    </span><span class="nottickedoff">let nameIndex = buildSupplierIndexByName (sdbActivities db) (sdbFlows db)</span>
+<span class="lineno">  453 </span><span class="spaces">    </span><span class="nottickedoff">reportProgress Info $ printf &quot;Built name-only supplier index with %d entries for SimaPro linking&quot; (M.size nameIndex)</span>
+<span class="lineno">  454 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  455 </span><span class="spaces">    </span><span class="nottickedoff">-- Count and report statistics</span>
+<span class="lineno">  456 </span><span class="spaces">    </span><span class="nottickedoff">let (fixedActivities, summary) = fixAllActivitiesByName nameIndex (sdbFlows db) (sdbActivities db)</span>
+<span class="lineno">  457 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  458 </span><span class="spaces">    </span><span class="nottickedoff">reportProgress Info $</span>
+<span class="lineno">  459 </span><span class="spaces">        </span><span class="nottickedoff">printf</span>
+<span class="lineno">  460 </span><span class="spaces">            </span><span class="nottickedoff">&quot;SimaPro activity linking: %d/%d resolved (%.1f%%), %d unresolved&quot;</span>
+<span class="lineno">  461 </span><span class="spaces">            </span><span class="nottickedoff">(usFoundLinks summary)</span>
+<span class="lineno">  462 </span><span class="spaces">            </span><span class="nottickedoff">(usTotalLinks summary)</span>
+<span class="lineno">  463 </span><span class="spaces">            </span><span class="nottickedoff">(if usTotalLinks summary &gt; 0 then 100.0 * fromIntegral (usFoundLinks summary) / fromIntegral (usTotalLinks summary) else 0.0 :: Double)</span>
+<span class="lineno">  464 </span><span class="spaces">            </span><span class="nottickedoff">(usMissingLinks summary)</span>
+<span class="lineno">  465 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  466 </span><span class="spaces">    </span><span class="nottickedoff">-- Report grouped summary of unlinked exchanges</span>
+<span class="lineno">  467 </span><span class="spaces">    </span><span class="nottickedoff">reportUnlinkedSummary summary</span>
+<span class="lineno">  468 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  469 </span><span class="spaces">    </span><span class="nottickedoff">return $ db{sdbActivities = fixedActivities}</span></span>
+<span class="lineno">  470 </span>
+<span class="lineno">  471 </span>-- | Fix all activities using name-only matching
+<span class="lineno">  472 </span>fixAllActivitiesByName :: NameOnlyIndex -&gt; FlowDB -&gt; ActivityMap -&gt; (ActivityMap, UnlinkedSummary)
+<span class="lineno">  473 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fixAllActivitiesByName idx flowDb activities =</span>
+<span class="lineno">  474 </span><span class="spaces">    </span><span class="nottickedoff">let results = M.map (\act -&gt; fixActivityExchangesByName idx flowDb act) activities</span>
+<span class="lineno">  475 </span><span class="spaces">        </span><span class="nottickedoff">summaries = map snd $ M.elems results</span>
+<span class="lineno">  476 </span><span class="spaces">        </span><span class="nottickedoff">combinedSummary = foldr mergeUnlinkedSummaries emptyUnlinkedSummary summaries</span>
+<span class="lineno">  477 </span><span class="spaces">        </span><span class="nottickedoff">fixedActivities = M.map fst results</span>
+<span class="lineno">  478 </span><span class="spaces">     </span><span class="nottickedoff">in (fixedActivities, combinedSummary)</span></span>
+<span class="lineno">  479 </span>
+<span class="lineno">  480 </span>-- | Fix activity exchanges using name-only matching
+<span class="lineno">  481 </span>fixActivityExchangesByName :: NameOnlyIndex -&gt; FlowDB -&gt; Activity -&gt; (Activity, UnlinkedSummary)
+<span class="lineno">  482 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fixActivityExchangesByName idx flowDb act =</span>
+<span class="lineno">  483 </span><span class="spaces">    </span><span class="nottickedoff">let (fixedExchanges, summaries) = unzip $ map (fixExchangeLinkByName idx flowDb (activityName act)) (exchanges act)</span>
+<span class="lineno">  484 </span><span class="spaces">        </span><span class="nottickedoff">combinedSummary = foldr mergeUnlinkedSummaries emptyUnlinkedSummary summaries</span>
+<span class="lineno">  485 </span><span class="spaces">     </span><span class="nottickedoff">in (act{exchanges = fixedExchanges}, combinedSummary)</span></span>
+<span class="lineno">  486 </span>
+<span class="lineno">  487 </span>{- | Fix a single exchange's activity link using name-only matching
+<span class="lineno">  488 </span>Returns (fixed exchange, UnlinkedSummary)
+<span class="lineno">  489 </span>-}
+<span class="lineno">  490 </span>fixExchangeLinkByName :: NameOnlyIndex -&gt; FlowDB -&gt; T.Text -&gt; Exchange -&gt; (Exchange, UnlinkedSummary)
+<span class="lineno">  491 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fixExchangeLinkByName idx flowDb consumerName ex@(TechnosphereExchange fid amt uid isInp isRef _ procLink loc)</span>
+<span class="lineno">  492 </span><span class="spaces">    </span><span class="nottickedoff">| isInp -- All technosphere inputs (no location check!)</span>
+<span class="lineno">  493 </span><span class="spaces">        </span><span class="nottickedoff">=</span>
+<span class="lineno">  494 </span><span class="spaces">        </span><span class="nottickedoff">case M.lookup fid flowDb of</span>
+<span class="lineno">  495 </span><span class="spaces">            </span><span class="nottickedoff">Just flow -&gt;</span>
+<span class="lineno">  496 </span><span class="spaces">                </span><span class="nottickedoff">let key = normalizeText (flowName flow)</span>
+<span class="lineno">  497 </span><span class="spaces">                 </span><span class="nottickedoff">in case M.lookup key idx of</span>
+<span class="lineno">  498 </span><span class="spaces">                        </span><span class="nottickedoff">Just (actUUID, prodUUID) -&gt;</span>
+<span class="lineno">  499 </span><span class="spaces">                            </span><span class="nottickedoff">-- Found supplier: update both activityLinkId AND flowId to match supplier's reference product</span>
+<span class="lineno">  500 </span><span class="spaces">                            </span><span class="nottickedoff">(TechnosphereExchange prodUUID amt uid isInp isRef actUUID procLink loc, UnlinkedSummary M.empty 1 1 0)</span>
+<span class="lineno">  501 </span><span class="spaces">                        </span><span class="nottickedoff">Nothing -&gt;</span>
+<span class="lineno">  502 </span><span class="spaces">                            </span><span class="nottickedoff">-- Fallback: try splitting compound name at separators</span>
+<span class="lineno">  503 </span><span class="spaces">                            </span><span class="nottickedoff">let prefixes = extractProductPrefixes (flowName flow)</span>
+<span class="lineno">  504 </span><span class="spaces">                                </span><span class="nottickedoff">tryPrefix [] = Nothing</span>
+<span class="lineno">  505 </span><span class="spaces">                                </span><span class="nottickedoff">tryPrefix (p:ps) = case M.lookup (normalizeText p) idx of</span>
+<span class="lineno">  506 </span><span class="spaces">                                    </span><span class="nottickedoff">Just result -&gt; Just result</span>
+<span class="lineno">  507 </span><span class="spaces">                                    </span><span class="nottickedoff">Nothing     -&gt; tryPrefix ps</span>
+<span class="lineno">  508 </span><span class="spaces">                            </span><span class="nottickedoff">in case tryPrefix prefixes of</span>
+<span class="lineno">  509 </span><span class="spaces">                                </span><span class="nottickedoff">Just (actUUID, prodUUID) -&gt;</span>
+<span class="lineno">  510 </span><span class="spaces">                                    </span><span class="nottickedoff">(TechnosphereExchange prodUUID amt uid isInp isRef actUUID procLink loc, UnlinkedSummary M.empty 1 1 0)</span>
+<span class="lineno">  511 </span><span class="spaces">                                </span><span class="nottickedoff">Nothing -&gt;</span>
+<span class="lineno">  512 </span><span class="spaces">                                    </span><span class="nottickedoff">-- Supplier not found - collect unlinked exchange info</span>
+<span class="lineno">  513 </span><span class="spaces">                                    </span><span class="nottickedoff">let unlinked = UnlinkedExchange (flowName flow) loc</span>
+<span class="lineno">  514 </span><span class="spaces">                                        </span><span class="nottickedoff">unlinkedMap = M.singleton consumerName [unlinked]</span>
+<span class="lineno">  515 </span><span class="spaces">                                     </span><span class="nottickedoff">in (ex, UnlinkedSummary unlinkedMap 1 0 1)</span>
+<span class="lineno">  516 </span><span class="spaces">            </span><span class="nottickedoff">Nothing -&gt;</span>
+<span class="lineno">  517 </span><span class="spaces">                </span><span class="nottickedoff">-- Flow not in database - shouldn't happen but be safe</span>
+<span class="lineno">  518 </span><span class="spaces">                </span><span class="nottickedoff">(ex, UnlinkedSummary M.empty 1 0 1)</span>
+<span class="lineno">  519 </span><span class="spaces">    </span><span class="nottickedoff">| otherwise = (ex, emptyUnlinkedSummary) -- Not a linkable exchange (outputs/references)</span>
+<span class="lineno">  520 </span><span class="spaces"></span><span class="nottickedoff">fixExchangeLinkByName _ _ _ ex = (ex, emptyUnlinkedSummary)</span></span> -- BiosphereExchange - no linking needed
+<span class="lineno">  521 </span>
+<span class="lineno">  522 </span>-- | Load EcoSpold files from directory
+<span class="lineno">  523 </span>loadEcoSpoldDirectory :: M.Map T.Text T.Text -&gt; FilePath -&gt; IO (Either T.Text SimpleDatabase)
+<span class="lineno">  524 </span><span class="funcount">-- entered 35 times</span><span class="decl"><span class="istickedoff">loadEcoSpoldDirectory locationAliases dir = do</span>
+<span class="lineno">  525 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info &quot;Scanning directory for EcoSpold files&quot;</span>
+<span class="lineno">  526 </span><span class="spaces">    </span><span class="istickedoff">files &lt;- listDirectory dir</span>
+<span class="lineno">  527 </span><span class="spaces">    </span><span class="istickedoff">-- Support both EcoSpold2 (.spold) and EcoSpold1 (.XML/.xml) files</span>
+<span class="lineno">  528 </span><span class="spaces">    </span><span class="istickedoff">let spold2Files = [dir &lt;/&gt; f | f &lt;- files, takeExtension f == &quot;.spold&quot;]</span>
+<span class="lineno">  529 </span><span class="spaces">    </span><span class="istickedoff">let spold1Files = [dir &lt;/&gt; f | f &lt;- files, map toLower (takeExtension f) == &quot;.xml&quot;]</span>
+<span class="lineno">  530 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  531 </span><span class="spaces">    </span><span class="istickedoff">-- Determine which format to use based on what's found</span>
+<span class="lineno">  532 </span><span class="spaces">    </span><span class="istickedoff">case (spold2Files, spold1Files) of</span>
+<span class="lineno">  533 </span><span class="spaces">        </span><span class="istickedoff">([], []) -&gt; <span class="nottickedoff">return $ Left $ T.pack $ &quot;No EcoSpold files found in directory: &quot; ++ dir</span></span>
+<span class="lineno">  534 </span><span class="spaces">        </span><span class="istickedoff">([], [singleXml]) -&gt; do</span>
+<span class="lineno">  535 </span><span class="spaces">            </span><span class="istickedoff">-- Single XML file: likely a multi-dataset EcoSpold1 file</span>
+<span class="lineno">  536 </span><span class="spaces">            </span><span class="istickedoff">reportProgress Info $ &quot;Found single EcoSpold1 file: &quot; ++ singleXml</span>
+<span class="lineno">  537 </span><span class="spaces">            </span><span class="istickedoff">loadSingleEcoSpold1File locationAliases singleXml</span>
+<span class="lineno">  538 </span><span class="spaces">        </span><span class="istickedoff">([], xs) -&gt; <span class="nottickedoff">do</span></span>
+<span class="lineno">  539 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">reportProgress Info $ &quot;Found &quot; ++ show (length xs) ++ &quot; EcoSpold1 (.XML) files for processing&quot;</span></span>
+<span class="lineno">  540 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">loadWithWorkerParallelism xs True</span></span>
+<span class="lineno">  541 </span><span class="spaces">        </span><span class="istickedoff">(xs, []) -&gt; do</span>
+<span class="lineno">  542 </span><span class="spaces">            </span><span class="istickedoff">reportProgress Info $ &quot;Found &quot; ++ show (length xs) ++ &quot; EcoSpold2 (.spold) files for processing&quot;</span>
+<span class="lineno">  543 </span><span class="spaces">            </span><span class="istickedoff">loadWithWorkerParallelism xs False</span>
+<span class="lineno">  544 </span><span class="spaces">        </span><span class="istickedoff">(xs, _) -&gt; <span class="nottickedoff">do</span></span>
+<span class="lineno">  545 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">reportProgress Info $ &quot;Found &quot; ++ show (length xs) ++ &quot; EcoSpold2 (.spold) files for processing&quot;</span></span>
+<span class="lineno">  546 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">loadWithWorkerParallelism xs False</span>  -- Prefer EcoSpold2 if both present</span>
+<span class="lineno">  547 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  548 </span><span class="spaces">    </span><span class="istickedoff">-- Worker-based parallelism: divide files among N workers, all process in parallel</span>
+<span class="lineno">  549 </span><span class="spaces">    </span><span class="istickedoff">loadWithWorkerParallelism :: [FilePath] -&gt; Bool -&gt; IO (Either T.Text SimpleDatabase)</span>
+<span class="lineno">  550 </span><span class="spaces">    </span><span class="istickedoff">loadWithWorkerParallelism allFiles isEcoSpold1 = do</span>
+<span class="lineno">  551 </span><span class="spaces">        </span><span class="istickedoff">-- Get actual number of CPU capabilities (respects +RTS -N)</span>
+<span class="lineno">  552 </span><span class="spaces">        </span><span class="istickedoff">numWorkers &lt;- getNumCapabilities</span>
+<span class="lineno">  553 </span><span class="spaces">        </span><span class="istickedoff">let workers = distributeFiles numWorkers allFiles</span>
+<span class="lineno">  554 </span><span class="spaces">        </span><span class="istickedoff">reportProgress Info $</span>
+<span class="lineno">  555 </span><span class="spaces">            </span><span class="istickedoff">printf</span>
+<span class="lineno">  556 </span><span class="spaces">                </span><span class="istickedoff">&quot;Processing %d files with %d parallel workers (%d files per worker)&quot;</span>
+<span class="lineno">  557 </span><span class="spaces">                </span><span class="istickedoff">(length allFiles)</span>
+<span class="lineno">  558 </span><span class="spaces">                </span><span class="istickedoff">numWorkers</span>
+<span class="lineno">  559 </span><span class="spaces">                </span><span class="istickedoff">(length allFiles `div` numWorkers)</span>
+<span class="lineno">  560 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  561 </span><span class="spaces">        </span><span class="istickedoff">-- Process all workers in parallel</span>
+<span class="lineno">  562 </span><span class="spaces">        </span><span class="istickedoff">startTime &lt;- getCurrentTime</span>
+<span class="lineno">  563 </span><span class="spaces">        </span><span class="istickedoff">results &lt;- mapConcurrently (processWorker <span class="nottickedoff">startTime</span> isEcoSpold1) (zip [1 ..] workers)</span>
+<span class="lineno">  564 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  565 </span><span class="spaces">        </span><span class="istickedoff">-- Check for errors from any worker</span>
+<span class="lineno">  566 </span><span class="spaces">        </span><span class="istickedoff">let errors = [<span class="nottickedoff">e</span> | Left e &lt;- results]</span>
+<span class="lineno">  567 </span><span class="spaces">        </span><span class="istickedoff">case errors of</span>
+<span class="lineno">  568 </span><span class="spaces">            </span><span class="istickedoff">(firstErr:_) -&gt; <span class="nottickedoff">return $ Left firstErr</span></span>
+<span class="lineno">  569 </span><span class="spaces">            </span><span class="istickedoff">[] -&gt; do</span>
+<span class="lineno">  570 </span><span class="spaces">                </span><span class="istickedoff">let successResults = [r | Right r &lt;- results]</span>
+<span class="lineno">  571 </span><span class="spaces">                </span><span class="istickedoff">let (procMaps, flowMaps, unitMaps, rawFlowCounts, rawUnitCounts, dsIndexes, supplierLinksLists) = unzip7 successResults</span>
+<span class="lineno">  572 </span><span class="spaces">                </span><span class="istickedoff">let !finalProcMap = M.unions procMaps</span>
+<span class="lineno">  573 </span><span class="spaces">                </span><span class="istickedoff">let !finalFlowMap = M.unionsWith mergeFlows flowMaps</span>
+<span class="lineno">  574 </span><span class="spaces">                </span><span class="istickedoff">let !finalUnitMap = M.unions unitMaps</span>
+<span class="lineno">  575 </span><span class="spaces">                </span><span class="istickedoff">let !finalDsIndex = M.unions dsIndexes</span>
+<span class="lineno">  576 </span><span class="spaces">                </span><span class="istickedoff">let !finalSupplierLinks = M.unions supplierLinksLists</span>
+<span class="lineno">  577 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  578 </span><span class="spaces">                </span><span class="istickedoff">endTime &lt;- getCurrentTime</span>
+<span class="lineno">  579 </span><span class="spaces">                </span><span class="istickedoff">let totalDuration = realToFrac $ diffUTCTime endTime startTime</span>
+<span class="lineno">  580 </span><span class="spaces">                </span><span class="istickedoff">let totalFiles = length allFiles</span>
+<span class="lineno">  581 </span><span class="spaces">                </span><span class="istickedoff">let avgFilesPerSec = fromIntegral totalFiles / totalDuration</span>
+<span class="lineno">  582 </span><span class="spaces">                </span><span class="istickedoff">let totalRawFlows = sum rawFlowCounts</span>
+<span class="lineno">  583 </span><span class="spaces">                </span><span class="istickedoff">let totalRawUnits = sum rawUnitCounts</span>
+<span class="lineno">  584 </span><span class="spaces">                </span><span class="istickedoff">let flowDeduplication = if <span class="tickonlytrue">totalRawFlows &gt; 0</span> then 100.0 * (1.0 - fromIntegral (M.size finalFlowMap) / fromIntegral totalRawFlows) else <span class="nottickedoff">0.0 :: Double</span></span>
+<span class="lineno">  585 </span><span class="spaces">                </span><span class="istickedoff">let unitDeduplication = if <span class="tickonlytrue">totalRawUnits &gt; 0</span> then 100.0 * (1.0 - fromIntegral (M.size finalUnitMap) / fromIntegral totalRawUnits) else <span class="nottickedoff">0.0 :: Double</span></span>
+<span class="lineno">  586 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  587 </span><span class="spaces">                </span><span class="istickedoff">reportProgress Info $ printf &quot;Parsing completed (%s, %.1f files/sec):&quot; (formatDuration totalDuration) avgFilesPerSec</span>
+<span class="lineno">  588 </span><span class="spaces">                </span><span class="istickedoff">reportProgress Info $ printf &quot;  Activities: %d processes&quot; (M.size finalProcMap)</span>
+<span class="lineno">  589 </span><span class="spaces">                </span><span class="istickedoff">reportProgress Info $</span>
+<span class="lineno">  590 </span><span class="spaces">                    </span><span class="istickedoff">printf</span>
+<span class="lineno">  591 </span><span class="spaces">                        </span><span class="istickedoff">&quot;  Flows: %d unique (%.1f%% deduplication from %d raw)&quot;</span>
+<span class="lineno">  592 </span><span class="spaces">                        </span><span class="istickedoff">(M.size finalFlowMap)</span>
+<span class="lineno">  593 </span><span class="spaces">                        </span><span class="istickedoff">flowDeduplication</span>
+<span class="lineno">  594 </span><span class="spaces">                        </span><span class="istickedoff">totalRawFlows</span>
+<span class="lineno">  595 </span><span class="spaces">                </span><span class="istickedoff">reportProgress Info $</span>
+<span class="lineno">  596 </span><span class="spaces">                    </span><span class="istickedoff">printf</span>
+<span class="lineno">  597 </span><span class="spaces">                        </span><span class="istickedoff">&quot;  Units: %d unique (%.1f%% deduplication from %d raw)&quot;</span>
+<span class="lineno">  598 </span><span class="spaces">                        </span><span class="istickedoff">(M.size finalUnitMap)</span>
+<span class="lineno">  599 </span><span class="spaces">                        </span><span class="istickedoff">unitDeduplication</span>
+<span class="lineno">  600 </span><span class="spaces">                        </span><span class="istickedoff">totalRawUnits</span>
+<span class="lineno">  601 </span><span class="spaces">                </span><span class="istickedoff">reportMemoryUsage &quot;Final parsing memory usage&quot;</span>
+<span class="lineno">  602 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  603 </span><span class="spaces">                </span><span class="istickedoff">-- For EcoSpold1: fix activity links using supplier lookup table</span>
+<span class="lineno">  604 </span><span class="spaces">                </span><span class="istickedoff">let simpleDb = SimpleDatabase finalProcMap finalFlowMap finalUnitMap</span>
+<span class="lineno">  605 </span><span class="spaces">                </span><span class="istickedoff">if <span class="tickonlyfalse">isEcoSpold1</span></span>
+<span class="lineno">  606 </span><span class="spaces">                    </span><span class="istickedoff">then <span class="nottickedoff">Right &lt;$&gt; fixEcoSpold1ActivityLinks locationAliases finalDsIndex finalSupplierLinks simpleDb</span></span>
+<span class="lineno">  607 </span><span class="spaces">                    </span><span class="istickedoff">else return $ Right simpleDb</span>
+<span class="lineno">  608 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  609 </span><span class="spaces">    </span><span class="istickedoff">-- Distribute files evenly among N workers</span>
+<span class="lineno">  610 </span><span class="spaces">    </span><span class="istickedoff">distributeFiles :: Int -&gt; [a] -&gt; [[a]]</span>
+<span class="lineno">  611 </span><span class="spaces">    </span><span class="istickedoff">distributeFiles n xs =</span>
+<span class="lineno">  612 </span><span class="spaces">        </span><span class="istickedoff">let len = length xs</span>
+<span class="lineno">  613 </span><span class="spaces">            </span><span class="istickedoff">baseSize = len `div` n</span>
+<span class="lineno">  614 </span><span class="spaces">            </span><span class="istickedoff">remainder = len `mod` n</span>
+<span class="lineno">  615 </span><span class="spaces">            </span><span class="istickedoff">-- First 'remainder' workers get baseSize+1 files, rest get baseSize</span>
+<span class="lineno">  616 </span><span class="spaces">            </span><span class="istickedoff">sizes = replicate remainder (baseSize + 1) ++ replicate (n - remainder) <span class="nottickedoff">baseSize</span></span>
+<span class="lineno">  617 </span><span class="spaces">         </span><span class="istickedoff">in distribute sizes xs</span>
+<span class="lineno">  618 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  619 </span><span class="spaces">        </span><span class="istickedoff">distribute [] _ = <span class="nottickedoff">[]</span></span>
+<span class="lineno">  620 </span><span class="spaces">        </span><span class="istickedoff">distribute _ [] = []</span>
+<span class="lineno">  621 </span><span class="spaces">        </span><span class="istickedoff">distribute (s : ss) items = take s items : distribute ss (drop s items)</span>
+<span class="lineno">  622 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  623 </span><span class="spaces">    </span><span class="istickedoff">-- Process one worker's share of files</span>
+<span class="lineno">  624 </span><span class="spaces">    </span><span class="istickedoff">processWorker :: UTCTime -&gt; Bool -&gt; (Int, [FilePath]) -&gt; IO (Either T.Text (ActivityMap, FlowDB, UnitDB, Int, Int, DatasetNumberIndex, M.Map UUID.UUID Int))</span>
+<span class="lineno">  625 </span><span class="spaces">    </span><span class="istickedoff">processWorker _startTime isEcoSpold1 (workerNum, workerFiles) = do</span>
+<span class="lineno">  626 </span><span class="spaces">        </span><span class="istickedoff">workerStartTime &lt;- getCurrentTime</span>
+<span class="lineno">  627 </span><span class="spaces">        </span><span class="istickedoff">reportProgress Info $ printf &quot;Worker %d started: processing %d files&quot; workerNum (length workerFiles)</span>
+<span class="lineno">  628 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  629 </span><span class="spaces">        </span><span class="istickedoff">-- Parse all files for this worker using appropriate parser</span>
+<span class="lineno">  630 </span><span class="spaces">        </span><span class="istickedoff">-- Both paths return (Activity, [Flow], [Unit], Int, M.Map UUID Int)</span>
+<span class="lineno">  631 </span><span class="spaces">        </span><span class="istickedoff">-- For EcoSpold2: dataset number = 0, supplier links = empty</span>
+<span class="lineno">  632 </span><span class="spaces">        </span><span class="istickedoff">let parseFile =</span>
+<span class="lineno">  633 </span><span class="spaces">                </span><span class="istickedoff">if <span class="tickonlyfalse">isEcoSpold1</span></span>
+<span class="lineno">  634 </span><span class="spaces">                    </span><span class="istickedoff">then <span class="nottickedoff">streamParseActivityAndFlowsFromFile1</span></span>
+<span class="lineno">  635 </span><span class="spaces">                    </span><span class="istickedoff">else \f -&gt; fmap (fmap (\(a,fs,us) -&gt; (a,fs,us,0,M.empty))) (streamParseActivityAndFlowsFromFile f)</span>
+<span class="lineno">  636 </span><span class="spaces">        </span><span class="istickedoff">workerResults &lt;- mapM parseFile workerFiles</span>
+<span class="lineno">  637 </span><span class="spaces">        </span><span class="istickedoff">-- Pair each result with its file path, then partition</span>
+<span class="lineno">  638 </span><span class="spaces">        </span><span class="istickedoff">let paired = zipWith (\f r -&gt; fmap (\v -&gt; (f, v)) r) workerFiles workerResults</span>
+<span class="lineno">  639 </span><span class="spaces">        </span><span class="istickedoff">let (errs, oks) = partitionEithers paired</span>
+<span class="lineno">  640 </span><span class="spaces">        </span><span class="istickedoff">forM_ errs $ <span class="nottickedoff">\e -&gt;</span></span>
+<span class="lineno">  641 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">reportProgress Warning e</span></span>
+<span class="lineno">  642 </span><span class="spaces">        </span><span class="istickedoff">let (okFiles, okResults) = unzip oks</span>
+<span class="lineno">  643 </span><span class="spaces">        </span><span class="istickedoff">let procs     = [a  | (a,_,_,_,_) &lt;- okResults]</span>
+<span class="lineno">  644 </span><span class="spaces">            </span><span class="istickedoff">flowLists = [fs | (_,fs,_,_,_) &lt;- okResults]</span>
+<span class="lineno">  645 </span><span class="spaces">            </span><span class="istickedoff">unitLists = [us | (_,_,us,_,_) &lt;- okResults]</span>
+<span class="lineno">  646 </span><span class="spaces">            </span><span class="istickedoff">dsNums    = [n  | (_,_,_,n,_) &lt;- okResults]</span>
+<span class="lineno">  647 </span><span class="spaces">            </span><span class="istickedoff">supplierLinksList = [sl | (_,_,_,_,sl) &lt;- okResults]</span>
+<span class="lineno">  648 </span><span class="spaces">        </span><span class="istickedoff">let !allFlows = concat flowLists</span>
+<span class="lineno">  649 </span><span class="spaces">        </span><span class="istickedoff">let !allUnits = concat unitLists</span>
+<span class="lineno">  650 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  651 </span><span class="spaces">        </span><span class="istickedoff">-- Build maps for this worker - extract UUID pairs from filenames</span>
+<span class="lineno">  652 </span><span class="spaces">        </span><span class="istickedoff">-- For EcoSpold1: generate UUIDs from numeric dataset number</span>
+<span class="lineno">  653 </span><span class="spaces">        </span><span class="istickedoff">-- For EcoSpold2: parse UUIDs from filename (activityUUID_productUUID.spold)</span>
+<span class="lineno">  654 </span><span class="spaces">        </span><span class="istickedoff">let procEntries = zipWith (buildProcEntry isEcoSpold1) okFiles procs</span>
+<span class="lineno">  655 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  656 </span><span class="spaces">        </span><span class="istickedoff">-- Check for any filename parsing errors</span>
+<span class="lineno">  657 </span><span class="spaces">        </span><span class="istickedoff">case [<span class="nottickedoff">e</span> | Left e &lt;- procEntries] of</span>
+<span class="lineno">  658 </span><span class="spaces">            </span><span class="istickedoff">(firstErr:_) -&gt; <span class="nottickedoff">return $ Left firstErr</span></span>
+<span class="lineno">  659 </span><span class="spaces">            </span><span class="istickedoff">[] -&gt; do</span>
+<span class="lineno">  660 </span><span class="spaces">                </span><span class="istickedoff">let !procMap = M.fromList [e | Right e &lt;- procEntries]</span>
+<span class="lineno">  661 </span><span class="spaces">                </span><span class="istickedoff">let !flowMap = M.fromListWith mergeFlows [(flowId f, f) | f &lt;- allFlows]</span>
+<span class="lineno">  662 </span><span class="spaces">                </span><span class="istickedoff">let !unitMap = M.fromList [(unitId u, u) | u &lt;- allUnits]</span>
+<span class="lineno">  663 </span><span class="spaces">                </span><span class="istickedoff">-- Build dataset number index: dsNum → (actUUID, prodUUID)</span>
+<span class="lineno">  664 </span><span class="spaces">                </span><span class="istickedoff">let !dsIndex = M.fromList</span>
+<span class="lineno">  665 </span><span class="spaces">                        </span><span class="istickedoff">[ <span class="nottickedoff">(n, key)</span> | (n, Right (key, _)) &lt;- zip dsNums procEntries, <span class="tickonlyfalse">n /= 0</span> ]</span>
+<span class="lineno">  666 </span><span class="spaces">                </span><span class="istickedoff">let !allSupplierLinks = M.unions supplierLinksList</span>
+<span class="lineno">  667 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  668 </span><span class="spaces">                </span><span class="istickedoff">workerEndTime &lt;- getCurrentTime</span>
+<span class="lineno">  669 </span><span class="spaces">                </span><span class="istickedoff">let workerDuration = realToFrac $ diffUTCTime workerEndTime workerStartTime</span>
+<span class="lineno">  670 </span><span class="spaces">                </span><span class="istickedoff">let filesPerSec = fromIntegral (length workerFiles) / workerDuration</span>
+<span class="lineno">  671 </span><span class="spaces">                </span><span class="istickedoff">let rawFlowCount = length allFlows</span>
+<span class="lineno">  672 </span><span class="spaces">                </span><span class="istickedoff">let rawUnitCount = length allUnits</span>
+<span class="lineno">  673 </span><span class="spaces">                </span><span class="istickedoff">reportProgress Info $</span>
+<span class="lineno">  674 </span><span class="spaces">                    </span><span class="istickedoff">printf</span>
+<span class="lineno">  675 </span><span class="spaces">                        </span><span class="istickedoff">&quot;Worker %d completed: %d activities, %d flows (%s, %.1f files/sec)&quot;</span>
+<span class="lineno">  676 </span><span class="spaces">                        </span><span class="istickedoff">workerNum</span>
+<span class="lineno">  677 </span><span class="spaces">                        </span><span class="istickedoff">(M.size procMap)</span>
+<span class="lineno">  678 </span><span class="spaces">                        </span><span class="istickedoff">(M.size flowMap)</span>
+<span class="lineno">  679 </span><span class="spaces">                        </span><span class="istickedoff">(formatDuration workerDuration)</span>
+<span class="lineno">  680 </span><span class="spaces">                        </span><span class="istickedoff">filesPerSec</span>
+<span class="lineno">  681 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  682 </span><span class="spaces">                </span><span class="istickedoff">return $ Right (procMap, flowMap, unitMap, rawFlowCount, rawUnitCount, dsIndex, allSupplierLinks)</span>
+<span class="lineno">  683 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  684 </span><span class="spaces">    </span><span class="istickedoff">-- Build a single process entry, returning Either for error handling</span>
+<span class="lineno">  685 </span><span class="spaces">    </span><span class="istickedoff">buildProcEntry :: Bool -&gt; FilePath -&gt; Activity -&gt; Either T.Text ((UUID, UUID), Activity)</span>
+<span class="lineno">  686 </span><span class="spaces">    </span><span class="istickedoff">buildProcEntry True _filepath activity =</span>
+<span class="lineno">  687 </span><span class="spaces">        </span><span class="istickedoff">-- EcoSpold1: Generate activity UUID from name and location</span>
+<span class="lineno">  688 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">let actUUID = generateActivityUUIDFromActivity activity</span></span>
+<span class="lineno">  689 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">prodUUID = getReferenceProductUUID activity</span></span>
+<span class="lineno">  690 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">in Right ((actUUID, prodUUID), activity)</span></span>
+<span class="lineno">  691 </span><span class="spaces">    </span><span class="istickedoff">buildProcEntry False filepath activity =</span>
+<span class="lineno">  692 </span><span class="spaces">        </span><span class="istickedoff">-- EcoSpold2: Parse UUIDs from filename</span>
+<span class="lineno">  693 </span><span class="spaces">        </span><span class="istickedoff">let filename = T.pack $ takeBaseName filepath</span>
+<span class="lineno">  694 </span><span class="spaces">        </span><span class="istickedoff">in case T.splitOn &quot;_&quot; filename of</span>
+<span class="lineno">  695 </span><span class="spaces">            </span><span class="istickedoff">[actUUIDText, prodUUIDText] -&gt;</span>
+<span class="lineno">  696 </span><span class="spaces">                </span><span class="istickedoff">let actUUID = parseUUID actUUIDText</span>
+<span class="lineno">  697 </span><span class="spaces">                    </span><span class="istickedoff">prodUUID = parseUUID prodUUIDText</span>
+<span class="lineno">  698 </span><span class="spaces">                </span><span class="istickedoff">in Right ((actUUID, prodUUID), activity)</span>
+<span class="lineno">  699 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Left $ T.pack $ &quot;Invalid filename format (expected activityUUID_productUUID.spold): &quot; ++ filepath</span></span></span>
+<span class="lineno">  700 </span>
+<span class="lineno">  701 </span>-- | Load a single EcoSpold1 file containing multiple datasets
+<span class="lineno">  702 </span>-- This handles files where &lt;ecoSpold&gt; contains multiple &lt;dataset&gt; elements
+<span class="lineno">  703 </span>loadSingleEcoSpold1File :: M.Map T.Text T.Text -&gt; FilePath -&gt; IO (Either T.Text SimpleDatabase)
+<span class="lineno">  704 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">loadSingleEcoSpold1File locationAliases filepath = do</span>
+<span class="lineno">  705 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info &quot;Parsing multi-dataset EcoSpold1 file...&quot;</span>
+<span class="lineno">  706 </span><span class="spaces">    </span><span class="istickedoff">results &lt;- streamParseAllDatasetsFromFile1 filepath</span>
+<span class="lineno">  707 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info $ &quot;Parsed &quot; ++ show (length results) ++ &quot; datasets from file&quot;</span>
+<span class="lineno">  708 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  709 </span><span class="spaces">    </span><span class="istickedoff">-- Build activity map from all parsed activities</span>
+<span class="lineno">  710 </span><span class="spaces">    </span><span class="istickedoff">let expanded = map buildProcEntryFromResult results</span>
+<span class="lineno">  711 </span><span class="spaces">        </span><span class="istickedoff">!procMap = M.fromList [(key, act) | (key, act) &lt;- expanded]</span>
+<span class="lineno">  712 </span><span class="spaces">        </span><span class="istickedoff">!flowMap = M.fromListWith <span class="nottickedoff">mergeFlows</span> [(flowId f, f) | (_, flows, _, _, _) &lt;- results, f &lt;- flows]</span>
+<span class="lineno">  713 </span><span class="spaces">        </span><span class="istickedoff">!unitMap = M.fromList [(unitId u, <span class="nottickedoff">u</span>) | (_, _, units, _, _) &lt;- results, u &lt;- units]</span>
+<span class="lineno">  714 </span><span class="spaces">        </span><span class="istickedoff">-- Build dataset number index: dsNum → (actUUID, prodUUID)</span>
+<span class="lineno">  715 </span><span class="spaces">        </span><span class="istickedoff">!dsIndex = M.fromList</span>
+<span class="lineno">  716 </span><span class="spaces">            </span><span class="istickedoff">[ (dsNum, <span class="nottickedoff">key</span>) | ((_, _, _, dsNum, _), (key, _)) &lt;- zip results expanded, <span class="tickonlytrue">dsNum /= 0</span> ]</span>
+<span class="lineno">  717 </span><span class="spaces">        </span><span class="istickedoff">-- Merge supplier links from all datasets</span>
+<span class="lineno">  718 </span><span class="spaces">        </span><span class="istickedoff">!supplierLinks = M.unions [sl | (_, _, _, _, sl) &lt;- results]</span>
+<span class="lineno">  719 </span><span class="spaces">        </span><span class="istickedoff">simpleDb = SimpleDatabase procMap flowMap unitMap</span>
+<span class="lineno">  720 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  721 </span><span class="spaces">    </span><span class="istickedoff">-- Report statistics</span>
+<span class="lineno">  722 </span><span class="spaces">    </span><span class="istickedoff">let totalFlows = sum [length flows | (_, flows, _, _, _) &lt;- results]</span>
+<span class="lineno">  723 </span><span class="spaces">    </span><span class="istickedoff">let totalUnits = sum [length units | (_, _, units, _, _) &lt;- results]</span>
+<span class="lineno">  724 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info $ printf &quot;  Activities: %d processes&quot; (M.size procMap)</span>
+<span class="lineno">  725 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info $ printf &quot;  Flows: %d unique (from %d raw)&quot; (M.size flowMap) totalFlows</span>
+<span class="lineno">  726 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info $ printf &quot;  Units: %d unique (from %d raw)&quot; (M.size unitMap) totalUnits</span>
+<span class="lineno">  727 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  728 </span><span class="spaces">    </span><span class="istickedoff">-- Fix activity links using supplier lookup</span>
+<span class="lineno">  729 </span><span class="spaces">    </span><span class="istickedoff">Right &lt;$&gt; fixEcoSpold1ActivityLinks locationAliases dsIndex <span class="nottickedoff">supplierLinks</span> simpleDb</span>
+<span class="lineno">  730 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  731 </span><span class="spaces">    </span><span class="istickedoff">buildProcEntryFromResult :: (Activity, [Flow], [Unit], Int, M.Map UUID.UUID Int) -&gt; ((UUID.UUID, UUID.UUID), Activity)</span>
+<span class="lineno">  732 </span><span class="spaces">    </span><span class="istickedoff">buildProcEntryFromResult (activity, _, _, _, _) =</span>
+<span class="lineno">  733 </span><span class="spaces">        </span><span class="istickedoff">let actUUID = generateActivityUUIDFromActivity activity</span>
+<span class="lineno">  734 </span><span class="spaces">            </span><span class="istickedoff">prodUUID = getReferenceProductUUID activity</span>
+<span class="lineno">  735 </span><span class="spaces">        </span><span class="istickedoff">in ((actUUID, prodUUID), activity)</span></span>
+<span class="lineno">  736 </span>
+<span class="lineno">  737 </span>{- |
+<span class="lineno">  738 </span>Generate filename for matrix cache.
+<span class="lineno">  739 </span>
+<span class="lineno">  740 </span>Matrix caches store pre-computed sparse matrices (technosphere A,
+<span class="lineno">  741 </span>biosphere B) enabling direct LCA solving without matrix construction.
+<span class="lineno">  742 </span>
+<span class="lineno">  743 </span>Cache location depends on database source:
+<span class="lineno">  744 </span>- Uploaded databases (path starts with &quot;uploads/&quot;): cache in the upload directory
+<span class="lineno">  745 </span>- Configured databases: cache in &quot;cache/&quot; subdirectory
+<span class="lineno">  746 </span>
+<span class="lineno">  747 </span>Cache invalidation is handled by a schema signature stored inside
+<span class="lineno">  748 </span>the cache file, not by the filename.
+<span class="lineno">  749 </span>-}
+<span class="lineno">  750 </span>generateMatrixCacheFilename :: T.Text -&gt; FilePath -&gt; IO FilePath
+<span class="lineno">  751 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">generateMatrixCacheFilename dbName _dataPath = do</span>
+<span class="lineno">  752 </span><span class="spaces">    </span><span class="nottickedoff">let cacheFilename = &quot;volca.cache.&quot; ++ T.unpack dbName ++ &quot;.bin&quot;</span>
+<span class="lineno">  753 </span><span class="spaces">    </span><span class="nottickedoff">base &lt;- getDataDir</span>
+<span class="lineno">  754 </span><span class="spaces">    </span><span class="nottickedoff">let cacheDir = base &lt;/&gt; &quot;cache&quot;</span>
+<span class="lineno">  755 </span><span class="spaces">    </span><span class="nottickedoff">createDirectoryIfMissing True cacheDir</span>
+<span class="lineno">  756 </span><span class="spaces">    </span><span class="nottickedoff">return $ cacheDir &lt;/&gt; cacheFilename</span></span>
+<span class="lineno">  757 </span>
+<span class="lineno">  758 </span>{- |
+<span class="lineno">  759 </span>Validate cache file integrity before attempting to decode.
+<span class="lineno">  760 </span>
+<span class="lineno">  761 </span>Checks:
+<span class="lineno">  762 </span>- File size is reasonable (&gt; 1KB to avoid empty/corrupted files)
+<span class="lineno">  763 </span>- File exists and is readable
+<span class="lineno">  764 </span>
+<span class="lineno">  765 </span>Returns True if cache file appears valid, False otherwise.
+<span class="lineno">  766 </span>-}
+<span class="lineno">  767 </span>validateCacheFile :: FilePath -&gt; IO Bool
+<span class="lineno">  768 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">validateCacheFile cacheFile = do</span>
+<span class="lineno">  769 </span><span class="spaces">    </span><span class="nottickedoff">exists &lt;- doesFileExist cacheFile</span>
+<span class="lineno">  770 </span><span class="spaces">    </span><span class="nottickedoff">if not exists</span>
+<span class="lineno">  771 </span><span class="spaces">        </span><span class="nottickedoff">then return False</span>
+<span class="lineno">  772 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  773 </span><span class="spaces">            </span><span class="nottickedoff">fileSize &lt;- getFileSize cacheFile</span>
+<span class="lineno">  774 </span><span class="spaces">            </span><span class="nottickedoff">-- Cache file should be at least 1KB for a valid database</span>
+<span class="lineno">  775 </span><span class="spaces">            </span><span class="nottickedoff">-- Typical size is 100MB-600MB</span>
+<span class="lineno">  776 </span><span class="spaces">            </span><span class="nottickedoff">if fileSize &lt; 1024</span>
+<span class="lineno">  777 </span><span class="spaces">                </span><span class="nottickedoff">then do</span>
+<span class="lineno">  778 </span><span class="spaces">                    </span><span class="nottickedoff">reportCacheOperation $ &quot;Cache file is too small (&quot; ++ show fileSize ++ &quot; bytes), likely corrupted&quot;</span>
+<span class="lineno">  779 </span><span class="spaces">                    </span><span class="nottickedoff">return False</span>
+<span class="lineno">  780 </span><span class="spaces">                </span><span class="nottickedoff">else return True</span></span>
+<span class="lineno">  781 </span>
+<span class="lineno">  782 </span>{- |
+<span class="lineno">  783 </span>Load Database with pre-computed matrices from cache (second-tier).
+<span class="lineno">  784 </span>
+<span class="lineno">  785 </span>This is the fastest loading method (~0.5s) as it bypasses both
+<span class="lineno">  786 </span>XML parsing and matrix construction. The Database includes:
+<span class="lineno">  787 </span>- All activities, flows, units (from SimpleDatabase)
+<span class="lineno">  788 </span>- Pre-built indexes for fast querying
+<span class="lineno">  789 </span>- Pre-computed sparse matrices (technosphere A, biosphere B)
+<span class="lineno">  790 </span>- Activity and flow UUID mappings for matrix operations
+<span class="lineno">  791 </span>
+<span class="lineno">  792 </span>Returns Nothing if no matrix cache exists.
+<span class="lineno">  793 </span>-}
+<span class="lineno">  794 </span>loadCachedDatabaseWithMatrices :: T.Text -&gt; FilePath -&gt; IO (Maybe Database)
+<span class="lineno">  795 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">loadCachedDatabaseWithMatrices dbName dataDir = do</span>
+<span class="lineno">  796 </span><span class="spaces">    </span><span class="nottickedoff">cacheFile &lt;- generateMatrixCacheFilename dbName dataDir</span>
+<span class="lineno">  797 </span><span class="spaces">    </span><span class="nottickedoff">let zstdFile = cacheFile ++ &quot;.zst&quot;</span>
+<span class="lineno">  798 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  799 </span><span class="spaces">    </span><span class="nottickedoff">zstdExists &lt;- doesFileExist zstdFile</span>
+<span class="lineno">  800 </span><span class="spaces">    </span><span class="nottickedoff">if not zstdExists</span>
+<span class="lineno">  801 </span><span class="spaces">        </span><span class="nottickedoff">then do</span>
+<span class="lineno">  802 </span><span class="spaces">            </span><span class="nottickedoff">reportCacheOperation &quot;No matrix cache found&quot;</span>
+<span class="lineno">  803 </span><span class="spaces">            </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  804 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  805 </span><span class="spaces">            </span><span class="nottickedoff">reportCacheInfo zstdFile</span>
+<span class="lineno">  806 </span><span class="spaces">            </span><span class="nottickedoff">-- Wrap cache loading in exception handler to prevent crashes</span>
+<span class="lineno">  807 </span><span class="spaces">            </span><span class="nottickedoff">catch</span>
+<span class="lineno">  808 </span><span class="spaces">                </span><span class="nottickedoff">( withProgressTiming Cache &quot;Matrix cache load with zstd decompression&quot; $ do</span>
+<span class="lineno">  809 </span><span class="spaces">                    </span><span class="nottickedoff">contents &lt;- BS.readFile zstdFile</span>
+<span class="lineno">  810 </span><span class="spaces">                    </span><span class="nottickedoff">-- Check header: magic (8 bytes) + signature (8 bytes)</span>
+<span class="lineno">  811 </span><span class="spaces">                    </span><span class="nottickedoff">let headerSize = 16</span>
+<span class="lineno">  812 </span><span class="spaces">                    </span><span class="nottickedoff">if BS.length contents &lt; headerSize</span>
+<span class="lineno">  813 </span><span class="spaces">                        </span><span class="nottickedoff">then do</span>
+<span class="lineno">  814 </span><span class="spaces">                            </span><span class="nottickedoff">reportCacheOperation &quot;Cache file too small, rebuilding&quot;</span>
+<span class="lineno">  815 </span><span class="spaces">                            </span><span class="nottickedoff">removeFile zstdFile</span>
+<span class="lineno">  816 </span><span class="spaces">                            </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  817 </span><span class="spaces">                        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  818 </span><span class="spaces">                            </span><span class="nottickedoff">let (header, payload) = BS.splitAt headerSize contents</span>
+<span class="lineno">  819 </span><span class="spaces">                            </span><span class="nottickedoff">let (magic, sigBytes) = BS.splitAt 8 header</span>
+<span class="lineno">  820 </span><span class="spaces">                            </span><span class="nottickedoff">-- Check magic bytes</span>
+<span class="lineno">  821 </span><span class="spaces">                            </span><span class="nottickedoff">if magic /= cacheMagic</span>
+<span class="lineno">  822 </span><span class="spaces">                                </span><span class="nottickedoff">then do</span>
+<span class="lineno">  823 </span><span class="spaces">                                    </span><span class="nottickedoff">reportCacheOperation &quot;Cache file has invalid magic (old format?), rebuilding&quot;</span>
+<span class="lineno">  824 </span><span class="spaces">                                    </span><span class="nottickedoff">removeFile zstdFile</span>
+<span class="lineno">  825 </span><span class="spaces">                                    </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  826 </span><span class="spaces">                                </span><span class="nottickedoff">else do</span>
+<span class="lineno">  827 </span><span class="spaces">                                    </span><span class="nottickedoff">-- Check schema signature</span>
+<span class="lineno">  828 </span><span class="spaces">                                    </span><span class="nottickedoff">let storedSig = decodeEx sigBytes :: Word64</span>
+<span class="lineno">  829 </span><span class="spaces">                                    </span><span class="nottickedoff">if storedSig /= schemaSignature</span>
+<span class="lineno">  830 </span><span class="spaces">                                        </span><span class="nottickedoff">then do</span>
+<span class="lineno">  831 </span><span class="spaces">                                            </span><span class="nottickedoff">reportCacheOperation $ &quot;Schema signature mismatch (stored: &quot; ++ show storedSig ++ &quot;, current: &quot; ++ show schemaSignature ++ &quot;), rebuilding&quot;</span>
+<span class="lineno">  832 </span><span class="spaces">                                            </span><span class="nottickedoff">removeFile zstdFile</span>
+<span class="lineno">  833 </span><span class="spaces">                                            </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  834 </span><span class="spaces">                                        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  835 </span><span class="spaces">                                            </span><span class="nottickedoff">-- Decompress and decode</span>
+<span class="lineno">  836 </span><span class="spaces">                                            </span><span class="nottickedoff">case Zstd.decompress payload of</span>
+<span class="lineno">  837 </span><span class="spaces">                                                </span><span class="nottickedoff">Zstd.Skip -&gt; do</span>
+<span class="lineno">  838 </span><span class="spaces">                                                    </span><span class="nottickedoff">reportError &quot;Zstd decompression failed: Skip&quot;</span>
+<span class="lineno">  839 </span><span class="spaces">                                                    </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  840 </span><span class="spaces">                                                </span><span class="nottickedoff">Zstd.Error err -&gt; do</span>
+<span class="lineno">  841 </span><span class="spaces">                                                    </span><span class="nottickedoff">reportError $ &quot;Zstd decompression failed: &quot; ++ show err</span>
+<span class="lineno">  842 </span><span class="spaces">                                                    </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  843 </span><span class="spaces">                                                </span><span class="nottickedoff">Zstd.Decompress decompressed -&gt; do</span>
+<span class="lineno">  844 </span><span class="spaces">                                                    </span><span class="nottickedoff">let !db = decodeEx decompressed</span>
+<span class="lineno">  845 </span><span class="spaces">                                                    </span><span class="nottickedoff">-- Force full evaluation to prevent lazy thunk buildup</span>
+<span class="lineno">  846 </span><span class="spaces">                                                    </span><span class="nottickedoff">db' &lt;- evaluate (force db)</span>
+<span class="lineno">  847 </span><span class="spaces">                                                    </span><span class="nottickedoff">reportCacheOperation $</span>
+<span class="lineno">  848 </span><span class="spaces">                                                        </span><span class="nottickedoff">&quot;Matrix cache loaded: &quot;</span>
+<span class="lineno">  849 </span><span class="spaces">                                                            </span><span class="nottickedoff">++ show (dbActivityCount db')</span>
+<span class="lineno">  850 </span><span class="spaces">                                                            </span><span class="nottickedoff">++ &quot; activities, &quot;</span>
+<span class="lineno">  851 </span><span class="spaces">                                                            </span><span class="nottickedoff">++ show (VU.length $ dbTechnosphereTriples db')</span>
+<span class="lineno">  852 </span><span class="spaces">                                                            </span><span class="nottickedoff">++ &quot; tech entries, &quot;</span>
+<span class="lineno">  853 </span><span class="spaces">                                                            </span><span class="nottickedoff">++ show (VU.length $ dbBiosphereTriples db')</span>
+<span class="lineno">  854 </span><span class="spaces">                                                            </span><span class="nottickedoff">++ &quot; bio entries (decompressed)&quot;</span>
+<span class="lineno">  855 </span><span class="spaces">                                                    </span><span class="nottickedoff">return (Just db')</span>
+<span class="lineno">  856 </span><span class="spaces">                </span><span class="nottickedoff">)</span>
+<span class="lineno">  857 </span><span class="spaces">                </span><span class="nottickedoff">( \(e :: SomeException) -&gt; do</span>
+<span class="lineno">  858 </span><span class="spaces">                    </span><span class="nottickedoff">reportError $ &quot;Cache load failed: &quot; ++ show e</span>
+<span class="lineno">  859 </span><span class="spaces">                    </span><span class="nottickedoff">reportCacheOperation &quot;The cache file is corrupted or incompatible&quot;</span>
+<span class="lineno">  860 </span><span class="spaces">                    </span><span class="nottickedoff">reportCacheOperation $ &quot;Deleting corrupted cache file: &quot; ++ zstdFile</span>
+<span class="lineno">  861 </span><span class="spaces">                    </span><span class="nottickedoff">removeFile zstdFile</span>
+<span class="lineno">  862 </span><span class="spaces">                    </span><span class="nottickedoff">reportCacheOperation &quot;Will rebuild database from source files&quot;</span>
+<span class="lineno">  863 </span><span class="spaces">                    </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  864 </span><span class="spaces">                </span><span class="nottickedoff">)</span></span>
+<span class="lineno">  865 </span>
+<span class="lineno">  866 </span>{- |
+<span class="lineno">  867 </span>Load Database directly from a specified cache file.
+<span class="lineno">  868 </span>
+<span class="lineno">  869 </span>Similar to loadCachedDatabaseWithMatrices but takes an explicit cache file path
+<span class="lineno">  870 </span>instead of generating it from a data directory. Supports both compressed (.bin.zst)
+<span class="lineno">  871 </span>and uncompressed (.bin) formats.
+<span class="lineno">  872 </span>
+<span class="lineno">  873 </span>This is useful for deploying just the cache file without the original .spold files.
+<span class="lineno">  874 </span>
+<span class="lineno">  875 </span>Returns Nothing if the file cannot be loaded.
+<span class="lineno">  876 </span>-}
+<span class="lineno">  877 </span>loadDatabaseFromCacheFile :: FilePath -&gt; IO (Maybe Database)
+<span class="lineno">  878 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">loadDatabaseFromCacheFile cacheFile = do</span>
+<span class="lineno">  879 </span><span class="spaces">    </span><span class="nottickedoff">let ext = takeExtension cacheFile</span>
+<span class="lineno">  880 </span><span class="spaces">    </span><span class="nottickedoff">let isCompressed = ext == &quot;.zst&quot;</span>
+<span class="lineno">  881 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  882 </span><span class="spaces">    </span><span class="nottickedoff">-- Validate file exists</span>
+<span class="lineno">  883 </span><span class="spaces">    </span><span class="nottickedoff">fileExists &lt;- doesFileExist cacheFile</span>
+<span class="lineno">  884 </span><span class="spaces">    </span><span class="nottickedoff">if not fileExists</span>
+<span class="lineno">  885 </span><span class="spaces">        </span><span class="nottickedoff">then do</span>
+<span class="lineno">  886 </span><span class="spaces">            </span><span class="nottickedoff">reportError $ &quot;Cache file not found: &quot; ++ cacheFile</span>
+<span class="lineno">  887 </span><span class="spaces">            </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  888 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  889 </span><span class="spaces">            </span><span class="nottickedoff">if isCompressed</span>
+<span class="lineno">  890 </span><span class="spaces">                </span><span class="nottickedoff">then loadCompressedCacheFile cacheFile</span>
+<span class="lineno">  891 </span><span class="spaces">                </span><span class="nottickedoff">else loadUncompressedCacheFile cacheFile</span></span>
+<span class="lineno">  892 </span>
+<span class="lineno">  893 </span>-- | Load compressed (.bin.zst) cache file with header validation
+<span class="lineno">  894 </span>loadCompressedCacheFile :: FilePath -&gt; IO (Maybe Database)
+<span class="lineno">  895 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">loadCompressedCacheFile zstdFile = do</span>
+<span class="lineno">  896 </span><span class="spaces">    </span><span class="nottickedoff">reportCacheInfo zstdFile</span>
+<span class="lineno">  897 </span><span class="spaces">    </span><span class="nottickedoff">catch</span>
+<span class="lineno">  898 </span><span class="spaces">        </span><span class="nottickedoff">( withProgressTiming Cache &quot;Matrix cache load with zstd decompression&quot; $ do</span>
+<span class="lineno">  899 </span><span class="spaces">            </span><span class="nottickedoff">contents &lt;- BS.readFile zstdFile</span>
+<span class="lineno">  900 </span><span class="spaces">            </span><span class="nottickedoff">-- Check minimum size for header (16 bytes)</span>
+<span class="lineno">  901 </span><span class="spaces">            </span><span class="nottickedoff">if BS.length contents &lt; 16</span>
+<span class="lineno">  902 </span><span class="spaces">                </span><span class="nottickedoff">then do</span>
+<span class="lineno">  903 </span><span class="spaces">                    </span><span class="nottickedoff">reportCacheOperation &quot;Cache file too small (missing header)&quot;</span>
+<span class="lineno">  904 </span><span class="spaces">                    </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  905 </span><span class="spaces">                </span><span class="nottickedoff">else do</span>
+<span class="lineno">  906 </span><span class="spaces">                    </span><span class="nottickedoff">let (header, compressed) = BS.splitAt 16 contents</span>
+<span class="lineno">  907 </span><span class="spaces">                        </span><span class="nottickedoff">(magic, sigBytes) = BS.splitAt 8 header</span>
+<span class="lineno">  908 </span><span class="spaces">                    </span><span class="nottickedoff">-- Check magic bytes</span>
+<span class="lineno">  909 </span><span class="spaces">                    </span><span class="nottickedoff">if magic /= cacheMagic</span>
+<span class="lineno">  910 </span><span class="spaces">                        </span><span class="nottickedoff">then do</span>
+<span class="lineno">  911 </span><span class="spaces">                            </span><span class="nottickedoff">reportCacheOperation &quot;Invalid cache file (wrong magic bytes)&quot;</span>
+<span class="lineno">  912 </span><span class="spaces">                            </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  913 </span><span class="spaces">                        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  914 </span><span class="spaces">                            </span><span class="nottickedoff">-- Check schema signature</span>
+<span class="lineno">  915 </span><span class="spaces">                            </span><span class="nottickedoff">let storedSig = decodeEx sigBytes :: Word64</span>
+<span class="lineno">  916 </span><span class="spaces">                            </span><span class="nottickedoff">if storedSig /= schemaSignature</span>
+<span class="lineno">  917 </span><span class="spaces">                                </span><span class="nottickedoff">then do</span>
+<span class="lineno">  918 </span><span class="spaces">                                    </span><span class="nottickedoff">reportCacheOperation $ &quot;Schema mismatch: cache=&quot; ++ show storedSig ++ &quot; current=&quot; ++ show schemaSignature</span>
+<span class="lineno">  919 </span><span class="spaces">                                    </span><span class="nottickedoff">reportCacheOperation &quot;Cache will be rebuilt with new schema&quot;</span>
+<span class="lineno">  920 </span><span class="spaces">                                    </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  921 </span><span class="spaces">                                </span><span class="nottickedoff">else do</span>
+<span class="lineno">  922 </span><span class="spaces">                                    </span><span class="nottickedoff">-- Decompress and decode the payload</span>
+<span class="lineno">  923 </span><span class="spaces">                                    </span><span class="nottickedoff">case Zstd.decompress compressed of</span>
+<span class="lineno">  924 </span><span class="spaces">                                        </span><span class="nottickedoff">Zstd.Skip -&gt; do</span>
+<span class="lineno">  925 </span><span class="spaces">                                            </span><span class="nottickedoff">reportError &quot;Zstd decompression failed: Skip&quot;</span>
+<span class="lineno">  926 </span><span class="spaces">                                            </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  927 </span><span class="spaces">                                        </span><span class="nottickedoff">Zstd.Error err -&gt; do</span>
+<span class="lineno">  928 </span><span class="spaces">                                            </span><span class="nottickedoff">reportError $ &quot;Zstd decompression failed: &quot; ++ show err</span>
+<span class="lineno">  929 </span><span class="spaces">                                            </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  930 </span><span class="spaces">                                        </span><span class="nottickedoff">Zstd.Decompress decompressed -&gt; do</span>
+<span class="lineno">  931 </span><span class="spaces">                                            </span><span class="nottickedoff">let !db = decodeEx decompressed</span>
+<span class="lineno">  932 </span><span class="spaces">                                            </span><span class="nottickedoff">-- Force full evaluation to prevent lazy thunk buildup</span>
+<span class="lineno">  933 </span><span class="spaces">                                            </span><span class="nottickedoff">db' &lt;- evaluate (force db)</span>
+<span class="lineno">  934 </span><span class="spaces">                                            </span><span class="nottickedoff">reportCacheOperation $</span>
+<span class="lineno">  935 </span><span class="spaces">                                                </span><span class="nottickedoff">&quot;Matrix cache loaded: &quot;</span>
+<span class="lineno">  936 </span><span class="spaces">                                                    </span><span class="nottickedoff">++ show (dbActivityCount db')</span>
+<span class="lineno">  937 </span><span class="spaces">                                                    </span><span class="nottickedoff">++ &quot; activities, &quot;</span>
+<span class="lineno">  938 </span><span class="spaces">                                                    </span><span class="nottickedoff">++ show (VU.length $ dbTechnosphereTriples db')</span>
+<span class="lineno">  939 </span><span class="spaces">                                                    </span><span class="nottickedoff">++ &quot; tech entries, &quot;</span>
+<span class="lineno">  940 </span><span class="spaces">                                                    </span><span class="nottickedoff">++ show (VU.length $ dbBiosphereTriples db')</span>
+<span class="lineno">  941 </span><span class="spaces">                                                    </span><span class="nottickedoff">++ &quot; bio entries (decompressed)&quot;</span>
+<span class="lineno">  942 </span><span class="spaces">                                            </span><span class="nottickedoff">return (Just db')</span>
+<span class="lineno">  943 </span><span class="spaces">        </span><span class="nottickedoff">)</span>
+<span class="lineno">  944 </span><span class="spaces">        </span><span class="nottickedoff">( \(e :: SomeException) -&gt; do</span>
+<span class="lineno">  945 </span><span class="spaces">            </span><span class="nottickedoff">reportError $ &quot;Compressed cache load failed: &quot; ++ show e</span>
+<span class="lineno">  946 </span><span class="spaces">            </span><span class="nottickedoff">reportCacheOperation &quot;The compressed cache file is corrupted or incompatible&quot;</span>
+<span class="lineno">  947 </span><span class="spaces">            </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  948 </span><span class="spaces">        </span><span class="nottickedoff">)</span></span>
+<span class="lineno">  949 </span>
+<span class="lineno">  950 </span>-- | Load uncompressed (.bin) cache file
+<span class="lineno">  951 </span>loadUncompressedCacheFile :: FilePath -&gt; IO (Maybe Database)
+<span class="lineno">  952 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">loadUncompressedCacheFile cacheFile = do</span>
+<span class="lineno">  953 </span><span class="spaces">    </span><span class="nottickedoff">-- Validate cache file before attempting to decode</span>
+<span class="lineno">  954 </span><span class="spaces">    </span><span class="nottickedoff">isValid &lt;- validateCacheFile cacheFile</span>
+<span class="lineno">  955 </span><span class="spaces">    </span><span class="nottickedoff">if not isValid</span>
+<span class="lineno">  956 </span><span class="spaces">        </span><span class="nottickedoff">then do</span>
+<span class="lineno">  957 </span><span class="spaces">            </span><span class="nottickedoff">reportCacheOperation &quot;Cache file validation failed&quot;</span>
+<span class="lineno">  958 </span><span class="spaces">            </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  959 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  960 </span><span class="spaces">            </span><span class="nottickedoff">reportCacheInfo cacheFile</span>
+<span class="lineno">  961 </span><span class="spaces">            </span><span class="nottickedoff">catch</span>
+<span class="lineno">  962 </span><span class="spaces">                </span><span class="nottickedoff">( withProgressTiming Cache &quot;Matrix cache load&quot; $ do</span>
+<span class="lineno">  963 </span><span class="spaces">                    </span><span class="nottickedoff">!db &lt;- BS.readFile cacheFile &gt;&gt;= \bs -&gt; evaluate (force (decodeEx bs))</span>
+<span class="lineno">  964 </span><span class="spaces">                    </span><span class="nottickedoff">reportCacheOperation $</span>
+<span class="lineno">  965 </span><span class="spaces">                        </span><span class="nottickedoff">&quot;Matrix cache loaded: &quot;</span>
+<span class="lineno">  966 </span><span class="spaces">                            </span><span class="nottickedoff">++ show (dbActivityCount db)</span>
+<span class="lineno">  967 </span><span class="spaces">                            </span><span class="nottickedoff">++ &quot; activities, &quot;</span>
+<span class="lineno">  968 </span><span class="spaces">                            </span><span class="nottickedoff">++ show (VU.length $ dbTechnosphereTriples db)</span>
+<span class="lineno">  969 </span><span class="spaces">                            </span><span class="nottickedoff">++ &quot; tech entries, &quot;</span>
+<span class="lineno">  970 </span><span class="spaces">                            </span><span class="nottickedoff">++ show (VU.length $ dbBiosphereTriples db)</span>
+<span class="lineno">  971 </span><span class="spaces">                            </span><span class="nottickedoff">++ &quot; bio entries&quot;</span>
+<span class="lineno">  972 </span><span class="spaces">                    </span><span class="nottickedoff">return (Just db)</span>
+<span class="lineno">  973 </span><span class="spaces">                </span><span class="nottickedoff">)</span>
+<span class="lineno">  974 </span><span class="spaces">                </span><span class="nottickedoff">( \(e :: SomeException) -&gt; do</span>
+<span class="lineno">  975 </span><span class="spaces">                    </span><span class="nottickedoff">reportError $ &quot;Cache load failed: &quot; ++ show e</span>
+<span class="lineno">  976 </span><span class="spaces">                    </span><span class="nottickedoff">reportCacheOperation &quot;The cache file is corrupted or incompatible with the current version&quot;</span>
+<span class="lineno">  977 </span><span class="spaces">                    </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  978 </span><span class="spaces">                </span><span class="nottickedoff">)</span></span>
+<span class="lineno">  979 </span>
+<span class="lineno">  980 </span>{- |
+<span class="lineno">  981 </span>Save Database with pre-computed matrices to cache.
+<span class="lineno">  982 </span>
+<span class="lineno">  983 </span>Serializes the complete Database including sparse matrices to enable
+<span class="lineno">  984 </span>ultra-fast startup (~0.5s load time). The cache file includes:
+<span class="lineno">  985 </span>- 8 bytes magic (&quot;FPLCACHE&quot;)
+<span class="lineno">  986 </span>- 8 bytes schema signature (auto-generated from type structure)
+<span class="lineno">  987 </span>- Zstd compressed Database binary
+<span class="lineno">  988 </span>
+<span class="lineno">  989 </span>Should be called after matrix construction is complete.
+<span class="lineno">  990 </span>-}
+<span class="lineno">  991 </span>saveCachedDatabaseWithMatrices :: T.Text -&gt; FilePath -&gt; Database -&gt; IO ()
+<span class="lineno">  992 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">saveCachedDatabaseWithMatrices dbName dataDir db = do</span>
+<span class="lineno">  993 </span><span class="spaces">    </span><span class="nottickedoff">cacheFile &lt;- generateMatrixCacheFilename dbName dataDir</span>
+<span class="lineno">  994 </span><span class="spaces">    </span><span class="nottickedoff">let zstdFile = cacheFile ++ &quot;.zst&quot;</span>
+<span class="lineno">  995 </span><span class="spaces">    </span><span class="nottickedoff">reportCacheOperation $ &quot;Saving Database with matrices to compressed cache: &quot; ++ zstdFile</span>
+<span class="lineno">  996 </span><span class="spaces">    </span><span class="nottickedoff">withProgressTiming Cache &quot;Matrix cache save with zstd compression&quot; $ do</span>
+<span class="lineno">  997 </span><span class="spaces">        </span><span class="nottickedoff">-- Serialize to ByteString (store returns strict ByteString)</span>
+<span class="lineno">  998 </span><span class="spaces">        </span><span class="nottickedoff">let serialized = encode db</span>
+<span class="lineno">  999 </span><span class="spaces">        </span><span class="nottickedoff">-- Compress with zstd (level 1 = fast compression, ~5% larger than level 3)</span>
+<span class="lineno"> 1000 </span><span class="spaces">        </span><span class="nottickedoff">let compressed = Zstd.compress 1 serialized</span>
+<span class="lineno"> 1001 </span><span class="spaces">        </span><span class="nottickedoff">-- Build header: magic (8 bytes) + schema signature (8 bytes)</span>
+<span class="lineno"> 1002 </span><span class="spaces">        </span><span class="nottickedoff">let signatureBytes = encode schemaSignature</span>
+<span class="lineno"> 1003 </span><span class="spaces">        </span><span class="nottickedoff">let header = cacheMagic &lt;&gt; signatureBytes</span>
+<span class="lineno"> 1004 </span><span class="spaces">        </span><span class="nottickedoff">-- Write header + compressed data</span>
+<span class="lineno"> 1005 </span><span class="spaces">        </span><span class="nottickedoff">BS.writeFile zstdFile (header &lt;&gt; compressed)</span>
+<span class="lineno"> 1006 </span><span class="spaces">        </span><span class="nottickedoff">reportCacheOperation $</span>
+<span class="lineno"> 1007 </span><span class="spaces">            </span><span class="nottickedoff">&quot;Matrix cache saved (&quot;</span>
+<span class="lineno"> 1008 </span><span class="spaces">                </span><span class="nottickedoff">++ show (dbActivityCount db)</span>
+<span class="lineno"> 1009 </span><span class="spaces">                </span><span class="nottickedoff">++ &quot; activities, &quot;</span>
+<span class="lineno"> 1010 </span><span class="spaces">                </span><span class="nottickedoff">++ show (VU.length $ dbTechnosphereTriples db)</span>
+<span class="lineno"> 1011 </span><span class="spaces">                </span><span class="nottickedoff">++ &quot; tech entries, &quot;</span>
+<span class="lineno"> 1012 </span><span class="spaces">                </span><span class="nottickedoff">++ show (VU.length $ dbBiosphereTriples db)</span>
+<span class="lineno"> 1013 </span><span class="spaces">                </span><span class="nottickedoff">++ &quot; bio entries, compressed)&quot;</span></span>
+<span class="lineno"> 1014 </span>
+<span class="lineno"> 1015 </span>--------------------------------------------------------------------------------
+<span class="lineno"> 1016 </span>-- Cross-Database Linking
+<span class="lineno"> 1017 </span>--------------------------------------------------------------------------------
+<span class="lineno"> 1018 </span>
+<span class="lineno"> 1019 </span>-- | CrossDBLinkingStats, emptyCrossDBLinkingStats, mergeCrossDBStats,
+<span class="lineno"> 1020 </span>--   crossDBLinksCount, unresolvedCount, crossDBBySource
+<span class="lineno"> 1021 </span>--   are now defined in Types and re-exported from this module.
+<span class="lineno"> 1022 </span>
+<span class="lineno"> 1023 </span>{- | Load EcoSpold files with cross-database linking support.
+<span class="lineno"> 1024 </span>
+<span class="lineno"> 1025 </span>This function loads EcoSpold files and then attempts to resolve unlinked
+<span class="lineno"> 1026 </span>technosphere exchanges by searching across other already-loaded databases.
+<span class="lineno"> 1027 </span>
+<span class="lineno"> 1028 </span>The loading sequence:
+<span class="lineno"> 1029 </span>1. Parse XML files into SimpleDatabase
+<span class="lineno"> 1030 </span>2. Build supplier index for THIS database
+<span class="lineno"> 1031 </span>3. Attempt linking within THIS database (standard behavior)
+<span class="lineno"> 1032 </span>4. For remaining unlinked exchanges, search OTHER databases
+<span class="lineno"> 1033 </span>5. Report linking summary with cross-DB statistics
+<span class="lineno"> 1034 </span>-}
+<span class="lineno"> 1035 </span>loadDatabaseWithCrossDBLinking
+<span class="lineno"> 1036 </span>    :: M.Map T.Text T.Text       -- ^ Location aliases (wrongLocation → correctLocation)
+<span class="lineno"> 1037 </span>    -&gt; [IndexedDatabase]         -- ^ Pre-built indexes from other databases
+<span class="lineno"> 1038 </span>    -&gt; SynonymDB                  -- ^ Synonym database for name matching
+<span class="lineno"> 1039 </span>    -&gt; UC.UnitConfig              -- ^ Unit configuration for compatibility checking
+<span class="lineno"> 1040 </span>    -&gt; FilePath                   -- ^ Path to load from
+<span class="lineno"> 1041 </span>    -&gt; IO (Either T.Text (SimpleDatabase, CrossDBLinkingStats))
+<span class="lineno"> 1042 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">loadDatabaseWithCrossDBLinking locationAliases otherIndexes synonymDB unitConfig path = do</span>
+<span class="lineno"> 1043 </span><span class="spaces">    </span><span class="nottickedoff">result &lt;- loadDatabaseWithLocationAliases locationAliases path</span>
+<span class="lineno"> 1044 </span><span class="spaces">    </span><span class="nottickedoff">case result of</span>
+<span class="lineno"> 1045 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; return $ Left err</span>
+<span class="lineno"> 1046 </span><span class="spaces">        </span><span class="nottickedoff">Right simpleDb -&gt; do</span>
+<span class="lineno"> 1047 </span><span class="spaces">            </span><span class="nottickedoff">-- Detect unknown units from the database's unit definitions</span>
+<span class="lineno"> 1048 </span><span class="spaces">            </span><span class="nottickedoff">let !unknownUnits = S.fromList</span>
+<span class="lineno"> 1049 </span><span class="spaces">                    </span><span class="nottickedoff">[ unitName u</span>
+<span class="lineno"> 1050 </span><span class="spaces">                    </span><span class="nottickedoff">| u &lt;- M.elems (sdbUnits simpleDb)</span>
+<span class="lineno"> 1051 </span><span class="spaces">                    </span><span class="nottickedoff">, not (UC.isKnownUnit unitConfig (unitName u))</span>
+<span class="lineno"> 1052 </span><span class="spaces">                    </span><span class="nottickedoff">, not (T.null (unitName u))</span>
+<span class="lineno"> 1053 </span><span class="spaces">                    </span><span class="nottickedoff">]</span>
+<span class="lineno"> 1054 </span><span class="spaces">            </span><span class="nottickedoff">unless (S.null unknownUnits) $</span>
+<span class="lineno"> 1055 </span><span class="spaces">                </span><span class="nottickedoff">reportProgress Warning $ printf &quot;%d unknown unit(s): %s — add to [units.aliases] in volca.toml&quot;</span>
+<span class="lineno"> 1056 </span><span class="spaces">                    </span><span class="nottickedoff">(S.size unknownUnits)</span>
+<span class="lineno"> 1057 </span><span class="spaces">                    </span><span class="nottickedoff">(T.unpack $ T.intercalate &quot;, &quot; $ map (\u -&gt; &quot;\&quot;&quot; &lt;&gt; u &lt;&gt; &quot;\&quot;&quot;) $ S.toList unknownUnits)</span>
+<span class="lineno"> 1058 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1059 </span><span class="spaces">            </span><span class="nottickedoff">-- If there are other databases to search, perform cross-DB linking</span>
+<span class="lineno"> 1060 </span><span class="spaces">            </span><span class="nottickedoff">let !totalInputs = countTotalTechInputs simpleDb</span>
+<span class="lineno"> 1061 </span><span class="spaces">            </span><span class="nottickedoff">if null otherIndexes</span>
+<span class="lineno"> 1062 </span><span class="spaces">                </span><span class="nottickedoff">then do</span>
+<span class="lineno"> 1063 </span><span class="spaces">                    </span><span class="nottickedoff">-- No cross-DB linking needed</span>
+<span class="lineno"> 1064 </span><span class="spaces">                    </span><span class="nottickedoff">let !stats = emptyCrossDBLinkingStats { cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs }</span>
+<span class="lineno"> 1065 </span><span class="spaces">                    </span><span class="nottickedoff">reportCrossDBLinkingStats (M.size (sdbActivities simpleDb)) stats</span>
+<span class="lineno"> 1066 </span><span class="spaces">                    </span><span class="nottickedoff">return $ Right (simpleDb, stats)</span>
+<span class="lineno"> 1067 </span><span class="spaces">                </span><span class="nottickedoff">else do</span>
+<span class="lineno"> 1068 </span><span class="spaces">                    </span><span class="nottickedoff">-- Perform cross-database linking using pre-built indexes</span>
+<span class="lineno"> 1069 </span><span class="spaces">                    </span><span class="nottickedoff">(linkedDb, stats) &lt;- fixActivityLinksWithCrossDB</span>
+<span class="lineno"> 1070 </span><span class="spaces">                        </span><span class="nottickedoff">otherIndexes synonymDB unitConfig simpleDb</span>
+<span class="lineno"> 1071 </span><span class="spaces">                    </span><span class="nottickedoff">return $ Right (linkedDb, stats { cdlUnknownUnits = unknownUnits })</span></span>
+<span class="lineno"> 1072 </span>
+<span class="lineno"> 1073 </span>{- | Fix activity links using cross-database lookup.
+<span class="lineno"> 1074 </span>
+<span class="lineno"> 1075 </span>For each unlinked technosphere input (where activityLinkId is nil),
+<span class="lineno"> 1076 </span>search across other loaded databases to find a matching supplier.
+<span class="lineno"> 1077 </span>
+<span class="lineno"> 1078 </span>Matching criteria:
+<span class="lineno"> 1079 </span>- Product name must match (exact, synonym, or fuzzy)
+<span class="lineno"> 1080 </span>- Units must be compatible
+<span class="lineno"> 1081 </span>- Location scoring with hierarchy fallback
+<span class="lineno"> 1082 </span>
+<span class="lineno"> 1083 </span>Cross-database links are stored in CrossDBLinkingStats.cdlLinks for use
+<span class="lineno"> 1084 </span>in chained inventory solving. The exchanges are NOT modified - they
+<span class="lineno"> 1085 </span>remain &quot;unlinked&quot; from the perspective of the internal matrix, but the
+<span class="lineno"> 1086 </span>CrossDBLinks provide the information needed to resolve them at solve time.
+<span class="lineno"> 1087 </span>-}
+<span class="lineno"> 1088 </span>fixActivityLinksWithCrossDB
+<span class="lineno"> 1089 </span>    :: [IndexedDatabase]            -- ^ Pre-built indexes from other databases
+<span class="lineno"> 1090 </span>    -&gt; SynonymDB                    -- ^ Synonym database
+<span class="lineno"> 1091 </span>    -&gt; UC.UnitConfig                -- ^ Unit configuration
+<span class="lineno"> 1092 </span>    -&gt; SimpleDatabase               -- ^ Database to fix
+<span class="lineno"> 1093 </span>    -&gt; IO (SimpleDatabase, CrossDBLinkingStats)
+<span class="lineno"> 1094 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig db = do</span>
+<span class="lineno"> 1095 </span><span class="spaces">    </span><span class="nottickedoff">-- Count unlinked exchanges before</span>
+<span class="lineno"> 1096 </span><span class="spaces">    </span><span class="nottickedoff">let unlinkedBefore = countUnlinkedExchanges db</span>
+<span class="lineno"> 1097 </span><span class="spaces">        </span><span class="nottickedoff">!totalInputs = countTotalTechInputs db</span>
+<span class="lineno"> 1098 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1099 </span><span class="spaces">    </span><span class="nottickedoff">-- If no unlinked exchanges, skip</span>
+<span class="lineno"> 1100 </span><span class="spaces">    </span><span class="nottickedoff">if unlinkedBefore == 0</span>
+<span class="lineno"> 1101 </span><span class="spaces">        </span><span class="nottickedoff">then do</span>
+<span class="lineno"> 1102 </span><span class="spaces">            </span><span class="nottickedoff">reportProgress Info &quot;No unlinked exchanges to resolve via cross-DB linking&quot;</span>
+<span class="lineno"> 1103 </span><span class="spaces">            </span><span class="nottickedoff">return (db, emptyCrossDBLinkingStats { cdlTotalInputs = totalInputs })</span>
+<span class="lineno"> 1104 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
+<span class="lineno"> 1105 </span><span class="spaces">            </span><span class="nottickedoff">reportProgress Info $</span>
+<span class="lineno"> 1106 </span><span class="spaces">                </span><span class="nottickedoff">printf &quot;Cross-database linking: %d unlinked exchanges, searching %d database(s)...&quot;</span>
+<span class="lineno"> 1107 </span><span class="spaces">                    </span><span class="nottickedoff">unlinkedBefore (length indexedDbs)</span>
+<span class="lineno"> 1108 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1109 </span><span class="spaces">            </span><span class="nottickedoff">-- Report index stats</span>
+<span class="lineno"> 1110 </span><span class="spaces">            </span><span class="nottickedoff">forM_ indexedDbs $ \idb -&gt;</span>
+<span class="lineno"> 1111 </span><span class="spaces">                </span><span class="nottickedoff">reportProgress Info $</span>
+<span class="lineno"> 1112 </span><span class="spaces">                    </span><span class="nottickedoff">printf &quot;  - %s: %d products indexed&quot;</span>
+<span class="lineno"> 1113 </span><span class="spaces">                        </span><span class="nottickedoff">(T.unpack (idbName idb))</span>
+<span class="lineno"> 1114 </span><span class="spaces">                        </span><span class="nottickedoff">(M.size (idbByProductName idb))</span>
+<span class="lineno"> 1115 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1116 </span><span class="spaces">            </span><span class="nottickedoff">-- Build the linking context with pre-built indexes</span>
+<span class="lineno"> 1117 </span><span class="spaces">            </span><span class="nottickedoff">let linkingCtx = LinkingContext</span>
+<span class="lineno"> 1118 </span><span class="spaces">                    </span><span class="nottickedoff">{ lcIndexedDatabases = indexedDbs</span>
+<span class="lineno"> 1119 </span><span class="spaces">                    </span><span class="nottickedoff">, lcSynonymDB = synonymDB</span>
+<span class="lineno"> 1120 </span><span class="spaces">                    </span><span class="nottickedoff">, lcUnitConfig = unitConfig</span>
+<span class="lineno"> 1121 </span><span class="spaces">                    </span><span class="nottickedoff">, lcThreshold = defaultLinkingThreshold</span>
+<span class="lineno"> 1122 </span><span class="spaces">                    </span><span class="nottickedoff">}</span>
+<span class="lineno"> 1123 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1124 </span><span class="spaces">            </span><span class="nottickedoff">-- Process all activities to find cross-DB links</span>
+<span class="lineno"> 1125 </span><span class="spaces">            </span><span class="nottickedoff">reportProgress Info &quot;Finding cross-database suppliers...&quot;</span>
+<span class="lineno"> 1126 </span><span class="spaces">            </span><span class="nottickedoff">let stats = findAllCrossDBLinks</span>
+<span class="lineno"> 1127 </span><span class="spaces">                    </span><span class="nottickedoff">linkingCtx (sdbFlows db) (sdbUnits db) (sdbActivities db)</span>
+<span class="lineno"> 1128 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1129 </span><span class="spaces">            </span><span class="nottickedoff">-- Report statistics</span>
+<span class="lineno"> 1130 </span><span class="spaces">            </span><span class="nottickedoff">let !stats' = stats { cdlTotalInputs = totalInputs }</span>
+<span class="lineno"> 1131 </span><span class="spaces">            </span><span class="nottickedoff">reportCrossDBLinkingStats (M.size (sdbActivities db)) stats'</span>
+<span class="lineno"> 1132 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1133 </span><span class="spaces">            </span><span class="nottickedoff">-- Return the original database unchanged, along with the cross-DB links</span>
+<span class="lineno"> 1134 </span><span class="spaces">            </span><span class="nottickedoff">-- The links will be stored in the Database.dbCrossDBLinks field later</span>
+<span class="lineno"> 1135 </span><span class="spaces">            </span><span class="nottickedoff">return (db, stats')</span></span>
+<span class="lineno"> 1136 </span>
+<span class="lineno"> 1137 </span>-- | Collect unlinked product names from a database (for databases without cross-DB linking)
+<span class="lineno"> 1138 </span>collectUnlinkedProductNames :: SimpleDatabase -&gt; M.Map T.Text Int
+<span class="lineno"> 1139 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">collectUnlinkedProductNames db =</span>
+<span class="lineno"> 1140 </span><span class="spaces">    </span><span class="nottickedoff">M.fromListWith (+)</span>
+<span class="lineno"> 1141 </span><span class="spaces">        </span><span class="nottickedoff">[ (flowName flow, 1)</span>
+<span class="lineno"> 1142 </span><span class="spaces">        </span><span class="nottickedoff">| act &lt;- M.elems (sdbActivities db)</span>
+<span class="lineno"> 1143 </span><span class="spaces">        </span><span class="nottickedoff">, TechnosphereExchange fid _ _ True _ linkId _ _ &lt;- exchanges act</span>
+<span class="lineno"> 1144 </span><span class="spaces">        </span><span class="nottickedoff">, linkId == UUID.nil</span>
+<span class="lineno"> 1145 </span><span class="spaces">        </span><span class="nottickedoff">, Just flow &lt;- [M.lookup fid (sdbFlows db)]</span>
+<span class="lineno"> 1146 </span><span class="spaces">        </span><span class="nottickedoff">]</span></span>
+<span class="lineno"> 1147 </span>
+<span class="lineno"> 1148 </span>-- | Count unlinked technosphere exchanges in a database
+<span class="lineno"> 1149 </span>countUnlinkedExchanges :: SimpleDatabase -&gt; Int
+<span class="lineno"> 1150 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">countUnlinkedExchanges db =</span>
+<span class="lineno"> 1151 </span><span class="spaces">    </span><span class="nottickedoff">sum [ 1</span>
+<span class="lineno"> 1152 </span><span class="spaces">        </span><span class="nottickedoff">| act &lt;- M.elems (sdbActivities db)</span>
+<span class="lineno"> 1153 </span><span class="spaces">        </span><span class="nottickedoff">, ex &lt;- exchanges act</span>
+<span class="lineno"> 1154 </span><span class="spaces">        </span><span class="nottickedoff">, isUnlinkedTechInput ex</span>
+<span class="lineno"> 1155 </span><span class="spaces">        </span><span class="nottickedoff">]</span>
+<span class="lineno"> 1156 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
+<span class="lineno"> 1157 </span><span class="spaces">    </span><span class="nottickedoff">isUnlinkedTechInput :: Exchange -&gt; Bool</span>
+<span class="lineno"> 1158 </span><span class="spaces">    </span><span class="nottickedoff">isUnlinkedTechInput (TechnosphereExchange _ _ _ isInp _ linkId _ _) =</span>
+<span class="lineno"> 1159 </span><span class="spaces">        </span><span class="nottickedoff">isInp &amp;&amp; linkId == UUID.nil</span>
+<span class="lineno"> 1160 </span><span class="spaces">    </span><span class="nottickedoff">isUnlinkedTechInput _ = False</span></span>
+<span class="lineno"> 1161 </span>
+<span class="lineno"> 1162 </span>-- | Count total technosphere input exchanges in a database
+<span class="lineno"> 1163 </span>countTotalTechInputs :: SimpleDatabase -&gt; Int
+<span class="lineno"> 1164 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">countTotalTechInputs db =</span>
+<span class="lineno"> 1165 </span><span class="spaces">    </span><span class="nottickedoff">sum [ 1</span>
+<span class="lineno"> 1166 </span><span class="spaces">        </span><span class="nottickedoff">| act &lt;- M.elems (sdbActivities db)</span>
+<span class="lineno"> 1167 </span><span class="spaces">        </span><span class="nottickedoff">, ex &lt;- exchanges act</span>
+<span class="lineno"> 1168 </span><span class="spaces">        </span><span class="nottickedoff">, isTechInput ex</span>
+<span class="lineno"> 1169 </span><span class="spaces">        </span><span class="nottickedoff">]</span>
+<span class="lineno"> 1170 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
+<span class="lineno"> 1171 </span><span class="spaces">    </span><span class="nottickedoff">isTechInput :: Exchange -&gt; Bool</span>
+<span class="lineno"> 1172 </span><span class="spaces">    </span><span class="nottickedoff">isTechInput (TechnosphereExchange _ _ _ isInp _ _ _ _) = isInp</span>
+<span class="lineno"> 1173 </span><span class="spaces">    </span><span class="nottickedoff">isTechInput _ = False</span></span>
+<span class="lineno"> 1174 </span>
+<span class="lineno"> 1175 </span>-- | Find all cross-database links without modifying activities
+<span class="lineno"> 1176 </span>-- Returns statistics including the CrossDBLinks for chained solving
+<span class="lineno"> 1177 </span>findAllCrossDBLinks
+<span class="lineno"> 1178 </span>    :: LinkingContext
+<span class="lineno"> 1179 </span>    -&gt; FlowDB
+<span class="lineno"> 1180 </span>    -&gt; UnitDB
+<span class="lineno"> 1181 </span>    -&gt; ActivityMap
+<span class="lineno"> 1182 </span>    -&gt; CrossDBLinkingStats
+<span class="lineno"> 1183 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findAllCrossDBLinks ctx flowDb unitDb activities =</span>
+<span class="lineno"> 1184 </span><span class="spaces">    </span><span class="nottickedoff">let results = M.mapWithKey (findActivityCrossDBLinks ctx flowDb unitDb) activities</span>
+<span class="lineno"> 1185 </span><span class="spaces">    </span><span class="nottickedoff">in foldr mergeCrossDBStats emptyCrossDBLinkingStats (M.elems results)</span></span>
+<span class="lineno"> 1186 </span>
+<span class="lineno"> 1187 </span>-- | Find cross-database links for one activity's exchanges
+<span class="lineno"> 1188 </span>findActivityCrossDBLinks
+<span class="lineno"> 1189 </span>    :: LinkingContext
+<span class="lineno"> 1190 </span>    -&gt; FlowDB
+<span class="lineno"> 1191 </span>    -&gt; UnitDB
+<span class="lineno"> 1192 </span>    -&gt; (UUID.UUID, UUID.UUID)    -- ^ Consumer activity key (actUUID, prodUUID)
+<span class="lineno"> 1193 </span>    -&gt; Activity
+<span class="lineno"> 1194 </span>    -&gt; CrossDBLinkingStats
+<span class="lineno"> 1195 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findActivityCrossDBLinks ctx flowDb unitDb (consumerActUUID, consumerProdUUID) act =</span>
+<span class="lineno"> 1196 </span><span class="spaces">    </span><span class="nottickedoff">let stats = map (findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID) (exchanges act)</span>
+<span class="lineno"> 1197 </span><span class="spaces">    </span><span class="nottickedoff">in foldr mergeCrossDBStats emptyCrossDBLinkingStats stats</span></span>
+<span class="lineno"> 1198 </span>
+<span class="lineno"> 1199 </span>-- | Find cross-database link for a single exchange
+<span class="lineno"> 1200 </span>--
+<span class="lineno"> 1201 </span>-- Only attempts cross-DB linking if:
+<span class="lineno"> 1202 </span>-- 1. Exchange is a technosphere input
+<span class="lineno"> 1203 </span>-- 2. Exchange is currently unlinked (activityLinkId is nil)
+<span class="lineno"> 1204 </span>--
+<span class="lineno"> 1205 </span>-- When a link is found, a CrossDBLink is created and returned in stats.
+<span class="lineno"> 1206 </span>-- The exchange itself is NOT modified.
+<span class="lineno"> 1207 </span>findExchangeCrossDBLink
+<span class="lineno"> 1208 </span>    :: LinkingContext
+<span class="lineno"> 1209 </span>    -&gt; FlowDB
+<span class="lineno"> 1210 </span>    -&gt; UnitDB
+<span class="lineno"> 1211 </span>    -&gt; UUID.UUID                 -- ^ Consumer activity UUID
+<span class="lineno"> 1212 </span>    -&gt; UUID.UUID                 -- ^ Consumer product UUID
+<span class="lineno"> 1213 </span>    -&gt; Exchange
+<span class="lineno"> 1214 </span>    -&gt; CrossDBLinkingStats
+<span class="lineno"> 1215 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID (TechnosphereExchange fid amt _uid isInp _isRef linkId _procLink loc)</span>
+<span class="lineno"> 1216 </span><span class="spaces">    </span><span class="nottickedoff">| isInp &amp;&amp; linkId == UUID.nil = -- Unlinked technosphere input</span>
+<span class="lineno"> 1217 </span><span class="spaces">        </span><span class="nottickedoff">case M.lookup fid flowDb of</span>
+<span class="lineno"> 1218 </span><span class="spaces">            </span><span class="nottickedoff">Nothing -&gt;</span>
+<span class="lineno"> 1219 </span><span class="spaces">                </span><span class="nottickedoff">-- Flow not found in FlowDB - can't name it</span>
+<span class="lineno"> 1220 </span><span class="spaces">                </span><span class="nottickedoff">emptyCrossDBLinkingStats</span>
+<span class="lineno"> 1221 </span><span class="spaces">            </span><span class="nottickedoff">Just flow -&gt;</span>
+<span class="lineno"> 1222 </span><span class="spaces">                </span><span class="nottickedoff">-- Get unit name from UnitDB</span>
+<span class="lineno"> 1223 </span><span class="spaces">                </span><span class="nottickedoff">let flowUnitName = case M.lookup (flowUnitId flow) unitDb of</span>
+<span class="lineno"> 1224 </span><span class="spaces">                        </span><span class="nottickedoff">Just u  -&gt; unitName u</span>
+<span class="lineno"> 1225 </span><span class="spaces">                        </span><span class="nottickedoff">Nothing -&gt; &quot;&quot;  -- Unknown unit</span>
+<span class="lineno"> 1226 </span><span class="spaces">                </span><span class="nottickedoff">in case findSupplierAcrossDatabases ctx (flowName flow) loc flowUnitName of</span>
+<span class="lineno"> 1227 </span><span class="spaces">                    </span><span class="nottickedoff">CrossDBLinked supplierActUUID supplierProdUUID dbName _score prodName supplierLoc warnings -&gt;</span>
+<span class="lineno"> 1228 </span><span class="spaces">                        </span><span class="nottickedoff">-- Successfully found cross-DB supplier</span>
+<span class="lineno"> 1229 </span><span class="spaces">                        </span><span class="nottickedoff">let !crossLink = CrossDBLink</span>
+<span class="lineno"> 1230 </span><span class="spaces">                                </span><span class="nottickedoff">{ cdlConsumerActUUID = consumerActUUID</span>
+<span class="lineno"> 1231 </span><span class="spaces">                                </span><span class="nottickedoff">, cdlConsumerProdUUID = consumerProdUUID</span>
+<span class="lineno"> 1232 </span><span class="spaces">                                </span><span class="nottickedoff">, cdlSupplierActUUID = supplierActUUID</span>
+<span class="lineno"> 1233 </span><span class="spaces">                                </span><span class="nottickedoff">, cdlSupplierProdUUID = supplierProdUUID</span>
+<span class="lineno"> 1234 </span><span class="spaces">                                </span><span class="nottickedoff">, cdlCoefficient = amt</span>
+<span class="lineno"> 1235 </span><span class="spaces">                                </span><span class="nottickedoff">, cdlFlowName = prodName</span>
+<span class="lineno"> 1236 </span><span class="spaces">                                </span><span class="nottickedoff">, cdlLocation = supplierLoc</span>
+<span class="lineno"> 1237 </span><span class="spaces">                                </span><span class="nottickedoff">, cdlSourceDatabase = dbName</span>
+<span class="lineno"> 1238 </span><span class="spaces">                                </span><span class="nottickedoff">}</span>
+<span class="lineno"> 1239 </span><span class="spaces">                            </span><span class="nottickedoff">fallbacks = [ (prodName, req, act) | UpperLocationUsed req act &lt;- warnings ]</span>
+<span class="lineno"> 1240 </span><span class="spaces">                        </span><span class="nottickedoff">in CrossDBLinkingStats [crossLink] M.empty S.empty fallbacks 0</span>
+<span class="lineno"> 1241 </span><span class="spaces">                    </span><span class="nottickedoff">CrossDBNotLinked blocker -&gt;</span>
+<span class="lineno"> 1242 </span><span class="spaces">                        </span><span class="nottickedoff">-- Record as unresolved with the blocker reason</span>
+<span class="lineno"> 1243 </span><span class="spaces">                        </span><span class="nottickedoff">CrossDBLinkingStats [] (M.singleton (flowName flow) (1, blocker)) S.empty [] 0</span>
+<span class="lineno"> 1244 </span><span class="spaces">    </span><span class="nottickedoff">| otherwise =</span>
+<span class="lineno"> 1245 </span><span class="spaces">        </span><span class="nottickedoff">emptyCrossDBLinkingStats</span>
+<span class="lineno"> 1246 </span><span class="spaces"></span><span class="nottickedoff">findExchangeCrossDBLink _ _ _ _ _ _ = emptyCrossDBLinkingStats</span></span>
+<span class="lineno"> 1247 </span>
+<span class="lineno"> 1248 </span>-- | Report cross-database linking statistics
+<span class="lineno"> 1249 </span>reportCrossDBLinkingStats :: Int -&gt; CrossDBLinkingStats -&gt; IO ()
+<span class="lineno"> 1250 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">reportCrossDBLinkingStats nActivities stats = do</span>
+<span class="lineno"> 1251 </span><span class="spaces">    </span><span class="nottickedoff">let !nInputs = cdlTotalInputs stats</span>
+<span class="lineno"> 1252 </span><span class="spaces">        </span><span class="nottickedoff">!nCrossDB = crossDBLinksCount stats</span>
+<span class="lineno"> 1253 </span><span class="spaces">        </span><span class="nottickedoff">!nUnresolved = unresolvedCount stats</span>
+<span class="lineno"> 1254 </span><span class="spaces">        </span><span class="nottickedoff">!nInternal = max 0 (nInputs - nCrossDB - nUnresolved)</span>
+<span class="lineno"> 1255 </span><span class="spaces">        </span><span class="nottickedoff">!nResolved = nInternal + nCrossDB</span>
+<span class="lineno"> 1256 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1257 </span><span class="spaces">    </span><span class="nottickedoff">-- Summary line (skip &quot;0/0&quot; for databases without technosphere input tracking)</span>
+<span class="lineno"> 1258 </span><span class="spaces">    </span><span class="nottickedoff">if nInputs &gt; 0</span>
+<span class="lineno"> 1259 </span><span class="spaces">        </span><span class="nottickedoff">then do</span>
+<span class="lineno"> 1260 </span><span class="spaces">            </span><span class="nottickedoff">let !completeness = 100.0 * fromIntegral nResolved / fromIntegral nInputs :: Double</span>
+<span class="lineno"> 1261 </span><span class="spaces">            </span><span class="nottickedoff">reportProgress Info $</span>
+<span class="lineno"> 1262 </span><span class="spaces">                </span><span class="nottickedoff">printf &quot;Supply chain: %.1f%% complete (%d/%d inputs resolved), %d activities&quot;</span>
+<span class="lineno"> 1263 </span><span class="spaces">                    </span><span class="nottickedoff">completeness nResolved nInputs nActivities</span>
+<span class="lineno"> 1264 </span><span class="spaces">            </span><span class="nottickedoff">reportProgress Info $</span>
+<span class="lineno"> 1265 </span><span class="spaces">                </span><span class="nottickedoff">printf &quot;  Internal: %d, Cross-DB: %d, Unresolved: %d&quot; nInternal nCrossDB nUnresolved</span>
+<span class="lineno"> 1266 </span><span class="spaces">        </span><span class="nottickedoff">else</span>
+<span class="lineno"> 1267 </span><span class="spaces">            </span><span class="nottickedoff">reportProgress Info $</span>
+<span class="lineno"> 1268 </span><span class="spaces">                </span><span class="nottickedoff">printf &quot;Supply chain: %d activities (no technosphere inputs)&quot; nActivities</span>
+<span class="lineno"> 1269 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1270 </span><span class="spaces">    </span><span class="nottickedoff">-- Per-database breakdown</span>
+<span class="lineno"> 1271 </span><span class="spaces">    </span><span class="nottickedoff">forM_ (M.toList (crossDBBySource stats)) $ \(srcDb, count) -&gt;</span>
+<span class="lineno"> 1272 </span><span class="spaces">        </span><span class="nottickedoff">reportProgress Info $</span>
+<span class="lineno"> 1273 </span><span class="spaces">            </span><span class="nottickedoff">printf &quot;  - %s: %d links&quot; (T.unpack srcDb) count</span>
+<span class="lineno"> 1274 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1275 </span><span class="spaces">    </span><span class="nottickedoff">-- Missing suppliers</span>
+<span class="lineno"> 1276 </span><span class="spaces">    </span><span class="nottickedoff">let !missing = sortOn (\(_, (cnt, _)) -&gt; Down cnt) $ M.toList (cdlUnresolvedProducts stats)</span>
+<span class="lineno"> 1277 </span><span class="spaces">    </span><span class="nottickedoff">when (not (null missing)) $ do</span>
+<span class="lineno"> 1278 </span><span class="spaces">        </span><span class="nottickedoff">reportProgress Warning $</span>
+<span class="lineno"> 1279 </span><span class="spaces">            </span><span class="nottickedoff">printf &quot;Missing suppliers: %d products unresolved&quot; (length missing)</span>
+<span class="lineno"> 1280 </span><span class="spaces">        </span><span class="nottickedoff">forM_ (take 20 missing) $ \(name, (cnt, blocker)) -&gt;</span>
+<span class="lineno"> 1281 </span><span class="spaces">            </span><span class="nottickedoff">reportProgress Warning $</span>
+<span class="lineno"> 1282 </span><span class="spaces">                </span><span class="nottickedoff">printf &quot;  - %s (%d activities) — %s&quot; (T.unpack name) cnt (showBlocker blocker)</span>
+<span class="lineno"> 1283 </span><span class="spaces">        </span><span class="nottickedoff">when (length missing &gt; 20) $</span>
+<span class="lineno"> 1284 </span><span class="spaces">            </span><span class="nottickedoff">reportProgress Warning $</span>
+<span class="lineno"> 1285 </span><span class="spaces">                </span><span class="nottickedoff">printf &quot;  ... and %d more&quot; (length missing - 20)</span>
+<span class="lineno"> 1286 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1287 </span><span class="spaces">    </span><span class="nottickedoff">-- Unknown units</span>
+<span class="lineno"> 1288 </span><span class="spaces">    </span><span class="nottickedoff">let !unknowns = S.toList (cdlUnknownUnits stats)</span>
+<span class="lineno"> 1289 </span><span class="spaces">    </span><span class="nottickedoff">when (not (null unknowns)) $</span>
+<span class="lineno"> 1290 </span><span class="spaces">        </span><span class="nottickedoff">reportProgress Warning $</span>
+<span class="lineno"> 1291 </span><span class="spaces">            </span><span class="nottickedoff">printf &quot;Unknown units: %s&quot; (T.unpack $ T.intercalate &quot;, &quot; unknowns)</span>
+<span class="lineno"> 1292 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1293 </span><span class="spaces">    </span><span class="nottickedoff">-- Location fallbacks (deduplicated)</span>
+<span class="lineno"> 1294 </span><span class="spaces">    </span><span class="nottickedoff">let !uniqueFallbacks = deduplicateFallbacks (cdlLocationFallbacks stats)</span>
+<span class="lineno"> 1295 </span><span class="spaces">        </span><span class="nottickedoff">!nFallbacks = length uniqueFallbacks</span>
+<span class="lineno"> 1296 </span><span class="spaces">    </span><span class="nottickedoff">when (nFallbacks &gt; 0) $ do</span>
+<span class="lineno"> 1297 </span><span class="spaces">        </span><span class="nottickedoff">reportProgress Info $</span>
+<span class="lineno"> 1298 </span><span class="spaces">            </span><span class="nottickedoff">printf &quot;Location fallbacks: %d unique products matched with different location&quot; nFallbacks</span>
+<span class="lineno"> 1299 </span><span class="spaces">        </span><span class="nottickedoff">forM_ uniqueFallbacks $ \(prod, requested, actual) -&gt;</span>
+<span class="lineno"> 1300 </span><span class="spaces">            </span><span class="nottickedoff">reportProgress Info $</span>
+<span class="lineno"> 1301 </span><span class="spaces">                </span><span class="nottickedoff">printf &quot;  - %s: %s → %s&quot; (T.unpack prod) (T.unpack requested) (T.unpack actual)</span></span>
+<span class="lineno"> 1302 </span>
+<span class="lineno"> 1303 </span>showBlocker :: LinkBlocker -&gt; String
+<span class="lineno"> 1304 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">showBlocker NoNameMatch = &quot;Not found&quot;</span>
+<span class="lineno"> 1305 </span><span class="spaces"></span><span class="nottickedoff">showBlocker (UnitIncompatible q s) = printf &quot;Unit: %s vs %s&quot; (T.unpack q) (T.unpack s)</span>
+<span class="lineno"> 1306 </span><span class="spaces"></span><span class="nottickedoff">showBlocker (LocationUnavailable loc) = printf &quot;Location: %s&quot; (T.unpack loc)</span></span>
+
+</pre>
+</body>
+</html>

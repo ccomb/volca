@@ -1,0 +1,436 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE BangPatterns #-}
+<span class="lineno">    2 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    3 </span>{-# OPTIONS_GHC -Wno-name-shadowing #-}
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>module Database where
+<span class="lineno">    6 </span>
+<span class="lineno">    7 </span>import Progress
+<span class="lineno">    8 </span>import Types
+<span class="lineno">    9 </span>import UnitConversion (UnitConfig, convertExchangeAmount)
+<span class="lineno">   10 </span>import Data.Int (Int32)
+<span class="lineno">   11 </span>import Data.List (sort)
+<span class="lineno">   12 </span>import qualified Data.Map as M
+<span class="lineno">   13 </span>import qualified Data.Set as S
+<span class="lineno">   14 </span>import Data.Text (Text)
+<span class="lineno">   15 </span>import qualified Data.Text as T
+<span class="lineno">   16 </span>import qualified Data.UUID as UUID
+<span class="lineno">   17 </span>import qualified Data.Vector as V
+<span class="lineno">   18 </span>import qualified Data.Vector.Unboxed as VU
+<span class="lineno">   19 </span>import System.IO (hPutStrLn, stderr)
+<span class="lineno">   20 </span>
+<span class="lineno">   21 </span>{- | Build complete database with pre-computed sparse matrices
+<span class="lineno">   22 </span>
+<span class="lineno">   23 </span>SIGN CONVENTION:
+<span class="lineno">   24 </span>- Technosphere triplets are stored as POSITIVE values (input coefficients per unit output)
+<span class="lineno">   25 </span>- Matrix.hs negates these when constructing (I-A) system matrix for solving
+<span class="lineno">   26 </span>- The biosphere matrix stores ALL flows as POSITIVE (emissions AND resource extractions)
+<span class="lineno">   27 </span>- Resource extractions represent &quot;outputs&quot; from nature into the technosphere (positive like emissions)
+<span class="lineno">   28 </span>- This follows Ecoinvent convention where B matrix contains positive values for all environmental flows
+<span class="lineno">   29 </span>
+<span class="lineno">   30 </span>Matrix Construction:
+<span class="lineno">   31 </span>- Accepts a Map with (UUID, UUID) keys and converts to Vector internally
+<span class="lineno">   32 </span>- Builds sparse triplets for technosphere (A) and biosphere (B) matrices
+<span class="lineno">   33 </span>- Normalizes exchanges by NET reference product amounts (gross output - internal consumption)
+<span class="lineno">   34 </span>- SELF-LOOPS (internal consumption) are EXCLUDED from matrix triplets but affect normalization
+<span class="lineno">   35 </span>- Example: Electricity market with 1.0 kWh output and 0.012 kWh internal loss
+<span class="lineno">   36 </span>  * Normalization factor: 1.0 - 0.012 = 0.988 kWh (net output)
+<span class="lineno">   37 </span>  * All inputs divided by 0.988, giving ~1.2% increase in coefficients
+<span class="lineno">   38 </span>  * Self-loop NOT exported as matrix entry (matches Ecoinvent convention)
+<span class="lineno">   39 </span>- Solver constructs (I-A) by adding identity and negating technosphere triplets
+<span class="lineno">   40 </span>-}
+<span class="lineno">   41 </span>buildDatabaseWithMatrices :: UnitConfig -&gt; M.Map (UUID, UUID) Activity -&gt; FlowDB -&gt; UnitDB -&gt; IO Database
+<span class="lineno">   42 </span><span class="funcount">-- entered 35 times</span><span class="decl"><span class="istickedoff">buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do</span>
+<span class="lineno">   43 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation &quot;Building database with pre-computed sparse matrices&quot;</span>
+<span class="lineno">   44 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   45 </span><span class="spaces">    </span><span class="istickedoff">-- Step 1: Build UUID interning tables from Map keys</span>
+<span class="lineno">   46 </span><span class="spaces">    </span><span class="istickedoff">let activityKeys = M.keys activityMap</span>
+<span class="lineno">   47 </span><span class="spaces">        </span><span class="istickedoff">sortedKeys = sort activityKeys -- Ensure deterministic ordering</span>
+<span class="lineno">   48 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   49 </span><span class="spaces">        </span><span class="istickedoff">-- Build forward lookup: ProcessId (Int16) -&gt; (UUID, UUID)</span>
+<span class="lineno">   50 </span><span class="spaces">        </span><span class="istickedoff">dbProcessIdTable = V.fromList sortedKeys</span>
+<span class="lineno">   51 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   52 </span><span class="spaces">        </span><span class="istickedoff">-- Build reverse lookup: (UUID, UUID) -&gt; ProcessId (Int16)</span>
+<span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">dbProcessIdLookup = M.fromList $ zip sortedKeys [0 ..]</span>
+<span class="lineno">   54 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   55 </span><span class="spaces">        </span><span class="istickedoff">-- Build activity UUID index: UUID -&gt; ProcessId (for O(1) lookups)</span>
+<span class="lineno">   56 </span><span class="spaces">        </span><span class="istickedoff">dbActivityUUIDIndex = M.fromList [(actUUID, <span class="nottickedoff">pid</span>) | (pid, (actUUID, _)) &lt;- zip [0 ..] sortedKeys]</span>
+<span class="lineno">   57 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   58 </span><span class="spaces">        </span><span class="istickedoff">-- Build activity products index: UUID -&gt; [ProcessId] (for multi-product activities)</span>
+<span class="lineno">   59 </span><span class="spaces">        </span><span class="istickedoff">dbActivityProductsIndex = M.fromListWith <span class="nottickedoff">(++)</span> [(actUUID, <span class="nottickedoff">[pid]</span>) | (pid, (actUUID, _)) &lt;- zip [0 ..] sortedKeys]</span>
+<span class="lineno">   60 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   61 </span><span class="spaces">        </span><span class="istickedoff">-- Build activity-product lookup for correct multi-output handling</span>
+<span class="lineno">   62 </span><span class="spaces">        </span><span class="istickedoff">-- Maps (activityUUID, productFlowUUID) -&gt; ProcessId</span>
+<span class="lineno">   63 </span><span class="spaces">        </span><span class="istickedoff">-- This ensures exchanges link to the correct product in multi-output activities</span>
+<span class="lineno">   64 </span><span class="spaces">        </span><span class="istickedoff">activityProductLookup = M.fromList [((actUUID, prodUUID), pid) | (pid, (actUUID, prodUUID)) &lt;- zip [0 ..] sortedKeys]</span>
+<span class="lineno">   65 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   66 </span><span class="spaces">        </span><span class="istickedoff">-- Convert Map to Vector indexed by ProcessId</span>
+<span class="lineno">   67 </span><span class="spaces">        </span><span class="istickedoff">dbActivities = V.fromList [activityMap M.! key | key &lt;- sortedKeys]</span>
+<span class="lineno">   68 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   69 </span><span class="spaces">        </span><span class="istickedoff">-- Build indexes (now using Vector)</span>
+<span class="lineno">   70 </span><span class="spaces">        </span><span class="istickedoff">indexes = buildIndexesWithProcessIds dbActivities dbProcessIdTable flowDB</span>
+<span class="lineno">   71 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   72 </span><span class="spaces">        </span><span class="istickedoff">-- Build supplier reference unit lookup: ProcessId -&gt; unit name of reference product</span>
+<span class="lineno">   73 </span><span class="spaces">        </span><span class="istickedoff">-- Used to convert exchange amounts to the supplier's unit for correct A-matrix coefficients</span>
+<span class="lineno">   74 </span><span class="spaces">        </span><span class="istickedoff">supplierRefUnits = V.map (\act -&gt;</span>
+<span class="lineno">   75 </span><span class="spaces">            </span><span class="istickedoff">let refExs = [ex | ex &lt;- exchanges act, <span class="tickonlytrue">exchangeIsReference ex</span>, <span class="tickonlytrue">not (exchangeIsInput ex)</span>]</span>
+<span class="lineno">   76 </span><span class="spaces">            </span><span class="istickedoff">in case refExs of</span>
+<span class="lineno">   77 </span><span class="spaces">                </span><span class="istickedoff">(ex:_) -&gt; getUnitNameForExchange unitDB ex</span>
+<span class="lineno">   78 </span><span class="spaces">                </span><span class="istickedoff">[] -&gt; <span class="nottickedoff">&quot;&quot;</span></span>
+<span class="lineno">   79 </span><span class="spaces">            </span><span class="istickedoff">) dbActivities</span>
+<span class="lineno">   80 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   81 </span><span class="spaces">    </span><span class="istickedoff">-- Build activity index for matrix construction</span>
+<span class="lineno">   82 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation &quot;Building activity indexes&quot;</span>
+<span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">let activityCount = fromIntegral (V.length dbActivities) :: Int32</span>
+<span class="lineno">   84 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   85 </span><span class="spaces">    </span><span class="istickedoff">-- Note: ProcessId is already the matrix index (identity mapping removed for performance)</span>
+<span class="lineno">   86 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation (&quot;Activity index built: &quot; ++ show activityCount ++ &quot; activities&quot;)</span>
+<span class="lineno">   87 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   88 </span><span class="spaces">    </span><span class="istickedoff">-- Build technosphere sparse triplets</span>
+<span class="lineno">   89 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation &quot;Building technosphere matrix triplets&quot;</span>
+<span class="lineno">   90 </span><span class="spaces">    </span><span class="istickedoff">let buildTechTriple normalizationFactor j consumerActivity _consumerPid ex</span>
+<span class="lineno">   91 </span><span class="spaces">            </span><span class="istickedoff">| not (isTechnosphereExchange ex) = ([], [])</span>
+<span class="lineno">   92 </span><span class="spaces">            </span><span class="istickedoff">| not (exchangeIsInput ex) = ([], [])</span>
+<span class="lineno">   93 </span><span class="spaces">            </span><span class="istickedoff">| <span class="tickonlyfalse">exchangeIsReference ex &amp;&amp; <span class="nottickedoff">not (exchangeIsInput ex)</span></span> = <span class="nottickedoff">([], [])</span></span>
+<span class="lineno">   94 </span><span class="spaces">            </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">   95 </span><span class="spaces">                </span><span class="istickedoff">let producerResult = case exchangeProcessLinkId ex of</span>
+<span class="lineno">   96 </span><span class="spaces">                        </span><span class="istickedoff">Just pid -&gt; <span class="nottickedoff">(Just pid, [])</span></span>
+<span class="lineno">   97 </span><span class="spaces">                        </span><span class="istickedoff">Nothing -&gt; case exchangeActivityLinkId ex of</span>
+<span class="lineno">   98 </span><span class="spaces">                            </span><span class="istickedoff">Just actUUID -&gt;</span>
+<span class="lineno">   99 </span><span class="spaces">                                </span><span class="istickedoff">case M.lookup (actUUID, exchangeFlowId ex) activityProductLookup of</span>
+<span class="lineno">  100 </span><span class="spaces">                                    </span><span class="istickedoff">Just pid -&gt; (Just pid, [])</span>
+<span class="lineno">  101 </span><span class="spaces">                                    </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  102 </span><span class="spaces">                                        </span><span class="istickedoff">-- Only warn if exchange has non-zero amount (zero-amount are placeholders)</span>
+<span class="lineno">  103 </span><span class="spaces">                                        </span><span class="istickedoff"><span class="nottickedoff">let warning = if abs (exchangeAmount ex) &gt; 1e-15</span></span>
+<span class="lineno">  104 </span><span class="spaces">                                                     </span><span class="istickedoff"><span class="nottickedoff">then [ &quot;[WARNING] Missing activity-product pair referenced by exchange:\n&quot;</span></span>
+<span class="lineno">  105 </span><span class="spaces">                                                            </span><span class="istickedoff"><span class="nottickedoff">++ &quot;  Activity UUID: &quot; ++ T.unpack (UUID.toText actUUID) ++ &quot;\n&quot;</span></span>
+<span class="lineno">  106 </span><span class="spaces">                                                            </span><span class="istickedoff"><span class="nottickedoff">++ &quot;  Product UUID: &quot; ++ T.unpack (UUID.toText (exchangeFlowId ex)) ++ &quot;\n&quot;</span></span>
+<span class="lineno">  107 </span><span class="spaces">                                                            </span><span class="istickedoff"><span class="nottickedoff">++ &quot;  Consumer: &quot; ++ T.unpack (activityName consumerActivity) ++ &quot;\n&quot;</span></span>
+<span class="lineno">  108 </span><span class="spaces">                                                            </span><span class="istickedoff"><span class="nottickedoff">++ &quot;  Expected file: &quot; ++ T.unpack (UUID.toText actUUID) ++ &quot;_&quot; ++ T.unpack (UUID.toText (exchangeFlowId ex)) ++ &quot;.spold\n&quot;</span></span>
+<span class="lineno">  109 </span><span class="spaces">                                                            </span><span class="istickedoff"><span class="nottickedoff">++ &quot;  This exchange will be skipped.&quot; ]</span></span>
+<span class="lineno">  110 </span><span class="spaces">                                                     </span><span class="istickedoff"><span class="nottickedoff">else []</span></span>
+<span class="lineno">  111 </span><span class="spaces">                                        </span><span class="istickedoff"><span class="nottickedoff">in (Nothing, warning)</span></span>
+<span class="lineno">  112 </span><span class="spaces">                            </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">(Nothing, [])</span></span>
+<span class="lineno">  113 </span><span class="spaces">                    </span><span class="istickedoff">(producerPid, warnings) = producerResult</span>
+<span class="lineno">  114 </span><span class="spaces">                    </span><span class="istickedoff">-- ProcessId is already the matrix index (no identity mapping needed)</span>
+<span class="lineno">  115 </span><span class="spaces">                    </span><span class="istickedoff">producerIdx =</span>
+<span class="lineno">  116 </span><span class="spaces">                        </span><span class="istickedoff">producerPid &gt;&gt;= \pid -&gt;</span>
+<span class="lineno">  117 </span><span class="spaces">                            </span><span class="istickedoff">if <span class="tickonlytrue">pid &gt;= 0 &amp;&amp; fromIntegral pid &lt; activityCount</span></span>
+<span class="lineno">  118 </span><span class="spaces">                                </span><span class="istickedoff">then Just $ fromIntegral pid</span>
+<span class="lineno">  119 </span><span class="spaces">                                </span><span class="istickedoff">else <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  120 </span><span class="spaces">                 </span><span class="istickedoff">in case producerIdx of</span>
+<span class="lineno">  121 </span><span class="spaces">                        </span><span class="istickedoff">Just idx -&gt;</span>
+<span class="lineno">  122 </span><span class="spaces">                            </span><span class="istickedoff">let rawValue = exchangeAmount ex</span>
+<span class="lineno">  123 </span><span class="spaces">                                </span><span class="istickedoff">-- Convert exchange amount to supplier's reference product unit</span>
+<span class="lineno">  124 </span><span class="spaces">                                </span><span class="istickedoff">-- e.g., if exchange is 1934.5 kg but supplier produces in &quot;ton&quot;,</span>
+<span class="lineno">  125 </span><span class="spaces">                                </span><span class="istickedoff">-- convert to 1.9345 ton for correct A-matrix coefficient</span>
+<span class="lineno">  126 </span><span class="spaces">                                </span><span class="istickedoff">exchangeUnit = getUnitNameForExchange unitDB ex</span>
+<span class="lineno">  127 </span><span class="spaces">                                </span><span class="istickedoff">supplierUnit = supplierRefUnits V.! fromIntegral idx</span>
+<span class="lineno">  128 </span><span class="spaces">                                </span><span class="istickedoff">convertedValue = convertExchangeAmount unitConfig exchangeUnit supplierUnit rawValue</span>
+<span class="lineno">  129 </span><span class="spaces">                                </span><span class="istickedoff">denom = if <span class="tickonlytrue">normalizationFactor &gt; 1e-15</span></span>
+<span class="lineno">  130 </span><span class="spaces">                                        </span><span class="istickedoff">then normalizationFactor</span>
+<span class="lineno">  131 </span><span class="spaces">                                        </span><span class="istickedoff">else <span class="nottickedoff">1.0</span>  -- Unreachable: normalizationFactor already falls back to 1.0</span>
+<span class="lineno">  132 </span><span class="spaces">                                </span><span class="istickedoff">value = convertedValue / denom</span>
+<span class="lineno">  133 </span><span class="spaces">                                </span><span class="istickedoff">-- Exclude self-loops (internal consumption): idx == j</span>
+<span class="lineno">  134 </span><span class="spaces">                                </span><span class="istickedoff">-- Self-loops are accounted for in normalization factor but not exported as matrix entries</span>
+<span class="lineno">  135 </span><span class="spaces">                                </span><span class="istickedoff">-- This matches Ecoinvent's convention where internal losses affect normalization only</span>
+<span class="lineno">  136 </span><span class="spaces">                             </span><span class="istickedoff">in ([SparseTriple idx j value | <span class="tickonlytrue">abs value &gt; 1e-15</span>, idx /= j], warnings)</span>
+<span class="lineno">  137 </span><span class="spaces">                        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">([], warnings)</span></span>
+<span class="lineno">  138 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  139 </span><span class="spaces">        </span><span class="istickedoff">buildActivityTriplets (j, consumerPid) =</span>
+<span class="lineno">  140 </span><span class="spaces">            </span><span class="istickedoff">let consumerActivity = dbActivities V.! fromIntegral consumerPid</span>
+<span class="lineno">  141 </span><span class="spaces">                </span><span class="istickedoff">-- Get activity UUID from ProcessId table</span>
+<span class="lineno">  142 </span><span class="spaces">                </span><span class="istickedoff">(activityUUID, _) = dbProcessIdTable V.! fromIntegral consumerPid</span>
+<span class="lineno">  143 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  144 </span><span class="spaces">                </span><span class="istickedoff">-- For normalization, only use reference OUTPUTS (not treatment inputs)</span>
+<span class="lineno">  145 </span><span class="spaces">                </span><span class="istickedoff">-- Treatment inputs have negative amounts and would incorrectly inflate the normalization factor</span>
+<span class="lineno">  146 </span><span class="spaces">                </span><span class="istickedoff">refOutputs = [ exchangeAmount ex | ex &lt;- exchanges consumerActivity, exchangeIsReference ex, <span class="tickonlytrue">not (exchangeIsInput ex)</span> ]</span>
+<span class="lineno">  147 </span><span class="spaces">                </span><span class="istickedoff">-- If no outputs (pure treatment), use abs of reference input</span>
+<span class="lineno">  148 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">refInputs = [ abs (exchangeAmount ex) | ex &lt;- exchanges consumerActivity, exchangeIsReference ex, exchangeIsInput ex ]</span></span>
+<span class="lineno">  149 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  150 </span><span class="spaces">                </span><span class="istickedoff">-- Calculate internal consumption (self-loops): technosphere inputs that link back to same activity</span>
+<span class="lineno">  151 </span><span class="spaces">                </span><span class="istickedoff">-- These represent internal losses (e.g., electricity market losses, heat for process)</span>
+<span class="lineno">  152 </span><span class="spaces">                </span><span class="istickedoff">internalConsumption = sum [ exchangeAmount ex</span>
+<span class="lineno">  153 </span><span class="spaces">                                          </span><span class="istickedoff">| ex &lt;- exchanges consumerActivity</span>
+<span class="lineno">  154 </span><span class="spaces">                                          </span><span class="istickedoff">, isTechnosphereExchange ex</span>
+<span class="lineno">  155 </span><span class="spaces">                                          </span><span class="istickedoff">, exchangeIsInput ex</span>
+<span class="lineno">  156 </span><span class="spaces">                                          </span><span class="istickedoff">, <span class="tickonlytrue">not (exchangeIsReference ex)</span>  -- Don't count reference products</span>
+<span class="lineno">  157 </span><span class="spaces">                                          </span><span class="istickedoff">, case exchangeActivityLinkId ex of</span>
+<span class="lineno">  158 </span><span class="spaces">                                                </span><span class="istickedoff">Just linkUUID -&gt; linkUUID == activityUUID</span>
+<span class="lineno">  159 </span><span class="spaces">                                                </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">False</span></span>
+<span class="lineno">  160 </span><span class="spaces">                                          </span><span class="istickedoff">]</span>
+<span class="lineno">  161 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  162 </span><span class="spaces">                </span><span class="istickedoff">normalizationFactor =</span>
+<span class="lineno">  163 </span><span class="spaces">                    </span><span class="istickedoff">let grossOutput = sum refOutputs</span>
+<span class="lineno">  164 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">grossInput = sum refInputs</span></span>
+<span class="lineno">  165 </span><span class="spaces">                        </span><span class="istickedoff">-- Net output = gross output - internal consumption</span>
+<span class="lineno">  166 </span><span class="spaces">                        </span><span class="istickedoff">-- This matches Ecoinvent's normalization convention for market activities</span>
+<span class="lineno">  167 </span><span class="spaces">                        </span><span class="istickedoff">netOutput = if <span class="tickonlytrue">grossOutput &gt; 1e-15</span></span>
+<span class="lineno">  168 </span><span class="spaces">                                   </span><span class="istickedoff">then grossOutput - internalConsumption</span>
+<span class="lineno">  169 </span><span class="spaces">                                   </span><span class="istickedoff">else <span class="nottickedoff">0.0</span></span>
+<span class="lineno">  170 </span><span class="spaces">                    </span><span class="istickedoff">in if <span class="tickonlytrue">netOutput &gt; 1e-15</span> then netOutput</span>
+<span class="lineno">  171 </span><span class="spaces">                       </span><span class="istickedoff">else <span class="nottickedoff">if grossInput &gt; 1e-15 then grossInput</span></span>
+<span class="lineno">  172 </span><span class="spaces">                       </span><span class="istickedoff"><span class="nottickedoff">else 1.0</span>  -- Fallback for activities with no reference products (shouldn't happen)</span>
+<span class="lineno">  173 </span><span class="spaces">                </span><span class="istickedoff">buildNormalizedTechTriple = buildTechTriple normalizationFactor j <span class="nottickedoff">consumerActivity</span> <span class="nottickedoff">consumerPid</span></span>
+<span class="lineno">  174 </span><span class="spaces">                </span><span class="istickedoff">results = map buildNormalizedTechTriple (exchanges consumerActivity)</span>
+<span class="lineno">  175 </span><span class="spaces">             </span><span class="istickedoff">in (concatMap fst results, concatMap snd results)</span>
+<span class="lineno">  176 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  177 </span><span class="spaces">        </span><span class="istickedoff">allResults = map buildActivityTriplets [(fromIntegral j, j) | j &lt;- [0 .. fromIntegral activityCount - 1 :: ProcessId]]</span>
+<span class="lineno">  178 </span><span class="spaces">        </span><span class="istickedoff">!techTriples = VU.fromList $ concatMap fst allResults</span>
+<span class="lineno">  179 </span><span class="spaces">        </span><span class="istickedoff">techWarnings = concatMap snd allResults</span>
+<span class="lineno">  180 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  181 </span><span class="spaces">    </span><span class="istickedoff">-- Emit warnings in IO context</span>
+<span class="lineno">  182 </span><span class="spaces">    </span><span class="istickedoff">mapM_ <span class="nottickedoff">(hPutStrLn stderr)</span> techWarnings</span>
+<span class="lineno">  183 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  184 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation (&quot;Technosphere matrix: &quot; ++ show (VU.length techTriples) ++ &quot; non-zero entries&quot;)</span>
+<span class="lineno">  185 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  186 </span><span class="spaces">    </span><span class="istickedoff">-- Build biosphere sparse triplets</span>
+<span class="lineno">  187 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation &quot;Building biosphere matrix triplets&quot;</span>
+<span class="lineno">  188 </span><span class="spaces">    </span><span class="istickedoff">let bioFlowUUIDs =</span>
+<span class="lineno">  189 </span><span class="spaces">            </span><span class="istickedoff">V.fromList $ sort $</span>
+<span class="lineno">  190 </span><span class="spaces">                </span><span class="istickedoff">S.toList $</span>
+<span class="lineno">  191 </span><span class="spaces">                    </span><span class="istickedoff">S.fromList</span>
+<span class="lineno">  192 </span><span class="spaces">                        </span><span class="istickedoff">[ exchangeFlowId ex | pid &lt;- [0 .. fromIntegral activityCount - 1 :: Int], let act = dbActivities V.! pid, ex &lt;- exchanges act, isBiosphereExchange ex</span>
+<span class="lineno">  193 </span><span class="spaces">                        </span><span class="istickedoff">]</span>
+<span class="lineno">  194 </span><span class="spaces">        </span><span class="istickedoff">bioFlowCount = fromIntegral $ V.length bioFlowUUIDs :: Int32</span>
+<span class="lineno">  195 </span><span class="spaces">        </span><span class="istickedoff">bioFlowIndex = M.fromList $ zip (V.toList bioFlowUUIDs) [0 ..]</span>
+<span class="lineno">  196 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  197 </span><span class="spaces">        </span><span class="istickedoff">!bioTriples =</span>
+<span class="lineno">  198 </span><span class="spaces">            </span><span class="istickedoff">let buildBioTriple normalizationFactor j _activity ex</span>
+<span class="lineno">  199 </span><span class="spaces">                    </span><span class="istickedoff">| not (isBiosphereExchange ex) = []</span>
+<span class="lineno">  200 </span><span class="spaces">                    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  201 </span><span class="spaces">                        </span><span class="istickedoff">case M.lookup (exchangeFlowId ex) bioFlowIndex of</span>
+<span class="lineno">  202 </span><span class="spaces">                            </span><span class="istickedoff">Just i -&gt;</span>
+<span class="lineno">  203 </span><span class="spaces">                                </span><span class="istickedoff">let rawValue = exchangeAmount ex</span>
+<span class="lineno">  204 </span><span class="spaces">                                    </span><span class="istickedoff">denom = if <span class="tickonlytrue">normalizationFactor &gt; 1e-15</span></span>
+<span class="lineno">  205 </span><span class="spaces">                                            </span><span class="istickedoff">then normalizationFactor</span>
+<span class="lineno">  206 </span><span class="spaces">                                            </span><span class="istickedoff">else <span class="nottickedoff">1.0</span>  -- Unreachable: normalizationFactor already falls back to 1.0</span>
+<span class="lineno">  207 </span><span class="spaces">                                    </span><span class="istickedoff">-- Ecoinvent convention: ALL biosphere flows are positive (both emissions AND resource extractions)</span>
+<span class="lineno">  208 </span><span class="spaces">                                    </span><span class="istickedoff">-- Resource extractions represent &quot;outputs&quot; from nature into the technosphere</span>
+<span class="lineno">  209 </span><span class="spaces">                                    </span><span class="istickedoff">-- NO sign inversion needed - store as positive regardless of input/output status</span>
+<span class="lineno">  210 </span><span class="spaces">                                    </span><span class="istickedoff">value = rawValue / denom</span>
+<span class="lineno">  211 </span><span class="spaces">                                 </span><span class="istickedoff">in [SparseTriple i j value | <span class="tickonlytrue">abs value &gt; 1e-15</span>]</span>
+<span class="lineno">  212 </span><span class="spaces">                            </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">[]</span></span>
+<span class="lineno">  213 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  214 </span><span class="spaces">                </span><span class="istickedoff">buildActivityBioTriplets (j, pid) =</span>
+<span class="lineno">  215 </span><span class="spaces">                    </span><span class="istickedoff">let activity = dbActivities V.! fromIntegral pid</span>
+<span class="lineno">  216 </span><span class="spaces">                        </span><span class="istickedoff">-- Get activity UUID from ProcessId table</span>
+<span class="lineno">  217 </span><span class="spaces">                        </span><span class="istickedoff">(activityUUID, _) = dbProcessIdTable V.! fromIntegral pid</span>
+<span class="lineno">  218 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  219 </span><span class="spaces">                        </span><span class="istickedoff">refOutputs = [ exchangeAmount ex | ex &lt;- exchanges activity, exchangeIsReference ex, <span class="tickonlytrue">not (exchangeIsInput ex)</span> ]</span>
+<span class="lineno">  220 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">refInputs = [ abs (exchangeAmount ex) | ex &lt;- exchanges activity, exchangeIsReference ex, exchangeIsInput ex ]</span></span>
+<span class="lineno">  221 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  222 </span><span class="spaces">                        </span><span class="istickedoff">-- Calculate internal consumption (self-loops) same as for technosphere matrix</span>
+<span class="lineno">  223 </span><span class="spaces">                        </span><span class="istickedoff">internalConsumption = sum [ <span class="nottickedoff">exchangeAmount ex</span></span>
+<span class="lineno">  224 </span><span class="spaces">                                                  </span><span class="istickedoff">| ex &lt;- exchanges activity</span>
+<span class="lineno">  225 </span><span class="spaces">                                                  </span><span class="istickedoff">, isTechnosphereExchange ex</span>
+<span class="lineno">  226 </span><span class="spaces">                                                  </span><span class="istickedoff">, exchangeIsInput ex</span>
+<span class="lineno">  227 </span><span class="spaces">                                                  </span><span class="istickedoff">, <span class="tickonlytrue">not (exchangeIsReference ex)</span></span>
+<span class="lineno">  228 </span><span class="spaces">                                                  </span><span class="istickedoff">, <span class="tickonlyfalse">case exchangeActivityLinkId ex of</span></span>
+<span class="lineno">  229 </span><span class="spaces">                                                        </span><span class="istickedoff"><span class="tickonlyfalse">Just linkUUID -&gt; linkUUID == activityUUID</span></span>
+<span class="lineno">  230 </span><span class="spaces">                                                        </span><span class="istickedoff"><span class="tickonlyfalse">Nothing -&gt; <span class="nottickedoff">False</span></span></span>
+<span class="lineno">  231 </span><span class="spaces">                                                  </span><span class="istickedoff">]</span>
+<span class="lineno">  232 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  233 </span><span class="spaces">                        </span><span class="istickedoff">normalizationFactor =</span>
+<span class="lineno">  234 </span><span class="spaces">                            </span><span class="istickedoff">let grossOutput = sum refOutputs</span>
+<span class="lineno">  235 </span><span class="spaces">                                </span><span class="istickedoff"><span class="nottickedoff">grossInput = sum refInputs</span></span>
+<span class="lineno">  236 </span><span class="spaces">                                </span><span class="istickedoff">-- Net output = gross output - internal consumption</span>
+<span class="lineno">  237 </span><span class="spaces">                                </span><span class="istickedoff">netOutput = if <span class="tickonlytrue">grossOutput &gt; 1e-15</span></span>
+<span class="lineno">  238 </span><span class="spaces">                                           </span><span class="istickedoff">then grossOutput - internalConsumption</span>
+<span class="lineno">  239 </span><span class="spaces">                                           </span><span class="istickedoff">else <span class="nottickedoff">0.0</span></span>
+<span class="lineno">  240 </span><span class="spaces">                            </span><span class="istickedoff">in if <span class="tickonlytrue">netOutput &gt; 1e-15</span> then netOutput</span>
+<span class="lineno">  241 </span><span class="spaces">                               </span><span class="istickedoff">else <span class="nottickedoff">if grossInput &gt; 1e-15 then grossInput</span></span>
+<span class="lineno">  242 </span><span class="spaces">                               </span><span class="istickedoff"><span class="nottickedoff">else 1.0</span></span>
+<span class="lineno">  243 </span><span class="spaces">                        </span><span class="istickedoff">buildNormalizedBioTriple = buildBioTriple normalizationFactor j <span class="nottickedoff">activity</span></span>
+<span class="lineno">  244 </span><span class="spaces">                     </span><span class="istickedoff">in concatMap buildNormalizedBioTriple (exchanges activity)</span>
+<span class="lineno">  245 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  246 </span><span class="spaces">                </span><span class="istickedoff">!result = VU.fromList $ concatMap buildActivityBioTriplets [(fromIntegral j, j) | j &lt;- [0 .. fromIntegral activityCount - 1 :: ProcessId]]</span>
+<span class="lineno">  247 </span><span class="spaces">             </span><span class="istickedoff">in result</span>
+<span class="lineno">  248 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  249 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation (&quot;Biosphere matrix: &quot; ++ show (VU.length bioTriples) ++ &quot; non-zero entries&quot;)</span>
+<span class="lineno">  250 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  251 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation &quot;Database with matrices built successfully&quot;</span>
+<span class="lineno">  252 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation (&quot;Final matrix stats: &quot; ++ show (VU.length techTriples) ++ &quot; tech entries, &quot; ++ show (VU.length bioTriples) ++ &quot; bio entries&quot;)</span>
+<span class="lineno">  253 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  254 </span><span class="spaces">    </span><span class="istickedoff">-- Build product index for SimaPro link resolution and future product search</span>
+<span class="lineno">  255 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation &quot;Building product index&quot;</span>
+<span class="lineno">  256 </span><span class="spaces">    </span><span class="istickedoff">let !productIndex = buildProductIndex dbActivities dbProcessIdTable flowDB</span>
+<span class="lineno">  257 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation (&quot;Product index: &quot; ++ show (M.size (piByUUID productIndex)) ++ &quot; products indexed&quot;)</span>
+<span class="lineno">  258 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  259 </span><span class="spaces">    </span><span class="istickedoff">return Database</span>
+<span class="lineno">  260 </span><span class="spaces">            </span><span class="istickedoff">{ dbProcessIdTable = dbProcessIdTable</span>
+<span class="lineno">  261 </span><span class="spaces">            </span><span class="istickedoff">, dbProcessIdLookup = dbProcessIdLookup</span>
+<span class="lineno">  262 </span><span class="spaces">            </span><span class="istickedoff">, dbActivityUUIDIndex = dbActivityUUIDIndex</span>
+<span class="lineno">  263 </span><span class="spaces">            </span><span class="istickedoff">, dbActivityProductsIndex = dbActivityProductsIndex</span>
+<span class="lineno">  264 </span><span class="spaces">            </span><span class="istickedoff">, dbProductIndex = productIndex</span>
+<span class="lineno">  265 </span><span class="spaces">            </span><span class="istickedoff">, dbActivities = dbActivities</span>
+<span class="lineno">  266 </span><span class="spaces">            </span><span class="istickedoff">, dbFlows = flowDB</span>
+<span class="lineno">  267 </span><span class="spaces">            </span><span class="istickedoff">, dbUnits = unitDB</span>
+<span class="lineno">  268 </span><span class="spaces">            </span><span class="istickedoff">, dbIndexes = indexes</span>
+<span class="lineno">  269 </span><span class="spaces">            </span><span class="istickedoff">, dbTechnosphereTriples = techTriples</span>
+<span class="lineno">  270 </span><span class="spaces">            </span><span class="istickedoff">, dbBiosphereTriples = bioTriples</span>
+<span class="lineno">  271 </span><span class="spaces">            </span><span class="istickedoff">, dbActivityIndex = V.generate (fromIntegral activityCount) fromIntegral -- Identity mapping for compatibility</span>
+<span class="lineno">  272 </span><span class="spaces">            </span><span class="istickedoff">, dbBiosphereFlows = bioFlowUUIDs</span>
+<span class="lineno">  273 </span><span class="spaces">            </span><span class="istickedoff">, dbActivityCount = activityCount</span>
+<span class="lineno">  274 </span><span class="spaces">            </span><span class="istickedoff">, dbBiosphereCount = bioFlowCount</span>
+<span class="lineno">  275 </span><span class="spaces">            </span><span class="istickedoff">-- Cross-database linking (empty by default, populated during cross-DB linking)</span>
+<span class="lineno">  276 </span><span class="spaces">            </span><span class="istickedoff">, dbCrossDBLinks = []</span>
+<span class="lineno">  277 </span><span class="spaces">            </span><span class="istickedoff">, dbDependsOn = []</span>
+<span class="lineno">  278 </span><span class="spaces">            </span><span class="istickedoff">, dbLinkingStats = emptyCrossDBLinkingStats</span>
+<span class="lineno">  279 </span><span class="spaces">            </span><span class="istickedoff">-- Runtime-only fields (not cached)</span>
+<span class="lineno">  280 </span><span class="spaces">            </span><span class="istickedoff">, dbCachedFactorization = Nothing</span>
+<span class="lineno">  281 </span><span class="spaces">            </span><span class="istickedoff">, dbSynonymDB = Nothing  -- Will be populated at runtime from embedded DB</span>
+<span class="lineno">  282 </span><span class="spaces">            </span><span class="istickedoff">, dbFlowsByName = M.empty  -- Will be populated at runtime</span>
+<span class="lineno">  283 </span><span class="spaces">            </span><span class="istickedoff">, dbFlowsByCAS = M.empty  -- Will be populated at runtime</span>
+<span class="lineno">  284 </span><span class="spaces">            </span><span class="istickedoff">}</span></span>
+<span class="lineno">  285 </span>
+<span class="lineno">  286 </span>-- | Build indexes with ProcessIds
+<span class="lineno">  287 </span>buildIndexesWithProcessIds :: V.Vector Activity -&gt; V.Vector (UUID, UUID) -&gt; FlowDB -&gt; Indexes
+<span class="lineno">  288 </span><span class="funcount">-- entered 35 times</span><span class="decl"><span class="istickedoff">buildIndexesWithProcessIds activityVec processIdTable flowDB =</span>
+<span class="lineno">  289 </span><span class="spaces">    </span><span class="istickedoff">let</span>
+<span class="lineno">  290 </span><span class="spaces">        </span><span class="istickedoff">-- Convert Vector to temporary Map for index building</span>
+<span class="lineno">  291 </span><span class="spaces">        </span><span class="istickedoff">-- We use the ProcessId-to-UUID mapping for lookups</span>
+<span class="lineno">  292 </span><span class="spaces">        </span><span class="istickedoff">activityUUIDs = [<span class="nottickedoff">actUUID</span> | (actUUID, _) &lt;- V.toList processIdTable]</span>
+<span class="lineno">  293 </span><span class="spaces">        </span><span class="istickedoff">activities = V.toList activityVec</span>
+<span class="lineno">  294 </span><span class="spaces">        </span><span class="istickedoff">activityPairs = zip activityUUIDs activities</span>
+<span class="lineno">  295 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  296 </span><span class="spaces">        </span><span class="istickedoff">-- Build indexes using activity UUIDs</span>
+<span class="lineno">  297 </span><span class="spaces">        </span><span class="istickedoff">nameIdx =</span>
+<span class="lineno">  298 </span><span class="spaces">            </span><span class="istickedoff">M.fromListWith</span>
+<span class="lineno">  299 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">(++)</span></span>
+<span class="lineno">  300 </span><span class="spaces">                </span><span class="istickedoff">[(T.toLower (activityName activity), <span class="nottickedoff">[uuid]</span>) | (uuid, activity) &lt;- activityPairs]</span>
+<span class="lineno">  301 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  302 </span><span class="spaces">        </span><span class="istickedoff">locationIdx =</span>
+<span class="lineno">  303 </span><span class="spaces">            </span><span class="istickedoff">M.fromListWith</span>
+<span class="lineno">  304 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">(++)</span></span>
+<span class="lineno">  305 </span><span class="spaces">                </span><span class="istickedoff">[(activityLocation activity, <span class="nottickedoff">[uuid]</span>) | (uuid, activity) &lt;- activityPairs]</span>
+<span class="lineno">  306 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  307 </span><span class="spaces">        </span><span class="istickedoff">flowIdx =</span>
+<span class="lineno">  308 </span><span class="spaces">            </span><span class="istickedoff">M.fromListWith</span>
+<span class="lineno">  309 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">(++)</span></span>
+<span class="lineno">  310 </span><span class="spaces">                </span><span class="istickedoff">[ (exchangeFlowId ex, <span class="nottickedoff">[uuid]</span>) | (uuid, activity) &lt;- activityPairs, ex &lt;- exchanges activity</span>
+<span class="lineno">  311 </span><span class="spaces">                </span><span class="istickedoff">]</span>
+<span class="lineno">  312 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  313 </span><span class="spaces">        </span><span class="istickedoff">unitIdx =</span>
+<span class="lineno">  314 </span><span class="spaces">            </span><span class="istickedoff">M.fromListWith</span>
+<span class="lineno">  315 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">(++)</span></span>
+<span class="lineno">  316 </span><span class="spaces">                </span><span class="istickedoff">[(activityUnit activity, <span class="nottickedoff">[uuid]</span>) | (uuid, activity) &lt;- activityPairs]</span>
+<span class="lineno">  317 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  318 </span><span class="spaces">        </span><span class="istickedoff">flowCatIdx =</span>
+<span class="lineno">  319 </span><span class="spaces">            </span><span class="istickedoff">M.fromListWith</span>
+<span class="lineno">  320 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">(++)</span></span>
+<span class="lineno">  321 </span><span class="spaces">                </span><span class="istickedoff">[(flowCategory flow, <span class="nottickedoff">[flowId]</span>) | (flowId, flow) &lt;- M.toList flowDB]</span>
+<span class="lineno">  322 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  323 </span><span class="spaces">        </span><span class="istickedoff">flowTypeIdx =</span>
+<span class="lineno">  324 </span><span class="spaces">            </span><span class="istickedoff">M.fromListWith</span>
+<span class="lineno">  325 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">(++)</span></span>
+<span class="lineno">  326 </span><span class="spaces">                </span><span class="istickedoff">[(flowType flow, <span class="nottickedoff">[flowId]</span>) | (flowId, flow) &lt;- M.toList flowDB]</span>
+<span class="lineno">  327 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  328 </span><span class="spaces">        </span><span class="istickedoff">-- Memory optimization: Removed exchange indexes (exchangeIdx, procExchangeIdx, refProdIdx,</span>
+<span class="lineno">  329 </span><span class="spaces">        </span><span class="istickedoff">-- inputIdx, outputIdx) that duplicated 600K Exchange records across 5 maps.</span>
+<span class="lineno">  330 </span><span class="spaces">        </span><span class="istickedoff">-- Exchanges can be accessed directly from Activity.exchanges when needed.</span>
+<span class="lineno">  331 </span><span class="spaces">        </span><span class="istickedoff">-- This saves ~3-4GB of RAM on Ecoinvent 3.12.</span>
+<span class="lineno">  332 </span><span class="spaces">     </span><span class="istickedoff">in</span>
+<span class="lineno">  333 </span><span class="spaces">        </span><span class="istickedoff">Indexes</span>
+<span class="lineno">  334 </span><span class="spaces">            </span><span class="istickedoff">{ idxByName = nameIdx</span>
+<span class="lineno">  335 </span><span class="spaces">            </span><span class="istickedoff">, idxByLocation = locationIdx</span>
+<span class="lineno">  336 </span><span class="spaces">            </span><span class="istickedoff">, idxByFlow = flowIdx</span>
+<span class="lineno">  337 </span><span class="spaces">            </span><span class="istickedoff">, idxByUnit = unitIdx</span>
+<span class="lineno">  338 </span><span class="spaces">            </span><span class="istickedoff">, idxFlowByCategory = flowCatIdx</span>
+<span class="lineno">  339 </span><span class="spaces">            </span><span class="istickedoff">, idxFlowByType = flowTypeIdx</span>
+<span class="lineno">  340 </span><span class="spaces">            </span><span class="istickedoff">}</span></span>
+<span class="lineno">  341 </span>
+<span class="lineno">  342 </span>-- | Build ProductIndex for product-based lookups
+<span class="lineno">  343 </span>-- Used for: (1) SimaPro upstream link resolution, (2) future product search
+<span class="lineno">  344 </span>-- Maps product flow UUIDs and names to the activities that produce them
+<span class="lineno">  345 </span>buildProductIndex :: V.Vector Activity -&gt; V.Vector (UUID, UUID) -&gt; FlowDB -&gt; ProductIndex
+<span class="lineno">  346 </span><span class="funcount">-- entered 35 times</span><span class="decl"><span class="istickedoff">buildProductIndex activities processIdTable flowDb =</span>
+<span class="lineno">  347 </span><span class="spaces">    </span><span class="istickedoff">let -- Build list of (ProcessId, productUUID, productName, location) for each activity</span>
+<span class="lineno">  348 </span><span class="spaces">        </span><span class="istickedoff">entries =</span>
+<span class="lineno">  349 </span><span class="spaces">            </span><span class="istickedoff">[ (<span class="nottickedoff">pid</span>, prodUUID, prodName, actLoc)</span>
+<span class="lineno">  350 </span><span class="spaces">            </span><span class="istickedoff">| (pid, (_, prodUUID)) &lt;- zip [0..] (V.toList processIdTable)</span>
+<span class="lineno">  351 </span><span class="spaces">            </span><span class="istickedoff">, let act = activities V.! fromIntegral pid</span>
+<span class="lineno">  352 </span><span class="spaces">            </span><span class="istickedoff">, let actLoc = activityLocation act</span>
+<span class="lineno">  353 </span><span class="spaces">            </span><span class="istickedoff">, Just flow &lt;- [M.lookup prodUUID flowDb]</span>
+<span class="lineno">  354 </span><span class="spaces">            </span><span class="istickedoff">, let prodName = T.toLower (flowName flow)</span>
+<span class="lineno">  355 </span><span class="spaces">            </span><span class="istickedoff">]</span>
+<span class="lineno">  356 </span><span class="spaces">    </span><span class="istickedoff">in ProductIndex</span>
+<span class="lineno">  357 </span><span class="spaces">        </span><span class="istickedoff">{ piByUUID = M.fromList [(prodUUID, <span class="nottickedoff">pid</span>) | (pid, prodUUID, _, _) &lt;- entries]</span>
+<span class="lineno">  358 </span><span class="spaces">        </span><span class="istickedoff">, piByName = M.fromListWith <span class="nottickedoff">(++)</span> [(name, <span class="nottickedoff">[pid]</span>) | (pid, _, name, _) &lt;- entries]</span>
+<span class="lineno">  359 </span><span class="spaces">        </span><span class="istickedoff">, piByLocation = M.fromListWith <span class="nottickedoff">(++)</span> [(loc, <span class="nottickedoff">[pid]</span>) | (pid, _, _, loc) &lt;- entries, <span class="tickonlytrue">not (T.null loc)</span>]</span>
+<span class="lineno">  360 </span><span class="spaces">        </span><span class="istickedoff">}</span></span>
+<span class="lineno">  361 </span>
+<span class="lineno">  362 </span>-- | Search activities by multiple fields (name, geography, product)
+<span class="lineno">  363 </span>-- Multi-word search: each word must match either name OR location (AND logic)
+<span class="lineno">  364 </span>findActivitiesByFields :: Database -&gt; Maybe Text -&gt; Maybe Text -&gt; Maybe Text -&gt; [Activity]
+<span class="lineno">  365 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findActivitiesByFields db nameParam geoParam productParam =</span>
+<span class="lineno">  366 </span><span class="spaces">    </span><span class="nottickedoff">let activities = V.toList (dbActivities db)</span>
+<span class="lineno">  367 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  368 </span><span class="spaces">        </span><span class="nottickedoff">-- Filter by name: split into words, each word must match name OR location</span>
+<span class="lineno">  369 </span><span class="spaces">        </span><span class="nottickedoff">nameFiltered = case nameParam of</span>
+<span class="lineno">  370 </span><span class="spaces">            </span><span class="nottickedoff">Nothing -&gt; activities</span>
+<span class="lineno">  371 </span><span class="spaces">            </span><span class="nottickedoff">Just name -&gt;</span>
+<span class="lineno">  372 </span><span class="spaces">                </span><span class="nottickedoff">let searchWords = filter (not . T.null) $ T.words (T.toLower name)</span>
+<span class="lineno">  373 </span><span class="spaces">                    </span><span class="nottickedoff">-- Check if all words match (each word must be in name OR location)</span>
+<span class="lineno">  374 </span><span class="spaces">                    </span><span class="nottickedoff">matchesAllWords a =</span>
+<span class="lineno">  375 </span><span class="spaces">                        </span><span class="nottickedoff">let nameLower = T.toLower (activityName a)</span>
+<span class="lineno">  376 </span><span class="spaces">                            </span><span class="nottickedoff">locationLower = T.toLower (activityLocation a)</span>
+<span class="lineno">  377 </span><span class="spaces">                         </span><span class="nottickedoff">in all (\w -&gt; T.isInfixOf w nameLower || T.isInfixOf w locationLower) searchWords</span>
+<span class="lineno">  378 </span><span class="spaces">                 </span><span class="nottickedoff">in [a | a &lt;- activities, matchesAllWords a]</span>
+<span class="lineno">  379 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  380 </span><span class="spaces">        </span><span class="nottickedoff">-- Filter by geography if provided (substring match)</span>
+<span class="lineno">  381 </span><span class="spaces">        </span><span class="nottickedoff">geoFiltered = case geoParam of</span>
+<span class="lineno">  382 </span><span class="spaces">            </span><span class="nottickedoff">Nothing -&gt; nameFiltered</span>
+<span class="lineno">  383 </span><span class="spaces">            </span><span class="nottickedoff">Just geo -&gt;</span>
+<span class="lineno">  384 </span><span class="spaces">                </span><span class="nottickedoff">let geoLower = T.toLower geo</span>
+<span class="lineno">  385 </span><span class="spaces">                 </span><span class="nottickedoff">in [a | a &lt;- nameFiltered, T.isInfixOf geoLower (T.toLower (activityLocation a))]</span>
+<span class="lineno">  386 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno">  387 </span><span class="spaces">        </span><span class="nottickedoff">-- Filter by product if provided (substring match)</span>
+<span class="lineno">  388 </span><span class="spaces">        </span><span class="nottickedoff">productFiltered = case productParam of</span>
+<span class="lineno">  389 </span><span class="spaces">            </span><span class="nottickedoff">Nothing -&gt; geoFiltered</span>
+<span class="lineno">  390 </span><span class="spaces">            </span><span class="nottickedoff">Just prod -&gt;</span>
+<span class="lineno">  391 </span><span class="spaces">                </span><span class="nottickedoff">let productLower = T.toLower prod</span>
+<span class="lineno">  392 </span><span class="spaces">                 </span><span class="nottickedoff">in [ a | a &lt;- geoFiltered, any</span>
+<span class="lineno">  393 </span><span class="spaces">                                                </span><span class="nottickedoff">( \ex -&gt;</span>
+<span class="lineno">  394 </span><span class="spaces">                                                    </span><span class="nottickedoff">exchangeIsReference ex</span>
+<span class="lineno">  395 </span><span class="spaces">                                                        </span><span class="nottickedoff">&amp;&amp; not (exchangeIsInput ex)</span>
+<span class="lineno">  396 </span><span class="spaces">                                                        </span><span class="nottickedoff">&amp;&amp; case M.lookup (exchangeFlowId ex) (dbFlows db) of</span>
+<span class="lineno">  397 </span><span class="spaces">                                                            </span><span class="nottickedoff">Just flow -&gt; T.isInfixOf productLower (T.toLower (flowName flow))</span>
+<span class="lineno">  398 </span><span class="spaces">                                                            </span><span class="nottickedoff">Nothing -&gt; False</span>
+<span class="lineno">  399 </span><span class="spaces">                                                </span><span class="nottickedoff">)</span>
+<span class="lineno">  400 </span><span class="spaces">                                                </span><span class="nottickedoff">(exchanges a)</span>
+<span class="lineno">  401 </span><span class="spaces">                    </span><span class="nottickedoff">]</span>
+<span class="lineno">  402 </span><span class="spaces">     </span><span class="nottickedoff">in productFiltered</span></span>
+<span class="lineno">  403 </span>
+<span class="lineno">  404 </span>-- | Search flows by synonym
+<span class="lineno">  405 </span>findFlowsBySynonym :: Database -&gt; Text -&gt; [Flow]
+<span class="lineno">  406 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findFlowsBySynonym db query =</span>
+<span class="lineno">  407 </span><span class="spaces">    </span><span class="nottickedoff">let queryLower = T.toLower query</span>
+<span class="lineno">  408 </span><span class="spaces">        </span><span class="nottickedoff">flows = M.elems (dbFlows db)</span>
+<span class="lineno">  409 </span><span class="spaces">     </span><span class="nottickedoff">in [ f | f &lt;- flows, T.isInfixOf queryLower (T.toLower (flowName f))</span>
+<span class="lineno">  410 </span><span class="spaces">                            </span><span class="nottickedoff">|| any</span>
+<span class="lineno">  411 </span><span class="spaces">                                </span><span class="nottickedoff">(\synonyms -&gt; any (T.isInfixOf queryLower . T.toLower) (S.toList synonyms))</span>
+<span class="lineno">  412 </span><span class="spaces">                                </span><span class="nottickedoff">(M.elems (flowSynonyms f))</span>
+<span class="lineno">  413 </span><span class="spaces">        </span><span class="nottickedoff">]</span></span>
+
+</pre>
+</body>
+</html>

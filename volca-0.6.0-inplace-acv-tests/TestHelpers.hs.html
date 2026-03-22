@@ -1,0 +1,87 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module TestHelpers (
+<span class="lineno">    4 </span>    loadSampleDatabase,
+<span class="lineno">    5 </span>    loadSampleDatabaseWithPath,
+<span class="lineno">    6 </span>    withinTolerance,
+<span class="lineno">    7 </span>    assertVectorNear,
+<span class="lineno">    8 </span>    findFlowByName,
+<span class="lineno">    9 </span>    findActivityByUUID,
+<span class="lineno">   10 </span>) where
+<span class="lineno">   11 </span>
+<span class="lineno">   12 </span>import Types
+<span class="lineno">   13 </span>import Database (buildDatabaseWithMatrices)
+<span class="lineno">   14 </span>import UnitConversion (defaultUnitConfig)
+<span class="lineno">   15 </span>import Control.Monad (zipWithM_)
+<span class="lineno">   16 </span>import qualified Data.Map as M
+<span class="lineno">   17 </span>import qualified Data.Vector as V
+<span class="lineno">   18 </span>import Data.Text (Text)
+<span class="lineno">   19 </span>import qualified Data.Text as T
+<span class="lineno">   20 </span>import Database.Loader (loadDatabase)
+<span class="lineno">   21 </span>import Test.Hspec
+<span class="lineno">   22 </span>import qualified Data.Vector.Unboxed as U
+<span class="lineno">   23 </span>
+<span class="lineno">   24 </span>-- | Load a SAMPLE database for testing
+<span class="lineno">   25 </span>loadSampleDatabase :: String -&gt; IO Database
+<span class="lineno">   26 </span><span class="funcount">-- entered 35 times</span><span class="decl"><span class="istickedoff">loadSampleDatabase sampleName = loadSampleDatabaseWithPath sampleName</span></span>
+<span class="lineno">   27 </span>
+<span class="lineno">   28 </span>-- | Load database from a specific path
+<span class="lineno">   29 </span>loadSampleDatabaseWithPath :: String -&gt; IO Database
+<span class="lineno">   30 </span><span class="funcount">-- entered 35 times</span><span class="decl"><span class="istickedoff">loadSampleDatabaseWithPath path = do</span>
+<span class="lineno">   31 </span><span class="spaces">    </span><span class="istickedoff">loadResult &lt;- loadDatabase (&quot;test-data/&quot; ++ path)</span>
+<span class="lineno">   32 </span><span class="spaces">    </span><span class="istickedoff">case loadResult of</span>
+<span class="lineno">   33 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">error $ &quot;Failed to load test database: &quot; ++ show err</span></span>
+<span class="lineno">   34 </span><span class="spaces">        </span><span class="istickedoff">Right simpleDb -&gt;</span>
+<span class="lineno">   35 </span><span class="spaces">            </span><span class="istickedoff">buildDatabaseWithMatrices defaultUnitConfig (sdbActivities simpleDb) (sdbFlows simpleDb) (sdbUnits simpleDb)</span></span>
+<span class="lineno">   36 </span>
+<span class="lineno">   37 </span>-- | Check if two floating point numbers are within tolerance
+<span class="lineno">   38 </span>withinTolerance :: Double -&gt; Double -&gt; Double -&gt; Bool
+<span class="lineno">   39 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">withinTolerance tolerance expected actual = abs (expected - actual) &lt; tolerance</span></span>
+<span class="lineno">   40 </span>
+<span class="lineno">   41 </span>-- | Assert that a vector is near expected values
+<span class="lineno">   42 </span>assertVectorNear :: String -&gt; Double -&gt; U.Vector Double -&gt; [Double] -&gt; Expectation
+<span class="lineno">   43 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">assertVectorNear label tolerance actualVec expectedList = do</span>
+<span class="lineno">   44 </span><span class="spaces">    </span><span class="nottickedoff">let actual = U.toList actualVec</span>
+<span class="lineno">   45 </span><span class="spaces">    </span><span class="nottickedoff">length actual `shouldBe` length expectedList</span>
+<span class="lineno">   46 </span><span class="spaces">    </span><span class="nottickedoff">zipWithM_ (\a e -&gt; withinTolerance tolerance e a `shouldBe` True) actual expectedList</span></span>
+<span class="lineno">   47 </span>
+<span class="lineno">   48 </span>-- | Find a flow by name in the database
+<span class="lineno">   49 </span>findFlowByName :: Database -&gt; Text -&gt; Maybe Flow
+<span class="lineno">   50 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">findFlowByName db name =</span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">let flows = M.elems (dbFlows db)</span>
+<span class="lineno">   52 </span><span class="spaces">     </span><span class="istickedoff">in case filter (\f -&gt; T.toLower (flowName f) == T.toLower name) flows of</span>
+<span class="lineno">   53 </span><span class="spaces">            </span><span class="istickedoff">(f:_) -&gt; Just f</span>
+<span class="lineno">   54 </span><span class="spaces">            </span><span class="istickedoff">[] -&gt; <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">   55 </span>
+<span class="lineno">   56 </span>-- | Find an activity by UUID in the database
+<span class="lineno">   57 </span>-- Search in ProcessId table for matching activity UUID
+<span class="lineno">   58 </span>findActivityByUUID :: Database -&gt; UUID -&gt; Maybe Activity
+<span class="lineno">   59 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findActivityByUUID db uuid =</span>
+<span class="lineno">   60 </span><span class="spaces">    </span><span class="nottickedoff">let processIdTable = dbProcessIdTable db</span>
+<span class="lineno">   61 </span><span class="spaces">        </span><span class="nottickedoff">matchingIndices = [i | (i, (actUUID, _)) &lt;- zip [0..] (V.toList processIdTable), actUUID == uuid]</span>
+<span class="lineno">   62 </span><span class="spaces">     </span><span class="nottickedoff">in case matchingIndices of</span>
+<span class="lineno">   63 </span><span class="spaces">            </span><span class="nottickedoff">(idx:_) -&gt; Just $ dbActivities db V.! idx</span>
+<span class="lineno">   64 </span><span class="spaces">            </span><span class="nottickedoff">[] -&gt; Nothing</span></span>
+
+</pre>
+</body>
+</html>

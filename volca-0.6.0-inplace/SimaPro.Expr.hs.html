@@ -1,0 +1,131 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>-- | Expression evaluator for SimaPro parameterized amounts.
+<span class="lineno">    4 </span>-- Supports arithmetic (+, -, *, /, ^), variables, parentheses, and common functions.
+<span class="lineno">    5 </span>module SimaPro.Expr
+<span class="lineno">    6 </span>    ( evaluate
+<span class="lineno">    7 </span>    , normalizeExpr
+<span class="lineno">    8 </span>    ) where
+<span class="lineno">    9 </span>
+<span class="lineno">   10 </span>import qualified Data.Map.Strict as M
+<span class="lineno">   11 </span>import Data.Text (Text)
+<span class="lineno">   12 </span>import qualified Data.Text as T
+<span class="lineno">   13 </span>import Data.Void (Void)
+<span class="lineno">   14 </span>import Text.Megaparsec
+<span class="lineno">   15 </span>import Text.Megaparsec.Char
+<span class="lineno">   16 </span>import qualified Text.Megaparsec.Char.Lexer as L
+<span class="lineno">   17 </span>
+<span class="lineno">   18 </span>type Parser = Parsec Void Text
+<span class="lineno">   19 </span>
+<span class="lineno">   20 </span>-- | Evaluate a SimaPro expression with variable substitution.
+<span class="lineno">   21 </span>-- All expressions must be pre-normalized via 'normalizeExpr' (decimal = '.', arg separator = ';').
+<span class="lineno">   22 </span>evaluate :: M.Map Text Double -&gt; Text -&gt; Either String Double
+<span class="lineno">   23 </span><span class="funcount">-- entered 102 times</span><span class="decl"><span class="istickedoff">evaluate env input =</span>
+<span class="lineno">   24 </span><span class="spaces">    </span><span class="istickedoff">case parse (sc *&gt; pExpr env &lt;* eof) <span class="nottickedoff">&quot;&quot;</span> (T.strip input) of</span>
+<span class="lineno">   25 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; Left <span class="nottickedoff">(errorBundlePretty err)</span></span>
+<span class="lineno">   26 </span><span class="spaces">        </span><span class="istickedoff">Right val -&gt; Right val</span></span>
+<span class="lineno">   27 </span>
+<span class="lineno">   28 </span>-- | Normalize expression text so decimal is always '.' and function arg separator is always ';'.
+<span class="lineno">   29 </span>normalizeExpr :: Char -&gt; Text -&gt; Text
+<span class="lineno">   30 </span><span class="funcount">-- entered 88 times</span><span class="decl"><span class="istickedoff">normalizeExpr '.' = T.map (\c -&gt; if c == ',' then ';' else c)</span>
+<span class="lineno">   31 </span><span class="spaces"></span><span class="istickedoff">normalizeExpr ',' = T.map (\c -&gt; if c == ',' then '.' else c)</span>
+<span class="lineno">   32 </span><span class="spaces"></span><span class="istickedoff">normalizeExpr _   = <span class="nottickedoff">id</span></span></span>
+<span class="lineno">   33 </span>
+<span class="lineno">   34 </span>-- Whitespace consumer
+<span class="lineno">   35 </span>sc :: Parser ()
+<span class="lineno">   36 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">sc = L.space space1 empty empty</span></span>
+<span class="lineno">   37 </span>
+<span class="lineno">   38 </span>lexeme :: Parser a -&gt; Parser a
+<span class="lineno">   39 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">lexeme = L.lexeme sc</span></span>
+<span class="lineno">   40 </span>
+<span class="lineno">   41 </span>symbol :: Text -&gt; Parser Text
+<span class="lineno">   42 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">symbol = L.symbol sc</span></span>
+<span class="lineno">   43 </span>
+<span class="lineno">   44 </span>-- | Precedence-climbing expression parser
+<span class="lineno">   45 </span>pExpr :: M.Map Text Double -&gt; Parser Double
+<span class="lineno">   46 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">pExpr = pAddSub</span></span>
+<span class="lineno">   47 </span>
+<span class="lineno">   48 </span>pAddSub :: M.Map Text Double -&gt; Parser Double
+<span class="lineno">   49 </span><span class="funcount">-- entered 121 times</span><span class="decl"><span class="istickedoff">pAddSub env = pMulDiv env &gt;&gt;= go</span>
+<span class="lineno">   50 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">go acc = (symbol &quot;+&quot; *&gt; pMulDiv env &gt;&gt;= go . (acc +))</span>
+<span class="lineno">   52 </span><span class="spaces">         </span><span class="istickedoff">&lt;|&gt; (symbol &quot;-&quot; *&gt; pMulDiv <span class="nottickedoff">env</span> &gt;&gt;= go . (acc -))</span>
+<span class="lineno">   53 </span><span class="spaces">         </span><span class="istickedoff">&lt;|&gt; pure acc</span></span>
+<span class="lineno">   54 </span>
+<span class="lineno">   55 </span>pMulDiv :: M.Map Text Double -&gt; Parser Double
+<span class="lineno">   56 </span><span class="funcount">-- entered 134 times</span><span class="decl"><span class="istickedoff">pMulDiv env = pUnary env &gt;&gt;= go</span>
+<span class="lineno">   57 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   58 </span><span class="spaces">    </span><span class="istickedoff">go acc = (symbol &quot;*&quot; *&gt; pUnary env &gt;&gt;= go . (acc *))</span>
+<span class="lineno">   59 </span><span class="spaces">         </span><span class="istickedoff">&lt;|&gt; (symbol &quot;/&quot; *&gt; pUnary env &gt;&gt;= go . (acc /))</span>
+<span class="lineno">   60 </span><span class="spaces">         </span><span class="istickedoff">&lt;|&gt; pure acc</span></span>
+<span class="lineno">   61 </span>
+<span class="lineno">   62 </span>pUnary :: M.Map Text Double -&gt; Parser Double
+<span class="lineno">   63 </span><span class="funcount">-- entered 183 times</span><span class="decl"><span class="istickedoff">pUnary env = (symbol &quot;-&quot; *&gt; (negate &lt;$&gt; pUnary <span class="nottickedoff">env</span>))</span>
+<span class="lineno">   64 </span><span class="spaces">         </span><span class="istickedoff">&lt;|&gt; (symbol &quot;+&quot; *&gt; <span class="nottickedoff">pUnary env</span>)</span>
+<span class="lineno">   65 </span><span class="spaces">         </span><span class="istickedoff">&lt;|&gt; pPower env</span></span>
+<span class="lineno">   66 </span>
+<span class="lineno">   67 </span>pPower :: M.Map Text Double -&gt; Parser Double
+<span class="lineno">   68 </span><span class="funcount">-- entered 183 times</span><span class="decl"><span class="istickedoff">pPower env = do</span>
+<span class="lineno">   69 </span><span class="spaces">    </span><span class="istickedoff">base &lt;- pPrimary env</span>
+<span class="lineno">   70 </span><span class="spaces">    </span><span class="istickedoff">(symbol &quot;^&quot; *&gt; ((base **) &lt;$&gt; pPower <span class="nottickedoff">env</span>)) &lt;|&gt; pure base</span></span>
+<span class="lineno">   71 </span>
+<span class="lineno">   72 </span>pPrimary :: M.Map Text Double -&gt; Parser Double
+<span class="lineno">   73 </span><span class="funcount">-- entered 183 times</span><span class="decl"><span class="istickedoff">pPrimary env = choice</span>
+<span class="lineno">   74 </span><span class="spaces">    </span><span class="istickedoff">[ between (symbol &quot;(&quot;) (symbol &quot;)&quot;) (pExpr env)</span>
+<span class="lineno">   75 </span><span class="spaces">    </span><span class="istickedoff">, pFunc <span class="nottickedoff">env</span></span>
+<span class="lineno">   76 </span><span class="spaces">    </span><span class="istickedoff">, pNumber</span>
+<span class="lineno">   77 </span><span class="spaces">    </span><span class="istickedoff">, pVariable env</span>
+<span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">]</span></span>
+<span class="lineno">   79 </span>
+<span class="lineno">   80 </span>pNumber :: Parser Double
+<span class="lineno">   81 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">pNumber = lexeme $ try L.float &lt;|&gt; (fromIntegral &lt;$&gt; (L.decimal :: Parser Integer))</span></span>
+<span class="lineno">   82 </span>
+<span class="lineno">   83 </span>pVariable :: M.Map Text Double -&gt; Parser Double
+<span class="lineno">   84 </span><span class="funcount">-- entered 72 times</span><span class="decl"><span class="istickedoff">pVariable env = do</span>
+<span class="lineno">   85 </span><span class="spaces">    </span><span class="istickedoff">name &lt;- lexeme $ T.pack &lt;$&gt; ((:) &lt;$&gt; (letterChar &lt;|&gt; <span class="nottickedoff">char '_'</span>) &lt;*&gt; many (alphaNumChar &lt;|&gt; char '_'))</span>
+<span class="lineno">   86 </span><span class="spaces">    </span><span class="istickedoff">case M.lookup name env of</span>
+<span class="lineno">   87 </span><span class="spaces">        </span><span class="istickedoff">Just val -&gt; pure val</span>
+<span class="lineno">   88 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; fail $ <span class="nottickedoff">&quot;Unknown variable: &quot; ++ T.unpack name</span></span></span>
+<span class="lineno">   89 </span>
+<span class="lineno">   90 </span>pFunc :: M.Map Text Double -&gt; Parser Double
+<span class="lineno">   91 </span><span class="funcount">-- entered 164 times</span><span class="decl"><span class="istickedoff">pFunc env = choice</span>
+<span class="lineno">   92 </span><span class="spaces">    </span><span class="istickedoff">[ pFunc1 &quot;abs&quot; <span class="nottickedoff">abs</span> <span class="nottickedoff">env</span>, pFunc1 &quot;sqrt&quot; <span class="nottickedoff">sqrt</span> <span class="nottickedoff">env</span></span>
+<span class="lineno">   93 </span><span class="spaces">    </span><span class="istickedoff">, pFunc1 &quot;log&quot; <span class="nottickedoff">log</span> <span class="nottickedoff">env</span>, pFunc1 &quot;exp&quot; <span class="nottickedoff">exp</span> <span class="nottickedoff">env</span>, pFunc1 &quot;ln&quot; <span class="nottickedoff">log</span> <span class="nottickedoff">env</span></span>
+<span class="lineno">   94 </span><span class="spaces">    </span><span class="istickedoff">, pFunc2 &quot;min&quot; <span class="nottickedoff">min</span> <span class="nottickedoff">env</span>, pFunc2 &quot;max&quot; <span class="nottickedoff">max</span> <span class="nottickedoff">env</span></span>
+<span class="lineno">   95 </span><span class="spaces">    </span><span class="istickedoff">]</span></span>
+<span class="lineno">   96 </span>
+<span class="lineno">   97 </span>pFunc1 :: Text -&gt; (Double -&gt; Double) -&gt; M.Map Text Double -&gt; Parser Double
+<span class="lineno">   98 </span><span class="funcount">-- entered 819 times</span><span class="decl"><span class="istickedoff">pFunc1 name f env = try $ lexeme (string name) *&gt; <span class="nottickedoff">between (symbol &quot;(&quot;) (symbol &quot;)&quot;) (f &lt;$&gt; pExpr env)</span></span></span>
+<span class="lineno">   99 </span>
+<span class="lineno">  100 </span>pFunc2 :: Text -&gt; (Double -&gt; Double -&gt; Double) -&gt; M.Map Text Double -&gt; Parser Double
+<span class="lineno">  101 </span><span class="funcount">-- entered 328 times</span><span class="decl"><span class="istickedoff">pFunc2 name f env = try $ do</span>
+<span class="lineno">  102 </span><span class="spaces">    </span><span class="istickedoff">_ &lt;- lexeme (string name)</span>
+<span class="lineno">  103 </span><span class="spaces">    </span><span class="istickedoff">_ &lt;- <span class="nottickedoff">symbol &quot;(&quot;</span></span>
+<span class="lineno">  104 </span><span class="spaces">    </span><span class="istickedoff">x &lt;- <span class="nottickedoff">pExpr env</span></span>
+<span class="lineno">  105 </span><span class="spaces">    </span><span class="istickedoff">_ &lt;- <span class="nottickedoff">symbol &quot;;&quot;</span></span>
+<span class="lineno">  106 </span><span class="spaces">    </span><span class="istickedoff">y &lt;- <span class="nottickedoff">pExpr env</span></span>
+<span class="lineno">  107 </span><span class="spaces">    </span><span class="istickedoff">_ &lt;- <span class="nottickedoff">symbol &quot;)&quot;</span></span>
+<span class="lineno">  108 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">pure (f x y)</span></span></span>
+
+</pre>
+</body>
+</html>

@@ -1,0 +1,966 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE TypeFamilies, MultiParamTypeClasses, RankNTypes#-}
+<span class="lineno">    2 </span>{-# LANGUAGE FlexibleContexts #-}
+<span class="lineno">    3 </span>{-# LANGUAGE CPP #-}
+<span class="lineno">    4 </span>-----------------------------------------------------------------------------
+<span class="lineno">    5 </span>-- |
+<span class="lineno">    6 </span>-- Module      :  Numerical.PETSc.Internal.PutGet.Mat
+<span class="lineno">    7 </span>-- Copyright   :  (c) Marco Zocca 2015
+<span class="lineno">    8 </span>-- License     :  LGPL3
+<span class="lineno">    9 </span>-- Maintainer  :  zocca . marco . gmail . com
+<span class="lineno">   10 </span>-- Stability   :  experimental
+<span class="lineno">   11 </span>--
+<span class="lineno">   12 </span>-- | Mat Mid-level interface
+<span class="lineno">   13 </span>--
+<span class="lineno">   14 </span>-----------------------------------------------------------------------------
+<span class="lineno">   15 </span>module Numerical.PETSc.Internal.PutGet.Mat where
+<span class="lineno">   16 </span>
+<span class="lineno">   17 </span>import Numerical.PETSc.Internal.InlineC
+<span class="lineno">   18 </span>import Numerical.PETSc.Internal.Types
+<span class="lineno">   19 </span>import Numerical.PETSc.Internal.C2HsGen.TypesC2HsGen
+<span class="lineno">   20 </span>import Numerical.PETSc.Internal.Exception
+<span class="lineno">   21 </span>import qualified Numerical.PETSc.Internal.PutGet.PetscMisc as PM
+<span class="lineno">   22 </span>import qualified Numerical.PETSc.Internal.PutGet.Viewer as Viewer
+<span class="lineno">   23 </span>import Numerical.PETSc.Internal.Utils -- (both, fi, toCInt, in0m, allIn0mV)
+<span class="lineno">   24 </span>
+<span class="lineno">   25 </span>import Numerical.PETSc.Internal.Storable.Vector
+<span class="lineno">   26 </span>import Numerical.PETSc.Internal.Storable.Matrix
+<span class="lineno">   27 </span>import Numerical.PETSc.Internal.Storable.Common (unsafeWithVS)
+<span class="lineno">   28 </span>import Numerical.PETSc.Internal.Sparse
+<span class="lineno">   29 </span>
+<span class="lineno">   30 </span>import Foreign.Ptr
+<span class="lineno">   31 </span>import Foreign.Storable
+<span class="lineno">   32 </span>import Foreign.C.Types
+<span class="lineno">   33 </span>import Foreign.Marshal.Utils
+<span class="lineno">   34 </span>
+<span class="lineno">   35 </span>import System.IO.Unsafe (unsafePerformIO)
+<span class="lineno">   36 </span>
+<span class="lineno">   37 </span>import Control.Monad
+<span class="lineno">   38 </span>import Control.Monad.Trans.Class
+<span class="lineno">   39 </span>import Control.Monad.Trans.Reader
+<span class="lineno">   40 </span>import Control.Monad.Trans.State
+<span class="lineno">   41 </span>
+<span class="lineno">   42 </span>import Control.Arrow
+<span class="lineno">   43 </span>import Control.Concurrent
+<span class="lineno">   44 </span>import Control.Exception
+<span class="lineno">   45 </span>
+<span class="lineno">   46 </span>import qualified Data.IntMap as IM
+<span class="lineno">   47 </span>
+<span class="lineno">   48 </span>import Data.Traversable
+<span class="lineno">   49 </span>
+<span class="lineno">   50 </span>import qualified Data.Vector as V 
+<span class="lineno">   51 </span>import qualified Data.Vector.Storable as VS (unsafeWith, Vector)
+<span class="lineno">   52 </span>import qualified Data.Vector.Generic as VG
+<span class="lineno">   53 </span>
+<span class="lineno">   54 </span>
+<span class="lineno">   55 </span>
+<span class="lineno">   56 </span>-- | instances
+<span class="lineno">   57 </span>
+<span class="lineno">   58 </span>-- instance Show Mat where
+<span class="lineno">   59 </span>--   show m = show 
+<span class="lineno">   60 </span>
+<span class="lineno">   61 </span>
+<span class="lineno">   62 </span>
+<span class="lineno">   63 </span>
+<span class="lineno">   64 </span>-- | a datatype encapsulating matrix information and the typed pointer
+<span class="lineno">   65 </span>
+<span class="lineno">   66 </span>data PetscMatrix a = PetscMatrix MatrixInfoBase NZPR (MatrixDataZ a) Mat
+<span class="lineno">   67 </span>
+<span class="lineno">   68 </span>toPetscMatrix :: MatrixInfoBase -&gt; NZPR -&gt; MatrixDataZ a -&gt; Mat -&gt; PetscMatrix a
+<span class="lineno">   69 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">toPetscMatrix = PetscMatrix</span></span>
+<span class="lineno">   70 </span>
+<span class="lineno">   71 </span>fromPetscMatrix :: PetscMatrix t -&gt; (MatrixInfoBase, NZPR, MatrixDataZ t, Mat)
+<span class="lineno">   72 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">fromPetscMatrix (PetscMatrix mib nz md m) = (<span class="nottickedoff">mib</span>, <span class="nottickedoff">nz</span>, <span class="nottickedoff">md</span>, m)</span></span>
+<span class="lineno">   73 </span>
+<span class="lineno">   74 </span>
+<span class="lineno">   75 </span>-- | (dnz, onz) and (dnnz, onnz) : # NZ/row ON-DIAGONAL BLOCK and OFF-DIAGONAL BLOCK, constant and variable-number case respectively
+<span class="lineno">   76 </span>type DNZ = Int -- diagonal
+<span class="lineno">   77 </span>type ONZ = Int -- off-diagonal
+<span class="lineno">   78 </span>data NZPR = ConstNZPR (DNZ, ONZ)
+<span class="lineno">   79 </span>          | VarNZPR (VS.Vector DNZ, VS.Vector ONZ) deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>) 
+<span class="lineno">   80 </span>
+<span class="lineno">   81 </span>type NumRows = Int
+<span class="lineno">   82 </span>type NumCols = Int
+<span class="lineno">   83 </span>data MatrixInfoBase =
+<span class="lineno">   84 </span>  MatrixInfoBase { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matComm</span></span></span>  :: Comm
+<span class="lineno">   85 </span>                  ,<span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matRows</span></span></span>  :: !NumRows
+<span class="lineno">   86 </span>                  ,<span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matCols</span></span></span>  :: !NumCols
+<span class="lineno">   87 </span>                  -- ,matOrder :: !MatrixOrder
+<span class="lineno">   88 </span>                 } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">   89 </span>
+<span class="lineno">   90 </span>
+<span class="lineno">   91 </span>type IdxRow = Int
+<span class="lineno">   92 </span>type IdxCol = Int
+<span class="lineno">   93 </span>data MatrixDataZ a =
+<span class="lineno">   94 </span>  MatrixDataZ {<span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matDataZ</span></span></span> :: V.Vector (IdxRow, IdxCol, a)} deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">   95 </span>
+<span class="lineno">   96 </span>
+<span class="lineno">   97 </span>
+<span class="lineno">   98 </span>-- | PETSc matrix usage :
+<span class="lineno">   99 </span>{-
+<span class="lineno">  100 </span>* create
+<span class="lineno">  101 </span>* configure
+<span class="lineno">  102 </span>* setup  (preallocation : required unless one uses DMCreateMatrix )
+<span class="lineno">  103 </span>* fill
+<span class="lineno">  104 </span>* assemble
+<span class="lineno">  105 </span>* _use_
+<span class="lineno">  106 </span>* destroy
+<span class="lineno">  107 </span>
+<span class="lineno">  108 </span>-}
+<span class="lineno">  109 </span>
+<span class="lineno">  110 </span>
+<span class="lineno">  111 </span>
+<span class="lineno">  112 </span>
+<span class="lineno">  113 </span>petscMatrixCreate
+<span class="lineno">  114 </span>  :: Comm
+<span class="lineno">  115 </span>     -&gt; NumRows
+<span class="lineno">  116 </span>     -&gt; NumCols
+<span class="lineno">  117 </span>     -&gt; MatType_
+<span class="lineno">  118 </span>     -&gt; V.Vector (IdxRow, IdxCol, PetscScalar_)
+<span class="lineno">  119 </span>     -&gt; NZPR
+<span class="lineno">  120 </span>     -&gt; InsertMode_
+<span class="lineno">  121 </span>     -&gt; IO (PetscMatrix PetscScalar_)
+<span class="lineno">  122 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">petscMatrixCreate cc m n mty ixd nz imode = do</span>
+<span class="lineno">  123 </span><span class="spaces">  </span><span class="istickedoff">let <span class="nottickedoff">mib = MatrixInfoBase cc m n</span></span>
+<span class="lineno">  124 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">mixd = MatrixDataZ ixd</span></span>
+<span class="lineno">  125 </span><span class="spaces">  </span><span class="istickedoff">mat &lt;- matCreateAdapter cc m n mty nz</span>
+<span class="lineno">  126 </span><span class="spaces">  </span><span class="istickedoff">matSetValueVectorSafe mat (m, n) ixd imode</span>
+<span class="lineno">  127 </span><span class="spaces">  </span><span class="istickedoff">matAssembly mat</span>
+<span class="lineno">  128 </span><span class="spaces">  </span><span class="istickedoff">let pm = PetscMatrix <span class="nottickedoff">mib</span> <span class="nottickedoff">nz</span> <span class="nottickedoff">mixd</span> mat</span>
+<span class="lineno">  129 </span><span class="spaces">  </span><span class="istickedoff">return pm</span></span>
+<span class="lineno">  130 </span>
+<span class="lineno">  131 </span>petscMatrixDestroy :: PetscMatrix t -&gt; IO ()
+<span class="lineno">  132 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">petscMatrixDestroy (PetscMatrix _ _ _ mat) = matDestroy mat</span></span>
+<span class="lineno">  133 </span>
+<span class="lineno">  134 </span>withPetscMatrix
+<span class="lineno">  135 </span>  :: Comm
+<span class="lineno">  136 </span>     -&gt; NumRows
+<span class="lineno">  137 </span>     -&gt; NumCols
+<span class="lineno">  138 </span>     -&gt; MatType_
+<span class="lineno">  139 </span>     -&gt; V.Vector (IdxRow, IdxCol, PetscScalar_)
+<span class="lineno">  140 </span>     -&gt; NZPR
+<span class="lineno">  141 </span>     -&gt; InsertMode_
+<span class="lineno">  142 </span>     -&gt; (PetscMatrix PetscScalar_ -&gt; IO c)
+<span class="lineno">  143 </span>     -&gt; IO c
+<span class="lineno">  144 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">withPetscMatrix cc m n mty ixd nz imode =</span>
+<span class="lineno">  145 </span><span class="spaces">  </span><span class="istickedoff">bracket (petscMatrixCreate cc m n mty ixd nz imode) petscMatrixDestroy</span></span>
+<span class="lineno">  146 </span>    
+<span class="lineno">  147 </span>
+<span class="lineno">  148 </span>
+<span class="lineno">  149 </span>-- | adapter for matrix create/settype/setsizes/preallocation/setup
+<span class="lineno">  150 </span>
+<span class="lineno">  151 </span>matCreateAdapter :: Comm -&gt; NumRows -&gt; NumCols -&gt; MatType_ -&gt; NZPR -&gt; IO Mat
+<span class="lineno">  152 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">matCreateAdapter cc m n mty nz = do</span>
+<span class="lineno">  153 </span><span class="spaces">  </span><span class="istickedoff">mat &lt;- matCreate cc</span>
+<span class="lineno">  154 </span><span class="spaces">  </span><span class="istickedoff">matSetType mat mty</span>
+<span class="lineno">  155 </span><span class="spaces">  </span><span class="istickedoff">matSetSizes mat m n </span>
+<span class="lineno">  156 </span><span class="spaces">  </span><span class="istickedoff">case mty of</span>
+<span class="lineno">  157 </span><span class="spaces">    </span><span class="istickedoff">MatAij -&gt;</span>
+<span class="lineno">  158 </span><span class="spaces">     </span><span class="istickedoff">case nz of</span>
+<span class="lineno">  159 </span><span class="spaces">      </span><span class="istickedoff">(ConstNZPR (dnz, onz)) -&gt; matMPIAIJSetPreallocationConstNZPR mat dnz onz</span>
+<span class="lineno">  160 </span><span class="spaces">      </span><span class="istickedoff">(VarNZPR (dnnz, onnz)) -&gt; <span class="nottickedoff">matMPIAIJSetPreallocationVarNZPR mat dnnz onnz</span></span>
+<span class="lineno">  161 </span><span class="spaces">  </span><span class="istickedoff">matSetup mat</span>
+<span class="lineno">  162 </span><span class="spaces">  </span><span class="istickedoff">return mat</span></span>
+<span class="lineno">  163 </span>
+<span class="lineno">  164 </span>
+<span class="lineno">  165 </span>
+<span class="lineno">  166 </span>
+<span class="lineno">  167 </span>-- | predicates
+<span class="lineno">  168 </span>
+<span class="lineno">  169 </span>-- | predicates for MatrixData
+<span class="lineno">  170 </span>
+<span class="lineno">  171 </span>checkMatrixData :: MatrixDataZ a -&gt; Bool
+<span class="lineno">  172 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">checkMatrixData (MatrixDataZ z) = (lr == lc) &amp;&amp; (lr == le) where</span>
+<span class="lineno">  173 </span><span class="spaces">  </span><span class="nottickedoff">(lr, lc, le) = (V.length idxx, V.length idxy, V.length vals)</span>
+<span class="lineno">  174 </span><span class="spaces">  </span><span class="nottickedoff">(idxx, idxy, vals) = V.unzip3 z</span></span>
+<span class="lineno">  175 </span>
+<span class="lineno">  176 </span>
+<span class="lineno">  177 </span>-- | predicates for PetscMatrix
+<span class="lineno">  178 </span>
+<span class="lineno">  179 </span>inMatRowRange, inMatColRange :: PetscMatrix a -&gt; Int -&gt; Bool
+<span class="lineno">  180 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">inMatRowRange m = in0m (getMatRows m)</span></span>
+<span class="lineno">  181 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">inMatColRange m = in0m (getMatCols m)</span></span>
+<span class="lineno">  182 </span>
+<span class="lineno">  183 </span>inMatrixBounds :: PetscMatrix a -&gt; (Int, Int) -&gt; Bool
+<span class="lineno">  184 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">inMatrixBounds m (ii, jj) = inMatRowRange m ii &amp;&amp; inMatColRange m jj</span></span>
+<span class="lineno">  185 </span>
+<span class="lineno">  186 </span>
+<span class="lineno">  187 </span>
+<span class="lineno">  188 </span>
+<span class="lineno">  189 </span>
+<span class="lineno">  190 </span>
+<span class="lineno">  191 </span>
+<span class="lineno">  192 </span>
+<span class="lineno">  193 </span>-- | PetscMatrix getters
+<span class="lineno">  194 </span>
+<span class="lineno">  195 </span>getMatrixInfoBase :: PetscMatrix a -&gt; MatrixInfoBase
+<span class="lineno">  196 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getMatrixInfoBase (PetscMatrix mib _ _ _) = mib</span></span>
+<span class="lineno">  197 </span>
+<span class="lineno">  198 </span>getMatComm :: PetscMatrix a -&gt; Comm
+<span class="lineno">  199 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getMatComm = matComm . getMatrixInfoBase</span></span>
+<span class="lineno">  200 </span>
+<span class="lineno">  201 </span>getMatRows, getMatCols :: PetscMatrix a -&gt; Int
+<span class="lineno">  202 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getMatRows = matRows . getMatrixInfoBase</span></span>
+<span class="lineno">  203 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getMatCols = matCols . getMatrixInfoBase</span></span>
+<span class="lineno">  204 </span>
+<span class="lineno">  205 </span>
+<span class="lineno">  206 </span>
+<span class="lineno">  207 </span>
+<span class="lineno">  208 </span>
+<span class="lineno">  209 </span>
+<span class="lineno">  210 </span>
+<span class="lineno">  211 </span>
+<span class="lineno">  212 </span>
+<span class="lineno">  213 </span>
+<span class="lineno">  214 </span>
+<span class="lineno">  215 </span>
+<span class="lineno">  216 </span>
+<span class="lineno">  217 </span>                            
+<span class="lineno">  218 </span>-- | create Mat
+<span class="lineno">  219 </span>
+<span class="lineno">  220 </span>matCreate ::
+<span class="lineno">  221 </span>  Comm -&gt; IO Mat
+<span class="lineno">  222 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">matCreate c = chk1 (matCreate' c)</span></span>
+<span class="lineno">  223 </span>
+<span class="lineno">  224 </span>
+<span class="lineno">  225 </span>
+<span class="lineno">  226 </span>
+<span class="lineno">  227 </span>
+<span class="lineno">  228 </span>
+<span class="lineno">  229 </span>
+<span class="lineno">  230 </span>
+<span class="lineno">  231 </span>
+<span class="lineno">  232 </span>matCreateMPIAIJWithVectors ::
+<span class="lineno">  233 </span>  Comm -&gt; (Int, Int) -&gt; (Int, Int) -&gt;
+<span class="lineno">  234 </span>  V.Vector Int -&gt;
+<span class="lineno">  235 </span>  V.Vector Int -&gt;
+<span class="lineno">  236 </span>  V.Vector PetscScalar_ -&gt;
+<span class="lineno">  237 </span>  IO Mat
+<span class="lineno">  238 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matCreateMPIAIJWithVectors c (m, n) (mm, nn) ix iy ia =</span>
+<span class="lineno">  239 </span><span class="spaces">  </span><span class="nottickedoff">VS.unsafeWith ixc $ \ip -&gt;</span>
+<span class="lineno">  240 </span><span class="spaces">  </span><span class="nottickedoff">VS.unsafeWith iyc $ \jp -&gt;</span>
+<span class="lineno">  241 </span><span class="spaces">  </span><span class="nottickedoff">VS.unsafeWith iac $ \aap -&gt;</span>
+<span class="lineno">  242 </span><span class="spaces">   </span><span class="nottickedoff">chk1 (matCreateMPIAIJWithArrays0' c m' n' mm' nn' ip jp aap)</span>
+<span class="lineno">  243 </span><span class="spaces">     </span><span class="nottickedoff">where</span>
+<span class="lineno">  244 </span><span class="spaces">           </span><span class="nottickedoff">ixc = V.convert $ V.map toCInt ix :: VS.Vector CInt</span>
+<span class="lineno">  245 </span><span class="spaces">           </span><span class="nottickedoff">iyc = V.convert $ V.map toCInt iy :: VS.Vector CInt</span>
+<span class="lineno">  246 </span><span class="spaces">           </span><span class="nottickedoff">iac = V.convert ia :: VS.Vector PetscScalar_</span>
+<span class="lineno">  247 </span><span class="spaces">           </span><span class="nottickedoff">(m', n') = (toCInt m, toCInt n)</span>
+<span class="lineno">  248 </span><span class="spaces">           </span><span class="nottickedoff">(mm', nn') = (toCInt mm, toCInt nn)</span></span>
+<span class="lineno">  249 </span>
+<span class="lineno">  250 </span>
+<span class="lineno">  251 </span>matTranspose :: Mat -&gt; MatReuse_ -&gt; IO Mat
+<span class="lineno">  252 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matTranspose mat reuse = chk1 (matTranspose' mat reuse)</span></span>
+<span class="lineno">  253 </span>
+<span class="lineno">  254 </span>-- -- NB : the actual transpose is NOT created by using `matCreateTranspose`, but the definition of matvec will use MatMultTranspose()
+<span class="lineno">  255 </span>
+<span class="lineno">  256 </span>matCreateTranspose :: Mat -&gt; IO Mat
+<span class="lineno">  257 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matCreateTranspose mat = chk1 (matCreateTranspose' mat)</span></span>
+<span class="lineno">  258 </span>
+<span class="lineno">  259 </span>
+<span class="lineno">  260 </span>
+<span class="lineno">  261 </span>
+<span class="lineno">  262 </span>
+<span class="lineno">  263 </span>  
+<span class="lineno">  264 </span>
+<span class="lineno">  265 </span>-- | destroy Mat
+<span class="lineno">  266 </span>
+<span class="lineno">  267 </span>matDestroy :: Mat -&gt; IO ()
+<span class="lineno">  268 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">matDestroy = chk0 . matDestroy'</span></span>
+<span class="lineno">  269 </span>
+<span class="lineno">  270 </span>
+<span class="lineno">  271 </span>
+<span class="lineno">  272 </span>
+<span class="lineno">  273 </span>
+<span class="lineno">  274 </span>
+<span class="lineno">  275 </span>
+<span class="lineno">  276 </span>
+<span class="lineno">  277 </span>
+<span class="lineno">  278 </span>
+<span class="lineno">  279 </span>
+<span class="lineno">  280 </span>
+<span class="lineno">  281 </span>-- | `with` Mat brackets
+<span class="lineno">  282 </span>
+<span class="lineno">  283 </span>withMat :: IO Mat -&gt; (Mat -&gt; IO a) -&gt; IO a
+<span class="lineno">  284 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withMat mc = bracket mc matDestroy</span></span> 
+<span class="lineno">  285 </span>
+<span class="lineno">  286 </span>withMatCreate :: Comm -&gt; (Mat -&gt; IO a) -&gt; IO a
+<span class="lineno">  287 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withMatCreate cc = withMat (matCreate cc)</span></span>
+<span class="lineno">  288 </span>
+<span class="lineno">  289 </span>
+<span class="lineno">  290 </span>
+<span class="lineno">  291 </span>-- -- | withMatCreateSetup : (create, setSizes, setup, &lt;body&gt;, cleanup) bracket
+<span class="lineno">  292 </span>withMatCreateSetup ::
+<span class="lineno">  293 </span>  Comm -&gt;
+<span class="lineno">  294 </span>  NumRows -&gt;
+<span class="lineno">  295 </span>  NumCols -&gt;
+<span class="lineno">  296 </span>  MatType_ -&gt;
+<span class="lineno">  297 </span>  (Mat -&gt; IO a) -&gt;
+<span class="lineno">  298 </span>  IO a
+<span class="lineno">  299 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withMatCreateSetup c m n ty after = withMatCreate c $ \mat -&gt; do</span>
+<span class="lineno">  300 </span><span class="spaces">  </span><span class="nottickedoff">matSetSizes mat m n</span>
+<span class="lineno">  301 </span><span class="spaces">  </span><span class="nottickedoff">matSetType mat ty</span>
+<span class="lineno">  302 </span><span class="spaces">  </span><span class="nottickedoff">matSetup mat</span>
+<span class="lineno">  303 </span><span class="spaces">  </span><span class="nottickedoff">after mat</span></span>         -- set values, assemble can be done here
+<span class="lineno">  304 </span>
+<span class="lineno">  305 </span>
+<span class="lineno">  306 </span>
+<span class="lineno">  307 </span>
+<span class="lineno">  308 </span>  
+<span class="lineno">  309 </span>-- -- create, setup AND fill
+<span class="lineno">  310 </span>
+<span class="lineno">  311 </span>
+<span class="lineno">  312 </span>
+<span class="lineno">  313 </span>
+<span class="lineno">  314 </span>
+<span class="lineno">  315 </span>   
+<span class="lineno">  316 </span>
+<span class="lineno">  317 </span>-- -- -- | withMatSetValueVectorSafe :  fill + setup Mat with index bound checks
+<span class="lineno">  318 </span>withMatSetValueVectorSafe ::
+<span class="lineno">  319 </span>  Mat -&gt;
+<span class="lineno">  320 </span>  NumRows -&gt;
+<span class="lineno">  321 </span>  NumCols -&gt;
+<span class="lineno">  322 </span>  V.Vector (IdxRow, IdxCol, PetscScalar_) -&gt;
+<span class="lineno">  323 </span>  InsertMode_ -&gt;
+<span class="lineno">  324 </span>  (Mat -&gt; IO a) -&gt;                            -- after assembly
+<span class="lineno">  325 </span>  IO a
+<span class="lineno">  326 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withMatSetValueVectorSafe mat m n v_ imode after = do</span>
+<span class="lineno">  327 </span><span class="spaces">  </span><span class="nottickedoff">matSetValueVectorSafe mat (m, n) v_ imode</span>
+<span class="lineno">  328 </span><span class="spaces">  </span><span class="nottickedoff">matAssembly mat</span>
+<span class="lineno">  329 </span><span class="spaces">  </span><span class="nottickedoff">after mat</span></span> 
+<span class="lineno">  330 </span>
+<span class="lineno">  331 </span>
+<span class="lineno">  332 </span>matSetDiagonalVectorSafe ::
+<span class="lineno">  333 </span>  Mat -&gt;
+<span class="lineno">  334 </span>  NumRows -&gt;
+<span class="lineno">  335 </span>  V.Vector PetscScalar_ -&gt;   -- diagonal values
+<span class="lineno">  336 </span>  InsertMode_ -&gt;
+<span class="lineno">  337 </span>  (Mat -&gt; IO a) -&gt;
+<span class="lineno">  338 </span>  IO a
+<span class="lineno">  339 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matSetDiagonalVectorSafe mat m v = withMatSetValueVectorSafe mat m m (vvDiag m v)</span></span>
+<span class="lineno">  340 </span>
+<span class="lineno">  341 </span>
+<span class="lineno">  342 </span>
+<span class="lineno">  343 </span>
+<span class="lineno">  344 </span>
+<span class="lineno">  345 </span>
+<span class="lineno">  346 </span>
+<span class="lineno">  347 </span>
+<span class="lineno">  348 </span>
+<span class="lineno">  349 </span>
+<span class="lineno">  350 </span>
+<span class="lineno">  351 </span>
+<span class="lineno">  352 </span>
+<span class="lineno">  353 </span>
+<span class="lineno">  354 </span>
+<span class="lineno">  355 </span>
+<span class="lineno">  356 </span>
+<span class="lineno">  357 </span>
+<span class="lineno">  358 </span>
+<span class="lineno">  359 </span>
+<span class="lineno">  360 </span>-- | set Mat values
+<span class="lineno">  361 </span>
+<span class="lineno">  362 </span>matZeroEntries :: Mat -&gt; IO ()
+<span class="lineno">  363 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matZeroEntries mat = chk0 (matZeroEntries' mat)</span></span>
+<span class="lineno">  364 </span>
+<span class="lineno">  365 </span>matSetValue ::
+<span class="lineno">  366 </span>  Mat -&gt; IdxRow -&gt; IdxCol -&gt; PetscScalar_ -&gt; InsertMode_ -&gt; IO ()
+<span class="lineno">  367 </span><span class="funcount">-- entered 38 times</span><span class="decl"><span class="istickedoff">matSetValue m irow icol val mode = chk0 (matSetValueUnsafe' m irow icol val mode)</span></span>
+<span class="lineno">  368 </span>
+<span class="lineno">  369 </span>
+<span class="lineno">  370 </span>-- | matSetValueVectorSafe
+<span class="lineno">  371 </span>-- NB !
+<span class="lineno">  372 </span>-- * sets one value at a time 
+<span class="lineno">  373 </span>-- * drops entries that would be written outside of matrix index bounds
+<span class="lineno">  374 </span>
+<span class="lineno">  375 </span>matSetValueVectorSafe ::
+<span class="lineno">  376 </span>  Mat -&gt;
+<span class="lineno">  377 </span>  (NumRows, NumCols) -&gt;
+<span class="lineno">  378 </span>  V.Vector (IdxRow, IdxCol, PetscScalar_) -&gt;
+<span class="lineno">  379 </span>  InsertMode_ -&gt;
+<span class="lineno">  380 </span>  IO ()
+<span class="lineno">  381 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">matSetValueVectorSafe mat (mx, my) v_ mode =</span>
+<span class="lineno">  382 </span><span class="spaces">  </span><span class="istickedoff">V.mapM_ mf v_ where</span>
+<span class="lineno">  383 </span><span class="spaces">    </span><span class="istickedoff">mf (ix,iy,val)</span>
+<span class="lineno">  384 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">in0m mx ix &amp;&amp; in0m my iy</span> = matSetValue mat ix iy val mode</span>
+<span class="lineno">  385 </span><span class="spaces">      </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">return ()</span></span></span>
+<span class="lineno">  386 </span>
+<span class="lineno">  387 </span>
+<span class="lineno">  388 </span>
+<span class="lineno">  389 </span>
+<span class="lineno">  390 </span>
+<span class="lineno">  391 </span>-- matSetValuesVectorSafe2 ::
+<span class="lineno">  392 </span>--   Mat -&gt;
+<span class="lineno">  393 </span>--   (NumRows, NumCols) -&gt; 
+<span class="lineno">  394 </span>--   V.Vector (IdxRow, IdxCol, PetscScalar_) -&gt;
+<span class="lineno">  395 </span>--   InsertMode_ -&gt;
+<span class="lineno">  396 </span>--   IO ()
+<span class="lineno">  397 </span>-- matSetValuesVectorSafe2 mat (nrow, ncol) z_ imode =
+<span class="lineno">  398 </span>--   VS.unsafeWith (V.convert ix) $ \ixp -&gt;
+<span class="lineno">  399 </span>--   VS.unsafeWith (V.convert iy) $ \iyp -&gt;
+<span class="lineno">  400 </span>--   VS.unsafeWith (V.convert iv) $ \ivp -&gt;
+<span class="lineno">  401 </span>--      chk0 $ matSetValues0' mat nx ixp ny iyp ivp imode where
+<span class="lineno">  402 </span>--   (nx, ny) = (toCInt $ V.length ix, toCInt $ V.length iy)
+<span class="lineno">  403 </span>--   (ix, iy, iv) = V.unzip3 zu
+<span class="lineno">  404 </span>--   zu = filterMapSafeIndicesV nrow ncol (\(i,j,v) -&gt; (toCInt i,toCInt j,v)) z_
+<span class="lineno">  405 </span>
+<span class="lineno">  406 </span>-- | matSetValues using inline-c vecCtx
+<span class="lineno">  407 </span>
+<span class="lineno">  408 </span>-- matSetValuesVectorSafe3 ::
+<span class="lineno">  409 </span>--   Mat -&gt;
+<span class="lineno">  410 </span>--   (NumRows, NumCols) -&gt; 
+<span class="lineno">  411 </span>--   V.Vector (IdxRow, IdxCol, PetscScalar_) -&gt;
+<span class="lineno">  412 </span>--   InsertMode_ -&gt;
+<span class="lineno">  413 </span>--   IO ()
+<span class="lineno">  414 </span>-- matSetValuesVectorSafe3 mat (nrow, ncol) z_ imode =
+<span class="lineno">  415 </span>--   chk0 $ matSetValues0vs' mat nvals (V.convert ix) nvals (V.convert iy) (V.convert iv) imode where
+<span class="lineno">  416 </span>--    zu = filterMapSafeIndicesV nrow ncol (\(i,j,v) -&gt; (toCInt i,toCInt j,v)) z_
+<span class="lineno">  417 </span>--    (ix, iy, iv) = V.unzip3 zu
+<span class="lineno">  418 </span>--    nvals = toCInt $ V.length ix
+<span class="lineno">  419 </span>
+<span class="lineno">  420 </span>
+<span class="lineno">  421 </span>
+<span class="lineno">  422 </span>
+<span class="lineno">  423 </span>
+<span class="lineno">  424 </span>
+<span class="lineno">  425 </span>
+<span class="lineno">  426 </span>
+<span class="lineno">  427 </span>
+<span class="lineno">  428 </span>
+<span class="lineno">  429 </span>
+<span class="lineno">  430 </span>
+<span class="lineno">  431 </span>-- | modify Mat
+<span class="lineno">  432 </span>
+<span class="lineno">  433 </span>modifyMat ::
+<span class="lineno">  434 </span>  PetscMatrix PetscScalar_ -&gt;
+<span class="lineno">  435 </span>  V.Vector (IdxRow, IdxCol, PetscScalar_) -&gt;
+<span class="lineno">  436 </span>  InsertMode_ -&gt;
+<span class="lineno">  437 </span>  IO ()
+<span class="lineno">  438 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">modifyMat mm vv imode = do</span>
+<span class="lineno">  439 </span><span class="spaces">  </span><span class="nottickedoff">matSetValueVectorSafe mat (m, n) vv imode</span>
+<span class="lineno">  440 </span><span class="spaces">  </span><span class="nottickedoff">matAssembly mat</span>
+<span class="lineno">  441 </span><span class="spaces">   </span><span class="nottickedoff">where</span>
+<span class="lineno">  442 </span><span class="spaces">     </span><span class="nottickedoff">(mib, _, _, mat) = fromPetscMatrix mm</span>
+<span class="lineno">  443 </span><span class="spaces">     </span><span class="nottickedoff">(m, n) = (matRows mib, matCols mib)</span></span> -- (matRows &amp;&amp;&amp; matCols) mib
+<span class="lineno">  444 </span>
+<span class="lineno">  445 </span>
+<span class="lineno">  446 </span>
+<span class="lineno">  447 </span>
+<span class="lineno">  448 </span>    
+<span class="lineno">  449 </span>
+<span class="lineno">  450 </span>
+<span class="lineno">  451 </span>
+<span class="lineno">  452 </span>
+<span class="lineno">  453 </span>
+<span class="lineno">  454 </span>
+<span class="lineno">  455 </span>
+<span class="lineno">  456 </span>
+<span class="lineno">  457 </span>
+<span class="lineno">  458 </span>
+<span class="lineno">  459 </span>-- | set Mat properties
+<span class="lineno">  460 </span>
+<span class="lineno">  461 </span>matSetType :: Mat -&gt; MatType_ -&gt; IO ()
+<span class="lineno">  462 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">matSetType mat ty = chk0 (matSetType' mat ty)</span></span>
+<span class="lineno">  463 </span>
+<span class="lineno">  464 </span>matSetSizes0 ::
+<span class="lineno">  465 </span>  Mat -&gt;
+<span class="lineno">  466 </span>  Int -&gt;            -- # local rows
+<span class="lineno">  467 </span>  Int -&gt;            -- # local columns
+<span class="lineno">  468 </span>  NumRows -&gt;            -- # global rows
+<span class="lineno">  469 </span>  NumCols -&gt;            -- # global columns
+<span class="lineno">  470 </span>  IO ()
+<span class="lineno">  471 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matSetSizes0 mat mloc nloc mm nn =</span>
+<span class="lineno">  472 </span><span class="spaces">  </span><span class="nottickedoff">chk0 (matSetSizes0' mat mloc nloc mm nn)</span></span>
+<span class="lineno">  473 </span>
+<span class="lineno">  474 </span>
+<span class="lineno">  475 </span>matSetSizes ::
+<span class="lineno">  476 </span>  Mat -&gt;
+<span class="lineno">  477 </span>  NumRows -&gt;            -- # global rows
+<span class="lineno">  478 </span>  NumCols -&gt;            -- # global columns
+<span class="lineno">  479 </span>  IO ()
+<span class="lineno">  480 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">matSetSizes mat m n</span>
+<span class="lineno">  481 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">m &gt; 0 &amp;&amp; n &gt; 0</span> = chk0 (matSetSizes' mat m n)</span>
+<span class="lineno">  482 </span><span class="spaces">  </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">error $ &quot;matSetSizes : invalid size &quot; ++ show (m,n)</span></span></span>
+<span class="lineno">  483 </span>
+<span class="lineno">  484 </span>
+<span class="lineno">  485 </span>
+<span class="lineno">  486 </span>
+<span class="lineno">  487 </span>
+<span class="lineno">  488 </span>
+<span class="lineno">  489 </span>
+<span class="lineno">  490 </span>
+<span class="lineno">  491 </span>-- | nonzero preallocation
+<span class="lineno">  492 </span>-- -- NB : if (onnz, dnnz) are specified, (onz,dnz) are ignored
+<span class="lineno">  493 </span>
+<span class="lineno">  494 </span>
+<span class="lineno">  495 </span>-- | SEQAIJ
+<span class="lineno">  496 </span>
+<span class="lineno">  497 </span>
+<span class="lineno">  498 </span>matSeqAIJSetPreallocationConstNZPR :: Mat -&gt; Int -&gt; IO ()
+<span class="lineno">  499 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matSeqAIJSetPreallocationConstNZPR mat nz = chk0 (matSeqAIJSetPreallocationConstNZPR' mat nz') where</span>
+<span class="lineno">  500 </span><span class="spaces">  </span><span class="nottickedoff">nz' = toCInt nz</span></span>
+<span class="lineno">  501 </span>
+<span class="lineno">  502 </span>matSeqAIJSetPreallocationVarNZPR :: Mat -&gt; VS.Vector Int -&gt; IO ()
+<span class="lineno">  503 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matSeqAIJSetPreallocationVarNZPR mat nnz = chk0 (matSeqAIJSetPreallocationVarNZPR' mat nnz') where</span>
+<span class="lineno">  504 </span><span class="spaces">  </span><span class="nottickedoff">nnz' = VG.map toCInt nnz</span></span>
+<span class="lineno">  505 </span>  
+<span class="lineno">  506 </span>  
+<span class="lineno">  507 </span>
+<span class="lineno">  508 </span>-- | MPIAIJ 
+<span class="lineno">  509 </span>matMPIAIJSetPreallocationConstNZPR ::
+<span class="lineno">  510 </span>  Mat -&gt;
+<span class="lineno">  511 </span>  Int -&gt;    -- # nonzeros/row in diagonal block of process-local matrix block
+<span class="lineno">  512 </span>  Int -&gt;    -- # NZ/row in off-diagonal block of local mtx block
+<span class="lineno">  513 </span>  IO ()
+<span class="lineno">  514 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">matMPIAIJSetPreallocationConstNZPR mat dnz onz =</span>
+<span class="lineno">  515 </span><span class="spaces">  </span><span class="istickedoff">chk0 (matMPIAIJSetPreallocationConstNZPR' mat dnz' onz') where</span>
+<span class="lineno">  516 </span><span class="spaces">    </span><span class="istickedoff">(dnz', onz') = both (dnz, onz) toCInt</span></span>
+<span class="lineno">  517 </span>
+<span class="lineno">  518 </span>
+<span class="lineno">  519 </span>matMPIAIJSetPreallocationDiagonal :: Mat -&gt; IO ()
+<span class="lineno">  520 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matMPIAIJSetPreallocationDiagonal mat =</span>
+<span class="lineno">  521 </span><span class="spaces">  </span><span class="nottickedoff">matMPIAIJSetPreallocationConstNZPR mat 1 0</span></span>
+<span class="lineno">  522 </span>
+<span class="lineno">  523 </span>
+<span class="lineno">  524 </span>
+<span class="lineno">  525 </span>
+<span class="lineno">  526 </span>matMPIAIJSetPreallocationVarNZPR :: Mat -&gt; VS.Vector DNZ -&gt; VS.Vector ONZ -&gt; IO ()
+<span class="lineno">  527 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matMPIAIJSetPreallocationVarNZPR mat dnnz onnz =</span>
+<span class="lineno">  528 </span><span class="spaces">  </span><span class="nottickedoff">chk0 (matMPIAIJSetPreallocationVarNZPR' mat dnnz' onnz')</span>
+<span class="lineno">  529 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
+<span class="lineno">  530 </span><span class="spaces">    </span><span class="nottickedoff">dnnz' = VG.map toCInt dnnz</span>
+<span class="lineno">  531 </span><span class="spaces">    </span><span class="nottickedoff">onnz' = VG.map toCInt onnz</span></span>
+<span class="lineno">  532 </span>
+<span class="lineno">  533 </span>
+<span class="lineno">  534 </span>
+<span class="lineno">  535 </span>
+<span class="lineno">  536 </span>
+<span class="lineno">  537 </span>
+<span class="lineno">  538 </span>
+<span class="lineno">  539 </span>-- | block Mat assembly
+<span class="lineno">  540 </span>
+<span class="lineno">  541 </span>matSetBlockSize :: Mat -&gt; Int -&gt; IO ()
+<span class="lineno">  542 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matSetBlockSize mat bs = chk0 (matSetBlockSize' mat bs)</span></span>
+<span class="lineno">  543 </span>
+<span class="lineno">  544 </span>matSetValuesBlocked0 ::  (VG.Vector v PetscScalar_) =&gt;
+<span class="lineno">  545 </span>  Mat -&gt;
+<span class="lineno">  546 </span>  V.Vector Int -&gt;
+<span class="lineno">  547 </span>  V.Vector Int -&gt;
+<span class="lineno">  548 </span>  v PetscScalar_ -&gt;
+<span class="lineno">  549 </span>  InsertMode_ -&gt;
+<span class="lineno">  550 </span>  IO ()
+<span class="lineno">  551 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matSetValuesBlocked0 mat idxm idxn v imode =</span>
+<span class="lineno">  552 </span><span class="spaces">  </span><span class="nottickedoff">unsafeWithVS imc $ \idxmp -&gt;</span>
+<span class="lineno">  553 </span><span class="spaces">  </span><span class="nottickedoff">unsafeWithVS inc $ \idxnp -&gt;</span>
+<span class="lineno">  554 </span><span class="spaces">  </span><span class="nottickedoff">unsafeWithVS v $ \vp -&gt; </span>
+<span class="lineno">  555 </span><span class="spaces">    </span><span class="nottickedoff">-- print (m,n)   -- debug</span>
+<span class="lineno">  556 </span><span class="spaces">    </span><span class="nottickedoff">chk0 (matSetValuesBlocked0' mat m idxmp n idxnp vp imode)</span>
+<span class="lineno">  557 </span><span class="spaces">   </span><span class="nottickedoff">where</span>
+<span class="lineno">  558 </span><span class="spaces">     </span><span class="nottickedoff">(m ,n) = both (V.length imc, V.length inc) toCInt</span>
+<span class="lineno">  559 </span><span class="spaces">     </span><span class="nottickedoff">imc = V.map toCInt idxm</span>
+<span class="lineno">  560 </span><span class="spaces">     </span><span class="nottickedoff">inc = V.map toCInt idxn</span></span>
+<span class="lineno">  561 </span>     -- vc = V.map toCDouble v
+<span class="lineno">  562 </span>     
+<span class="lineno">  563 </span>
+<span class="lineno">  564 </span>
+<span class="lineno">  565 </span>
+<span class="lineno">  566 </span>
+<span class="lineno">  567 </span>
+<span class="lineno">  568 </span>
+<span class="lineno">  569 </span>
+<span class="lineno">  570 </span>
+<span class="lineno">  571 </span>-- | setup Mat
+<span class="lineno">  572 </span>
+<span class="lineno">  573 </span>matSetup :: Mat -&gt; IO ()
+<span class="lineno">  574 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">matSetup = chk0 . matSetup'</span></span>
+<span class="lineno">  575 </span>
+<span class="lineno">  576 </span>
+<span class="lineno">  577 </span>
+<span class="lineno">  578 </span>
+<span class="lineno">  579 </span>
+<span class="lineno">  580 </span>
+<span class="lineno">  581 </span>
+<span class="lineno">  582 </span>
+<span class="lineno">  583 </span>
+<span class="lineno">  584 </span>
+<span class="lineno">  585 </span>-- | assemble Mat
+<span class="lineno">  586 </span>
+<span class="lineno">  587 </span>matAssemblyBegin, matAssemblyEnd :: 
+<span class="lineno">  588 </span>  Mat -&gt; IO ()
+<span class="lineno">  589 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matAssemblyBegin = chk0 . matAssemblyBegin'</span></span>
+<span class="lineno">  590 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">matAssemblyEnd = chk0 . matAssemblyEnd'</span></span>
+<span class="lineno">  591 </span>
+<span class="lineno">  592 </span>matAssembly :: Mat -&gt; IO ()
+<span class="lineno">  593 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">matAssembly = <span class="nottickedoff">matAssemblyBegin</span> &gt;&gt; matAssemblyEnd</span></span>
+<span class="lineno">  594 </span>
+<span class="lineno">  595 </span>
+<span class="lineno">  596 </span>-- | withMatAssembly : we can perform some computation while data are in flight
+<span class="lineno">  597 </span>
+<span class="lineno">  598 </span>withMatAssembly ::
+<span class="lineno">  599 </span>  Mat -&gt; IO a -&gt; IO ()
+<span class="lineno">  600 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withMatAssembly m f = do</span>
+<span class="lineno">  601 </span><span class="spaces">  </span><span class="nottickedoff">matAssemblyBegin m</span>
+<span class="lineno">  602 </span><span class="spaces">  </span><span class="nottickedoff">f </span>
+<span class="lineno">  603 </span><span class="spaces">  </span><span class="nottickedoff">matAssemblyEnd m</span></span>
+<span class="lineno">  604 </span>
+<span class="lineno">  605 </span>
+<span class="lineno">  606 </span>
+<span class="lineno">  607 </span>
+<span class="lineno">  608 </span>
+<span class="lineno">  609 </span>
+<span class="lineno">  610 </span>
+<span class="lineno">  611 </span>
+<span class="lineno">  612 </span>-- | create compatible vectors
+<span class="lineno">  613 </span>matCreateVecs :: Mat -&gt; IO (VecRight, VecLeft)
+<span class="lineno">  614 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matCreateVecs m = do</span>
+<span class="lineno">  615 </span><span class="spaces">  </span><span class="nottickedoff">(vr, vl) &lt;- chk1 $ matCreateVecs' m</span>
+<span class="lineno">  616 </span><span class="spaces">  </span><span class="nottickedoff">return (VecRight vr, VecLeft vl)</span></span>
+<span class="lineno">  617 </span>
+<span class="lineno">  618 </span>-- vector in which the matrix vector product can be stored
+<span class="lineno">  619 </span>matCreateVecLeft :: Mat -&gt; IO VecLeft
+<span class="lineno">  620 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matCreateVecLeft m = liftM VecLeft $ chk1 (matCreateVecLeft' m)</span></span> 
+<span class="lineno">  621 </span>
+<span class="lineno">  622 </span>-- vector that the matrix can be multiplied against
+<span class="lineno">  623 </span>matCreateVecRight :: Mat -&gt; IO VecRight
+<span class="lineno">  624 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matCreateVecRight m = liftM VecRight $ chk1 ( matCreateVecRight' m )</span></span> 
+<span class="lineno">  625 </span>
+<span class="lineno">  626 </span>
+<span class="lineno">  627 </span>
+<span class="lineno">  628 </span>
+<span class="lineno">  629 </span>
+<span class="lineno">  630 </span>
+<span class="lineno">  631 </span>-- | get Mat properties
+<span class="lineno">  632 </span>
+<span class="lineno">  633 </span>matGetOwnershipRange :: Mat -&gt; IO (Int, Int)
+<span class="lineno">  634 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matGetOwnershipRange m = chk1 (matGetOwnershipRange' m) &gt;&gt;= bothMf fi</span></span>
+<span class="lineno">  635 </span>
+<span class="lineno">  636 </span>matGetSizeCInt :: Mat -&gt; IO (CInt, CInt)
+<span class="lineno">  637 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matGetSizeCInt m = chk1 (matGetSize' m)</span></span>
+<span class="lineno">  638 </span>
+<span class="lineno">  639 </span>matGetSize :: Mat -&gt; IO (NumRows, NumCols)
+<span class="lineno">  640 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matGetSize mat = matGetSizeCInt mat &gt;&gt;= \(m,n) -&gt; return (fi m, fi n)</span></span>
+<span class="lineno">  641 </span>
+<span class="lineno">  642 </span>matGetSizeUnsafe, matSize :: Mat -&gt; (NumRows, NumCols)
+<span class="lineno">  643 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matGetSizeUnsafe = unsafePerformIO . matGetSize</span></span>
+<span class="lineno">  644 </span>
+<span class="lineno">  645 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matSize = matGetSizeUnsafe</span></span>
+<span class="lineno">  646 </span>
+<span class="lineno">  647 </span>matGetSizeCIntUnsafe :: Mat -&gt; (CInt, CInt)
+<span class="lineno">  648 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matGetSizeCIntUnsafe = unsafePerformIO . matGetSizeCInt</span></span>
+<span class="lineno">  649 </span>
+<span class="lineno">  650 </span>-- data MatrixOrder = RowMajor | ColMajor deriving (Eq, Show)
+<span class="lineno">  651 </span>-- transposeOrder RowMajor = ColMajor
+<span class="lineno">  652 </span>-- transposeOrder ColMajor = RowMajor
+<span class="lineno">  653 </span>-- -- matrixTranspose (Matrix r c d o)  = Matrix r c d (transposeOrder o)
+<span class="lineno">  654 </span>
+<span class="lineno">  655 </span>
+<span class="lineno">  656 </span>matGetInfo :: Mat -&gt; MatInfoType_ -&gt; IO MatInfo
+<span class="lineno">  657 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matGetInfo mat infotype = chk1 (matGetInfo' mat infotype)</span></span>
+<span class="lineno">  658 </span>
+<span class="lineno">  659 </span>-- matGetRow
+<span class="lineno">  660 </span>--   :: (VG.Vector v PetscScalar_, VG.Vector v CInt,
+<span class="lineno">  661 </span>--       VG.Vector v (CInt, PetscScalar_)) =&gt;
+<span class="lineno">  662 </span>--      Mat -&gt; Int -&gt; IO (v (CInt, PetscScalar_))
+<span class="lineno">  663 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matGetRow mat ro = do</span>
+<span class="lineno">  664 </span><span class="spaces">  </span><span class="nottickedoff">(nc, cols, vals) &lt;- chk1 (matGetRow' mat r)</span>
+<span class="lineno">  665 </span><span class="spaces">  </span><span class="nottickedoff">let n = fi nc             -- # nonzeros</span>
+<span class="lineno">  666 </span><span class="spaces">  </span><span class="nottickedoff">colsv &lt;- getIVG n cols</span>
+<span class="lineno">  667 </span><span class="spaces">  </span><span class="nottickedoff">valsv &lt;- getVG n vals</span>
+<span class="lineno">  668 </span><span class="spaces">  </span><span class="nottickedoff">return $ VG.zip colsv valsv where</span>
+<span class="lineno">  669 </span><span class="spaces">    </span><span class="nottickedoff">r = toCInt ro</span></span>
+<span class="lineno">  670 </span>
+<span class="lineno">  671 </span>matRestoreRow :: Mat -&gt; Int -&gt; IO ()
+<span class="lineno">  672 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matRestoreRow m ro = chk0 (matRestoreRow0Safe' m r) where</span>
+<span class="lineno">  673 </span><span class="spaces">  </span><span class="nottickedoff">r = toCInt ro</span></span>
+<span class="lineno">  674 </span>
+<span class="lineno">  675 </span>-- matViewRow :: Mat -&gt; Int -&gt; IO (Int, VS.Vector CInt, VS.Vector PetscScalar_)
+<span class="lineno">  676 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matViewRow mat r = bracket (matGetRow mat r) (const $ matRestoreRow mat r) return</span></span>
+<span class="lineno">  677 </span>
+<span class="lineno">  678 </span>
+<span class="lineno">  679 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matViewRows mat r_ = forM r_ $ \r -&gt; do</span>
+<span class="lineno">  680 </span><span class="spaces">  </span><span class="nottickedoff">x &lt;- matViewRow mat r</span>
+<span class="lineno">  681 </span><span class="spaces">  </span><span class="nottickedoff">return (r, x)</span></span>
+<span class="lineno">  682 </span>
+<span class="lineno">  683 </span>
+<span class="lineno">  684 </span>
+<span class="lineno">  685 </span>
+<span class="lineno">  686 </span>
+<span class="lineno">  687 </span>
+<span class="lineno">  688 </span>
+<span class="lineno">  689 </span>
+<span class="lineno">  690 </span>
+<span class="lineno">  691 </span>
+<span class="lineno">  692 </span>matIsStructurallySymmetric :: Mat -&gt; IO PetscBool
+<span class="lineno">  693 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matIsStructurallySymmetric mat = chk1 (matIsStructurallySymmetric' mat)</span></span>
+<span class="lineno">  694 </span>
+<span class="lineno">  695 </span>
+<span class="lineno">  696 </span>
+<span class="lineno">  697 </span>-- | # of diagonals that carry at most f% of the Frobenius norm of mat
+<span class="lineno">  698 </span>matComputeBandwidth :: Mat -&gt; PetscReal_ -&gt; IO CInt
+<span class="lineno">  699 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matComputeBandwidth mat f = chk1 (matComputeBandwidth' mat f)</span></span>
+<span class="lineno">  700 </span>
+<span class="lineno">  701 </span>-- | matrix norm
+<span class="lineno">  702 </span>matNorm :: Mat -&gt; MatNorm_ -&gt; IO PetscReal_
+<span class="lineno">  703 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matNorm mat nt = chk1 (matNorm' mat nt)</span></span>
+<span class="lineno">  704 </span>
+<span class="lineno">  705 </span>-- | matrix trace
+<span class="lineno">  706 </span>matGetTrace :: Mat -&gt; IO PetscScalar_
+<span class="lineno">  707 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matGetTrace mat = chk1 (matGetTrace' mat)</span></span>
+<span class="lineno">  708 </span>
+<span class="lineno">  709 </span>
+<span class="lineno">  710 </span>
+<span class="lineno">  711 </span>
+<span class="lineno">  712 </span>
+<span class="lineno">  713 </span>
+<span class="lineno">  714 </span>-- | view Mat on stdout
+<span class="lineno">  715 </span>
+<span class="lineno">  716 </span>matView0 :: Mat -&gt; PetscViewer -&gt; IO ()
+<span class="lineno">  717 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matView0 m v = chk0 (matView' m v)</span></span>
+<span class="lineno">  718 </span>
+<span class="lineno">  719 </span>matView :: Mat -&gt; IO ()
+<span class="lineno">  720 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matView m = Viewer.withPetscViewerTypeFmt PM.commWorld ViewerAscii ViewFmtAsciiInfoDetail (matView0 m)</span></span>
+<span class="lineno">  721 </span>
+<span class="lineno">  722 </span>matViewStdout :: Mat -&gt; IO ()
+<span class="lineno">  723 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matViewStdout = matView</span></span>
+<span class="lineno">  724 </span>
+<span class="lineno">  725 </span>
+<span class="lineno">  726 </span>
+<span class="lineno">  727 </span>-- matViewStdoutSelf :: Mat -&gt; IO ()
+<span class="lineno">  728 </span>-- matViewStdoutSelf m = chk0 (matViewStdoutSelf' m)
+<span class="lineno">  729 </span>
+<span class="lineno">  730 </span>
+<span class="lineno">  731 </span>-- matViewStdoutWorld :: Mat -&gt; IO ()
+<span class="lineno">  732 </span>-- matViewStdoutWorld m = chk0 (matViewStdoutWorld' m)
+<span class="lineno">  733 </span>
+<span class="lineno">  734 </span>
+<span class="lineno">  735 </span>
+<span class="lineno">  736 </span>
+<span class="lineno">  737 </span>
+<span class="lineno">  738 </span>
+<span class="lineno">  739 </span>-- identityMatrix :: Comm -&gt; Int -&gt; Mat -&gt; PetscMatrix
+<span class="lineno">  740 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">identityMatrix cc n =</span>
+<span class="lineno">  741 </span><span class="spaces">  </span><span class="nottickedoff">PetscMatrix (MatrixInfoBase cc n n) (ConstNZPR (1, 0))</span></span>
+<span class="lineno">  742 </span>
+<span class="lineno">  743 </span>
+<span class="lineno">  744 </span>
+<span class="lineno">  745 </span>
+<span class="lineno">  746 </span>
+<span class="lineno">  747 </span>
+<span class="lineno">  748 </span>
+<span class="lineno">  749 </span>
+<span class="lineno">  750 </span>
+<span class="lineno">  751 </span>
+<span class="lineno">  752 </span>
+<span class="lineno">  753 </span>
+<span class="lineno">  754 </span>
+<span class="lineno">  755 </span>-- -- petscMatrixBounds :: PetscMatrix a -&gt; ((Int, Int), (Int, Int))
+<span class="lineno">  756 </span>-- petscMatrixBounds pm = pmib (petscMatrixInfoB pm) where
+<span class="lineno">  757 </span>--  pmib mi = (ibx, iby) where
+<span class="lineno">  758 </span>--   ibx = (0, matRows mi - 1)-- :: (Int, Int)
+<span class="lineno">  759 </span>--   iby = (0, matCols mi - 1)-- :: (Int, Int)
+<span class="lineno">  760 </span>
+<span class="lineno">  761 </span>petscMatrixInfoB :: PetscMatrix a -&gt; MatrixInfoBase
+<span class="lineno">  762 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">petscMatrixInfoB (PetscMatrix mi _ _ _) = mi</span></span>
+<span class="lineno">  763 </span>
+<span class="lineno">  764 </span>
+<span class="lineno">  765 </span>petscMatrixMat :: PetscMatrix a -&gt; Mat
+<span class="lineno">  766 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">petscMatrixMat (PetscMatrix _ _ _ m) = m</span></span>
+<span class="lineno">  767 </span>
+<span class="lineno">  768 </span>
+<span class="lineno">  769 </span>
+<span class="lineno">  770 </span>validDims' :: MatrixInfoBase -&gt; Bool
+<span class="lineno">  771 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">validDims' mi = nr &gt; 0 &amp;&amp; nc &gt; 0</span>
+<span class="lineno">  772 </span><span class="spaces">      </span><span class="nottickedoff">where (nr, nc) = (matRows &amp;&amp;&amp; matCols) mi</span></span>
+<span class="lineno">  773 </span>
+<span class="lineno">  774 </span>validDims :: MatrixInfoBase -&gt; NZPR -&gt; Bool
+<span class="lineno">  775 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">validDims mi (ConstNZPR (dnz, onz)) =</span>
+<span class="lineno">  776 </span><span class="spaces">  </span><span class="nottickedoff">validDims' mi &amp;&amp; nz &gt;= 0 &amp;&amp; nz &lt;= matCols mi where</span>
+<span class="lineno">  777 </span><span class="spaces">   </span><span class="nottickedoff">nz = dnz+onz</span>
+<span class="lineno">  778 </span><span class="spaces"></span><span class="nottickedoff">validDims mi (VarNZPR (dnnz, onnz)) =</span>
+<span class="lineno">  779 </span><span class="spaces">  </span><span class="nottickedoff">validDims' mi &amp;&amp;</span>
+<span class="lineno">  780 </span><span class="spaces">  </span><span class="nottickedoff">-- V.length dnnz == matRows mi &amp;&amp;</span>
+<span class="lineno">  781 </span><span class="spaces">  </span><span class="nottickedoff">-- V.length onnz == matCols mi &amp;&amp;</span>
+<span class="lineno">  782 </span><span class="spaces">  </span><span class="nottickedoff">VG.all withinCols dnnz &amp;&amp; VG.all withinCols onnz where</span>
+<span class="lineno">  783 </span><span class="spaces">    </span><span class="nottickedoff">withinCols x = x &gt;= 0 &amp;&amp; x &lt;= matCols mi</span></span>
+<span class="lineno">  784 </span>    
+<span class="lineno">  785 </span>
+<span class="lineno">  786 </span>
+<span class="lineno">  787 </span>
+<span class="lineno">  788 </span>-- mkMatrixInfoConstNZPR :: Comm -&gt; Int -&gt; Int -&gt; Int -&gt; MatrixInfo
+<span class="lineno">  789 </span>-- mkMatrixInfoConstNZPR comm nr nc = MIConstNZPR (mkMatrixInfoBase comm nr nc)
+<span class="lineno">  790 </span>
+<span class="lineno">  791 </span>-- mkMatrixInfoVarNZPR :: Comm -&gt; Int -&gt; Int -&gt; [Int] -&gt; MatrixInfo
+<span class="lineno">  792 </span>-- mkMatrixInfoVarNZPR comm nr nc = MIVarNZPR (mkMatrixInfoBase comm nr nc)
+<span class="lineno">  793 </span>
+<span class="lineno">  794 </span>-- mkMatrix :: (Num a, Eq a) =&gt; MatrixInfo -&gt; IO (Mat, a) -&gt; IO PetscMatrix
+<span class="lineno">  795 </span>-- mkMatrix mi matcreatef
+<span class="lineno">  796 </span>--   | validDims mi = do
+<span class="lineno">  797 </span>--       m &lt;- chk1 matcreatef
+<span class="lineno">  798 </span>--       return $ PetscMatrix mi m
+<span class="lineno">  799 </span>--   | otherwise = error &quot;mkMatrix : invalid sizes : no matrix allocated&quot;
+<span class="lineno">  800 </span>
+<span class="lineno">  801 </span>-- matCreateSeqAIJConstNZPR :: Comm -&gt; Int -&gt; Int -&gt; Int -&gt; IO PetscMatrix
+<span class="lineno">  802 </span>-- matCreateSeqAIJConstNZPR comm nr nc nz =
+<span class="lineno">  803 </span>--   mkMatrix
+<span class="lineno">  804 </span>--     (mkMatrixInfoConstNZPR comm nr nc nz)
+<span class="lineno">  805 </span>--     (matCreateSeqAIJconstNZperRow1 comm nr nc nz)
+<span class="lineno">  806 </span>
+<span class="lineno">  807 </span>-- matCreateSeqAIJVarNZPR :: Comm -&gt; Int -&gt; Int -&gt; [Int] -&gt; IO PetscMatrix
+<span class="lineno">  808 </span>-- matCreateSeqAIJVarNZPR comm nr nc nnz =
+<span class="lineno">  809 </span>--   mkMatrix
+<span class="lineno">  810 </span>--     (mkMatrixInfoVarNZPR comm nr nc nnz)
+<span class="lineno">  811 </span>--     (matCreateSeqAIJ1 comm nr nc nnz)
+<span class="lineno">  812 </span>
+<span class="lineno">  813 </span>
+<span class="lineno">  814 </span>
+<span class="lineno">  815 </span>
+<span class="lineno">  816 </span>
+<span class="lineno">  817 </span>-- data Matrix a = Matrix {
+<span class="lineno">  818 </span>--   matrixInfo    :: !MatInfo,
+<span class="lineno">  819 </span>--   matrixRowIdxs :: !(V.Vector Int),
+<span class="lineno">  820 </span>--   matrixColIdxs :: !(V.Vector Int),
+<span class="lineno">  821 </span>--   matrixData    :: !(V.Vector a),
+<span class="lineno">  822 </span>--   matrixOrder   :: !MatrixOrder } deriving (Eq, Show)
+<span class="lineno">  823 </span>
+<span class="lineno">  824 </span>-- isValidMatrix m = (mx==my) &amp;&amp; (V.length mri == V.length mci) where
+<span class="lineno">  825 </span>--   (mx, my) = (matInfoSize . matrixInfo) m
+<span class="lineno">  826 </span>--   mri = matrixRowIdxs m
+<span class="lineno">  827 </span>--   mci = matrixColIdxs m 
+<span class="lineno">  828 </span>  
+<span class="lineno">  829 </span>
+<span class="lineno">  830 </span>
+<span class="lineno">  831 </span>  
+<span class="lineno">  832 </span>
+<span class="lineno">  833 </span>
+<span class="lineno">  834 </span>matFDColoringCreate ::
+<span class="lineno">  835 </span>  Mat -&gt; ISColoring -&gt; IO MatFDColoring
+<span class="lineno">  836 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matFDColoringCreate mat isc = chk1 $ matFDColoringCreate' mat isc</span></span>
+<span class="lineno">  837 </span>
+<span class="lineno">  838 </span>matFDColoringDestroy ::
+<span class="lineno">  839 </span>  MatFDColoring -&gt; IO ()
+<span class="lineno">  840 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matFDColoringDestroy mfc = chk0 $ matFDColoringDestroy' mfc</span></span>
+<span class="lineno">  841 </span>
+<span class="lineno">  842 </span>withMatFDColoring :: Mat -&gt; ISColoring -&gt; (MatFDColoring -&gt; IO a) -&gt; IO a
+<span class="lineno">  843 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withMatFDColoring mat iscoloring =</span>
+<span class="lineno">  844 </span><span class="spaces">  </span><span class="nottickedoff">bracket (matFDColoringCreate mat iscoloring) matFDColoringDestroy</span></span>
+<span class="lineno">  845 </span>
+<span class="lineno">  846 </span>
+<span class="lineno">  847 </span>
+<span class="lineno">  848 </span>
+<span class="lineno">  849 </span>
+<span class="lineno">  850 </span>
+<span class="lineno">  851 </span>
+<span class="lineno">  852 </span>
+<span class="lineno">  853 </span>
+<span class="lineno">  854 </span>
+<span class="lineno">  855 </span>-- | -- MatNullSpace
+<span class="lineno">  856 </span>
+<span class="lineno">  857 </span>matNullSpaceCreate :: Comm -&gt; Bool -&gt; Int -&gt; VS.Vector Vec -&gt; IO MatNullSpace
+<span class="lineno">  858 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matNullSpaceCreate cc hasc n vecs = chk1 $ matNullSpaceCreate' cc hasc n vecs</span></span>
+<span class="lineno">  859 </span>
+<span class="lineno">  860 </span>matNullSpaceDestroy :: MatNullSpace -&gt; IO ()
+<span class="lineno">  861 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matNullSpaceDestroy sp = chk0 $  matNullSpaceDestroy' sp</span></span>
+<span class="lineno">  862 </span>
+<span class="lineno">  863 </span>withMatNullSpace ::
+<span class="lineno">  864 </span>  Comm -&gt; Bool -&gt; Int -&gt; VS.Vector Vec -&gt; (MatNullSpace -&gt; IO c) -&gt; IO c
+<span class="lineno">  865 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withMatNullSpace cc hasc n vecs = bracket (matNullSpaceCreate cc hasc n vecs) matNullSpaceDestroy</span></span>
+<span class="lineno">  866 </span>
+<span class="lineno">  867 </span>matNullSpaceRemove :: MatNullSpace -&gt; Vec -&gt; IO ()
+<span class="lineno">  868 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matNullSpaceRemove sp v = chk0 $ matNullSpaceRemove' sp v</span></span>
+<span class="lineno">  869 </span>
+<span class="lineno">  870 </span>matSetNullSpace :: Mat -&gt; MatNullSpace -&gt; IO ()
+<span class="lineno">  871 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matSetNullSpace amat sp = chk0 $ matSetNullSpace' amat sp</span></span>
+<span class="lineno">  872 </span>
+<span class="lineno">  873 </span>
+<span class="lineno">  874 </span>
+<span class="lineno">  875 </span>
+<span class="lineno">  876 </span>
+<span class="lineno">  877 </span>
+<span class="lineno">  878 </span>
+<span class="lineno">  879 </span>
+<span class="lineno">  880 </span>
+<span class="lineno">  881 </span>-- | some math operations that use Mat
+<span class="lineno">  882 </span>
+<span class="lineno">  883 </span>-- Mat, scalar
+<span class="lineno">  884 </span>
+<span class="lineno">  885 </span>matScale :: Mat -&gt; PetscScalar_ -&gt; IO ()
+<span class="lineno">  886 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matScale m s = chk0 (matScale' m s)</span></span>
+<span class="lineno">  887 </span>
+<span class="lineno">  888 </span>matShift :: Mat -&gt; PetscScalar_ -&gt; IO ()
+<span class="lineno">  889 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matShift m s = chk0 (matShift' m s)</span></span>
+<span class="lineno">  890 </span>
+<span class="lineno">  891 </span>-- Mat, Vec
+<span class="lineno">  892 </span>
+<span class="lineno">  893 </span>-- | vresult = m * v
+<span class="lineno">  894 </span>matMult :: Mat -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno">  895 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matMult m v vresult = chk0 (matMult' m v vresult)</span></span>
+<span class="lineno">  896 </span>
+<span class="lineno">  897 </span>-- | vresult = m' * v
+<span class="lineno">  898 </span>matMultTranspose :: Mat -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno">  899 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matMultTranspose m v vresult = chk0 (matMultTranspose' m v vresult)</span></span>
+<span class="lineno">  900 </span>
+<span class="lineno">  901 </span>
+<span class="lineno">  902 </span>-- | v3 = m * v1 + v2
+<span class="lineno">  903 </span>matMultAdd :: Mat -&gt; Vec -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno">  904 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matMultAdd m v1 v2 v3 = chk0 (matMultAdd' m v1 v2 v3)</span></span>
+<span class="lineno">  905 </span>
+<span class="lineno">  906 </span>-- | v3 = m' * v1 + v2
+<span class="lineno">  907 </span>matMultTransposeAdd :: Mat -&gt; Vec -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno">  908 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matMultTransposeAdd m v1 v2 v3 = chk0 (matMultTransposeAdd' m v1 v2 v3)</span></span>
+<span class="lineno">  909 </span>
+<span class="lineno">  910 </span>
+<span class="lineno">  911 </span>-- | vresult = m' * v
+<span class="lineno">  912 </span>matMultHermitianTranspose :: Mat -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno">  913 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matMultHermitianTranspose m v vresult = chk0 (matMultHermitianTranspose' m v vresult)</span></span>
+<span class="lineno">  914 </span>
+<span class="lineno">  915 </span>
+<span class="lineno">  916 </span>-- | v3 = m' * v1 + v2
+<span class="lineno">  917 </span>matMultHermitianTransposeAdd :: Mat -&gt; Vec -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno">  918 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">matMultHermitianTransposeAdd m v1 v2 v3 = chk0 (matMultHermitianTransposeAdd' m v1 v2 v3)</span></span>
+<span class="lineno">  919 </span>
+<span class="lineno">  920 </span>
+<span class="lineno">  921 </span>-- Mat, Mat
+<span class="lineno">  922 </span>
+<span class="lineno">  923 </span>-- matMatMult ma mb reuse fill = ch
+<span class="lineno">  924 </span>
+<span class="lineno">  925 </span>
+<span class="lineno">  926 </span>
+<span class="lineno">  927 </span>
+<span class="lineno">  928 </span>
+<span class="lineno">  929 </span>-- | helpers
+<span class="lineno">  930 </span>
+<span class="lineno">  931 </span>vvDiag :: Int -&gt; V.Vector a -&gt; V.Vector (Int, Int, a)
+<span class="lineno">  932 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vvDiag m = V.zip3 ii ii where</span>
+<span class="lineno">  933 </span><span class="spaces">  </span><span class="nottickedoff">ii = V.fromList [0..m-1]</span></span>
+<span class="lineno">  934 </span>
+<span class="lineno">  935 </span>
+<span class="lineno">  936 </span>
+<span class="lineno">  937 </span>listToCSR :: Int -&gt; Int -&gt; [a] -&gt; V.Vector (Int, Int, a)
+<span class="lineno">  938 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">listToCSR m n ll</span>
+<span class="lineno">  939 </span><span class="spaces">  </span><span class="nottickedoff">| length ll &gt;= (m*n) = V.zip3 ii jj (V.fromList ll)</span>
+<span class="lineno">  940 </span><span class="spaces">  </span><span class="nottickedoff">| otherwise = error &quot;listToCSR : list too short&quot;</span>
+<span class="lineno">  941 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
+<span class="lineno">  942 </span><span class="spaces">      </span><span class="nottickedoff">ii = V.fromList $ concat $ map (replicate n) [0 .. m-1]</span>
+<span class="lineno">  943 </span><span class="spaces">      </span><span class="nottickedoff">jj = V.fromList $ concat $ replicate m [0 .. n-1]</span></span>
+
+</pre>
+</body>
+</html>

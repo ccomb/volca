@@ -1,0 +1,230 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>-----------------------------------------------------------------------------
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>-----------------------------------------------------------------------------
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>{- |
+<span class="lineno">    6 </span>Module      :  Numerical.PETSc.Internal.PutGet.KSP
+<span class="lineno">    7 </span>Copyright   :  (c) Marco Zocca 2015
+<span class="lineno">    8 </span>License     :  LGPL3
+<span class="lineno">    9 </span>Maintainer  :  zocca . marco . gmail . com
+<span class="lineno">   10 </span>Stability   :  experimental
+<span class="lineno">   11 </span>
+<span class="lineno">   12 </span>| KSP Mid-level interface
+<span class="lineno">   13 </span>-}
+<span class="lineno">   14 </span>module Numerical.PETSc.Internal.PutGet.KSP where
+<span class="lineno">   15 </span>
+<span class="lineno">   16 </span>import Numerical.PETSc.Internal.C2HsGen.TypesC2HsGen
+<span class="lineno">   17 </span>import Numerical.PETSc.Internal.Exception
+<span class="lineno">   18 </span>import Numerical.PETSc.Internal.InlineC
+<span class="lineno">   19 </span>import Numerical.PETSc.Internal.Types
+<span class="lineno">   20 </span>import Numerical.PETSc.Internal.Utils
+<span class="lineno">   21 </span>
+<span class="lineno">   22 </span>import Numerical.PETSc.Internal.PutGet.Vec
+<span class="lineno">   23 </span>import Numerical.PETSc.Internal.PutGet.PC (pcSetFromOptions)
+<span class="lineno">   24 </span>
+<span class="lineno">   25 </span>import Foreign
+<span class="lineno">   26 </span>import Foreign.C.Types
+<span class="lineno">   27 </span>
+<span class="lineno">   28 </span>import System.IO.Unsafe (unsafePerformIO)
+<span class="lineno">   29 </span>
+<span class="lineno">   30 </span>import Control.Arrow
+<span class="lineno">   31 </span>import Control.Concurrent
+<span class="lineno">   32 </span>import Control.Exception
+<span class="lineno">   33 </span>import Control.Monad
+<span class="lineno">   34 </span>
+<span class="lineno">   35 </span>import Control.Monad.ST (ST, runST)
+<span class="lineno">   36 </span>import Control.Monad.ST.Unsafe (unsafeIOToST) -- for HMatrix bits
+<span class="lineno">   37 </span>
+<span class="lineno">   38 </span>import qualified Data.Vector as V
+<span class="lineno">   39 </span>import qualified Data.Vector.Storable as V (unsafeFromForeignPtr, unsafeToForeignPtr, unsafeWith)
+<span class="lineno">   40 </span>
+<span class="lineno">   41 </span>-- | create KSP
+<span class="lineno">   42 </span>kspCreate :: Comm -&gt; IO KSP
+<span class="lineno">   43 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">kspCreate cc = chk1 (kspCreate' cc)</span></span>
+<span class="lineno">   44 </span>
+<span class="lineno">   45 </span>-- | with KSP brackets
+<span class="lineno">   46 </span>
+<span class="lineno">   47 </span>-- withKsp :: Comm -&gt; (KSP -&gt; IO a) -&gt; IO a
+<span class="lineno">   48 </span>-- withKsp comm =
+<span class="lineno">   49 </span>--   bracket (kspCreate comm) kspDestroy
+<span class="lineno">   50 </span>
+<span class="lineno">   51 </span>withKsp_ :: IO KSP -&gt; (KSP -&gt; IO a) -&gt; IO a
+<span class="lineno">   52 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">withKsp_ kc = bracket kc kspDestroy</span></span>
+<span class="lineno">   53 </span>
+<span class="lineno">   54 </span>withKsp :: Comm -&gt; (KSP -&gt; IO a) -&gt; IO a
+<span class="lineno">   55 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">withKsp cc = withKsp_ (kspCreate cc)</span></span>
+<span class="lineno">   56 </span>
+<span class="lineno">   57 </span>withKspSetup ::
+<span class="lineno">   58 </span>  Comm -&gt;
+<span class="lineno">   59 </span>  KspType_ -&gt;
+<span class="lineno">   60 </span>  Mat -&gt; -- linear operator
+<span class="lineno">   61 </span>  Mat -&gt; -- preconditioner
+<span class="lineno">   62 </span>  Bool -&gt; -- set initial solution guess to nonzero vector
+<span class="lineno">   63 </span>  (KSP -&gt; IO a) -&gt; -- post-setup actions, i.e. solve with a r.h.s , etc.
+<span class="lineno">   64 </span>  IO a
+<span class="lineno">   65 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withKspSetup cc kt amat pmat ignz f = withKsp cc $ \ksp -&gt; do</span>
+<span class="lineno">   66 </span><span class="spaces">  </span><span class="nottickedoff">kspSetOperators ksp amat pmat</span>
+<span class="lineno">   67 </span><span class="spaces">  </span><span class="nottickedoff">kspSetType ksp kt</span>
+<span class="lineno">   68 </span><span class="spaces">  </span><span class="nottickedoff">kspSetInitialGuessNonzero ksp ignz</span>
+<span class="lineno">   69 </span><span class="spaces">  </span><span class="nottickedoff">kspSetUp ksp</span>
+<span class="lineno">   70 </span><span class="spaces">  </span><span class="nottickedoff">f ksp</span></span>
+<span class="lineno">   71 </span>
+<span class="lineno">   72 </span>withKspSetupSolve ::
+<span class="lineno">   73 </span>  Comm -&gt;
+<span class="lineno">   74 </span>  KspType_ -&gt;
+<span class="lineno">   75 </span>  Mat -&gt; -- linear operator
+<span class="lineno">   76 </span>  Mat -&gt; -- preconditioner
+<span class="lineno">   77 </span>  Bool -&gt; -- set initial solution guess to nonzero vector
+<span class="lineno">   78 </span>  Vec -&gt; -- r.h.s
+<span class="lineno">   79 </span>  Vec -&gt; -- solution (WILL BE OVERWRITTEN)
+<span class="lineno">   80 </span>  (KSP -&gt; IO a) -&gt; -- post-solve actions
+<span class="lineno">   81 </span>  IO a
+<span class="lineno">   82 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withKspSetupSolve cc kt amat pmat ignz rhsv solnv post =</span>
+<span class="lineno">   83 </span><span class="spaces">  </span><span class="nottickedoff">-- withVecDuplicate rhsv $ \solnv -&gt;</span>
+<span class="lineno">   84 </span><span class="spaces">  </span><span class="nottickedoff">withKspSetup cc kt amat pmat ignz $ \ksp -&gt; do</span>
+<span class="lineno">   85 </span><span class="spaces">    </span><span class="nottickedoff">kspSolve ksp rhsv solnv</span>
+<span class="lineno">   86 </span><span class="spaces">    </span><span class="nottickedoff">post ksp</span></span>
+<span class="lineno">   87 </span>
+<span class="lineno">   88 </span>-- | allocate space for solution internally
+<span class="lineno">   89 </span>withKspSetupSolveAlloc ::
+<span class="lineno">   90 </span>  Comm -&gt; KspType_ -&gt; Mat -&gt; Mat -&gt; Bool -&gt; Vec -&gt; (KSP -&gt; Vec -&gt; IO a) -&gt; IO a
+<span class="lineno">   91 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withKspSetupSolveAlloc cc kt amat pmat ignz rhsv post =</span>
+<span class="lineno">   92 </span><span class="spaces">  </span><span class="nottickedoff">withVecDuplicate rhsv $ \soln -&gt;</span>
+<span class="lineno">   93 </span><span class="spaces">    </span><span class="nottickedoff">withKspSetupSolve cc kt amat pmat ignz rhsv soln $ \ksp -&gt;</span>
+<span class="lineno">   94 </span><span class="spaces">      </span><span class="nottickedoff">post ksp soln</span></span>
+<span class="lineno">   95 </span>
+<span class="lineno">   96 </span>-- | KSP setup that uses PETSC_OPTIONS for configuration (no hardcoded type)
+<span class="lineno">   97 </span>withKspSetupFromOptions ::
+<span class="lineno">   98 </span>  Comm -&gt;
+<span class="lineno">   99 </span>  Mat -&gt; -- linear operator
+<span class="lineno">  100 </span>  Mat -&gt; -- preconditioner
+<span class="lineno">  101 </span>  Bool -&gt; -- set initial solution guess to nonzero vector
+<span class="lineno">  102 </span>  (KSP -&gt; IO a) -&gt; -- post-setup actions
+<span class="lineno">  103 </span>  IO a
+<span class="lineno">  104 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withKspSetupFromOptions cc amat pmat ignz f = withKsp cc $ \ksp -&gt; do</span>
+<span class="lineno">  105 </span><span class="spaces">  </span><span class="nottickedoff">kspSetOperators ksp amat pmat</span>
+<span class="lineno">  106 </span><span class="spaces">  </span><span class="nottickedoff">kspSetFromOptions ksp  -- Read PETSC_OPTIONS instead of hardcoding type</span>
+<span class="lineno">  107 </span><span class="spaces">  </span><span class="nottickedoff">pc &lt;- kspGetPC ksp</span>
+<span class="lineno">  108 </span><span class="spaces">  </span><span class="nottickedoff">pcSetFromOptions pc    -- Configure preconditioner from PETSC_OPTIONS (enables MUMPS options)</span>
+<span class="lineno">  109 </span><span class="spaces">  </span><span class="nottickedoff">kspSetInitialGuessNonzero ksp ignz</span>
+<span class="lineno">  110 </span><span class="spaces">  </span><span class="nottickedoff">kspSetUp ksp</span>
+<span class="lineno">  111 </span><span class="spaces">  </span><span class="nottickedoff">f ksp</span></span>
+<span class="lineno">  112 </span>
+<span class="lineno">  113 </span>-- | KSP setup and solve that uses PETSC_OPTIONS
+<span class="lineno">  114 </span>withKspSetupSolveFromOptions ::
+<span class="lineno">  115 </span>  Comm -&gt;
+<span class="lineno">  116 </span>  Mat -&gt; -- linear operator
+<span class="lineno">  117 </span>  Mat -&gt; -- preconditioner
+<span class="lineno">  118 </span>  Bool -&gt; -- set initial solution guess to nonzero vector
+<span class="lineno">  119 </span>  Vec -&gt; -- r.h.s
+<span class="lineno">  120 </span>  Vec -&gt; -- solution (WILL BE OVERWRITTEN)
+<span class="lineno">  121 </span>  (KSP -&gt; IO a) -&gt; -- post-solve actions
+<span class="lineno">  122 </span>  IO a
+<span class="lineno">  123 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withKspSetupSolveFromOptions cc amat pmat ignz rhsv solnv post =</span>
+<span class="lineno">  124 </span><span class="spaces">  </span><span class="nottickedoff">withKspSetupFromOptions cc amat pmat ignz $ \ksp -&gt; do</span>
+<span class="lineno">  125 </span><span class="spaces">    </span><span class="nottickedoff">kspSolve ksp rhsv solnv</span>
+<span class="lineno">  126 </span><span class="spaces">    </span><span class="nottickedoff">post ksp</span></span>
+<span class="lineno">  127 </span>
+<span class="lineno">  128 </span>-- | allocate space for solution internally, using PETSC_OPTIONS
+<span class="lineno">  129 </span>withKspSetupSolveAllocFromOptions ::
+<span class="lineno">  130 </span>  Comm -&gt; Mat -&gt; Mat -&gt; Bool -&gt; Vec -&gt; (KSP -&gt; Vec -&gt; IO a) -&gt; IO a
+<span class="lineno">  131 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withKspSetupSolveAllocFromOptions cc amat pmat ignz rhsv post =</span>
+<span class="lineno">  132 </span><span class="spaces">  </span><span class="nottickedoff">withVecDuplicate rhsv $ \soln -&gt;</span>
+<span class="lineno">  133 </span><span class="spaces">    </span><span class="nottickedoff">withKspSetupSolveFromOptions cc amat pmat ignz rhsv soln $ \ksp -&gt;</span>
+<span class="lineno">  134 </span><span class="spaces">      </span><span class="nottickedoff">post ksp soln</span></span>
+<span class="lineno">  135 </span>
+<span class="lineno">  136 </span>-- withKsp cs $ \ksp -&gt; do
+<span class="lineno">  137 </span>--   kspSetOperators ksp mat mat
+<span class="lineno">  138 </span>--   kspSetType ksp km
+<span class="lineno">  139 </span>--   kspSetInitialGuessNonzero ksp True
+<span class="lineno">  140 </span>--   kspSetUp ksp
+<span class="lineno">  141 </span>--   kspSolve ksp x v
+<span class="lineno">  142 </span>--   soln &lt;- kspGetSolution ksp
+<span class="lineno">  143 </span>--   -- vecViewStdout soln
+<span class="lineno">  144 </span>--   showKspStats ksp km
+<span class="lineno">  145 </span>--   -- kspReasonView ksp
+<span class="lineno">  146 </span>--   -- return soln
+<span class="lineno">  147 </span>
+<span class="lineno">  148 </span>-- | destroy KSP
+<span class="lineno">  149 </span>kspDestroy :: KSP -&gt; IO ()
+<span class="lineno">  150 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">kspDestroy ksp = chk0 (kspDestroy' ksp)</span></span>
+<span class="lineno">  151 </span>
+<span class="lineno">  152 </span>-- | set KSP properties
+<span class="lineno">  153 </span>kspSetType :: KSP -&gt; KspType_ -&gt; IO ()
+<span class="lineno">  154 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspSetType ksp kt = chk0 (kspSetType' ksp kt)</span></span>
+<span class="lineno">  155 </span>
+<span class="lineno">  156 </span>kspSetFromOptions :: KSP -&gt; IO ()
+<span class="lineno">  157 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">kspSetFromOptions ksp = chk0 (kspSetFromOptions' ksp)</span></span>
+<span class="lineno">  158 </span>
+<span class="lineno">  159 </span>kspGetPC :: KSP -&gt; IO PC
+<span class="lineno">  160 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspGetPC ksp = chk1 (kspGetPc' ksp)</span></span>
+<span class="lineno">  161 </span>
+<span class="lineno">  162 </span>kspSetOperators :: KSP -&gt; Mat -&gt; Mat -&gt; IO ()
+<span class="lineno">  163 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">kspSetOperators ksp amat pmat = chk0 (kspSetOperators' ksp amat pmat)</span></span>
+<span class="lineno">  164 </span>
+<span class="lineno">  165 </span>kspSetInitialGuessNonzero :: KSP -&gt; Bool -&gt; IO ()
+<span class="lineno">  166 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">kspSetInitialGuessNonzero ksp ig = chk0 (kspSetInitialGuessNonzero' ksp ig)</span></span>
+<span class="lineno">  167 </span>
+<span class="lineno">  168 </span>kspSetUp :: KSP -&gt; IO ()
+<span class="lineno">  169 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">kspSetUp ksp = chk0 (kspSetUp' ksp)</span></span>
+<span class="lineno">  170 </span>
+<span class="lineno">  171 </span>kspSolve
+<span class="lineno">  172 </span>  , kspSolveTranspose ::
+<span class="lineno">  173 </span>    KSP -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno">  174 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">kspSolve ksp rhsv solnv = chk0 (kspSolve' ksp rhsv solnv)</span></span>
+<span class="lineno">  175 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspSolveTranspose ksp rhsv solnv = chk0 (kspSolve' ksp rhsv solnv)</span></span>
+<span class="lineno">  176 </span>
+<span class="lineno">  177 </span>kspSetReusePreconditioner :: KSP -&gt; PetscBool -&gt; IO ()
+<span class="lineno">  178 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspSetReusePreconditioner ksp b = chk0 (kspSetReusePreconditioner' ksp b)</span></span>
+<span class="lineno">  179 </span>
+<span class="lineno">  180 </span>kspGetTolerances :: KSP -&gt; IO (Double, Double, Double, Int)
+<span class="lineno">  181 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspGetTolerances ksp = do</span>
+<span class="lineno">  182 </span><span class="spaces">  </span><span class="nottickedoff">(rtol, abstol, dtol, maxits) &lt;- chk1 (kspGetTolerances0' ksp)</span>
+<span class="lineno">  183 </span><span class="spaces">  </span><span class="nottickedoff">return (fromCDouble rtol, fromCDouble abstol, fromCDouble dtol, fromIntegral maxits)</span></span>
+<span class="lineno">  184 </span>
+<span class="lineno">  185 </span>kspSetTolerances :: KSP -&gt; Double -&gt; Double -&gt; Double -&gt; Int -&gt; IO ()
+<span class="lineno">  186 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspSetTolerances ksp rtol abstol dtol maxits =</span>
+<span class="lineno">  187 </span><span class="spaces">  </span><span class="nottickedoff">chk0 $ kspSetTolerances' ksp rtol abstol dtol maxits</span></span>
+<span class="lineno">  188 </span>
+<span class="lineno">  189 </span>kspGetRhs :: KSP -&gt; IO Vec
+<span class="lineno">  190 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspGetRhs ksp = chk1 (kspGetRhs' ksp)</span></span>
+<span class="lineno">  191 </span>
+<span class="lineno">  192 </span>kspGetSolution :: KSP -&gt; IO Vec
+<span class="lineno">  193 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspGetSolution ksp = chk1 (kspGetSolution' ksp)</span></span>
+<span class="lineno">  194 </span>
+<span class="lineno">  195 </span>kspGetConvergedReason :: KSP -&gt; IO KspConvergedReason
+<span class="lineno">  196 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspGetConvergedReason ksp = do</span>
+<span class="lineno">  197 </span><span class="spaces">  </span><span class="nottickedoff">r &lt;- chk1 (kspGetConvergedReason' ksp)</span>
+<span class="lineno">  198 </span><span class="spaces">  </span><span class="nottickedoff">return $ kspConvergedIntToReason (fi r)</span></span>
+<span class="lineno">  199 </span>
+<span class="lineno">  200 </span>kspGetResidualNorm :: KSP -&gt; IO PetscReal_
+<span class="lineno">  201 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspGetResidualNorm ksp = chk1 (kspGetResidualNorm' ksp)</span></span>
+<span class="lineno">  202 </span>
+<span class="lineno">  203 </span>kspGetIterationNumber :: KSP -&gt; IO CInt
+<span class="lineno">  204 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">kspGetIterationNumber ksp = chk1 (kspGetIterationNumber' ksp)</span></span>
+<span class="lineno">  205 </span>
+<span class="lineno">  206 </span>kspGetPc :: KSP -&gt; IO PC
+<span class="lineno">  207 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">kspGetPc k = chk1 (kspGetPc' k)</span></span>
+
+</pre>
+</body>
+</html>

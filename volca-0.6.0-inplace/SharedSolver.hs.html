@@ -1,0 +1,99 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>{-|
+<span class="lineno">    4 </span>Module      : SharedSolver
+<span class="lineno">    5 </span>Description : Shared PETSc solver with lazy factorization and thread synchronization
+<span class="lineno">    6 </span>
+<span class="lineno">    7 </span>Implements lazy factorization: the PETSc KSP is not built at startup, but
+<span class="lineno">    8 </span>on the first solve request. This eliminates ~3s × N databases of startup
+<span class="lineno">    9 </span>latency while keeping sub-second solves after the first query.
+<span class="lineno">   10 </span>-}
+<span class="lineno">   11 </span>
+<span class="lineno">   12 </span>module SharedSolver (
+<span class="lineno">   13 </span>    -- * Shared solver types
+<span class="lineno">   14 </span>    SharedSolver,
+<span class="lineno">   15 </span>
+<span class="lineno">   16 </span>    -- * Solver management
+<span class="lineno">   17 </span>    createSharedSolver,
+<span class="lineno">   18 </span>
+<span class="lineno">   19 </span>    -- * Concurrent solving
+<span class="lineno">   20 </span>    solveWithSharedSolver
+<span class="lineno">   21 </span>) where
+<span class="lineno">   22 </span>
+<span class="lineno">   23 </span>import Control.Concurrent.MVar (MVar, newMVar, withMVar, readMVar, modifyMVar)
+<span class="lineno">   24 </span>import Control.Exception (catch, SomeException)
+<span class="lineno">   25 </span>import Data.Text (Text)
+<span class="lineno">   26 </span>import Progress
+<span class="lineno">   27 </span>import Types
+<span class="lineno">   28 </span>import Matrix (Vector, solveSparseLinearSystem, solveSparseLinearSystemWithFactorization, precomputeMatrixFactorization)
+<span class="lineno">   29 </span>
+<span class="lineno">   30 </span>-- | Shared solver with lazy factorization and thread synchronization.
+<span class="lineno">   31 </span>--   Factorization happens on first solve, not at startup.
+<span class="lineno">   32 </span>data SharedSolver = SharedSolver
+<span class="lineno">   33 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">solverLock</span></span></span> :: MVar ()                                -- ^ Serialize access to solver
+<span class="lineno">   34 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">solverFactorizationVar</span></span></span> :: MVar (Maybe MatrixFactorization) -- ^ Lazy: Nothing until first solve
+<span class="lineno">   35 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">solverTechTriples</span></span></span> :: [(Int, Int, Double)]             -- ^ Technosphere matrix data
+<span class="lineno">   36 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">solverActivityCount</span></span></span> :: Int                            -- ^ Number of activities
+<span class="lineno">   37 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">solverDbName</span></span></span> :: Text                                  -- ^ Database name (for PETSc cache key)
+<span class="lineno">   38 </span>    }
+<span class="lineno">   39 </span>
+<span class="lineno">   40 </span>-- | Create a shared solver. No factorization happens here — deferred to first solve.
+<span class="lineno">   41 </span>createSharedSolver :: Text -&gt; [(Int, Int, Double)] -&gt; Int -&gt; IO SharedSolver
+<span class="lineno">   42 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">createSharedSolver dbName techTriples activityCount = do</span>
+<span class="lineno">   43 </span><span class="spaces">    </span><span class="nottickedoff">reportProgress Info $ &quot;Creating shared solver for '&quot; ++ show dbName ++ &quot;' (factorization deferred)&quot;</span>
+<span class="lineno">   44 </span><span class="spaces">    </span><span class="nottickedoff">lock &lt;- newMVar ()</span>
+<span class="lineno">   45 </span><span class="spaces">    </span><span class="nottickedoff">factVar &lt;- newMVar Nothing</span>
+<span class="lineno">   46 </span><span class="spaces">    </span><span class="nottickedoff">return $ SharedSolver lock factVar techTriples activityCount dbName</span></span>
+<span class="lineno">   47 </span>
+<span class="lineno">   48 </span>-- | Solve using shared solver. On first call, triggers lazy factorization.
+<span class="lineno">   49 </span>solveWithSharedSolver :: SharedSolver -&gt; Vector -&gt; IO Vector
+<span class="lineno">   50 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">solveWithSharedSolver solver demandVector = do</span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="nottickedoff">withMVar (solverLock solver) $ \_ -&gt; do</span>
+<span class="lineno">   52 </span><span class="spaces">        </span><span class="nottickedoff">maybeFact &lt;- readMVar (solverFactorizationVar solver)</span>
+<span class="lineno">   53 </span><span class="spaces">        </span><span class="nottickedoff">case maybeFact of</span>
+<span class="lineno">   54 </span><span class="spaces">            </span><span class="nottickedoff">Just factorization -&gt; do</span>
+<span class="lineno">   55 </span><span class="spaces">                </span><span class="nottickedoff">reportProgress Solver &quot;Using cached factorization for sub-second solve&quot;</span>
+<span class="lineno">   56 </span><span class="spaces">                </span><span class="nottickedoff">solveSparseLinearSystemWithFactorization factorization demandVector</span>
+<span class="lineno">   57 </span><span class="spaces">            </span><span class="nottickedoff">Nothing -&gt; do</span>
+<span class="lineno">   58 </span><span class="spaces">                </span><span class="nottickedoff">-- First solve: factorize, cache, then solve</span>
+<span class="lineno">   59 </span><span class="spaces">                </span><span class="nottickedoff">reportProgress Info $ &quot;First solve for '&quot; ++ show (solverDbName solver) ++ &quot;' — computing factorization...&quot;</span>
+<span class="lineno">   60 </span><span class="spaces">                </span><span class="nottickedoff">factResult &lt;- catch</span>
+<span class="lineno">   61 </span><span class="spaces">                    </span><span class="nottickedoff">(do factorization &lt;- precomputeMatrixFactorization</span>
+<span class="lineno">   62 </span><span class="spaces">                            </span><span class="nottickedoff">(solverDbName solver)</span>
+<span class="lineno">   63 </span><span class="spaces">                            </span><span class="nottickedoff">(solverTechTriples solver)</span>
+<span class="lineno">   64 </span><span class="spaces">                            </span><span class="nottickedoff">(solverActivityCount solver)</span>
+<span class="lineno">   65 </span><span class="spaces">                        </span><span class="nottickedoff">-- Store for subsequent solves (replace the MVar contents)</span>
+<span class="lineno">   66 </span><span class="spaces">                        </span><span class="nottickedoff">_ &lt;- modifyMVar (solverFactorizationVar solver) $ \_ -&gt; return (Just factorization, ())</span>
+<span class="lineno">   67 </span><span class="spaces">                        </span><span class="nottickedoff">reportProgress Info &quot;Factorization complete — solving&quot;</span>
+<span class="lineno">   68 </span><span class="spaces">                        </span><span class="nottickedoff">result &lt;- solveSparseLinearSystemWithFactorization factorization demandVector</span>
+<span class="lineno">   69 </span><span class="spaces">                        </span><span class="nottickedoff">return (Just result))</span>
+<span class="lineno">   70 </span><span class="spaces">                    </span><span class="nottickedoff">(\e -&gt; do</span>
+<span class="lineno">   71 </span><span class="spaces">                        </span><span class="nottickedoff">reportProgress Solver $ &quot;Factorization failed: &quot; ++ show (e :: SomeException) ++ &quot; — using fallback solver&quot;</span>
+<span class="lineno">   72 </span><span class="spaces">                        </span><span class="nottickedoff">return Nothing)</span>
+<span class="lineno">   73 </span><span class="spaces">                </span><span class="nottickedoff">case factResult of</span>
+<span class="lineno">   74 </span><span class="spaces">                    </span><span class="nottickedoff">Just result -&gt; return result</span>
+<span class="lineno">   75 </span><span class="spaces">                    </span><span class="nottickedoff">Nothing -&gt;</span>
+<span class="lineno">   76 </span><span class="spaces">                        </span><span class="nottickedoff">solveSparseLinearSystem (solverTechTriples solver) (solverActivityCount solver) demandVector</span></span>
+
+</pre>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>-- | Common utilities shared between EcoSpold1 and EcoSpold2 parsers
+<span class="lineno">    4 </span>module EcoSpold.Common
+<span class="lineno">    5 </span>    ( bsToText
+<span class="lineno">    6 </span>    , decodeXmlEntities
+<span class="lineno">    7 </span>    , bsToDouble
+<span class="lineno">    8 </span>    , bsToInt
+<span class="lineno">    9 </span>    , isElement
+<span class="lineno">   10 </span>    ) where
+<span class="lineno">   11 </span>
+<span class="lineno">   12 </span>import qualified Data.ByteString as BS
+<span class="lineno">   13 </span>import Data.Text (Text)
+<span class="lineno">   14 </span>import qualified Data.Text as T
+<span class="lineno">   15 </span>import qualified Data.Text.Encoding as TE
+<span class="lineno">   16 </span>import qualified Data.Text.Read as TR
+<span class="lineno">   17 </span>
+<span class="lineno">   18 </span>-- | ByteString to Text conversion with UTF-8 decoding and XML entity decoding
+<span class="lineno">   19 </span>bsToText :: BS.ByteString -&gt; Text
+<span class="lineno">   20 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">bsToText = decodeXmlEntities . TE.decodeUtf8</span></span>
+<span class="lineno">   21 </span>
+<span class="lineno">   22 </span>-- | Decode common XML entities that Xeno doesn't decode
+<span class="lineno">   23 </span>-- Xeno is a fast SAX parser but doesn't handle entity references
+<span class="lineno">   24 </span>decodeXmlEntities :: Text -&gt; Text
+<span class="lineno">   25 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">decodeXmlEntities = T.replace &quot;&amp;lt;&quot; &quot;&lt;&quot;</span>
+<span class="lineno">   26 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;gt;&quot; &quot;&gt;&quot;</span>
+<span class="lineno">   27 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;amp;&quot; &quot;&amp;&quot;</span>
+<span class="lineno">   28 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;quot;&quot; &quot;\&quot;&quot;</span>
+<span class="lineno">   29 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;apos;&quot; &quot;'&quot;</span></span>
+<span class="lineno">   30 </span>
+<span class="lineno">   31 </span>-- | ByteString to Double conversion (strict - errors on parse failure)
+<span class="lineno">   32 </span>bsToDouble :: BS.ByteString -&gt; Double
+<span class="lineno">   33 </span><span class="funcount">-- entered 260 times</span><span class="decl"><span class="istickedoff">bsToDouble bs = case TR.double (bsToText bs) of</span>
+<span class="lineno">   34 </span><span class="spaces">    </span><span class="istickedoff">Right (val, _) -&gt; val</span>
+<span class="lineno">   35 </span><span class="spaces">    </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">error $ &quot;Failed to parse double from: &quot; ++ show bs</span></span></span>
+<span class="lineno">   36 </span>
+<span class="lineno">   37 </span>-- | ByteString to Int conversion (strict - errors on parse failure)
+<span class="lineno">   38 </span>bsToInt :: BS.ByteString -&gt; Int
+<span class="lineno">   39 </span><span class="funcount">-- entered 109 times</span><span class="decl"><span class="istickedoff">bsToInt bs = case TR.decimal (bsToText bs) of</span>
+<span class="lineno">   40 </span><span class="spaces">    </span><span class="istickedoff">Right (val, _) -&gt; val</span>
+<span class="lineno">   41 </span><span class="spaces">    </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">error $ &quot;Failed to parse int from: &quot; ++ show bs</span></span></span>
+<span class="lineno">   42 </span>
+<span class="lineno">   43 </span>-- | Check if element name matches (with or without namespace prefix)
+<span class="lineno">   44 </span>-- Handles both &quot;tagName&quot; and &quot;prefix:tagName&quot; forms
+<span class="lineno">   45 </span>isElement :: BS.ByteString -&gt; BS.ByteString -&gt; Bool
+<span class="lineno">   46 </span><span class="funcount">-- entered 67,571 times</span><span class="decl"><span class="istickedoff">isElement tagName expected =</span>
+<span class="lineno">   47 </span><span class="spaces">    </span><span class="istickedoff">tagName == expected || BS.isSuffixOf (&quot;:&quot; `BS.append` expected) tagName</span></span>
+
+</pre>
+</body>
+</html>

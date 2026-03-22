@@ -1,0 +1,167 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>{-# LANGUAGE ScopedTypeVariables #-}
+<span class="lineno">    3 </span>
+<span class="lineno">    4 </span>module ServerSpec (spec) where
+<span class="lineno">    5 </span>
+<span class="lineno">    6 </span>import Test.Hspec
+<span class="lineno">    7 </span>import Control.Concurrent (threadDelay)
+<span class="lineno">    8 </span>import Control.Exception (try, SomeException, bracket)
+<span class="lineno">    9 </span>import System.Directory (getTemporaryDirectory, removeFile, doesFileExist)
+<span class="lineno">   10 </span>import System.FilePath ((&lt;/&gt;))
+<span class="lineno">   11 </span>import System.IO (openFile, IOMode(..), hClose)
+<span class="lineno">   12 </span>import System.Process (createProcess, proc, CreateProcess(..), StdStream(..), ProcessHandle, waitForProcess, getProcessExitCode, interruptProcessGroupOf)
+<span class="lineno">   13 </span>import Network.HTTP.Client (newManager, defaultManagerSettings, parseRequest, httpLbs, method, responseStatus, requestHeaders, Manager)
+<span class="lineno">   14 </span>import Network.HTTP.Types (statusCode)
+<span class="lineno">   15 </span>import System.Exit (ExitCode(..))
+<span class="lineno">   16 </span>
+<span class="lineno">   17 </span>-- | Find the volca executable in the build directory
+<span class="lineno">   18 </span>findVolcaExe :: IO FilePath
+<span class="lineno">   19 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">findVolcaExe = do</span>
+<span class="lineno">   20 </span><span class="spaces">    </span><span class="istickedoff">-- The executable is at a known location relative to the project root</span>
+<span class="lineno">   21 </span><span class="spaces">    </span><span class="istickedoff">let exe = &quot;dist-newstyle/build/x86_64-linux/ghc-9.6.7/volca-0.6.0/x/volca/opt/build/volca/volca&quot;</span>
+<span class="lineno">   22 </span><span class="spaces">    </span><span class="istickedoff">exists &lt;- doesFileExist exe</span>
+<span class="lineno">   23 </span><span class="spaces">    </span><span class="istickedoff">if <span class="tickonlytrue">exists</span> then return exe</span>
+<span class="lineno">   24 </span><span class="spaces">    </span><span class="istickedoff">else <span class="nottickedoff">error $ &quot;volca executable not found at &quot; ++ exe ++ &quot;. Run 'cabal build' first.&quot;</span></span></span>
+<span class="lineno">   25 </span>
+<span class="lineno">   26 </span>-- | Port for test server (high port to avoid conflicts)
+<span class="lineno">   27 </span>testPort :: Int
+<span class="lineno">   28 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">testPort = 18199</span></span>
+<span class="lineno">   29 </span>
+<span class="lineno">   30 </span>-- | Write a minimal TOML config (no databases, no auth) to a temp file
+<span class="lineno">   31 </span>withMinimalConfig :: (FilePath -&gt; IO a) -&gt; IO a
+<span class="lineno">   32 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">withMinimalConfig action = do</span>
+<span class="lineno">   33 </span><span class="spaces">    </span><span class="istickedoff">tmpDir &lt;- getTemporaryDirectory</span>
+<span class="lineno">   34 </span><span class="spaces">    </span><span class="istickedoff">let cfgPath = tmpDir &lt;/&gt; &quot;volca-test-server.toml&quot;</span>
+<span class="lineno">   35 </span><span class="spaces">    </span><span class="istickedoff">writeFile cfgPath &quot;[server]\nport = 18199\nhost = \&quot;127.0.0.1\&quot;\n&quot;</span>
+<span class="lineno">   36 </span><span class="spaces">    </span><span class="istickedoff">result &lt;- action cfgPath</span>
+<span class="lineno">   37 </span><span class="spaces">    </span><span class="istickedoff">removeFile cfgPath</span>
+<span class="lineno">   38 </span><span class="spaces">    </span><span class="istickedoff">return <span class="nottickedoff">result</span></span></span>
+<span class="lineno">   39 </span>
+<span class="lineno">   40 </span>-- | Start the server, run action, ensure cleanup
+<span class="lineno">   41 </span>withServer :: FilePath -&gt; (ProcessHandle -&gt; Manager -&gt; IO a) -&gt; IO a
+<span class="lineno">   42 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">withServer cfgPath action = do</span>
+<span class="lineno">   43 </span><span class="spaces">    </span><span class="istickedoff">exe &lt;- findVolcaExe</span>
+<span class="lineno">   44 </span><span class="spaces">    </span><span class="istickedoff">mgr &lt;- newManager defaultManagerSettings</span>
+<span class="lineno">   45 </span><span class="spaces">    </span><span class="istickedoff">tmpDir &lt;- getTemporaryDirectory</span>
+<span class="lineno">   46 </span><span class="spaces">    </span><span class="istickedoff">let logFile = tmpDir &lt;/&gt; &quot;volca-test-server.log&quot;</span>
+<span class="lineno">   47 </span><span class="spaces">    </span><span class="istickedoff">logHandle &lt;- openFile logFile AppendMode</span>
+<span class="lineno">   48 </span><span class="spaces">    </span><span class="istickedoff">let args = [&quot;--config&quot;, cfgPath, &quot;server&quot;, &quot;--port&quot;, show testPort]</span>
+<span class="lineno">   49 </span><span class="spaces">    </span><span class="istickedoff">(_, _, _, ph) &lt;- createProcess (proc exe args)</span>
+<span class="lineno">   50 </span><span class="spaces">        </span><span class="istickedoff">{ std_out = UseHandle logHandle</span>
+<span class="lineno">   51 </span><span class="spaces">        </span><span class="istickedoff">, std_err = UseHandle logHandle</span>
+<span class="lineno">   52 </span><span class="spaces">        </span><span class="istickedoff">, create_group = True</span>
+<span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">}</span>
+<span class="lineno">   54 </span><span class="spaces">    </span><span class="istickedoff">-- Wait for server to be ready (poll)</span>
+<span class="lineno">   55 </span><span class="spaces">    </span><span class="istickedoff">ready &lt;- waitForReady mgr 30</span>
+<span class="lineno">   56 </span><span class="spaces">    </span><span class="istickedoff">if <span class="tickonlytrue">ready</span></span>
+<span class="lineno">   57 </span><span class="spaces">        </span><span class="istickedoff">then bracket (pure <span class="nottickedoff">()</span>) (\_ -&gt; cleanup ph logHandle) $ \_ -&gt; action ph mgr</span>
+<span class="lineno">   58 </span><span class="spaces">        </span><span class="istickedoff">else <span class="nottickedoff">do</span></span>
+<span class="lineno">   59 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">cleanup ph logHandle</span></span>
+<span class="lineno">   60 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">error &quot;Server failed to start within timeout&quot;</span></span>
+<span class="lineno">   61 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   62 </span><span class="spaces">    </span><span class="istickedoff">cleanup ph logHandle = do</span>
+<span class="lineno">   63 </span><span class="spaces">        </span><span class="istickedoff">mCode &lt;- getProcessExitCode ph</span>
+<span class="lineno">   64 </span><span class="spaces">        </span><span class="istickedoff">case mCode of</span>
+<span class="lineno">   65 </span><span class="spaces">            </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">   66 </span><span class="spaces">                </span><span class="istickedoff">interruptProcessGroupOf ph</span>
+<span class="lineno">   67 </span><span class="spaces">                </span><span class="istickedoff">_ &lt;- waitForProcess ph</span>
+<span class="lineno">   68 </span><span class="spaces">                </span><span class="istickedoff">pure <span class="nottickedoff">()</span></span>
+<span class="lineno">   69 </span><span class="spaces">            </span><span class="istickedoff">Just _  -&gt; pure <span class="nottickedoff">()</span></span>
+<span class="lineno">   70 </span><span class="spaces">        </span><span class="istickedoff">hClose logHandle</span></span>
+<span class="lineno">   71 </span>
+<span class="lineno">   72 </span>-- | Poll until server responds or timeout
+<span class="lineno">   73 </span>waitForReady :: Manager -&gt; Int -&gt; IO Bool
+<span class="lineno">   74 </span><span class="funcount">-- entered 25 times</span><span class="decl"><span class="istickedoff">waitForReady _ 0 = <span class="nottickedoff">return False</span></span>
+<span class="lineno">   75 </span><span class="spaces"></span><span class="istickedoff">waitForReady mgr remaining = do</span>
+<span class="lineno">   76 </span><span class="spaces">    </span><span class="istickedoff">threadDelay 200000  -- 200ms</span>
+<span class="lineno">   77 </span><span class="spaces">    </span><span class="istickedoff">alive &lt;- isAlive mgr</span>
+<span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">if alive then return True else waitForReady mgr (remaining - 1)</span></span>
+<span class="lineno">   79 </span>
+<span class="lineno">   80 </span>-- | Check if server is reachable
+<span class="lineno">   81 </span>isAlive :: Manager -&gt; IO Bool
+<span class="lineno">   82 </span><span class="funcount">-- entered 31 times</span><span class="decl"><span class="istickedoff">isAlive mgr = do</span>
+<span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">result &lt;- try $ do</span>
+<span class="lineno">   84 </span><span class="spaces">        </span><span class="istickedoff">req &lt;- parseRequest $ &quot;http://127.0.0.1:&quot; ++ show testPort ++ &quot;/api/v1/database&quot;</span>
+<span class="lineno">   85 </span><span class="spaces">        </span><span class="istickedoff">resp &lt;- httpLbs req mgr</span>
+<span class="lineno">   86 </span><span class="spaces">        </span><span class="istickedoff">return $ statusCode (responseStatus resp)</span>
+<span class="lineno">   87 </span><span class="spaces">    </span><span class="istickedoff">case result of</span>
+<span class="lineno">   88 </span><span class="spaces">        </span><span class="istickedoff">Right code -&gt; return (code &lt; 500)</span>
+<span class="lineno">   89 </span><span class="spaces">        </span><span class="istickedoff">Left (_ :: SomeException) -&gt; return False</span></span>
+<span class="lineno">   90 </span>
+<span class="lineno">   91 </span>-- | POST to a server endpoint
+<span class="lineno">   92 </span>postEndpoint :: Manager -&gt; String -&gt; IO Int
+<span class="lineno">   93 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">postEndpoint mgr path = do</span>
+<span class="lineno">   94 </span><span class="spaces">    </span><span class="istickedoff">req0 &lt;- parseRequest $ &quot;http://127.0.0.1:&quot; ++ show testPort ++ path</span>
+<span class="lineno">   95 </span><span class="spaces">    </span><span class="istickedoff">let req = req0 { method = &quot;POST&quot;, requestHeaders = [(&quot;Content-Type&quot;, &quot;application/json&quot;)] }</span>
+<span class="lineno">   96 </span><span class="spaces">    </span><span class="istickedoff">resp &lt;- httpLbs req mgr</span>
+<span class="lineno">   97 </span><span class="spaces">    </span><span class="istickedoff">return $ statusCode (responseStatus resp)</span></span>
+<span class="lineno">   98 </span>
+<span class="lineno">   99 </span>spec :: Spec
+<span class="lineno">  100 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">spec = do</span>
+<span class="lineno">  101 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;Server shutdown endpoint&quot; $ do</span>
+<span class="lineno">  102 </span><span class="spaces">        </span><span class="istickedoff">it &quot;POST /api/v1/shutdown stops the server&quot; $ do</span>
+<span class="lineno">  103 </span><span class="spaces">            </span><span class="istickedoff">withMinimalConfig $ \cfgPath -&gt;</span>
+<span class="lineno">  104 </span><span class="spaces">                </span><span class="istickedoff">withServer cfgPath $ \ph mgr -&gt; do</span>
+<span class="lineno">  105 </span><span class="spaces">                    </span><span class="istickedoff">-- Server should be alive</span>
+<span class="lineno">  106 </span><span class="spaces">                    </span><span class="istickedoff">isAlive mgr `shouldReturn` True</span>
+<span class="lineno">  107 </span><span class="spaces">                    </span><span class="istickedoff">-- Send shutdown</span>
+<span class="lineno">  108 </span><span class="spaces">                    </span><span class="istickedoff">code &lt;- postEndpoint mgr &quot;/api/v1/shutdown&quot;</span>
+<span class="lineno">  109 </span><span class="spaces">                    </span><span class="istickedoff">code `shouldBe` 200</span>
+<span class="lineno">  110 </span><span class="spaces">                    </span><span class="istickedoff">-- Wait for server to die</span>
+<span class="lineno">  111 </span><span class="spaces">                    </span><span class="istickedoff">threadDelay 1000000  -- 1s</span>
+<span class="lineno">  112 </span><span class="spaces">                    </span><span class="istickedoff">isAlive mgr `shouldReturn` False</span>
+<span class="lineno">  113 </span><span class="spaces">                    </span><span class="istickedoff">-- Process should have exited</span>
+<span class="lineno">  114 </span><span class="spaces">                    </span><span class="istickedoff">mCode &lt;- getProcessExitCode ph</span>
+<span class="lineno">  115 </span><span class="spaces">                    </span><span class="istickedoff">mCode `shouldBe` Just ExitSuccess</span>
+<span class="lineno">  116 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  117 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;Server idle timeout&quot; $ do</span>
+<span class="lineno">  118 </span><span class="spaces">        </span><span class="istickedoff">it &quot;POST /api/v1/idle-timeout/N shuts down after N seconds&quot; $ do</span>
+<span class="lineno">  119 </span><span class="spaces">            </span><span class="istickedoff">withMinimalConfig $ \cfgPath -&gt;</span>
+<span class="lineno">  120 </span><span class="spaces">                </span><span class="istickedoff">withServer cfgPath $ \ph mgr -&gt; do</span>
+<span class="lineno">  121 </span><span class="spaces">                    </span><span class="istickedoff">-- Server should be alive</span>
+<span class="lineno">  122 </span><span class="spaces">                    </span><span class="istickedoff">isAlive mgr `shouldReturn` True</span>
+<span class="lineno">  123 </span><span class="spaces">                    </span><span class="istickedoff">-- Activate 2-second idle timeout</span>
+<span class="lineno">  124 </span><span class="spaces">                    </span><span class="istickedoff">code &lt;- postEndpoint mgr &quot;/api/v1/idle-timeout/2&quot;</span>
+<span class="lineno">  125 </span><span class="spaces">                    </span><span class="istickedoff">code `shouldBe` 200</span>
+<span class="lineno">  126 </span><span class="spaces">                    </span><span class="istickedoff">-- Still alive immediately</span>
+<span class="lineno">  127 </span><span class="spaces">                    </span><span class="istickedoff">isAlive mgr `shouldReturn` True</span>
+<span class="lineno">  128 </span><span class="spaces">                    </span><span class="istickedoff">-- Wait for timeout + buffer</span>
+<span class="lineno">  129 </span><span class="spaces">                    </span><span class="istickedoff">threadDelay 3500000  -- 3.5s</span>
+<span class="lineno">  130 </span><span class="spaces">                    </span><span class="istickedoff">-- Should be dead</span>
+<span class="lineno">  131 </span><span class="spaces">                    </span><span class="istickedoff">isAlive mgr `shouldReturn` False</span>
+<span class="lineno">  132 </span><span class="spaces">                    </span><span class="istickedoff">mCode &lt;- getProcessExitCode ph</span>
+<span class="lineno">  133 </span><span class="spaces">                    </span><span class="istickedoff">mCode `shouldBe` Just ExitSuccess</span>
+<span class="lineno">  134 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  135 </span><span class="spaces">        </span><span class="istickedoff">it &quot;POST /api/v1/idle-timeout/0 cancels timeout&quot; $ do</span>
+<span class="lineno">  136 </span><span class="spaces">            </span><span class="istickedoff">withMinimalConfig $ \cfgPath -&gt;</span>
+<span class="lineno">  137 </span><span class="spaces">                </span><span class="istickedoff">withServer cfgPath $ \ph mgr -&gt; do</span>
+<span class="lineno">  138 </span><span class="spaces">                    </span><span class="istickedoff">-- Activate 2s timeout then immediately cancel</span>
+<span class="lineno">  139 </span><span class="spaces">                    </span><span class="istickedoff">_ &lt;- postEndpoint mgr &quot;/api/v1/idle-timeout/2&quot;</span>
+<span class="lineno">  140 </span><span class="spaces">                    </span><span class="istickedoff">_ &lt;- postEndpoint mgr &quot;/api/v1/idle-timeout/0&quot;</span>
+<span class="lineno">  141 </span><span class="spaces">                    </span><span class="istickedoff">-- Wait longer than the timeout</span>
+<span class="lineno">  142 </span><span class="spaces">                    </span><span class="istickedoff">threadDelay 3500000  -- 3.5s</span>
+<span class="lineno">  143 </span><span class="spaces">                    </span><span class="istickedoff">-- Server should still be alive</span>
+<span class="lineno">  144 </span><span class="spaces">                    </span><span class="istickedoff">isAlive mgr `shouldReturn` True</span></span>
+
+</pre>
+</body>
+</html>

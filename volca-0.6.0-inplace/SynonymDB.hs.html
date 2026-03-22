@@ -1,0 +1,209 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE BangPatterns #-}
+<span class="lineno">    2 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    3 </span>{-# LANGUAGE ScopedTypeVariables #-}
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>-- | Synonym Database
+<span class="lineno">    6 </span>--
+<span class="lineno">    7 </span>-- Maps flow names to synonym group IDs for flow matching
+<span class="lineno">    8 </span>-- across different nomenclatures (ILCD, ecoinvent, SimaPro).
+<span class="lineno">    9 </span>--
+<span class="lineno">   10 </span>-- Loaded at runtime from CSV files (pairs of synonym names).
+<span class="lineno">   11 </span>module SynonymDB
+<span class="lineno">   12 </span>    ( -- * Building
+<span class="lineno">   13 </span>      buildFromCSV
+<span class="lineno">   14 </span>    , buildFromPairs
+<span class="lineno">   15 </span>    , loadFromCSVFileWithCache
+<span class="lineno">   16 </span>      -- * Lookup
+<span class="lineno">   17 </span>    , lookupSynonymGroup
+<span class="lineno">   18 </span>    , getSynonyms
+<span class="lineno">   19 </span>    , normalizeName
+<span class="lineno">   20 </span>    , mergeSynonymDBs
+<span class="lineno">   21 </span>    , synonymCount
+<span class="lineno">   22 </span>      -- * Re-exports
+<span class="lineno">   23 </span>    , SynonymDB(..)
+<span class="lineno">   24 </span>    , emptySynonymDB
+<span class="lineno">   25 </span>    ) where
+<span class="lineno">   26 </span>
+<span class="lineno">   27 </span>import Control.DeepSeq (force)
+<span class="lineno">   28 </span>import Control.Exception (SomeException, catch, evaluate)
+<span class="lineno">   29 </span>import qualified Codec.Compression.Zstd as Zstd
+<span class="lineno">   30 </span>import qualified Data.ByteString as BS
+<span class="lineno">   31 </span>import qualified Data.ByteString.Lazy as BL
+<span class="lineno">   32 </span>import Data.Csv (HasHeader(..), decode)
+<span class="lineno">   33 </span>import qualified Data.Map.Strict as M
+<span class="lineno">   34 </span>import Data.Store (encode, decodeEx)
+<span class="lineno">   35 </span>import Data.Text (Text)
+<span class="lineno">   36 </span>import qualified Data.Text as T
+<span class="lineno">   37 </span>import qualified Data.Vector as V
+<span class="lineno">   38 </span>import System.Directory (doesFileExist, getModificationTime)
+<span class="lineno">   39 </span>
+<span class="lineno">   40 </span>import SynonymDB.Types (SynonymDB(..), emptySynonymDB)
+<span class="lineno">   41 </span>
+<span class="lineno">   42 </span>-- | Build a SynonymDB from CSV content (two columns: name1, name2).
+<span class="lineno">   43 </span>-- Each row declares two names as synonyms. Groups are built via
+<span class="lineno">   44 </span>-- transitive closure (Union-Find). Groups &gt; 100 names are skipped.
+<span class="lineno">   45 </span>buildFromCSV :: BL.ByteString -&gt; Either String SynonymDB
+<span class="lineno">   46 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">buildFromCSV csvData =</span>
+<span class="lineno">   47 </span><span class="spaces">    </span><span class="istickedoff">case decode HasHeader csvData of</span>
+<span class="lineno">   48 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">Left $ &quot;CSV parse error: &quot; &lt;&gt; err</span></span>
+<span class="lineno">   49 </span><span class="spaces">        </span><span class="istickedoff">Right rows -&gt; Right $ buildFromPairs (V.toList (rows :: V.Vector (Text, Text)))</span></span>
+<span class="lineno">   50 </span>
+<span class="lineno">   51 </span>-- | Build SynonymDB directly from pairs (avoids CSV round-trip)
+<span class="lineno">   52 </span>buildFromPairs :: [(Text, Text)] -&gt; SynonymDB
+<span class="lineno">   53 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">buildFromPairs pairs =</span>
+<span class="lineno">   54 </span><span class="spaces">    </span><span class="istickedoff">let uf = foldl addPair M.empty pairs</span>
+<span class="lineno">   55 </span><span class="spaces">        </span><span class="istickedoff">originals = foldl collectOriginals M.empty pairs</span>
+<span class="lineno">   56 </span><span class="spaces">        </span><span class="istickedoff">allNorm = M.keys uf</span>
+<span class="lineno">   57 </span><span class="spaces">        </span><span class="istickedoff">resolved = M.fromList [(n, findRoot uf n) | n &lt;- allNorm]</span>
+<span class="lineno">   58 </span><span class="spaces">        </span><span class="istickedoff">groups = M.fromListWith (++) [(root, [lookupOriginal originals name]) | (name, root) &lt;- M.toList resolved]</span>
+<span class="lineno">   59 </span><span class="spaces">        </span><span class="istickedoff">validGroups = filter ((&lt;= 100) . length . snd) (zip [0..] (M.elems groups))</span>
+<span class="lineno">   60 </span><span class="spaces">        </span><span class="istickedoff">nameToId = M.fromList [(normalizeName name, gid) | (gid, names) &lt;- validGroups, name &lt;- names]</span>
+<span class="lineno">   61 </span><span class="spaces">        </span><span class="istickedoff">idToNames = M.fromList [(gid, names) | (gid, names) &lt;- validGroups]</span>
+<span class="lineno">   62 </span><span class="spaces">    </span><span class="istickedoff">in SynonymDB nameToId idToNames</span>
+<span class="lineno">   63 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   64 </span><span class="spaces">    </span><span class="istickedoff">addPair :: M.Map Text Text -&gt; (Text, Text) -&gt; M.Map Text Text</span>
+<span class="lineno">   65 </span><span class="spaces">    </span><span class="istickedoff">addPair uf (raw1, raw2) =</span>
+<span class="lineno">   66 </span><span class="spaces">        </span><span class="istickedoff">let n1 = normalizeName raw1</span>
+<span class="lineno">   67 </span><span class="spaces">            </span><span class="istickedoff">n2 = normalizeName raw2</span>
+<span class="lineno">   68 </span><span class="spaces">        </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null n1 || T.null n2 || n1 == n2</span></span>
+<span class="lineno">   69 </span><span class="spaces">           </span><span class="istickedoff">then <span class="nottickedoff">uf</span></span>
+<span class="lineno">   70 </span><span class="spaces">           </span><span class="istickedoff">else union uf n1 n2</span>
+<span class="lineno">   71 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   72 </span><span class="spaces">    </span><span class="istickedoff">collectOriginals :: M.Map Text Text -&gt; (Text, Text) -&gt; M.Map Text Text</span>
+<span class="lineno">   73 </span><span class="spaces">    </span><span class="istickedoff">collectOriginals acc (raw1, raw2) =</span>
+<span class="lineno">   74 </span><span class="spaces">        </span><span class="istickedoff">M.insertWith (\_ old -&gt; old) (normalizeName raw1) (T.strip raw1) $</span>
+<span class="lineno">   75 </span><span class="spaces">        </span><span class="istickedoff">M.insertWith <span class="nottickedoff">(\_ old -&gt; old)</span> (normalizeName raw2) (T.strip raw2) acc</span>
+<span class="lineno">   76 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   77 </span><span class="spaces">    </span><span class="istickedoff">lookupOriginal :: M.Map Text Text -&gt; Text -&gt; Text</span>
+<span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">lookupOriginal originals norm = M.findWithDefault <span class="nottickedoff">norm</span> norm originals</span>
+<span class="lineno">   79 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   80 </span><span class="spaces">    </span><span class="istickedoff">findRoot :: M.Map Text Text -&gt; Text -&gt; Text</span>
+<span class="lineno">   81 </span><span class="spaces">    </span><span class="istickedoff">findRoot uf name = case M.lookup name uf of</span>
+<span class="lineno">   82 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; name</span>
+<span class="lineno">   83 </span><span class="spaces">        </span><span class="istickedoff">Just parent | parent == name -&gt; name</span>
+<span class="lineno">   84 </span><span class="spaces">                    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; findRoot uf parent</span>
+<span class="lineno">   85 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   86 </span><span class="spaces">    </span><span class="istickedoff">union :: M.Map Text Text -&gt; Text -&gt; Text -&gt; M.Map Text Text</span>
+<span class="lineno">   87 </span><span class="spaces">    </span><span class="istickedoff">union uf a b =</span>
+<span class="lineno">   88 </span><span class="spaces">        </span><span class="istickedoff">let rootA = findRoot uf a</span>
+<span class="lineno">   89 </span><span class="spaces">            </span><span class="istickedoff">rootB = findRoot uf b</span>
+<span class="lineno">   90 </span><span class="spaces">            </span><span class="istickedoff">uf1 = M.insertWith (\_ old -&gt; old) a a uf</span>
+<span class="lineno">   91 </span><span class="spaces">            </span><span class="istickedoff">uf2 = M.insertWith <span class="nottickedoff">(\_ old -&gt; old)</span> b b uf1</span>
+<span class="lineno">   92 </span><span class="spaces">        </span><span class="istickedoff">in if <span class="tickonlyfalse">rootA == rootB</span> then <span class="nottickedoff">uf2</span></span>
+<span class="lineno">   93 </span><span class="spaces">           </span><span class="istickedoff">else M.insert rootB rootA uf2</span></span>
+<span class="lineno">   94 </span>
+<span class="lineno">   95 </span>-- | Load a SynonymDB from a CSV file, using a binary cache for speed.
+<span class="lineno">   96 </span>--   On first load: parse CSV → build SynonymDB → save .cache.zst
+<span class="lineno">   97 </span>--   On subsequent loads: load .cache.zst directly (if newer than CSV)
+<span class="lineno">   98 </span>loadFromCSVFileWithCache :: FilePath -&gt; IO (Either String SynonymDB)
+<span class="lineno">   99 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">loadFromCSVFileWithCache csvPath = do</span>
+<span class="lineno">  100 </span><span class="spaces">    </span><span class="nottickedoff">let cachePath = csvPath ++ &quot;.cache.zst&quot;</span>
+<span class="lineno">  101 </span><span class="spaces">    </span><span class="nottickedoff">cached &lt;- loadCache cachePath csvPath</span>
+<span class="lineno">  102 </span><span class="spaces">    </span><span class="nottickedoff">case cached of</span>
+<span class="lineno">  103 </span><span class="spaces">        </span><span class="nottickedoff">Just db -&gt; return (Right db)</span>
+<span class="lineno">  104 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt; do</span>
+<span class="lineno">  105 </span><span class="spaces">            </span><span class="nottickedoff">csvData &lt;- BL.readFile csvPath</span>
+<span class="lineno">  106 </span><span class="spaces">            </span><span class="nottickedoff">case buildFromCSV csvData of</span>
+<span class="lineno">  107 </span><span class="spaces">                </span><span class="nottickedoff">Left err -&gt; return (Left err)</span>
+<span class="lineno">  108 </span><span class="spaces">                </span><span class="nottickedoff">Right db -&gt; do</span>
+<span class="lineno">  109 </span><span class="spaces">                    </span><span class="nottickedoff">saveCache cachePath db</span>
+<span class="lineno">  110 </span><span class="spaces">                    </span><span class="nottickedoff">return (Right db)</span>
+<span class="lineno">  111 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
+<span class="lineno">  112 </span><span class="spaces">    </span><span class="nottickedoff">loadCache cachePath srcPath = do</span>
+<span class="lineno">  113 </span><span class="spaces">        </span><span class="nottickedoff">exists &lt;- doesFileExist cachePath</span>
+<span class="lineno">  114 </span><span class="spaces">        </span><span class="nottickedoff">if not exists then return Nothing</span>
+<span class="lineno">  115 </span><span class="spaces">        </span><span class="nottickedoff">else catch</span>
+<span class="lineno">  116 </span><span class="spaces">            </span><span class="nottickedoff">(do cacheTime &lt;- getModificationTime cachePath</span>
+<span class="lineno">  117 </span><span class="spaces">                </span><span class="nottickedoff">srcTime &lt;- getModificationTime srcPath</span>
+<span class="lineno">  118 </span><span class="spaces">                </span><span class="nottickedoff">if cacheTime &lt; srcTime then return Nothing</span>
+<span class="lineno">  119 </span><span class="spaces">                </span><span class="nottickedoff">else do</span>
+<span class="lineno">  120 </span><span class="spaces">                    </span><span class="nottickedoff">compressed &lt;- BS.readFile cachePath</span>
+<span class="lineno">  121 </span><span class="spaces">                    </span><span class="nottickedoff">case Zstd.decompress compressed of</span>
+<span class="lineno">  122 </span><span class="spaces">                        </span><span class="nottickedoff">Zstd.Decompress raw -&gt; do</span>
+<span class="lineno">  123 </span><span class="spaces">                            </span><span class="nottickedoff">let !db = decodeEx raw</span>
+<span class="lineno">  124 </span><span class="spaces">                            </span><span class="nottickedoff">result &lt;- evaluate (force db)</span>
+<span class="lineno">  125 </span><span class="spaces">                            </span><span class="nottickedoff">return (Just result)</span>
+<span class="lineno">  126 </span><span class="spaces">                        </span><span class="nottickedoff">_ -&gt; return Nothing)</span>
+<span class="lineno">  127 </span><span class="spaces">            </span><span class="nottickedoff">(\(_ :: SomeException) -&gt; return Nothing)</span>
+<span class="lineno">  128 </span><span class="spaces">    </span><span class="nottickedoff">saveCache cachePath db = catch</span>
+<span class="lineno">  129 </span><span class="spaces">        </span><span class="nottickedoff">(BS.writeFile cachePath (Zstd.compress 1 (encode db)))</span>
+<span class="lineno">  130 </span><span class="spaces">        </span><span class="nottickedoff">(\(_ :: SomeException) -&gt; return ())</span></span>
+<span class="lineno">  131 </span>
+<span class="lineno">  132 </span>-- | Merge multiple SynonymDBs into one (later entries take priority on ID conflicts).
+<span class="lineno">  133 </span>mergeSynonymDBs :: [SynonymDB] -&gt; SynonymDB
+<span class="lineno">  134 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">mergeSynonymDBs [] = emptySynonymDB</span>
+<span class="lineno">  135 </span><span class="spaces"></span><span class="nottickedoff">mergeSynonymDBs [db] = db</span>
+<span class="lineno">  136 </span><span class="spaces"></span><span class="nottickedoff">mergeSynonymDBs dbs =</span>
+<span class="lineno">  137 </span><span class="spaces">    </span><span class="nottickedoff">let -- Collect all groups from all DBs, re-number them</span>
+<span class="lineno">  138 </span><span class="spaces">        </span><span class="nottickedoff">allGroups = concatMap (\db -&gt; M.elems (synIdToNames db)) dbs</span>
+<span class="lineno">  139 </span><span class="spaces">        </span><span class="nottickedoff">numberedGroups = zip [0..] allGroups</span>
+<span class="lineno">  140 </span><span class="spaces">        </span><span class="nottickedoff">nameToId = M.fromList [(normalizeName name, gid) | (gid, names) &lt;- numberedGroups, name &lt;- names]</span>
+<span class="lineno">  141 </span><span class="spaces">        </span><span class="nottickedoff">idToNames = M.fromList numberedGroups</span>
+<span class="lineno">  142 </span><span class="spaces">    </span><span class="nottickedoff">in SynonymDB nameToId idToNames</span></span>
+<span class="lineno">  143 </span>
+<span class="lineno">  144 </span>-- | Number of synonym names in the database.
+<span class="lineno">  145 </span>synonymCount :: SynonymDB -&gt; Int
+<span class="lineno">  146 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">synonymCount = M.size . synNameToId</span></span>
+<span class="lineno">  147 </span>
+<span class="lineno">  148 </span>-- | Normalize a name for lookup in the synonym database
+<span class="lineno">  149 </span>--
+<span class="lineno">  150 </span>-- Normalization rules:
+<span class="lineno">  151 </span>-- - Lowercase
+<span class="lineno">  152 </span>-- - Strip leading/trailing whitespace
+<span class="lineno">  153 </span>-- - Collapse multiple spaces to single space
+<span class="lineno">  154 </span>-- - Strip &quot;, in ground&quot; suffix (ecoinvent resource naming)
+<span class="lineno">  155 </span>-- - Strip &quot;/kg&quot; suffix (SimaPro unit convention)
+<span class="lineno">  156 </span>-- - Remove punctuation: commas, parentheses, quotes
+<span class="lineno">  157 </span>normalizeName :: Text -&gt; Text
+<span class="lineno">  158 </span><span class="funcount">-- entered 48 times</span><span class="decl"><span class="istickedoff">normalizeName name =</span>
+<span class="lineno">  159 </span><span class="spaces">    </span><span class="istickedoff">let -- Lowercase and strip</span>
+<span class="lineno">  160 </span><span class="spaces">        </span><span class="istickedoff">t1 = T.strip $ T.toLower name</span>
+<span class="lineno">  161 </span><span class="spaces">        </span><span class="istickedoff">-- Collapse whitespace</span>
+<span class="lineno">  162 </span><span class="spaces">        </span><span class="istickedoff">t2 = T.unwords $ T.words t1</span>
+<span class="lineno">  163 </span><span class="spaces">        </span><span class="istickedoff">-- Strip &quot;, in ground&quot; suffix</span>
+<span class="lineno">  164 </span><span class="spaces">        </span><span class="istickedoff">t3 = stripSuffix &quot;, in ground&quot; $ stripSuffix &quot; in ground&quot; t2</span>
+<span class="lineno">  165 </span><span class="spaces">        </span><span class="istickedoff">-- Strip &quot;/kg&quot; suffix</span>
+<span class="lineno">  166 </span><span class="spaces">        </span><span class="istickedoff">t4 = stripSuffix &quot;/kg&quot; t3</span>
+<span class="lineno">  167 </span><span class="spaces">        </span><span class="istickedoff">-- Remove punctuation</span>
+<span class="lineno">  168 </span><span class="spaces">        </span><span class="istickedoff">t5 = T.filter (`notElem` (&quot;,()'\&quot;&quot; :: String)) t4</span>
+<span class="lineno">  169 </span><span class="spaces">        </span><span class="istickedoff">-- Collapse whitespace again (from removed punctuation)</span>
+<span class="lineno">  170 </span><span class="spaces">        </span><span class="istickedoff">t6 = T.unwords $ T.words t5</span>
+<span class="lineno">  171 </span><span class="spaces">    </span><span class="istickedoff">in t6</span>
+<span class="lineno">  172 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  173 </span><span class="spaces">    </span><span class="istickedoff">stripSuffix :: Text -&gt; Text -&gt; Text</span>
+<span class="lineno">  174 </span><span class="spaces">    </span><span class="istickedoff">stripSuffix suffix txt =</span>
+<span class="lineno">  175 </span><span class="spaces">        </span><span class="istickedoff">if suffix `T.isSuffixOf` txt</span>
+<span class="lineno">  176 </span><span class="spaces">            </span><span class="istickedoff">then T.dropEnd (T.length suffix) txt</span>
+<span class="lineno">  177 </span><span class="spaces">            </span><span class="istickedoff">else txt</span></span>
+<span class="lineno">  178 </span>
+<span class="lineno">  179 </span>-- | Look up the synonym group ID for a flow name
+<span class="lineno">  180 </span>lookupSynonymGroup :: SynonymDB -&gt; Text -&gt; Maybe Int
+<span class="lineno">  181 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">lookupSynonymGroup db name =</span>
+<span class="lineno">  182 </span><span class="spaces">    </span><span class="istickedoff">M.lookup (normalizeName name) (synNameToId db)</span></span>
+<span class="lineno">  183 </span>
+<span class="lineno">  184 </span>-- | Get all synonyms for a group ID
+<span class="lineno">  185 </span>getSynonyms :: SynonymDB -&gt; Int -&gt; Maybe [Text]
+<span class="lineno">  186 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">getSynonyms db gid = M.lookup gid (synIdToNames db)</span></span>
+
+</pre>
+</body>
+</html>

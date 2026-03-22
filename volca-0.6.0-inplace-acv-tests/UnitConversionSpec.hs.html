@@ -1,0 +1,219 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module UnitConversionSpec (spec) where
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>import Test.Hspec
+<span class="lineno">    6 </span>import UnitConversion
+<span class="lineno">    7 </span>import qualified Data.ByteString.Lazy as BL
+<span class="lineno">    8 </span>import qualified Data.Map.Strict as M
+<span class="lineno">    9 </span>import qualified Data.Text as T
+<span class="lineno">   10 </span>
+<span class="lineno">   11 </span>-- Helper for testing Left results
+<span class="lineno">   12 </span>isLeft :: Either a b -&gt; Bool
+<span class="lineno">   13 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">isLeft (Left _) = True</span>
+<span class="lineno">   14 </span><span class="spaces"></span><span class="istickedoff">isLeft _ = <span class="nottickedoff">False</span></span></span>
+<span class="lineno">   15 </span>
+<span class="lineno">   16 </span>-- Helper for testing Right results
+<span class="lineno">   17 </span>isRight :: Either a b -&gt; Bool
+<span class="lineno">   18 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">isRight (Right _) = True</span>
+<span class="lineno">   19 </span><span class="spaces"></span><span class="nottickedoff">isRight _ = False</span></span>
+<span class="lineno">   20 </span>
+<span class="lineno">   21 </span>-- | Load the full unit config from data/units.csv
+<span class="lineno">   22 </span>loadFullUnitConfig :: IO UnitConfig
+<span class="lineno">   23 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">loadFullUnitConfig = do</span>
+<span class="lineno">   24 </span><span class="spaces">    </span><span class="istickedoff">csv &lt;- BL.readFile &quot;data/units.csv&quot;</span>
+<span class="lineno">   25 </span><span class="spaces">    </span><span class="istickedoff">case buildFromCSV csv of</span>
+<span class="lineno">   26 </span><span class="spaces">        </span><span class="istickedoff">Right cfg -&gt; return cfg</span>
+<span class="lineno">   27 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">fail $ &quot;Failed to load data/units.csv: &quot; ++ T.unpack err</span></span></span>
+<span class="lineno">   28 </span>
+<span class="lineno">   29 </span>spec :: Spec
+<span class="lineno">   30 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">spec = do</span>
+<span class="lineno">   31 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;Dimension Parsing&quot; $ do</span>
+<span class="lineno">   32 </span><span class="spaces">        </span><span class="istickedoff">let dimOrder = [&quot;mass&quot;, &quot;length&quot;, &quot;time&quot;, &quot;energy&quot;, &quot;area&quot;, &quot;volume&quot;, &quot;count&quot;, &quot;currency&quot;]</span>
+<span class="lineno">   33 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   34 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses single dimension&quot; $ do</span>
+<span class="lineno">   35 </span><span class="spaces">            </span><span class="istickedoff">parseDimension dimOrder &quot;mass&quot; `shouldBe` Right [1, 0, 0, 0, 0, 0, 0, 0]</span>
+<span class="lineno">   36 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   37 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses product of dimensions (mass*length)&quot; $ do</span>
+<span class="lineno">   38 </span><span class="spaces">            </span><span class="istickedoff">parseDimension dimOrder &quot;mass*length&quot; `shouldBe` Right [1, 1, 0, 0, 0, 0, 0, 0]</span>
+<span class="lineno">   39 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   40 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses division (length/time)&quot; $ do</span>
+<span class="lineno">   41 </span><span class="spaces">            </span><span class="istickedoff">parseDimension dimOrder &quot;length/time&quot; `shouldBe` Right [0, 1, -1, 0, 0, 0, 0, 0]</span>
+<span class="lineno">   42 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   43 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses repeated division (length/time/time)&quot; $ do</span>
+<span class="lineno">   44 </span><span class="spaces">            </span><span class="istickedoff">parseDimension dimOrder &quot;length/time/time&quot; `shouldBe` Right [0, 1, -2, 0, 0, 0, 0, 0]</span>
+<span class="lineno">   45 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   46 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses complex expression (mass*length/time)&quot; $ do</span>
+<span class="lineno">   47 </span><span class="spaces">            </span><span class="istickedoff">parseDimension dimOrder &quot;mass*length/time&quot; `shouldBe` Right [1, 1, -1, 0, 0, 0, 0, 0]</span>
+<span class="lineno">   48 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   49 </span><span class="spaces">        </span><span class="istickedoff">it &quot;rejects unknown dimension&quot; $ do</span>
+<span class="lineno">   50 </span><span class="spaces">            </span><span class="istickedoff">parseDimension dimOrder &quot;velocity&quot; `shouldSatisfy` isLeft</span>
+<span class="lineno">   51 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   52 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;Unit Compatibility&quot; $ do</span>
+<span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">it &quot;tkm and kgkm are compatible (both mass*length)&quot; $ do</span>
+<span class="lineno">   54 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   55 </span><span class="spaces">            </span><span class="istickedoff">unitsCompatible cfg &quot;tkm&quot; &quot;kgkm&quot; `shouldBe` True</span>
+<span class="lineno">   56 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   57 </span><span class="spaces">        </span><span class="istickedoff">it &quot;tkm and kg are NOT compatible (mass*length vs mass)&quot; $ do</span>
+<span class="lineno">   58 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   59 </span><span class="spaces">            </span><span class="istickedoff">unitsCompatible cfg &quot;tkm&quot; &quot;kg&quot; `shouldBe` False</span>
+<span class="lineno">   60 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   61 </span><span class="spaces">        </span><span class="istickedoff">it &quot;kg and t are compatible (both mass)&quot; $ do</span>
+<span class="lineno">   62 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   63 </span><span class="spaces">            </span><span class="istickedoff">unitsCompatible cfg &quot;kg&quot; &quot;t&quot; `shouldBe` True</span>
+<span class="lineno">   64 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   65 </span><span class="spaces">        </span><span class="istickedoff">it &quot;kg and g are compatible (both mass)&quot; $ do</span>
+<span class="lineno">   66 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   67 </span><span class="spaces">            </span><span class="istickedoff">unitsCompatible cfg &quot;kg&quot; &quot;g&quot; `shouldBe` True</span>
+<span class="lineno">   68 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   69 </span><span class="spaces">        </span><span class="istickedoff">it &quot;MJ and kWh are compatible (both energy)&quot; $ do</span>
+<span class="lineno">   70 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   71 </span><span class="spaces">            </span><span class="istickedoff">unitsCompatible cfg &quot;MJ&quot; &quot;kWh&quot; `shouldBe` True</span>
+<span class="lineno">   72 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   73 </span><span class="spaces">        </span><span class="istickedoff">it &quot;m/s and km/h are compatible (both velocity)&quot; $ do</span>
+<span class="lineno">   74 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   75 </span><span class="spaces">            </span><span class="istickedoff">unitsCompatible cfg &quot;m/s&quot; &quot;km/h&quot; `shouldBe` True</span>
+<span class="lineno">   76 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   77 </span><span class="spaces">        </span><span class="istickedoff">it &quot;pkm and person*km are compatible (passenger transport)&quot; $ do</span>
+<span class="lineno">   78 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   79 </span><span class="spaces">            </span><span class="istickedoff">unitsCompatible cfg &quot;pkm&quot; &quot;person*km&quot; `shouldBe` True</span>
+<span class="lineno">   80 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   81 </span><span class="spaces">        </span><span class="istickedoff">it &quot;unknown units are not compatible&quot; $ do</span>
+<span class="lineno">   82 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   83 </span><span class="spaces">            </span><span class="istickedoff">unitsCompatible cfg &quot;unknown_unit&quot; <span class="nottickedoff">&quot;kg&quot;</span> `shouldBe` False</span>
+<span class="lineno">   84 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   85 </span><span class="spaces">        </span><span class="istickedoff">it &quot;l*day is a known unit&quot; $ do</span>
+<span class="lineno">   86 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   87 </span><span class="spaces">            </span><span class="istickedoff">isKnownUnit cfg &quot;l*day&quot; `shouldBe` True</span>
+<span class="lineno">   88 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   89 </span><span class="spaces">        </span><span class="istickedoff">it &quot;l*day and m3*year are compatible (both volume x time)&quot; $ do</span>
+<span class="lineno">   90 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   91 </span><span class="spaces">            </span><span class="istickedoff">unitsCompatible cfg &quot;l*day&quot; &quot;m3*year&quot; `shouldBe` True</span>
+<span class="lineno">   92 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   93 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;Unit Conversion&quot; $ do</span>
+<span class="lineno">   94 </span><span class="spaces">        </span><span class="istickedoff">it &quot;converts 1 tkm to 1000 kgkm&quot; $ do</span>
+<span class="lineno">   95 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">   96 </span><span class="spaces">            </span><span class="istickedoff">convertUnit cfg &quot;tkm&quot; &quot;kgkm&quot; 1.0 `shouldBe` Just 1000.0</span>
+<span class="lineno">   97 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   98 </span><span class="spaces">        </span><span class="istickedoff">it &quot;converts 1000 kgkm to 1 tkm&quot; $ do</span>
+<span class="lineno">   99 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  100 </span><span class="spaces">            </span><span class="istickedoff">convertUnit cfg &quot;kgkm&quot; &quot;tkm&quot; 1000.0 `shouldBe` Just 1.0</span>
+<span class="lineno">  101 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  102 </span><span class="spaces">        </span><span class="istickedoff">it &quot;converts 1 t to 1000 kg&quot; $ do</span>
+<span class="lineno">  103 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  104 </span><span class="spaces">            </span><span class="istickedoff">convertUnit cfg &quot;t&quot; &quot;kg&quot; 1.0 `shouldBe` Just 1000.0</span>
+<span class="lineno">  105 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  106 </span><span class="spaces">        </span><span class="istickedoff">it &quot;converts 1 kg to 1000 g&quot; $ do</span>
+<span class="lineno">  107 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  108 </span><span class="spaces">            </span><span class="istickedoff">convertUnit cfg &quot;kg&quot; &quot;g&quot; 1.0 `shouldBe` Just 1000.0</span>
+<span class="lineno">  109 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  110 </span><span class="spaces">        </span><span class="istickedoff">it &quot;converts 1 kWh to 3.6 MJ&quot; $ do</span>
+<span class="lineno">  111 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  112 </span><span class="spaces">            </span><span class="istickedoff">case convertUnit cfg &quot;kWh&quot; &quot;MJ&quot; 1.0 of</span>
+<span class="lineno">  113 </span><span class="spaces">                </span><span class="istickedoff">Just v -&gt; v `shouldSatisfy` (\x -&gt; abs (x - 3.6) &lt; 0.001)</span>
+<span class="lineno">  114 </span><span class="spaces">                </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">expectationFailure &quot;conversion failed&quot;</span></span>
+<span class="lineno">  115 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  116 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing for incompatible units&quot; $ do</span>
+<span class="lineno">  117 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  118 </span><span class="spaces">            </span><span class="istickedoff">convertUnit cfg &quot;kg&quot; &quot;m&quot; <span class="nottickedoff">1.0</span> `shouldBe` Nothing</span>
+<span class="lineno">  119 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  120 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing for unknown units&quot; $ do</span>
+<span class="lineno">  121 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  122 </span><span class="spaces">            </span><span class="istickedoff">convertUnit cfg &quot;unknown&quot; <span class="nottickedoff">&quot;kg&quot;</span> <span class="nottickedoff">1.0</span> `shouldBe` Nothing</span>
+<span class="lineno">  123 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  124 </span><span class="spaces">        </span><span class="istickedoff">it &quot;converts 1 m3*year to 365000 l*day&quot; $ do</span>
+<span class="lineno">  125 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  126 </span><span class="spaces">            </span><span class="istickedoff">case convertUnit cfg &quot;m3*year&quot; &quot;l*day&quot; 1.0 of</span>
+<span class="lineno">  127 </span><span class="spaces">                </span><span class="istickedoff">Just v -&gt; v `shouldSatisfy` (\x -&gt; abs (x - 365000.0) &lt; 1.0)</span>
+<span class="lineno">  128 </span><span class="spaces">                </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">expectationFailure &quot;conversion failed&quot;</span></span>
+<span class="lineno">  129 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  130 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;Backward Compatibility&quot; $ do</span>
+<span class="lineno">  131 </span><span class="spaces">        </span><span class="istickedoff">it &quot;convertExchangeAmount converts tkm to kgkm&quot; $ do</span>
+<span class="lineno">  132 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  133 </span><span class="spaces">            </span><span class="istickedoff">convertExchangeAmount cfg &quot;tkm&quot; &quot;kgkm&quot; 1.0 `shouldBe` 1000.0</span>
+<span class="lineno">  134 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  135 </span><span class="spaces">        </span><span class="istickedoff">it &quot;convertExchangeAmount returns original for incompatible units&quot; $ do</span>
+<span class="lineno">  136 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  137 </span><span class="spaces">            </span><span class="istickedoff">convertExchangeAmount cfg &quot;kg&quot; &quot;m&quot; 5.0 `shouldBe` 5.0</span>
+<span class="lineno">  138 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  139 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;Unit Normalization&quot; $ do</span>
+<span class="lineno">  140 </span><span class="spaces">        </span><span class="istickedoff">it &quot;normalizes to lowercase&quot; $ do</span>
+<span class="lineno">  141 </span><span class="spaces">            </span><span class="istickedoff">normalizeUnit &quot;KG&quot; `shouldBe` &quot;kg&quot;</span>
+<span class="lineno">  142 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  143 </span><span class="spaces">        </span><span class="istickedoff">it &quot;trims whitespace&quot; $ do</span>
+<span class="lineno">  144 </span><span class="spaces">            </span><span class="istickedoff">normalizeUnit &quot;  kg  &quot; `shouldBe` &quot;kg&quot;</span>
+<span class="lineno">  145 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  146 </span><span class="spaces">        </span><span class="istickedoff">it &quot;case-insensitive lookup works&quot; $ do</span>
+<span class="lineno">  147 </span><span class="spaces">            </span><span class="istickedoff">cfg &lt;- loadFullUnitConfig</span>
+<span class="lineno">  148 </span><span class="spaces">            </span><span class="istickedoff">isKnownUnit cfg &quot;KG&quot; `shouldBe` True</span>
+<span class="lineno">  149 </span><span class="spaces">            </span><span class="istickedoff">isKnownUnit cfg &quot;Kg&quot; `shouldBe` True</span>
+<span class="lineno">  150 </span><span class="spaces">            </span><span class="istickedoff">isKnownUnit cfg &quot;kG&quot; `shouldBe` True</span>
+<span class="lineno">  151 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  152 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;Config Building (buildFromCSV)&quot; $ do</span>
+<span class="lineno">  153 </span><span class="spaces">        </span><span class="istickedoff">it &quot;builds config from CSV&quot; $ do</span>
+<span class="lineno">  154 </span><span class="spaces">            </span><span class="istickedoff">let csv = &quot;name,dimension,factor\nkg,mass,1.0\ng,mass,0.001\ntkm,mass*length,1e6\n&quot;</span>
+<span class="lineno">  155 </span><span class="spaces">            </span><span class="istickedoff">case buildFromCSV csv of</span>
+<span class="lineno">  156 </span><span class="spaces">                </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ T.unpack err</span></span>
+<span class="lineno">  157 </span><span class="spaces">                </span><span class="istickedoff">Right cfg -&gt; do</span>
+<span class="lineno">  158 </span><span class="spaces">                    </span><span class="istickedoff">isKnownUnit cfg &quot;kg&quot; `shouldBe` True</span>
+<span class="lineno">  159 </span><span class="spaces">                    </span><span class="istickedoff">isKnownUnit cfg &quot;tkm&quot; `shouldBe` True</span>
+<span class="lineno">  160 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  161 </span><span class="spaces">        </span><span class="istickedoff">it &quot;adds custom unit&quot; $ do</span>
+<span class="lineno">  162 </span><span class="spaces">            </span><span class="istickedoff">let csv = &quot;name,dimension,factor\ncustomunit,mass,42.0\n&quot;</span>
+<span class="lineno">  163 </span><span class="spaces">            </span><span class="istickedoff">case buildFromCSV csv of</span>
+<span class="lineno">  164 </span><span class="spaces">                </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ T.unpack err</span></span>
+<span class="lineno">  165 </span><span class="spaces">                </span><span class="istickedoff">Right cfg -&gt; do</span>
+<span class="lineno">  166 </span><span class="spaces">                    </span><span class="istickedoff">isKnownUnit cfg &quot;customunit&quot; `shouldBe` True</span>
+<span class="lineno">  167 </span><span class="spaces">                    </span><span class="istickedoff">case lookupUnitDef cfg &quot;customunit&quot; of</span>
+<span class="lineno">  168 </span><span class="spaces">                        </span><span class="istickedoff">Just def -&gt; udFactor def `shouldBe` 42.0</span>
+<span class="lineno">  169 </span><span class="spaces">                        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">expectationFailure &quot;customunit should exist&quot;</span></span>
+<span class="lineno">  170 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  171 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses compound dimension expressions&quot; $ do</span>
+<span class="lineno">  172 </span><span class="spaces">            </span><span class="istickedoff">let csv = &quot;name,dimension,factor\nmyvelocity,length/time,1.0\nmytransport,mass*length,500.0\nm/s,length/time,1.0\ntkm,mass*length,1e6\n&quot;</span>
+<span class="lineno">  173 </span><span class="spaces">            </span><span class="istickedoff">case buildFromCSV csv of</span>
+<span class="lineno">  174 </span><span class="spaces">                </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ T.unpack err</span></span>
+<span class="lineno">  175 </span><span class="spaces">                </span><span class="istickedoff">Right cfg -&gt; do</span>
+<span class="lineno">  176 </span><span class="spaces">                    </span><span class="istickedoff">unitsCompatible cfg &quot;myvelocity&quot; &quot;m/s&quot; `shouldBe` True</span>
+<span class="lineno">  177 </span><span class="spaces">                    </span><span class="istickedoff">unitsCompatible cfg &quot;mytransport&quot; &quot;tkm&quot; `shouldBe` True</span>
+<span class="lineno">  178 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  179 </span><span class="spaces">        </span><span class="istickedoff">it &quot;fails on invalid dimension&quot; $ do</span>
+<span class="lineno">  180 </span><span class="spaces">            </span><span class="istickedoff">let csv = &quot;name,dimension,factor\nbadunit,invalid_dimension,1.0\n&quot;</span>
+<span class="lineno">  181 </span><span class="spaces">            </span><span class="istickedoff">buildFromCSV csv `shouldSatisfy` isLeftT</span>
+<span class="lineno">  182 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  183 </span><span class="spaces">        </span><span class="istickedoff">it &quot;merges multiple configs (later overrides)&quot; $ do</span>
+<span class="lineno">  184 </span><span class="spaces">            </span><span class="istickedoff">let csv1 = &quot;name,dimension,factor\nkg,mass,1.0\n&quot;</span>
+<span class="lineno">  185 </span><span class="spaces">                </span><span class="istickedoff">csv2 = &quot;name,dimension,factor\nkg,mass,999.0\n&quot;</span>
+<span class="lineno">  186 </span><span class="spaces">            </span><span class="istickedoff">case (buildFromCSV csv1, buildFromCSV csv2) of</span>
+<span class="lineno">  187 </span><span class="spaces">                </span><span class="istickedoff">(Right cfg1, Right cfg2) -&gt; do</span>
+<span class="lineno">  188 </span><span class="spaces">                    </span><span class="istickedoff">let merged = mergeUnitConfigs [cfg1, cfg2]</span>
+<span class="lineno">  189 </span><span class="spaces">                    </span><span class="istickedoff">case lookupUnitDef merged &quot;kg&quot; of</span>
+<span class="lineno">  190 </span><span class="spaces">                        </span><span class="istickedoff">Just def -&gt; udFactor def `shouldBe` 999.0</span>
+<span class="lineno">  191 </span><span class="spaces">                        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">expectationFailure &quot;kg should exist&quot;</span></span>
+<span class="lineno">  192 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">expectationFailure &quot;both parses should succeed&quot;</span></span></span>
+<span class="lineno">  193 </span>
+<span class="lineno">  194 </span>isLeftT :: Either T.Text b -&gt; Bool
+<span class="lineno">  195 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">isLeftT (Left _) = True</span>
+<span class="lineno">  196 </span><span class="spaces"></span><span class="istickedoff">isLeftT _ = <span class="nottickedoff">False</span></span></span>
+
+</pre>
+</body>
+</html>

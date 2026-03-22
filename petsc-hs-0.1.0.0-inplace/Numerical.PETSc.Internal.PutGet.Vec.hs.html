@@ -1,0 +1,1153 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE TypeFamilies, MultiParamTypeClasses, RankNTypes, FlexibleContexts, FlexibleInstances #-}
+<span class="lineno">    2 </span>-----------------------------------------------------------------------------
+<span class="lineno">    3 </span>-- |
+<span class="lineno">    4 </span>-- Module      :  Numerical.PETSc.Internal.PutGet.Vec
+<span class="lineno">    5 </span>-- Copyright   :  (c) Marco Zocca 2015
+<span class="lineno">    6 </span>-- License     :  LGPL3
+<span class="lineno">    7 </span>-- Maintainer  :  zocca . marco . gmail . com
+<span class="lineno">    8 </span>-- Stability   :  experimental
+<span class="lineno">    9 </span>--
+<span class="lineno">   10 </span>-- | Vec Mid-level interface
+<span class="lineno">   11 </span>--
+<span class="lineno">   12 </span>-----------------------------------------------------------------------------
+<span class="lineno">   13 </span>module Numerical.PETSc.Internal.PutGet.Vec where
+<span class="lineno">   14 </span>
+<span class="lineno">   15 </span>import           Numerical.PETSc.Internal.InlineC
+<span class="lineno">   16 </span>import           Numerical.PETSc.Internal.Types
+<span class="lineno">   17 </span>import           Numerical.PETSc.Internal.C2HsGen.TypesC2HsGen
+<span class="lineno">   18 </span>import           Numerical.PETSc.Internal.Exception
+<span class="lineno">   19 </span>import           Numerical.PETSc.Internal.Utils
+<span class="lineno">   20 </span>import qualified Numerical.PETSc.Internal.PutGet.PetscMisc as P
+<span class="lineno">   21 </span>import qualified Numerical.PETSc.Internal.PutGet.Viewer as View
+<span class="lineno">   22 </span>
+<span class="lineno">   23 </span>import           Numerical.PETSc.Internal.Storable.Vector
+<span class="lineno">   24 </span>import           Numerical.PETSc.Internal.Storable.StorableContainer
+<span class="lineno">   25 </span>
+<span class="lineno">   26 </span>
+<span class="lineno">   27 </span>import qualified Data.Ix as Ix (range, inRange)
+<span class="lineno">   28 </span>
+<span class="lineno">   29 </span>import           Foreign
+<span class="lineno">   30 </span>import qualified Foreign.ForeignPtr as FPR
+<span class="lineno">   31 </span>import           Foreign.C.Types
+<span class="lineno">   32 </span>
+<span class="lineno">   33 </span>import           System.IO.Unsafe                   (unsafePerformIO)
+<span class="lineno">   34 </span>
+<span class="lineno">   35 </span>import           Control.Monad
+<span class="lineno">   36 </span>import           Control.Applicative
+<span class="lineno">   37 </span>import           Control.Exception
+<span class="lineno">   38 </span>
+<span class="lineno">   39 </span>-- import           Control.Monad.Trans.Reader
+<span class="lineno">   40 </span>-- import           Control.Monad.Trans.State
+<span class="lineno">   41 </span>-- import           Control.Monad.Trans.Resource
+<span class="lineno">   42 </span>-- import           Control.Monad.Trans.Class
+<span class="lineno">   43 </span>
+<span class="lineno">   44 </span>-- import Control.Monad.IO.Class
+<span class="lineno">   45 </span>-- import Control.Monad.State.Strict -- for execStateT
+<span class="lineno">   46 </span>
+<span class="lineno">   47 </span>-- import           Data.STRef
+<span class="lineno">   48 </span>
+<span class="lineno">   49 </span>-- import           Control.Monad.ST
+<span class="lineno">   50 </span>-- import           Control.Monad.ST.Unsafe            (unsafeIOToST)    -- for HMatrix bits
+<span class="lineno">   51 </span>
+<span class="lineno">   52 </span>import qualified Data.Vector as V
+<span class="lineno">   53 </span>import qualified Data.Vector.Storable               as VS 
+<span class="lineno">   54 </span>import qualified Data.Vector.Storable.Mutable       as VM
+<span class="lineno">   55 </span>import qualified Data.Vector.Generic       as VG
+<span class="lineno">   56 </span>import qualified Data.Vector.Generic.Mutable       as VGM
+<span class="lineno">   57 </span>
+<span class="lineno">   58 </span>
+<span class="lineno">   59 </span>
+<span class="lineno">   60 </span>
+<span class="lineno">   61 </span>
+<span class="lineno">   62 </span>
+<span class="lineno">   63 </span>
+<span class="lineno">   64 </span>
+<span class="lineno">   65 </span>-- | instances
+<span class="lineno">   66 </span> 
+<span class="lineno">   67 </span>
+<span class="lineno">   68 </span>-- -- Show
+<span class="lineno">   69 </span>
+<span class="lineno">   70 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show Vec</span></span></span></span> where        
+<span class="lineno">   71 </span>  <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">show v = show (unsafePerformIO $ vecGetVS v)</span></span>
+<span class="lineno">   72 </span>
+<span class="lineno">   73 </span>
+<span class="lineno">   74 </span>
+<span class="lineno">   75 </span>
+<span class="lineno">   76 </span>-- -- Vector.Generic.Mutable
+<span class="lineno">   77 </span>
+<span class="lineno">   78 </span>data MVec s a = MVec 
+<span class="lineno">   79 </span>    {-# UNPACK #-} !Int  -- global vector length (see `vecCreateMPI() `)          
+<span class="lineno">   80 </span>    {-# UNPACK #-} !Vec
+<span class="lineno">   81 </span>
+<span class="lineno">   82 </span>-- instance VGM.MVector MVec PetscScalar_ where
+<span class="lineno">   83 </span>--   basicLength (MVec n _) = n
+<span class="lineno">   84 </span>
+<span class="lineno">   85 </span>
+<span class="lineno">   86 </span>
+<span class="lineno">   87 </span>-- | data
+<span class="lineno">   88 </span>            
+<span class="lineno">   89 </span>
+<span class="lineno">   90 </span>{- STATE : Vec, VectorData
+<span class="lineno">   91 </span>
+<span class="lineno">   92 </span>NB : state is replicated in the distributed memory and in local data. How do we keep these consistent ?
+<span class="lineno">   93 </span>
+<span class="lineno">   94 </span>For a given Vec; what stays constant is:
+<span class="lineno">   95 </span>* length (global and local)
+<span class="lineno">   96 </span>* MPI communicator
+<span class="lineno">   97 </span>
+<span class="lineno">   98 </span>-}
+<span class="lineno">   99 </span>
+<span class="lineno">  100 </span>
+<span class="lineno">  101 </span>-- -- StorableContainer
+<span class="lineno">  102 </span>
+<span class="lineno">  103 </span>-- instance StorableContainer Vec where
+<span class="lineno">  104 </span>--   type SCInfo Vec = VecInfo
+<span class="lineno">  105 </span>--   type SCLocal Vec = VS.Vector PetscScalar_
+<span class="lineno">  106 </span>--   type SCRemote Vec = Vec
+<span class="lineno">  107 </span>--   initRemote = vecCreateMPIInfo  -- must import PutGet.Vec for these ..
+<span class="lineno">  108 </span>--   updateLocal = vecGetVector
+<span class="lineno">  109 </span>--   updateRemote = vecRestoreVector
+<span class="lineno">  110 </span>--   withRemote v = bracket (vecGetVector v) (vecRestoreVector v)
+<span class="lineno">  111 </span>--   destroyRemote = vecDestroy
+<span class="lineno">  112 </span>
+<span class="lineno">  113 </span>
+<span class="lineno">  114 </span>
+<span class="lineno">  115 </span>
+<span class="lineno">  116 </span>
+<span class="lineno">  117 </span>
+<span class="lineno">  118 </span>
+<span class="lineno">  119 </span>
+<span class="lineno">  120 </span>
+<span class="lineno">  121 </span>
+<span class="lineno">  122 </span>
+<span class="lineno">  123 </span>
+<span class="lineno">  124 </span>
+<span class="lineno">  125 </span>
+<span class="lineno">  126 </span>
+<span class="lineno">  127 </span>
+<span class="lineno">  128 </span>-- -- --- 
+<span class="lineno">  129 </span>
+<span class="lineno">  130 </span>
+<span class="lineno">  131 </span>data PetscVector = PetscVector !VecInfoBase Vec
+<span class="lineno">  132 </span>
+<span class="lineno">  133 </span>data PVector = PVector VecInfoBase Vec (V.Vector PetscScalar_)
+<span class="lineno">  134 </span>
+<span class="lineno">  135 </span>
+<span class="lineno">  136 </span>data VecInfoBase = VecInfo 
+<span class="lineno">  137 </span> {<span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecInfoMpiComm</span></span></span> :: Comm ,
+<span class="lineno">  138 </span>  <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecInfoSizeLocal</span></span></span> :: !Int ,
+<span class="lineno">  139 </span>  <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecInfoSizeGlobal</span></span></span> :: !Int } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  140 </span>
+<span class="lineno">  141 </span>
+<span class="lineno">  142 </span>
+<span class="lineno">  143 </span>
+<span class="lineno">  144 </span>
+<span class="lineno">  145 </span>
+<span class="lineno">  146 </span>
+<span class="lineno">  147 </span>
+<span class="lineno">  148 </span>
+<span class="lineno">  149 </span>
+<span class="lineno">  150 </span>
+<span class="lineno">  151 </span>
+<span class="lineno">  152 </span>
+<span class="lineno">  153 </span>
+<span class="lineno">  154 </span>
+<span class="lineno">  155 </span>
+<span class="lineno">  156 </span>
+<span class="lineno">  157 </span>
+<span class="lineno">  158 </span>
+<span class="lineno">  159 </span>
+<span class="lineno">  160 </span>
+<span class="lineno">  161 </span>
+<span class="lineno">  162 </span>
+<span class="lineno">  163 </span>
+<span class="lineno">  164 </span>-- withScalarVector ::
+<span class="lineno">  165 </span>--   (Monad m, MonadTrans t, MonadResource (t m)) =&gt;
+<span class="lineno">  166 </span>--   (PVector PetscScalar_ -&gt; m a) -&gt;
+<span class="lineno">  167 </span>--   (Comm, V.Vector PetscScalar_) -&gt;
+<span class="lineno">  168 </span>--   t m a 
+<span class="lineno">  169 </span>-- withScalarVector f = runReaderT $ do
+<span class="lineno">  170 </span>--   (comm, v0) &lt;- ask
+<span class="lineno">  171 </span>--   (_k, res) &lt;- lift (allocate (vcmpi comm v0) vdestroy)
+<span class="lineno">  172 </span>--   x &lt;- lift $ lift $ f res
+<span class="lineno">  173 </span>--   lift $ release _k
+<span class="lineno">  174 </span>--   return x
+<span class="lineno">  175 </span>
+<span class="lineno">  176 </span>
+<span class="lineno">  177 </span>
+<span class="lineno">  178 </span>
+<span class="lineno">  179 </span>
+<span class="lineno">  180 </span>
+<span class="lineno">  181 </span>
+<span class="lineno">  182 </span>
+<span class="lineno">  183 </span>
+<span class="lineno">  184 </span>
+<span class="lineno">  185 </span>
+<span class="lineno">  186 </span>
+<span class="lineno">  187 </span>
+<span class="lineno">  188 </span>
+<span class="lineno">  189 </span>
+<span class="lineno">  190 </span>
+<span class="lineno">  191 </span>
+<span class="lineno">  192 </span>
+<span class="lineno">  193 </span>
+<span class="lineno">  194 </span>-- --
+<span class="lineno">  195 </span>
+<span class="lineno">  196 </span>-- type Config = VecInfo
+<span class="lineno">  197 </span>-- type Resource = Vec
+<span class="lineno">  198 </span>
+<span class="lineno">  199 </span>-- newtype MPVector a =
+<span class="lineno">  200 </span>--   MPV {runMPVector :: ReaderT Config (StateT Resource IO) a}
+<span class="lineno">  201 </span>--     deriving (Functor, Applicative, Monad)
+<span class="lineno">  202 </span>
+<span class="lineno">  203 </span>
+<span class="lineno">  204 </span>
+<span class="lineno">  205 </span>
+<span class="lineno">  206 </span>
+<span class="lineno">  207 </span>
+<span class="lineno">  208 </span>
+<span class="lineno">  209 </span>
+<span class="lineno">  210 </span>
+<span class="lineno">  211 </span>
+<span class="lineno">  212 </span>
+<span class="lineno">  213 </span>
+<span class="lineno">  214 </span>
+<span class="lineno">  215 </span>
+<span class="lineno">  216 </span>
+<span class="lineno">  217 </span>
+<span class="lineno">  218 </span>
+<span class="lineno">  219 </span>-- | vecCreate
+<span class="lineno">  220 </span>
+<span class="lineno">  221 </span>vecCreate :: Comm -&gt; IO Vec
+<span class="lineno">  222 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecCreate c = chk1 (vecCreate' c)</span></span>
+<span class="lineno">  223 </span>
+<span class="lineno">  224 </span>
+<span class="lineno">  225 </span>vecCreateMPI :: Comm -&gt; Int -&gt; Int -&gt; IO Vec 
+<span class="lineno">  226 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecCreateMPI c nloc nglob</span>
+<span class="lineno">  227 </span><span class="spaces">  </span><span class="nottickedoff">| nloc&gt;=0 &amp;&amp; nloc&lt;=nglob = vecCreateMPI_ c nloc nglob</span>
+<span class="lineno">  228 </span><span class="spaces">  </span><span class="nottickedoff">| otherwise = error &quot;vecCreateMPI: [nloc] must sum to nglob&quot;</span>
+<span class="lineno">  229 </span><span class="spaces">    </span><span class="nottickedoff">where</span>
+<span class="lineno">  230 </span><span class="spaces">      </span><span class="nottickedoff">vecCreateMPI_ co nLocal nGlobal = chk1 (vecCreateMPI' co nLocal nGlobal)</span></span>
+<span class="lineno">  231 </span>      
+<span class="lineno">  232 </span>
+<span class="lineno">  233 </span>vecCreateMPIdecideLocalSize :: Comm -&gt; Int -&gt; IO Vec
+<span class="lineno">  234 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">vecCreateMPIdecideLocalSize co nglob</span>
+<span class="lineno">  235 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">nglob &gt; 0</span> = vcmpidl co nglob</span>
+<span class="lineno">  236 </span><span class="spaces">  </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">error &quot;vecCreateMPIdecideLocalSize: global dim must be &gt; 0&quot;</span></span>
+<span class="lineno">  237 </span><span class="spaces">     </span><span class="istickedoff">where</span>
+<span class="lineno">  238 </span><span class="spaces">       </span><span class="istickedoff">vcmpidl c n  = chk1 (vecCreateMPIdecideLoc' c n)</span></span>
+<span class="lineno">  239 </span>
+<span class="lineno">  240 </span>
+<span class="lineno">  241 </span>
+<span class="lineno">  242 </span>
+<span class="lineno">  243 </span>
+<span class="lineno">  244 </span>-- | &quot; , using VecInfo
+<span class="lineno">  245 </span>
+<span class="lineno">  246 </span>vecCreateMPIInfo :: VecInfoBase -&gt; IO Vec
+<span class="lineno">  247 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecCreateMPIInfo vi = vecCreateMPI co nl ng where</span>
+<span class="lineno">  248 </span><span class="spaces">  </span><span class="nottickedoff">nl = vecInfoSizeLocal vi</span>
+<span class="lineno">  249 </span><span class="spaces">  </span><span class="nottickedoff">ng = vecInfoSizeGlobal vi</span>
+<span class="lineno">  250 </span><span class="spaces">  </span><span class="nottickedoff">co = vecInfoMpiComm vi</span></span>
+<span class="lineno">  251 </span>
+<span class="lineno">  252 </span>vecDestroy :: Vec -&gt; IO ()
+<span class="lineno">  253 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">vecDestroy v = chk0 (vecDestroy' v)</span></span>
+<span class="lineno">  254 </span>
+<span class="lineno">  255 </span>vecDestroyRight :: VecRight -&gt; IO ()
+<span class="lineno">  256 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecDestroyRight (VecRight vr) = vecDestroy vr</span></span>
+<span class="lineno">  257 </span>vecDestroyLeft :: VecLeft -&gt; IO ()
+<span class="lineno">  258 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecDestroyLeft (VecLeft vl) = vecDestroy vl</span></span>
+<span class="lineno">  259 </span>
+<span class="lineno">  260 </span>
+<span class="lineno">  261 </span>vecSetSizes :: Vec -&gt; Int -&gt; IO ()
+<span class="lineno">  262 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecSetSizes v n = chk0 $ vecSetSizes1 v (toCInt n)</span></span>
+<span class="lineno">  263 </span>
+<span class="lineno">  264 </span>
+<span class="lineno">  265 </span>
+<span class="lineno">  266 </span>
+<span class="lineno">  267 </span>
+<span class="lineno">  268 </span>
+<span class="lineno">  269 </span>
+<span class="lineno">  270 </span>
+<span class="lineno">  271 </span>
+<span class="lineno">  272 </span>
+<span class="lineno">  273 </span>
+<span class="lineno">  274 </span>
+<span class="lineno">  275 </span>
+<span class="lineno">  276 </span>
+<span class="lineno">  277 </span>
+<span class="lineno">  278 </span>-- | `withVec` brackets
+<span class="lineno">  279 </span>
+<span class="lineno">  280 </span>withVec :: IO Vec -&gt; (Vec -&gt; IO b) -&gt; IO b
+<span class="lineno">  281 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">withVec vc = bracket vc vecDestroy</span></span>
+<span class="lineno">  282 </span>
+<span class="lineno">  283 </span>withVecRight :: IO VecRight -&gt; (VecRight -&gt; IO b) -&gt; IO b
+<span class="lineno">  284 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecRight vcr = bracket vcr vecDestroyRight</span></span>
+<span class="lineno">  285 </span>withVecLeft :: IO VecLeft -&gt; (VecLeft -&gt; IO b) -&gt; IO b
+<span class="lineno">  286 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecLeft vcl = bracket vcl vecDestroyLeft</span></span>
+<span class="lineno">  287 </span>
+<span class="lineno">  288 </span>withVecRL :: IO VecRight -&gt; IO VecLeft -&gt; (VecRight -&gt; VecLeft -&gt; IO a) -&gt; IO a
+<span class="lineno">  289 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecRL vcr vcl f =</span>
+<span class="lineno">  290 </span><span class="spaces">  </span><span class="nottickedoff">withVecRight vcr $ \r -&gt;</span>
+<span class="lineno">  291 </span><span class="spaces">  </span><span class="nottickedoff">withVecLeft vcl $ \l -&gt;</span>
+<span class="lineno">  292 </span><span class="spaces">   </span><span class="nottickedoff">f r l</span></span>
+<span class="lineno">  293 </span>
+<span class="lineno">  294 </span>
+<span class="lineno">  295 </span>
+<span class="lineno">  296 </span>withVecCreate :: VecInfoBase -&gt; (Vec -&gt; IO a) -&gt; IO a
+<span class="lineno">  297 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecCreate vv = withVec (vecCreate c)  where</span>
+<span class="lineno">  298 </span><span class="spaces">  </span><span class="nottickedoff">c = vecInfoMpiComm vv</span></span>
+<span class="lineno">  299 </span>
+<span class="lineno">  300 </span>
+<span class="lineno">  301 </span>withVecCreateMPI :: VecInfoBase -&gt; (Vec -&gt; IO a) -&gt; IO a
+<span class="lineno">  302 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecCreateMPI vi = withVec (vecCreateMPIInfo vi)</span></span> 
+<span class="lineno">  303 </span>
+<span class="lineno">  304 </span>
+<span class="lineno">  305 </span>
+<span class="lineno">  306 </span>withVecMPIPipeline :: VecInfoBase -&gt; (Vec -&gt; IO a) -&gt; (Vec -&gt; IO b) -&gt; IO b 
+<span class="lineno">  307 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecMPIPipeline vv pre post = withVecCreateMPI vv $ \v -&gt; do</span>
+<span class="lineno">  308 </span><span class="spaces">  </span><span class="nottickedoff">pre v</span>
+<span class="lineno">  309 </span><span class="spaces">  </span><span class="nottickedoff">vecAssembly v</span>
+<span class="lineno">  310 </span><span class="spaces">  </span><span class="nottickedoff">post v</span></span>
+<span class="lineno">  311 </span>
+<span class="lineno">  312 </span>
+<span class="lineno">  313 </span>
+<span class="lineno">  314 </span>
+<span class="lineno">  315 </span>
+<span class="lineno">  316 </span>
+<span class="lineno">  317 </span>
+<span class="lineno">  318 </span>
+<span class="lineno">  319 </span>
+<span class="lineno">  320 </span>
+<span class="lineno">  321 </span>
+<span class="lineno">  322 </span>
+<span class="lineno">  323 </span>
+<span class="lineno">  324 </span>
+<span class="lineno">  325 </span>
+<span class="lineno">  326 </span>
+<span class="lineno">  327 </span>
+<span class="lineno">  328 </span>-- | assembly 
+<span class="lineno">  329 </span>
+<span class="lineno">  330 </span>vecAssemblyBegin, vecAssemblyEnd :: Vec -&gt; IO ()
+<span class="lineno">  331 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">vecAssemblyBegin v = chk0 (vecAssemblyBegin' v)</span></span>
+<span class="lineno">  332 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">vecAssemblyEnd v = chk0 (vecAssemblyEnd' v)</span></span>
+<span class="lineno">  333 </span>
+<span class="lineno">  334 </span>vecAssembly :: Vec -&gt; IO ()
+<span class="lineno">  335 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">vecAssembly v = vecAssemblyBegin v  &gt;&gt; vecAssemblyEnd v</span></span> 
+<span class="lineno">  336 </span>
+<span class="lineno">  337 </span>
+<span class="lineno">  338 </span>-- | withVecAssemblyChk : perform a computation while vector assembly takes place
+<span class="lineno">  339 </span>withVecAssembly :: Vec -&gt; IO a -&gt; IO a
+<span class="lineno">  340 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecAssembly v = bracket_ (vecAssemblyBegin v) (vecAssemblyEnd v)</span></span>
+<span class="lineno">  341 </span>
+<span class="lineno">  342 </span>
+<span class="lineno">  343 </span>
+<span class="lineno">  344 </span>
+<span class="lineno">  345 </span>
+<span class="lineno">  346 </span>
+<span class="lineno">  347 </span>-- | vecEqual : compares two vectors. Returns true if the two vectors are either pointing to the same memory buffer, or if the two vectors have the same local and global layout as well as bitwise equality of all entries. Does NOT take round-off errors into account.
+<span class="lineno">  348 </span>vecEqual :: Vec -&gt; Vec -&gt; IO Bool
+<span class="lineno">  349 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecEqual v1 v2 = petscBoolCToBool &lt;$&gt; chk1 (vecEqual' v1 v2)</span></span>
+<span class="lineno">  350 </span>
+<span class="lineno">  351 </span>
+<span class="lineno">  352 </span>
+<span class="lineno">  353 </span>
+<span class="lineno">  354 </span>
+<span class="lineno">  355 </span>
+<span class="lineno">  356 </span>
+<span class="lineno">  357 </span>
+<span class="lineno">  358 </span>-- | vecCopy, vecDuplicate -&gt; vecClone
+<span class="lineno">  359 </span>
+<span class="lineno">  360 </span>vecCopy :: Vec -&gt; Vec -&gt; IO ()
+<span class="lineno">  361 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecCopy vorig vcopy = chk0 $ vecCopy1 vorig vcopy</span></span>
+<span class="lineno">  362 </span>
+<span class="lineno">  363 </span>-- | vecDuplicate : allocates memory for an indentical Vec
+<span class="lineno">  364 </span>
+<span class="lineno">  365 </span>vecDuplicate :: Vec -&gt; IO Vec
+<span class="lineno">  366 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">vecDuplicate v = chk1 $ vecDuplicate1 v</span></span>
+<span class="lineno">  367 </span>
+<span class="lineno">  368 </span>-- | vecClone : duplicates Vec and copies content
+<span class="lineno">  369 </span>
+<span class="lineno">  370 </span>vecClone :: Vec -&gt; IO Vec
+<span class="lineno">  371 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecClone v = do</span>
+<span class="lineno">  372 </span><span class="spaces">  </span><span class="nottickedoff">vcopy &lt;- vecDuplicate v</span>
+<span class="lineno">  373 </span><span class="spaces">  </span><span class="nottickedoff">vecCopy v vcopy</span>
+<span class="lineno">  374 </span><span class="spaces">  </span><span class="nottickedoff">return vcopy</span></span>
+<span class="lineno">  375 </span>
+<span class="lineno">  376 </span>
+<span class="lineno">  377 </span>
+<span class="lineno">  378 </span>
+<span class="lineno">  379 </span>withVecDuplicate :: Vec -&gt; (Vec -&gt; IO a) -&gt; IO a
+<span class="lineno">  380 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">withVecDuplicate v = withVec (vecDuplicate v)</span></span>
+<span class="lineno">  381 </span>
+<span class="lineno">  382 </span>withVecClone :: Vec -&gt; (Vec -&gt; IO a) -&gt; IO a
+<span class="lineno">  383 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecClone v = withVec (vecClone v)</span></span> 
+<span class="lineno">  384 </span>
+<span class="lineno">  385 </span>withVecNew :: Comm -&gt; V.Vector PetscScalar_ -&gt; (Vec -&gt; IO a) -&gt; IO a
+<span class="lineno">  386 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">withVecNew c v =</span>
+<span class="lineno">  387 </span><span class="spaces">  </span><span class="istickedoff">withVec (vecCreateMPIFromVectorDecideLocalSize c v)</span></span>
+<span class="lineno">  388 </span>
+<span class="lineno">  389 </span>
+<span class="lineno">  390 </span>
+<span class="lineno">  391 </span>
+<span class="lineno">  392 </span>
+<span class="lineno">  393 </span>-- | use a Generic Vector copy of Vec `v` (does NOT modify `v`)
+<span class="lineno">  394 </span>
+<span class="lineno">  395 </span>withVecVector :: VG.Vector w PetscScalar_ =&gt;
+<span class="lineno">  396 </span>     Vec -&gt; (w PetscScalar_ -&gt; IO a) -&gt; IO a
+<span class="lineno">  397 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecVector v io = do</span>
+<span class="lineno">  398 </span><span class="spaces">  </span><span class="nottickedoff">vv &lt;- vecGetVS v</span>
+<span class="lineno">  399 </span><span class="spaces">  </span><span class="nottickedoff">y &lt;- io (V.convert vv)</span>
+<span class="lineno">  400 </span><span class="spaces">  </span><span class="nottickedoff">vecPutVS v vv</span>
+<span class="lineno">  401 </span><span class="spaces">  </span><span class="nottickedoff">return y</span></span> -- (y :: V.Vector PetscScalar_)
+<span class="lineno">  402 </span>
+<span class="lineno">  403 </span>
+<span class="lineno">  404 </span>
+<span class="lineno">  405 </span>
+<span class="lineno">  406 </span>
+<span class="lineno">  407 </span>
+<span class="lineno">  408 </span>
+<span class="lineno">  409 </span>
+<span class="lineno">  410 </span>
+<span class="lineno">  411 </span>
+<span class="lineno">  412 </span>
+<span class="lineno">  413 </span>
+<span class="lineno">  414 </span>
+<span class="lineno">  415 </span>
+<span class="lineno">  416 </span>
+<span class="lineno">  417 </span>
+<span class="lineno">  418 </span>-- | setting Vec attributes
+<span class="lineno">  419 </span>
+<span class="lineno">  420 </span>vecSetName :: Vec -&gt; String -&gt; IO ()
+<span class="lineno">  421 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecSetName v name = chk0 $ vecSetName1 v name</span></span>
+<span class="lineno">  422 </span>
+<span class="lineno">  423 </span>vecSet :: Vec -&gt; PetscScalar_ -&gt; IO ()
+<span class="lineno">  424 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecSet v n = chk0 $ vecSet1 v n</span></span>
+<span class="lineno">  425 </span>
+<span class="lineno">  426 </span>
+<span class="lineno">  427 </span>
+<span class="lineno">  428 </span>
+<span class="lineno">  429 </span>
+<span class="lineno">  430 </span>
+<span class="lineno">  431 </span>
+<span class="lineno">  432 </span>
+<span class="lineno">  433 </span>
+<span class="lineno">  434 </span>
+<span class="lineno">  435 </span>
+<span class="lineno">  436 </span>
+<span class="lineno">  437 </span>
+<span class="lineno">  438 </span>
+<span class="lineno">  439 </span>
+<span class="lineno">  440 </span>
+<span class="lineno">  441 </span>
+<span class="lineno">  442 </span>
+<span class="lineno">  443 </span>-- | setting Vec values
+<span class="lineno">  444 </span>
+<span class="lineno">  445 </span>
+<span class="lineno">  446 </span>-- common pattern :
+<span class="lineno">  447 </span>
+<span class="lineno">  448 </span>-- setWPointers ix y wiv m =
+<span class="lineno">  449 </span>--   wiv ix $ \ixx -&gt;
+<span class="lineno">  450 </span>--    wiv y $ \yy -&gt;
+<span class="lineno">  451 </span>--     m ixx yy
+<span class="lineno">  452 </span>
+<span class="lineno">  453 </span>vecSetValuesUnsafe0 ::
+<span class="lineno">  454 </span>  Vec -&gt; CInt -&gt; Ptr CInt -&gt; Ptr PetscScalar_ -&gt; InsertMode_ -&gt; IO ()
+<span class="lineno">  455 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecSetValuesUnsafe0 v ni ix y im = chk0 (vecSetValues' v ni ix y im)</span></span>
+<span class="lineno">  456 </span>
+<span class="lineno">  457 </span>
+<span class="lineno">  458 </span>-- safeFlag ix_ y_ sv_ = c1 &amp;&amp; c2 where
+<span class="lineno">  459 </span>--   c1 = length ix_ == length y_
+<span class="lineno">  460 </span>--   c2 = a &gt;= 0 &amp;&amp; b &lt;= sv_
+<span class="lineno">  461 </span>--   ixs = qsort ix_
+<span class="lineno">  462 </span>--   (a, b) = (head ixs, last ixs)
+<span class="lineno">  463 </span>
+<span class="lineno">  464 </span>-- safeFlag ix y = c1 &amp;&amp; c2 where
+<span class="lineno">  465 </span>--   c1 = length ix == length y
+<span class="lineno">  466 </span>--   c2 = safeIndices y ix
+<span class="lineno">  467 </span>
+<span class="lineno">  468 </span>
+<span class="lineno">  469 </span>
+<span class="lineno">  470 </span>
+<span class="lineno">  471 </span>
+<span class="lineno">  472 </span>
+<span class="lineno">  473 </span>
+<span class="lineno">  474 </span>
+<span class="lineno">  475 </span>
+<span class="lineno">  476 </span>
+<span class="lineno">  477 </span>-- | setting Vec values, Data.Vector interface
+<span class="lineno">  478 </span>
+<span class="lineno">  479 </span>
+<span class="lineno">  480 </span>
+<span class="lineno">  481 </span>vecSetValuesUnsafeVector ::
+<span class="lineno">  482 </span>  Vec -&gt;
+<span class="lineno">  483 </span>  V.Vector Int -&gt;
+<span class="lineno">  484 </span>  V.Vector PetscScalar_ -&gt;            -- NB! `y` must be same size as `ix`
+<span class="lineno">  485 </span>  InsertMode_ -&gt;
+<span class="lineno">  486 </span>  IO ()
+<span class="lineno">  487 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">vecSetValuesUnsafeVector v ix y im =</span>
+<span class="lineno">  488 </span><span class="spaces">  </span><span class="istickedoff">VS.unsafeWith ixc $ \ixx -&gt;</span>
+<span class="lineno">  489 </span><span class="spaces">   </span><span class="istickedoff">VS.unsafeWith yc $ \yy -&gt; chk0 (vecSetValues' v ni ixx yy im)</span>
+<span class="lineno">  490 </span><span class="spaces">    </span><span class="istickedoff">where</span>
+<span class="lineno">  491 </span><span class="spaces">      </span><span class="istickedoff">ni = toCInt (V.length ix)</span>
+<span class="lineno">  492 </span><span class="spaces">      </span><span class="istickedoff">ixc = V.convert $ V.map toCInt ix</span>
+<span class="lineno">  493 </span><span class="spaces">      </span><span class="istickedoff">yc = V.convert y</span></span>
+<span class="lineno">  494 </span>
+<span class="lineno">  495 </span>vecSetValuesUnsafeVector1 ::
+<span class="lineno">  496 </span>  Vec -&gt;
+<span class="lineno">  497 </span>  V.Vector (Int, PetscScalar_) -&gt;      -- (idx, value)
+<span class="lineno">  498 </span>  InsertMode_ -&gt;
+<span class="lineno">  499 </span>  IO ()
+<span class="lineno">  500 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecSetValuesUnsafeVector1 v ixy =</span>
+<span class="lineno">  501 </span><span class="spaces">  </span><span class="nottickedoff">vecSetValuesUnsafeVector v ix y</span>
+<span class="lineno">  502 </span><span class="spaces">    </span><span class="nottickedoff">where</span>
+<span class="lineno">  503 </span><span class="spaces">      </span><span class="nottickedoff">(ix, y) = V.unzip ixy</span></span>
+<span class="lineno">  504 </span>
+<span class="lineno">  505 </span>
+<span class="lineno">  506 </span>
+<span class="lineno">  507 </span>
+<span class="lineno">  508 </span>
+<span class="lineno">  509 </span>
+<span class="lineno">  510 </span>
+<span class="lineno">  511 </span>    
+<span class="lineno">  512 </span>
+<span class="lineno">  513 </span>-- | generic functions using length of Vec ang VG.Vector :
+<span class="lineno">  514 </span>-- all the `VecSet..` functions should be refactored in terms of these ones
+<span class="lineno">  515 </span>
+<span class="lineno">  516 </span>
+<span class="lineno">  517 </span>    
+<span class="lineno">  518 </span>-- -- -- 3 vectors : Vec, Vector and Vector of indices
+<span class="lineno">  519 </span>
+<span class="lineno">  520 </span>
+<span class="lineno">  521 </span>
+<span class="lineno">  522 </span>-- -- | index in range of Vec ?
+<span class="lineno">  523 </span>-- -- validVecIndex :: Vec -&gt; Int -&gt; Bool
+<span class="lineno">  524 </span>-- -- validVecIndex v = Ix.inRange (0, vecSize v - 1)
+<span class="lineno">  525 </span>
+<span class="lineno">  526 </span>
+<span class="lineno">  527 </span>
+<span class="lineno">  528 </span>
+<span class="lineno">  529 </span>
+<span class="lineno">  530 </span>
+<span class="lineno">  531 </span>-- withVecVectorLengths3 :: (VG.Vector v1 a1, VG.Vector v a) =&gt;
+<span class="lineno">  532 </span>--      Vec -&gt;
+<span class="lineno">  533 </span>--      v1 a1 -&gt;
+<span class="lineno">  534 </span>--      v a -&gt;
+<span class="lineno">  535 </span>--      (Vec -&gt; Int -&gt; v1 a1 -&gt; Int -&gt; v a -&gt; Int -&gt; a2) -&gt; 
+<span class="lineno">  536 </span>--      a2
+<span class="lineno">  537 </span>-- withVecVectorLengths3 v v2 v3 m =
+<span class="lineno">  538 </span>--   whenEqualInts3 lv lv2 lv3
+<span class="lineno">  539 </span>--     (&quot;withVecVectorLengths3 : length mismatch : &quot; ++
+<span class="lineno">  540 </span>--      show lv ++ &quot;, &quot; ++ show lv2 ++ &quot;, &quot; ++ show lv3)
+<span class="lineno">  541 </span>--     (m v lv v2 lv2 v3 lv3)
+<span class="lineno">  542 </span>--   where
+<span class="lineno">  543 </span>--     lv = vecSize v
+<span class="lineno">  544 </span>--     lv2 = VG.length v2
+<span class="lineno">  545 </span>--     lv3 = VG.length v3
+<span class="lineno">  546 </span>
+<span class="lineno">  547 </span>-- withVecVectorIxPtr :: (VG.Vector v a, VG.Vector vi b, Storable a, Storable b) =&gt;
+<span class="lineno">  548 </span>--   Vec -&gt;         -- Vec
+<span class="lineno">  549 </span>--   v a -&gt;         -- VG.Vector (contents)
+<span class="lineno">  550 </span>--   vi b -&gt;        -- VG.Vector (indices, i.e. b ~ CInt)
+<span class="lineno">  551 </span>--   t -&gt;
+<span class="lineno">  552 </span>--   (Vec -&gt; Int -&gt; Ptr b -&gt; Int -&gt; Ptr a -&gt; Int -&gt; t -&gt; IO c) -&gt;
+<span class="lineno">  553 </span>--   IO c
+<span class="lineno">  554 </span>-- withVecVectorIxPtr v y ix im m =
+<span class="lineno">  555 </span>--   withVecVectorLengths3 v ix y $ \vv lvv ixx lix yy lyy -&gt; do
+<span class="lineno">  556 </span>--     let ixc = V.convert ixx           -- position index
+<span class="lineno">  557 </span>--     VS.unsafeWith ixc $ \ixcp -&gt; do
+<span class="lineno">  558 </span>--       let yc = V.convert yy           -- contents
+<span class="lineno">  559 </span>--       VS.unsafeWith yc $ \ycp -&gt; m vv lvv ixcp lix ycp lyy im
+<span class="lineno">  560 </span>
+<span class="lineno">  561 </span>
+<span class="lineno">  562 </span>vecSetValuesRangeVector :: Vec -&gt; V.Vector PetscScalar_ -&gt; InsertMode_ -&gt; IO ()
+<span class="lineno">  563 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecSetValuesRangeVector v =</span>
+<span class="lineno">  564 </span><span class="spaces">  </span><span class="nottickedoff">vecSetValuesUnsafeVector v ix_ where</span>
+<span class="lineno">  565 </span><span class="spaces">    </span><span class="nottickedoff">ix_ = V.fromList [0 .. m-1]</span>
+<span class="lineno">  566 </span><span class="spaces">    </span><span class="nottickedoff">m = vecSize v</span></span>
+<span class="lineno">  567 </span>
+<span class="lineno">  568 </span>
+<span class="lineno">  569 </span>-- vecSetValuesRange :: Vec -&gt; V.Vector PetscScalar_ -&gt; InsertMode_ -&gt; IO ()
+<span class="lineno">  570 </span>-- vecSetValuesRange v y im = do
+<span class="lineno">  571 </span>--   let ix = V.fromList [0 .. toCInt ly-1]
+<span class="lineno">  572 </span>--   withVecVectorIxPtr v y ix im $ \vv _ ixp _ yp _ imm -&gt;
+<span class="lineno">  573 </span>--     chk0 (vecSetValues' vv (toCInt lv) ixp yp imm)
+<span class="lineno">  574 </span>--   where
+<span class="lineno">  575 </span>--     lv = vecSize v
+<span class="lineno">  576 </span>--     ly = V.length y
+<span class="lineno">  577 </span>
+<span class="lineno">  578 </span>  
+<span class="lineno">  579 </span>
+<span class="lineno">  580 </span>-- vecSetValuesArbRange vIn vOut ixDelta
+<span class="lineno">  581 </span>
+<span class="lineno">  582 </span>
+<span class="lineno">  583 </span>
+<span class="lineno">  584 </span>
+<span class="lineno">  585 </span>
+<span class="lineno">  586 </span>
+<span class="lineno">  587 </span>
+<span class="lineno">  588 </span>
+<span class="lineno">  589 </span>-- | &quot;Assembly&quot; typeclass ?
+<span class="lineno">  590 </span>
+<span class="lineno">  591 </span>
+<span class="lineno">  592 </span>{- what if we forget to assemble Vec ? CLASS Assembly : data that needs to be assembled before use -}
+<span class="lineno">  593 </span>
+<span class="lineno">  594 </span>
+<span class="lineno">  595 </span>
+<span class="lineno">  596 </span>
+<span class="lineno">  597 </span>
+<span class="lineno">  598 </span>
+<span class="lineno">  599 </span>
+<span class="lineno">  600 </span>-- | set Vec values via (idx, value) Vector + assemble
+<span class="lineno">  601 </span>
+<span class="lineno">  602 </span>vecSetValuesUnsafeVector1A ::
+<span class="lineno">  603 </span>  Vec -&gt;
+<span class="lineno">  604 </span>  V.Vector (Int, PetscScalar_) -&gt;
+<span class="lineno">  605 </span>  InsertMode_ -&gt;
+<span class="lineno">  606 </span>  IO Vec
+<span class="lineno">  607 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecSetValuesUnsafeVector1A v ixy im = do</span>
+<span class="lineno">  608 </span><span class="spaces">  </span><span class="nottickedoff">vecSetValuesUnsafeVector1 v ixy im</span>
+<span class="lineno">  609 </span><span class="spaces">  </span><span class="nottickedoff">vecAssembly v                   </span>
+<span class="lineno">  610 </span><span class="spaces">  </span><span class="nottickedoff">return v</span></span> 
+<span class="lineno">  611 </span>
+<span class="lineno">  612 </span>
+<span class="lineno">  613 </span>
+<span class="lineno">  614 </span>
+<span class="lineno">  615 </span>
+<span class="lineno">  616 </span>
+<span class="lineno">  617 </span>
+<span class="lineno">  618 </span>
+<span class="lineno">  619 </span>
+<span class="lineno">  620 </span>
+<span class="lineno">  621 </span>
+<span class="lineno">  622 </span>
+<span class="lineno">  623 </span>
+<span class="lineno">  624 </span>-- | creating Vec reference and setting its content from Data.Vector
+<span class="lineno">  625 </span>
+<span class="lineno">  626 </span>-- | TODO
+<span class="lineno">  627 </span>-- * abstract out:
+<span class="lineno">  628 </span>-- -- given Vector w and Comm c: create Vec v (decide creation routine from input data), fill it from w, assemble v, return v :
+<span class="lineno">  629 </span>
+<span class="lineno">  630 </span>vecCreateMPIFromVector :: Comm -&gt; Int -&gt; V.Vector PetscScalar_ -&gt; IO Vec
+<span class="lineno">  631 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecCreateMPIFromVector cc nloc w = do</span>
+<span class="lineno">  632 </span><span class="spaces">  </span><span class="nottickedoff">let dimv = V.length w</span>
+<span class="lineno">  633 </span><span class="spaces">      </span><span class="nottickedoff">ix = V.fromList [0 .. (dimv - 1)]</span>
+<span class="lineno">  634 </span><span class="spaces">  </span><span class="nottickedoff">v &lt;- vecCreateMPI cc nloc dimv</span>
+<span class="lineno">  635 </span><span class="spaces">  </span><span class="nottickedoff">vecSetValuesUnsafeVector v ix w InsertValues</span>
+<span class="lineno">  636 </span><span class="spaces">  </span><span class="nottickedoff">vecAssembly v</span>
+<span class="lineno">  637 </span><span class="spaces">  </span><span class="nottickedoff">return v</span></span>
+<span class="lineno">  638 </span>
+<span class="lineno">  639 </span>vecCreateMPIFromVectorDecideLocalSize :: Comm -&gt; V.Vector PetscScalar_ -&gt; IO Vec
+<span class="lineno">  640 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">vecCreateMPIFromVectorDecideLocalSize cc w = do</span>
+<span class="lineno">  641 </span><span class="spaces">  </span><span class="istickedoff">let dimv = V.length w</span>
+<span class="lineno">  642 </span><span class="spaces">      </span><span class="istickedoff">ix = V.fromList [0 ..(dimv - 1)]</span>
+<span class="lineno">  643 </span><span class="spaces">  </span><span class="istickedoff">v &lt;- vecCreateMPIdecideLocalSize cc dimv</span>
+<span class="lineno">  644 </span><span class="spaces">  </span><span class="istickedoff">vecSetValuesUnsafeVector v ix w InsertValues</span>
+<span class="lineno">  645 </span><span class="spaces">  </span><span class="istickedoff">vecAssembly v</span>
+<span class="lineno">  646 </span><span class="spaces">  </span><span class="istickedoff">return v</span></span>
+<span class="lineno">  647 </span> 
+<span class="lineno">  648 </span>
+<span class="lineno">  649 </span>
+<span class="lineno">  650 </span>
+<span class="lineno">  651 </span>
+<span class="lineno">  652 </span>
+<span class="lineno">  653 </span>
+<span class="lineno">  654 </span>
+<span class="lineno">  655 </span>
+<span class="lineno">  656 </span>
+<span class="lineno">  657 </span>-- | load Vec contents from HDF5
+<span class="lineno">  658 </span>
+<span class="lineno">  659 </span>vecLoad :: Vec -&gt; PetscViewer -&gt; IO ()
+<span class="lineno">  660 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecLoad v vi = chk0 $ vecLoad' v vi</span></span>
+<span class="lineno">  661 </span>
+<span class="lineno">  662 </span>
+<span class="lineno">  663 </span>
+<span class="lineno">  664 </span>
+<span class="lineno">  665 </span>
+<span class="lineno">  666 </span>
+<span class="lineno">  667 </span>
+<span class="lineno">  668 </span>
+<span class="lineno">  669 </span>
+<span class="lineno">  670 </span>
+<span class="lineno">  671 </span>
+<span class="lineno">  672 </span>
+<span class="lineno">  673 </span>
+<span class="lineno">  674 </span>
+<span class="lineno">  675 </span>-- | view Vec contents 
+<span class="lineno">  676 </span>
+<span class="lineno">  677 </span>vecView0 :: Vec -&gt; PetscViewer -&gt; IO ()
+<span class="lineno">  678 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecView0 m v = chk0 (vecView' m v)</span></span>
+<span class="lineno">  679 </span>
+<span class="lineno">  680 </span>vecView :: Vec -&gt; IO ()
+<span class="lineno">  681 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecView v =</span>
+<span class="lineno">  682 </span><span class="spaces">  </span><span class="nottickedoff">View.withPetscViewerTypeFmt P.commWorld ViewerAscii ViewFmtAsciiInfoDetail (vecView0 v)</span></span>
+<span class="lineno">  683 </span>
+<span class="lineno">  684 </span>vecViewStdout :: Vec -&gt; IO ()
+<span class="lineno">  685 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecViewStdout = vecView</span></span>
+<span class="lineno">  686 </span>
+<span class="lineno">  687 </span>
+<span class="lineno">  688 </span>
+<span class="lineno">  689 </span>
+<span class="lineno">  690 </span>
+<span class="lineno">  691 </span>
+<span class="lineno">  692 </span>
+<span class="lineno">  693 </span>
+<span class="lineno">  694 </span>
+<span class="lineno">  695 </span>
+<span class="lineno">  696 </span>
+<span class="lineno">  697 </span>
+<span class="lineno">  698 </span>-- | get Vec properties 
+<span class="lineno">  699 </span>
+<span class="lineno">  700 </span>vecGetOwnershipRange :: Vec -&gt; IO (Int, Int)
+<span class="lineno">  701 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecGetOwnershipRange v = </span>
+<span class="lineno">  702 </span><span class="spaces">  </span><span class="nottickedoff">chk1 (vecGetOwnershipRange1 v) &gt;&gt;= bothMf fi</span></span>
+<span class="lineno">  703 </span>
+<span class="lineno">  704 </span>vecGetSize :: Vec -&gt; IO Int
+<span class="lineno">  705 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">vecGetSize v = fi &lt;$&gt; chk1 ( vecGetSize' v)</span></span> 
+<span class="lineno">  706 </span>
+<span class="lineno">  707 </span>vecGetSizeUnsafe :: Vec -&gt; Int
+<span class="lineno">  708 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">vecGetSizeUnsafe = unsafePerformIO . vecGetSize</span></span>
+<span class="lineno">  709 </span>
+<span class="lineno">  710 </span>vecSize :: Vec -&gt; Int
+<span class="lineno">  711 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">vecSize = vecGetSizeUnsafe</span></span>
+<span class="lineno">  712 </span>
+<span class="lineno">  713 </span>
+<span class="lineno">  714 </span>withVecSize :: Vec -&gt; (Int -&gt; Vec -&gt; t) -&gt; t
+<span class="lineno">  715 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">withVecSize v f = f (vecSize v) v</span></span>
+<span class="lineno">  716 </span>
+<span class="lineno">  717 </span>
+<span class="lineno">  718 </span>
+<span class="lineno">  719 </span>
+<span class="lineno">  720 </span>
+<span class="lineno">  721 </span>
+<span class="lineno">  722 </span>
+<span class="lineno">  723 </span>
+<span class="lineno">  724 </span>
+<span class="lineno">  725 </span>
+<span class="lineno">  726 </span>-- | getting/restoring a contiguous array from/to a Vec 
+<span class="lineno">  727 </span>
+<span class="lineno">  728 </span>withVecArrayPtr :: Vec -&gt; (Ptr PetscScalar_ -&gt; IO a) -&gt; IO a
+<span class="lineno">  729 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">withVecArrayPtr v =</span>
+<span class="lineno">  730 </span><span class="spaces">  </span><span class="istickedoff">bracket (vecGetArrayPtr v) (vecRestoreArrayPtr v)</span>
+<span class="lineno">  731 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  732 </span><span class="spaces">    </span><span class="istickedoff">vecGetArrayPtr u = chk1 (vecGetArray' u)</span>
+<span class="lineno">  733 </span><span class="spaces">    </span><span class="istickedoff">vecRestoreArrayPtr u ar = chk0 (vecRestoreArray' u ar)</span></span>
+<span class="lineno">  734 </span>
+<span class="lineno">  735 </span>
+<span class="lineno">  736 </span>
+<span class="lineno">  737 </span>-- | &quot;,  read only
+<span class="lineno">  738 </span>
+<span class="lineno">  739 </span>withVecArrayReadPtr :: Vec -&gt; (Ptr PetscScalar_ -&gt; IO a) -&gt; IO a
+<span class="lineno">  740 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecArrayReadPtr v =</span>
+<span class="lineno">  741 </span><span class="spaces">  </span><span class="nottickedoff">bracket (vecGetArrayReadPtr v) (vecRestoreArrayReadPtr v)</span>
+<span class="lineno">  742 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
+<span class="lineno">  743 </span><span class="spaces">    </span><span class="nottickedoff">vecGetArrayReadPtr u = chk1 (vecGetArrayRead' u)</span>
+<span class="lineno">  744 </span><span class="spaces">    </span><span class="nottickedoff">vecRestoreArrayReadPtr u ar = chk0 (vecRestoreArrayRead' u ar)</span></span>
+<span class="lineno">  745 </span>
+<span class="lineno">  746 </span>
+<span class="lineno">  747 </span>-- | &quot; accessing size and pointer
+<span class="lineno">  748 </span>
+<span class="lineno">  749 </span>withVecSizedPtr :: Vec -&gt; (Int -&gt; Ptr PetscScalar_ -&gt; IO a) -&gt; IO a
+<span class="lineno">  750 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">withVecSizedPtr w io = withVecSize w (\n v -&gt; withVecArrayPtr v (io n))</span></span>
+<span class="lineno">  751 </span>
+<span class="lineno">  752 </span>-- |&quot;, read only
+<span class="lineno">  753 </span>
+<span class="lineno">  754 </span>withVecSizedReadPtr :: Vec -&gt; (Int -&gt; Ptr PetscScalar_ -&gt; IO a) -&gt; IO a
+<span class="lineno">  755 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecSizedReadPtr w io = withVecSize w (\n v -&gt; withVecArrayReadPtr v (io n))</span></span>
+<span class="lineno">  756 </span>
+<span class="lineno">  757 </span>
+<span class="lineno">  758 </span>
+<span class="lineno">  759 </span>
+<span class="lineno">  760 </span>
+<span class="lineno">  761 </span>
+<span class="lineno">  762 </span>
+<span class="lineno">  763 </span>-- | Vec get/set interface with Data.Vector
+<span class="lineno">  764 </span>-- -- using &quot;.Storable 
+<span class="lineno">  765 </span>-- NB : `vecPutVS` overwrites its Vec argument with contents of second argument
+<span class="lineno">  766 </span>
+<span class="lineno">  767 </span>vecGetVS :: Vec -&gt; IO (VS.Vector PetscScalar_)
+<span class="lineno">  768 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">vecGetVS v = withVecSizedPtr v getVS</span></span>
+<span class="lineno">  769 </span>
+<span class="lineno">  770 </span>vecPutVS :: Vec -&gt; VS.Vector PetscScalar_ -&gt; IO ()
+<span class="lineno">  771 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecPutVS v vu = withVecSizedPtr v (putVS vu)</span></span>  
+<span class="lineno">  772 </span>
+<span class="lineno">  773 </span>
+<span class="lineno">  774 </span>
+<span class="lineno">  775 </span>
+<span class="lineno">  776 </span>-- | &quot;, read only
+<span class="lineno">  777 </span>
+<span class="lineno">  778 </span>vecGetVSRead :: Vec -&gt; IO (VS.Vector PetscScalar_)
+<span class="lineno">  779 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecGetVSRead v = withVecSizedReadPtr v getVS</span></span>
+<span class="lineno">  780 </span>
+<span class="lineno">  781 </span>
+<span class="lineno">  782 </span>
+<span class="lineno">  783 </span>
+<span class="lineno">  784 </span>
+<span class="lineno">  785 </span>
+<span class="lineno">  786 </span>-- | &quot;, mutable
+<span class="lineno">  787 </span>
+<span class="lineno">  788 </span>
+<span class="lineno">  789 </span>-- | overwrite first argument with contents of second argument;
+<span class="lineno">  790 </span>
+<span class="lineno">  791 </span>vecOverwriteIOVectorN2_ :: Vec -&gt; V.Vector PetscScalar_ -&gt; IO ()
+<span class="lineno">  792 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecOverwriteIOVectorN2_ v vnew</span>
+<span class="lineno">  793 </span><span class="spaces">  </span><span class="nottickedoff">| lv == lvnew = withVecArrayPtr v (overwriteCArray lv vnew)</span>
+<span class="lineno">  794 </span><span class="spaces">  </span><span class="nottickedoff">| otherwise = error &quot;incompatible sizes&quot;</span>
+<span class="lineno">  795 </span><span class="spaces">    </span><span class="nottickedoff">where (lv, lvnew) = (vecSize v, V.length vnew)</span></span>
+<span class="lineno">  796 </span>
+<span class="lineno">  797 </span>
+<span class="lineno">  798 </span>            
+<span class="lineno">  799 </span>
+<span class="lineno">  800 </span>
+<span class="lineno">  801 </span> 
+<span class="lineno">  802 </span>
+<span class="lineno">  803 </span>
+<span class="lineno">  804 </span>-- | explicitly passing around the ForeignPtr associated with the Ptr 
+<span class="lineno">  805 </span>getIOVector :: Storable a =&gt; Int -&gt; Ptr a -&gt; IO (VM.IOVector a, FPR.ForeignPtr a)
+<span class="lineno">  806 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getIOVector = getVM1</span></span>
+<span class="lineno">  807 </span>
+<span class="lineno">  808 </span>putIOVector :: Storable a =&gt; Int -&gt; (VM.IOVector a, FPR.ForeignPtr a) -&gt; IO ()
+<span class="lineno">  809 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">putIOVector = putVM1</span></span>
+<span class="lineno">  810 </span>
+<span class="lineno">  811 </span>-- withIOVector0 ::
+<span class="lineno">  812 </span>--   Storable a =&gt; Int -&gt; Ptr a -&gt; ((VM.IOVector a, FPR.ForeignPtr a) -&gt; IO a) -&gt; IO a
+<span class="lineno">  813 </span>-- withIOVector0 n p = bracket (getIOVector n p) (putIOVector n)
+<span class="lineno">  814 </span>
+<span class="lineno">  815 </span>-- -- withIOVector :: Storable a =&gt; Int -&gt; Ptr a -&gt; V.Vector a -&gt; IO ()
+<span class="lineno">  816 </span>-- -- withIOVector n p v =
+<span class="lineno">  817 </span>-- --   bracket (getIOVector n p) (putIOVector n) $ \(vm, _) -&gt; 
+<span class="lineno">  818 </span>-- --    V.imapM_ (VM.write vm) v
+<span class="lineno">  819 </span>
+<span class="lineno">  820 </span>
+<span class="lineno">  821 </span>  
+<span class="lineno">  822 </span>
+<span class="lineno">  823 </span>-- withIOVectorSized0 vec io = withVecSizedPtr vec $ \n p -&gt;
+<span class="lineno">  824 </span>--   bracket (getIOVector n p) (putIOVector n) io
+<span class="lineno">  825 </span>
+<span class="lineno">  826 </span>-- withIOVectorSized vec io = withIOVectorSized0 vec $ \(vm, _) -&gt; io vm
+<span class="lineno">  827 </span>
+<span class="lineno">  828 </span>
+<span class="lineno">  829 </span>
+<span class="lineno">  830 </span>
+<span class="lineno">  831 </span>
+<span class="lineno">  832 </span>
+<span class="lineno">  833 </span>-- | Vec -&gt; Vector.Generic
+<span class="lineno">  834 </span>
+<span class="lineno">  835 </span>
+<span class="lineno">  836 </span>
+<span class="lineno">  837 </span>
+<span class="lineno">  838 </span>
+<span class="lineno">  839 </span>
+<span class="lineno">  840 </span>
+<span class="lineno">  841 </span>     
+<span class="lineno">  842 </span>
+<span class="lineno">  843 </span>-- | IOVector &lt;-&gt; Vector.Generic
+<span class="lineno">  844 </span>
+<span class="lineno">  845 </span>fromMutableV :: (VG.Vector v a, Storable a) =&gt; VM.IOVector a -&gt; IO (v a)
+<span class="lineno">  846 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fromMutableV mv = do</span>
+<span class="lineno">  847 </span><span class="spaces">  </span><span class="nottickedoff">v &lt;- VS.freeze mv</span>
+<span class="lineno">  848 </span><span class="spaces">  </span><span class="nottickedoff">return (VG.convert v)</span></span>
+<span class="lineno">  849 </span>
+<span class="lineno">  850 </span>toMutableV :: (VG.Vector v a, Storable a) =&gt; v a -&gt; IO (VM.IOVector a)
+<span class="lineno">  851 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">toMutableV = VS.thaw . VG.convert</span></span>
+<span class="lineno">  852 </span>
+<span class="lineno">  853 </span>withMutableV ::
+<span class="lineno">  854 </span>  (VG.Vector v a, Storable a) =&gt; VM.IOVector a -&gt; (v a -&gt; v a) -&gt; IO (VM.IOVector a)
+<span class="lineno">  855 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withMutableV mv f = fromMutableV mv &gt;&gt;= toMutableV . f</span></span>
+<span class="lineno">  856 </span>
+<span class="lineno">  857 </span>
+<span class="lineno">  858 </span>
+<span class="lineno">  859 </span>
+<span class="lineno">  860 </span>
+<span class="lineno">  861 </span>
+<span class="lineno">  862 </span>
+<span class="lineno">  863 </span>
+<span class="lineno">  864 </span>
+<span class="lineno">  865 </span>
+<span class="lineno">  866 </span>
+<span class="lineno">  867 </span>
+<span class="lineno">  868 </span>-- | PETSc Vec &lt;-&gt; IOVector
+<span class="lineno">  869 </span>
+<span class="lineno">  870 </span>vecGetIOVector :: Vec -&gt; IO ( VM.IOVector PetscScalar_ )
+<span class="lineno">  871 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecGetIOVector v = do</span>
+<span class="lineno">  872 </span><span class="spaces">  </span><span class="nottickedoff">x &lt;- vecGetVS v</span>
+<span class="lineno">  873 </span><span class="spaces">  </span><span class="nottickedoff">toMutableV x</span></span>
+<span class="lineno">  874 </span>
+<span class="lineno">  875 </span>vecRestoreIOVector :: Vec -&gt; VM.IOVector PetscScalar_  -&gt; IO ()
+<span class="lineno">  876 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecRestoreIOVector v iov = do</span>
+<span class="lineno">  877 </span><span class="spaces">  </span><span class="nottickedoff">x &lt;- fromMutableV iov</span>
+<span class="lineno">  878 </span><span class="spaces">  </span><span class="nottickedoff">vecPutVS v x</span></span>
+<span class="lineno">  879 </span>
+<span class="lineno">  880 </span>
+<span class="lineno">  881 </span>
+<span class="lineno">  882 </span>
+<span class="lineno">  883 </span>
+<span class="lineno">  884 </span>
+<span class="lineno">  885 </span>
+<span class="lineno">  886 </span>
+<span class="lineno">  887 </span>
+<span class="lineno">  888 </span>
+<span class="lineno">  889 </span>
+<span class="lineno">  890 </span>
+<span class="lineno">  891 </span>
+<span class="lineno">  892 </span>
+<span class="lineno">  893 </span>
+<span class="lineno">  894 </span>
+<span class="lineno">  895 </span>
+<span class="lineno">  896 </span>-- get the first n entries
+<span class="lineno">  897 </span>
+<span class="lineno">  898 </span>vecGetVectorNSafe :: Vec -&gt; Int -&gt; IO (VS.Vector PetscScalar_)
+<span class="lineno">  899 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecGetVectorNSafe v n</span>
+<span class="lineno">  900 </span><span class="spaces">  </span><span class="nottickedoff">| n &gt; 0 &amp;&amp; n &lt;= len = vecGetVS v</span>
+<span class="lineno">  901 </span><span class="spaces">  </span><span class="nottickedoff">| otherwise = error &quot;vecGetVectorN :&quot; where</span>
+<span class="lineno">  902 </span><span class="spaces">     </span><span class="nottickedoff">len = vecSize v</span></span>
+<span class="lineno">  903 </span>
+<span class="lineno">  904 </span>
+<span class="lineno">  905 </span>
+<span class="lineno">  906 </span>
+<span class="lineno">  907 </span>
+<span class="lineno">  908 </span>
+<span class="lineno">  909 </span>
+<span class="lineno">  910 </span>
+<span class="lineno">  911 </span>-- | mutation of Storable Vectors in ST hidden in IO
+<span class="lineno">  912 </span>
+<span class="lineno">  913 </span>-- modifyV, modifyV2 :: Vec -&gt; (V.Vector PetscScalar_ -&gt; V.Vector PetscScalar_) -&gt; IO ()
+<span class="lineno">  914 </span>
+<span class="lineno">  915 </span>-- modifyVS ::
+<span class="lineno">  916 </span>--   Vec -&gt;
+<span class="lineno">  917 </span>--   (VS.Vector PetscScalar_ -&gt; VS.Vector PetscScalar_) -&gt;
+<span class="lineno">  918 </span>--   VS.Vector PetscScalar_
+<span class="lineno">  919 </span>-- modifyVS u g = runST $ do
+<span class="lineno">  920 </span>--             x &lt;- unsafeIOToST $ vecGetVector u
+<span class="lineno">  921 </span>--             s &lt;- newSTRef x
+<span class="lineno">  922 </span>--             let y = g x
+<span class="lineno">  923 </span>--             writeSTRef s y
+<span class="lineno">  924 </span>--             unsafeIOToST $ vecRestoreVector u y
+<span class="lineno">  925 </span>--             readSTRef s
+<span class="lineno">  926 </span>
+<span class="lineno">  927 </span>-- withSTRef v f = runST $ do
+<span class="lineno">  928 </span>--   vv &lt;- unsafeIOToST $ vecGetVector v
+<span class="lineno">  929 </span>--   s &lt;- newSTRef vv
+<span class="lineno">  930 </span>--   let y = f vv
+<span class="lineno">  931 </span>--   writeSTRef s y
+<span class="lineno">  932 </span>--   unsafeIOToST $ vecRestoreVector v y
+<span class="lineno">  933 </span>--   readSTRef s
+<span class="lineno">  934 </span>
+<span class="lineno">  935 </span>
+<span class="lineno">  936 </span>
+<span class="lineno">  937 </span>
+<span class="lineno">  938 </span>
+<span class="lineno">  939 </span>
+<span class="lineno">  940 </span>
+<span class="lineno">  941 </span>
+<span class="lineno">  942 </span>
+<span class="lineno">  943 </span>
+<span class="lineno">  944 </span>
+<span class="lineno">  945 </span>
+<span class="lineno">  946 </span>
+<span class="lineno">  947 </span>
+<span class="lineno">  948 </span>
+<span class="lineno">  949 </span>
+<span class="lineno">  950 </span>
+<span class="lineno">  951 </span>
+<span class="lineno">  952 </span>
+<span class="lineno">  953 </span>
+<span class="lineno">  954 </span>
+<span class="lineno">  955 </span>
+<span class="lineno">  956 </span>
+<span class="lineno">  957 </span>    
+<span class="lineno">  958 </span>
+<span class="lineno">  959 </span>
+<span class="lineno">  960 </span>
+<span class="lineno">  961 </span>
+<span class="lineno">  962 </span>
+<span class="lineno">  963 </span>
+<span class="lineno">  964 </span>
+<span class="lineno">  965 </span>
+<span class="lineno">  966 </span>
+<span class="lineno">  967 </span>
+<span class="lineno">  968 </span>
+<span class="lineno">  969 </span>
+<span class="lineno">  970 </span>
+<span class="lineno">  971 </span>
+<span class="lineno">  972 </span>
+<span class="lineno">  973 </span>
+<span class="lineno">  974 </span>-- -- MVar stuff
+<span class="lineno">  975 </span>
+<span class="lineno">  976 </span>-- data PetscVec = PetscVec { unPetscVec :: MVar Vec }
+<span class="lineno">  977 </span>
+<span class="lineno">  978 </span>-- makePetscVec v vi = do
+<span class="lineno">  979 </span>--   m &lt;- newMVar (PVec v vi)
+<span class="lineno">  980 </span>--   return $ PetscVec m
+<span class="lineno">  981 </span>
+<span class="lineno">  982 </span>-- usePetscVec x f = do
+<span class="lineno">  983 </span>--   let mv = unPetscVec x
+<span class="lineno">  984 </span>--   withMVar mv (`applyVec` f)
+<span class="lineno">  985 </span>--   return $ PetscVec mv
+<span class="lineno">  986 </span>
+<span class="lineno">  987 </span>-- updatePetscVec x g = do
+<span class="lineno">  988 </span>--   let mv = unPetscVec x
+<span class="lineno">  989 </span>--   modifyMVar_ mv (`applyVec` g)
+<span class="lineno">  990 </span>--   return $ PetscVec mv
+<span class="lineno">  991 </span>
+<span class="lineno">  992 </span>-- applyVec :: PVec -&gt; (Vec -&gt; IO Vec) -&gt; IO PVec
+<span class="lineno">  993 </span>-- applyVec vv fm = do
+<span class="lineno">  994 </span>--   out1 &lt;- fm $ vec vv
+<span class="lineno">  995 </span>--   return $ PVec out1 (vecInfo vv)
+<span class="lineno">  996 </span>
+<span class="lineno">  997 </span>-- applyVec' vv fm = do
+<span class="lineno">  998 </span>--   fm (vec vv)
+<span class="lineno">  999 </span>--   return (PVec (vec vv) (vecInfo vv))
+<span class="lineno"> 1000 </span>
+<span class="lineno"> 1001 </span>-- --
+<span class="lineno"> 1002 </span>
+<span class="lineno"> 1003 </span>
+<span class="lineno"> 1004 </span>
+<span class="lineno"> 1005 </span>
+<span class="lineno"> 1006 </span>
+<span class="lineno"> 1007 </span>
+<span class="lineno"> 1008 </span>
+<span class="lineno"> 1009 </span>
+<span class="lineno"> 1010 </span>
+<span class="lineno"> 1011 </span>
+<span class="lineno"> 1012 </span>
+<span class="lineno"> 1013 </span>
+<span class="lineno"> 1014 </span>
+<span class="lineno"> 1015 </span>-- | Vec math. operations
+<span class="lineno"> 1016 </span>
+<span class="lineno"> 1017 </span>vecDot :: Vec -&gt; Vec -&gt; IO PetscScalar_
+<span class="lineno"> 1018 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecDot v1 v2 = chk1 $ vecDot1 v1 v2</span></span>
+<span class="lineno"> 1019 </span>
+<span class="lineno"> 1020 </span>vecNorm :: Vec -&gt; VecNorm_ -&gt; IO PetscScalar_
+<span class="lineno"> 1021 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecNorm v nt = chk1 $ vecNorm1 nt v</span></span>
+<span class="lineno"> 1022 </span>
+<span class="lineno"> 1023 </span>vecSum :: Vec -&gt; IO PetscScalar_
+<span class="lineno"> 1024 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecSum v = chk1 $ vecSum1 v</span></span>
+<span class="lineno"> 1025 </span>
+<span class="lineno"> 1026 </span>
+<span class="lineno"> 1027 </span>
+<span class="lineno"> 1028 </span>
+<span class="lineno"> 1029 </span>
+<span class="lineno"> 1030 </span>
+<span class="lineno"> 1031 </span>
+<span class="lineno"> 1032 </span>
+<span class="lineno"> 1033 </span>
+<span class="lineno"> 1034 </span>
+<span class="lineno"> 1035 </span>
+<span class="lineno"> 1036 </span>-- | Vec math (in-place, destructive) operations
+<span class="lineno"> 1037 </span>
+<span class="lineno"> 1038 </span>
+<span class="lineno"> 1039 </span>-- | Math. operations
+<span class="lineno"> 1040 </span>
+<span class="lineno"> 1041 </span>-- | -- elementwise
+<span class="lineno"> 1042 </span>
+<span class="lineno"> 1043 </span>-- unary :  Rn -&gt; Rn
+<span class="lineno"> 1044 </span>
+<span class="lineno"> 1045 </span>-- exp
+<span class="lineno"> 1046 </span>-- log
+<span class="lineno"> 1047 </span>-- reciprocal
+<span class="lineno"> 1048 </span>-- scale
+<span class="lineno"> 1049 </span>
+<span class="lineno"> 1050 </span>
+<span class="lineno"> 1051 </span>
+<span class="lineno"> 1052 </span>-- binary :  (Rn * Rn) -&gt; Rn
+<span class="lineno"> 1053 </span>
+<span class="lineno"> 1054 </span>-- sum
+<span class="lineno"> 1055 </span>-- product
+<span class="lineno"> 1056 </span>
+<span class="lineno"> 1057 </span>
+<span class="lineno"> 1058 </span>
+<span class="lineno"> 1059 </span>-- | -- norms
+<span class="lineno"> 1060 </span>
+<span class="lineno"> 1061 </span>
+<span class="lineno"> 1062 </span>
+<span class="lineno"> 1063 </span>
+<span class="lineno"> 1064 </span>-- --
+<span class="lineno"> 1065 </span>-- unaryOp :: OpType -&gt; Vec -&gt; IO ()
+<span class="lineno"> 1066 </span>
+<span class="lineno"> 1067 </span>-- binaryOp :: Op2Type -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno"> 1068 </span>
+<span class="lineno"> 1069 </span>
+<span class="lineno"> 1070 </span>
+<span class="lineno"> 1071 </span>vecLog_, vecExp_, vecAbs_ :: Vec -&gt; IO ()
+<span class="lineno"> 1072 </span>-- vecLog, vecExp, vecAbs :: Vec -&gt; IO Vec
+<span class="lineno"> 1073 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecLog_ v = chk0 $ vecLog' v</span></span>
+<span class="lineno"> 1074 </span>-- vecLog v = do {vecLog_ v; return v}
+<span class="lineno"> 1075 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecExp_ v = chk0 $ vecExp' v</span></span>
+<span class="lineno"> 1076 </span>-- vecExp v = do {vecExp_ v; return v}
+<span class="lineno"> 1077 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecAbs_ v = chk0 $ vecAbs' v</span></span>
+<span class="lineno"> 1078 </span>-- vecAbs v = do {vecAbs_ v ; return v}
+<span class="lineno"> 1079 </span>
+<span class="lineno"> 1080 </span>vecScale_ :: Vec -&gt; PetscScalar_ -&gt; IO ()
+<span class="lineno"> 1081 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecScale_ v a = chk0 $ vecScale' v a</span></span>
+<span class="lineno"> 1082 </span>-- vecScale :: Vec -&gt; PetscScalar_ -&gt; IO Vec
+<span class="lineno"> 1083 </span>-- vecScale v a = do {vecScale_ v a; return v}
+<span class="lineno"> 1084 </span>
+<span class="lineno"> 1085 </span>-- | AXPY : y = a x + y
+<span class="lineno"> 1086 </span>-- -- NB : x and y must be different vectors (i.e. distinct pointers)
+<span class="lineno"> 1087 </span>vecAxpy :: PetscScalar_ -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno"> 1088 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecAxpy a y x = chk0 $ vecAxpy' y a x</span></span>
+<span class="lineno"> 1089 </span>
+<span class="lineno"> 1090 </span>
+<span class="lineno"> 1091 </span>-- | WAXPY : w = a x + y
+<span class="lineno"> 1092 </span>-- -- NB : w cannot be either x or y, but x and y can be the same
+<span class="lineno"> 1093 </span>vecWaxpy_ :: Vec -&gt; PetscScalar_ -&gt; Vec -&gt; Vec -&gt; IO ()
+<span class="lineno"> 1094 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecWaxpy_ w a x y = chk0 $ vecWaxpy' w a x y</span></span>
+<span class="lineno"> 1095 </span>-- vecWaxpy w a x y = do {vecWaxpy_ w a x y; return w} -- not sure about this one
+<span class="lineno"> 1096 </span>
+<span class="lineno"> 1097 </span>-- | withVecWaxpySafe :: bracket with allocated Vec for result
+<span class="lineno"> 1098 </span>withVecWaxpySafe :: PetscScalar_ -&gt; Vec -&gt; Vec -&gt; (Vec -&gt; IO a) -&gt; IO a
+<span class="lineno"> 1099 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecWaxpySafe a x y act = withVecClone y $ \w -&gt; do</span>
+<span class="lineno"> 1100 </span><span class="spaces">  </span><span class="nottickedoff">vecWaxpy_ w a x y</span>
+<span class="lineno"> 1101 </span><span class="spaces">  </span><span class="nottickedoff">act w</span></span>
+<span class="lineno"> 1102 </span>
+<span class="lineno"> 1103 </span>
+<span class="lineno"> 1104 </span>
+<span class="lineno"> 1105 </span>vecVecSum , (.+) :: Vec -&gt; Vec -&gt; IO ()
+<span class="lineno"> 1106 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">vecVecSum = vecAxpy 1</span></span>
+<span class="lineno"> 1107 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">(.+) = vecVecSum</span></span>
+<span class="lineno"> 1108 </span>
+<span class="lineno"> 1109 </span>withVecVecSubtract :: Vec -&gt; Vec -&gt; (Vec -&gt; IO a) -&gt; IO a
+<span class="lineno"> 1110 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withVecVecSubtract = withVecWaxpySafe (-1)</span></span>
+<span class="lineno"> 1111 </span>
+<span class="lineno"> 1112 </span>
+<span class="lineno"> 1113 </span>
+<span class="lineno"> 1114 </span>
+<span class="lineno"> 1115 </span>
+<span class="lineno"> 1116 </span>
+<span class="lineno"> 1117 </span>
+<span class="lineno"> 1118 </span>
+<span class="lineno"> 1119 </span>
+<span class="lineno"> 1120 </span>
+<span class="lineno"> 1121 </span>
+<span class="lineno"> 1122 </span>
+<span class="lineno"> 1123 </span>
+<span class="lineno"> 1124 </span>
+<span class="lineno"> 1125 </span>
+<span class="lineno"> 1126 </span>
+<span class="lineno"> 1127 </span>
+<span class="lineno"> 1128 </span>
+<span class="lineno"> 1129 </span>
+<span class="lineno"> 1130 </span>    
+
+</pre>
+</body>
+</html>

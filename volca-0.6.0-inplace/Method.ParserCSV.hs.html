@@ -1,0 +1,197 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>{-# LANGUAGE BangPatterns #-}
+<span class="lineno">    3 </span>
+<span class="lineno">    4 </span>-- | Parser for CSV-based LCIA method files.
+<span class="lineno">    5 </span>--
+<span class="lineno">    6 </span>-- A single CSV file encodes multiple impact categories as columns.
+<span class="lineno">    7 </span>-- Supports two header layouts (both after optional @# methodology:@ comment):
+<span class="lineno">    8 </span>--
+<span class="lineno">    9 </span>-- __2-row__ (category defaults to name):
+<span class="lineno">   10 </span>--
+<span class="lineno">   11 </span>-- &gt; ;;global warming (GWP100);acidification;...      ← names
+<span class="lineno">   12 </span>-- &gt; ;;kg CO2 eq.;kg SO2 eq.;...                      ← units
+<span class="lineno">   13 </span>-- &gt; substance;compartment;;;...                       ← label row
+<span class="lineno">   14 </span>--
+<span class="lineno">   15 </span>-- __3-row__ (explicit categories):
+<span class="lineno">   16 </span>--
+<span class="lineno">   17 </span>-- &gt; ;;Climate change;Acidification;...                ← categories
+<span class="lineno">   18 </span>-- &gt; ;;global warming (GWP100);acidification;...       ← names
+<span class="lineno">   19 </span>-- &gt; ;;kg CO2 eq.;kg SO2 eq.;...                       ← units
+<span class="lineno">   20 </span>-- &gt; substance;compartment;;;...                        ← label row
+<span class="lineno">   21 </span>--
+<span class="lineno">   22 </span>-- One CSV file → multiple 'Method' values (one per column).
+<span class="lineno">   23 </span>module Method.ParserCSV
+<span class="lineno">   24 </span>    ( parseMethodCSV
+<span class="lineno">   25 </span>    , parseMethodCSVBytes
+<span class="lineno">   26 </span>    ) where
+<span class="lineno">   27 </span>
+<span class="lineno">   28 </span>import qualified Data.ByteString as BS
+<span class="lineno">   29 </span>import qualified Data.ByteString.Char8 as BC
+<span class="lineno">   30 </span>import Data.List (zip4)
+<span class="lineno">   31 </span>import Data.Text (Text)
+<span class="lineno">   32 </span>import qualified Data.Text as T
+<span class="lineno">   33 </span>import qualified Data.Text.Encoding as TE
+<span class="lineno">   34 </span>import qualified Data.Text.Encoding.Error as TEE
+<span class="lineno">   35 </span>import qualified Data.Text.Read as TR
+<span class="lineno">   36 </span>import Data.UUID (UUID)
+<span class="lineno">   37 </span>import qualified Data.UUID.V5 as UUID5
+<span class="lineno">   38 </span>import Data.Word (Word8)
+<span class="lineno">   39 </span>
+<span class="lineno">   40 </span>import Method.Types
+<span class="lineno">   41 </span>
+<span class="lineno">   42 </span>-- | Parse a CSV method file, producing one 'Method' per impact category column.
+<span class="lineno">   43 </span>parseMethodCSV :: FilePath -&gt; IO (Either String [Method])
+<span class="lineno">   44 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseMethodCSV path = do</span>
+<span class="lineno">   45 </span><span class="spaces">    </span><span class="nottickedoff">bytes &lt;- BS.readFile path</span>
+<span class="lineno">   46 </span><span class="spaces">    </span><span class="nottickedoff">return $ parseMethodCSVBytes bytes</span></span>
+<span class="lineno">   47 </span>
+<span class="lineno">   48 </span>-- | Pure parser, exported for testing.
+<span class="lineno">   49 </span>parseMethodCSVBytes :: BS.ByteString -&gt; Either String [Method]
+<span class="lineno">   50 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">parseMethodCSVBytes bytes =</span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">let allLines  = BC.lines bytes</span>
+<span class="lineno">   52 </span><span class="spaces">        </span><span class="istickedoff">(comments, dataLines) = span (\l -&gt; BC.isPrefixOf &quot;#&quot; l || BS.null l) allLines</span>
+<span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">methodology = extractMethodology comments</span>
+<span class="lineno">   54 </span><span class="spaces">    </span><span class="istickedoff">in case splitHeaderFromData dataLines of</span>
+<span class="lineno">   55 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Left &quot;CSV method file needs at least 3 header rows (names, units, column labels)&quot;</span></span>
+<span class="lineno">   56 </span><span class="spaces">        </span><span class="istickedoff">Just (cats, names, units, rows, delim) -&gt;</span>
+<span class="lineno">   57 </span><span class="spaces">            </span><span class="istickedoff">Right [ mkMethod methodology catName impactName unit colIdx rows delim</span>
+<span class="lineno">   58 </span><span class="spaces">                  </span><span class="istickedoff">| (colIdx, catName, impactName, unit) &lt;- zip4 [0..] cats names units</span>
+<span class="lineno">   59 </span><span class="spaces">                  </span><span class="istickedoff">, <span class="tickonlytrue">not (T.null impactName)</span></span>
+<span class="lineno">   60 </span><span class="spaces">                  </span><span class="istickedoff">]</span></span>
+<span class="lineno">   61 </span>
+<span class="lineno">   62 </span>-- | Find the label row (first column starts with &quot;substance&quot;) and split header
+<span class="lineno">   63 </span>-- rows from data rows.  Returns (categories, names, units, dataRows, delimiter).
+<span class="lineno">   64 </span>-- 2-row layout → categories = names.  3-row layout → distinct.
+<span class="lineno">   65 </span>splitHeaderFromData :: [BS.ByteString] -&gt; Maybe ([Text], [Text], [Text], [BS.ByteString], Word8)
+<span class="lineno">   66 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">splitHeaderFromData dataLines =</span>
+<span class="lineno">   67 </span><span class="spaces">    </span><span class="istickedoff">case break isLabelRow dataLines of</span>
+<span class="lineno">   68 </span><span class="spaces">        </span><span class="istickedoff">(headerRows, _labelRow : rows)</span>
+<span class="lineno">   69 </span><span class="spaces">            </span><span class="istickedoff">| [nameRow, unitRow] &lt;- headerRows -&gt;</span>
+<span class="lineno">   70 </span><span class="spaces">                </span><span class="istickedoff">let !delim = detectDelimiter nameRow</span>
+<span class="lineno">   71 </span><span class="spaces">                    </span><span class="istickedoff">names = drop 2 $ splitRow delim nameRow</span>
+<span class="lineno">   72 </span><span class="spaces">                    </span><span class="istickedoff">units = drop 2 $ splitRow delim unitRow</span>
+<span class="lineno">   73 </span><span class="spaces">                </span><span class="istickedoff">in Just (names, names, units, rows, delim)  -- categories = names</span>
+<span class="lineno">   74 </span><span class="spaces">            </span><span class="istickedoff">| [catRow, nameRow, unitRow] &lt;- headerRows -&gt;</span>
+<span class="lineno">   75 </span><span class="spaces">                </span><span class="istickedoff">let !delim = detectDelimiter catRow</span>
+<span class="lineno">   76 </span><span class="spaces">                    </span><span class="istickedoff">cats  = drop 2 $ splitRow delim catRow</span>
+<span class="lineno">   77 </span><span class="spaces">                    </span><span class="istickedoff">names = drop 2 $ splitRow delim nameRow</span>
+<span class="lineno">   78 </span><span class="spaces">                    </span><span class="istickedoff">units = drop 2 $ splitRow delim unitRow</span>
+<span class="lineno">   79 </span><span class="spaces">                </span><span class="istickedoff">in Just (cats, names, units, rows, delim)</span>
+<span class="lineno">   80 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">   81 </span>
+<span class="lineno">   82 </span>-- | Detect the label row: first cell is a variation of &quot;substance&quot;.
+<span class="lineno">   83 </span>isLabelRow :: BS.ByteString -&gt; Bool
+<span class="lineno">   84 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">isLabelRow line =</span>
+<span class="lineno">   85 </span><span class="spaces">    </span><span class="istickedoff">let first = T.toCaseFold . T.strip . head' . splitRow (detectDelimiter line) $ line</span>
+<span class="lineno">   86 </span><span class="spaces">    </span><span class="istickedoff">in first == &quot;substance&quot;</span>
+<span class="lineno">   87 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   88 </span><span class="spaces">    </span><span class="istickedoff">head' (x:_) = x</span>
+<span class="lineno">   89 </span><span class="spaces">    </span><span class="istickedoff">head' []    = <span class="nottickedoff">&quot;&quot;</span></span></span>
+<span class="lineno">   90 </span>
+<span class="lineno">   91 </span>-- | Build a single Method from one column of the CSV.
+<span class="lineno">   92 </span>mkMethod :: Maybe Text -&gt; Text -&gt; Text -&gt; Text -&gt; Int -&gt; [BS.ByteString] -&gt; Word8 -&gt; Method
+<span class="lineno">   93 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">mkMethod methodology catName impactName unit colIdx rows delim =</span>
+<span class="lineno">   94 </span><span class="spaces">    </span><span class="istickedoff">let !ns       = csvMethodNamespace</span>
+<span class="lineno">   95 </span><span class="spaces">        </span><span class="istickedoff">!mId      = UUID5.generateNamed ns (bsKey $ &quot;method:&quot; &lt;&gt; impactName)</span>
+<span class="lineno">   96 </span><span class="spaces">        </span><span class="istickedoff">!factors  = [ <span class="nottickedoff">MethodCF</span></span>
+<span class="lineno">   97 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">{ mcfFlowRef     = UUID5.generateNamed ns (bsKey $ sub &lt;&gt; &quot;::&quot; &lt;&gt; comp)</span></span>
+<span class="lineno">   98 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, mcfFlowName    = sub</span></span>
+<span class="lineno">   99 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, mcfDirection   = directionFromCompartment comp</span></span>
+<span class="lineno">  100 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, mcfValue       = v</span></span>
+<span class="lineno">  101 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, mcfCompartment = parseCSVCompartment comp</span></span>
+<span class="lineno">  102 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, mcfCAS         = Nothing</span></span>
+<span class="lineno">  103 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">}</span></span>
+<span class="lineno">  104 </span><span class="spaces">                    </span><span class="istickedoff">| row &lt;- rows</span>
+<span class="lineno">  105 </span><span class="spaces">                    </span><span class="istickedoff">, let cells = splitRow delim row</span>
+<span class="lineno">  106 </span><span class="spaces">                    </span><span class="istickedoff">, <span class="tickonlytrue">length cells &gt; colIdx + 2</span></span>
+<span class="lineno">  107 </span><span class="spaces">                    </span><span class="istickedoff">, let !sub  = T.strip (cells !! 0)</span>
+<span class="lineno">  108 </span><span class="spaces">                          </span><span class="istickedoff">!comp = T.strip (cells !! 1)</span>
+<span class="lineno">  109 </span><span class="spaces">                          </span><span class="istickedoff">!raw  = T.strip (cells !! (colIdx + 2))</span>
+<span class="lineno">  110 </span><span class="spaces">                    </span><span class="istickedoff">, <span class="tickonlytrue">not (T.null sub)</span></span>
+<span class="lineno">  111 </span><span class="spaces">                    </span><span class="istickedoff">, <span class="tickonlytrue">not (T.null raw)</span></span>
+<span class="lineno">  112 </span><span class="spaces">                    </span><span class="istickedoff">, Just v &lt;- [parseDouble raw]</span>
+<span class="lineno">  113 </span><span class="spaces">                    </span><span class="istickedoff">]</span>
+<span class="lineno">  114 </span><span class="spaces">    </span><span class="istickedoff">in Method</span>
+<span class="lineno">  115 </span><span class="spaces">        </span><span class="istickedoff">{ methodId          = mId</span>
+<span class="lineno">  116 </span><span class="spaces">        </span><span class="istickedoff">, methodName        = impactName</span>
+<span class="lineno">  117 </span><span class="spaces">        </span><span class="istickedoff">, methodDescription = Nothing</span>
+<span class="lineno">  118 </span><span class="spaces">        </span><span class="istickedoff">, methodUnit        = if <span class="tickonlyfalse">T.null unit</span> then <span class="nottickedoff">&quot;unknown&quot;</span> else unit</span>
+<span class="lineno">  119 </span><span class="spaces">        </span><span class="istickedoff">, methodCategory    = catName</span>
+<span class="lineno">  120 </span><span class="spaces">        </span><span class="istickedoff">, methodMethodology = methodology</span>
+<span class="lineno">  121 </span><span class="spaces">        </span><span class="istickedoff">, methodFactors     = factors</span>
+<span class="lineno">  122 </span><span class="spaces">        </span><span class="istickedoff">}</span></span>
+<span class="lineno">  123 </span>
+<span class="lineno">  124 </span>-- | Deterministic namespace for CSV-derived UUIDs.
+<span class="lineno">  125 </span>csvMethodNamespace :: UUID
+<span class="lineno">  126 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">csvMethodNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ TE.encodeUtf8 &quot;volca:csv-method&quot;)</span></span>
+<span class="lineno">  127 </span>
+<span class="lineno">  128 </span>-- | Direction: &quot;resources&quot; → Input, everything else → Output.
+<span class="lineno">  129 </span>directionFromCompartment :: Text -&gt; FlowDirection
+<span class="lineno">  130 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">directionFromCompartment comp</span>
+<span class="lineno">  131 </span><span class="spaces">    </span><span class="nottickedoff">| T.toCaseFold comp == &quot;resources&quot; = Input</span>
+<span class="lineno">  132 </span><span class="spaces">    </span><span class="nottickedoff">| otherwise                        = Output</span></span>
+<span class="lineno">  133 </span>
+<span class="lineno">  134 </span>-- | Parse compartment from CSV compartment column.
+<span class="lineno">  135 </span>-- Format: &quot;Emissions to air&quot;, &quot;Emissions to fresh water&quot;, &quot;Resources&quot;, etc.
+<span class="lineno">  136 </span>parseCSVCompartment :: Text -&gt; Maybe Compartment
+<span class="lineno">  137 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseCSVCompartment comp</span>
+<span class="lineno">  138 </span><span class="spaces">    </span><span class="nottickedoff">| T.null comp = Nothing</span>
+<span class="lineno">  139 </span><span class="spaces">    </span><span class="nottickedoff">| &quot;air&quot; `T.isInfixOf` lc = Just (Compartment &quot;air&quot; &quot;&quot; &quot;&quot;)</span>
+<span class="lineno">  140 </span><span class="spaces">    </span><span class="nottickedoff">| &quot;water&quot; `T.isInfixOf` lc = Just (Compartment &quot;water&quot; &quot;&quot; &quot;&quot;)</span>
+<span class="lineno">  141 </span><span class="spaces">    </span><span class="nottickedoff">| &quot;soil&quot; `T.isInfixOf` lc = Just (Compartment &quot;soil&quot; &quot;&quot; &quot;&quot;)</span>
+<span class="lineno">  142 </span><span class="spaces">    </span><span class="nottickedoff">| &quot;resource&quot; `T.isInfixOf` lc = Just (Compartment &quot;natural resource&quot; &quot;&quot; &quot;&quot;)</span>
+<span class="lineno">  143 </span><span class="spaces">    </span><span class="nottickedoff">| otherwise = Nothing</span>
+<span class="lineno">  144 </span><span class="spaces">  </span><span class="nottickedoff">where lc = T.toCaseFold comp</span></span>
+<span class="lineno">  145 </span>
+<span class="lineno">  146 </span>-- | Auto-detect delimiter: semicolon if the line contains ';', else comma.
+<span class="lineno">  147 </span>detectDelimiter :: BS.ByteString -&gt; Word8
+<span class="lineno">  148 </span><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">detectDelimiter line</span>
+<span class="lineno">  149 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">BC.elem ';' line</span> = 0x3B  -- ';'</span>
+<span class="lineno">  150 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span>        = <span class="nottickedoff">0x2C</span></span></span>  -- ','
+<span class="lineno">  151 </span>
+<span class="lineno">  152 </span>-- | Split a row on the delimiter, decoding to Text.
+<span class="lineno">  153 </span>splitRow :: Word8 -&gt; BS.ByteString -&gt; [Text]
+<span class="lineno">  154 </span><span class="funcount">-- entered 14 times</span><span class="decl"><span class="istickedoff">splitRow delim = map (TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span>) . BS.split delim</span></span>
+<span class="lineno">  155 </span>
+<span class="lineno">  156 </span>-- | Extract methodology from &quot;# methodology: ...&quot; comment.
+<span class="lineno">  157 </span>extractMethodology :: [BS.ByteString] -&gt; Maybe Text
+<span class="lineno">  158 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">extractMethodology = go</span>
+<span class="lineno">  159 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  160 </span><span class="spaces">    </span><span class="istickedoff">go [] = <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  161 </span><span class="spaces">    </span><span class="istickedoff">go (l:ls)</span>
+<span class="lineno">  162 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">BC.isPrefixOf &quot;# methodology:&quot; l</span> =</span>
+<span class="lineno">  163 </span><span class="spaces">            </span><span class="istickedoff">Just . T.strip . TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span> $ BS.drop 15 l</span>
+<span class="lineno">  164 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">go ls</span></span></span>
+<span class="lineno">  165 </span>
+<span class="lineno">  166 </span>-- | Strict double parse, Nothing on failure.
+<span class="lineno">  167 </span>parseDouble :: Text -&gt; Maybe Double
+<span class="lineno">  168 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">parseDouble t = case TR.double t of</span>
+<span class="lineno">  169 </span><span class="spaces">    </span><span class="istickedoff">Right (v, _) -&gt; Just <span class="nottickedoff">v</span></span>
+<span class="lineno">  170 </span><span class="spaces">    </span><span class="istickedoff">Left _       -&gt; <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">  171 </span>
+<span class="lineno">  172 </span>-- | Convert Text to bytes for UUID5 key generation.
+<span class="lineno">  173 </span>bsKey :: Text -&gt; [Word8]
+<span class="lineno">  174 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">bsKey = BS.unpack . TE.encodeUtf8</span></span>
+
+</pre>
+</body>
+</html>

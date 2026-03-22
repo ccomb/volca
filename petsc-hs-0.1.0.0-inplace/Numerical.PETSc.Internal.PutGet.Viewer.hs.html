@@ -1,0 +1,159 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE TypeFamilies, MultiParamTypeClasses, RankNTypes#-}
+<span class="lineno">    2 </span>{-# LANGUAGE CPP #-}
+<span class="lineno">    3 </span>-----------------------------------------------------------------------------
+<span class="lineno">    4 </span>-- |
+<span class="lineno">    5 </span>-- Module      :  Numerical.PETSc.Internal.PutGet.Viewer
+<span class="lineno">    6 </span>-- Copyright   :  (c) Marco Zocca 2015
+<span class="lineno">    7 </span>-- License     :  LGPL3
+<span class="lineno">    8 </span>-- Maintainer  :  zocca . marco . gmail . com
+<span class="lineno">    9 </span>-- Stability   :  experimental
+<span class="lineno">   10 </span>--
+<span class="lineno">   11 </span>-- | Viewer Mid-level interface
+<span class="lineno">   12 </span>--
+<span class="lineno">   13 </span>-----------------------------------------------------------------------------
+<span class="lineno">   14 </span>module Numerical.PETSc.Internal.PutGet.Viewer where
+<span class="lineno">   15 </span>
+<span class="lineno">   16 </span>import Numerical.PETSc.Internal.InlineC
+<span class="lineno">   17 </span>import Numerical.PETSc.Internal.Types
+<span class="lineno">   18 </span>import Numerical.PETSc.Internal.Exception
+<span class="lineno">   19 </span>import Numerical.PETSc.Internal.Utils
+<span class="lineno">   20 </span>
+<span class="lineno">   21 </span>import Foreign
+<span class="lineno">   22 </span>import Foreign.C.Types
+<span class="lineno">   23 </span>
+<span class="lineno">   24 </span>import System.IO.Unsafe (unsafePerformIO)
+<span class="lineno">   25 </span>
+<span class="lineno">   26 </span>import Control.Monad
+<span class="lineno">   27 </span>import Control.Arrow
+<span class="lineno">   28 </span>import Control.Concurrent
+<span class="lineno">   29 </span>import Control.Exception
+<span class="lineno">   30 </span>
+<span class="lineno">   31 </span>-- import Control.Monad.ST (ST, runST)
+<span class="lineno">   32 </span>-- import Control.Monad.ST.Unsafe (unsafeIOToST) -- for HMatrix bits
+<span class="lineno">   33 </span>
+<span class="lineno">   34 </span>-- import qualified Data.Vector as V
+<span class="lineno">   35 </span>-- import qualified Data.Vector.Storable as V (unsafeWith, unsafeFromForeignPtr, unsafeToForeignPtr)
+<span class="lineno">   36 </span>
+<span class="lineno">   37 </span>
+<span class="lineno">   38 </span>
+<span class="lineno">   39 </span>
+<span class="lineno">   40 </span>petscViewerCreate :: Comm -&gt; IO PetscViewer
+<span class="lineno">   41 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">petscViewerCreate k = chk1 (petscViewerCreate' k)</span></span>
+<span class="lineno">   42 </span>
+<span class="lineno">   43 </span>petscViewerDestroy :: PetscViewer -&gt; IO ()
+<span class="lineno">   44 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">petscViewerDestroy v = chk0 (petscViewerDestroy' v)</span></span>
+<span class="lineno">   45 </span>
+<span class="lineno">   46 </span>
+<span class="lineno">   47 </span>
+<span class="lineno">   48 </span>
+<span class="lineno">   49 </span>-- | with- brackets
+<span class="lineno">   50 </span>
+<span class="lineno">   51 </span>withPetscViewer0 :: IO PetscViewer -&gt; (PetscViewer -&gt; IO a) -&gt; IO a
+<span class="lineno">   52 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withPetscViewer0 fpv = bracket fpv petscViewerDestroy</span></span>
+<span class="lineno">   53 </span>
+<span class="lineno">   54 </span>withPetscViewer :: Comm -&gt; (PetscViewer -&gt; IO a) -&gt; IO a
+<span class="lineno">   55 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withPetscViewer cc = withPetscViewer0 (petscViewerCreate cc)</span></span>
+<span class="lineno">   56 </span>
+<span class="lineno">   57 </span>
+<span class="lineno">   58 </span>withPetscViewerTypeFmt ::
+<span class="lineno">   59 </span>  Comm -&gt; PetscViewerType_ -&gt; PetscViewerFormat_ -&gt; (PetscViewer -&gt; IO a) -&gt; IO a
+<span class="lineno">   60 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withPetscViewerTypeFmt cc ty fmt f = withPetscViewer cc $ \v -&gt; do</span>
+<span class="lineno">   61 </span><span class="spaces">  </span><span class="nottickedoff">petscViewerSetType v ty</span>
+<span class="lineno">   62 </span><span class="spaces">  </span><span class="nottickedoff">petscViewerPushFormat v fmt</span>
+<span class="lineno">   63 </span><span class="spaces">  </span><span class="nottickedoff">x &lt;- f v</span>
+<span class="lineno">   64 </span><span class="spaces">  </span><span class="nottickedoff">petscViewerPopFormat v</span>
+<span class="lineno">   65 </span><span class="spaces">  </span><span class="nottickedoff">return x</span></span>
+<span class="lineno">   66 </span>
+<span class="lineno">   67 </span>
+<span class="lineno">   68 </span>-- withPetscViewerSetup cc ty mode name f = withPetscViewer cc $ \v -&gt; do
+<span class="lineno">   69 </span>--   petscViewerSetType v ty
+<span class="lineno">   70 </span>--   chk0 $ petscViewerFileSetName' v name
+<span class="lineno">   71 </span>--   chk0 $ petscViewerFileSetMode' v mode
+<span class="lineno">   72 </span>--   f v
+<span class="lineno">   73 </span>
+<span class="lineno">   74 </span>
+<span class="lineno">   75 </span>
+<span class="lineno">   76 </span>petscViewerSetType :: PetscViewer -&gt; PetscViewerType_ -&gt; IO ()
+<span class="lineno">   77 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">petscViewerSetType v t = chk0 (petscViewerSetType' v t)</span></span>
+<span class="lineno">   78 </span>
+<span class="lineno">   79 </span>
+<span class="lineno">   80 </span>petscViewerPushFormat :: PetscViewer -&gt; PetscViewerFormat_ -&gt; IO ()
+<span class="lineno">   81 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">petscViewerPushFormat v fmt = chk0 (petscViewerPushFormat' v fmt)</span></span>
+<span class="lineno">   82 </span>
+<span class="lineno">   83 </span>petscViewerPopFormat :: PetscViewer -&gt; IO ()
+<span class="lineno">   84 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">petscViewerPopFormat v = chk0 $ petscViewerPopFormat' v</span></span>
+<span class="lineno">   85 </span>
+<span class="lineno">   86 </span>
+<span class="lineno">   87 </span>-- | STDOUT
+<span class="lineno">   88 </span>
+<span class="lineno">   89 </span>withPetscViewStdout :: Comm -&gt; (PetscViewer -&gt; IO a) -&gt; IO a
+<span class="lineno">   90 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">withPetscViewStdout cc = withPetscViewerTypeFmt cc ViewerAscii ViewFmtAsciiInfoDetail</span></span>
+<span class="lineno">   91 </span>
+<span class="lineno">   92 </span>
+<span class="lineno">   93 </span>
+<span class="lineno">   94 </span>-- | HDF5 (disabled - requires PETSc built with --download-hdf5)
+<span class="lineno">   95 </span>
+<span class="lineno">   96 </span>-- withPetscViewerHDF5 ::
+<span class="lineno">   97 </span>--   PetscFileMode_ -&gt; Comm -&gt; String -&gt; (PetscViewer -&gt; IO a) -&gt; IO a
+<span class="lineno">   98 </span>-- withPetscViewerHDF5 fm cc name =
+<span class="lineno">   99 </span>--   withPetscViewer0 (chk1 $ petscViewerHDF5Open' cc name fm)
+<span class="lineno">  100 </span>
+<span class="lineno">  101 </span>-- withHDF5Write :: Comm -&gt; String -&gt; (PetscViewer -&gt; IO a) -&gt; IO a
+<span class="lineno">  102 </span>-- withHDF5Write = withPetscViewerHDF5 FileModeWrite
+<span class="lineno">  103 </span>
+<span class="lineno">  104 </span>-- withHDF5Read :: Comm -&gt; String -&gt; (PetscViewer -&gt; IO a) -&gt; IO a
+<span class="lineno">  105 </span>-- withHDF5Read = withPetscViewerHDF5 FileModeRead
+<span class="lineno">  106 </span>
+<span class="lineno">  107 </span>
+<span class="lineno">  108 </span>-- {- -- -- usage of HDF5 groups: 
+<span class="lineno">  109 </span>--  50:   VecView(x1, viewer);
+<span class="lineno">  110 </span>--  51:   PetscViewerHDF5PushGroup(viewer, &quot;/testBlockSize&quot;);
+<span class="lineno">  111 </span>--  52:   VecView(x2, viewer);
+<span class="lineno">  112 </span>--  53:   PetscViewerHDF5PushGroup(viewer, &quot;/testTimestep&quot;);
+<span class="lineno">  113 </span>-- -}
+<span class="lineno">  114 </span>
+<span class="lineno">  115 </span>
+<span class="lineno">  116 </span>-- withPetscViewerHDF5Group ::
+<span class="lineno">  117 </span>--   PetscViewer -&gt;
+<span class="lineno">  118 </span>--   (t -&gt; PetscViewer -&gt; IO a) -&gt;
+<span class="lineno">  119 </span>--   [(t, String)] -&gt; IO ()
+<span class="lineno">  120 </span>-- withPetscViewerHDF5Group vi vact vlist = 
+<span class="lineno">  121 </span>--   forM_ vlist $ \(vobj, vname) -&gt; do
+<span class="lineno">  122 </span>--     petscViewerHDF5PushGroup vi vname
+<span class="lineno">  123 </span>--     vact vobj vi
+<span class="lineno">  124 </span>--     petscViewerHDF5PopGroup vi
+<span class="lineno">  125 </span>
+<span class="lineno">  126 </span>
+<span class="lineno">  127 </span>
+<span class="lineno">  128 </span>-- petscViewerHDF5PushGroup :: PetscViewer -&gt; String -&gt; IO ()
+<span class="lineno">  129 </span>-- petscViewerHDF5PushGroup vi name = chk0 (petscViewerHDF5PushGroup' vi name)
+<span class="lineno">  130 </span>
+<span class="lineno">  131 </span>-- petscViewerHDF5PopGroup :: PetscViewer -&gt; IO ()
+<span class="lineno">  132 </span>-- petscViewerHDF5PopGroup vi = chk0 (petscViewerHDF5PopGroup' vi)
+<span class="lineno">  133 </span>
+<span class="lineno">  134 </span>
+<span class="lineno">  135 </span>
+<span class="lineno">  136 </span>
+
+</pre>
+</body>
+</html>

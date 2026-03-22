@@ -1,0 +1,52 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE DeriveGeneric #-}
+<span class="lineno">    2 </span>{-# LANGUAGE DeriveAnyClass #-}
+<span class="lineno">    3 </span>{-# LANGUAGE StrictData #-}
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>-- | Types for the synonym database used for flow matching.
+<span class="lineno">    6 </span>module SynonymDB.Types
+<span class="lineno">    7 </span>    ( SynonymDB(..)
+<span class="lineno">    8 </span>    , emptySynonymDB
+<span class="lineno">    9 </span>    ) where
+<span class="lineno">   10 </span>
+<span class="lineno">   11 </span>import Data.Map.Strict (Map)
+<span class="lineno">   12 </span>import qualified Data.Map.Strict as M
+<span class="lineno">   13 </span>import Data.Store (Store)
+<span class="lineno">   14 </span>import Data.Text (Text)
+<span class="lineno">   15 </span>import GHC.Generics (Generic)
+<span class="lineno">   16 </span>import Control.DeepSeq (NFData)
+<span class="lineno">   17 </span>
+<span class="lineno">   18 </span>-- | Synonym database with bidirectional lookups.
+<span class="lineno">   19 </span>--
+<span class="lineno">   20 </span>-- - @synNameToId@: Maps normalized flow names to synonym group IDs
+<span class="lineno">   21 </span>-- - @synIdToNames@: Maps group IDs back to all names in that group
+<span class="lineno">   22 </span>data SynonymDB = SynonymDB
+<span class="lineno">   23 </span>    { <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">synNameToId</span></span></span>  :: !(Map Text Int)
+<span class="lineno">   24 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">synIdToNames</span></span></span> :: !(Map Int [Text])
+<span class="lineno">   25 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">   26 </span>
+<span class="lineno">   27 </span>-- | Empty synonym database
+<span class="lineno">   28 </span>emptySynonymDB :: SynonymDB
+<span class="lineno">   29 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">emptySynonymDB = SynonymDB M.empty M.empty</span></span>
+
+</pre>
+</body>
+</html>

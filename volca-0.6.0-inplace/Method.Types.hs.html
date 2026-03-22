@@ -1,0 +1,184 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE DeriveGeneric #-}
+<span class="lineno">    2 </span>{-# LANGUAGE DeriveAnyClass #-}
+<span class="lineno">    3 </span>{-# LANGUAGE StrictData #-}
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>-- | Types for LCIA characterization methods.
+<span class="lineno">    6 </span>--
+<span class="lineno">    7 </span>-- LCIA methods define how to convert inventory results (LCI) into
+<span class="lineno">    8 </span>-- impact assessment scores by applying characterization factors (CFs)
+<span class="lineno">    9 </span>-- to biosphere flows.
+<span class="lineno">   10 </span>module Method.Types
+<span class="lineno">   11 </span>    ( -- * Method
+<span class="lineno">   12 </span>      Method(..)
+<span class="lineno">   13 </span>    , MethodCF(..)
+<span class="lineno">   14 </span>    , FlowDirection(..)
+<span class="lineno">   15 </span>    , Compartment(..)
+<span class="lineno">   16 </span>      -- * Method Collection (with normalization/weighting)
+<span class="lineno">   17 </span>    , MethodCollection(..)
+<span class="lineno">   18 </span>    , DamageCategory(..)
+<span class="lineno">   19 </span>    , NormWeightSet(..)
+<span class="lineno">   20 </span>    , emptyMethodCollection
+<span class="lineno">   21 </span>      -- * Compartment Mapping
+<span class="lineno">   22 </span>    , CompartmentMap
+<span class="lineno">   23 </span>    , buildCompartmentMapFromCSV
+<span class="lineno">   24 </span>    , normalizeCompartment
+<span class="lineno">   25 </span>    , compartmentMapSize
+<span class="lineno">   26 </span>      -- * Flow Mapping
+<span class="lineno">   27 </span>    , FlowMapping(..)
+<span class="lineno">   28 </span>    , MatchType(..)
+<span class="lineno">   29 </span>    ) where
+<span class="lineno">   30 </span>
+<span class="lineno">   31 </span>import Data.Aeson (ToJSON, FromJSON)
+<span class="lineno">   32 </span>import qualified Data.ByteString.Lazy as BL
+<span class="lineno">   33 </span>import Data.Csv (HasHeader(..), decode)
+<span class="lineno">   34 </span>import qualified Data.Map.Strict as M
+<span class="lineno">   35 </span>import Data.Text (Text)
+<span class="lineno">   36 </span>import qualified Data.Text as T
+<span class="lineno">   37 </span>import Data.UUID (UUID)
+<span class="lineno">   38 </span>import qualified Data.Vector as V
+<span class="lineno">   39 </span>import GHC.Generics (Generic)
+<span class="lineno">   40 </span>import Control.DeepSeq (NFData)
+<span class="lineno">   41 </span>import Data.Store (Store)
+<span class="lineno">   42 </span>
+<span class="lineno">   43 </span>-- | Direction of a biosphere flow (input from or output to environment)
+<span class="lineno">   44 </span>data FlowDirection
+<span class="lineno">   45 </span>    = Input   -- ^ Resource from environment (e.g., water, minerals)
+<span class="lineno">   46 </span>    | Output  -- ^ Emission to environment (e.g., CO2, pollutants)
+<span class="lineno">   47 </span>    deriving (<span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON</span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON</span></span></span></span></span></span>)
+<span class="lineno">   48 </span>
+<span class="lineno">   49 </span>-- | Compartment triple: (medium, subcompartment, qualifier)
+<span class="lineno">   50 </span>-- medium: &quot;air&quot;, &quot;water&quot;, &quot;soil&quot;, &quot;natural resource&quot;
+<span class="lineno">   51 </span>-- subcompartment: &quot;non-urban air or from high stacks&quot;, &quot;surface water&quot;, etc.
+<span class="lineno">   52 </span>-- qualifier: &quot;long-term&quot; or &quot;&quot;
+<span class="lineno">   53 </span>data Compartment = Compartment !Text !Text !Text
+<span class="lineno">   54 </span>    deriving (<span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON</span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON</span></span></span></span></span></span>)
+<span class="lineno">   55 </span>
+<span class="lineno">   56 </span>-- | A characterization factor from a method file
+<span class="lineno">   57 </span>--
+<span class="lineno">   58 </span>-- Each CF defines how much impact a unit of a specific flow contributes
+<span class="lineno">   59 </span>-- to the impact category.
+<span class="lineno">   60 </span>data MethodCF = MethodCF
+<span class="lineno">   61 </span>    { <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">mcfFlowRef</span></span></span>     :: !UUID                -- ^ ILCD flow UUID from method file
+<span class="lineno">   62 </span>    , <span class="istickedoff"><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">mcfFlowName</span></span></span>    :: !Text                -- ^ Flow name (for matching &amp; display)
+<span class="lineno">   63 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">mcfDirection</span></span></span>   :: !FlowDirection       -- ^ Input (resource) or Output (emission)
+<span class="lineno">   64 </span>    , <span class="istickedoff"><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">mcfValue</span></span></span>       :: !Double              -- ^ Characterization factor value
+<span class="lineno">   65 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">mcfCompartment</span></span></span> :: !(Maybe Compartment) -- ^ Compartment from ILCD flow XML
+<span class="lineno">   66 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">mcfCAS</span></span></span>         :: !(Maybe Text)        -- ^ CAS number (normalized, no leading zeros)
+<span class="lineno">   67 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON</span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON</span></span></span></span></span></span>)
+<span class="lineno">   68 </span>
+<span class="lineno">   69 </span>-- | An LCIA characterization method (loaded from ILCD XML)
+<span class="lineno">   70 </span>--
+<span class="lineno">   71 </span>-- Methods contain a list of characterization factors that convert
+<span class="lineno">   72 </span>-- inventory flows into impact scores.
+<span class="lineno">   73 </span>data Method = Method
+<span class="lineno">   74 </span>    { <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">methodId</span></span></span>          :: !UUID        -- ^ Method UUID
+<span class="lineno">   75 </span>    , <span class="istickedoff"><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">methodName</span></span></span>        :: !Text        -- ^ Human-readable name
+<span class="lineno">   76 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">methodDescription</span></span></span> :: !(Maybe Text) -- ^ Optional description
+<span class="lineno">   77 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">methodUnit</span></span></span>        :: !Text        -- ^ Reference unit (e.g., &quot;kg CO2 eq&quot;)
+<span class="lineno">   78 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">methodCategory</span></span></span>    :: !Text        -- ^ Impact category (e.g., &quot;Climate change&quot;)
+<span class="lineno">   79 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">methodMethodology</span></span></span> :: !(Maybe Text) -- ^ Methodology (e.g., &quot;Environmental Footprint&quot;)
+<span class="lineno">   80 </span>    , <span class="istickedoff"><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">methodFactors</span></span></span>     :: ![MethodCF]  -- ^ List of characterization factors
+<span class="lineno">   81 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON</span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON</span></span></span></span></span></span>)
+<span class="lineno">   82 </span>
+<span class="lineno">   83 </span>-- | Damage category: groups impact subcategories into a parent category.
+<span class="lineno">   84 </span>-- E.g., &quot;Ecotoxicity, freshwater&quot; groups &quot;...part 1&quot;, &quot;...part 2&quot;, etc.
+<span class="lineno">   85 </span>-- Each impact maps with a factor (usually 1.0).
+<span class="lineno">   86 </span>data DamageCategory = DamageCategory
+<span class="lineno">   87 </span>    { <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">dcName</span></span></span>    :: !Text              -- ^ Damage category name
+<span class="lineno">   88 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">dcUnit</span></span></span>    :: !Text              -- ^ Unit (e.g., &quot;CTUe&quot;)
+<span class="lineno">   89 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">dcImpacts</span></span></span> :: ![(Text, Double)]  -- ^ [(subcategory name, aggregation factor)]
+<span class="lineno">   90 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON</span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON</span></span></span></span></span></span>)
+<span class="lineno">   91 </span>
+<span class="lineno">   92 </span>-- | Normalization and weighting factor set.
+<span class="lineno">   93 </span>-- Normalization converts raw scores to person-equivalents.
+<span class="lineno">   94 </span>-- Weighting assigns relative importance for single-score aggregation.
+<span class="lineno">   95 </span>data NormWeightSet = NormWeightSet
+<span class="lineno">   96 </span>    { <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">nwName</span></span></span>          :: !Text                -- ^ Set name
+<span class="lineno">   97 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">nwNormalization</span></span></span> :: !(M.Map Text Double)  -- ^ Damage category → normalization factor
+<span class="lineno">   98 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">nwWeighting</span></span></span>     :: !(M.Map Text Double)  -- ^ Damage category → weight
+<span class="lineno">   99 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON</span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON</span></span></span></span></span></span>)
+<span class="lineno">  100 </span>
+<span class="lineno">  101 </span>-- | A method collection with optional damage categories and NW sets.
+<span class="lineno">  102 </span>data MethodCollection = MethodCollection
+<span class="lineno">  103 </span>    { <span class="istickedoff"><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">mcMethods</span></span></span>          :: ![Method]
+<span class="lineno">  104 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">mcDamageCategories</span></span></span> :: ![DamageCategory]
+<span class="lineno">  105 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">mcNormWeightSets</span></span></span>   :: ![NormWeightSet]
+<span class="lineno">  106 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON</span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON</span></span></span></span></span></span>)
+<span class="lineno">  107 </span>
+<span class="lineno">  108 </span>-- | Empty method collection (for wrapping plain method lists).
+<span class="lineno">  109 </span>emptyMethodCollection :: [Method] -&gt; MethodCollection
+<span class="lineno">  110 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">emptyMethodCollection ms = MethodCollection ms [] []</span></span>
+<span class="lineno">  111 </span>
+<span class="lineno">  112 </span>-- | Compartment normalization map.
+<span class="lineno">  113 </span>-- Maps (lowercase source_medium, source_sub, source_qualifier) to target Compartment.
+<span class="lineno">  114 </span>type CompartmentMap = M.Map (Text, Text, Text) Compartment
+<span class="lineno">  115 </span>
+<span class="lineno">  116 </span>-- | Build a CompartmentMap from CSV content.
+<span class="lineno">  117 </span>-- CSV columns: source_medium, source_sub, source_qualifier, target_medium, target_sub, target_qualifier
+<span class="lineno">  118 </span>buildCompartmentMapFromCSV :: BL.ByteString -&gt; Either String CompartmentMap
+<span class="lineno">  119 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">buildCompartmentMapFromCSV csvData =</span>
+<span class="lineno">  120 </span><span class="spaces">    </span><span class="nottickedoff">case decode HasHeader csvData of</span>
+<span class="lineno">  121 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; Left $ &quot;CSV parse error: &quot; &lt;&gt; err</span>
+<span class="lineno">  122 </span><span class="spaces">        </span><span class="nottickedoff">Right rows -&gt;</span>
+<span class="lineno">  123 </span><span class="spaces">            </span><span class="nottickedoff">let entries = V.toList (rows :: V.Vector (Text, Text, Text, Text, Text, Text))</span>
+<span class="lineno">  124 </span><span class="spaces">                </span><span class="nottickedoff">pairs = [(( T.toLower (T.strip sm)</span>
+<span class="lineno">  125 </span><span class="spaces">                          </span><span class="nottickedoff">, T.toLower (T.strip ss)</span>
+<span class="lineno">  126 </span><span class="spaces">                          </span><span class="nottickedoff">, T.toLower (T.strip sq))</span>
+<span class="lineno">  127 </span><span class="spaces">                         </span><span class="nottickedoff">, Compartment (T.strip tm) (T.strip ts) (T.strip tq))</span>
+<span class="lineno">  128 </span><span class="spaces">                        </span><span class="nottickedoff">| (sm, ss, sq, tm, ts, tq) &lt;- entries]</span>
+<span class="lineno">  129 </span><span class="spaces">            </span><span class="nottickedoff">in Right $ M.fromList pairs</span></span>
+<span class="lineno">  130 </span>
+<span class="lineno">  131 </span>-- | Normalize a compartment using the mapping. Returns original if not found.
+<span class="lineno">  132 </span>normalizeCompartment :: CompartmentMap -&gt; Compartment -&gt; Compartment
+<span class="lineno">  133 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">normalizeCompartment cmap (Compartment med sub qual) =</span>
+<span class="lineno">  134 </span><span class="spaces">    </span><span class="nottickedoff">let key = (T.toLower med, T.toLower sub, T.toLower qual)</span>
+<span class="lineno">  135 </span><span class="spaces">    </span><span class="nottickedoff">in M.findWithDefault (Compartment med sub qual) key cmap</span></span>
+<span class="lineno">  136 </span>
+<span class="lineno">  137 </span>-- | Number of entries in the compartment map.
+<span class="lineno">  138 </span>compartmentMapSize :: CompartmentMap -&gt; Int
+<span class="lineno">  139 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">compartmentMapSize = M.size</span></span>
+<span class="lineno">  140 </span>
+<span class="lineno">  141 </span>-- | How a method flow was matched to a database flow
+<span class="lineno">  142 </span>data MatchType
+<span class="lineno">  143 </span>    = ExactUUID           -- ^ Same UUID
+<span class="lineno">  144 </span>    | CASMatch            -- ^ Via CAS number
+<span class="lineno">  145 </span>    | ExactName           -- ^ Same normalized name
+<span class="lineno">  146 </span>    | SynonymMatch !Int   -- ^ Via synonym group ID
+<span class="lineno">  147 </span>    | FuzzyMatch !Double  -- ^ Fuzzy similarity score (0-1)
+<span class="lineno">  148 </span>    | Unmatched           -- ^ No match found
+<span class="lineno">  149 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON</span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON</span></span></span></span></span></span>)
+<span class="lineno">  150 </span>
+<span class="lineno">  151 </span>-- | Mapping between a method flow and a database flow
+<span class="lineno">  152 </span>--
+<span class="lineno">  153 </span>-- Used to track how method CFs are linked to the actual flows
+<span class="lineno">  154 </span>-- in the database being analyzed.
+<span class="lineno">  155 </span>data FlowMapping = FlowMapping
+<span class="lineno">  156 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fmMethodFlowRef</span></span></span>  :: !UUID         -- ^ Flow UUID from method file
+<span class="lineno">  157 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fmMethodFlowName</span></span></span> :: !Text         -- ^ Flow name in method
+<span class="lineno">  158 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fmDbFlowId</span></span></span>       :: !(Maybe UUID) -- ^ Matched database flow (if found)
+<span class="lineno">  159 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fmMatchType</span></span></span>      :: !MatchType    -- ^ How the match was determined
+<span class="lineno">  160 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fmConfidence</span></span></span>     :: !Double       -- ^ Match confidence (0.0-1.0)
+<span class="lineno">  161 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON</span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON</span></span></span></span></span></span>)
+
+</pre>
+</body>
+</html>

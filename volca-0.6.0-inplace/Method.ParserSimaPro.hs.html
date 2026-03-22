@@ -1,0 +1,381 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE BangPatterns #-}
+<span class="lineno">    2 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    3 </span>
+<span class="lineno">    4 </span>-- | Parser for SimaPro method CSV exports.
+<span class="lineno">    5 </span>--
+<span class="lineno">    6 </span>-- SimaPro can export LCIA methods as CSV files with file type @{methods}@.
+<span class="lineno">    7 </span>-- Each file contains one method with multiple impact categories, each listing
+<span class="lineno">    8 </span>-- characterization factors as substance rows, followed by damage categories,
+<span class="lineno">    9 </span>-- normalization factors, and weighting factors.
+<span class="lineno">   10 </span>module Method.ParserSimaPro
+<span class="lineno">   11 </span>    ( parseSimaProMethodCSV
+<span class="lineno">   12 </span>    , parseSimaProMethodCSVBytes
+<span class="lineno">   13 </span>    , isSimaProMethodCSV
+<span class="lineno">   14 </span>    ) where
+<span class="lineno">   15 </span>
+<span class="lineno">   16 </span>import qualified Data.ByteString as BS
+<span class="lineno">   17 </span>import qualified Data.ByteString.Char8 as BS8
+<span class="lineno">   18 </span>import Data.List (foldl')
+<span class="lineno">   19 </span>import qualified Data.Map.Strict as M
+<span class="lineno">   20 </span>import Data.Text (Text)
+<span class="lineno">   21 </span>import qualified Data.Text as T
+<span class="lineno">   22 </span>import qualified Data.Text.Encoding as TE
+<span class="lineno">   23 </span>import Data.UUID (UUID)
+<span class="lineno">   24 </span>import qualified Data.UUID.V5 as UUID5
+<span class="lineno">   25 </span>import Data.Char (toLower)
+<span class="lineno">   26 </span>
+<span class="lineno">   27 </span>import Method.Types
+<span class="lineno">   28 </span>import SimaPro.Parser (SimaProConfig(..), defaultConfig, simaproNamespace,
+<span class="lineno">   29 </span>                       ensureUtf8, splitCSV, parseAmount, decodeBS)
+<span class="lineno">   30 </span>
+<span class="lineno">   31 </span>-- ============================================================================
+<span class="lineno">   32 </span>-- Public API
+<span class="lineno">   33 </span>-- ============================================================================
+<span class="lineno">   34 </span>
+<span class="lineno">   35 </span>-- | Parse a SimaPro method CSV file from disk.
+<span class="lineno">   36 </span>parseSimaProMethodCSV :: FilePath -&gt; IO (Either String MethodCollection)
+<span class="lineno">   37 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseSimaProMethodCSV path = parseSimaProMethodCSVBytes &lt;$&gt; BS.readFile path</span></span>
+<span class="lineno">   38 </span>
+<span class="lineno">   39 </span>-- | Pure parser for SimaPro method CSV bytes.
+<span class="lineno">   40 </span>parseSimaProMethodCSVBytes :: BS.ByteString -&gt; Either String MethodCollection
+<span class="lineno">   41 </span><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">parseSimaProMethodCSVBytes raw =</span>
+<span class="lineno">   42 </span><span class="spaces">    </span><span class="istickedoff">let !utf8 = ensureUtf8 raw</span>
+<span class="lineno">   43 </span><span class="spaces">        </span><span class="istickedoff">lns = BS8.lines utf8</span>
+<span class="lineno">   44 </span><span class="spaces">        </span><span class="istickedoff">cfg = parseConfig lns</span>
+<span class="lineno">   45 </span><span class="spaces">        </span><span class="istickedoff">methodName' = parseMethodName <span class="nottickedoff">cfg</span> lns</span>
+<span class="lineno">   46 </span><span class="spaces">        </span><span class="istickedoff">result = foldl' (step cfg methodName') initState lns</span>
+<span class="lineno">   47 </span><span class="spaces">    </span><span class="istickedoff">in Right (finalize result)</span></span>
+<span class="lineno">   48 </span>
+<span class="lineno">   49 </span>-- | Detect whether bytes are a SimaPro method CSV export.
+<span class="lineno">   50 </span>isSimaProMethodCSV :: BS.ByteString -&gt; Bool
+<span class="lineno">   51 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">isSimaProMethodCSV bs =</span>
+<span class="lineno">   52 </span><span class="spaces">    </span><span class="istickedoff">BS8.isPrefixOf &quot;{SimaPro&quot; bs &amp;&amp; &quot;{methods}&quot; `BS.isInfixOf` BS.take 200 bs</span></span>
+<span class="lineno">   53 </span>
+<span class="lineno">   54 </span>-- ============================================================================
+<span class="lineno">   55 </span>-- Parser State
+<span class="lineno">   56 </span>-- ============================================================================
+<span class="lineno">   57 </span>
+<span class="lineno">   58 </span>data ParseState = ParseState
+<span class="lineno">   59 </span>    { <span class="istickedoff"><span class="funcount">-- entered 980 times</span><span class="decl"><span class="istickedoff">psPhase</span></span></span>      :: !Phase
+<span class="lineno">   60 </span>    , <span class="istickedoff"><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">psCatName</span></span></span>    :: !Text          -- current impact category name
+<span class="lineno">   61 </span>    , <span class="istickedoff"><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">psCatUnit</span></span></span>    :: !Text          -- current impact category unit
+<span class="lineno">   62 </span>    , <span class="istickedoff"><span class="funcount">-- entered 120 times</span><span class="decl"><span class="istickedoff">psFactors</span></span></span>    :: ![MethodCF]    -- CFs accumulated (reversed) for current category
+<span class="lineno">   63 </span>    , <span class="istickedoff"><span class="funcount">-- entered 40 times</span><span class="decl"><span class="istickedoff">psMethods</span></span></span>    :: ![Method]      -- completed methods (reversed)
+<span class="lineno">   64 </span>    -- Damage categories
+<span class="lineno">   65 </span>    , <span class="istickedoff"><span class="funcount">-- entered 40 times</span><span class="decl"><span class="istickedoff">psDamageCats</span></span></span> :: ![DamageCategory]   -- completed damage categories (reversed)
+<span class="lineno">   66 </span>    , <span class="istickedoff"><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">psDcName</span></span></span>     :: !Text               -- current damage category name
+<span class="lineno">   67 </span>    , <span class="istickedoff"><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">psDcUnit</span></span></span>     :: !Text               -- current damage category unit
+<span class="lineno">   68 </span>    , <span class="istickedoff"><span class="funcount">-- entered 60 times</span><span class="decl"><span class="istickedoff">psDcImpacts</span></span></span>  :: ![(Text, Double)]   -- current damage category impacts (reversed)
+<span class="lineno">   69 </span>    -- Normalization/Weighting
+<span class="lineno">   70 </span>    , <span class="istickedoff"><span class="funcount">-- entered 20 times</span><span class="decl"><span class="istickedoff">psNWsets</span></span></span>     :: ![NormWeightSet]     -- completed NW sets (reversed)
+<span class="lineno">   71 </span>    , <span class="istickedoff"><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">psNWname</span></span></span>     :: !Text               -- current NW set name
+<span class="lineno">   72 </span>    , <span class="istickedoff"><span class="funcount">-- entered 50 times</span><span class="decl"><span class="istickedoff">psNormMap</span></span></span>    :: !(M.Map Text Double) -- current normalization factors
+<span class="lineno">   73 </span>    , <span class="istickedoff"><span class="funcount">-- entered 40 times</span><span class="decl"><span class="istickedoff">psWeightMap</span></span></span>  :: !(M.Map Text Double) -- current weighting factors
+<span class="lineno">   74 </span>    }
+<span class="lineno">   75 </span>
+<span class="lineno">   76 </span>data Phase
+<span class="lineno">   77 </span>    = PhHeader          -- reading {key: value} header lines
+<span class="lineno">   78 </span>    | PhMethodMeta      -- reading method-level metadata (Name, Version, etc.)
+<span class="lineno">   79 </span>    | PhExpectCategory  -- expecting &quot;Impact category&quot; or &quot;Damage category&quot; etc.
+<span class="lineno">   80 </span>    | PhExpectCatLine   -- expecting the &quot;Name;Unit&quot; line after &quot;Impact category&quot;
+<span class="lineno">   81 </span>    | PhExpectSubst     -- expecting blank or &quot;Substances&quot; marker
+<span class="lineno">   82 </span>    | PhReadingCFs      -- reading substance/CF rows
+<span class="lineno">   83 </span>    -- Damage categories
+<span class="lineno">   84 </span>    | PhExpectDcLine    -- expecting &quot;Name;Unit&quot; after &quot;Damage category&quot;
+<span class="lineno">   85 </span>    | PhExpectDcImpacts -- expecting &quot;Impact categories&quot; marker
+<span class="lineno">   86 </span>    | PhReadingDcImpacts -- reading impact category rows in damage category
+<span class="lineno">   87 </span>    -- Normalization/Weighting
+<span class="lineno">   88 </span>    | PhExpectNWname    -- expecting NW set name line
+<span class="lineno">   89 </span>    | PhExpectNWsection -- expecting &quot;Normalization&quot; or &quot;Weighting&quot; or next section
+<span class="lineno">   90 </span>    | PhReadingNorm     -- reading normalization rows
+<span class="lineno">   91 </span>    | PhReadingWeight   -- reading weighting rows
+<span class="lineno">   92 </span>
+<span class="lineno">   93 </span>initState :: ParseState
+<span class="lineno">   94 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">initState = ParseState PhHeader &quot;&quot; &quot;&quot; [] [] [] &quot;&quot; &quot;&quot; [] [] &quot;&quot; M.empty M.empty</span></span>
+<span class="lineno">   95 </span>
+<span class="lineno">   96 </span>-- ============================================================================
+<span class="lineno">   97 </span>-- State Machine
+<span class="lineno">   98 </span>-- ============================================================================
+<span class="lineno">   99 </span>
+<span class="lineno">  100 </span>step :: SimaProConfig -&gt; Text -&gt; ParseState -&gt; BS.ByteString -&gt; ParseState
+<span class="lineno">  101 </span><span class="funcount">-- entered 960 times</span><span class="decl"><span class="istickedoff">step cfg methodologyName st line = case psPhase st of</span>
+<span class="lineno">  102 </span><span class="spaces">    </span><span class="istickedoff">PhHeader</span>
+<span class="lineno">  103 </span><span class="spaces">        </span><span class="istickedoff">| BS8.isPrefixOf &quot;{&quot; line -&gt; st</span>
+<span class="lineno">  104 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; st { psPhase = PhMethodMeta }</span>
+<span class="lineno">  105 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  106 </span><span class="spaces">    </span><span class="istickedoff">PhMethodMeta</span>
+<span class="lineno">  107 </span><span class="spaces">        </span><span class="istickedoff">| stripped == &quot;Impact category&quot; -&gt; st { psPhase = PhExpectCatLine }</span>
+<span class="lineno">  108 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;Damage category&quot;</span> -&gt; <span class="nottickedoff">st { psPhase = PhExpectDcLine }</span></span>
+<span class="lineno">  109 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isNWsetMarker stripped</span> -&gt; <span class="nottickedoff">st { psPhase = PhExpectNWname }</span></span>
+<span class="lineno">  110 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; st</span>
+<span class="lineno">  111 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  112 </span><span class="spaces">    </span><span class="istickedoff">PhExpectCategory</span>
+<span class="lineno">  113 </span><span class="spaces">        </span><span class="istickedoff">| stripped == &quot;Impact category&quot; -&gt; st { psPhase = PhExpectCatLine }</span>
+<span class="lineno">  114 </span><span class="spaces">        </span><span class="istickedoff">| stripped == &quot;Damage category&quot; -&gt; st { psPhase = PhExpectDcLine }</span>
+<span class="lineno">  115 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">isNWsetMarker stripped</span> -&gt; st { psPhase = PhExpectNWname }</span>
+<span class="lineno">  116 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">stripped == &quot;End&quot;</span> -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  117 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  118 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  119 </span><span class="spaces">    </span><span class="istickedoff">PhExpectCatLine</span>
+<span class="lineno">  120 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isBlank line</span> -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  121 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  122 </span><span class="spaces">            </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
+<span class="lineno">  123 </span><span class="spaces">                </span><span class="istickedoff">catName = decodeBS (BS8.strip (head' fields))</span>
+<span class="lineno">  124 </span><span class="spaces">                </span><span class="istickedoff">catUnit = if <span class="tickonlytrue">length fields &gt; 1</span></span>
+<span class="lineno">  125 </span><span class="spaces">                          </span><span class="istickedoff">then decodeBS (BS8.strip (fields !! 1))</span>
+<span class="lineno">  126 </span><span class="spaces">                          </span><span class="istickedoff">else <span class="nottickedoff">&quot;&quot;</span></span>
+<span class="lineno">  127 </span><span class="spaces">            </span><span class="istickedoff">in st { psPhase = PhExpectSubst</span>
+<span class="lineno">  128 </span><span class="spaces">                  </span><span class="istickedoff">, psCatName = catName</span>
+<span class="lineno">  129 </span><span class="spaces">                  </span><span class="istickedoff">, psCatUnit = catUnit</span>
+<span class="lineno">  130 </span><span class="spaces">                  </span><span class="istickedoff">, psFactors = []</span>
+<span class="lineno">  131 </span><span class="spaces">                  </span><span class="istickedoff">}</span>
+<span class="lineno">  132 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  133 </span><span class="spaces">    </span><span class="istickedoff">PhExpectSubst</span>
+<span class="lineno">  134 </span><span class="spaces">        </span><span class="istickedoff">| isBlank line -&gt; st</span>
+<span class="lineno">  135 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">stripped == &quot;Substances&quot;</span> -&gt; st { psPhase = PhReadingCFs }</span>
+<span class="lineno">  136 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  137 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  138 </span><span class="spaces">    </span><span class="istickedoff">PhReadingCFs</span>
+<span class="lineno">  139 </span><span class="spaces">        </span><span class="istickedoff">| isBlank line -&gt; finishCategory st</span>
+<span class="lineno">  140 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;Impact category&quot;</span> -&gt;</span>
+<span class="lineno">  141 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(finishCategory st) { psPhase = PhExpectCatLine }</span></span>
+<span class="lineno">  142 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;Damage category&quot;</span> -&gt;</span>
+<span class="lineno">  143 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(finishCategory st) { psPhase = PhExpectDcLine }</span></span>
+<span class="lineno">  144 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isNWsetMarker stripped</span> -&gt;</span>
+<span class="lineno">  145 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(finishCategory st) { psPhase = PhExpectNWname }</span></span>
+<span class="lineno">  146 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;End&quot;</span> -&gt; <span class="nottickedoff">finishCategory st</span></span>
+<span class="lineno">  147 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  148 </span><span class="spaces">            </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
+<span class="lineno">  149 </span><span class="spaces">            </span><span class="istickedoff">in case fields of</span>
+<span class="lineno">  150 </span><span class="spaces">                </span><span class="istickedoff">(comp:sub:name:cas:cfVal:_unit:_) -&gt;</span>
+<span class="lineno">  151 </span><span class="spaces">                    </span><span class="istickedoff">let !cf = MethodCF</span>
+<span class="lineno">  152 </span><span class="spaces">                            </span><span class="istickedoff">{ mcfFlowRef     = makeFlowUUID name comp sub</span>
+<span class="lineno">  153 </span><span class="spaces">                            </span><span class="istickedoff">, mcfFlowName    = decodeBS (BS8.strip name)</span>
+<span class="lineno">  154 </span><span class="spaces">                            </span><span class="istickedoff">, mcfDirection   = direction comp</span>
+<span class="lineno">  155 </span><span class="spaces">                            </span><span class="istickedoff">, mcfValue       = parseAmount (spDecimal cfg) (BS8.strip cfVal)</span>
+<span class="lineno">  156 </span><span class="spaces">                            </span><span class="istickedoff">, mcfCompartment = mkCompartment comp sub</span>
+<span class="lineno">  157 </span><span class="spaces">                            </span><span class="istickedoff">, mcfCAS         = normalizeCAS (decodeBS (BS8.strip cas))</span>
+<span class="lineno">  158 </span><span class="spaces">                            </span><span class="istickedoff">}</span>
+<span class="lineno">  159 </span><span class="spaces">                    </span><span class="istickedoff">in st { psFactors = cf : psFactors st }</span>
+<span class="lineno">  160 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  161 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  162 </span><span class="spaces">    </span><span class="istickedoff">-- Damage category parsing</span>
+<span class="lineno">  163 </span><span class="spaces">    </span><span class="istickedoff">PhExpectDcLine</span>
+<span class="lineno">  164 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isBlank line</span> -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  165 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  166 </span><span class="spaces">            </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
+<span class="lineno">  167 </span><span class="spaces">                </span><span class="istickedoff">dcn = decodeBS (BS8.strip (head' fields))</span>
+<span class="lineno">  168 </span><span class="spaces">                </span><span class="istickedoff">dcu = if <span class="tickonlytrue">length fields &gt; 1</span> then decodeBS (BS8.strip (fields !! 1)) else <span class="nottickedoff">&quot;&quot;</span></span>
+<span class="lineno">  169 </span><span class="spaces">            </span><span class="istickedoff">in st { psPhase = PhExpectDcImpacts, psDcName = dcn, psDcUnit = dcu, psDcImpacts = [] }</span>
+<span class="lineno">  170 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  171 </span><span class="spaces">    </span><span class="istickedoff">PhExpectDcImpacts</span>
+<span class="lineno">  172 </span><span class="spaces">        </span><span class="istickedoff">| isBlank line -&gt; st</span>
+<span class="lineno">  173 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">stripped == &quot;Impact categories&quot;</span> -&gt; st { psPhase = PhReadingDcImpacts }</span>
+<span class="lineno">  174 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  175 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  176 </span><span class="spaces">    </span><span class="istickedoff">PhReadingDcImpacts</span>
+<span class="lineno">  177 </span><span class="spaces">        </span><span class="istickedoff">| isBlank line -&gt; finishDamageCategory st</span>
+<span class="lineno">  178 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;Damage category&quot;</span> -&gt;</span>
+<span class="lineno">  179 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(finishDamageCategory st) { psPhase = PhExpectDcLine }</span></span>
+<span class="lineno">  180 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isNWsetMarker stripped</span> -&gt;</span>
+<span class="lineno">  181 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(finishDamageCategory st) { psPhase = PhExpectNWname }</span></span>
+<span class="lineno">  182 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;End&quot;</span> -&gt; <span class="nottickedoff">finishDamageCategory st</span></span>
+<span class="lineno">  183 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  184 </span><span class="spaces">            </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
+<span class="lineno">  185 </span><span class="spaces">            </span><span class="istickedoff">in case fields of</span>
+<span class="lineno">  186 </span><span class="spaces">                </span><span class="istickedoff">(name:val:_) -&gt;</span>
+<span class="lineno">  187 </span><span class="spaces">                    </span><span class="istickedoff">let n = decodeBS (BS8.strip name)</span>
+<span class="lineno">  188 </span><span class="spaces">                        </span><span class="istickedoff">v = parseAmount (spDecimal cfg) (BS8.strip val)</span>
+<span class="lineno">  189 </span><span class="spaces">                    </span><span class="istickedoff">in st { psDcImpacts = (n, v) : psDcImpacts st }</span>
+<span class="lineno">  190 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  191 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  192 </span><span class="spaces">    </span><span class="istickedoff">-- Normalization/Weighting parsing</span>
+<span class="lineno">  193 </span><span class="spaces">    </span><span class="istickedoff">PhExpectNWname</span>
+<span class="lineno">  194 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isBlank line</span> -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  195 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; st { psPhase = PhExpectNWsection, psNWname = decodeBS (BS8.strip line) }</span>
+<span class="lineno">  196 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  197 </span><span class="spaces">    </span><span class="istickedoff">PhExpectNWsection</span>
+<span class="lineno">  198 </span><span class="spaces">        </span><span class="istickedoff">| isBlank line -&gt; st</span>
+<span class="lineno">  199 </span><span class="spaces">        </span><span class="istickedoff">| stripped == &quot;Normalization&quot; -&gt; st { psPhase = PhReadingNorm }</span>
+<span class="lineno">  200 </span><span class="spaces">        </span><span class="istickedoff">| stripped == &quot;Weighting&quot; -&gt; st { psPhase = PhReadingWeight }</span>
+<span class="lineno">  201 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;Damage category&quot;</span> -&gt;</span>
+<span class="lineno">  202 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(finishNWset st) { psPhase = PhExpectDcLine }</span></span>
+<span class="lineno">  203 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isNWsetMarker stripped</span> -&gt;</span>
+<span class="lineno">  204 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(finishNWset st) { psPhase = PhExpectNWname }</span></span>
+<span class="lineno">  205 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">stripped == &quot;End&quot;</span> -&gt; finishNWset st</span>
+<span class="lineno">  206 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  207 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  208 </span><span class="spaces">    </span><span class="istickedoff">PhReadingNorm</span>
+<span class="lineno">  209 </span><span class="spaces">        </span><span class="istickedoff">| isBlank line -&gt; st { psPhase = PhExpectNWsection }</span>
+<span class="lineno">  210 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;Weighting&quot;</span> -&gt; <span class="nottickedoff">st { psPhase = PhReadingWeight }</span></span>
+<span class="lineno">  211 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;End&quot;</span> -&gt; <span class="nottickedoff">finishNWset st</span></span>
+<span class="lineno">  212 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  213 </span><span class="spaces">            </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
+<span class="lineno">  214 </span><span class="spaces">            </span><span class="istickedoff">in case fields of</span>
+<span class="lineno">  215 </span><span class="spaces">                </span><span class="istickedoff">(name:val:_) -&gt;</span>
+<span class="lineno">  216 </span><span class="spaces">                    </span><span class="istickedoff">let n = decodeBS (BS8.strip name)</span>
+<span class="lineno">  217 </span><span class="spaces">                        </span><span class="istickedoff">v = parseAmount (spDecimal cfg) (BS8.strip val)</span>
+<span class="lineno">  218 </span><span class="spaces">                    </span><span class="istickedoff">in st { psNormMap = M.insert n v (psNormMap st) }</span>
+<span class="lineno">  219 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  220 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  221 </span><span class="spaces">    </span><span class="istickedoff">PhReadingWeight</span>
+<span class="lineno">  222 </span><span class="spaces">        </span><span class="istickedoff">| isBlank line -&gt; st { psPhase = PhExpectNWsection }</span>
+<span class="lineno">  223 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isNWsetMarker stripped</span> -&gt;</span>
+<span class="lineno">  224 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(finishNWset st) { psPhase = PhExpectNWname }</span></span>
+<span class="lineno">  225 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">stripped == &quot;End&quot;</span> -&gt; <span class="nottickedoff">finishNWset st</span></span>
+<span class="lineno">  226 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  227 </span><span class="spaces">            </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
+<span class="lineno">  228 </span><span class="spaces">            </span><span class="istickedoff">in case fields of</span>
+<span class="lineno">  229 </span><span class="spaces">                </span><span class="istickedoff">(name:val:_) -&gt;</span>
+<span class="lineno">  230 </span><span class="spaces">                    </span><span class="istickedoff">let n = decodeBS (BS8.strip name)</span>
+<span class="lineno">  231 </span><span class="spaces">                        </span><span class="istickedoff">v = parseAmount (spDecimal cfg) (BS8.strip val)</span>
+<span class="lineno">  232 </span><span class="spaces">                    </span><span class="istickedoff">in st { psWeightMap = M.insert n v (psWeightMap st) }</span>
+<span class="lineno">  233 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">  234 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  235 </span><span class="spaces">    </span><span class="istickedoff">stripped = BS8.strip line</span>
+<span class="lineno">  236 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  237 </span><span class="spaces">    </span><span class="istickedoff">finishCategory s =</span>
+<span class="lineno">  238 </span><span class="spaces">        </span><span class="istickedoff">let !m = Method</span>
+<span class="lineno">  239 </span><span class="spaces">                </span><span class="istickedoff">{ methodId          = UUID5.generateNamed simaproNamespace</span>
+<span class="lineno">  240 </span><span class="spaces">                    </span><span class="istickedoff">(BS.unpack $ TE.encodeUtf8 $ &quot;method:&quot; &lt;&gt; psCatName s)</span>
+<span class="lineno">  241 </span><span class="spaces">                </span><span class="istickedoff">, methodName        = psCatName s</span>
+<span class="lineno">  242 </span><span class="spaces">                </span><span class="istickedoff">, methodDescription = Nothing</span>
+<span class="lineno">  243 </span><span class="spaces">                </span><span class="istickedoff">, methodUnit        = psCatUnit s</span>
+<span class="lineno">  244 </span><span class="spaces">                </span><span class="istickedoff">, methodCategory    = psCatName s</span>
+<span class="lineno">  245 </span><span class="spaces">                </span><span class="istickedoff">, methodMethodology = Just methodologyName</span>
+<span class="lineno">  246 </span><span class="spaces">                </span><span class="istickedoff">, methodFactors     = reverse (psFactors s)</span>
+<span class="lineno">  247 </span><span class="spaces">                </span><span class="istickedoff">}</span>
+<span class="lineno">  248 </span><span class="spaces">        </span><span class="istickedoff">in s { psPhase = PhExpectCategory, psFactors = [], psMethods = m : psMethods s }</span>
+<span class="lineno">  249 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  250 </span><span class="spaces">    </span><span class="istickedoff">finishDamageCategory s =</span>
+<span class="lineno">  251 </span><span class="spaces">        </span><span class="istickedoff">let !dc = DamageCategory (psDcName s) (psDcUnit s) (reverse (psDcImpacts s))</span>
+<span class="lineno">  252 </span><span class="spaces">        </span><span class="istickedoff">in s { psPhase = PhExpectCategory, psDcImpacts = [], psDamageCats = dc : psDamageCats s }</span>
+<span class="lineno">  253 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  254 </span><span class="spaces">    </span><span class="istickedoff">finishNWset s</span>
+<span class="lineno">  255 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">M.null (psNormMap s) &amp;&amp; <span class="nottickedoff">M.null (psWeightMap s)</span></span> = <span class="nottickedoff">s { psPhase = PhExpectCategory }</span></span>
+<span class="lineno">  256 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  257 </span><span class="spaces">            </span><span class="istickedoff">let !nw = NormWeightSet (psNWname s) (psNormMap s) (psWeightMap s)</span>
+<span class="lineno">  258 </span><span class="spaces">            </span><span class="istickedoff">in s { psPhase = PhExpectCategory</span>
+<span class="lineno">  259 </span><span class="spaces">                 </span><span class="istickedoff">, psNormMap = M.empty, psWeightMap = M.empty, psNWname = &quot;&quot;</span>
+<span class="lineno">  260 </span><span class="spaces">                 </span><span class="istickedoff">, psNWsets = nw : psNWsets s }</span></span>
+<span class="lineno">  261 </span>
+<span class="lineno">  262 </span>finalize :: ParseState -&gt; MethodCollection
+<span class="lineno">  263 </span><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">finalize st =</span>
+<span class="lineno">  264 </span><span class="spaces">    </span><span class="istickedoff">let methods = case psPhase st of</span>
+<span class="lineno">  265 </span><span class="spaces">            </span><span class="istickedoff">PhReadingCFs | <span class="nottickedoff">not (null (psFactors st))</span> -&gt;</span>
+<span class="lineno">  266 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">let !m = Method</span></span>
+<span class="lineno">  267 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">{ methodId          = UUID5.generateNamed simaproNamespace</span></span>
+<span class="lineno">  268 </span><span class="spaces">                            </span><span class="istickedoff"><span class="nottickedoff">(BS.unpack $ TE.encodeUtf8 $ &quot;method:&quot; &lt;&gt; psCatName st)</span></span>
+<span class="lineno">  269 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, methodName        = psCatName st</span></span>
+<span class="lineno">  270 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, methodDescription = Nothing</span></span>
+<span class="lineno">  271 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, methodUnit        = psCatUnit st</span></span>
+<span class="lineno">  272 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, methodCategory    = psCatName st</span></span>
+<span class="lineno">  273 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, methodMethodology = Nothing</span></span>
+<span class="lineno">  274 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">, methodFactors     = reverse (psFactors st)</span></span>
+<span class="lineno">  275 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">}</span></span>
+<span class="lineno">  276 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">in reverse (m : psMethods st)</span></span>
+<span class="lineno">  277 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; reverse (psMethods st)</span>
+<span class="lineno">  278 </span><span class="spaces">        </span><span class="istickedoff">-- Flush any pending NW set</span>
+<span class="lineno">  279 </span><span class="spaces">        </span><span class="istickedoff">nwSets = case psPhase st of</span>
+<span class="lineno">  280 </span><span class="spaces">            </span><span class="istickedoff">PhReadingWeight | <span class="nottickedoff">not (M.null (psWeightMap st))</span> -&gt;</span>
+<span class="lineno">  281 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">let !nw = NormWeightSet (psNWname st) (psNormMap st) (psWeightMap st)</span></span>
+<span class="lineno">  282 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">in reverse (nw : psNWsets st)</span></span>
+<span class="lineno">  283 </span><span class="spaces">            </span><span class="istickedoff">PhReadingNorm | <span class="nottickedoff">not (M.null (psNormMap st))</span> -&gt;</span>
+<span class="lineno">  284 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">let !nw = NormWeightSet (psNWname st) (psNormMap st) (psWeightMap st)</span></span>
+<span class="lineno">  285 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">in reverse (nw : psNWsets st)</span></span>
+<span class="lineno">  286 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; reverse (psNWsets st)</span>
+<span class="lineno">  287 </span><span class="spaces">    </span><span class="istickedoff">in MethodCollection methods (reverse (psDamageCats st)) nwSets</span></span>
+<span class="lineno">  288 </span>
+<span class="lineno">  289 </span>-- ============================================================================
+<span class="lineno">  290 </span>-- Helpers
+<span class="lineno">  291 </span>-- ============================================================================
+<span class="lineno">  292 </span>
+<span class="lineno">  293 </span>isNWsetMarker :: BS.ByteString -&gt; Bool
+<span class="lineno">  294 </span><span class="funcount">-- entered 460 times</span><span class="decl"><span class="istickedoff">isNWsetMarker s = BS8.isPrefixOf &quot;Normalization-Weighting set&quot; s</span>
+<span class="lineno">  295 </span><span class="spaces">              </span><span class="istickedoff">|| BS8.isPrefixOf &quot;Normalisation-Weighting set&quot; s</span></span>
+<span class="lineno">  296 </span>
+<span class="lineno">  297 </span>parseConfig :: [BS.ByteString] -&gt; SimaProConfig
+<span class="lineno">  298 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">parseConfig = foldl' go defaultConfig</span>
+<span class="lineno">  299 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  300 </span><span class="spaces">    </span><span class="istickedoff">go cfg line</span>
+<span class="lineno">  301 </span><span class="spaces">        </span><span class="istickedoff">| &quot;{CSV separator: Semicolon}&quot; `BS.isInfixOf` line = cfg { spDelimiter = ';' }</span>
+<span class="lineno">  302 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">&quot;{CSV separator: Comma}&quot; `BS.isInfixOf` line</span>     = <span class="nottickedoff">cfg { spDelimiter = ',' }</span></span>
+<span class="lineno">  303 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">&quot;{CSV separator: Tab}&quot; `BS.isInfixOf` line</span>       = <span class="nottickedoff">cfg { spDelimiter = '\t' }</span></span>
+<span class="lineno">  304 </span><span class="spaces">        </span><span class="istickedoff">| &quot;{Decimal separator: .}&quot; `BS.isInfixOf` line     = cfg { spDecimal = '.' }</span>
+<span class="lineno">  305 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">&quot;{Decimal separator: ,}&quot; `BS.isInfixOf` line</span>     = <span class="nottickedoff">cfg { spDecimal = ',' }</span></span>
+<span class="lineno">  306 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = cfg</span></span>
+<span class="lineno">  307 </span>
+<span class="lineno">  308 </span>parseMethodName :: SimaProConfig -&gt; [BS.ByteString] -&gt; Text
+<span class="lineno">  309 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">parseMethodName _cfg = go False</span>
+<span class="lineno">  310 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  311 </span><span class="spaces">    </span><span class="istickedoff">go _ [] = <span class="nottickedoff">&quot;SimaPro Method&quot;</span></span>
+<span class="lineno">  312 </span><span class="spaces">    </span><span class="istickedoff">go True (l:_) = decodeBS (BS8.strip l)</span>
+<span class="lineno">  313 </span><span class="spaces">    </span><span class="istickedoff">go False (l:ls)</span>
+<span class="lineno">  314 </span><span class="spaces">        </span><span class="istickedoff">| BS8.strip l == &quot;Name&quot; = go True ls</span>
+<span class="lineno">  315 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = go False ls</span></span>
+<span class="lineno">  316 </span>
+<span class="lineno">  317 </span>isBlank :: BS.ByteString -&gt; Bool
+<span class="lineno">  318 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">isBlank = BS.null . BS8.strip</span></span>
+<span class="lineno">  319 </span>
+<span class="lineno">  320 </span>head' :: [a] -&gt; a
+<span class="lineno">  321 </span><span class="funcount">-- entered 60 times</span><span class="decl"><span class="istickedoff">head' (x:_) = x</span>
+<span class="lineno">  322 </span><span class="spaces"></span><span class="istickedoff">head' [] = <span class="nottickedoff">error &quot;Method.ParserSimaPro: unexpected empty field list&quot;</span></span></span>
+<span class="lineno">  323 </span>
+<span class="lineno">  324 </span>makeFlowUUID :: BS.ByteString -&gt; BS.ByteString -&gt; BS.ByteString -&gt; UUID
+<span class="lineno">  325 </span><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">makeFlowUUID name comp sub =</span>
+<span class="lineno">  326 </span><span class="spaces">    </span><span class="istickedoff">let compartment = decodeBS (BS8.strip comp) &lt;&gt; &quot;/&quot; &lt;&gt; decodeBS (BS8.strip sub)</span>
+<span class="lineno">  327 </span><span class="spaces">    </span><span class="istickedoff">in UUID5.generateNamed simaproNamespace</span>
+<span class="lineno">  328 </span><span class="spaces">        </span><span class="istickedoff">(BS.unpack $ TE.encodeUtf8 $ &quot;flow:&quot; &lt;&gt; decodeBS (BS8.strip name) &lt;&gt; &quot;:&quot; &lt;&gt; compartment &lt;&gt; &quot;:&quot; &lt;&gt; &quot;kg&quot;)</span></span>
+<span class="lineno">  329 </span>
+<span class="lineno">  330 </span>direction :: BS.ByteString -&gt; FlowDirection
+<span class="lineno">  331 </span><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">direction comp</span>
+<span class="lineno">  332 </span><span class="spaces">    </span><span class="istickedoff">| lc == &quot;raw&quot; || lc == &quot;resources&quot; || &quot;raw&quot; `BS8.isPrefixOf` lc = Input</span>
+<span class="lineno">  333 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Output</span>
+<span class="lineno">  334 </span><span class="spaces">  </span><span class="istickedoff">where lc = BS8.map toLower (BS8.strip comp)</span></span>
+<span class="lineno">  335 </span>
+<span class="lineno">  336 </span>mkCompartment :: BS.ByteString -&gt; BS.ByteString -&gt; Maybe Compartment
+<span class="lineno">  337 </span><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">mkCompartment comp sub =</span>
+<span class="lineno">  338 </span><span class="spaces">    </span><span class="istickedoff">let medium = case BS8.map toLower (BS8.strip comp) of</span>
+<span class="lineno">  339 </span><span class="spaces">            </span><span class="istickedoff">&quot;air&quot;       -&gt; <span class="nottickedoff">&quot;air&quot;</span></span>
+<span class="lineno">  340 </span><span class="spaces">            </span><span class="istickedoff">&quot;water&quot;     -&gt; <span class="nottickedoff">&quot;water&quot;</span></span>
+<span class="lineno">  341 </span><span class="spaces">            </span><span class="istickedoff">&quot;soil&quot;      -&gt; <span class="nottickedoff">&quot;soil&quot;</span></span>
+<span class="lineno">  342 </span><span class="spaces">            </span><span class="istickedoff">&quot;raw&quot;       -&gt; &quot;natural resource&quot;</span>
+<span class="lineno">  343 </span><span class="spaces">            </span><span class="istickedoff">&quot;resources&quot; -&gt; <span class="nottickedoff">&quot;natural resource&quot;</span></span>
+<span class="lineno">  344 </span><span class="spaces">            </span><span class="istickedoff">c           -&gt; <span class="nottickedoff">decodeBS c</span></span>
+<span class="lineno">  345 </span><span class="spaces">        </span><span class="istickedoff">subcomp = let s = decodeBS (BS8.strip sub)</span>
+<span class="lineno">  346 </span><span class="spaces">                  </span><span class="istickedoff">in if <span class="tickonlytrue">s == &quot;(unspecified)&quot;</span> then &quot;&quot; else <span class="nottickedoff">s</span></span>
+<span class="lineno">  347 </span><span class="spaces">    </span><span class="istickedoff">in Just (Compartment medium subcomp &quot;&quot;)</span></span>
+<span class="lineno">  348 </span>
+<span class="lineno">  349 </span>normalizeCAS :: Text -&gt; Maybe Text
+<span class="lineno">  350 </span><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">normalizeCAS cas</span>
+<span class="lineno">  351 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">T.null cas</span> = <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  352 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  353 </span><span class="spaces">        </span><span class="istickedoff">let segments = T.splitOn &quot;-&quot; cas</span>
+<span class="lineno">  354 </span><span class="spaces">            </span><span class="istickedoff">stripped = map (T.dropWhile (== '0')) segments</span>
+<span class="lineno">  355 </span><span class="spaces">            </span><span class="istickedoff">fixed = map (\s -&gt; if <span class="tickonlyfalse">T.null s</span> then <span class="nottickedoff">&quot;0&quot;</span> else s) stripped</span>
+<span class="lineno">  356 </span><span class="spaces">            </span><span class="istickedoff">result = T.intercalate &quot;-&quot; fixed</span>
+<span class="lineno">  357 </span><span class="spaces">        </span><span class="istickedoff">in if <span class="tickonlyfalse">T.all (\c -&gt; c == '-' || c == '0') cas</span> then <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  358 </span><span class="spaces">           </span><span class="istickedoff">else Just result</span></span>
+
+</pre>
+</body>
+</html>
