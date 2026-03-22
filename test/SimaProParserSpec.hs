@@ -424,11 +424,14 @@ spec = do
             length wasteExchanges `shouldSatisfy` (>= 1)
 
     describe "SimaPro parameterized amounts" $ do
-        it "resolves simple variable references (Qm=20.53 for cow milk)" $ do
+        it "resolves simple variable references (Qm=20.53 for cow milk, scaled by allocation)" $ do
             (activities, _, _) <- parseParamCSV
             let butter = head activities
-            -- Cow milk should appear as input with amount 20.53
-            techInputAmounts butter `shouldContain` [20.53]
+                -- allocButter = (1*0.82/(1*0.82+20.53*0.118))*100 ≈ 25.285
+                -- Cow milk amount = 20.53 * allocButter/100 ≈ 5.19
+                milkAmounts = techInputAmounts butter
+            length milkAmounts `shouldBe` 1
+            head milkAmounts `shouldSatisfy` (\x -> abs (x - 5.19) < 0.01)
 
         it "resolves parameterized product amount (Qb=1)" $ do
             (activities, _, _) <- parseParamCSV
@@ -465,12 +468,13 @@ spec = do
             -- Cow milk should NOT be dropped (was the original bug)
             length techInputs `shouldBe` 1
 
-        it "preserves non-parameterized biosphere exchanges" $ do
+        it "scales biosphere exchanges by allocation fraction" $ do
             (activities, _, _) <- parseParamCSV
             let butter = head activities
                 bioExchanges = [e | e@BiosphereExchange{} <- exchanges butter]
             length bioExchanges `shouldBe` 1
-            bioAmount (head bioExchanges) `shouldBe` 0.5
+            -- CO2 = 0.5 * allocButter/100 ≈ 0.5 * 0.25285 ≈ 0.1264
+            bioAmount (head bioExchanges) `shouldSatisfy` (\x -> abs (x - 0.1264) < 0.01)
 
     describe "SimaPro database-level parameters" $ do
         it "resolves database input params in exchange amounts" $ do

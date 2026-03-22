@@ -353,9 +353,9 @@ parseProductRow cfg line =
     let fields = splitCSV (spDelimiter cfg) line
         norm = Expr.normalizeExpr (spDecimal cfg) . decodeBS . BS8.strip
     in case fields of
-        -- 7+ fields with numeric allocation: name;unit;amount;alloc;waste;cat;comment
+        -- 7+ fields with allocation (number or formula): name;unit;amount;alloc;waste;cat;comment
         (name:unit:amount:alloc:waste:cat:rest)
-            | isNumericField (spDecimal cfg) alloc -> Just ProductRow
+            | isAllocationField cfg alloc -> Just ProductRow
                 { prName = decodeBS (BS8.strip name)
                 , prUnit = decodeBS (BS8.strip unit)
                 , prAmount = parseAmount (spDecimal cfg) (BS8.strip amount)
@@ -381,18 +381,11 @@ parseProductRow cfg line =
         _ -> Nothing
 
 
--- | Check if a ByteString field looks numeric (digits, decimal separator, sign,
--- or scientific notation like "1.5E-3").
--- Used to detect field ordering quirks in SimaPro CSV: the standard approach
--- is "assume default ordering unless we find a number where we don't expect one"
--- (or, conversely, a non-number where we expect one).
-isNumericField :: Char -> BS.ByteString -> Bool
-isNumericField decimalSep bs =
-    let s = BS8.strip bs
-    in not (BS.null s) && BS8.all (\c -> c >= '0' && c <= '9'
-                                      || c == '.' || c == decimalSep
-                                      || c == '-' || c == '+'
-                                      || c == 'e' || c == 'E') s
+-- | Check if a ByteString field is a valid expression (number, variable, or formula).
+-- Uses the Megaparsec expression parser syntactically — accepts any identifier without
+-- needing parameter values. Waste type descriptions ("All waste types") fail to parse.
+isAllocationField :: SimaProConfig -> BS.ByteString -> Bool
+isAllocationField cfg bs = Expr.isExpression (spDecimal cfg) (decodeBS (BS8.strip bs))
 
 -- | Parse a technosphere exchange row (ByteString input, Text output)
 parseTechRow :: SimaProConfig -> BS.ByteString -> Maybe TechExchangeRow
@@ -701,6 +694,7 @@ processBlockToActivity (dbInputPs, dbCalcPs, projInputPs, projCalcPs) ProcessBlo
         makeActivity :: ProductRow -> (Activity, [Flow], [Unit])
         makeActivity prod =
             let productExchange = productToExchange env True prod
+                allocFraction = resolveAmount env (prAllocRaw prod) (prAllocation prod) / 100.0
                 (cleanProductName, locFromProduct) = extractLocation (prName prod)
                 effectiveLoc = if T.null location then locFromProduct else location
                 activity = Activity
@@ -713,13 +707,18 @@ processBlockToActivity (dbInputPs, dbCalcPs, projInputPs, projCalcPs) ProcessBlo
                         ]
                     , activityLocation = effectiveLoc
                     , activityUnit = prUnit prod
-                    , exchanges = productExchange : sharedExchanges
+                    , exchanges = productExchange : map (scaleExchange allocFraction) sharedExchanges
                     , activityParams = env
                     , activityParamExprs = exprMap
                     }
             in (activity, allFlows, allUnits)
 
     in map makeActivity pbProducts
+
+-- | Scale an exchange amount by a factor (for allocation)
+scaleExchange :: Double -> Exchange -> Exchange
+scaleExchange factor ex@TechnosphereExchange{} = ex { techAmount = techAmount ex * factor }
+scaleExchange factor ex@BiosphereExchange{} = ex { bioAmount = bioAmount ex * factor }
 
 -- | Convert product row to exchange
 productToExchange :: M.Map Text Double -> Bool -> ProductRow -> Exchange

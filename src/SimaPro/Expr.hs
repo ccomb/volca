@@ -5,8 +5,10 @@
 module SimaPro.Expr
     ( evaluate
     , normalizeExpr
+    , isExpression
     ) where
 
+import Data.Either (isRight)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -106,3 +108,51 @@ pFunc2 name f env = try $ do
     y <- pExpr env
     _ <- symbol ")"
     pure (f x y)
+
+-- | Check if text is syntactically a valid expression (number, variable, or formula).
+-- Does NOT evaluate — accepts any variable name without needing an environment.
+-- Used to detect allocation fields vs waste type descriptions in SimaPro CSV.
+isExpression :: Char -> Text -> Bool
+isExpression decimalSep input =
+    isRight $ parse (sc *> pSynExpr <* eof) "" (T.strip (normalizeExpr decimalSep input))
+
+-- Syntax-only parsers: mirror pExpr structure but discard values, accept any identifier
+pSynExpr :: Parser ()
+pSynExpr = pSynAddSub
+
+pSynAddSub :: Parser ()
+pSynAddSub = pSynMulDiv >> go
+  where go = (symbol "+" *> pSynMulDiv >> go) <|> (symbol "-" *> pSynMulDiv >> go) <|> pure ()
+
+pSynMulDiv :: Parser ()
+pSynMulDiv = pSynUnary >> go
+  where go = (symbol "*" *> pSynUnary >> go) <|> (symbol "/" *> pSynUnary >> go) <|> pure ()
+
+pSynUnary :: Parser ()
+pSynUnary = (symbol "-" *> pSynUnary) <|> (symbol "+" *> pSynUnary) <|> pSynPower
+
+pSynPower :: Parser ()
+pSynPower = pSynPrimary >> ((symbol "^" *> pSynPower) <|> pure ())
+
+pSynPrimary :: Parser ()
+pSynPrimary = choice
+    [ between (symbol "(") (symbol ")") pSynExpr
+    , pSynFunc
+    , () <$ pNumber
+    , pSynIdent
+    ]
+
+pSynIdent :: Parser ()
+pSynIdent = () <$ lexeme ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_'))
+
+pSynFunc :: Parser ()
+pSynFunc = choice
+    [ pSynFunc1 "abs", pSynFunc1 "sqrt", pSynFunc1 "log", pSynFunc1 "exp", pSynFunc1 "ln"
+    , pSynFunc2 "min", pSynFunc2 "max"
+    ]
+
+pSynFunc1 :: Text -> Parser ()
+pSynFunc1 name = try $ lexeme (string name) *> between (symbol "(") (symbol ")") pSynExpr
+
+pSynFunc2 :: Text -> Parser ()
+pSynFunc2 name = try $ lexeme (string name) *> symbol "(" *> pSynExpr *> symbol ";" *> pSynExpr *> symbol ")" *> pure ()
