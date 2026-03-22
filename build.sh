@@ -222,6 +222,20 @@ fi
 # Rust (needed for desktop build)
 check_command "rustc"
 
+# Required C libraries (needed by Haskell zlib package)
+if [[ "$OS" != "windows" ]]; then
+    if pkg-config --exists zlib 2>/dev/null || cc -lz -shared -o /dev/null 2>/dev/null; then
+        log_success "zlib development headers found"
+    else
+        MISSING_DEPS=true
+        if [[ "$OS" == "macos" ]]; then
+            log_error "zlib not found - install with: brew install zlib"
+        else
+            log_error "zlib not found - install with: sudo apt install zlib1g-dev"
+        fi
+    fi
+fi
+
 # Elm (installed via npm in web/ directory)
 if command -v elm &>/dev/null; then
     log_success "elm found: $(command -v elm)"
@@ -243,13 +257,13 @@ if [[ "$MISSING_DEPS" == "true" ]]; then
         echo ""
     else
         echo "On Debian/Ubuntu:"
-        echo "  sudo apt install build-essential python3 curl gfortran liblapack-dev libblas-dev nodejs npm"
+        echo "  sudo apt install build-essential python3 curl gfortran zlib1g-dev liblapack-dev libblas-dev nodejs npm"
         echo ""
         echo "On Fedora:"
-        echo "  sudo dnf install gcc gcc-c++ gcc-gfortran make python3 curl lapack-devel blas-devel nodejs npm"
+        echo "  sudo dnf install gcc gcc-c++ gcc-gfortran make python3 curl zlib-devel lapack-devel blas-devel nodejs npm"
         echo ""
         echo "On Arch Linux:"
-        echo "  sudo pacman -S base-devel python curl gcc-fortran lapack blas nodejs npm"
+        echo "  sudo pacman -S base-devel python curl gcc-fortran zlib lapack blas nodejs npm"
         echo ""
     fi
     echo "For Haskell toolchain:"
