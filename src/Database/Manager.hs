@@ -97,7 +97,6 @@ import Plugin.Config (buildRegistry)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Time (diffUTCTime, getCurrentTime)
-import Control.Concurrent.Async (mapConcurrently_)
 import Matrix (clearCachedKspSolver)
 import SharedSolver (SharedSolver, createSharedSolver)
 import Progress (reportProgress, reportProgressWithTiming, reportError, ProgressLevel(..))
@@ -420,15 +419,15 @@ initDatabaseManager config noCache _configPath = do
             unitConfig <- getMergedUnitConfig manager
             let dbsToLoad = [configMap M.! name | name <- loadOrder, M.member name configMap]
                 levels = computeDepLevels configMap loadOrder
-            reportProgress Info $ "Loading " ++ show (length dbsToLoad) ++ " database(s) in " ++ show (length levels) ++ " parallel levels: "
+            reportProgress Info $ "Loading " ++ show (length dbsToLoad) ++ " database(s) in " ++ show (length levels) ++ " dependency levels: "
                 ++ T.unpack (T.intercalate " → " [T.intercalate "," names | names <- levels])
             forM_ (zip [1::Int ..] levels) $ \(levelNum, levelNames) -> do
                 let levelConfigs = [configMap M.! name | name <- levelNames, M.member name configMap]
                 reportProgress Info $ "  Level " ++ show levelNum ++ ": loading " ++ show (length levelConfigs)
-                    ++ " database(s) in parallel"
+                    ++ " database(s) sequentially (each uses all cores)"
                 currentIndexedDbs <- readTVarIO indexedDbsVar
                 let otherIndexes = M.elems currentIndexedDbs
-                mapConcurrently_ (loadOneDatabase synonymDB unitConfig noCache otherIndexes loadedDbsVar indexedDbsVar manager) levelConfigs
+                mapM_ (loadOneDatabase synonymDB unitConfig noCache otherIndexes loadedDbsVar indexedDbsVar manager) levelConfigs
             loadedCount <- atomically $ M.size <$> readTVar loadedDbsVar
             reportProgress Info $ "Multi-database mode: " ++ show loadedCount ++ " database(s) loaded"
 

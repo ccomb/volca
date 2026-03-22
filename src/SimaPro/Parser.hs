@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -26,8 +27,10 @@ module SimaPro.Parser
 import Types
 import qualified SimaPro.Expr as Expr
 import Control.Concurrent.Async (mapConcurrently)
-import Control.DeepSeq (force)
+import Control.DeepSeq (NFData, force)
 import Control.Exception (evaluate)
+import GHC.Conc (getNumCapabilities)
+import GHC.Generics (Generic)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
@@ -59,7 +62,8 @@ data SimaProConfig = SimaProConfig
     , spDecimal :: !Char           -- Decimal separator (',' or '.')
     , spDateFormat :: !Text        -- Date format string
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+instance NFData SimaProConfig
 
 -- | Default configuration (semicolon delimiter, comma decimal)
 defaultConfig :: SimaProConfig
@@ -87,7 +91,8 @@ data ProductRow = ProductRow
     , prCategory :: !Text
     , prComment :: !Text
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+instance NFData ProductRow
 
 -- | Technosphere exchange row (inputs from other processes)
 data TechExchangeRow = TechExchangeRow
@@ -98,7 +103,8 @@ data TechExchangeRow = TechExchangeRow
     , terUncertainty :: !Text
     , terComment :: !Text
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+instance NFData TechExchangeRow
 
 -- | Biosphere exchange row (emissions/resources)
 data BioExchangeRow = BioExchangeRow
@@ -110,7 +116,8 @@ data BioExchangeRow = BioExchangeRow
     , berUncertainty :: !Text
     , berComment :: !Text
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+instance NFData BioExchangeRow
 
 -- ============================================================================
 -- Process Block Accumulator
@@ -141,7 +148,8 @@ data ProcessBlock = ProcessBlock
     , pbInputParams :: ![(Text, Text)]   -- name -> raw value
     , pbCalcParams  :: ![(Text, Text)]   -- name -> expression
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+instance NFData ProcessBlock
 
 -- | Empty process block
 emptyProcessBlock :: ProcessBlock
@@ -897,6 +905,62 @@ fixWindows1252Controls = T.map fixChar
 -- Main Parser
 -- ============================================================================
 
+-- ============================================================================
+-- Parallel Parsing Helpers
+-- ============================================================================
+
+-- | Extract SimaProConfig from header lines (lines starting with '{').
+-- Stops at the first non-header, non-empty line.
+extractConfig :: [BS.ByteString] -> SimaProConfig
+extractConfig = foldl' step defaultConfig . takeWhile isHeaderOrEmpty
+  where
+    isHeaderOrEmpty l = let s = BS8.strip l in BS.null s || BS8.isPrefixOf "{" s
+    step cfg line = case parseHeaderLine line of
+        Just (key, value) -> updateConfigFromHeader cfg key value
+        Nothing           -> cfg
+
+-- | Split lines into End-delimited blocks.
+-- Each returned chunk includes all lines up to and including its "End" line.
+splitEndBlocks :: [BS.ByteString] -> [[BS.ByteString]]
+splitEndBlocks [] = []
+splitEndBlocks ls =
+    let (block, rest) = break (\l -> BS8.strip l == "End") ls
+    in case rest of
+        []        -> []   -- no End found, discard trailing lines
+        (e:rest') -> (block ++ [e]) : splitEndBlocks rest'
+
+-- | Parse a list of End-delimited line chunks into ProcessBlocks + global params.
+parseChunks :: SimaProConfig -> [[BS.ByteString]] -> ([ProcessBlock], [(Text,Text)], [(Text,Text)], [(Text,Text)], [(Text,Text)])
+parseChunks cfg chunks =
+    let initAcc = ParseAcc
+            { paConfig = cfg, paState = BetweenBlocks
+            , paCurrentBlock = emptyProcessBlock, paBlocks = []
+            , paLineNum = 0
+            , paDbInputParams = [], paDbCalcParams = []
+            , paProjInputParams = [], paProjCalcParams = []
+            }
+        finalAcc = foldl' processLine initAcc (concat chunks)
+    in ( reverse (paBlocks finalAcc)
+       , paDbInputParams finalAcc, paDbCalcParams finalAcc
+       , paProjInputParams finalAcc, paProjCalcParams finalAcc )
+
+-- | Distribute items evenly among N workers.
+distributeItems :: Int -> [a] -> [[a]]
+distributeItems n xs =
+    let len = length xs
+        baseSize = len `div` n
+        remainder = len `mod` n
+        sizes = replicate remainder (baseSize + 1) ++ replicate (n - remainder) baseSize
+    in go sizes xs
+  where
+    go [] _ = []
+    go _ [] = []
+    go (s:ss) items = take s items : go ss (drop s items)
+
+-- ============================================================================
+-- Main Entry Point
+-- ============================================================================
+
 -- | Parse a SimaPro CSV file
 -- Handles Windows-1252/Latin-1 encoding common in SimaPro exports
 parseSimaProCSV :: FilePath -> IO ([Activity], FlowDB, UnitDB)
@@ -905,31 +969,30 @@ parseSimaProCSV path = do
     startTime <- getCurrentTime
 
     -- Read as ByteString and convert from Windows-1252 to proper UTF-8.
-    -- SimaPro CSV uses Windows-1252 encoding by default.
     rawContent <- BS.readFile path
     let !utf8Content = ensureUtf8 rawContent
-    let bsLines = BS8.lines utf8Content
-        -- Strip Windows \r from ByteStrings (fast, no allocation)
-        lines' = map stripCR bsLines
-        initialAcc = ParseAcc
-            { paConfig = defaultConfig
-            , paState = InHeader
-            , paCurrentBlock = emptyProcessBlock
-            , paBlocks = []
-            , paLineNum = 0
-            , paDbInputParams = []
-            , paDbCalcParams = []
-            , paProjInputParams = []
-            , paProjCalcParams = []
-            }
-    -- Use strict foldl' to process lines (ByteString directly)
-    finalAcc <- evaluate $ foldl' processLine initialAcc lines'
-    let blocks = reverse (paBlocks finalAcc)
+        lines' = map stripCR (BS8.lines utf8Content)
+
+    -- Extract config from header (fast, sequential, ~5 lines)
+    let cfg = extractConfig lines'
+
+    -- Split all lines into End-delimited blocks and distribute to workers
+    let endBlocks = splitEndBlocks lines'
+    numWorkers <- getNumCapabilities
+    let workerChunks = distributeItems numWorkers endBlocks
+
+    reportProgress Info $ printf "Parsing %d End-blocks with %d parallel workers" (length endBlocks) numWorkers
+
+    -- Parse blocks in parallel — each worker processes its share
+    results <- mapConcurrently (evaluate . force . parseChunks cfg) workerChunks
+    let allBlocks    = concatMap (\(b,_,_,_,_) -> b) results
+        globalParams = ( concatMap (\(_,a,_,_,_) -> a) results
+                       , concatMap (\(_,_,b,_,_) -> b) results
+                       , concatMap (\(_,_,_,c,_) -> c) results
+                       , concatMap (\(_,_,_,_,d) -> d) results )
 
     -- Convert all blocks to activities (one activity per product) - PARALLEL
-    let globalParams = ( paDbInputParams finalAcc, paDbCalcParams finalAcc
-                       , paProjInputParams finalAcc, paProjCalcParams finalAcc )
-    converted <- concat <$> mapConcurrently (evaluate . force . processBlockToActivity globalParams) blocks
+    converted <- concat <$> mapConcurrently (evaluate . force . processBlockToActivity globalParams) allBlocks
     let activities = map (\(a,_,_) -> a) converted
         allFlows = concatMap (\(_,f,_) -> f) converted
         allUnits = concatMap (\(_,_,u) -> u) converted
