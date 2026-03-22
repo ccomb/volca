@@ -15,6 +15,7 @@
 #   --clean             Clean build artifacts before building
 #   --all               Force re-download and rebuild of PETSc
 #   --test              Run tests after building
+#   --coverage          Run tests with coverage and generate HTML report (implies --test)
 #   --static            Build a statically-linked binary
 #   --desktop           Build desktop application (Tauri bundle, release)
 #   --desktop-dev       Build desktop application (debug, no LTO — faster)
@@ -80,6 +81,7 @@ FORCE_REBUILD=false
 RUN_TESTS=false
 CLEAN_BUILD=false
 BUILD_DESKTOP=false
+COVERAGE=false
 STATIC_BUILD=false
 
 # -----------------------------------------------------------------------------
@@ -100,6 +102,11 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --test)
+            RUN_TESTS=true
+            shift
+            ;;
+        --coverage)
+            COVERAGE=true
             RUN_TESTS=true
             shift
             ;;
@@ -580,7 +587,47 @@ fi
 if [[ "$RUN_TESTS" == "true" ]]; then
     log_info "Running tests..."
     cd "$SCRIPT_DIR"
-    cabal test --test-show-details=streaming
+    if [[ "$COVERAGE" == "true" ]]; then
+        log_info "Coverage enabled — instrumenting code..."
+        cabal test --enable-coverage --test-show-details=streaming
+
+        log_info "Generating coverage report..."
+        TIX_FILE="$SCRIPT_DIR/acv-tests.tix"
+        if [[ -f "$TIX_FILE" ]]; then
+            COVERAGE_DIR="$SCRIPT_DIR/coverage-report"
+            rm -rf "$COVERAGE_DIR"
+            mkdir -p "$COVERAGE_DIR"
+
+            # Collect all mix directories (platform/GHC-version dependent paths)
+            HPC_FLAGS=""
+            while IFS= read -r d; do
+                HPC_FLAGS="$HPC_FLAGS --hpcdir=$d"
+            done < <(find "$SCRIPT_DIR/dist-newstyle" -type d -name "mix" -path "*hpc*" 2>/dev/null)
+
+            if [[ -n "$HPC_FLAGS" ]]; then
+                hpc markup "$TIX_FILE" $HPC_FLAGS \
+                    --destdir="$COVERAGE_DIR" \
+                    --fun-entry-count
+                hpc report "$TIX_FILE" $HPC_FLAGS
+                log_success "Coverage report: $COVERAGE_DIR/hpc_index.html"
+                echo ""
+                echo "To publish to GitHub Pages:"
+                echo "  cd $COVERAGE_DIR"
+                echo "  git init && git checkout -b gh-pages"
+                echo "  git add . && git commit -m 'Update coverage report'"
+                echo "  git push -f git@github.com:ccomb/volca.git gh-pages"
+                echo ""
+                echo "Then enable Pages in repo Settings > Pages > Source: gh-pages"
+            else
+                log_warn "Could not locate HPC mix files"
+                log_warn "Try manually: hpc report $TIX_FILE"
+            fi
+        else
+            log_warn "No .tix file found — coverage report not generated"
+        fi
+    else
+        cabal test --test-show-details=streaming
+    fi
     log_success "Tests passed"
     echo ""
 fi
