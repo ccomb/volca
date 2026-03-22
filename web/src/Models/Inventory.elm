@@ -52,6 +52,7 @@ type alias Flow =
     { flowId : String
     , flowName : String
     , flowCategory : String
+    , flowSubcompartment : Maybe String
     , flowType : String
     , flowUnitId : String
     , flowSynonyms : Dict String (List String)
@@ -98,10 +99,11 @@ inventoryStatisticsDecoder =
 
 flowDecoder : Decoder Flow
 flowDecoder =
-    Decode.map6 Flow
+    Decode.map7 Flow
         (field "flowId" string)
         (field "flowName" string)
         (field "flowCategory" string)
+        (Decode.maybe (field "flowSubcompartment" string))
         (field "flowType" string)
         (field "flowUnitId" string)
         (field "flowSynonyms" (Decode.dict (list string)))

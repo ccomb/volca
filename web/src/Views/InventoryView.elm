@@ -53,6 +53,7 @@ viewTableWithTitle title iconClass iconColor searchQuery onSearch flows _ =
                     , th [] [ text "Unit" ]
                     , th [] [ text "Flow" ]
                     , th [] [ text "Compartment" ]
+                    , th [] [ text "Subcompartment" ]
                     ]
                 , tr []
                     [ th [] []
@@ -73,6 +74,7 @@ viewTableWithTitle title iconClass iconColor searchQuery onSearch flows _ =
                             ]
                         ]
                     , th [] []
+                    , th [] []
                     ]
                 ]
             , tbody []
@@ -88,6 +90,7 @@ viewInventoryRow flowDetail =
         , td [] [ text flowDetail.ifdUnitName ]
         , td [] [ text flowDetail.ifdFlow.flowName ]
         , td [] [ text flowDetail.ifdFlow.flowCategory ]
+        , td [] [ text (Maybe.withDefault "" flowDetail.ifdFlow.flowSubcompartment) ]
         ]
 
 
@@ -111,6 +114,8 @@ filterFlows searchQuery flows =
                             (flow.ifdFlow.flowName
                                 ++ " "
                                 ++ flow.ifdFlow.flowCategory
+                                ++ " "
+                                ++ Maybe.withDefault "" flow.ifdFlow.flowSubcompartment
                                 ++ " "
                                 ++ flow.ifdUnitName
                             )
