@@ -111,6 +111,43 @@ wasteTestCSV = BS.intercalate "\r\n"
     , "End"
     ]
 
+-- | Test CSV with waste treatment product row without allocation field (6 fields).
+-- SimaPro CSV has two product row formats:
+--   7 fields: name;unit;amount;allocation;waste_type;category;comment
+--   6 fields: name;unit;amount;waste_type;category;comment  (no allocation)
+-- The 6-field variant is found in some waste treatment processes (e.g. Agribalyse).
+-- Without proper detection, field 3 (waste_type) is misread as allocation, and the
+-- comment (often containing \x7f-separated EcoSpold metadata) ends up as category.
+wasteNoAllocCSV :: BS.ByteString
+wasteNoAllocCSV = BS.intercalate "\r\n"
+    [ "{SimaPro 9.6.0.1}"
+    , "{CSV separator: semicolon}"
+    , "{Decimal separator: .}"
+    , ""
+    , "Process"
+    , ""
+    , "Category type"
+    , "waste treatment"
+    , ""
+    , "Process name"
+    , "treatment of non-sulfidic overburden"
+    , ""
+    , "Type"
+    , "Unit process"
+    , ""
+    , "Waste treatment"
+    , "Non-sulfidic overburden {GLO}| treatment of | Cut-off, S;kg;1;All waste types;Others\\Copied from Ecoinvent cut-off S;EcoSpold01Location=GLO\x7fProperties\x7fDry mass: 1 kg"
+    , ""
+    , "End"
+    ]
+
+-- | Parse the 6-field waste treatment CSV via a temp file
+parseWasteNoAllocCSV :: IO ([Activity], M.Map UUID Flow, M.Map UUID Unit)
+parseWasteNoAllocCSV = withSystemTempFile "waste-noalloc-test.csv" $ \path handle -> do
+    BS.hPut handle wasteNoAllocCSV
+    hClose handle
+    parseSimaProCSV path
+
 -- | Parse the waste test CSV via a temp file
 parseWasteCSV :: IO ([Activity], M.Map UUID Flow, M.Map UUID Unit)
 parseWasteCSV = withSystemTempFile "waste-test.csv" $ \path handle -> do
@@ -369,6 +406,14 @@ spec = do
             (activities, _, _) <- parseWasteCSV
             let names = map activityName activities
             names `shouldContain` ["Municipal waste incineration"]
+
+        it "parses 6-field waste treatment rows without allocation" $ do
+            (activities, _, _) <- parseWasteNoAllocCSV
+            length activities `shouldBe` 1
+            let a = head activities
+            activityName a `shouldBe` "Non-sulfidic overburden {GLO}| treatment of | Cut-off, S"
+            let cls = activityClassification a
+            M.lookup "Category" cls `shouldBe` Just "Others\\Copied from Ecoinvent cut-off S"
 
         it "marks Waste to treatment exchanges as inputs" $ do
             (activities, _, _) <- parseWasteCSV
