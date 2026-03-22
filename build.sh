@@ -367,6 +367,7 @@ download_and_build_petsc() {
     fi
 
     PETSC_DIR="$SCRIPT_DIR/petsc" \
+    PETSC_ARCH="$PETSC_ARCH" \
     PETSC_PLATFORM_OPTS="$(get_petsc_configure_platform)" \
     EXTRA_CONFIGURE_ARGS="$EXTRA_ARGS" \
     PYTHON="$PYTHON" \
