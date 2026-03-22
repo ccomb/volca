@@ -261,11 +261,24 @@ data LCIAResult = LCIAResult
     { lrMethodId :: UUID        -- Method UUID
     , lrMethodName :: Text      -- Method name
     , lrCategory :: Text        -- Impact category
-    , lrScore :: Double         -- Total impact score
+    , lrDamageCategory :: Text  -- Parent damage category (may == category)
+    , lrScore :: Double         -- Total impact score (raw)
     , lrUnit :: Text            -- Unit (e.g., "kg CO2 eq")
+    , lrNormalizedScore :: Maybe Double  -- score * normalization factor
+    , lrWeightedScore :: Maybe Double    -- normalized * weight (in Pt)
     , lrMappedFlows :: Int      -- Number of flows successfully mapped
     , lrUnmappedFlows :: Int    -- Number of flows not mapped
     , lrUnmappedNames :: [Text] -- First N unmapped CF names (for diagnostics)
+    }
+    deriving (Generic)
+
+-- | Batch LCIA result with optional single score
+data LCIABatchResult = LCIABatchResult
+    { lbrResults :: [LCIAResult]
+    , lbrSingleScore :: Maybe Double    -- sum of weighted scores (Pt)
+    , lbrSingleScoreUnit :: Maybe Text  -- "Pt"
+    , lbrNormWeightSetName :: Maybe Text
+    , lbrAvailableNWsets :: [Text]
     }
     deriving (Generic)
 
@@ -553,6 +566,7 @@ instance ToJSON MethodCollectionStatusAPI
 instance ToJSON MethodDetail
 instance ToJSON MethodFactorAPI
 instance ToJSON LCIAResult
+instance ToJSON LCIABatchResult
 instance ToJSON MappingStatus
 instance ToJSON UnmappedFlowAPI
 instance ToJSON FlowCFMapping

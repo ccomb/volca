@@ -1,12 +1,13 @@
 module Models.LCIA exposing
     ( FlowCFEntry
     , FlowCFMapping
+    , LCIABatchResult
     , LCIAResult
     , MappingStatus
     , MethodSummary
     , UnmappedFlow
     , flowCFMappingDecoder
-    , lciaBatchDecoder
+    , lciaBatchResultDecoder
     , lciaResultDecoder
     , mappingStatusDecoder
     , methodSummaryDecoder
@@ -35,11 +36,25 @@ type alias LCIAResult =
     { lrMethodId : String
     , lrMethodName : String
     , lrCategory : String
+    , lrDamageCategory : String
     , lrScore : Float
     , lrUnit : String
+    , lrNormalizedScore : Maybe Float
+    , lrWeightedScore : Maybe Float
     , lrMappedFlows : Int
     , lrUnmappedFlows : Int
     , lrUnmappedNames : List String
+    }
+
+
+{-| Batch LCIA result with optional single score
+-}
+type alias LCIABatchResult =
+    { lbrResults : List LCIAResult
+    , lbrSingleScore : Maybe Float
+    , lbrSingleScoreUnit : Maybe String
+    , lbrNormWeightSetName : Maybe String
+    , lbrAvailableNWsets : List String
     }
 
 
@@ -119,16 +134,24 @@ lciaResultDecoder =
         |> required "lrMethodId" D.string
         |> required "lrMethodName" D.string
         |> required "lrCategory" D.string
+        |> optional "lrDamageCategory" D.string ""
         |> required "lrScore" D.float
         |> required "lrUnit" D.string
+        |> optional "lrNormalizedScore" (D.nullable D.float) Nothing
+        |> optional "lrWeightedScore" (D.nullable D.float) Nothing
         |> required "lrMappedFlows" D.int
         |> required "lrUnmappedFlows" D.int
         |> optional "lrUnmappedNames" (D.list D.string) []
 
 
-lciaBatchDecoder : Decoder (List LCIAResult)
-lciaBatchDecoder =
-    D.list lciaResultDecoder
+lciaBatchResultDecoder : Decoder LCIABatchResult
+lciaBatchResultDecoder =
+    D.succeed LCIABatchResult
+        |> required "lbrResults" (D.list lciaResultDecoder)
+        |> optional "lbrSingleScore" (D.nullable D.float) Nothing
+        |> optional "lbrSingleScoreUnit" (D.nullable D.string) Nothing
+        |> optional "lbrNormWeightSetName" (D.nullable D.string) Nothing
+        |> optional "lbrAvailableNWsets" (D.list D.string) []
 
 
 unmappedFlowDecoder : Decoder UnmappedFlow

@@ -12,7 +12,7 @@ import SharedSolver (SharedSolver)
 import Method.Mapping (computeLCIAScore, mapMethodToFlows, MatchStrategy(..), MappingStats(..), computeMappingStats)
 import Plugin.Types (PluginRegistry(..), AnalyzeHandle(..), AnalyzeContext(..))
 import qualified Data.Vector as V
-import Method.Types (Method(..), MethodCF(..), MethodCollection(..), FlowDirection(..))
+import Method.Types (Method(..), MethodCF(..), MethodCollection(..), DamageCategory(..), NormWeightSet(..), FlowDirection(..))
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), DatabaseSetupInfo(..), getDatabase, MethodCollectionStatus(..), getMergedUnitConfig)
 import qualified Database.Manager as DM
 import API.DatabaseHandlers (simpleAction)
@@ -22,7 +22,7 @@ import Database
 import qualified Service
 import Tree (buildLoopAwareTree)
 import Types
-import API.Types (ActivityInfo (..), ActivitySummary (..), ExchangeDetail (..), FlowCFEntry (..), FlowCFMapping (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIARequest (..), LCIAResult (..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), RefDataListResponse(..), SynonymGroupsResponse(..), SearchResults (..), SupplyChainResponse(..), VariantRequest(..), VariantResponse(..), TreeExport (..), UnmappedFlowAPI (..), DatabaseListResponse(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
+import API.Types (ActivityInfo (..), ActivitySummary (..), ExchangeDetail (..), FlowCFEntry (..), FlowCFMapping (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIARequest (..), LCIAResult (..), LCIABatchResult(..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), RefDataListResponse(..), SynonymGroupsResponse(..), SearchResults (..), SupplyChainResponse(..), VariantRequest(..), VariantResponse(..), TreeExport (..), UnmappedFlowAPI (..), DatabaseListResponse(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as M
@@ -57,7 +57,7 @@ type LCAAPI =
                 :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> Get '[JSON] SupplyChainResponse
                 :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "variant" :> ReqBody '[JSON] VariantRequest :> Post '[JSON] VariantResponse
                 :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "methodId" Text :> Get '[JSON] LCIAResult
-                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia-batch" :> Capture "collection" Text :> Get '[JSON] [LCIAResult]
+                :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia-batch" :> Capture "collection" Text :> Get '[JSON] LCIABatchResult
                 :<|> "database" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "analyze" :> Capture "analyzerName" Text :> Get '[JSON] Value
                 :<|> "database" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
                 :<|> "database" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> Get '[JSON] [ActivitySummary]
@@ -379,7 +379,7 @@ lcaServer dbManager maxTreeDepth password =
                 return result
 
     -- Batch LCIA endpoint (all methods in a collection)
-    getActivityLCIABatch :: Text -> Text -> Text -> Handler [LCIAResult]
+    getActivityLCIABatch :: Text -> Text -> Text -> Handler LCIABatchResult
     getActivityLCIABatch dbName processIdText collectionName = do
         (db, _) <- requireDatabaseByName dbManager dbName
         -- Look up collection
@@ -388,6 +388,14 @@ lcaServer dbManager maxTreeDepth password =
             Just mc -> return mc
             Nothing -> throwError err404{errBody = "Collection not loaded: " <> BSL.fromStrict (T.encodeUtf8 collectionName)}
         let methods = mcMethods collection
+            damageCats = mcDamageCategories collection
+            nwSets = mcNormWeightSets collection
+            -- Build damage category lookup: subcategory name → parent name
+            dcLookup = M.fromList
+                [ (subName, dcName dc)
+                | dc <- damageCats, (subName, _) <- dcImpacts dc ]
+            -- Use first NW set if available
+            mNW = case nwSets of { (nw:_) -> Just nw; [] -> Nothing }
         case Service.resolveActivityAndProcessId db processIdText of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
@@ -402,20 +410,33 @@ lcaServer dbManager maxTreeDepth password =
                 liftIO $ reportProgress Info $ "  Inventory: "
                     <> show invSize <> " flows ("
                     <> showFFloat (Just 2) (realToFrac (diffUTCTime t1 t0) :: Double) "" <> "s)"
-                -- Log sample inventory UUIDs when empty for debugging
                 when (invSize == 0) $
                     liftIO $ reportProgress Info "  WARNING: inventory is empty — check matrix computation"
                 when (invSize > 0 && invSize <= 5) $
                     liftIO $ reportProgress Info $ "  Inventory UUIDs: "
                         <> intercalate ", " (map UUID.toString $ M.keys inventory)
-                results <- liftIO $ mapM (computeCategoryResult db inventory) methods
+                rawResults <- liftIO $ mapM (computeCategoryResult db inventory) methods
+                -- Enrich with NW data
+                let results = map (enrichWithNW dcLookup mNW) rawResults
+                    singleScore = case mNW of
+                        Just _ -> Just $ sum [s | r <- results, Just s <- [lrWeightedScore r]]
+                        Nothing -> Nothing
                 t2 <- liftIO getCurrentTime
-                -- Log per-category results
                 liftIO $ mapM_ (logBatchCategory invSize) results
                 liftIO $ reportProgress Info $ "  Total: "
                     <> show (length results) <> " categories ("
                     <> showFFloat (Just 2) (realToFrac (diffUTCTime t2 t0) :: Double) "" <> "s)"
-                return results
+                case singleScore of
+                    Just ss -> liftIO $ reportProgress Info $ "  Single score: "
+                        <> showFFloat (Just 6) ss "" <> " Pt"
+                    Nothing -> return ()
+                return LCIABatchResult
+                    { lbrResults = results
+                    , lbrSingleScore = singleScore
+                    , lbrSingleScoreUnit = if null nwSets then Nothing else Just "Pt"
+                    , lbrNormWeightSetName = nwName <$> mNW
+                    , lbrAvailableNWsets = map nwName nwSets
+                    }
 
     -- Log a single category result in the batch
     logBatchCategory :: Int -> LCIAResult -> IO ()
@@ -462,12 +483,34 @@ lcaServer dbManager maxTreeDepth password =
             { lrMethodId = methodId method
             , lrMethodName = methodName method
             , lrCategory = methodCategory method
+            , lrDamageCategory = methodCategory method  -- default, enriched later
             , lrScore = score
             , lrUnit = methodUnit method
+            , lrNormalizedScore = Nothing  -- enriched later
+            , lrWeightedScore = Nothing    -- enriched later
             , lrMappedFlows = msTotal stats - msUnmatched stats
             , lrUnmappedFlows = msUnmatched stats
             , lrUnmappedNames = unmappedNames
             }
+
+    -- Enrich a raw LCIA result with damage category mapping and NW scores
+    enrichWithNW :: M.Map Text Text -> Maybe NormWeightSet -> LCIAResult -> LCIAResult
+    enrichWithNW dcLookup mNW result =
+        let dmgCat = M.findWithDefault (lrCategory result) (lrCategory result) dcLookup
+            (normScore, weightScore) = case mNW of
+                Just nw ->
+                    let mNorm = M.lookup dmgCat (nwNormalization nw)
+                        mWeight = M.lookup dmgCat (nwWeighting nw)
+                    in case (mNorm, mWeight) of
+                        (Just n, Just w) ->
+                            let ns = lrScore result * n
+                            in (Just ns, Just (ns * w))
+                        _ -> (Nothing, Nothing)
+                Nothing -> (Nothing, Nothing)
+        in result { lrDamageCategory = dmgCat
+                  , lrNormalizedScore = normScore
+                  , lrWeightedScore = weightScore
+                  }
 
     logLCIAResult :: LCIAResult -> Method -> IO ()
     logLCIAResult result method = do

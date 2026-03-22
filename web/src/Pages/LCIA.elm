@@ -10,7 +10,7 @@ import Http
 import Api
 import Models.Activity exposing (ActivityInfo)
 import Models.Database exposing (DatabaseLoadStatus(..))
-import Models.LCIA exposing (LCIAResult)
+import Models.LCIA exposing (LCIABatchResult, LCIAResult)
 import Models.Method exposing (MethodCollectionList, MethodCollectionStatus)
 import Route exposing (LCIAFlags, Route(..))
 import Shared exposing (RemoteData(..))
@@ -24,8 +24,9 @@ type alias Model =
     , activityId : String
     , collections : RemoteData (List MethodCollectionStatus)
     , selectedCollection : Maybe String
-    , results : RemoteData (List LCIAResult)
+    , batchResult : RemoteData LCIABatchResult
     , expandedRow : Maybe String -- methodId of expanded row
+    , viewMode : LCIAView.ViewMode
     }
 
 
@@ -33,8 +34,9 @@ type Msg
     = CollectionsLoaded (Result Http.Error MethodCollectionList)
     | ActivityInfoLoaded (Result Http.Error ActivityInfo)
     | SelectCollection String
-    | BatchResultsLoaded (Result Http.Error (List LCIAResult))
+    | BatchResultsLoaded (Result Http.Error LCIABatchResult)
     | ToggleRow String
+    | SetViewMode LCIAView.ViewMode
     | RequestLoadDatabase
     | NewFlags LCIAFlags
 
@@ -58,8 +60,9 @@ init shared flags =
             , activityId = flags.processId
             , collections = Loading
             , selectedCollection = flags.method
-            , results = NotAsked
+            , batchResult = NotAsked
             , expandedRow = Nothing
+            , viewMode = LCIAView.Raw
             }
     in
     if not (Shared.isDatabaseLoaded shared flags.db) then
@@ -87,7 +90,6 @@ update shared msg model =
                 loaded =
                     List.filter (\c -> c.status == DbLoaded) collectionList.methods
 
-                -- Auto-select if only one loaded collection, or if URL has ?method=
                 autoSelect =
                     case model.selectedCollection of
                         Just _ ->
@@ -109,7 +111,7 @@ update shared msg model =
             in
             case autoSelect of
                 Just col ->
-                    ( { newModel | results = Loading }
+                    ( { newModel | batchResult = Loading }
                     , Effect.fromCmd (Api.computeLCIABatch BatchResultsLoaded model.dbName model.activityId col)
                     )
 
@@ -131,23 +133,23 @@ update shared msg model =
 
         SelectCollection name ->
             if name == "" then
-                ( { model | selectedCollection = Nothing, results = NotAsked }
+                ( { model | selectedCollection = Nothing, batchResult = NotAsked }
                 , Effect.fromShared (Shared.NavigateTo (LCIARoute model.dbName model.activityId Nothing))
                 )
 
             else
-                ( { model | selectedCollection = Just name, results = Loading, expandedRow = Nothing }
+                ( { model | selectedCollection = Just name, batchResult = Loading, expandedRow = Nothing }
                 , Effect.batch
                     [ Effect.fromCmd (Api.computeLCIABatch BatchResultsLoaded model.dbName model.activityId name)
                     , Effect.fromShared (Shared.NavigateTo (LCIARoute model.dbName model.activityId (Just name)))
                     ]
                 )
 
-        BatchResultsLoaded (Ok results) ->
-            ( { model | results = Loaded results }, Effect.none )
+        BatchResultsLoaded (Ok result) ->
+            ( { model | batchResult = Loaded result }, Effect.none )
 
         BatchResultsLoaded (Err error) ->
-            ( { model | results = Failed (Shared.httpErrorToString error) }, Effect.none )
+            ( { model | batchResult = Failed (Shared.httpErrorToString error) }, Effect.none )
 
         ToggleRow methodId ->
             ( { model
@@ -161,6 +163,9 @@ update shared msg model =
             , Effect.none
             )
 
+        SetViewMode mode ->
+            ( { model | viewMode = mode }, Effect.none )
+
         RequestLoadDatabase ->
             ( model
             , Effect.fromShared (Shared.LoadDatabase model.dbName)
@@ -168,7 +173,6 @@ update shared msg model =
 
         NewFlags flags ->
             if flags.db == model.dbName && flags.processId == model.activityId && flags.method == model.selectedCollection then
-                -- Same flags, skip re-init (prevents loop from NavigateTo)
                 ( model, Effect.none )
 
             else
@@ -198,10 +202,12 @@ viewLoaded shared model =
         LCIAView.viewLCIAPage
             { collections = model.collections
             , selectedCollection = model.selectedCollection
-            , results = model.results
+            , batchResult = model.batchResult
             , expandedRow = model.expandedRow
             , activityInfo = activityInfo
+            , viewMode = model.viewMode
             , onSelectCollection = SelectCollection
             , onToggleRow = ToggleRow
+            , onSetViewMode = SetViewMode
             }
     }

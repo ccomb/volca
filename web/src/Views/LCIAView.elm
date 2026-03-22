@@ -1,22 +1,30 @@
-module Views.LCIAView exposing (viewLCIAPage, viewPageNavbar)
+module Views.LCIAView exposing (ViewMode(..), viewLCIAPage, viewPageNavbar)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Models.LCIA exposing (LCIAResult)
+import Models.LCIA exposing (LCIABatchResult, LCIAResult)
 import Models.Method exposing (MethodCollectionStatus)
 import Shared exposing (RemoteData(..))
 import Utils.Format as Format
 
 
+type ViewMode
+    = Raw
+    | Normalized
+    | Weighted
+
+
 type alias ViewConfig msg =
     { collections : RemoteData (List MethodCollectionStatus)
     , selectedCollection : Maybe String
-    , results : RemoteData (List LCIAResult)
+    , batchResult : RemoteData LCIABatchResult
     , expandedRow : Maybe String
     , activityInfo : Maybe ( String, String )
+    , viewMode : ViewMode
     , onSelectCollection : String -> msg
     , onToggleRow : String -> msg
+    , onSetViewMode : ViewMode -> msg
     }
 
 
@@ -79,7 +87,7 @@ viewCollectionPicker config =
 
 viewResults : ViewConfig msg -> Html msg
 viewResults config =
-    case config.results of
+    case config.batchResult of
         NotAsked ->
             text ""
 
@@ -93,23 +101,84 @@ viewResults config =
             div [ class "notification is-danger", style "margin" "1rem" ]
                 [ strong [] [ text "Error: " ], text err ]
 
-        Loaded results ->
-            if List.isEmpty results then
+        Loaded batch ->
+            if List.isEmpty batch.lbrResults then
                 div [ class "notification is-warning", style "margin" "1rem" ]
                     [ text "No impact categories in this collection." ]
 
             else
-                viewResultsTable config.onToggleRow config.expandedRow results
+                div []
+                    [ viewViewModeToggle config batch
+                    , viewResultsTable config.onToggleRow config.expandedRow config.viewMode batch.lbrResults
+                    , viewSingleScore config.viewMode batch
+                    ]
 
 
-viewResultsTable : (String -> msg) -> Maybe String -> List LCIAResult -> Html msg
-viewResultsTable onToggleRow expandedRow results =
+viewViewModeToggle : ViewConfig msg -> LCIABatchResult -> Html msg
+viewViewModeToggle config batch =
     let
+        hasNW =
+            batch.lbrNormWeightSetName /= Nothing
+
+        modeButton mode label =
+            a
+                [ class
+                    ("button is-small"
+                        ++ (if config.viewMode == mode then
+                                " is-primary"
+
+                            else
+                                ""
+                           )
+                    )
+                , onClick (config.onSetViewMode mode)
+                , disabled (not hasNW && mode /= Raw)
+                ]
+                [ text label ]
+    in
+    div [ style "padding" "0 1rem", style "margin-bottom" "0.5rem" ]
+        [ div [ class "buttons has-addons" ]
+            [ modeButton Raw "Raw"
+            , modeButton Normalized "Normalized"
+            , modeButton Weighted "Weighted"
+            ]
+        , case batch.lbrNormWeightSetName of
+            Just name ->
+                span [ class "tag is-info is-light", style "margin-left" "0.5rem" ]
+                    [ text name ]
+
+            Nothing ->
+                text ""
+        ]
+
+
+viewResultsTable : (String -> msg) -> Maybe String -> ViewMode -> List LCIAResult -> Html msg
+viewResultsTable onToggleRow expandedRow viewMode results =
+    let
+        scoreAccessor =
+            case viewMode of
+                Raw ->
+                    \r -> r.lrScore
+
+                Normalized ->
+                    \r -> Maybe.withDefault 0 r.lrNormalizedScore
+
+                Weighted ->
+                    \r -> Maybe.withDefault 0 r.lrWeightedScore
+
         maxScore =
             results
-                |> List.map (\r -> abs r.lrScore)
+                |> List.map (\r -> abs (scoreAccessor r))
                 |> List.maximum
                 |> Maybe.withDefault 1.0
+
+        scoreUnit =
+            case viewMode of
+                Weighted ->
+                    "Pt"
+
+                _ ->
+                    ""
     in
     div [ class "table-container", style "padding" "0 1rem" ]
         [ table [ class "table is-fullwidth is-hoverable" ]
@@ -117,26 +186,41 @@ viewResultsTable onToggleRow expandedRow results =
                 [ tr []
                     [ th [ style "width" "30%" ] [ text "Category" ]
                     , th [ style "width" "15%", style "text-align" "right" ] [ text "Score" ]
-                    , th [ style "width" "15%" ] [ text "Unit" ]
+                    , th [ style "width" "15%" ]
+                        [ text
+                            (case viewMode of
+                                Raw ->
+                                    "Unit"
+
+                                Normalized ->
+                                    "Normalized"
+
+                                Weighted ->
+                                    "Unit"
+                            )
+                        ]
                     , th [ style "width" "15%", style "text-align" "center" ] [ text "Mapping" ]
                     , th [ style "width" "25%" ] [ text "Relative" ]
                     ]
                 ]
             , tbody []
-                (List.concatMap (viewResultRow onToggleRow expandedRow maxScore) results)
+                (List.concatMap (viewResultRow onToggleRow expandedRow viewMode scoreAccessor maxScore scoreUnit) results)
             ]
         ]
 
 
-viewResultRow : (String -> msg) -> Maybe String -> Float -> LCIAResult -> List (Html msg)
-viewResultRow onToggleRow expandedRow maxScore result =
+viewResultRow : (String -> msg) -> Maybe String -> ViewMode -> (LCIAResult -> Float) -> Float -> String -> LCIAResult -> List (Html msg)
+viewResultRow onToggleRow expandedRow viewMode scoreAccessor maxScore scoreUnit result =
     let
+        score =
+            scoreAccessor result
+
         isExpanded =
             expandedRow == Just result.lrMethodId
 
         pct =
             if maxScore > 0 then
-                abs result.lrScore / maxScore * 100
+                abs score / maxScore * 100
 
             else
                 0
@@ -150,6 +234,17 @@ viewResultRow onToggleRow expandedRow maxScore result =
 
             else
                 0
+
+        unitText =
+            case viewMode of
+                Raw ->
+                    result.lrUnit
+
+                Normalized ->
+                    ""
+
+                Weighted ->
+                    scoreUnit
     in
     [ tr
         ([ style "cursor"
@@ -169,8 +264,8 @@ viewResultRow onToggleRow expandedRow maxScore result =
         )
         [ td [ style "font-weight" "500" ] [ text result.lrMethodName ]
         , td [ style "text-align" "right", style "font-family" "monospace" ]
-            [ text (Format.formatScientific result.lrScore) ]
-        , td [ class "has-text-grey" ] [ text result.lrUnit ]
+            [ text (Format.formatScientific score) ]
+        , td [ class "has-text-grey" ] [ text unitText ]
         , td [ style "text-align" "center" ]
             [ viewMappingBadge result.lrMappedFlows result.lrUnmappedFlows mappingPct ]
         , td [] [ viewRelativeBar pct ]
@@ -182,6 +277,28 @@ viewResultRow onToggleRow expandedRow maxScore result =
             else
                 []
            )
+
+
+viewSingleScore : ViewMode -> LCIABatchResult -> Html msg
+viewSingleScore viewMode batch =
+    case ( viewMode, batch.lbrSingleScore ) of
+        ( Weighted, Just score ) ->
+            div
+                [ style "padding" "0.75rem 1rem"
+                , style "margin" "0 1rem"
+                , style "background" "#f5f5f5"
+                , style "border-radius" "4px"
+                , style "display" "flex"
+                , style "justify-content" "space-between"
+                , style "align-items" "center"
+                ]
+                [ span [ class "has-text-weight-bold" ] [ text "Single score" ]
+                , span [ style "font-family" "monospace", style "font-size" "1.2rem" ]
+                    [ text (Format.formatScientific score ++ " " ++ Maybe.withDefault "Pt" batch.lbrSingleScoreUnit) ]
+                ]
+
+        _ ->
+            text ""
 
 
 viewMappingBadge : Int -> Int -> Float -> Html msg

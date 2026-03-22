@@ -2,7 +2,7 @@ module Api exposing (computeLCIABatch, loadActivityInfo, loadActivityTree, loadF
 
 import Http
 import Models.Activity exposing (ActivityInfo, ActivityTree, activityInfoDecoder, activityTreeDecoder)
-import Models.LCIA exposing (FlowCFMapping, LCIAResult, MappingStatus, flowCFMappingDecoder, lciaBatchDecoder, mappingStatusDecoder)
+import Models.LCIA exposing (FlowCFMapping, LCIABatchResult, MappingStatus, flowCFMappingDecoder, lciaBatchResultDecoder, mappingStatusDecoder)
 import Models.Method exposing (MethodCollectionList, methodCollectionListDecoder)
 import Models.SupplyChain exposing (SupplyChainResponse, supplyChainResponseDecoder)
 
@@ -31,11 +31,11 @@ loadMethodCollections toMsg =
         }
 
 
-computeLCIABatch : (Result Http.Error (List LCIAResult) -> msg) -> String -> String -> String -> Cmd msg
+computeLCIABatch : (Result Http.Error LCIABatchResult -> msg) -> String -> String -> String -> Cmd msg
 computeLCIABatch toMsg dbName processId collection =
     Http.get
         { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ processId ++ "/lcia-batch/" ++ collection
-        , expect = Http.expectJson toMsg lciaBatchDecoder
+        , expect = Http.expectJson toMsg lciaBatchResultDecoder
         }
 
 
