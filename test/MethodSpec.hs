@@ -15,6 +15,7 @@ import Method.Mapping (computeLCIAScore, MatchStrategy(..))
 import Method.Parser
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.ParserSimaPro (parseSimaProMethodCSVBytes, isSimaProMethodCSV)
+import Method.ParserNW (parseNormWeightCSVBytes)
 import Method.Types
 import SynonymDB
 import Types (Flow(..), FlowType(..))
@@ -391,6 +392,39 @@ spec = do
                     nwName nw `shouldBe` "Test NW set"
                     M.lookup "Climate change" (nwNormalization nw) `shouldBe` Just 1.32e-04
                     M.lookup "Acidification" (nwWeighting nw) `shouldBe` Just 0.062
+
+    describe "Standalone NW CSV Parser" $ do
+        it "parses normalization and weighting factors from CSV" $ do
+            csv <- BS.readFile "test/data/normweighting.csv"
+            case parseNormWeightCSVBytes "fallback" csv of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right nw -> do
+                    nwName nw `shouldBe` "Custom EF NW"
+                    M.lookup "Climate change" (nwNormalization nw) `shouldBe` Just 1.32e-04
+                    case M.lookup "Acidification" (nwNormalization nw) of
+                        Just v -> abs (v - 1.80e-02) `shouldSatisfy` (< 1e-10)
+                        Nothing -> expectationFailure "Acidification not found"
+                    M.lookup "Water use" (nwWeighting nw) `shouldBe` Just 0.0851
+
+        it "has 3 entries in each map" $ do
+            csv <- BS.readFile "test/data/normweighting.csv"
+            case parseNormWeightCSVBytes "fallback" csv of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right nw -> do
+                    M.size (nwNormalization nw) `shouldBe` 3
+                    M.size (nwWeighting nw) `shouldBe` 3
+
+        it "uses fallback name when no comment header" $ do
+            let csv = "category;normalization;weighting\nCC;1e-4;0.21\n"
+            case parseNormWeightCSVBytes "my-fallback" (TE.encodeUtf8 (T.pack csv)) of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right nw -> nwName nw `shouldBe` "my-fallback"
+
+        it "fails on empty data" $ do
+            let csv = "# normalization-weighting set: Empty\ncategory;normalization;weighting\n"
+            case parseNormWeightCSVBytes "x" (TE.encodeUtf8 (T.pack csv)) of
+                Left _ -> return ()
+                Right _ -> expectationFailure "Should have failed on empty data"
 
 -- Helper for testing Either values
 isLeft :: Either a b -> Bool
