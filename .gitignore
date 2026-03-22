@@ -57,6 +57,10 @@ cache/
 # debug stuff
 debug/
 
+# Coverage reports
+coverage-report/
+*.tix
+
 # Desktop app build artifacts
 desktop/resources/
 desktop/target/
