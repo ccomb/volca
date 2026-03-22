@@ -21,7 +21,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
-import System.IO (hPutStrLn, stderr)
+import Progress (reportProgress, ProgressLevel(..))
 import qualified Xeno.SAX as X
 
 -- | Namespace UUID for generating deterministic UUIDs from EcoSpold1 numeric IDs
@@ -661,8 +661,8 @@ streamParseAllDatasetsFromFile1 path = do
     case parseAllWithXeno xmlContent of
         Right results -> do
             forM_ [e | Left e <- results] $ \e ->
-                hPutStrLn stderr $ "[WARNING] Skipping dataset in " ++ path ++ ": " ++ e
+                reportProgress Warning $ "Skipping dataset in " ++ path ++ ": " ++ e
             return [r | Right r <- results]
         Left err -> do
-            hPutStrLn stderr $ "[WARNING] Failed to parse " ++ path ++ ": " ++ err
+            reportProgress Warning $ "Failed to parse " ++ path ++ ": " ++ err
             return []

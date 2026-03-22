@@ -44,7 +44,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import qualified Data.Vector as V
-import System.IO (hPutStrLn, stderr)
+import Progress (reportProgress, ProgressLevel(..))
 import Text.Printf (printf)
 
 -- ============================================================================
@@ -902,7 +902,7 @@ fixWindows1252Controls = T.map fixChar
 -- Handles Windows-1252/Latin-1 encoding common in SimaPro exports
 parseSimaProCSV :: FilePath -> IO ([Activity], FlowDB, UnitDB)
 parseSimaProCSV path = do
-    hPutStrLn stderr $ "Loading SimaPro CSV file: " ++ path
+    reportProgress Info $ "Loading SimaPro CSV file: " ++ path
     startTime <- getCurrentTime
 
     -- Read as ByteString and convert from Windows-1252 to proper UTF-8.
@@ -946,10 +946,10 @@ parseSimaProCSV path = do
 
     endTime <- getCurrentTime
     let duration = realToFrac (diffUTCTime endTime startTime) :: Double
-    hPutStrLn stderr $ printf "SimaPro parsing completed in %.2fs:" duration
-    hPutStrLn stderr $ printf "  Activities: %d processes" numActivities
-    hPutStrLn stderr $ printf "  Flows: %d unique" numFlows
-    hPutStrLn stderr $ printf "  Units: %d unique" numUnits
+    reportProgress Info $ printf "SimaPro parsing completed in %.2fs:" duration
+    reportProgress Info $ printf "  Activities: %d processes" numActivities
+    reportProgress Info $ printf "  Flows: %d unique" numFlows
+    reportProgress Info $ printf "  Units: %d unique" numUnits
 
     return (activities, flowDB, unitDB)
   where

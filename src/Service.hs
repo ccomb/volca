@@ -4,6 +4,7 @@
 module Service where
 
 import CLI.Types (DebugMatricesOptions (..))
+import qualified Progress
 import Matrix (Inventory, applySparseMatrix, buildDemandVectorFromIndex, computeInventoryMatrix, shermanMorrisonVariant, toList)
 import qualified Matrix.Export as MatrixExport
 import SharedSolver (SharedSolver, solveWithSharedSolver)
@@ -1193,9 +1194,9 @@ exportMatrixDebugData database processIdText opts = do
                         bioFlowUUIDs = MatrixExport.mdBioFlowUUIDs matrixData
                         inventory = M.fromList $ zip (V.toList bioFlowUUIDs) inventoryList
 
-                    putStrLn $ "DEBUG: Starting CSV export to " ++ debugOutput opts
+                    Progress.reportProgress Progress.Info $ "DEBUG: Starting CSV export to " ++ debugOutput opts
                     MatrixExport.exportMatrixDebugCSVs (debugOutput opts) matrixData
-                    putStrLn $ "DEBUG: CSV export completed"
+                    Progress.reportProgress Progress.Info "DEBUG: CSV export completed"
 
                     let summary =
                             M.fromList

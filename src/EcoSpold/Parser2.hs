@@ -15,7 +15,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import System.FilePath (takeBaseName)
-import System.IO (hPutStrLn, stderr)
+import Progress (reportProgress, ProgressLevel(..))
 import qualified Xeno.SAX as X
 
 -- | Normalize CAS number by stripping leading zeros from first segment.
@@ -44,7 +44,7 @@ parseUUID txt = case UUID.fromText txt of
             -- Only warn for non-empty invalid UUIDs (empty is expected for optional fields)
             warning = if T.null txt
                       then Nothing
-                      else Just $ "[WARNING] Invalid UUID format: " ++ T.unpack txt ++ " - generated UUID: " ++ show generatedUUID
+                      else Just $ "Invalid UUID format: " ++ T.unpack txt ++ " - generated UUID: " ++ show generatedUUID
         in (generatedUUID, warning)
 
 -- | Parse ProcessId from filename (no Database needed here)
@@ -462,7 +462,7 @@ streamParseActivityAndFlowsFromFile path = do
         Just pid -> case parseWithXeno xmlContent pid of
             Left err -> return $ Left err
             Right (result, warnings) -> do
-                mapM_ (hPutStrLn stderr) warnings
+                mapM_ (reportProgress Warning) warnings
                 return $ Right result
 
 {- | Apply cut-off strategy

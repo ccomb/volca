@@ -16,7 +16,7 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
-import System.IO (hPutStrLn, stderr)
+
 
 {- | Build complete database with pre-computed sparse matrices
 
@@ -101,7 +101,7 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
                                     Nothing ->
                                         -- Only warn if exchange has non-zero amount (zero-amount are placeholders)
                                         let warning = if abs (exchangeAmount ex) > 1e-15
-                                                     then [ "[WARNING] Missing activity-product pair referenced by exchange:\n"
+                                                     then [ "Missing activity-product pair referenced by exchange:\n"
                                                             ++ "  Activity UUID: " ++ T.unpack (UUID.toText actUUID) ++ "\n"
                                                             ++ "  Product UUID: " ++ T.unpack (UUID.toText (exchangeFlowId ex)) ++ "\n"
                                                             ++ "  Consumer: " ++ T.unpack (activityName consumerActivity) ++ "\n"
@@ -179,7 +179,7 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
         techWarnings = concatMap snd allResults
 
     -- Emit warnings in IO context
-    mapM_ (hPutStrLn stderr) techWarnings
+    mapM_ (reportProgress Warning) techWarnings
 
     reportMatrixOperation ("Technosphere matrix: " ++ show (VU.length techTriples) ++ " non-zero entries")
 
