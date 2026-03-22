@@ -349,6 +349,17 @@ spec = do
             -- The quoted product name should be extracted intact
             names `shouldContain` ["Food product (irradiated ; with treatment)"]
 
+    describe "SimaPro classification parsing" $ do
+        it "parses Category type from metadata" $ do
+            (activities, _, _) <- parseTestCSV
+            let cls = activityClassification (head activities)
+            M.lookup "Category type" cls `shouldBe` Just "material"
+
+        it "parses Category from product line" $ do
+            (activities, _, _) <- parseTestCSV
+            let cls = activityClassification (head activities)
+            M.lookup "Category" cls `shouldBe` Just "material"
+
     describe "SimaPro waste treatment parsing" $ do
         it "parses waste treatment processes (Waste treatment section)" $ do
             (activities, _, _) <- parseWasteCSV

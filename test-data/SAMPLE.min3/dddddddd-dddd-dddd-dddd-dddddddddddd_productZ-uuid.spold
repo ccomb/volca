@@ -1,0 +1,58 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ecoSpold xmlns="http://www.EcoInvent.org/EcoSpold02" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.EcoInvent.org/EcoSpold02 ../../schemas/datasets/EcoSpold02.xsd">
+  <childActivityDataset>
+    <activityDescription>
+      <activity specialActivityType="0" id="dddddddd-dddd-dddd-dddd-dddddddddddd" activityNameId="dddddddd-dddd-dddd-dddd-dddddddddddd" type="1">
+        <activityName xml:lang="en">production of product Z</activityName>
+        <generalComment>
+          <text xml:lang="en" index="0">Production activity for product Z with elementary flows</text>
+        </generalComment>
+      </activity>
+      <classification classificationId="33333333-3333-3333-3333-333333333333">
+        <classificationSystem xml:lang="en">ISIC rev.4 ecoinvent</classificationSystem>
+        <classificationValue xml:lang="en">0810:Quarrying of stone, sand and clay</classificationValue>
+      </classification>
+      <geography geographyId="34dbbff8-88ce-11de-ad60-0019e336be3a">
+        <shortname xml:lang="en">GLO</shortname>
+      </geography>
+      <timePeriod startDate="2011-01-01" endDate="2024-12-31" isDataValidForEntirePeriod="true"/>
+    </activityDescription>
+    <flowData>
+      <!-- Output: Product Z -->
+      <intermediateExchange id="out-1" unitId="unit-kg" amount="1.0" intermediateExchangeId="productZ-uuid" productionVolumeAmount="200.0">
+        <name xml:lang="en">product Z</name>
+        <unitName xml:lang="en">kg</unitName>
+        <outputGroup>0</outputGroup>
+      </intermediateExchange>
+
+      <!-- Elementary flow output: CO2 to air (amount 4.0) -->
+      <elementaryExchange id="elem-1" unitId="unit-kg" amount="4.0" elementaryExchangeId="co2-air-uuid">
+        <name xml:lang="en">carbon dioxide</name>
+        <unitName xml:lang="en">kg</unitName>
+        <compartment>
+          <compartment xml:lang="en">air</compartment>
+        </compartment>
+        <outputGroup>4</outputGroup>
+      </elementaryExchange>
+
+      <!-- Elementary flow output: Zinc to water (amount 0.003) -->
+      <elementaryExchange id="elem-2" unitId="unit-kg" amount="0.003" elementaryExchangeId="zinc-water-uuid">
+        <name xml:lang="en">zinc II</name>
+        <unitName xml:lang="en">kg</unitName>
+        <compartment>
+          <compartment xml:lang="en">water</compartment>
+          <subcompartment xml:lang="en">surface water</subcompartment>
+        </compartment>
+        <outputGroup>4</outputGroup>
+      </elementaryExchange>
+    </flowData>
+    <modellingAndValidation>
+      <representativeness systemModelId="290c1f85-4cc4-4fa1-b0c8-2cb7f4276dce">
+        <systemModelName xml:lang="en">Allocation, cut-off by classification</systemModelName>
+      </representativeness>
+    </modellingAndValidation>
+    <administrativeInformation>
+      <fileAttributes defaultLanguage="en" creationTimestamp="2025-01-01T00:00:00" lastEditTimestamp="2025-01-01T00:00:00"/>
+    </administrativeInformation>
+  </childActivityDataset>
+</ecoSpold>

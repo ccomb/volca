@@ -11,6 +11,7 @@ module TestHelpers (
 
 import Types
 import Database (buildDatabaseWithMatrices)
+import UnitConversion (defaultUnitConfig)
 import Control.Monad (zipWithM_)
 import qualified Data.Map as M
 import qualified Data.Vector as V
@@ -31,7 +32,7 @@ loadSampleDatabaseWithPath path = do
     case loadResult of
         Left err -> error $ "Failed to load test database: " ++ show err
         Right simpleDb ->
-            buildDatabaseWithMatrices (sdbActivities simpleDb) (sdbFlows simpleDb) (sdbUnits simpleDb)
+            buildDatabaseWithMatrices defaultUnitConfig (sdbActivities simpleDb) (sdbFlows simpleDb) (sdbUnits simpleDb)
 
 -- | Check if two floating point numbers are within tolerance
 withinTolerance :: Double -> Double -> Double -> Bool

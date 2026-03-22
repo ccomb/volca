@@ -90,6 +90,37 @@ spec = do
             let flowsWithNames = filter (\f -> not $ T.null $ flowName f) flows
             length flowsWithNames `shouldBe` length flows
 
+    describe "EcoSpold2 Parser - Classifications" $ do
+        it "parses classifications from EcoSpold2" $ do
+            db <- loadSampleDatabase "SAMPLE.min3"
+            let activities = V.toList $ dbActivities db
+            -- All 3 activities should have non-empty classification
+            all (not . M.null . activityClassification) activities `shouldBe` True
+
+        it "parses ISIC classification system and value" $ do
+            db <- loadSampleDatabase "SAMPLE.min3"
+            let activities = V.toList $ dbActivities db
+                isicValues = [v | a <- activities
+                                , Just v <- [M.lookup "ISIC rev.4 ecoinvent" (activityClassification a)]]
+            isicValues `shouldContain` ["2394:Manufacture of cement"]
+            isicValues `shouldContain` ["0810:Quarrying of stone, sand and clay"]
+
+        it "parses CPC classification" $ do
+            db <- loadSampleDatabase "SAMPLE.min3"
+            let activities = V.toList $ dbActivities db
+                cpcValues = [v | a <- activities
+                               , Just v <- [M.lookup "CPC" (activityClassification a)]]
+            cpcValues `shouldBe` ["3744:Cement"]
+
+    describe "EcoSpold1 Parser - Classifications" $ do
+        it "parses category and subCategory as classifications" $ do
+            db <- loadSampleDatabase "SAMPLE.ecospold1"
+            let activities = V.toList $ dbActivities db
+            length activities `shouldSatisfy` (>= 1)
+            let cls = activityClassification (head activities)
+            M.lookup "Category" cls `shouldBe` Just "Energy"
+            M.lookup "SubCategory" cls `shouldBe` Just "Electricity"
+
     describe "Unit Database" $ do
         it "parses unit information" $ do
             db <- loadSampleDatabase "SAMPLE.min3"

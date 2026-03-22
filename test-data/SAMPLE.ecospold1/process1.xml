@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ecoSpold xmlns="http://www.EcoInvent.org/EcoSpold01">
+  <dataset number="1" generator="Test" timestamp="2025-01-01T00:00:00">
+    <metaInformation>
+      <processInformation>
+        <referenceFunction name="electricity production, wind" category="Energy" subCategory="Electricity" unit="kWh" />
+        <geography location="DE" />
+        <timePeriod startYear="2020" endYear="2024" />
+      </processInformation>
+    </metaInformation>
+    <flowData>
+      <exchange number="1" name="electricity, high voltage" category="Energy" subCategory="Electricity" unit="kWh" meanValue="1.0">
+        <outputGroup>0</outputGroup>
+      </exchange>
+      <exchange number="2" name="Carbon dioxide, fossil" category="air" subCategory="low population density" unit="kg" meanValue="0.01">
+        <outputGroup>4</outputGroup>
+      </exchange>
+    </flowData>
+  </dataset>
+</ecoSpold>

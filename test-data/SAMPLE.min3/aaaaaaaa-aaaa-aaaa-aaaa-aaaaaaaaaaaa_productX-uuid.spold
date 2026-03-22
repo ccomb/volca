@@ -1,0 +1,44 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ecoSpold xmlns="http://www.EcoInvent.org/EcoSpold02" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.EcoInvent.org/EcoSpold02 ../../schemas/datasets/EcoSpold02.xsd">
+  <childActivityDataset>
+    <activityDescription>
+      <activity specialActivityType="0" id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" activityNameId="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" type="1">
+        <activityName xml:lang="en">production of product X</activityName>
+        <generalComment>
+          <text xml:lang="en" index="0">Production activity for product X, uses product Y</text>
+        </generalComment>
+      </activity>
+      <classification classificationId="11111111-1111-1111-1111-111111111111">
+        <classificationSystem xml:lang="en">ISIC rev.4 ecoinvent</classificationSystem>
+        <classificationValue xml:lang="en">2394:Manufacture of cement</classificationValue>
+      </classification>
+      <geography geographyId="34dbbff8-88ce-11de-ad60-0019e336be3a">
+        <shortname xml:lang="en">GLO</shortname>
+      </geography>
+      <timePeriod startDate="2011-01-01" endDate="2024-12-31" isDataValidForEntirePeriod="true"/>
+    </activityDescription>
+    <flowData>
+      <!-- Output: Product X -->
+      <intermediateExchange id="out-1" unitId="unit-kg" amount="1.0" intermediateExchangeId="productX-uuid" productionVolumeAmount="100.0">
+        <name xml:lang="en">product X</name>
+        <unitName xml:lang="en">kg</unitName>
+        <outputGroup>0</outputGroup>
+      </intermediateExchange>
+
+      <!-- Input: Product Y from Activity B (amount 0.6) -->
+      <intermediateExchange id="in-1" unitId="unit-kg" amount="0.6" intermediateExchangeId="productY-uuid" activityLinkId="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb">
+        <name xml:lang="en">product Y</name>
+        <unitName xml:lang="en">kg</unitName>
+        <inputGroup>5</inputGroup>
+      </intermediateExchange>
+    </flowData>
+    <modellingAndValidation>
+      <representativeness systemModelId="290c1f85-4cc4-4fa1-b0c8-2cb7f4276dce">
+        <systemModelName xml:lang="en">Allocation, cut-off by classification</systemModelName>
+      </representativeness>
+    </modellingAndValidation>
+    <administrativeInformation>
+      <fileAttributes defaultLanguage="en" creationTimestamp="2025-01-01T00:00:00" lastEditTimestamp="2025-01-01T00:00:00"/>
+    </administrativeInformation>
+  </childActivityDataset>
+</ecoSpold>
