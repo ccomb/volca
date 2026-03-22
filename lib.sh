@@ -153,6 +153,27 @@ check_version() {
     fi
 }
 
+# Check tool version: fail only on major version mismatch, warn otherwise
+# Usage: check_version_major tool_name actual_version expected_version
+check_version_major() {
+    local tool="$1"
+    local actual="$2"
+    local expected="$3"
+    local actual_major="${actual%%.*}"
+    local expected_major="${expected%%.*}"
+
+    if [[ "$actual" == "$expected" ]]; then
+        log_success "$tool version $actual"
+        return 0
+    elif [[ "$actual_major" == "$expected_major" ]]; then
+        log_warn "$tool version $actual (expected $expected)"
+        return 0
+    else
+        log_error "$tool major version $actual_major (expected $expected_major)"
+        return 1
+    fi
+}
+
 # Convert Windows path to MSYS2 path
 # Usage: to_msys_path "C:\path\to\dir"
 to_msys_path() {

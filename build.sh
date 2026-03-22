@@ -270,7 +270,7 @@ check_version "GHC" "$GHC_ACTUAL" "$GHC_VERSION"
 # Check Node version
 if command -v node &> /dev/null; then
     NODE_ACTUAL=$(node --version | sed 's/^v//')
-    check_version "Node.js" "$NODE_ACTUAL" "$NODE_VERSION"
+    check_version_major "Node.js" "$NODE_ACTUAL" "$NODE_VERSION"
 fi
 
 # Check Rust version (optional, for desktop build)
