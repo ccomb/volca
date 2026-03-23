@@ -919,19 +919,30 @@ extractConfig = foldl' step defaultConfig . takeWhile isHeaderOrEmpty
         Just (key, value) -> updateConfigFromHeader cfg key value
         Nothing           -> cfg
 
--- | Split lines into End-delimited blocks.
--- Each returned chunk includes all lines up to and including its "End" line.
-splitEndBlocks :: [BS.ByteString] -> [[BS.ByteString]]
-splitEndBlocks [] = []
-splitEndBlocks ls =
-    let (block, rest) = break (\l -> BS8.strip l == "End") ls
-    in case rest of
-        []        -> []   -- no End found, discard trailing lines
-        (e:rest') -> (block ++ [e]) : splitEndBlocks rest'
+-- | Split lines into N contiguous chunks at End boundaries.
+-- Each chunk contains roughly totalEnds/N complete blocks.
+splitForWorkers :: Int -> [BS.ByteString] -> [[BS.ByteString]]
+splitForWorkers numWorkers allLines
+    | numWorkers <= 1 = [allLines]
+    | totalEnds == 0  = [allLines]
+    | otherwise       = chopAtEnds endsPerChunk 0 [] allLines
+  where
+    isEnd l = BS8.strip l == "End"
+    totalEnds = foldl' (\acc l -> if isEnd l then acc + 1 else acc) (0 :: Int) allLines
+    endsPerChunk = max 1 ((totalEnds + numWorkers - 1) `div` numWorkers)
 
--- | Parse a list of End-delimited line chunks into ProcessBlocks + global params.
-parseChunks :: SimaProConfig -> [[BS.ByteString]] -> ([ProcessBlock], [(Text,Text)], [(Text,Text)], [(Text,Text)], [(Text,Text)])
-parseChunks cfg chunks =
+    chopAtEnds _ _ acc [] = [reverse acc | not (null acc)]
+    chopAtEnds target endCount acc (l:ls)
+        | isEnd l, endCount + 1 >= target =
+            reverse (l : acc) : chopAtEnds target 0 [] ls
+        | isEnd l =
+            chopAtEnds target (endCount + 1) (l : acc) ls
+        | otherwise =
+            chopAtEnds target endCount (l : acc) ls
+
+-- | Parse a contiguous range of lines into ProcessBlocks + global params.
+parseWorkerLines :: SimaProConfig -> [BS.ByteString] -> ([ProcessBlock], [(Text,Text)], [(Text,Text)], [(Text,Text)], [(Text,Text)])
+parseWorkerLines cfg ls =
     let initAcc = ParseAcc
             { paConfig = cfg, paState = BetweenBlocks
             , paCurrentBlock = emptyProcessBlock, paBlocks = []
@@ -939,23 +950,10 @@ parseChunks cfg chunks =
             , paDbInputParams = [], paDbCalcParams = []
             , paProjInputParams = [], paProjCalcParams = []
             }
-        finalAcc = foldl' processLine initAcc (concat chunks)
+        finalAcc = foldl' processLine initAcc ls
     in ( reverse (paBlocks finalAcc)
        , paDbInputParams finalAcc, paDbCalcParams finalAcc
        , paProjInputParams finalAcc, paProjCalcParams finalAcc )
-
--- | Distribute items evenly among N workers.
-distributeItems :: Int -> [a] -> [[a]]
-distributeItems n xs =
-    let len = length xs
-        baseSize = len `div` n
-        remainder = len `mod` n
-        sizes = replicate remainder (baseSize + 1) ++ replicate (n - remainder) baseSize
-    in go sizes xs
-  where
-    go [] _ = []
-    go _ [] = []
-    go (s:ss) items = take s items : go ss (drop s items)
 
 -- ============================================================================
 -- Main Entry Point
@@ -976,15 +974,14 @@ parseSimaProCSV path = do
     -- Extract config from header (fast, sequential, ~5 lines)
     let cfg = extractConfig lines'
 
-    -- Split all lines into End-delimited blocks and distribute to workers
-    let endBlocks = splitEndBlocks lines'
+    -- Split lines into N contiguous chunks at End boundaries
     numWorkers <- getNumCapabilities
-    let workerChunks = distributeItems numWorkers endBlocks
+    let workerChunks = splitForWorkers numWorkers lines'
 
-    reportProgress Info $ printf "Parsing %d End-blocks with %d parallel workers" (length endBlocks) numWorkers
+    reportProgress Info $ printf "Parsing with %d parallel workers" numWorkers
 
-    -- Parse blocks in parallel — each worker processes its share
-    results <- mapConcurrently (evaluate . force . parseChunks cfg) workerChunks
+    -- Parse chunks in parallel — each worker folds its contiguous range
+    results <- mapConcurrently (evaluate . force . parseWorkerLines cfg) workerChunks
     let allBlocks    = concatMap (\(b,_,_,_,_) -> b) results
         globalParams = ( concatMap (\(_,a,_,_,_) -> a) results
                        , concatMap (\(_,_,b,_,_) -> b) results
