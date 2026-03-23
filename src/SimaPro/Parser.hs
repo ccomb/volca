@@ -41,6 +41,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Read as TR
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TEE
 import Data.Time (diffUTCTime, getCurrentTime)
@@ -639,9 +640,11 @@ extractLocation name =
 resolveAmount :: M.Map Text Double -> Text -> Double -> Double
 resolveAmount env raw fallback
     | T.null raw = fallback
-    | otherwise = case Expr.evaluate env raw of
-        Right v -> v
-        Left _  -> fallback
+    | otherwise = case TR.double raw of
+        Right (v, rest) | T.null (T.strip rest) -> v
+        _ -> case Expr.evaluate env raw of
+            Right v -> v
+            Left _  -> fallback
 
 -- | Convert ProcessBlock to list of Activities (one per product)
 -- This matches EcoSpold behavior where multi-product processes create multiple activities
