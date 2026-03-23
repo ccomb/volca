@@ -68,8 +68,6 @@ data ElementContext
     | InIntermediateExchange !IntermediateData
     | InElementaryExchange !ElementaryData
     | InGeneralCommentText !Int  -- Track index
-    | InClassificationSystem
-    | InClassificationValue
     | Other
     deriving (Eq)
 
@@ -165,8 +163,8 @@ parseWithXeno xmlContent processId =
                 | isElement tagName "elementaryExchange" =
                     InElementaryExchange (ElementaryData "" 0.0 "" "" "" "" "" [] [] M.empty Nothing)
                 | isElement tagName "text" && any (isElement "generalComment") (psPath cleanState) = InGeneralCommentText 0
-                | isElement tagName "classificationSystem" && any (isElement "classification") (psPath cleanState) = InClassificationSystem
-                | isElement tagName "classificationValue" && any (isElement "classification") (psPath cleanState) = InClassificationValue
+                -- Classification elements: don't switch context. Handled via psTextAccum + psPendingClassSystem.
+                -- Switching context here would destroy InIntermediateExchange when classifications appear inside exchanges.
                 -- DON'T switch context for child elements (synonym, compartment, etc) - keep parent exchange context
                 | otherwise = psContext cleanState
         in cleanState{psPath = newPath, psContext = newContext, psTextAccum = []}
@@ -418,13 +416,13 @@ parseWithXeno xmlContent processId =
                     state{psPath = tail (psPath state), psTextAccum = []}
         | isElement tagName "classificationSystem" =
             let txt = T.strip $ T.concat $ reverse $ map bsToText (psTextAccum state)
-            in state{psPendingClassSystem = txt, psContext = Other, psPath = tail (psPath state), psTextAccum = []}
+            in state{psPendingClassSystem = txt, psPath = tail (psPath state), psTextAccum = []}
         | isElement tagName "classificationValue" =
             let txt = T.strip $ T.concat $ reverse $ map bsToText (psTextAccum state)
                 sys = psPendingClassSystem state
             in state{psClassifications = if T.null sys || T.null txt then psClassifications state
                                          else M.insert sys txt (psClassifications state)
-                    , psContext = Other, psPath = tail (psPath state), psTextAccum = []}
+                    , psPath = tail (psPath state), psTextAccum = []}
         | otherwise =
             state{psPath = if null (psPath state) then [] else tail (psPath state)}
 
