@@ -167,4 +167,4 @@ COPY data/ /app/data/
 
 EXPOSE 8080
 
-CMD ["volca", "--config", "/app/volca.toml", "server"]
+CMD ["volca", "+RTS", "-N4", "-H2G", "-A128M", "-n8m", "-qg0", "-c", "-I30", "-RTS", "--config", "/app/volca.toml", "server"]
