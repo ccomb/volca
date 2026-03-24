@@ -14,7 +14,7 @@ import Data.Time.Clock (getCurrentTime, diffUTCTime, UTCTime)
 import Options.Applicative
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure, die, ExitCode(..))
-import System.IO (hFlush, stdout)
+import System.IO (hFlush, hSetEncoding, stdout, stderr, utf8)
 import Text.Read (readMaybe)
 
 -- VoLCA imports
@@ -47,6 +47,10 @@ import Data.String (fromString)
 -- | Main entry point
 main :: IO ()
 main = do
+  -- Ensure UTF-8 output on all platforms (prevents Windows encoding crashes)
+  hSetEncoding stdout utf8
+  hSetEncoding stderr utf8
+
   cliConfig <- execParser cliParserInfo
   validateCLIConfig cliConfig
 

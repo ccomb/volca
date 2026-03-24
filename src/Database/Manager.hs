@@ -71,7 +71,7 @@ module Database.Manager
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import qualified Control.Exception
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, unless, when)
 import Data.Maybe (catMaybes, isJust)
 import System.Mem (performGC)
 import Data.Bifunctor (first)
@@ -86,8 +86,8 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Control.Concurrent.Async (mapConcurrently_)
 import GHC.Generics (Generic)
-import System.Directory (createDirectoryIfMissing, doesFileExist, doesDirectoryExist, listDirectory, removeFile)
-import System.FilePath (takeExtension)
+import System.Directory (createDirectoryIfMissing, doesFileExist, doesDirectoryExist, listDirectory, removeFile, removeDirectoryRecursive)
+import System.FilePath (isAbsolute, takeDirectory, takeExtension, dropExtension, (</>))
 import Data.Char (toLower)
 import Data.List (isPrefixOf, nub, sortOn)
 import Data.Ord (Down(..))
@@ -103,9 +103,9 @@ import SharedSolver (SharedSolver, createSharedSolver)
 import Progress (reportProgress, reportProgressWithTiming, reportError, ProgressLevel(..))
 import Database (buildDatabaseWithMatrices)
 import SynonymDB (SynonymDB(..), emptySynonymDB, buildFromCSV, buildFromPairs, loadFromCSVFileWithCache, mergeSynonymDBs, synonymCount)
-import Method.Types (CompartmentMap, buildCompartmentMapFromCSV, compartmentMapSize)
+import Method.Types (CompartmentMap, buildCompartmentMapFromCSV, compartmentMapSize, Method(..), MethodCollection(..))
 import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), UUID, Flow(..), exchangeFlowId, exchangeIsReference, CrossDBLink(..), CrossDBLinkingStats(..), crossDBBySource, unresolvedCount, LinkBlocker(..), deduplicateFallbacks)
-import qualified UnitConversion as UnitConversion
+import qualified UnitConversion
 import qualified Database.Loader as Loader
 -- CrossDBLinkingStats is now in Types, re-exported from Database.Loader
 import Database.CrossLinking (IndexedDatabase(..), buildIndexedDatabaseFromDB)
@@ -113,10 +113,7 @@ import qualified Database.Upload as Upload
 import Database.Upload (findMethodDirectory)
 import qualified Database.UploadedDatabase as UploadedDB
 import qualified SimaPro.Parser as SimaPro
-import System.FilePath (dropExtension, (</>))
-import System.Directory (removeDirectoryRecursive)
 import API.Types (DepLoadResult(..))
-import Method.Types (Method(..), MethodCollection(..))
 import qualified Method.Parser
 import Method.ParserCSV (parseMethodCSV)
 import Method.ParserSimaPro (isSimaProMethodCSV, parseSimaProMethodCSVBytes)
@@ -344,10 +341,14 @@ data DatabaseManager = DatabaseManager
 -- Pre-loads databases with load=true at startup
 -- Also discovers uploaded databases from uploads/ directory
 initDatabaseManager :: Config -> Bool -> Maybe FilePath -> IO DatabaseManager
-initDatabaseManager config noCache _configPath = do
+initDatabaseManager config noCache configPath = do
+    -- Resolve relative paths against the config file's directory
+    let configDir = maybe "." takeDirectory configPath
+        resolveRelative p = if isAbsolute p then p else configDir </> p
+
     -- Get configured databases and detect their format
     configuredDbs <- forM (cfgDatabases config) $ \dbConfig -> do
-        resolvedPath <- resolveDataPath (dcPath dbConfig)
+        resolvedPath <- resolveDataPath (resolveRelative (dcPath dbConfig))
         format <- Upload.detectDatabaseFormat resolvedPath
         return dbConfig { dcPath = resolvedPath, dcFormat = Just format }
 
@@ -375,9 +376,11 @@ initDatabaseManager config noCache _configPath = do
     uploadedFlowSyns <- discoverUploadedRefData "uploads/flow-synonyms"
     uploadedCompMaps <- discoverUploadedRefData "uploads/compartment-mappings"
     uploadedUnitDefs <- discoverUploadedRefData "uploads/units"
-    let allFlowSyns = cfgFlowSynonyms config ++ uploadedFlowSyns
-        allCompMaps = cfgCompartmentMappings config ++ uploadedCompMaps
-        allUnitDefs = cfgUnits config ++ uploadedUnitDefs
+    -- Resolve reference data paths relative to config directory
+    let resolveRdPath rd = rd { rdPath = resolveRelative (rdPath rd) }
+    let allFlowSyns = map resolveRdPath (cfgFlowSynonyms config) ++ uploadedFlowSyns
+        allCompMaps = map resolveRdPath (cfgCompartmentMappings config) ++ uploadedCompMaps
+        allUnitDefs = map resolveRdPath (cfgUnits config) ++ uploadedUnitDefs
     availableFlowSynsVar <- newTVarIO $ M.fromList [(rdName rd, rd) | rd <- allFlowSyns]
     loadedFlowSynsVar <- newTVarIO M.empty
     availableCompMapsVar <- newTVarIO $ M.fromList [(rdName rd, rd) | rd <- allCompMaps]
@@ -728,11 +731,11 @@ detectDirectoryFormat path = do
                     files <- listDirectory path
                     let extensions = map (map toLower . takeExtension) files
                     -- Check for different formats (in order of preference)
-                    if any (== ".spold") extensions
+                    if elem ".spold" extensions
                         then return FormatSpold
-                        else if any (== ".csv") extensions
+                        else if elem ".csv" extensions
                             then return FormatCSV
-                            else if any (== ".xml") extensions
+                            else if elem ".xml" extensions
                                 then return FormatXML
                                 else return FormatUnknown
             else return FormatUnknown
@@ -851,7 +854,7 @@ loadDatabaseRawWithCrossDB dbName locationAliases path noCache synonymDB unitCon
                                             , dbDependsOn = depDbs
                                             , dbLinkingStats = stats
                                             }
-                                    when (not noCache) $
+                                    unless noCache $
                                         Loader.saveCachedDatabaseWithMatrices dbName path dbWithLinks
                                     return $ Right dbWithLinks
 
@@ -1085,9 +1088,9 @@ removeDatabase manager dbName = do
         Just dbConfig -> do
             -- Check if it's an uploaded database (only uploaded can be deleted)
             if not (dcIsUploaded dbConfig)
-                then return $ Left $ "Cannot delete configured database. Edit volca.toml to remove it."
+                then return $ Left "Cannot delete configured database. Edit volca.toml to remove it."
                 else if M.member dbName loadedDbs
-                    then return $ Left $ "Cannot delete loaded database. Close it first."
+                    then return $ Left "Cannot delete loaded database. Close it first."
                     else do
                             -- Get the upload directory (uploads/<slug>/)
                             uploadsDir <- UploadedDB.getDatabaseUploadsDir
@@ -1616,7 +1619,7 @@ loadMethodCollectionFromConfig mc = do
                     let (xmlErrs, xmlMethods) = partitionEithers xmlResults
                         (csvErrs, csvOks) = partitionEithers csvParsed
                         -- Merge: SimaPro CSVs are MethodCollections, tabular CSVs are [Method]
-                        spCollections = [mc | Left mc <- csvOks]
+                        spCollections = [sp | Left sp <- csvOks]
                         tabularMethods = concat [ms | Right ms <- csvOks]
                         allMethods = xmlMethods ++ tabularMethods
                                      ++ concatMap mcMethods spCollections

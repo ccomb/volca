@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
 Module      : Progress
@@ -44,7 +45,7 @@ module Progress (
 
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.STM (TVar, newTVarIO, readTVar, readTVarIO, atomically, modifyTVar', retry)
-import Control.Exception (try, SomeException)
+import Control.Exception (catch, try, SomeException)
 import Control.Monad (when)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -135,9 +136,10 @@ reportProgress level message = do
     -- Append to in-memory buffer
     appendLogLine formatted
     -- Serialize all output to prevent thread-unsafe stderr corruption
-    withMVar progressOutputMutex $ \_ -> do
-        hPutStrLn stderr formatted
-        hFlush stderr
+    -- Catch encoding errors (safety net for Windows code page issues)
+    withMVar progressOutputMutex $ \_ ->
+        catch (hPutStrLn stderr formatted >> hFlush stderr)
+              (\(_ :: SomeException) -> return ())
 
 -- | Report progress with timing information
 reportProgressWithTiming :: ProgressLevel -> String -> Double -> IO ()
