@@ -1,0 +1,226 @@
+name,dimension,factor
+kg,mass,1.0
+kilogram,mass,1.0
+g,mass,0.001
+gram,mass,0.001
+mg,mass,1.0e-6
+milligram,mass,1.0e-6
+t,mass,1000.0
+ton,mass,1000.0
+tonne,mass,1000.0
+metric ton,mass,1000.0
+pound,mass,0.45359237
+lb,mass,0.45359237
+ounce avoirdupois,mass,0.0283495231
+oz,mass,0.0283495231
+m,length,1.0
+meter,length,1.0
+metre,length,1.0
+km,length,1000.0
+kilometer,length,1000.0
+kilometre,length,1000.0
+cm,length,0.01
+centimeter,length,0.01
+centimetre,length,0.01
+mm,length,0.001
+millimeter,length,0.001
+millimetre,length,0.001
+mile,length,1609.344
+ft,length,0.3048
+foot,length,0.3048
+inch,length,0.0254
+in,length,0.0254
+s,time,1.0
+second,time,1.0
+sec,time,1.0
+min,time,60.0
+minute,time,60.0
+h,time,3600.0
+hour,time,3600.0
+hr,time,3600.0
+d,time,86400.0
+day,time,86400.0
+year,time,31536000.0
+a,time,31536000.0
+yr,time,31536000.0
+month,time,2592000.0
+j,energy,1.0
+joule,energy,1.0
+kj,energy,1000.0
+kilojoule,energy,1000.0
+mj,energy,1.0e6
+megajoule,energy,1.0e6
+gj,energy,1.0e9
+gigajoule,energy,1.0e9
+tj,energy,1.0e12
+terajoule,energy,1.0e12
+kwh,energy,3.6e6
+kilowatt hour,energy,3.6e6
+kilowatt-hour,energy,3.6e6
+mwh,energy,3.6e9
+megawatt hour,energy,3.6e9
+megawatt-hour,energy,3.6e9
+wh,energy,3600.0
+watt hour,energy,3600.0
+watt-hour,energy,3600.0
+kcal,energy,4184.0
+kilocalorie,energy,4184.0
+cal,energy,4.184
+calorie,energy,4.184
+btu,energy,1055.06
+british thermal unit,energy,1055.06
+m2,area,1.0
+m²,area,1.0
+square meter,area,1.0
+square metre,area,1.0
+ha,area,10000.0
+hectare,area,10000.0
+km2,area,1.0e6
+km²,area,1.0e6
+cm2,area,1.0e-4
+cm²,area,1.0e-4
+acre,area,4046.8564224
+m3,volume,1.0
+m³,volume,1.0
+cubic meter,volume,1.0
+cubic metre,volume,1.0
+nm3,volume,1.0
+sm3,volume,1.0
+l,volume,0.001
+liter,volume,0.001
+litre,volume,0.001
+dm3,volume,0.001
+ml,volume,1.0e-6
+cm3,volume,1.0e-6
+cm³,volume,1.0e-6
+gallon,volume,0.003785411784
+gal,volume,0.003785411784
+unit,count,1.0
+units,count,1.0
+p,count,1.0
+pcs,count,1.0
+piece,count,1.0
+pieces,count,1.0
+item,count,1.0
+items,count,1.0
+dimensionless,count,1.0
+kgy,count,1.0
+kilo-gray,count,1.0
+eur,currency,1.0
+eur2005,currency,1.0
+euro,currency,1.0
+usd,currency,1.0
+usd2011,currency,1.0
+usd(2011),currency,1.0
+dollar,currency,1.0
+tkm,mass*length,1.0e6
+t*km,mass*length,1.0e6
+t.km,mass*length,1.0e6
+metric ton*km,mass*length,1.0e6
+tonne*km,mass*length,1.0e6
+tonne-km,mass*length,1.0e6
+tonne-kilometer,mass*length,1.0e6
+tonne-kilometre,mass*length,1.0e6
+kgkm,mass*length,1000.0
+kg*km,mass*length,1000.0
+kg.km,mass*length,1000.0
+kilogram*km,mass*length,1000.0
+kilogram-km,mass*length,1000.0
+kilogram-kilometer,mass*length,1000.0
+kilogram-kilometre,mass*length,1000.0
+kg*m,mass*length,1.0
+kgm,mass*length,1.0
+t*mile,mass*length,1.609344e6
+ton*mile,mass*length,1.609344e6
+ton-mile,mass*length,1.609344e6
+pkm,length*count,1000.0
+person*km,length*count,1000.0
+personkm,length*count,1000.0
+passenger*km,length*count,1000.0
+passenger-km,length*count,1000.0
+passenger-kilometer,length*count,1000.0
+person*mile,length*count,1609.344
+passenger*mile,length*count,1609.344
+passenger-mile,length*count,1609.344
+m/s,length/time,1.0
+km/h,length/time,0.27778
+kph,length/time,0.27778
+mph,length/time,0.44704
+mile/h,length/time,0.44704
+kbq,/time,1000.0
+kilobecquerel,/time,1000.0
+bq,/time,1.0
+becquerel,/time,1.0
+m2*year,area*time,1.0
+m²*year,area*time,1.0
+m2.year,area*time,1.0
+m2*a,area*time,1.0
+m2a,area*time,1.0
+ha*year,area*time,315360000000.0
+hectare*year,area*time,315360000000.0
+ha.year,area*time,315360000000.0
+ha*a,area*time,315360000000.0
+ha a,area*time,315360000000.0
+m3*year,volume*time,31536000.0
+m³*year,volume*time,31536000.0
+m3.year,volume*time,31536000.0
+m3*a,volume*time,31536000.0
+m3a,volume*time,31536000.0
+m3y,volume*time,31536000.0
+l*day,volume*time,86.4
+l.day,volume*time,86.4
+l*d,volume*time,86.4
+liter*day,volume*time,86.4
+litre*day,volume*time,86.4
+l*year,volume*time,31536.0
+l.year,volume*time,31536.0
+l*a,volume*time,31536.0
+liter*year,volume*time,31536.0
+litre*year,volume*time,31536.0
+kg*year,mass*time,31536000.0
+kg.year,mass*time,31536000.0
+kg*a,mass*time,31536000.0
+kg*day,mass*time,86400.0
+kg.day,mass*time,86400.0
+kg*d,mass*time,86400.0
+m*year,length*time,31536000.0
+m.year,length*time,31536000.0
+m*a,length*time,31536000.0
+my,length*time,31536000.0
+km*year,length*time,31536000000.0
+km.year,length*time,31536000000.0
+km*a,length*time,31536000000.0
+kmy,length*time,31536000000.0
+mile*year,length*time,50805446860.8
+mile.year,length*time,50805446860.8
+guest night,count,1.0
+teu,count,1.0
+unit/ha,count,1.0
+unit per ha,count,1.0
+unit/mj,count,1.0
+unit per mj,count,1.0
+units/m²,count,1.0
+units/m2,count,1.0
+lm/m2,count,1.0
+lm/ft2,count,1.0
+kg/s,mass/time,1.0
+kg/h,mass/time,3600.0
+kg/hour,mass/time,3600.0
+kg/year,mass/time,31536000.0
+kg/a,mass/time,31536000.0
+kg/yr,mass/time,31536000.0
+kg/m2,mass/length/length,1.0
+kg/m3,mass/length/length/length,1.0
+kg/l,mass/length/length/length,1000.0
+mj/kg,energy/area,1.0e6
+kwh/km,energy/area,3.6e6
+kwh/year,energy/area,3.6e9
+kwh/a,energy/area,3.6e9
+kg/kg,count,1.0
+kg/ha,mass/length/length,1.0e-4
+kg n/ha,mass/length/length,1.0e-4
+kg p/ha,mass/length/length,1.0e-4
+kg no3-n/ha.year,mass/length/length,1.0e-4
+kg p2o5/ha,mass/length/length,1.0e-4
+kg po4/ha,mass/length/length,1.0e-4
+kg nh3-n,mass/length/length,1.0e-4

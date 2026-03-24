@@ -1,0 +1,14 @@
+source_medium,source_sub,source_qualifier,target_medium,target_sub,target_qualifier
+emissions to water,groundwater,long-term,water,groundwater,long-term
+emissions to water,groundwater,,water,groundwater,
+emissions to water,unspecified,long-term,water,unspecified,long-term
+emissions to water,sea water,,water,ocean,
+Emissions to fresh water,,,water,surface water,
+Emissions to sea water,,,water,ocean,
+Emissions to non-agricultural soil,,,soil,industrial,
+Emissions to agricultural soil,,,soil,agricultural,
+lower stratosphere and upper troposphere,,,lower stratosphere + upper troposphere,,
+Emissions to air,,,air,,
+Emissions to water,,,water,,
+Emissions to soil,,,soil,,
+Resources,,,natural resource,,
