@@ -24,6 +24,7 @@
       "resources/7z*": "./",
       "resources/web/*": "web/",
       "resources/web/webfonts/*": "web/webfonts/",
+      "resources/data/*": "data/",
       "icons/*": "icons/"
     },
     "linux": {

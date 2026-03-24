@@ -5,7 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="$SCRIPT_DIR/target/release"
 
-mkdir -p "$TARGET_DIR/lib" "$TARGET_DIR/web"
+mkdir -p "$TARGET_DIR/lib" "$TARGET_DIR/web" "$TARGET_DIR/data"
 
 # Copy volca binary and config
 if [[ -f "$SCRIPT_DIR/resources/volca" ]]; then
@@ -23,6 +23,11 @@ fi
 # Copy web assets
 if [[ -d "$SCRIPT_DIR/resources/web" ]]; then
     cp -r "$SCRIPT_DIR/resources/web/"* "$TARGET_DIR/web/" 2>/dev/null || true
+fi
+
+# Copy reference data
+if [[ -d "$SCRIPT_DIR/resources/data" ]]; then
+    cp -r "$SCRIPT_DIR/resources/data/"* "$TARGET_DIR/data/" 2>/dev/null || true
 fi
 
 echo "Resources staged to $TARGET_DIR"

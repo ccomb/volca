@@ -9,3 +9,13 @@
 # name = "example"
 # path = "/path/to/data"
 # load = true
+
+# Reference data
+[[flow-synonyms]]
+path = "data/flows.csv"
+
+[[compartment-mappings]]
+path = "data/compartments.csv"
+
+[[units]]
+path = "data/units.csv"

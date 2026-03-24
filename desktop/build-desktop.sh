@@ -174,6 +174,17 @@ else
     log_warn "No web/dist directory found - frontend may not be built"
 fi
 
+# Copy reference data (flow synonyms, compartment mappings, units)
+if [[ -d "$PROJECT_DIR/data" ]]; then
+    mkdir -p "$RESOURCES_DIR/data"
+    cp "$PROJECT_DIR/data/flows.csv" "$RESOURCES_DIR/data/"
+    cp "$PROJECT_DIR/data/compartments.csv" "$RESOURCES_DIR/data/"
+    cp "$PROJECT_DIR/data/units.csv" "$RESOURCES_DIR/data/"
+    log_success "Copied reference data"
+else
+    log_warn "No data/ directory found - reference data will not be available"
+fi
+
 # Copy PETSc libraries
 log_info "Copying PETSc libraries..."
 
@@ -358,6 +369,10 @@ fi
 
 cp "$RESOURCES_DIR/volca.toml" "$TARGET_DIR/" 2>/dev/null || true
 cp -r "$RESOURCES_DIR/web/"* "$TARGET_DIR/web/" 2>/dev/null || true
+if [[ -d "$RESOURCES_DIR/data" ]]; then
+    mkdir -p "$TARGET_DIR/data"
+    cp -r "$RESOURCES_DIR/data/"* "$TARGET_DIR/data/"
+fi
 log_success "Resources staged to target/release"
 
 # -----------------------------------------------------------------------------
