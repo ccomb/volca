@@ -373,8 +373,12 @@ download_and_build_petsc() {
         fi
         EXTRA_ARGS="--with-cc=/ucrt64/bin/mpicc.exe --with-fc=/ucrt64/bin/mpifort.exe"
         if [[ -f "$MSMPI_BIN/mpiexec.exe" ]]; then
+            # Use 8.3 short path to avoid spaces (EXTRA_CONFIGURE_ARGS is word-split)
             local MSMPI_BIN_SHORT
-            MSMPI_BIN_SHORT=$(cd "$MSMPI_BIN" 2>/dev/null && pwd || echo "$MSMPI_BIN")
+            MSMPI_BIN_SHORT=$(cygpath -d "$MSMPI_BIN" 2>/dev/null | sed 's|\\|/|g')
+            if [[ -z "$MSMPI_BIN_SHORT" ]]; then
+                MSMPI_BIN_SHORT=$(cd "$MSMPI_BIN" 2>/dev/null && pwd || echo "$MSMPI_BIN")
+            fi
             EXTRA_ARGS="$EXTRA_ARGS --with-mpiexec=$MSMPI_BIN_SHORT/mpiexec"
         fi
         log_info "Using MSYS2 msmpi package with MS-MPI runtime"
