@@ -141,6 +141,7 @@ data StagedDatabase = StagedDatabase
     , sdSelectedDeps    :: ![Text]                        -- ^ Selected dependency database names
     , sdCrossDBLinks    :: ![CrossDBLink]                 -- ^ Cross-DB links found so far
     , sdLinkingStats    :: !CrossDBLinkingStats           -- ^ Linking statistics
+    , sdCachedDB        :: !(Maybe Database)              -- ^ Pre-built DB from cache (skip rebuild)
     }
 
 -- | Information about a missing supplier product
@@ -979,6 +980,7 @@ stageUploadedDatabase manager dbConfig = do
                     , sdSelectedDeps = dbDependsOn cachedDb
                     , sdCrossDBLinks = dbCrossDBLinks cachedDb
                     , sdLinkingStats = dbLinkingStats cachedDb
+                    , sdCachedDB = Just cachedDb
                     }
             atomically $ modifyTVar' (dmStagedDbs manager) (M.insert dbName staged)
             reportProgress Info $ "  [OK] Staged from cache: " <> T.unpack (dcDisplayName dbConfig)
@@ -1035,6 +1037,7 @@ stageUploadedDatabase manager dbConfig = do
                             , sdSelectedDeps = nub $ M.keys (Loader.crossDBBySource stats)
                             , sdCrossDBLinks = Loader.cdlLinks stats
                             , sdLinkingStats = stats
+                            , sdCachedDB = Nothing
                             }
 
                     -- Store in staged map
@@ -1402,6 +1405,7 @@ restageLoadedDatabase manager dbName ld = do
             , sdSelectedDeps = dbDependsOn db
             , sdCrossDBLinks = dbCrossDBLinks db
             , sdLinkingStats = stats
+            , sdCachedDB = Nothing
             }
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.delete dbName)
@@ -1521,23 +1525,25 @@ finalizeDatabase manager dbName = do
               else do
                 reportProgress Info $ "[STARTING] Finalizing database: " <> T.unpack dbName
 
-                -- Build the database with matrices
-                unitConfig <- getMergedUnitConfig manager
-                !db <- buildDatabaseWithMatrices unitConfig
-                    (sdbActivities (sdSimpleDB staged))
-                    (sdbFlows (sdSimpleDB staged))
-                    (sdbUnits (sdSimpleDB staged))
-
-                -- Add cross-DB links, dependency info, and linking stats
-                let dbWithLinks = db
-                        { dbCrossDBLinks = sdCrossDBLinks staged
-                        , dbDependsOn = sdSelectedDeps staged
-                        , dbLinkingStats = sdLinkingStats staged
-                        }
-
-                -- Initialize runtime fields
                 synonymDB <- getMergedSynonymDB manager
-                let dbWithRuntime = initializeRuntimeFields dbWithLinks synonymDB
+
+                -- Use pre-built database from cache, or build matrices from scratch
+                (dbWithRuntime, fromCache) <- case sdCachedDB staged of
+                    Just cachedDb -> do
+                        let db = initializeRuntimeFields cachedDb synonymDB
+                        return (db, True)
+                    Nothing -> do
+                        unitConfig <- getMergedUnitConfig manager
+                        !db <- buildDatabaseWithMatrices unitConfig
+                            (sdbActivities (sdSimpleDB staged))
+                            (sdbFlows (sdSimpleDB staged))
+                            (sdbUnits (sdSimpleDB staged))
+                        let dbWithLinks = db
+                                { dbCrossDBLinks = sdCrossDBLinks staged
+                                , dbDependsOn = sdSelectedDeps staged
+                                , dbLinkingStats = sdLinkingStats staged
+                                }
+                        return (initializeRuntimeFields dbWithLinks synonymDB, False)
 
                 -- Create shared solver with lazy factorization (deferred to first query)
                 let techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples dbWithRuntime)]
@@ -1557,8 +1563,9 @@ finalizeDatabase manager dbName = do
                     modifyTVar' (dmLoadedDbs manager) (M.insert dbName loaded)
                     modifyTVar' (dmIndexedDbs manager) (M.insert dbName indexedDb)
 
-                -- Save to cache
-                Loader.saveCachedDatabaseWithMatrices dbName (dcPath (sdConfig staged)) dbWithRuntime
+                -- Only save to cache when matrices were built fresh
+                when (not fromCache) $
+                    Loader.saveCachedDatabaseWithMatrices dbName (dcPath (sdConfig staged)) dbWithRuntime
 
                 reportProgress Info $ "  [OK] Finalized: " <> T.unpack dbName
                 return $ Right loaded
