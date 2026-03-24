@@ -156,6 +156,24 @@ class Client:
         r.raise_for_status()
         return SupplyChain.from_json(r.json())
 
+    # -- Consumers (reverse supply chain) --
+
+    def get_consumers(
+        self,
+        process_id: str,
+        name: str | None = None,
+        limit: int | None = None,
+    ) -> list[Activity]:
+        """Find all activities that transitively depend on this supplier."""
+        params: dict = {}
+        if name:
+            params["name"] = name
+        if limit is not None:
+            params["limit"] = limit
+        r = self._session.get(self._db_url(f"activity/{process_id}/consumers"), params=params)
+        r.raise_for_status()
+        return [Activity.from_json(a) for a in r.json()]
+
     # -- Tree --
 
     def get_tree(self, process_id: str) -> dict:

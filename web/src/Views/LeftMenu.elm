@@ -78,6 +78,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                         , menuItem currentPage (ActivityActive Emissions) "fas fa-cloud" "Direct emissions" False
                         , menuItem currentPage (ActivityActive Resources) "fas fa-leaf" "Natural resources" False
                         , menuItem currentPage (ActivityActive Products) "fas fa-box" "Outgoing products" False
+                        , menuItem currentPage (ActivityActive Consumers) "fas fa-arrow-down" "Consumers" False
                         , menuItem currentPage (ActivityActive Inventory) "fas fa-list-ul" "Inventory" False
                         , menuItem currentPage (ActivityActive Composition) "fas fa-cubes" "Composition" False
                         , menuLabel "Lab"

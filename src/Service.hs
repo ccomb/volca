@@ -1123,7 +1123,51 @@ findTechCoefficient db consumer supplier =
        then Nothing
        else let SparseTriple _ _ val = U.head matching in Just val
 
--- | Get available synonym languages (placeholder)
+-- | Find all activities that transitively depend on a given supplier.
+-- BFS through the technosphere matrix: supplier row → direct consumers → their consumers → ...
+getConsumers :: Database -> Text -> Maybe Text -> Maybe Int
+             -> Either ServiceError [ActivitySummary]
+getConsumers db processIdText nameFilter limitParam = do
+    (processId, _) <- resolveActivityAndProcessId db processIdText
+    let -- Build adjacency list: supplier → [direct consumers]
+        adj = M.fromListWith (++)
+            [ (fromIntegral row :: ProcessId, [fromIntegral col :: ProcessId])
+            | SparseTriple row col _ <- U.toList (dbTechnosphereTriples db)
+            , row /= col  -- skip self-loops
+            ]
+
+        -- BFS from processId
+        bfs visited [] = visited
+        bfs visited frontier =
+            let next = [ c | pid <- frontier
+                           , c <- M.findWithDefault [] pid adj
+                           , not (S.member c visited)
+                       ]
+                visited' = L.foldl' (flip S.insert) visited next
+            in bfs visited' next
+
+        allConsumers = S.delete processId $ bfs (S.singleton processId) [processId]
+
+        nameMatches activity = case nameFilter of
+            Nothing -> True
+            Just pat -> T.toCaseFold pat `T.isInfixOf` T.toCaseFold (activityName activity)
+
+        limit = maybe 1000 id limitParam
+
+        results =
+            [ ActivitySummary
+                (processIdToText db pid)
+                (activityName activity)
+                (activityLocation activity)
+                prodName prodAmount prodUnit
+            | pid <- S.toList allConsumers
+            , let activity = dbActivities db V.! fromIntegral pid
+            , nameMatches activity
+            , let (prodName, prodAmount, prodUnit) = getReferenceProductInfo (dbFlows db) (dbUnits db) activity
+            ]
+
+    Right $ take limit results
+
 -- | Compute LCIA scores (placeholder)
 computeLCIA :: Database -> Text -> FilePath -> Either ServiceError Value
 computeLCIA db queryText methodFile = do

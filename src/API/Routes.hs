@@ -63,6 +63,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia-batch" :> Capture "collection" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIABatchResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] InventoryExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] SupplyChainResponse
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "limit" Int :> Get '[JSON] [ActivitySummary]
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "analyze" :> Capture "analyzerName" Text :> Get '[JSON] Value
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> Get '[JSON] [ActivitySummary]
@@ -185,6 +186,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
         :<|> postActivityLCIABatch
         :<|> postActivityInventory
         :<|> postActivitySupplyChain
+        :<|> getActivityConsumers
         :<|> getActivityAnalyze
         :<|> getFlowDetail
         :<|> getFlowActivities
@@ -536,6 +538,16 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
             Right scalingVec -> do
                 let result = Service.buildSupplyChainFromScalingVector db processId scalingVec nameFilter limitParam minQuantityParam
                 return result
+
+    -- Activity consumers endpoint (reverse supply chain)
+    getActivityConsumers :: Text -> Text -> Maybe Text -> Maybe Int -> Handler [ActivitySummary]
+    getActivityConsumers dbName processIdText nameFilter limitParam = do
+        (db, _) <- requireDatabaseByName dbManager dbName
+        case Service.getConsumers db processIdText nameFilter limitParam of
+            Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
+            Left (Service.InvalidProcessId msg) -> throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
+            Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
+            Right consumers -> return consumers
 
     -- Helpers for POST endpoints with substitutions
     resolveOrThrow :: Database -> Text -> Handler (ProcessId, Activity)

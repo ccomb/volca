@@ -1,7 +1,8 @@
-module Api exposing (computeLCIABatch, loadActivityInfo, loadActivityTree, loadFlowMapping, loadMethodCollections, loadMethodMapping, loadSupplyChain)
+module Api exposing (computeLCIABatch, loadActivityInfo, loadActivityTree, loadConsumers, loadFlowMapping, loadMethodCollections, loadMethodMapping, loadSupplyChain)
 
 import Http
-import Models.Activity exposing (ActivityInfo, ActivityTree, activityInfoDecoder, activityTreeDecoder)
+import Json.Decode as Decode
+import Models.Activity exposing (ActivityInfo, ActivitySummary, ActivityTree, activityInfoDecoder, activitySummaryDecoder, activityTreeDecoder)
 import Models.LCIA exposing (FlowCFMapping, LCIABatchResult, MappingStatus, flowCFMappingDecoder, lciaBatchResultDecoder, mappingStatusDecoder)
 import Models.Method exposing (MethodCollectionList, methodCollectionListDecoder)
 import Models.SupplyChain exposing (SupplyChainResponse, supplyChainResponseDecoder)
@@ -60,4 +61,21 @@ loadSupplyChain toMsg dbName activityId =
     Http.get
         { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ activityId ++ "/supply-chain?limit=1000"
         , expect = Http.expectJson toMsg supplyChainResponseDecoder
+        }
+
+
+loadConsumers : (Result Http.Error (List ActivitySummary) -> msg) -> String -> String -> Maybe String -> Cmd msg
+loadConsumers toMsg dbName activityId nameFilter =
+    let
+        nameParam =
+            case nameFilter of
+                Just n ->
+                    "&name=" ++ n
+
+                Nothing ->
+                    ""
+    in
+    Http.get
+        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ activityId ++ "/consumers?limit=200" ++ nameParam
+        , expect = Http.expectJson toMsg (Decode.list activitySummaryDecoder)
         }
