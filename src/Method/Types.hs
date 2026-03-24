@@ -90,11 +90,11 @@ data DamageCategory = DamageCategory
     } deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
 -- | Normalization and weighting factor set.
--- Normalization converts raw scores to person-equivalents.
+-- Normalization: score is divided by the reference-per-person value to get person-equivalents.
 -- Weighting assigns relative importance for single-score aggregation.
 data NormWeightSet = NormWeightSet
     { nwName          :: !Text                -- ^ Set name
-    , nwNormalization :: !(M.Map Text Double)  -- ^ Damage category → normalization factor
+    , nwNormalization :: !(M.Map Text Double)  -- ^ Damage category → reference per person value (divisor)
     , nwWeighting     :: !(M.Map Text Double)  -- ^ Damage category → weight
     } deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 

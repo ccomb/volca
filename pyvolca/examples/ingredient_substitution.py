@@ -101,22 +101,14 @@ def main():
         consumer_id = consumer_edges[0].to_id
         print(f"  Consumer: {consumer_id}")
 
-        # Create variant via Sherman-Morrison rank-1 update
-        variant = c.create_variant(
-            flour.process_id,
-            [{"from": from_activity.process_id, "to": to_activity.process_id, "consumer": consumer_id}],
-        )
+        # Compute supply chain with substitution (Sherman-Morrison rank-1 update)
+        subs = [{"from": from_activity.process_id, "to": to_activity.process_id, "consumer": consumer_id}]
+        variant_chain = c.get_supply_chain(flour.process_id, substitutions=subs, limit=100)
 
-        print(f"\n  Variant created: {len(variant.substitutions)} substitution(s)")
-        print(f"  Modified supply chain: {variant.total_activities} activities")
-
-        for sub in variant.substitutions:
-            print(f"    {sub.from_id} → {sub.to_id} (coeff: {sub.coefficient:.6f})")
-
-        if variant.supply_chain:
-            print(f"\n  Top 10 supply chain entries (variant):")
-            for entry in variant.supply_chain[:10]:
-                print(f"    {entry.quantity:.6f} {entry.unit} of {entry.name} ({entry.location})")
+        print(f"\n  Substituted supply chain: {variant_chain.total_activities} activities")
+        print(f"  Top 10 entries:")
+        for entry in variant_chain.entries[:10]:
+            print(f"    {entry.quantity:.6f} {entry.unit} of {entry.name} ({entry.location})")
 
 
 if __name__ == "__main__":

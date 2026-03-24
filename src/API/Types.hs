@@ -415,9 +415,10 @@ data SupplyChainEdge = SupplyChainEdge
     }
     deriving (Generic)
 
--- | Variant request — substitute suppliers in the technosphere matrix
-data VariantRequest = VariantRequest
-    { vrSubstitutions :: [Substitution]
+-- | Request body for POST endpoints that accept substitutions.
+-- Substitutions modify the scaling vector via Sherman-Morrison rank-1 updates.
+data SubstitutionRequest = SubstitutionRequest
+    { srSubstitutions :: [Substitution]
     }
     deriving (Generic)
 
@@ -426,24 +427,6 @@ data Substitution = Substitution
     { subFrom     :: Text  -- Original supplier ProcessId
     , subTo       :: Text  -- Replacement supplier ProcessId
     , subConsumer :: Text  -- Activity that consumes the original supplier
-    }
-    deriving (Generic)
-
--- | Variant response — modified scaling vector and optional inventory
-data VariantResponse = VariantResponse
-    { varOriginalProcessId :: Text
-    , varSubstitutions :: [SubstitutionResult]
-    , varSupplyChain :: [SupplyChainEntry]  -- Variant supply chain (top entries)
-    , varTotalActivities :: Int
-    }
-    deriving (Generic)
-
--- | Result of a single substitution
-data SubstitutionResult = SubstitutionResult
-    { sbrFrom        :: Text
-    , sbrTo          :: Text
-    , sbrConsumer    :: Text
-    , sbrCoefficient :: Double  -- Exchange amount that was swapped
     }
     deriving (Generic)
 
@@ -585,9 +568,7 @@ instance ToJSON FlowCFEntry
 instance ToJSON SupplyChainResponse
 instance ToJSON SupplyChainEntry
 instance ToJSON SupplyChainEdge
-instance ToJSON VariantResponse
-instance ToJSON SubstitutionResult
-instance FromJSON VariantRequest
+instance FromJSON SubstitutionRequest
 instance FromJSON Substitution
 
 -- FromJSON instances needed for API conversion

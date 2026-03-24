@@ -81,30 +81,3 @@ class SupplyChain:
         )
 
 
-@dataclass
-class SubstitutionResult:
-    from_id: str
-    to_id: str
-    consumer_id: str
-    coefficient: float
-
-    @classmethod
-    def from_json(cls, d: dict) -> "SubstitutionResult":
-        return cls(from_id=d["sbrFrom"], to_id=d["sbrTo"], consumer_id=d["sbrConsumer"], coefficient=d["sbrCoefficient"])
-
-
-@dataclass
-class Variant:
-    original_process_id: str
-    substitutions: list[SubstitutionResult]
-    supply_chain: list[SupplyChainEntry]
-    total_activities: int
-
-    @classmethod
-    def from_json(cls, d: dict) -> "Variant":
-        return cls(
-            original_process_id=d["varOriginalProcessId"],
-            substitutions=[SubstitutionResult.from_json(s) for s in d["varSubstitutions"]],
-            supply_chain=[SupplyChainEntry.from_json(e) for e in d["varSupplyChain"]],
-            total_activities=d["varTotalActivities"],
-        )

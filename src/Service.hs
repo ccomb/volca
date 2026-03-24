@@ -11,7 +11,7 @@ import SharedSolver (SharedSolver, solveWithSharedSolver)
 import Database (findActivitiesByFields, findFlowsBySynonym)
 import Tree (buildLoopAwareTree)
 import Types
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ClassificationSystem(..), EdgeType (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), NodeType (..), SearchResults (..), Substitution (..), SubstitutionResult (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), VariantRequest (..), VariantResponse (..))
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ClassificationSystem(..), EdgeType (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), NodeType (..), SearchResults (..), Substitution (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
 import UnitConversion (UnitConfig, defaultUnitConfig, unitsCompatible)
 import Data.Aeson (Value, toJSON)
 import Plugin.Types (ValidateHandle(..), ValidateContext(..), ValidationPhase(..), ValidationIssue(..), Severity(..))
@@ -980,83 +980,86 @@ getSupplyChain :: Database -> SharedSolver -> Text -> Maybe Text -> Maybe Int ->
 getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityParam = do
     case resolveActivityAndProcessId db processIdText of
         Left err -> return $ Left err
-        Right (processId, rootActivity) -> do
+        Right (processId, _rootActivity) -> do
             case validateProcessIdInMatrixIndex db processId of
                 Left err -> return $ Left err
                 Right () -> do
-                    -- Solve (I-A)x = d for scaling vector
                     let activityIndex = dbActivityIndex db
                         demandVec = buildDemandVectorFromIndex activityIndex processId
                     supplyVec <- solveWithSharedSolver sharedSolver demandVec
-                    let supplyList = toList supplyVec
+                    return $ Right $ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam
 
-                    -- Collect all non-zero entries
-                    let minQ = maybe 0 id minQuantityParam
-                        limit = maybe 100 id limitParam
-                        allEntries =
-                            [ (fromIntegral idx :: ProcessId, val)
-                            | (idx, val) <- zip [(0 :: Int)..] supplyList
-                            , abs val > minQ
-                            , fromIntegral idx /= (processId :: ProcessId)  -- exclude root
-                            ]
+-- | Pure function: build a SupplyChainResponse from a scaling vector.
+-- Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
+buildSupplyChainFromScalingVector
+    :: Database -> ProcessId -> U.Vector Double
+    -> Maybe Text -> Maybe Int -> Maybe Double
+    -> SupplyChainResponse
+buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam =
+    let supplyList = toList supplyVec
+        minQ = maybe 0 id minQuantityParam
+        limit = maybe 100 id limitParam
+        rootActivity = dbActivities db V.! fromIntegral processId
 
-                    -- Filter by name (case-insensitive substring)
-                    let nameMatches activity = case nameFilter of
-                            Nothing -> True
-                            Just pat -> T.toCaseFold pat `T.isInfixOf` T.toCaseFold (activityName activity)
+        allEntries =
+            [ (fromIntegral idx :: ProcessId, val)
+            | (idx, val) <- zip [(0 :: Int)..] supplyList
+            , abs val > minQ
+            , fromIntegral idx /= (processId :: ProcessId)
+            ]
 
-                        filtered =
-                            [ (pid, val, activity)
-                            | (pid, val) <- allEntries
-                            , let activity = dbActivities db V.! fromIntegral pid
-                            , nameMatches activity
-                            ]
+        nameMatches activity = case nameFilter of
+            Nothing -> True
+            Just pat -> T.toCaseFold pat `T.isInfixOf` T.toCaseFold (activityName activity)
 
-                    -- Sort by quantity descending, apply limit
-                    let sorted = take limit $ L.sortBy (\(_, a, _) (_, b, _) -> compare (abs b) (abs a)) filtered
+        filtered =
+            [ (pid, val, activity)
+            | (pid, val) <- allEntries
+            , let activity = dbActivities db V.! fromIntegral pid
+            , nameMatches activity
+            ]
 
-                    -- Extract edges: filter technosphere triples to full upstream subgraph
-                    -- (all non-zero entries, not just filtered ones, so paths can be reconstructed)
-                    let allIndices = S.fromList (processId : map fst allEntries)
-                        edges = [ SupplyChainEdge
-                                    (processIdToText db (fromIntegral row))
-                                    (processIdToText db (fromIntegral col))
-                                    val
-                                | SparseTriple row col val <- U.toList (dbTechnosphereTriples db)
-                                , S.member (fromIntegral row) allIndices
-                                , S.member (fromIntegral col) allIndices
-                                ]
+        sorted = take limit $ L.sortBy (\(_, a, _) (_, b, _) -> compare (abs b) (abs a)) filtered
 
-                    -- Build response entries
-                    let mkEntry (pid, scalingFactor, activity) =
-                            let refAmount = getReferenceProductAmount activity
-                            in SupplyChainEntry
-                                { sceProcessId = processIdToText db pid
-                                , sceName = activityName activity
-                                , sceLocation = activityLocation activity
-                                , sceQuantity = scalingFactor * refAmount
-                                , sceUnit = activityUnit activity
-                                , sceScalingFactor = scalingFactor
-                                , sceClassifications = activityClassification activity
-                                }
+        allIndices = S.fromList (processId : map fst allEntries)
+        edges = [ SupplyChainEdge
+                    (processIdToText db (fromIntegral row))
+                    (processIdToText db (fromIntegral col))
+                    val
+                | SparseTriple row col val <- U.toList (dbTechnosphereTriples db)
+                , S.member (fromIntegral row) allIndices
+                , S.member (fromIntegral col) allIndices
+                ]
 
-                        rootSummary = ActivitySummary
-                            { prsId = processIdToText db processId
-                            , prsName = activityName rootActivity
-                            , prsLocation = activityLocation rootActivity
-                            , prsProduct = maybe (activityName rootActivity) id
-                                (getReferenceProductName (dbFlows db) rootActivity)
-                            , prsProductAmount = getReferenceProductAmount rootActivity
-                            , prsProductUnit = activityUnit rootActivity
-                            }
+        mkEntry (pid, scalingFactor, activity) =
+            let refAmount = getReferenceProductAmount activity
+            in SupplyChainEntry
+                { sceProcessId = processIdToText db pid
+                , sceName = activityName activity
+                , sceLocation = activityLocation activity
+                , sceQuantity = scalingFactor * refAmount
+                , sceUnit = activityUnit activity
+                , sceScalingFactor = scalingFactor
+                , sceClassifications = activityClassification activity
+                }
 
-                    return $ Right SupplyChainResponse
-                        { scrRoot = rootSummary
-                        , scrTotalActivities = length allEntries
-                        , scrFilteredActivities = length filtered
-                        , scrSupplyChain = map mkEntry sorted
-                        , scrEdges = edges
-                        }
+        rootSummary = ActivitySummary
+            { prsId = processIdToText db processId
+            , prsName = activityName rootActivity
+            , prsLocation = activityLocation rootActivity
+            , prsProduct = maybe (activityName rootActivity) id
+                (getReferenceProductName (dbFlows db) rootActivity)
+            , prsProductAmount = getReferenceProductAmount rootActivity
+            , prsProductUnit = activityUnit rootActivity
+            }
+
+    in SupplyChainResponse
+        { scrRoot = rootSummary
+        , scrTotalActivities = length allEntries
+        , scrFilteredActivities = length filtered
+        , scrSupplyChain = map mkEntry sorted
+        , scrEdges = edges
+        }
 
 -- | Get reference product amount for an activity (defaults to 1.0)
 getReferenceProductAmount :: Activity -> Double
@@ -1065,105 +1068,46 @@ getReferenceProductAmount activity =
         (amt:_) -> amt
         [] -> 1.0
 
--- | Create a variant by applying Sherman-Morrison rank-1 updates.
--- Each substitution swaps one supplier for another in the technosphere matrix.
-createVariant :: Database -> SharedSolver -> Text -> VariantRequest
-              -> IO (Either ServiceError VariantResponse)
-createVariant db sharedSolver processIdText varReq = do
-    case resolveActivityAndProcessId db processIdText of
-        Left err -> return $ Left err
-        Right (processId, _rootActivity) -> do
-            case validateProcessIdInMatrixIndex db processId of
-                Left err -> return $ Left err
-                Right () -> do
-                    -- Get original scaling vector
-                    let activityIndex = dbActivityIndex db
-                        demandVec = buildDemandVectorFromIndex activityIndex processId
-                    originalX <- solveWithSharedSolver sharedSolver demandVec
-
-                    -- Apply substitutions sequentially (Sherman-Morrison-Woodbury)
-                    let applySubstitution x sub = do
-                            case ( resolveActivityAndProcessId db (subFrom sub)
-                                 , resolveActivityAndProcessId db (subTo sub)
-                                 , resolveActivityAndProcessId db (subConsumer sub)
-                                 ) of
-                                (Left err, _, _) -> return $ Left err
-                                (_, Left err, _) -> return $ Left err
-                                (_, _, Left err) -> return $ Left err
-                                (Right (oldPid, _), Right (newPid, _), Right (consumerPid, _)) -> do
-                                    let coeff = findTechCoefficient db consumerPid oldPid
-                                    case coeff of
-                                        Nothing -> return $ Left $ MatrixError $
-                                            "No technosphere link from " <> processIdToText db consumerPid
-                                            <> " to supplier " <> subFrom sub
-                                        Just a -> do
-                                            smResult <- shermanMorrisonVariant db x
-                                                (fromIntegral consumerPid)
-                                                (fromIntegral oldPid)
-                                                (fromIntegral newPid) a
-                                            return $ case smResult of
-                                                Left msg -> Left $ MatrixError msg
-                                                Right x' -> Right x'
-
-                    -- Fold substitutions
-                    let subs = vrSubstitutions varReq
-                    result <- foldSubstitutions originalX subs applySubstitution
-
-                    case result of
-                        Left err -> return $ Left err
-                        Right variantX -> do
-                            -- Build response with variant supply chain
-                            let supplyList = toList variantX
-                                entries =
-                                    [ (fromIntegral idx :: ProcessId, val)
-                                    | (idx, val) <- zip [(0 :: Int)..] supplyList
-                                    , abs val > 1e-12
-                                    , fromIntegral idx /= (processId :: ProcessId)
-                                    ]
-                                -- Sort by absolute value descending, take top 100
-                                sorted = take 100 $ L.sortBy (\(_, a) (_, b) -> compare (abs b) (abs a)) entries
-
-                                mkEntry (pid, scalingFactor) =
-                                    let activity = dbActivities db V.! fromIntegral pid
-                                        refAmount = getReferenceProductAmount activity
-                                    in SupplyChainEntry
-                                        { sceProcessId = processIdToText db pid
-                                        , sceName = activityName activity
-                                        , sceLocation = activityLocation activity
-                                        , sceQuantity = scalingFactor * refAmount
-                                        , sceUnit = activityUnit activity
-                                        , sceScalingFactor = scalingFactor
-                                        , sceClassifications = activityClassification activity
-                                        }
-
-                                subResults = [ SubstitutionResult
-                                    { sbrFrom = subFrom s
-                                    , sbrTo = subTo s
-                                    , sbrConsumer = subConsumer s
-                                    , sbrCoefficient = maybe 0 id $
-                                        case ( resolveActivityAndProcessId db (subFrom s)
-                                             , resolveActivityAndProcessId db (subConsumer s)
-                                             ) of
-                                            (Right (oldPid, _), Right (consPid, _)) ->
-                                                findTechCoefficient db consPid oldPid
-                                            _ -> Nothing
-                                    } | s <- subs ]
-
-                            return $ Right VariantResponse
-                                { varOriginalProcessId = processIdToText db processId
-                                , varSubstitutions = subResults
-                                , varSupplyChain = map mkEntry sorted
-                                , varTotalActivities = length entries
-                                }
+-- | Compute a scaling vector with optional Sherman-Morrison substitutions.
+-- Returns the (possibly modified) scaling vector. When substitutions is empty,
+-- this is the same as a plain solve.
+computeScalingVectorWithSubstitutions
+    :: Database -> SharedSolver -> ProcessId -> [Substitution]
+    -> IO (Either ServiceError (U.Vector Double))
+computeScalingVectorWithSubstitutions db sharedSolver processId subs = do
+    let activityIndex = dbActivityIndex db
+        demandVec = buildDemandVectorFromIndex activityIndex processId
+    originalX <- solveWithSharedSolver sharedSolver demandVec
+    case subs of
+        [] -> return $ Right originalX
+        _  -> foldSubstitutions originalX subs applySubstitution
   where
-    foldSubstitutions :: U.Vector Double -> [Substitution]
-                      -> (U.Vector Double -> Substitution -> IO (Either ServiceError (U.Vector Double)))
-                      -> IO (Either ServiceError (U.Vector Double))
+    applySubstitution x sub =
+        case ( resolveActivityAndProcessId db (subFrom sub)
+             , resolveActivityAndProcessId db (subTo sub)
+             , resolveActivityAndProcessId db (subConsumer sub)
+             ) of
+            (Left err, _, _) -> return $ Left err
+            (_, Left err, _) -> return $ Left err
+            (_, _, Left err) -> return $ Left err
+            (Right (oldPid, _), Right (newPid, _), Right (consumerPid, _)) ->
+                case findTechCoefficient db consumerPid oldPid of
+                    Nothing -> return $ Left $ MatrixError $
+                        "No technosphere link from " <> processIdToText db consumerPid
+                        <> " to supplier " <> subFrom sub
+                    Just a -> do
+                        smResult <- shermanMorrisonVariant db x
+                            (fromIntegral consumerPid)
+                            (fromIntegral oldPid)
+                            (fromIntegral newPid) a
+                        return $ case smResult of
+                            Left msg -> Left $ MatrixError msg
+                            Right x' -> Right x'
+
     foldSubstitutions x [] _ = return $ Right x
     foldSubstitutions x (s:ss) f = do
         result <- f x s
         case result of
-            Left (MatrixError msg) -> return $ Left $ MatrixError msg
             Left err -> return $ Left err
             Right x' -> foldSubstitutions x' ss f
 

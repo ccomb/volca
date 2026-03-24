@@ -180,12 +180,12 @@ def main():
         ]
 
         try:
-            variant = client.create_variant(product.process_id, substitutions)
-            print(f"  Variant: {variant.total_activities} activities")
-            for sub in variant.substitutions:
-                print(f"    coeff: {sub.coefficient:.6f}")
+            variant_chain = client.get_supply_chain(
+                product.process_id, substitutions=substitutions, limit=10
+            )
+            print(f"  Substituted supply chain: {variant_chain.total_activities} activities")
         except Exception as e:
-            print(f"  Variant failed: {e}")
+            print(f"  Substitution failed: {e}")
 
 
 if __name__ == "__main__":

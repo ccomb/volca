@@ -2,7 +2,17 @@
 
 import requests
 
-from .types import Activity, SupplyChain, Variant
+from .types import Activity, SupplyChain
+
+
+def _substitution_body(substitutions: list[dict]) -> dict:
+    """Build request body for substitution endpoints."""
+    return {
+        "srSubstitutions": [
+            {"subFrom": s["from"], "subTo": s["to"], "subConsumer": s["consumer"]}
+            for s in substitutions
+        ]
+    }
 
 
 class Client:
@@ -13,6 +23,12 @@ class Client:
         c = Client(db="agribalyse-3.2", password="1234")
         plants = c.search_activities(name="at plant")
         chain = c.get_supply_chain(plants[0].process_id, name="at farm")
+
+    Substitutions can be passed to get_supply_chain, get_inventory, get_lcia,
+    and get_lcia_batch to compute results with Sherman-Morrison rank-1 updates::
+
+        subs = [{"from": old_pid, "to": new_pid, "consumer": consumer_pid}]
+        result = c.get_lcia(pid, method_id, substitutions=subs)
     """
 
     def __init__(self, base_url: str = "http://localhost:8081", db: str = "", password: str = ""):
@@ -123,6 +139,7 @@ class Client:
         name: str | None = None,
         limit: int | None = None,
         min_quantity: float = 0,
+        substitutions: list[dict] | None = None,
     ) -> SupplyChain:
         params: dict = {}
         if limit is not None:
@@ -131,41 +148,13 @@ class Client:
             params["name"] = name
         if min_quantity > 0:
             params["min-quantity"] = min_quantity
-        r = self._session.get(
-            self._db_url(f"activity/{process_id}/supply-chain"),
-            params=params,
-        )
+        url = self._db_url(f"activity/{process_id}/supply-chain")
+        if substitutions:
+            r = self._session.post(url, params=params, json=_substitution_body(substitutions))
+        else:
+            r = self._session.get(url, params=params)
         r.raise_for_status()
         return SupplyChain.from_json(r.json())
-
-    # -- Variants (Sherman-Morrison substitution) --
-
-    def create_variant(
-        self,
-        process_id: str,
-        substitutions: list[dict],
-    ) -> Variant:
-        """Create a variant by substituting suppliers.
-
-        Args:
-            process_id: Base activity ProcessId
-            substitutions: List of {"from": old_pid, "to": new_pid, "consumer": consumer_pid}
-
-        Returns:
-            Variant with modified supply chain
-        """
-        body = {
-            "vrSubstitutions": [
-                {"subFrom": s["from"], "subTo": s["to"], "subConsumer": s["consumer"]}
-                for s in substitutions
-            ]
-        }
-        r = self._session.post(
-            self._db_url(f"activity/{process_id}/variant"),
-            json=body,
-        )
-        r.raise_for_status()
-        return Variant.from_json(r.json())
 
     # -- Tree --
 
@@ -176,19 +165,29 @@ class Client:
 
     # -- Inventory & LCIA --
 
-    def get_inventory(self, process_id: str) -> dict:
-        r = self._session.get(self._db_url(f"activity/{process_id}/inventory"))
+    def get_inventory(self, process_id: str, substitutions: list[dict] | None = None) -> dict:
+        url = self._db_url(f"activity/{process_id}/inventory")
+        if substitutions:
+            r = self._session.post(url, json=_substitution_body(substitutions))
+        else:
+            r = self._session.get(url)
         r.raise_for_status()
         return r.json()
 
-    def get_lcia(self, process_id: str, method_id: str) -> dict:
-        r = self._session.get(self._db_url(f"activity/{process_id}/lcia/{method_id}"))
+    def get_lcia(self, process_id: str, method_id: str, substitutions: list[dict] | None = None) -> dict:
+        url = self._db_url(f"activity/{process_id}/lcia/{method_id}")
+        if substitutions:
+            r = self._session.post(url, json=_substitution_body(substitutions))
+        else:
+            r = self._session.get(url)
         r.raise_for_status()
         return r.json()
 
-    def get_lcia_batch(self, process_id: str, collection: str) -> list[dict]:
-        r = self._session.get(
-            self._db_url(f"activity/{process_id}/lcia-batch/{collection}")
-        )
+    def get_lcia_batch(self, process_id: str, collection: str, substitutions: list[dict] | None = None) -> dict:
+        url = self._db_url(f"activity/{process_id}/lcia-batch/{collection}")
+        if substitutions:
+            r = self._session.post(url, json=_substitution_body(substitutions))
+        else:
+            r = self._session.get(url)
         r.raise_for_status()
         return r.json()
