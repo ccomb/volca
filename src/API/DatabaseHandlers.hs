@@ -259,11 +259,13 @@ formatToText UnknownFormat = "unknown"
 -- Returns completeness, missing suppliers, and dependency suggestions
 getDatabaseSetupHandler :: DatabaseManager -> Text -> Handler DatabaseSetupInfo
 getDatabaseSetupHandler dbManager dbName = do
-    result <- liftIO $ getDatabaseSetupInfo dbManager dbName
-    case result of
-        Left (SetupNotFound msg) -> throwError $ err404 { errBody = BSL.fromStrict $ T.encodeUtf8 msg }
-        Left (SetupFailed msg)   -> throwError $ err500 { errBody = BSL.fromStrict $ T.encodeUtf8 msg }
-        Right setupInfo -> return setupInfo
+    eitherResult <- liftIO $ try $ getDatabaseSetupInfo dbManager dbName
+    case eitherResult of
+        Left (ex :: SomeException) ->
+            throwError $ err500 { errBody = BSL.fromStrict $ T.encodeUtf8 $ "Setup failed: " <> T.pack (show ex) }
+        Right (Left (SetupNotFound msg)) -> throwError $ err404 { errBody = BSL.fromStrict $ T.encodeUtf8 msg }
+        Right (Left (SetupFailed msg))   -> throwError $ err500 { errBody = BSL.fromStrict $ T.encodeUtf8 msg }
+        Right (Right setupInfo) -> return setupInfo
 
 -- | Add a dependency to a staged database
 -- Runs cross-DB linking and returns updated setup info

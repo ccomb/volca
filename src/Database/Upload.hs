@@ -419,13 +419,17 @@ findAllDataDirectories :: FilePath -> IO [FilePath]
 findAllDataDirectories root = go root
   where
     go dir = do
-        hasData <- anyDataFilesIn dir
-        entries <- listDirectory dir
-        subdirs <- filterM doesDirectoryExist (map (dir </>) entries)
-        childResults <- concat <$> mapM go subdirs
-        if hasData
-            then return (dir : childResults)
-            else return childResults
+        result <- try @SomeException $ do
+            hasData <- anyDataFilesIn dir
+            entries <- listDirectory dir
+            subdirs <- filterM doesDirectoryExist (map (dir </>) entries)
+            childResults <- concat <$> mapM go subdirs
+            if hasData
+                then return (dir : childResults)
+                else return childResults
+        case result of
+            Right paths -> return paths
+            Left _      -> return []  -- skip inaccessible directories
 
 -- | Count files with data extensions (.spold, .xml, .csv) in a single directory (non-recursive).
 countDataFilesIn :: FilePath -> IO Int

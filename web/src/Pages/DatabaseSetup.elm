@@ -128,7 +128,11 @@ update shared msg model =
             )
 
         NewFlags flags ->
-            init shared flags
+            if flags == model.dbName then
+                ( model, Effect.none )
+
+            else
+                init shared flags
 
 
 view : Shared.Model -> Model -> View Msg
