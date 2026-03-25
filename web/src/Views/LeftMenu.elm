@@ -100,6 +100,8 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                             , menuItem currentPage (ActivityActive LCIA) "fas fa-chart-bar" "Impacts" True
                             , menuItem currentPage (ActivityActive Tree) "fas fa-project-diagram" "Tree" True
                             , menuItem currentPage (ActivityActive Graph) "fas fa-network-wired" "Graph" True
+                            , menuItem currentPage (ActivityActive SupplyChainGraph) "fas fa-sitemap" "Supply Chain Graph" True
+                            , menuItem currentPage (ActivityActive SupplyChainGraphDagre) "fas fa-project-diagram" "SC Dagre" True
                             , menuItem currentPage (ActivityActive Consumers) "fas fa-arrow-down" "Consumers" True
                             , menuItem currentPage CompositionActive "fas fa-cubes" "Composition" True
                             ]
@@ -189,7 +191,7 @@ isLabTab : ActivePage -> Bool
 isLabTab page =
     case page of
         ActivityActive tab ->
-            List.member tab [ LCIA, Tree, Graph, Consumers ]
+            List.member tab [ LCIA, Tree, Graph, SupplyChainGraph, SupplyChainGraphDagre, Consumers ]
 
         CompositionActive ->
             True

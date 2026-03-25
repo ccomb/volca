@@ -37,6 +37,8 @@ module Route exposing
     , CompositionFlags
     , matchComposition
     , matchConsumers
+    , matchSupplyChainGraph
+    , matchSupplyChainGraphDagre
     , matchHome
     , routeToDatabase
     , ActivePage(..)
@@ -58,6 +60,8 @@ type ActivityTab
     | Tree
     | Inventory
     | Graph
+    | SupplyChainGraph
+    | SupplyChainGraphDagre
     | LCIA
     | Consumers
 
@@ -271,6 +275,8 @@ routeParser =
         , Parser.map (ActivityRoute Tree) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "tree")
         , Parser.map (ActivityRoute Inventory) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "inventory")
         , Parser.map (ActivityRoute Graph) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "graph")
+        , Parser.map (ActivityRoute SupplyChainGraph) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "supply-chain-graph")
+        , Parser.map (ActivityRoute SupplyChainGraphDagre) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "supply-chain-dagre")
         , Parser.map LCIARoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia" <?> Query.string "method")
         , Parser.map (\db pid query -> CompositionRoute { db = db, processId = pid, name = query.name, location = query.location, classification = query.classification, maxDepth = query.maxDepth, minQuantity = query.minQuantity, sort = query.sort, order = query.order })
             (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "composition" <?> compositionQueryParser)
@@ -308,6 +314,12 @@ activityTabSlug tab =
 
         Graph ->
             "graph"
+
+        SupplyChainGraph ->
+            "supply-chain-graph"
+
+        SupplyChainGraphDagre ->
+            "supply-chain-dagre"
 
         LCIA ->
             "lcia"
@@ -727,3 +739,13 @@ matchComposition route =
 matchConsumers : Route -> Maybe ( String, String )
 matchConsumers =
     matchTab Consumers
+
+
+matchSupplyChainGraph : Route -> Maybe ( String, String )
+matchSupplyChainGraph =
+    matchTab SupplyChainGraph
+
+
+matchSupplyChainGraphDagre : Route -> Maybe ( String, String )
+matchSupplyChainGraphDagre =
+    matchTab SupplyChainGraphDagre

@@ -1,12 +1,14 @@
 module Models.SupplyChain exposing
     ( SupplyChainEntry
+    , SupplyChainEdge
     , SupplyChainResponse
     , supplyChainResponseDecoder
+    , supplyChainEntryDecoder
     )
 
 import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
-import Json.Decode.Pipeline exposing (required)
+import Json.Decode.Pipeline exposing (optional, required)
 import Models.Activity exposing (ActivitySummary, activitySummaryDecoder)
 
 
@@ -23,11 +25,19 @@ type alias SupplyChainEntry =
     }
 
 
+type alias SupplyChainEdge =
+    { from : String
+    , to : String
+    , amount : Float
+    }
+
+
 type alias SupplyChainResponse =
     { totalActivities : Int
     , filteredActivities : Int
     , supplyChain : List SupplyChainEntry
     , root : ActivitySummary
+    , edges : List SupplyChainEdge
     }
 
 
@@ -36,12 +46,13 @@ supplyChainResponseDecoder =
     Decode.succeed SupplyChainResponse
         |> required "scrTotalActivities" Decode.int
         |> required "scrFilteredActivities" Decode.int
-        |> required "scrSupplyChain" (Decode.list entryDecoder)
+        |> required "scrSupplyChain" (Decode.list supplyChainEntryDecoder)
         |> required "scrRoot" activitySummaryDecoder
+        |> optional "scrEdges" (Decode.list supplyChainEdgeDecoder) []
 
 
-entryDecoder : Decoder SupplyChainEntry
-entryDecoder =
+supplyChainEntryDecoder : Decoder SupplyChainEntry
+supplyChainEntryDecoder =
     Decode.succeed SupplyChainEntry
         |> required "sceProcessId" Decode.string
         |> required "sceName" Decode.string
@@ -49,6 +60,14 @@ entryDecoder =
         |> required "sceQuantity" Decode.float
         |> required "sceUnit" Decode.string
         |> required "sceScalingFactor" Decode.float
-        |> required "sceClassifications" (Decode.dict Decode.string)
-        |> required "sceDepth" Decode.int
-        |> required "sceUpstreamCount" Decode.int
+        |> optional "sceClassifications" (Decode.dict Decode.string) Dict.empty
+        |> optional "sceDepth" Decode.int 0
+        |> optional "sceUpstreamCount" Decode.int 0
+
+
+supplyChainEdgeDecoder : Decoder SupplyChainEdge
+supplyChainEdgeDecoder =
+    Decode.succeed SupplyChainEdge
+        |> required "sceEdgeFrom" Decode.string
+        |> required "sceEdgeTo" Decode.string
+        |> required "sceEdgeAmount" Decode.float
