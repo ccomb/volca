@@ -39,6 +39,10 @@ module Route exposing
     , matchConsumers
     , matchSupplyChainGraph
     , matchSupplyChainGraphDagre
+    , matchSupplyChainTable
+    , matchVariant
+    , FlowSearchFlags
+    , matchFlowSearch
     , matchHome
     , routeToDatabase
     , ActivePage(..)
@@ -62,6 +66,8 @@ type ActivityTab
     | Graph
     | SupplyChainGraph
     | SupplyChainGraphDagre
+    | SupplyChainTable
+    | Variant
     | LCIA
     | Consumers
 
@@ -83,6 +89,7 @@ type Route
     | FlowSynonymDetailRoute String -- resource name
     | DatabaseMappingRoute String (Maybe String) -- dbName, ?method=methodId
     | CompositionRoute CompositionFlags
+    | FlowSearchRoute { db : String, q : Maybe String, limit : Maybe Int, offset : Maybe Int }
     | CompartmentMappingsRoute
     | UnitsRoute
     | NotFoundRoute
@@ -103,6 +110,7 @@ type ActivePage
     | MethodDetailActive
     | FlowMappingActive
     | DatabaseMappingActive
+    | FlowSearchActive
     | FlowSynonymsActive
     | CompositionActive
     | CompartmentMappingsActive
@@ -147,6 +155,9 @@ routeToActivePage route =
 
         FlowMappingRoute _ _ ->
             FlowMappingActive
+
+        FlowSearchRoute _ ->
+            FlowSearchActive
 
         FlowSynonymsRoute ->
             FlowSynonymsActive
@@ -249,6 +260,14 @@ compositionQueryParser =
         )
 
 
+flowSearchQueryParser : Query.Parser { q : Maybe String, limit : Maybe Int, offset : Maybe Int }
+flowSearchQueryParser =
+    Query.map3 (\q limit offset -> { q = q, limit = limit, offset = offset })
+        (Query.string "q")
+        (Query.int "limit")
+        (Query.int "offset")
+
+
 routeParser : Parser (Route -> a) a
 routeParser =
     oneOf
@@ -277,6 +296,10 @@ routeParser =
         , Parser.map (ActivityRoute Graph) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "graph")
         , Parser.map (ActivityRoute SupplyChainGraph) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "supply-chain-graph")
         , Parser.map (ActivityRoute SupplyChainGraphDagre) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "supply-chain-dagre")
+        , Parser.map (ActivityRoute SupplyChainTable) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "supply-chain-table")
+        , Parser.map (ActivityRoute Variant) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "variant")
+        , Parser.map (\db query -> FlowSearchRoute { db = db, q = query.q, limit = query.limit, offset = query.offset })
+            (Parser.s "db" </> string </> Parser.s "flows" <?> flowSearchQueryParser)
         , Parser.map LCIARoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia" <?> Query.string "method")
         , Parser.map (\db pid query -> CompositionRoute { db = db, processId = pid, name = query.name, location = query.location, classification = query.classification, maxDepth = query.maxDepth, minQuantity = query.minQuantity, sort = query.sort, order = query.order })
             (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "composition" <?> compositionQueryParser)
@@ -320,6 +343,12 @@ activityTabSlug tab =
 
         SupplyChainGraphDagre ->
             "supply-chain-dagre"
+
+        SupplyChainTable ->
+            "supply-chain-table"
+
+        Variant ->
+            "variant"
 
         LCIA ->
             "lcia"
@@ -395,6 +424,14 @@ routeToUrl route =
             "/databases/" ++ dbName ++ "/mapping"
                 ++ appendQuery [ Maybe.map (Url.Builder.string "method") method ]
 
+        FlowSearchRoute { db, q, limit, offset } ->
+            "/db/" ++ db ++ "/flows"
+                ++ appendQuery
+                    [ Maybe.map (Url.Builder.string "q") q
+                    , Maybe.map (Url.Builder.int "limit") limit
+                    , Maybe.map (Url.Builder.int "offset") offset
+                    ]
+
         FlowSynonymsRoute ->
             "/flow-synonyms"
 
@@ -445,6 +482,9 @@ routeToDatabase route =
             Just dbName
 
         CompositionRoute { db } ->
+            Just db
+
+        FlowSearchRoute { db } ->
             Just db
 
         _ ->
@@ -749,3 +789,27 @@ matchSupplyChainGraph =
 matchSupplyChainGraphDagre : Route -> Maybe ( String, String )
 matchSupplyChainGraphDagre =
     matchTab SupplyChainGraphDagre
+
+
+matchSupplyChainTable : Route -> Maybe ( String, String )
+matchSupplyChainTable =
+    matchTab SupplyChainTable
+
+
+matchVariant : Route -> Maybe ( String, String )
+matchVariant =
+    matchTab Variant
+
+
+type alias FlowSearchFlags =
+    { db : String, q : Maybe String, limit : Maybe Int, offset : Maybe Int }
+
+
+matchFlowSearch : Route -> Maybe FlowSearchFlags
+matchFlowSearch route =
+    case route of
+        FlowSearchRoute flags ->
+            Just flags
+
+        _ ->
+            Nothing

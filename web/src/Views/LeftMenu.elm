@@ -53,7 +53,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                 [ menuLabel "Manage"
                 , menuItem currentPage DatabasesActive "fas fa-database" "Databases" False
                 , menuItem currentPage MethodsActive "fas fa-flask" "Methods" False
-                , menuItem currentPage FlowSynonymsActive "fas fa-exchange-alt" "Flows" False
+                , menuItem currentPage FlowSynonymsActive "fas fa-exchange-alt" "Synonyms" False
                 , menuItem currentPage CompartmentMappingsActive "fas fa-layer-group" "Compartments" False
                 , menuItem currentPage UnitsActive "fas fa-ruler" "Units" False
                 ]
@@ -61,6 +61,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
               div [ class "menu-items" ]
                 [ menuLabel "Search"
                 , menuItem currentPage ActivitiesActive "fas fa-search" "Activities" False
+                , menuItem currentPage FlowSearchActive "fas fa-atom" "Flows" False
                 ]
             , -- Activity section (only show if an activity is selected)
               -- White background to look like vertical tabs connected to main content
@@ -79,6 +80,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                         , menuItem currentPage (ActivityActive Resources) "fas fa-leaf" "Natural resources" False
                         , menuItem currentPage (ActivityActive Products) "fas fa-box" "Outgoing products" False
                         , menuItem currentPage (ActivityActive Inventory) "fas fa-list-ul" "Inventory" False
+                        , menuItem currentPage (ActivityActive SupplyChainTable) "fas fa-table" "Supply Chain" False
                         , node "details"
                             (class "lab-section"
                                 :: (if isLabTab currentPage then
@@ -102,6 +104,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                             , menuItem currentPage (ActivityActive Graph) "fas fa-network-wired" "Graph" True
                             , menuItem currentPage (ActivityActive SupplyChainGraph) "fas fa-sitemap" "Supply Chain Graph" True
                             , menuItem currentPage (ActivityActive SupplyChainGraphDagre) "fas fa-project-diagram" "SC Dagre" True
+                            , menuItem currentPage (ActivityActive Variant) "fas fa-exchange-alt" "Variant" True
                             , menuItem currentPage (ActivityActive Consumers) "fas fa-arrow-down" "Consumers" True
                             , menuItem currentPage CompositionActive "fas fa-cubes" "Composition" True
                             ]
@@ -191,7 +194,7 @@ isLabTab : ActivePage -> Bool
 isLabTab page =
     case page of
         ActivityActive tab ->
-            List.member tab [ LCIA, Tree, Graph, SupplyChainGraph, SupplyChainGraphDagre, Consumers ]
+            List.member tab [ LCIA, Tree, Graph, SupplyChainGraph, SupplyChainGraphDagre, Variant, Consumers ]
 
         CompositionActive ->
             True
