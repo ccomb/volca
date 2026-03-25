@@ -15,6 +15,15 @@ def _substitution_body(substitutions: list[dict]) -> dict:
     }
 
 
+class VoLCAError(Exception):
+    """Error from the VoLCA API."""
+
+    def __init__(self, message: str, status_code: int | None = None, body: str = ""):
+        self.status_code = status_code
+        self.body = body
+        super().__init__(message)
+
+
 class Client:
     """HTTP client for the VoLCA REST API.
 
@@ -35,6 +44,7 @@ class Client:
         self.base_url = base_url.rstrip("/")
         self.db = db
         self._session = requests.Session()
+        self._session.headers["Accept"] = "application/json"
         if password:
             self._session.headers["Authorization"] = f"Bearer {password}"
 
@@ -43,6 +53,38 @@ class Client:
 
     def _api_url(self, path: str) -> str:
         return f"{self.base_url}/api/v1/{path}"
+
+    @staticmethod
+    def _json(r: requests.Response):
+        """Parse JSON response, raising a clear error on failure."""
+        try:
+            r.raise_for_status()
+        except requests.HTTPError:
+            body = r.text[:200]
+            raise VoLCAError(
+                f"{r.status_code} {r.reason} for {r.request.method} {r.url}: {body}",
+                status_code=r.status_code, body=r.text,
+            ) from None
+        if not r.content:
+            raise VoLCAError(
+                f"Empty response for {r.request.method} {r.url} (status {r.status_code})",
+                status_code=r.status_code, body="",
+            )
+        try:
+            return r.json()
+        except requests.exceptions.JSONDecodeError:
+            hint = ""
+            if "<!DOCTYPE" in r.text[:50] or "<html" in r.text[:50]:
+                if r.history:
+                    hint = (f" (redirected from {r.history[0].url} — "
+                            "auth headers are dropped on redirect, try using https://)")
+                else:
+                    hint = " (got HTML — is the URL correct?)"
+            raise VoLCAError(
+                f"Non-JSON response for {r.request.method} {r.url} "
+                f"(status {r.status_code}){hint}",
+                status_code=r.status_code, body=r.text,
+            ) from None
 
     def use(self, db_name: str) -> "Client":
         """Return a new client targeting a different database (shares session)."""
@@ -56,26 +98,18 @@ class Client:
 
     def get_version(self) -> dict:
         """Return server version info (version, gitHash, gitTag, buildTarget)."""
-        r = self._session.get(self._api_url("version"))
-        r.raise_for_status()
-        return r.json()
+        return self._json(self._session.get(self._api_url("version")))
 
     # -- Database management --
 
     def list_databases(self) -> list[dict]:
-        r = self._session.get(self._api_url("db"))
-        r.raise_for_status()
-        return r.json()["dlrDatabases"]
+        return self._json(self._session.get(self._api_url("db")))["dlrDatabases"]
 
     def load_database(self, db_name: str) -> dict:
-        r = self._session.post(self._api_url(f"db/{db_name}/load"))
-        r.raise_for_status()
-        return r.json()
+        return self._json(self._session.post(self._api_url(f"db/{db_name}/load")))
 
     def unload_database(self, db_name: str) -> dict:
-        r = self._session.post(self._api_url(f"db/{db_name}/unload"))
-        r.raise_for_status()
-        return r.json()
+        return self._json(self._session.post(self._api_url(f"db/{db_name}/unload")))
 
     # -- Search --
 
@@ -103,14 +137,11 @@ class Client:
         if classification_value:
             params["classification-value"] = classification_value
         r = self._session.get(self._db_url("activities"), params=params)
-        r.raise_for_status()
-        return [Activity.from_json(a) for a in r.json()["srResults"]]
+        return [Activity.from_json(a) for a in self._json(r)["srResults"]]
 
     def get_classifications(self) -> list[dict]:
         """List all classification systems and their values for the current database."""
-        r = self._session.get(self._db_url("classifications"))
-        r.raise_for_status()
-        return r.json()
+        return self._json(self._session.get(self._db_url("classifications")))
 
     def search_flows(self, query: str | None = None, limit: int | None = None) -> list[dict]:
         params: dict = {}
@@ -118,26 +149,18 @@ class Client:
             params["limit"] = limit
         if query:
             params["q"] = query
-        r = self._session.get(self._db_url("flows"), params=params)
-        r.raise_for_status()
-        return r.json()["srResults"]
+        return self._json(self._session.get(self._db_url("flows"), params=params))["srResults"]
 
     # -- Activity details --
 
     def get_activity(self, process_id: str) -> dict:
-        r = self._session.get(self._db_url(f"activity/{process_id}"))
-        r.raise_for_status()
-        return r.json()
+        return self._json(self._session.get(self._db_url(f"activity/{process_id}")))
 
     def get_inputs(self, process_id: str) -> list[dict]:
-        r = self._session.get(self._db_url(f"activity/{process_id}/inputs"))
-        r.raise_for_status()
-        return r.json()
+        return self._json(self._session.get(self._db_url(f"activity/{process_id}/inputs")))
 
     def get_outputs(self, process_id: str) -> list[dict]:
-        r = self._session.get(self._db_url(f"activity/{process_id}/outputs"))
-        r.raise_for_status()
-        return r.json()
+        return self._json(self._session.get(self._db_url(f"activity/{process_id}/outputs")))
 
     # -- Supply chain (scaling vector based) --
 
@@ -161,8 +184,7 @@ class Client:
             r = self._session.post(url, params=params, json=_substitution_body(substitutions))
         else:
             r = self._session.get(url, params=params)
-        r.raise_for_status()
-        return SupplyChain.from_json(r.json())
+        return SupplyChain.from_json(self._json(r))
 
     # -- Consumers (reverse supply chain) --
 
@@ -179,15 +201,12 @@ class Client:
         if limit is not None:
             params["limit"] = limit
         r = self._session.get(self._db_url(f"activity/{process_id}/consumers"), params=params)
-        r.raise_for_status()
-        return [Activity.from_json(a) for a in r.json()]
+        return [Activity.from_json(a) for a in self._json(r)]
 
     # -- Tree --
 
     def get_tree(self, process_id: str) -> dict:
-        r = self._session.get(self._db_url(f"activity/{process_id}/tree"))
-        r.raise_for_status()
-        return r.json()
+        return self._json(self._session.get(self._db_url(f"activity/{process_id}/tree")))
 
     # -- Inventory & LCIA --
 
@@ -197,8 +216,7 @@ class Client:
             r = self._session.post(url, json=_substitution_body(substitutions))
         else:
             r = self._session.get(url)
-        r.raise_for_status()
-        return r.json()
+        return self._json(r)
 
     def get_lcia(self, process_id: str, method_id: str, substitutions: list[dict] | None = None) -> dict:
         url = self._db_url(f"activity/{process_id}/lcia/{method_id}")
@@ -206,8 +224,7 @@ class Client:
             r = self._session.post(url, json=_substitution_body(substitutions))
         else:
             r = self._session.get(url)
-        r.raise_for_status()
-        return r.json()
+        return self._json(r)
 
     def get_lcia_batch(self, process_id: str, collection: str, substitutions: list[dict] | None = None) -> dict:
         url = self._db_url(f"activity/{process_id}/lcia-batch/{collection}")
@@ -215,5 +232,4 @@ class Client:
             r = self._session.post(url, json=_substitution_body(substitutions))
         else:
             r = self._session.get(url)
-        r.raise_for_status()
-        return r.json()
+        return self._json(r)
