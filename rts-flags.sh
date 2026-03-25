@@ -1,7 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 # Compute GHC RTS flags based on available hardware.
 # Usage: eval $(./rts-flags.sh)   → sets RTS_FLAGS
-# Or:    source rts-flags.sh      → sets RTS_FLAGS
 
 CORES=$(nproc 2>/dev/null || echo 4)
 
@@ -46,7 +45,5 @@ RTS_FLAGS="+RTS -N -M${MAX_MB}M -H${HEAP_MB}M -A${NURSERY_MB}M -n${CHUNK_MB}m -q
 
 echo "RTS_FLAGS=\"$RTS_FLAGS\""
 
-# If sourced, also print to stderr for visibility
-if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
-    echo "RTS: ${CORES} cores, ${RAM_MB}MB RAM → ${RTS_FLAGS}" >&2
-fi
+# Print summary to stderr for visibility
+echo "RTS: ${CORES} cores, ${RAM_MB}MB RAM -> ${RTS_FLAGS}" >&2
