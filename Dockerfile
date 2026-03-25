@@ -166,7 +166,9 @@ COPY volca.docker.toml /app/volca.toml
 COPY data/ /app/data/
 
 COPY rts-flags.sh /app/rts-flags.sh
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "eval $(/app/rts-flags.sh) && exec volca $RTS_FLAGS --config /app/volca.toml server"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["--config", "/app/volca.toml", "server"]
