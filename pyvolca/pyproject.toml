@@ -3,11 +3,24 @@ name = "pyvolca"
 version = "0.1.0"
 description = "Python client for VoLCA — Life Cycle Assessment engine"
 requires-python = ">=3.10"
+license = "MIT"
+readme = "README.md"
+authors = [{name = "Christophe Combelles", email = "ccomb@free.fr"}]
 dependencies = ["requests>=2.28"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Topic :: Scientific/Engineering",
+]
 
 [project.optional-dependencies]
 dev = ["pytest"]
 
+[project.urls]
+Repository = "https://github.com/ccomb/volca/tree/main/pyvolca"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
