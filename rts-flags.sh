@@ -35,9 +35,9 @@ NURSERY_MB=$((CORES * 16))
 CHUNK_MB=$((NURSERY_MB / 32))
 [ $CHUNK_MB -lt 8 ] && CHUNK_MB=8
 
-# Max heap: 50% of RAM, capped at 24G, minimum 2G
-# Conservative to leave room for OS, PETSc, and co-located services
-MAX_MB=$((RAM_MB / 2))
+# Max heap: 75% of RAM, capped at 24G, minimum 2G
+# Leaves 25% for OS, PETSc, and co-located services
+MAX_MB=$((RAM_MB * 3 / 4))
 [ $MAX_MB -gt 24576 ] && MAX_MB=24576
 [ $MAX_MB -lt 2048 ] && MAX_MB=2048
 
