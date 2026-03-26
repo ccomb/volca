@@ -63,7 +63,7 @@ def resolve_substitutions(client: Client):
 
 def find_consumer_id(client: Client, product_id: str, supplier_id: str) -> str | None:
     """Find the direct consumer of a supplier in a product's supply chain edges."""
-    chain = client.get_supply_chain(product_id, name="at farm", limit=200)
+    chain = client.get_supply_chain(product_id, name="at farm", limit=200, include_edges=True)
     for edge in chain.edges:
         if edge.from_id == supplier_id:
             return edge.to_id

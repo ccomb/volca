@@ -56,7 +56,7 @@ def main():
         flour = wheat_flour[0]
         print(f"  Found: {flour.name} ({flour.location}) [{flour.process_id}]")
 
-        chain = c.get_supply_chain(flour.process_id, name="at farm", limit=100)
+        chain = c.get_supply_chain(flour.process_id, name="at farm", limit=100, include_edges=True)
         print(f"  Total upstream activities: {chain.total_activities}")
         print(f"  'at farm' matches: {chain.filtered_activities}")
 

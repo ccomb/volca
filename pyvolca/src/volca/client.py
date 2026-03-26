@@ -171,6 +171,7 @@ class Client:
         limit: int | None = None,
         min_quantity: float = 0,
         substitutions: list[dict] | None = None,
+        include_edges: bool = False,
     ) -> SupplyChain:
         params: dict = {}
         if limit is not None:
@@ -179,6 +180,8 @@ class Client:
             params["name"] = name
         if min_quantity > 0:
             params["min-quantity"] = min_quantity
+        if include_edges:
+            params["include-edges"] = "true"
         url = self._db_url(f"activity/{process_id}/supply-chain")
         if substitutions:
             r = self._session.post(url, params=params, json=_substitution_body(substitutions))
