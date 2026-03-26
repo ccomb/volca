@@ -8,6 +8,7 @@ import Progress
 import Types
 import UnitConversion (UnitConfig, convertExchangeAmount)
 import Data.Int (Int32)
+import qualified Data.IntSet as IS
 import Data.List (sort)
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -281,6 +282,7 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
             , dbSynonymDB = Nothing  -- Will be populated at runtime from embedded DB
             , dbFlowsByName = M.empty  -- Will be populated at runtime
             , dbFlowsByCAS = M.empty  -- Will be populated at runtime
+            , dbSearchIndex = M.empty  -- Will be populated at runtime
             }
 
 -- | Build indexes with ProcessIds
@@ -362,21 +364,43 @@ buildProductIndex activities processIdTable flowDb =
 -- | Search activities by multiple fields (name, geography, product, classification)
 -- Multi-word search: each word must match either name OR location (AND logic)
 -- Returns (ProcessId, Activity) pairs so callers don't need to re-scan for ProcessId.
+-- Uses word-token index when available for O(matches) instead of O(total) name search.
 findActivitiesByFields :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> [(ProcessId, Activity)]
 findActivitiesByFields db nameParam geoParam productParam classParam classValueParam =
-    let -- Pair each activity with its ProcessId (Vector index) to avoid O(n) re-lookup later
-        activities = [(fromIntegral i, a) | (i, a) <- zip [(0::Int)..] (V.toList (dbActivities db))]
+    let actVec = dbActivities db
+        idx = dbSearchIndex db
 
-        -- Filter by name: split into words, each word must match name OR location
+        -- Resolve a set of ProcessIds to (ProcessId, Activity) pairs
+        resolveIds :: IS.IntSet -> [(ProcessId, Activity)]
+        resolveIds ids = [ (fromIntegral i, actVec V.! i) | i <- IS.toList ids, i < V.length actVec ]
+
+        -- Filter by name using search index (intersect word sets, then verify substring)
         nameFiltered = case nameParam of
-            Nothing -> activities
-            Just name ->
-                let searchWords = filter (not . T.null) $ T.words (T.toLower name)
-                    matchesAllWords a =
-                        let nameLower = T.toLower (activityName a)
-                            locationLower = T.toLower (activityLocation a)
-                         in all (\w -> T.isInfixOf w nameLower || T.isInfixOf w locationLower) searchWords
-                 in [(pid, a) | (pid, a) <- activities, matchesAllWords a]
+            Nothing -> [(fromIntegral i, a) | (i, a) <- zip [(0::Int)..] (V.toList actVec)]
+            Just name
+                | M.null idx ->
+                    -- Fallback: no search index (shouldn't happen in normal operation)
+                    let searchWords = filter (not . T.null) $ T.words (T.toLower name)
+                        matchesAllWords a =
+                            let nl = T.toLower (activityName a)
+                                ll = T.toLower (activityLocation a)
+                             in all (\w -> T.isInfixOf w nl || T.isInfixOf w ll) searchWords
+                     in [(fromIntegral i, a) | (i, a) <- zip [(0::Int)..] (V.toList actVec), matchesAllWords a]
+                | otherwise ->
+                    let searchWords = filter (not . T.null) $ T.words (T.toLower name)
+                        -- For each word, find candidate ProcessIds from the index
+                        -- A word like "elec" may not match a token exactly, so we need prefix/infix matching on index keys
+                        wordCandidates w = IS.unions [ ids | (key, ids) <- M.toList idx, T.isInfixOf w key ]
+                        -- Intersect candidates for all words (AND logic)
+                        candidates = case map wordCandidates searchWords of
+                            [] -> IS.fromList [0 .. V.length actVec - 1]
+                            (first:rest) -> foldl IS.intersection first rest
+                        -- Verify substring match (index gives word-level matches, user may search partial words)
+                        matchesAllWords a =
+                            let nl = T.toLower (activityName a)
+                                ll = T.toLower (activityLocation a)
+                             in all (\w -> T.isInfixOf w nl || T.isInfixOf w ll) searchWords
+                     in filter (matchesAllWords . snd) (resolveIds candidates)
 
         -- Filter by geography if provided (substring match)
         geoFiltered = case geoParam of
@@ -407,14 +431,12 @@ findActivitiesByFields db nameParam geoParam productParam classParam classValueP
             Just val ->
                 let valLower = T.toLower val
                 in case classParam of
-                    -- Both system and value: match within specific system
                     Just sys ->
                         [ (pid, a) | (pid, a) <- productFiltered
                         , case M.lookup sys (activityClassification a) of
                             Just v -> T.isInfixOf valLower (T.toLower v)
                             Nothing -> False
                         ]
-                    -- Only value: match across all classification systems
                     Nothing ->
                         [ (pid, a) | (pid, a) <- productFiltered
                         , any (T.isInfixOf valLower . T.toLower) (M.elems (activityClassification a))

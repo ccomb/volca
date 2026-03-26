@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -15,7 +16,9 @@ import Control.DeepSeq (NFData)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Store (Store(..), Size(..))
 import Data.Int (Int32)
+import qualified Data.IntSet as IS
 import qualified Data.Map as M
+import qualified Data.Map.Strict as MS
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -27,7 +30,7 @@ import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Generic.Mutable as VGM
 import GHC.Generics (Generic)
 
-import Data.List (nub)
+import Data.List (foldl', nub)
 import SynonymDB (normalizeName)
 import SynonymDB.Types (SynonymDB)
 
@@ -384,6 +387,8 @@ data Database = Database
     , dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
     , dbFlowsByName :: !(M.Map Text [Flow]) -- Biosphere flow name index for LCIA matching
     , dbFlowsByCAS :: !(M.Map Text [Flow]) -- CAS → biosphere flows for LCIA matching
+    -- Search index: word token → ProcessId set (built at runtime for fast activity search)
+    , dbSearchIndex :: !(M.Map Text IS.IntSet)
     }
     deriving (Generic, NFData)
 
@@ -476,6 +481,7 @@ instance Store Database where
             , dbSynonymDB = Nothing
             , dbFlowsByName = M.empty
             , dbFlowsByCAS = M.empty
+            , dbSearchIndex = M.empty
             }
 
 -- | Helper functions for ProcessId and Database operations
@@ -577,13 +583,27 @@ buildFlowCASIndex flowDB bioUUIDs =
                                     , Just cas <- [flowCAS f]
                                     , not (T.null cas)]
 
--- | Add biosphere flow indexes (name + CAS) to a Database
+-- | Add biosphere flow indexes (name + CAS) and search index to a Database
 addFlowNameIndexToDatabase :: Database -> Database
 addFlowNameIndexToDatabase db =
     let bioUUIDs = S.fromList (V.toList (dbBiosphereFlows db))
     in db { dbFlowsByName = buildFlowNameIndex (dbFlows db) bioUUIDs
           , dbFlowsByCAS  = buildFlowCASIndex (dbFlows db) bioUUIDs
+          , dbSearchIndex = buildSearchIndex (dbActivities db)
           }
+
+-- | Build word-token search index: lowercased word → IntSet of ProcessIds
+-- Tokenizes activity names and locations so search can intersect word sets
+-- instead of scanning all activities.
+buildSearchIndex :: V.Vector Activity -> M.Map Text IS.IntSet
+buildSearchIndex activities =
+    V.ifoldl' addActivity M.empty activities
+  where
+    addActivity !acc i a =
+        let pid = fromIntegral i
+            words_ = T.words (T.toLower (activityName a))
+                  ++ T.words (T.toLower (activityLocation a))
+        in foldl' (\m w -> MS.insertWith IS.union w (IS.singleton pid) m) acc words_
 
 -- | Add both SynonymDB and flow name index to a Database
 -- Convenience function for post-load initialization
