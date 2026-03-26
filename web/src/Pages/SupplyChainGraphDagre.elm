@@ -5,8 +5,9 @@ import Effect exposing (Effect)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
+import Api
 import Http
-import Models.SupplyChain exposing (SupplyChainResponse, supplyChainResponseDecoder)
+import Models.SupplyChain exposing (SupplyChainResponse)
 import Route
 import Shared exposing (RemoteData(..))
 import Spa.Page
@@ -66,7 +67,10 @@ init shared ( db, activityId ) =
 
     else
         ( model
-        , Effect.fromCmd (loadSupplyChain db activityId 1.0)
+        , let
+            params = Api.defaultSupplyChainParams
+          in
+          Effect.fromCmd (Api.loadSupplyChain DataLoaded db activityId { params | minQuantity = "1.0" })
         )
 
 
@@ -102,7 +106,10 @@ update shared msg model =
                     String.toFloat model.cutoffInput |> Maybe.withDefault 1.0
             in
             ( { model | state = Loading }
-            , Effect.fromCmd (loadSupplyChain model.dbName model.activityId cutoff)
+            , let
+                params = Api.defaultSupplyChainParams
+              in
+              Effect.fromCmd (Api.loadSupplyChain DataLoaded model.dbName model.activityId { params | minQuantity = String.fromFloat cutoff })
             )
 
         RequestLoadDatabase ->
@@ -208,15 +215,3 @@ viewBody model =
             Html.map DagreMsg (DagreView.view dagreModel)
 
 
-loadSupplyChain : String -> String -> Float -> Cmd Msg
-loadSupplyChain dbName activityId minQuantity =
-    Http.get
-        { url =
-            "/api/v1/database/"
-                ++ dbName
-                ++ "/activity/"
-                ++ activityId
-                ++ "/supply-chain?min-quantity="
-                ++ String.fromFloat minQuantity
-        , expect = Http.expectJson DataLoaded supplyChainResponseDecoder
-        }

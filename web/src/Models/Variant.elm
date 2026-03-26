@@ -43,15 +43,16 @@ variantResponseDecoder =
         |> required "varTotalActivities" Decode.int
 
 
-encodeVariantRequest : List ( String, String ) -> Encode.Value
+encodeVariantRequest : List { from : String, to : String, consumer : String } -> Encode.Value
 encodeVariantRequest substitutions =
     Encode.object
-        [ ( "vrSubstitutions"
+        [ ( "srSubstitutions"
           , Encode.list
-                (\( from, to ) ->
+                (\sub ->
                     Encode.object
-                        [ ( "subFrom", Encode.string from )
-                        , ( "subTo", Encode.string to )
+                        [ ( "subFrom", Encode.string sub.from )
+                        , ( "subTo", Encode.string sub.to )
+                        , ( "subConsumer", Encode.string sub.consumer )
                         ]
                 )
                 substitutions

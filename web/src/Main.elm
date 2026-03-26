@@ -280,7 +280,7 @@ navigateToPage shared page =
                     Shared.NavigateTo (ActivitiesRoute { db = dbName, name = Nothing, product = Nothing, limit = Just 20, classification = Nothing, classificationValue = Nothing })
 
         ActivityActive LCIA ->
-            Shared.NavigateTo (LCIARoute dbName currentActivityId Nothing)
+            Shared.NavigateTo (LCIARoute dbName currentActivityId Nothing Nothing)
 
         ActivityActive tab ->
             Shared.NavigateTo (ActivityRoute tab dbName currentActivityId)
@@ -328,7 +328,7 @@ routeToActivityId route =
         ActivityRoute _ _ pid ->
             Just pid
 
-        LCIARoute _ pid _ ->
+        LCIARoute _ pid _ _ ->
             Just pid
 
         CompositionRoute flags ->

@@ -76,7 +76,7 @@ type Route
     = RootRoute
     | ActivitiesRoute { db : String, name : Maybe String, product : Maybe String, limit : Maybe Int, classification : Maybe String, classificationValue : Maybe String }
     | ActivityRoute ActivityTab String String -- tab, db, processId
-    | LCIARoute String String (Maybe String) -- db, processId, method collection
+    | LCIARoute String String (Maybe String) (Maybe String) -- db, processId, method collection, view mode
     | DatabasesRoute
     | DatabaseDetailRoute String (Maybe String) -- dbName, ?method=collection
     | UploadRoute
@@ -123,7 +123,7 @@ routeToActivePage route =
         ActivityRoute tab _ _ ->
             ActivityActive tab
 
-        LCIARoute _ _ _ ->
+        LCIARoute _ _ _ _ ->
             ActivityActive LCIA
 
         RootRoute ->
@@ -190,8 +190,8 @@ withActivity db pid route =
         ActivityRoute tab _ _ ->
             ActivityRoute tab db pid
 
-        LCIARoute _ _ method ->
-            LCIARoute db pid method
+        LCIARoute _ _ method view ->
+            LCIARoute db pid method view
 
         CompositionRoute flags ->
             CompositionRoute { flags | db = db, processId = pid }
@@ -300,7 +300,10 @@ routeParser =
         , Parser.map (ActivityRoute Variant) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "variant")
         , Parser.map (\db query -> FlowSearchRoute { db = db, q = query.q, limit = query.limit, offset = query.offset })
             (Parser.s "db" </> string </> Parser.s "flows" <?> flowSearchQueryParser)
-        , Parser.map LCIARoute (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia" <?> Query.string "method")
+        , Parser.map (\db pid q -> LCIARoute db pid q.method q.view)
+            (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia"
+                <?> Query.map2 (\m v -> { method = m, view = v }) (Query.string "method") (Query.string "view")
+            )
         , Parser.map (\db pid query -> CompositionRoute { db = db, processId = pid, name = query.name, location = query.location, classification = query.classification, maxDepth = query.maxDepth, minQuantity = query.minQuantity, sort = query.sort, order = query.order })
             (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "composition" <?> compositionQueryParser)
         , Parser.map (ActivityRoute Consumers) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "consumers")
@@ -389,9 +392,12 @@ routeToUrl route =
         ActivityRoute tab db processId ->
             "/db/" ++ db ++ "/activity/" ++ processId ++ "/" ++ activityTabSlug tab
 
-        LCIARoute db processId method ->
+        LCIARoute db processId method view ->
             "/db/" ++ db ++ "/activity/" ++ processId ++ "/lcia"
-                ++ appendQuery [ Maybe.map (Url.Builder.string "method") method ]
+                ++ appendQuery
+                    [ Maybe.map (Url.Builder.string "method") method
+                    , Maybe.map (Url.Builder.string "view") view
+                    ]
 
         DatabasesRoute ->
             "/databases"
@@ -469,7 +475,7 @@ routeToDatabase route =
         ActivityRoute _ db _ ->
             Just db
 
-        LCIARoute db _ _ ->
+        LCIARoute db _ _ _ ->
             Just db
 
         DatabaseSetupRoute dbName ->
@@ -500,7 +506,7 @@ type alias ActivitiesFlags =
 
 
 type alias LCIAFlags =
-    { db : String, processId : String, method : Maybe String }
+    { db : String, processId : String, method : Maybe String, view : Maybe String }
 
 
 type alias MethodDetailFlags =
@@ -592,8 +598,8 @@ matchGraph =
 matchLCIA : Route -> Maybe LCIAFlags
 matchLCIA route =
     case route of
-        LCIARoute db pid method ->
-            Just { db = db, processId = pid, method = method }
+        LCIARoute db pid method view ->
+            Just { db = db, processId = pid, method = method, view = view }
 
         _ ->
             Nothing

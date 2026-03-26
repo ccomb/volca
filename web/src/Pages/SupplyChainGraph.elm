@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Http
 import Models.Activity exposing (ActivityTree)
-import Models.SupplyChain exposing (SupplyChainResponse, supplyChainResponseDecoder)
+import Models.SupplyChain exposing (SupplyChainResponse)
 import Route
 import Shared exposing (RemoteData(..))
 import Spa.Page
@@ -57,7 +57,10 @@ init shared ( db, activityId ) =
     else
         ( { activityId = activityId, dbName = db, state = Loading }
         , Effect.batch
-            [ Effect.fromCmd (loadSupplyChain db activityId)
+            [ let
+                params = Api.defaultSupplyChainParams
+              in
+              Effect.fromCmd (Api.loadSupplyChain DataLoaded db activityId { params | limit = 50 })
             , case Dict.get activityId shared.cachedTrees of
                 Nothing ->
                     Effect.fromCmd (Api.loadActivityTree TreeLoaded db activityId)
@@ -69,7 +72,7 @@ init shared ( db, activityId ) =
 
 
 update : Shared.Model -> Msg -> Model -> ( Model, Effect Shared.Msg Msg )
-update _ msg model =
+update shared msg model =
     case msg of
         DataLoaded (Ok response) ->
             ( { model | state = Ready (SCGraphView.init response) }
@@ -104,9 +107,8 @@ update _ msg model =
             , Effect.fromShared (Shared.LoadDatabase model.dbName)
             )
 
-        NewFlags _ ->
-            -- Page will be re-initialized by elm-spa framework
-            ( model, Effect.none )
+        NewFlags flags ->
+            init shared flags
 
 
 subscriptions : Model -> Sub Msg
@@ -176,9 +178,3 @@ viewNavbar shared model =
         ]
 
 
-loadSupplyChain : String -> String -> Cmd Msg
-loadSupplyChain dbName activityId =
-    Http.get
-        { url = "/api/v1/database/" ++ dbName ++ "/activity/" ++ activityId ++ "/supply-chain?limit=50"
-        , expect = Http.expectJson DataLoaded supplyChainResponseDecoder
-        }

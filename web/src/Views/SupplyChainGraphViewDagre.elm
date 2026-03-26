@@ -137,7 +137,7 @@ init response =
                     (\edge ->
                         Maybe.map2
                             (\fromId toId ->
-                                Graph.Edge fromId toId ()
+                                Graph.Edge toId fromId ()
                             )
                             (Dict.get edge.from idMap)
                             (Dict.get edge.to idMap)

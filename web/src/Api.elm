@@ -8,7 +8,6 @@ import Models.Flow exposing (FlowSearchResult, flowSearchResultDecoder)
 import Models.LCIA exposing (FlowCFMapping, LCIABatchResult, MappingStatus, flowCFMappingDecoder, lciaBatchResultDecoder, mappingStatusDecoder)
 import Models.Method exposing (MethodCollectionList, methodCollectionListDecoder)
 import Models.SupplyChain exposing (SupplyChainResponse, supplyChainResponseDecoder)
-import Models.Variant exposing (VariantResponse, variantResponseDecoder)
 import Url.Builder
 
 
@@ -155,10 +154,10 @@ loadFlowActivities toMsg dbName flowId =
         }
 
 
-createVariant : (Result Http.Error VariantResponse -> msg) -> String -> String -> Encode.Value -> Cmd msg
+createVariant : (Result Http.Error SupplyChainResponse -> msg) -> String -> String -> Encode.Value -> Cmd msg
 createVariant toMsg dbName activityId body =
     Http.post
-        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ activityId ++ "/variant"
+        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ activityId ++ "/supply-chain"
         , body = Http.jsonBody body
-        , expect = Http.expectJson toMsg variantResponseDecoder
+        , expect = Http.expectJson toMsg supplyChainResponseDecoder
         }

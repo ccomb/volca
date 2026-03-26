@@ -52,6 +52,32 @@ page shared =
         |> Spa.Page.onNewFlags NewFlags
 
 
+viewModeFromString : String -> LCIAView.ViewMode
+viewModeFromString s =
+    case s of
+        "normalized" ->
+            LCIAView.Normalized
+
+        "weighted" ->
+            LCIAView.Weighted
+
+        _ ->
+            LCIAView.Raw
+
+
+viewModeToString : LCIAView.ViewMode -> Maybe String
+viewModeToString mode =
+    case mode of
+        LCIAView.Raw ->
+            Nothing
+
+        LCIAView.Normalized ->
+            Just "normalized"
+
+        LCIAView.Weighted ->
+            Just "weighted"
+
+
 init : Shared.Model -> LCIAFlags -> ( Model, Effect Shared.Msg Msg )
 init shared flags =
     let
@@ -62,7 +88,7 @@ init shared flags =
             , selectedCollection = flags.method
             , batchResult = NotAsked
             , expandedRow = Nothing
-            , viewMode = LCIAView.Raw
+            , viewMode = flags.view |> Maybe.map viewModeFromString |> Maybe.withDefault LCIAView.Raw
             }
     in
     if not (Shared.isDatabaseLoaded shared flags.db) then
@@ -134,14 +160,14 @@ update shared msg model =
         SelectCollection name ->
             if name == "" then
                 ( { model | selectedCollection = Nothing, batchResult = NotAsked }
-                , Effect.fromShared (Shared.NavigateTo (LCIARoute model.dbName model.activityId Nothing))
+                , Effect.fromShared (Shared.NavigateTo (LCIARoute model.dbName model.activityId Nothing Nothing))
                 )
 
             else
                 ( { model | selectedCollection = Just name, batchResult = Loading, expandedRow = Nothing }
                 , Effect.batch
                     [ Effect.fromCmd (Api.computeLCIABatch BatchResultsLoaded model.dbName model.activityId name)
-                    , Effect.fromShared (Shared.NavigateTo (LCIARoute model.dbName model.activityId (Just name)))
+                    , Effect.fromShared (Shared.NavigateTo (LCIARoute model.dbName model.activityId (Just name) (viewModeToString model.viewMode)))
                     ]
                 )
 
@@ -164,7 +190,9 @@ update shared msg model =
             )
 
         SetViewMode mode ->
-            ( { model | viewMode = mode }, Effect.none )
+            ( { model | viewMode = mode }
+            , Effect.fromCmd (Nav.replaceUrl shared.key (Route.routeToUrl (LCIARoute model.dbName model.activityId model.selectedCollection (viewModeToString mode))))
+            )
 
         RequestLoadDatabase ->
             ( model
@@ -172,8 +200,12 @@ update shared msg model =
             )
 
         NewFlags flags ->
+            let
+                newViewMode =
+                    flags.view |> Maybe.map viewModeFromString |> Maybe.withDefault LCIAView.Raw
+            in
             if flags.db == model.dbName && flags.processId == model.activityId && flags.method == model.selectedCollection then
-                ( model, Effect.none )
+                ( { model | viewMode = newViewMode }, Effect.none )
 
             else
                 init shared flags

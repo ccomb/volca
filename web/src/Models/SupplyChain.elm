@@ -8,7 +8,7 @@ module Models.SupplyChain exposing
 
 import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
-import Json.Decode.Pipeline exposing (optional, required)
+import Json.Decode.Pipeline exposing (required)
 import Models.Activity exposing (ActivitySummary, activitySummaryDecoder)
 
 
@@ -48,7 +48,7 @@ supplyChainResponseDecoder =
         |> required "scrFilteredActivities" Decode.int
         |> required "scrSupplyChain" (Decode.list supplyChainEntryDecoder)
         |> required "scrRoot" activitySummaryDecoder
-        |> optional "scrEdges" (Decode.list supplyChainEdgeDecoder) []
+        |> required "scrEdges" (Decode.list supplyChainEdgeDecoder)
 
 
 supplyChainEntryDecoder : Decoder SupplyChainEntry
@@ -60,9 +60,9 @@ supplyChainEntryDecoder =
         |> required "sceQuantity" Decode.float
         |> required "sceUnit" Decode.string
         |> required "sceScalingFactor" Decode.float
-        |> optional "sceClassifications" (Decode.dict Decode.string) Dict.empty
-        |> optional "sceDepth" Decode.int 0
-        |> optional "sceUpstreamCount" Decode.int 0
+        |> required "sceClassifications" (Decode.dict Decode.string)
+        |> required "sceDepth" Decode.int
+        |> required "sceUpstreamCount" Decode.int
 
 
 supplyChainEdgeDecoder : Decoder SupplyChainEdge

@@ -121,7 +121,7 @@ viewViewModeToggle config batch =
             batch.lbrNormWeightSetName /= Nothing
 
         modeButton mode label =
-            a
+            button
                 [ class
                     ("button is-small"
                         ++ (if config.viewMode == mode then

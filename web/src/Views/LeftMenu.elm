@@ -65,8 +65,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                 ]
             , -- Activity section (only show if an activity is selected)
               -- White background to look like vertical tabs connected to main content
-              case currentActivityName of
-                Just _ ->
+              if not (String.isEmpty currentActivityId) then
                     div
                         [ class "menu-items explore-section"
                         , style "background-color" "white"
@@ -110,7 +109,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                             ]
                         ]
 
-                Nothing ->
+              else
                     text ""
             ]
         , -- Footer (fixed)

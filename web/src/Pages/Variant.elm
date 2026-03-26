@@ -9,7 +9,7 @@ import Html.Events exposing (..)
 import Http
 import Models.Activity exposing (ActivitySummary, SearchResults, activitySummaryDecoder, searchResultsDecoder)
 import Models.SupplyChain exposing (SupplyChainEntry, SupplyChainResponse)
-import Models.Variant exposing (VariantResponse, encodeVariantRequest)
+import Models.Variant exposing (encodeVariantRequest)
 import Route
 import Shared exposing (RemoteData(..))
 import Spa.Page
@@ -21,11 +21,11 @@ type alias Model =
     { activityId : String
     , dbName : String
     , supplyChain : RemoteData SupplyChainResponse
-    , substitutions : List ( String, String )
+    , substitutions : List { from : String, to : String, consumer : String }
     , swappingEntry : Maybe SupplyChainEntry
     , searchQuery : String
     , searchResults : RemoteData (SearchResults ActivitySummary)
-    , result : RemoteData VariantResponse
+    , result : RemoteData SupplyChainResponse
     }
 
 
@@ -38,7 +38,7 @@ type Msg
     | SelectReplacement String
     | RemoveSubstitution String
     | SubmitVariant
-    | VariantLoaded (Result Http.Error VariantResponse)
+    | VariantLoaded (Result Http.Error SupplyChainResponse)
     | RequestLoadDatabase
     | NewFlags ( String, String )
 
@@ -106,8 +106,21 @@ update shared msg model =
         SelectReplacement toId ->
             case model.swappingEntry of
                 Just entry ->
+                    let
+                        consumer =
+                            case model.supplyChain of
+                                Loaded response ->
+                                    response.edges
+                                        |> List.filter (\e -> e.from == entry.processId)
+                                        |> List.head
+                                        |> Maybe.map .to
+                                        |> Maybe.withDefault model.activityId
+
+                                _ ->
+                                    model.activityId
+                    in
                     ( { model
-                        | substitutions = ( entry.processId, toId ) :: List.filter (\( f, _ ) -> f /= entry.processId) model.substitutions
+                        | substitutions = { from = entry.processId, to = toId, consumer = consumer } :: List.filter (\s -> s.from /= entry.processId) model.substitutions
                         , swappingEntry = Nothing
                         , searchQuery = ""
                         , searchResults = NotAsked
@@ -119,7 +132,7 @@ update shared msg model =
                     ( model, Effect.none )
 
         RemoveSubstitution fromId ->
-            ( { model | substitutions = List.filter (\( f, _ ) -> f /= fromId) model.substitutions }, Effect.none )
+            ( { model | substitutions = List.filter (\s -> s.from /= fromId) model.substitutions }, Effect.none )
 
         SubmitVariant ->
             if List.isEmpty model.substitutions then
@@ -174,10 +187,10 @@ viewBody shared model =
                 Loaded response ->
                     div []
                         [ viewSubstitutions model
-                        , viewSupplyChainWithSwap model response
-                        , viewSwapModal model
                         , viewSubmitButton model
                         , viewResult model response
+                        , viewSupplyChainWithSwap model response
+                        , viewSwapModal model
                         ]
 
                 NotAsked ->
@@ -195,10 +208,10 @@ viewSubstitutions model =
             [ h3 [ class "title is-6" ] [ text "Planned Substitutions" ]
             , div [ class "tags" ]
                 (List.map
-                    (\( from, to ) ->
+                    (\sub ->
                         span [ class "tag is-info is-medium" ]
-                            [ text (truncate 20 from ++ " \u{2192} " ++ truncate 20 to)
-                            , button [ class "delete is-small", onClick (RemoveSubstitution from) ] []
+                            [ text (truncate 20 sub.from ++ " \u{2192} " ++ truncate 20 sub.to)
+                            , button [ class "delete is-small", onClick (RemoveSubstitution sub.from) ] []
                             ]
                     )
                     model.substitutions
@@ -210,7 +223,7 @@ viewSupplyChainWithSwap : Model -> SupplyChainResponse -> Html Msg
 viewSupplyChainWithSwap model response =
     let
         hasSubstitution entry =
-            List.any (\( f, _ ) -> f == entry.processId) model.substitutions
+            List.any (\s -> s.from == entry.processId) model.substitutions
     in
     table [ class "table is-fullwidth is-hoverable is-striped" ]
         [ thead []
@@ -407,7 +420,7 @@ searchActivities dbName query =
     Http.get
         { url =
             Url.Builder.absolute
-                [ "api", "v1", "database", dbName, "activities" ]
+                [ "api", "v1", "db", dbName, "activities" ]
                 [ Url.Builder.string "name" query
                 , Url.Builder.int "limit" 10
                 ]
