@@ -101,7 +101,7 @@ data RefDataConfig = RefDataConfig
 -- | Default server configuration
 defaultServerConfig :: ServerConfig
 defaultServerConfig = ServerConfig
-    { scPort = 8081
+    { scPort = 8080
     , scHost = "127.0.0.1"
     , scPassword = Nothing
     }
@@ -135,7 +135,7 @@ instance DecodeTOML Config where
 
 instance DecodeTOML ServerConfig where
     tomlDecoder = do
-        scPort <- fromMaybe 8081 <$> getFieldOpt "port"
+        scPort <- fromMaybe 8080 <$> getFieldOpt "port"
         scHost <- fromMaybe "127.0.0.1" <$> getFieldOpt "host"
         scPassword <- getFieldOpt "password"
         pure ServerConfig{..}

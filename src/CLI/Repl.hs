@@ -182,7 +182,7 @@ extractPort url =
     case reverse $ takeWhile (/= ':') $ reverse url of
         portStr | all (`elem` ("0123456789" :: String)) portStr
                 , not (null portStr) -> read portStr
-        _ -> 8081  -- fallback to config default
+        _ -> 8080  -- fallback to config default
 
 -- | Poll until the server responds, with dot progress
 waitForServer :: Manager -> RemoteConfig -> Int -> IO ()

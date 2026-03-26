@@ -40,7 +40,7 @@ class Client:
         result = c.get_lcia(pid, method_id, substitutions=subs)
     """
 
-    def __init__(self, base_url: str = "http://localhost:8081", db: str = "", password: str = ""):
+    def __init__(self, base_url: str = "http://localhost:8080", db: str = "", password: str = ""):
         self.base_url = base_url.rstrip("/")
         self.db = db
         self._session = requests.Session()

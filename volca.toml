@@ -10,7 +10,7 @@
 # ── Server ───────────────────────────────────────────────────────────
 
 [server]
-port = 8081                     # HTTP port
+port = 8080                     # HTTP port
 host = "127.0.0.1"             # Bind address ("0.0.0.0" for all interfaces)
 # password = "changeme"        # Optional HTTP Basic Auth password
 

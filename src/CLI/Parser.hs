@@ -470,7 +470,7 @@ cliParserInfo =
             <> header "volca - Command-line interface for VoLCA"
             <> footer
                 "Examples:\n\
-                \  volca --config volca.toml server --port 8081         # Start server\n\
+                \  volca --config volca.toml server --port 8080         # Start server\n\
                 \  volca --config volca.toml --db ecoinvent activities --name electricity\n\
                 \  volca --config volca.toml --db ecoinvent activity UUID\n\
                 \  volca --config volca.toml --db ecoinvent tree UUID --depth 3\n\

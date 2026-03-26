@@ -47,8 +47,8 @@ Download and run the installer for Windows or Linux from the releases page. The 
 ./build.sh
 
 # Start the server
-volca --config volca.toml server --port 8081
-# Open http://localhost:8081
+volca --config volca.toml server --port 8080
+# Open http://localhost:8080
 ```
 
 ### Command Line
@@ -57,7 +57,7 @@ The CLI is a lightweight HTTP client that connects to a running server (~0.2s pe
 
 ```bash
 # Start server (loads databases into memory once)
-volca --config volca.toml server --port 8081
+volca --config volca.toml server --port 8080
 
 # In another terminal — all commands talk to the server via HTTP
 volca --config volca.toml activities --name "electricity" --geo "FR"
@@ -89,7 +89,7 @@ A TOML config file enables multi-database setups, method collections, and refere
 
 ```toml
 [server]
-port = 8081
+port = 8080
 host = "127.0.0.1"
 password = "mysecret"          # optional — omit to disable auth
 
@@ -218,7 +218,7 @@ The `lcia-batch` response includes per-category `normalizedScore` and `weightedS
 
 ```bash
 # Start server (loads databases — run once)
-volca --config volca.toml server --port 8081
+volca --config volca.toml server --port 8080
 
 # Single HTTP command (connects to running server, ~0.2s)
 volca --config volca.toml [--db NAME] COMMAND [OPTIONS]
@@ -374,7 +374,7 @@ The build script downloads and compiles PETSc automatically if not already prese
 
 ```bash
 docker build -t volca .
-docker run -p 8081:8081 -v /path/to/data:/data volca
+docker run -p 8080:8080 -v /path/to/data:/data volca
 ```
 
 ---

@@ -12,7 +12,7 @@ Workflow:
 
 Usage:
     python -m examples.raw_ingredient_substitution
-    python -m examples.raw_ingredient_substitution --url http://localhost:8081 --db agribalyse-3.2
+    python -m examples.raw_ingredient_substitution --url http://localhost:8080 --db agribalyse-3.2
 """
 
 import argparse

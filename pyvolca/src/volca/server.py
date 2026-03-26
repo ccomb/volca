@@ -31,7 +31,7 @@ class Server:
         # Read port and password from config
         cfg = self._read_config()
         server_cfg = cfg.get("server", {})
-        self.port = port or server_cfg.get("port", 8081)
+        self.port = port or server_cfg.get("port", 8080)
         self.password = server_cfg.get("password", "")
 
     @property

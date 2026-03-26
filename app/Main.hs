@@ -26,12 +26,13 @@ import CLI.Parser (cliParserInfo)
 import CLI.Types
 import Config (loadConfig, Config(..), ServerConfig(..), DatabaseConfig(..), HostingConfig(..))
 import Database.Manager (initDatabaseManager, DatabaseManager(..))
-import Matrix (initializePetscForServer)
+import Matrix (initializeSolverForServer)
 import Network.HTTP.Client (newManager, defaultManagerSettings)
 import Progress
 import Control.Concurrent.STM (readTVarIO)
 
 -- For server mode
+import API.MCP (mcpApp)
 import API.Routes (lcaAPI, lcaServer)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -77,11 +78,11 @@ isLocalCommand (ExportMatrices _)  = True
 isLocalCommand (Plugin _)          = True
 isLocalCommand _                   = False
 
--- | Run local-only CLI commands through DatabaseManager (loads DBs, PETSc)
+-- | Run local-only CLI commands through DatabaseManager (loads DBs, matrix solver)
 runCLIWithConfig :: CLIConfig -> Command -> FilePath -> IO ()
 runCLIWithConfig cliConfig cmd cfgFile = do
   config <- loadConfigOrDie cfgFile
-  initializePetscForServer
+  initializeSolverForServer
   dbManager <- initDatabaseManager config (noCache (globalOptions cliConfig)) (Just cfgFile)
   executeCommand cliConfig cmd dbManager
 
@@ -130,13 +131,8 @@ runServerWithConfig cliConfig serverOpts cfgFile = do
 
   let port = serverPort serverOpts
 
-  -- Initialize PETSc/MPI context (also restores SIGPIPE handler on Unix)
-  reportProgress Info "Initializing PETSc/MPI for persistent matrix operations"
-  initializePetscForServer
-  -- Flush stdout after PETSc init: PETSc's C printf may leave data in the
-  -- C buffer when stdout is piped (block-buffered), which blocks the Tauri
-  -- desktop launcher waiting for the next line.
-  hFlush stdout
+  -- Initialize matrix solver (no-op for MUMPS, kept for API compatibility)
+  initializeSolverForServer
 
   -- Get password from CLI, config, or env var
   password <- case CLI.Types.serverPassword (globalOptions cliConfig) of
@@ -176,8 +172,8 @@ runServerWithConfig cliConfig serverOpts cfgFile = do
       pure ()
 
   -- Create app with DatabaseManager - API handlers fetch current DB dynamically
-  let baseApp = Main.createServerApp dbManager (treeDepth (globalOptions cliConfig)) staticDir desktopMode password (cfgHosting effectiveConfig)
-      appWithIdleAndShutdown = idleTrackingMiddleware lastRequestRef
+  baseApp <- Main.createServerApp dbManager (treeDepth (globalOptions cliConfig)) staticDir desktopMode password (cfgHosting effectiveConfig)
+  let appWithIdleAndShutdown = idleTrackingMiddleware lastRequestRef
           $ shutdownEndpoint mainTid lastRequestRef idleActiveRef baseApp
       finalApp = case password of
         Just pwd -> authMiddleware (C8.pack pwd) appWithIdleAndShutdown
@@ -206,24 +202,28 @@ overrideLoad dbNames dbConfig =
     dbConfig { dcLoad = dcName dbConfig `elem` dbNames }
 
 -- | Create a Wai application with DatabaseManager
-createServerApp :: DatabaseManager -> Int -> FilePath -> Bool -> Maybe String -> Maybe HostingConfig -> Application
-createServerApp dbManager maxTreeDepth staticDir desktopMode password hostingConfig req respond = do
-  let path = rawPathInfo req
-      qs = rawQueryString req
-      fullUrl = path <> qs
+createServerApp :: DatabaseManager -> Int -> FilePath -> Bool -> Maybe String -> Maybe HostingConfig -> IO Application
+createServerApp dbManager maxTreeDepth staticDir desktopMode password hostingConfig = do
+  mcp <- mcpApp dbManager
+  return $ \req respond -> do
+    let path = rawPathInfo req
+        qs = rawQueryString req
+        fullUrl = path <> qs
 
-  -- Simple request logging (suppress in desktop mode)
-  unless desktopMode $ do
-    putStrLn $ C8.unpack (requestMethod req) ++ " " ++ C8.unpack fullUrl
-    hFlush stdout
+    -- Simple request logging (suppress in desktop mode)
+    unless desktopMode $ do
+      putStrLn $ C8.unpack (requestMethod req) ++ " " ++ C8.unpack fullUrl
+      hFlush stdout
 
-  -- Route requests based on path prefix
-  if path == "/api/v1/logs/stream"
-    then handleLogStream req respond
-    else if C8.pack "/api/" `BS.isPrefixOf` path
-    then
-      serve lcaAPI (lcaServer dbManager maxTreeDepth password hostingConfig) req respond
-    else if C8.pack "/static/" `BS.isPrefixOf` path
+    -- Route requests based on path prefix
+    if path == "/mcp"
+      then mcp req respond
+      else if path == "/api/v1/logs/stream"
+      then handleLogStream req respond
+      else if C8.pack "/api/" `BS.isPrefixOf` path
+      then
+        serve lcaAPI (lcaServer dbManager maxTreeDepth password hostingConfig) req respond
+      else if C8.pack "/static/" `BS.isPrefixOf` path
       then
         let strippedPath = BS.drop 7 path
             originalPathInfo = pathInfo req
