@@ -199,6 +199,41 @@ The `lcia-batch` response includes per-category `normalizedScore` and `weightedS
 
 ---
 
+## MCP Server
+
+VoLCA exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) endpoint at `POST /mcp`, making LCA data queryable by AI assistants (Claude, Cursor, etc.) natively.
+
+Configure it in your MCP client:
+
+```json
+{
+  "mcpServers": {
+    "volca": {
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
+
+Available tools:
+
+| Tool | Description |
+|------|-------------|
+| `list_databases` | List loaded databases |
+| `search_activities` | Search by name, geography, or product |
+| `search_flows` | Search biosphere flows |
+| `get_activity` | Activity details and exchanges |
+| `get_tree` | Supply chain tree with loop detection |
+| `get_supply_chain` | Flat upstream activity list with quantities |
+| `get_inventory` | LCI biosphere flows (top N by quantity) |
+| `compute_lcia` | LCIA score for an activity and method |
+| `list_methods` | List loaded impact assessment methods |
+| `get_flow_mapping` | CF-to-flow mapping coverage for a method |
+
+Authentication uses the same password as the REST API.
+
+---
+
 ## CLI Commands
 
 ### Global Options
@@ -342,26 +377,36 @@ All API routes are prefixed with `/api/v1/`. A dash (—) means the feature is o
 
 ### Linux / macOS
 
+Install the MUMPS sparse solver and other dependencies, then build:
+
 ```bash
-./build.sh              # Download PETSc and build everything
+# Debian/Ubuntu
+sudo apt install build-essential python3 curl zlib1g-dev libmumps-seq-dev nodejs npm
+
+# macOS
+brew install gcc python3 curl node mumps
+
+# Fedora
+sudo dnf install gcc gcc-c++ make python3 curl zlib-devel MUMPS-devel nodejs npm
+
+# Arch Linux
+sudo pacman -S base-devel python curl zlib mumps nodejs npm
+```
+
+Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/), then:
+
+```bash
+./build.sh              # Build backend + frontend
 ./build.sh --test       # Build and run tests
 ./build.sh --desktop    # Build desktop application
 ```
-
-The build script downloads and compiles PETSc automatically if not already present.
 
 ### Windows (MSYS2)
 
 1. Install [MSYS2](https://www.msys2.org/) and open the "MSYS2 UCRT64" terminal
 2. Install dependencies:
    ```bash
-   pacman -S make python git \
-             mingw-w64-ucrt-x86_64-gcc \
-             mingw-w64-ucrt-x86_64-gcc-fortran \
-             mingw-w64-ucrt-x86_64-cmake \
-             mingw-w64-ucrt-x86_64-openblas \
-             mingw-w64-ucrt-x86_64-msmpi \
-             mingw-w64-ucrt-x86_64-zlib
+   pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-mumps make python git
    ```
 3. Install [GHCup](https://www.haskell.org/ghcup/) for the compiler toolchain
 4. Run:
@@ -388,7 +433,7 @@ Databases are loaded entirely into memory. A schema-aware cache (`.bin.zst` per 
 | Large database (25k activities) | ~45s | ~2-3s |
 | Small sector database | ~2s | <0.5s |
 
-Matrix solving uses PETSc sparse solvers. Inventory computation for a typical supply chain takes under 15 seconds on a large database.
+Matrix solving uses MUMPS_SEQ sparse LU factorization. Inventory computation for a typical supply chain takes under 15 seconds on a large database.
 
 ---
 
@@ -398,7 +443,6 @@ Matrix solving uses PETSc sparse solvers. Inventory computation for a typical su
 ./build.sh --test
 
 # Or manually
-export LD_LIBRARY_PATH="petsc-3.24.2/arch-linux-c-opt/lib"
 cabal test --test-show-details=streaming
 ```
 
