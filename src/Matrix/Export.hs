@@ -295,8 +295,17 @@ exportAMatrix :: FilePath -> Database -> IO ()
 exportAMatrix filePath db = do
     let techTriples = dbTechnosphereTriples db
         activityCount = dbActivityCount db
+        activities = dbActivities db
 
-        diagonalEntries = [T.pack $ show i ++ ";" ++ show i ++ ";1.0;;;;;"
+        -- Waste activities have their reference product stored as outputGroup=0 with a
+        -- NEGATIVE amount (e.g., hard coal ash = -1.0 kg). These use -1.0 on the diagonal
+        -- in the (I-A) convention. Production activities use 1.0.
+        diagValue i =
+            let act = activities V.! i
+            in if any (\ex -> exchangeIsReference ex && exchangeAmount ex < 0) (exchanges act)
+               then "-1.0" else "1.0"
+
+        diagonalEntries = [T.pack $ show i ++ ";" ++ show i ++ ";" ++ diagValue i ++ ";;;;;"
                           | i <- [0..fromIntegral activityCount - 1 :: Int]]
 
         offDiagonalRows = U.foldr (\(SparseTriple row col value) acc ->

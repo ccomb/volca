@@ -140,7 +140,7 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
         buildActivityTriplets (j, consumerPid) =
             let consumerActivity = dbActivities V.! fromIntegral consumerPid
                 -- Get activity UUID from ProcessId table
-                (activityUUID, _) = dbProcessIdTable V.! fromIntegral consumerPid
+                (activityUUID, productUUID) = dbProcessIdTable V.! fromIntegral consumerPid
 
                 -- For normalization, only use reference OUTPUTS (not treatment inputs)
                 -- Treatment inputs have negative amounts and would incorrectly inflate the normalization factor
@@ -148,15 +148,17 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
                 -- If no outputs (pure treatment), use abs of reference input
                 refInputs = [ abs (exchangeAmount ex) | ex <- exchanges consumerActivity, exchangeIsReference ex, exchangeIsInput ex ]
 
-                -- Calculate internal consumption (self-loops): technosphere inputs that link back to same activity
-                -- These represent internal losses (e.g., electricity market losses, heat for process)
+                -- Calculate internal consumption (self-loops): technosphere inputs that link back to the
+                -- EXACT same (activity, product) pair. Must check both activityLinkId == activityUUID AND
+                -- flowId == productUUID, to avoid counting cross-product inputs in multi-output processes
+                -- (e.g., coal gas input linking to the same coke production plant is NOT a sulfur self-loop).
                 internalConsumption = sum [ exchangeAmount ex
                                           | ex <- exchanges consumerActivity
                                           , isTechnosphereExchange ex
                                           , exchangeIsInput ex
                                           , not (exchangeIsReference ex)  -- Don't count reference products
                                           , case exchangeActivityLinkId ex of
-                                                Just linkUUID -> linkUUID == activityUUID
+                                                Just linkUUID -> linkUUID == activityUUID && exchangeFlowId ex == productUUID
                                                 Nothing -> False
                                           ]
 
@@ -215,19 +217,20 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
                 buildActivityBioTriplets (j, pid) =
                     let activity = dbActivities V.! fromIntegral pid
                         -- Get activity UUID from ProcessId table
-                        (activityUUID, _) = dbProcessIdTable V.! fromIntegral pid
+                        (activityUUID, productUUID) = dbProcessIdTable V.! fromIntegral pid
 
                         refOutputs = [ exchangeAmount ex | ex <- exchanges activity, exchangeIsReference ex, not (exchangeIsInput ex) ]
                         refInputs = [ abs (exchangeAmount ex) | ex <- exchanges activity, exchangeIsReference ex, exchangeIsInput ex ]
 
-                        -- Calculate internal consumption (self-loops) same as for technosphere matrix
+                        -- Calculate internal consumption (self-loops): must match both activityUUID and productUUID
+                        -- (same fix as technosphere matrix — avoids spurious self-loops in multi-output processes)
                         internalConsumption = sum [ exchangeAmount ex
                                                   | ex <- exchanges activity
                                                   , isTechnosphereExchange ex
                                                   , exchangeIsInput ex
                                                   , not (exchangeIsReference ex)
                                                   , case exchangeActivityLinkId ex of
-                                                        Just linkUUID -> linkUUID == activityUUID
+                                                        Just linkUUID -> linkUUID == activityUUID && exchangeFlowId ex == productUUID
                                                         Nothing -> False
                                                   ]
 
