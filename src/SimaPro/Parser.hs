@@ -656,12 +656,17 @@ processBlockToActivity (dbInputPs, dbCalcPs, projInputPs, projCalcPs) ProcessBlo
         evalParam acc (name, rawVal) = case Expr.evaluate acc rawVal of
             Right v -> M.insert name v acc
             Left _  -> acc
+        -- Fixed-point iteration for calculated params: repeat until no new variables resolve
+        -- (handles forward references where a param depends on one defined later in the CSV)
+        evalCalcParams acc params =
+            let acc' = foldl' evalParam acc params
+            in if M.size acc' == M.size acc then acc' else evalCalcParams acc' params
         env0 = foldl' evalParam M.empty (reverse dbInputPs)
         env1 = foldl' evalParam env0 (reverse projInputPs)
         env2 = foldl' evalParam env1 (reverse pbInputParams)
-        env3 = foldl' evalParam env2 (reverse dbCalcPs)
-        env4 = foldl' evalParam env3 (reverse projCalcPs)
-        env  = foldl' evalParam env4 (reverse pbCalcParams)
+        env3 = evalCalcParams env2 (reverse dbCalcPs)
+        env4 = evalCalcParams env3 (reverse projCalcPs)
+        env  = evalCalcParams env4 (reverse pbCalcParams)
 
         -- Raw expression map for re-evaluation
         allExprs = reverse dbInputPs ++ reverse projInputPs ++ reverse pbInputParams
