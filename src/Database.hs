@@ -283,6 +283,7 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
             , dbFlowsByName = M.empty  -- Will be populated at runtime
             , dbFlowsByCAS = M.empty  -- Will be populated at runtime
             , dbSearchIndex = M.empty  -- Will be populated at runtime
+            , dbProductSearchIndex = M.empty  -- Will be populated at runtime
             }
 
 -- | Build indexes with ProcessIds
@@ -408,17 +409,31 @@ findActivitiesByFields db nameParam geoParam productParam classParam classValueP
                  in [(pid, a) | (pid, a) <- nameFiltered, T.isInfixOf geoLower (T.toLower (activityLocation a))]
 
         -- Filter by product if provided (multi-word AND match on reference product name)
+        pidx = dbProductSearchIndex db
+
+        getProductNames a' =
+            [ flowName flow
+            | ex <- exchanges a'
+            , exchangeIsReference ex
+            , not (exchangeIsInput ex)
+            , Just flow <- [M.lookup (exchangeFlowId ex) (dbFlows db)]
+            ]
+
+        -- Filter by product using index when available
         productFiltered = case productParam of
             Nothing -> geoFiltered
-            Just prod ->
-                let getProductNames a' =
-                        [ flowName flow
-                        | ex <- exchanges a'
-                        , exchangeIsReference ex
-                        , not (exchangeIsInput ex)
-                        , Just flow <- [M.lookup (exchangeFlowId ex) (dbFlows db)]
-                        ]
-                 in [(pid, a) | (pid, a) <- geoFiltered, allWordsMatch prod getProductNames a]
+            Just prod
+                | M.null pidx ->
+                    [(pid, a) | (pid, a) <- geoFiltered, allWordsMatch prod getProductNames a]
+                | otherwise ->
+                    let searchWords = filter (not . T.null) $ T.words (T.toLower prod)
+                        wordCandidates w = IS.unions [ ids | (key, ids) <- M.toList pidx, T.isInfixOf w key ]
+                        candidates = case map wordCandidates searchWords of
+                            [] -> IS.fromList (map (fromIntegral . fst) geoFiltered)
+                            (first:rest) -> foldl IS.intersection first rest
+                        geoSet = IS.fromList (map (fromIntegral . fst) geoFiltered)
+                        filtered = IS.intersection candidates geoSet
+                     in filter (\(_, a') -> allWordsMatch prod getProductNames a') (resolveIds filtered)
 
         -- Filter by classification if provided
         classFiltered = case classValueParam of

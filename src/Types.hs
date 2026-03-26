@@ -389,6 +389,8 @@ data Database = Database
     , dbFlowsByCAS :: !(M.Map Text [Flow]) -- CAS → biosphere flows for LCIA matching
     -- Search index: word token → ProcessId set (built at runtime for fast activity search)
     , dbSearchIndex :: !(M.Map Text IS.IntSet)
+    -- Product name search index: word token → ProcessId set (built at runtime)
+    , dbProductSearchIndex :: !(M.Map Text IS.IntSet)
     }
     deriving (Generic, NFData)
 
@@ -482,6 +484,7 @@ instance Store Database where
             , dbFlowsByName = M.empty
             , dbFlowsByCAS = M.empty
             , dbSearchIndex = M.empty
+            , dbProductSearchIndex = M.empty
             }
 
 -- | Helper functions for ProcessId and Database operations
@@ -590,6 +593,7 @@ addFlowNameIndexToDatabase db =
     in db { dbFlowsByName = buildFlowNameIndex (dbFlows db) bioUUIDs
           , dbFlowsByCAS  = buildFlowCASIndex (dbFlows db) bioUUIDs
           , dbSearchIndex = buildSearchIndex (dbActivities db)
+          , dbProductSearchIndex = buildProductSearchIndex (dbActivities db) (dbFlows db)
           }
 
 -- | Build word-token search index: lowercased word → IntSet of ProcessIds
@@ -604,6 +608,26 @@ buildSearchIndex activities =
             words_ = T.words (T.toLower (activityName a))
                   ++ T.words (T.toLower (activityLocation a))
         in foldl' (\m w -> MS.insertWith IS.union w (IS.singleton pid) m) acc words_
+
+-- | Build word-token product search index: lowercased word → IntSet of ProcessIds
+-- Tokenizes reference product flow names so product search can use index intersection.
+buildProductSearchIndex :: V.Vector Activity -> M.Map UUID Flow -> M.Map Text IS.IntSet
+buildProductSearchIndex activities flowDb =
+    V.ifoldl' addActivity M.empty activities
+  where
+    addActivity !acc i a =
+        let pid = fromIntegral i
+            productWords =
+                [ w
+                | ex <- exchanges a
+                , exchangeIsReference ex
+                , not (exchangeIsInput ex)
+                , Just flow <- [M.lookup (exchangeFlowId ex) flowDb]
+                , w <- T.words (T.toLower (flowName flow))
+                , not (T.null w)
+                ]
+        in foldl' (\m w -> MS.insertWith IS.union w (IS.singleton pid) m) acc productWords
+
 
 -- | Add both SynonymDB and flow name index to a Database
 -- Convenience function for post-load initialization
