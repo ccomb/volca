@@ -1,3 +1,4 @@
 [submodule "petsc-hs"]
 	path = petsc-hs
 	url = https://github.com/ccomb/petsc-hs.git
+	ignore = dirty
