@@ -361,35 +361,36 @@ buildProductIndex activities processIdTable flowDb =
 
 -- | Search activities by multiple fields (name, geography, product, classification)
 -- Multi-word search: each word must match either name OR location (AND logic)
-findActivitiesByFields :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> [Activity]
+-- Returns (ProcessId, Activity) pairs so callers don't need to re-scan for ProcessId.
+findActivitiesByFields :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> [(ProcessId, Activity)]
 findActivitiesByFields db nameParam geoParam productParam classParam classValueParam =
-    let activities = V.toList (dbActivities db)
+    let -- Pair each activity with its ProcessId (Vector index) to avoid O(n) re-lookup later
+        activities = [(fromIntegral i, a) | (i, a) <- zip [(0::Int)..] (V.toList (dbActivities db))]
 
         -- Filter by name: split into words, each word must match name OR location
         nameFiltered = case nameParam of
             Nothing -> activities
             Just name ->
                 let searchWords = filter (not . T.null) $ T.words (T.toLower name)
-                    -- Check if all words match (each word must be in name OR location)
                     matchesAllWords a =
                         let nameLower = T.toLower (activityName a)
                             locationLower = T.toLower (activityLocation a)
                          in all (\w -> T.isInfixOf w nameLower || T.isInfixOf w locationLower) searchWords
-                 in [a | a <- activities, matchesAllWords a]
+                 in [(pid, a) | (pid, a) <- activities, matchesAllWords a]
 
         -- Filter by geography if provided (substring match)
         geoFiltered = case geoParam of
             Nothing -> nameFiltered
             Just geo ->
                 let geoLower = T.toLower geo
-                 in [a | a <- nameFiltered, T.isInfixOf geoLower (T.toLower (activityLocation a))]
+                 in [(pid, a) | (pid, a) <- nameFiltered, T.isInfixOf geoLower (T.toLower (activityLocation a))]
 
         -- Filter by product if provided (substring match)
         productFiltered = case productParam of
             Nothing -> geoFiltered
             Just prod ->
                 let productLower = T.toLower prod
-                 in [ a | a <- geoFiltered, any
+                 in [ (pid, a) | (pid, a) <- geoFiltered, any
                                                 ( \ex ->
                                                     exchangeIsReference ex
                                                         && not (exchangeIsInput ex)
@@ -408,14 +409,14 @@ findActivitiesByFields db nameParam geoParam productParam classParam classValueP
                 in case classParam of
                     -- Both system and value: match within specific system
                     Just sys ->
-                        [ a | a <- productFiltered
+                        [ (pid, a) | (pid, a) <- productFiltered
                         , case M.lookup sys (activityClassification a) of
                             Just v -> T.isInfixOf valLower (T.toLower v)
                             Nothing -> False
                         ]
                     -- Only value: match across all classification systems
                     Nothing ->
-                        [ a | a <- productFiltered
+                        [ (pid, a) | (pid, a) <- productFiltered
                         , any (T.isInfixOf valLower . T.toLower) (M.elems (activityClassification a))
                         ]
      in classFiltered

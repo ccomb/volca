@@ -22,9 +22,10 @@ if [ -n "$CGROUP_LIMIT" ] && [ "$CGROUP_LIMIT" != "max" ] && [ "$CGROUP_LIMIT" -
     RAM_MB=$((CGROUP_LIMIT / 1024 / 1024))
 fi
 
-# Heap: ~12% of RAM, capped at 4G, minimum 512M
+# Heap: ~12% of RAM, capped at 2G, minimum 512M
+# Live data rarely exceeds 2GB even with multiple databases loaded
 HEAP_MB=$((RAM_MB / 8))
-[ $HEAP_MB -gt 4096 ] && HEAP_MB=4096
+[ $HEAP_MB -gt 2048 ] && HEAP_MB=2048
 [ $HEAP_MB -lt 512 ] && HEAP_MB=512
 
 # Nursery: ~16MB per core, minimum 64M
@@ -35,10 +36,10 @@ NURSERY_MB=$((CORES * 16))
 CHUNK_MB=$((NURSERY_MB / 32))
 [ $CHUNK_MB -lt 8 ] && CHUNK_MB=8
 
-# Max heap: 75% of RAM, capped at 24G, minimum 2G
-# Leaves 25% for OS, PETSc, and co-located services
+# Max heap: 75% of RAM, capped at 16G, minimum 2G
+# Multiple large databases (ecoinvent + agribalyse) can need 8-12GB during loading
 MAX_MB=$((RAM_MB * 3 / 4))
-[ $MAX_MB -gt 24576 ] && MAX_MB=24576
+[ $MAX_MB -gt 16384 ] && MAX_MB=16384
 [ $MAX_MB -lt 2048 ] && MAX_MB=2048
 
 RTS_FLAGS="+RTS -N -M${MAX_MB}M -H${HEAP_MB}M -A${NURSERY_MB}M -n${CHUNK_MB}m -qg0 -c -F1.5 -I30 -RTS"

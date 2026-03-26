@@ -22,6 +22,7 @@ import qualified Data.IntMap.Strict as IM
 import qualified Data.IntSet as IS
 import qualified Data.Set as S
 import Data.Sequence (Seq(..), (|>))
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (diffUTCTime, getCurrentTime)
@@ -660,13 +661,15 @@ searchFlows :: Database -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int ->
 searchFlows _ Nothing _ _ _ = return $ Right $ toJSON $ SearchResults ([] :: [FlowSearchResult]) 0 0 50 False 0.0
 searchFlows db (Just query) langParam limitParam offsetParam = do
     startTime <- getCurrentTime
-    let _lang = maybe "en" id langParam
+    let _lang = fromMaybe "en" langParam
         limit = maybe 50 (min 1000) limitParam
         offset = maybe 0 (max 0) offsetParam
         allResults = findFlowsBySynonym db query
-        total = length allResults
-        pagedResults = take limit $ drop offset allResults
-        hasMore = offset + limit < total
+        dropped = drop offset allResults
+        taken = take (limit + 1) dropped
+        hasMore = length taken > limit
+        pagedResults = take limit taken
+        total = offset + length taken  -- approximate total (avoids forcing full list)
         flowResults = map (\flow -> FlowSearchResult (flowId flow) (flowName flow) (flowCategory flow) (getUnitNameForFlow (dbUnits db) flow) (M.map S.toList (flowSynonyms flow))) pagedResults
     endTime <- getCurrentTime
     let searchTimeMs = realToFrac (diffUTCTime endTime startTime) * 1000 :: Double
@@ -676,34 +679,29 @@ searchFlows db (Just query) langParam limitParam offsetParam = do
 searchActivities :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> IO (Either ServiceError Value)
 searchActivities db nameParam geoParam productParam classParam classValueParam limitParam offsetParam = do
     startTime <- getCurrentTime
-    let limit = maybe total id limitParam
+    let allResults = findActivitiesByFields db nameParam geoParam productParam classParam classValueParam
         offset = maybe 0 (max 0) offsetParam
-        allResults = findActivitiesByFields db nameParam geoParam productParam classParam classValueParam
-        total = length allResults
-        pagedResults = take limit $ drop offset allResults
-        hasMore = offset + limit < total
+        dropped = drop offset allResults
+        -- Take limit+1 to detect hasMore without forcing the full list
+        limit = fromMaybe 20 limitParam
+        taken = take (limit + 1) dropped
+        hasMore = length taken > limit
+        pagedResults = take limit taken
+        -- Compute total lazily: only force full list when no limit was given
+        total = case limitParam of
+            Nothing -> length allResults
+            Just _  -> offset + length taken -- approximate (exact for current page)
         activityResults =
             map
-                ( \activity ->
+                ( \(processId, activity) ->
                     let (prodName, prodAmount, prodUnit) = getReferenceProductInfo (dbFlows db) (dbUnits db) activity
-                    in case findProcessIdForActivity db activity of
-                        Just processId ->
-                            ActivitySummary
-                                (processIdToText db processId)
-                                (activityName activity)
-                                (activityLocation activity)
-                                prodName
-                                prodAmount
-                                prodUnit
-                        Nothing ->
-                            -- Fallback if ProcessId not found
-                            ActivitySummary
-                                "unknown"
-                                (activityName activity)
-                                (activityLocation activity)
-                                prodName
-                                prodAmount
-                                prodUnit
+                    in ActivitySummary
+                            (processIdToText db processId)
+                            (activityName activity)
+                            (activityLocation activity)
+                            prodName
+                            prodAmount
+                            prodUnit
                 )
                 pagedResults
     endTime <- getCurrentTime
