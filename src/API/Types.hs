@@ -400,10 +400,11 @@ data SupplyChainEntry = SupplyChainEntry
     { sceProcessId :: Text
     , sceName :: Text
     , sceLocation :: Text
-    , sceQuantity :: Double       -- scalingFactor × reference product amount
+    , sceQuantity :: Double       -- scalingFactor × root reference product amount (physical amount per functional unit)
     , sceUnit :: Text
     , sceScalingFactor :: Double   -- raw value from scaling vector
     , sceClassifications :: M.Map Text Text  -- Classifications (ISIC, CPC, Category, etc.)
+    , sceDepth :: Int              -- shortest path distance from root (BFS)
     }
     deriving (Generic)
 

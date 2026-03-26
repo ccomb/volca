@@ -18,7 +18,9 @@ import Plugin.Types (ValidateHandle(..), ValidateContext(..), ValidationPhase(..
 import Data.Int (Int32)
 import qualified Data.List as L
 import qualified Data.Map as M
+import qualified Data.IntMap.Strict as IM
 import qualified Data.Set as S
+import Data.Sequence (Seq(..), (|>))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (diffUTCTime, getCurrentTime)
@@ -976,8 +978,9 @@ getFlowActivities db flowIdText = do
 -- | Compute the supply chain for an activity using the scaling vector.
 -- Returns all upstream activities with their scaling factors and subgraph edges.
 getSupplyChain :: Database -> SharedSolver -> Text -> Maybe Text -> Maybe Int -> Maybe Double
+              -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text
               -> IO (Either ServiceError SupplyChainResponse)
-getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityParam = do
+getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter = do
     case resolveActivityAndProcessId db processIdText of
         Left err -> return $ Left err
         Right (processId, _rootActivity) -> do
@@ -987,19 +990,31 @@ getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityPa
                     let activityIndex = dbActivityIndex db
                         demandVec = buildDemandVectorFromIndex activityIndex processId
                     supplyVec <- solveWithSharedSolver sharedSolver demandVec
-                    return $ Right $ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam
+                    return $ Right $ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter
 
 -- | Pure function: build a SupplyChainResponse from a scaling vector.
 -- Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
 buildSupplyChainFromScalingVector
     :: Database -> ProcessId -> U.Vector Double
     -> Maybe Text -> Maybe Int -> Maybe Double
+    -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text
     -> SupplyChainResponse
-buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam =
+buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter =
     let supplyList = toList supplyVec
         minQ = maybe 0 id minQuantityParam
         limit = maybe 100 id limitParam
+        offset = maybe 0 id offsetParam
         rootActivity = dbActivities db V.! fromIntegral processId
+        rootRefAmount = getReferenceProductAmount rootActivity
+
+        -- BFS depth computation from root on technosphere adjacency
+        -- Build adjacency: consumer (column) -> [supplier (row)]
+        adjacency = U.foldl' (\acc (SparseTriple row col _val) ->
+            IM.insertWith (++) (fromIntegral col) [fromIntegral row] acc
+            ) IM.empty (dbTechnosphereTriples db)
+
+        -- BFS from root, returning IntMap ProcessId -> depth
+        depthMap = bfsDepth (fromIntegral processId) adjacency
 
         allEntries =
             [ (fromIntegral idx :: ProcessId, val)
@@ -1008,18 +1023,25 @@ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam m
             , fromIntegral idx /= (processId :: ProcessId)
             ]
 
-        nameMatches activity = case nameFilter of
-            Nothing -> True
-            Just pat -> T.toCaseFold pat `T.isInfixOf` T.toCaseFold (activityName activity)
+        textMatches pat txt = T.toCaseFold pat `T.isInfixOf` T.toCaseFold txt
+
+        matchesFilters activity pid =
+            let nameOk = maybe True (\pat -> textMatches pat (activityName activity)) nameFilter
+                locOk = maybe True (\pat -> textMatches pat (activityLocation activity)) locationFilter
+                classOk = maybe True (\pat -> any (textMatches pat) (M.elems (activityClassification activity))) classificationFilter
+                depth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
+                depthOk = maybe True (depth <=) maxDepthParam
+            in nameOk && locOk && classOk && depthOk
 
         filtered =
             [ (pid, val, activity)
             | (pid, val) <- allEntries
             , let activity = dbActivities db V.! fromIntegral pid
-            , nameMatches activity
+            , matchesFilters activity pid
             ]
 
-        sorted = take limit $ L.sortBy (\(_, a, _) (_, b, _) -> compare (abs b) (abs a)) filtered
+        sorted = take limit . drop offset $
+            L.sortBy (\(_, a, _) (_, b, _) -> compare (abs b) (abs a)) filtered
 
         allIndices = S.fromList (processId : map fst allEntries)
         edges = [ SupplyChainEdge
@@ -1032,15 +1054,15 @@ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam m
                 ]
 
         mkEntry (pid, scalingFactor, activity) =
-            let refAmount = getReferenceProductAmount activity
-            in SupplyChainEntry
+            SupplyChainEntry
                 { sceProcessId = processIdToText db pid
                 , sceName = activityName activity
                 , sceLocation = activityLocation activity
-                , sceQuantity = scalingFactor * refAmount
+                , sceQuantity = scalingFactor * rootRefAmount
                 , sceUnit = activityUnit activity
                 , sceScalingFactor = scalingFactor
                 , sceClassifications = activityClassification activity
+                , sceDepth = IM.findWithDefault (-1) (fromIntegral pid) depthMap
                 }
 
         rootSummary = ActivitySummary
@@ -1049,7 +1071,7 @@ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam m
             , prsLocation = activityLocation rootActivity
             , prsProduct = maybe (activityName rootActivity) id
                 (getReferenceProductName (dbFlows db) rootActivity)
-            , prsProductAmount = getReferenceProductAmount rootActivity
+            , prsProductAmount = rootRefAmount
             , prsProductUnit = activityUnit rootActivity
             }
 
@@ -1060,6 +1082,20 @@ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam m
         , scrSupplyChain = map mkEntry sorted
         , scrEdges = edges
         }
+
+-- | BFS from root on adjacency list, returns IntMap of node -> shortest depth
+bfsDepth :: Int -> IM.IntMap [Int] -> IM.IntMap Int
+bfsDepth root adj = go (Empty |> root) (IM.singleton root 0)
+  where
+    go Empty visited = visited
+    go (node :<| queue) visited =
+        let depth = visited IM.! node
+            neighbors = IM.findWithDefault [] node adj
+            (queue', visited') = L.foldl' (\(q, v) n ->
+                if IM.member n v then (q, v)
+                else (q |> n, IM.insert n (depth + 1) v)
+                ) (queue, visited) neighbors
+        in go queue' visited'
 
 -- | Get reference product amount for an activity (defaults to 1.0)
 getReferenceProductAmount :: Activity -> Double
