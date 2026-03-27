@@ -104,7 +104,7 @@ import Progress (reportProgress, reportProgressWithTiming, reportError, Progress
 import Database (buildDatabaseWithMatrices)
 import SynonymDB (SynonymDB(..), emptySynonymDB, buildFromCSV, buildFromPairs, loadFromCSVFileWithCache, mergeSynonymDBs, synonymCount)
 import Method.Types (CompartmentMap, buildCompartmentMapFromCSV, compartmentMapSize, Method(..), MethodCollection(..))
-import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), UUID, Flow(..), exchangeFlowId, exchangeIsReference, CrossDBLink(..), CrossDBLinkingStats(..), crossDBBySource, unresolvedCount, LinkBlocker(..), deduplicateFallbacks)
+import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), UUID, Flow(..), Unit(..), exchangeFlowId, exchangeIsReference, CrossDBLink(..), CrossDBLinkingStats(..), crossDBBySource, unresolvedCount, LinkBlocker(..), deduplicateFallbacks)
 import qualified UnitConversion
 import qualified Database.Loader as Loader
 -- CrossDBLinkingStats is now in Types, re-exported from Database.Loader
@@ -975,8 +975,17 @@ stageUploadedDatabase manager dbConfig = do
         Just cachedDb -> do
             -- Cache hit: auto-load dependencies so cross-DB solving works
             _ <- autoLoadDeps manager (dbDependsOn cachedDb)
-            -- Reconstruct staged state from cached Database
+            -- Recompute unknownUnits against the current unitConfig (cache may be stale)
+            unitConfig <- getMergedUnitConfig manager
             let simpleDb = toSimpleDatabase cachedDb
+                freshUnknownUnits = S.fromList
+                    [ unitName u
+                    | u <- M.elems (sdbUnits simpleDb)
+                    , not (UnitConversion.isKnownUnit unitConfig (unitName u))
+                    , not (T.null (unitName u))
+                    ]
+                freshStats = (dbLinkingStats cachedDb)
+                    { cdlUnknownUnits = freshUnknownUnits }
                 staged = StagedDatabase
                     { sdSimpleDB = simpleDb
                     , sdConfig = dbConfig
@@ -984,7 +993,7 @@ stageUploadedDatabase manager dbConfig = do
                     , sdMissingProducts = []
                     , sdSelectedDeps = dbDependsOn cachedDb
                     , sdCrossDBLinks = dbCrossDBLinks cachedDb
-                    , sdLinkingStats = dbLinkingStats cachedDb
+                    , sdLinkingStats = freshStats
                     , sdCachedDB = Just cachedDb
                     }
             atomically $ modifyTVar' (dmStagedDbs manager) (M.insert dbName staged)
