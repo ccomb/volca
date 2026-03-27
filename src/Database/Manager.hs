@@ -408,6 +408,8 @@ initDatabaseManager config noCache configPath = do
 
     -- Auto-load active reference data (flow synonyms, compartment mappings, units)
     -- Flow synonyms use binary cache for fast loading (161K pairs → <1s vs 15s)
+    reportProgress Info $ "Loading reference data: " ++ show (length allUnitDefs) ++ " unit config(s), paths: "
+        ++ unwords (map rdPath allUnitDefs)
     autoLoadFlowSynonyms loadedFlowSynsVar allFlowSyns
     autoLoadRefData compMapOps loadedCompMapsVar allCompMaps
     autoLoadRefData unitDefOps loadedUnitDefsVar allUnitDefs
