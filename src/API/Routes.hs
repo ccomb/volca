@@ -251,17 +251,19 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
     getHosting :: Handler Value
     getHosting = return $ case hostingConfig of
         Just hc -> object
-            [ "max_uploads" .= Config.hcMaxUploads hc
-            , "api_access" .= Config.hcApiAccess hc
+            [ "is_hosted"      .= True
+            , "max_uploads"    .= Config.hcMaxUploads hc
+            , "api_access"     .= Config.hcApiAccess hc
             , "upgrade_upload" .= Config.hcUpgradeUpload hc
-            , "upgrade_api" .= Config.hcUpgradeApi hc
+            , "upgrade_api"    .= Config.hcUpgradeApi hc
             , "upgrade_vm_size" .= Config.hcUpgradeVmSize hc
             ]
         Nothing -> object
-            [ "max_uploads" .= (-1 :: Int)
-            , "api_access" .= True
+            [ "is_hosted"      .= False
+            , "max_uploads"    .= (-1 :: Int)
+            , "api_access"     .= True
             , "upgrade_upload" .= ("" :: Text)
-            , "upgrade_api" .= ("" :: Text)
+            , "upgrade_api"    .= ("" :: Text)
             , "upgrade_vm_size" .= ("" :: Text)
             ]
 

@@ -152,7 +152,7 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                     , style "margin-bottom" "0.5rem"
                     ]
                     [ i [ class "fas fa-cog", style "font-size" "0.7rem" ] []
-                    , span [] [ text "Manage instance" ]
+                    , span [] [ text "My account" ]
                     ]
               else
                 text ""

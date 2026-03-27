@@ -150,9 +150,7 @@ loadHosting =
         { url = "/api/v1/hosting"
         , expect =
             Http.expectJson HostingLoaded
-                (Json.Decode.field "max_uploads" Json.Decode.int
-                    |> Json.Decode.map (\_ -> True)
-                )
+                (Json.Decode.field "is_hosted" Json.Decode.bool)
         }
 
 
