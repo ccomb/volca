@@ -58,7 +58,7 @@ buildFromPairs pairs =
     let -- Collect direct neighbors for each name (star topology, not transitive)
         directNeighbors = foldl addPair M.empty pairs
         -- Filter: reject names with too many direct synonyms (overly generic terms)
-        maxDirectSynonyms = 5
+        maxDirectSynonyms = 50
         validNeighbors = M.filter ((<= maxDirectSynonyms) . length) directNeighbors
         -- Build groups: each name's group = itself + its direct neighbors
         allNames = M.keys validNeighbors

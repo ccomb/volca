@@ -224,26 +224,43 @@ computeLCIAScore unitConfig unitDB flowDB inventory mappings =
                 let name    = normalizeName (flowName flow)
                     baseMed = normalizeMedium . T.takeWhile (/= '/') . T.toLower $ flowCategory flow
                     subcomp = T.toLower $ fromMaybe "" (flowSubcompartment flow)
-                    exact   = M.lookup (name, baseMed, subcomp) exactCF
+                    strip3 (v, u, _) = (v, u)
+                    exact   = strip3 <$> M.lookup (name, baseMed, subcomp) exactCF
                 in case exact of
                     Just _  -> exact
-                    Nothing -> M.lookup (name, baseMed) fallbackCF
+                    Nothing -> strip3 <$> M.lookup (name, baseMed) fallbackCF
 
     -- UUID-matched CFs: exact flow_id → (CF_value, CF_unit)
     uuidCF = M.fromList
         [ (flowId flow, (mcfValue cf, mcfUnit cf))
         | (cf, Just (flow, ByUUID)) <- mappings ]
 
-    -- Exact CFs for specific subcompartments: (name, medium, subcomp) → max (CF, unit)
-    exactCF = M.fromListWith (\a b -> if fst a >= fst b then a else b)
-        [ ((nameKey cf mflow, normalizeMedium medium, subcomp), (mcfValue cf, mcfUnit cf))
+    -- Prefer higher-priority match strategies; within same strategy, take max CF
+    preferBetter (v1, u1, s1) (v2, u2, s2)
+        | stratPriority s1 < stratPriority s2 = (v1, u1, s1)
+        | stratPriority s1 > stratPriority s2 = (v2, u2, s2)
+        | v1 >= v2  = (v1, u1, s1)
+        | otherwise = (v2, u2, s2)
+    stratPriority ByUUID = 0 :: Int
+    stratPriority ByCAS = 1
+    stratPriority ByName = 2
+    stratPriority BySynonym = 3
+    stratPriority _ = 4
+
+    matchStrategy mflow = case mflow of
+        Just (_, s) -> s
+        Nothing     -> NoMatch
+
+    -- Exact CFs for specific subcompartments: (name, medium, subcomp) → (CF, unit, strategy)
+    exactCF = M.fromListWith preferBetter
+        [ ((nameKey cf mflow, normalizeMedium medium, subcomp), (mcfValue cf, mcfUnit cf, matchStrategy mflow))
         | (cf, mflow) <- mappings
         , Just (Compartment medium subcomp _) <- [mcfCompartment cf]
         , not (T.null subcomp) ]
 
-    -- Fallback CFs for unspecified subcompartment: (name, medium) → max (CF, unit)
-    fallbackCF = M.fromListWith (\a b -> if fst a >= fst b then a else b)
-        [ ((nameKey cf mflow, normalizeMedium medium), (mcfValue cf, mcfUnit cf))
+    -- Fallback CFs for unspecified subcompartment: (name, medium) → (CF, unit, strategy)
+    fallbackCF = M.fromListWith preferBetter
+        [ ((nameKey cf mflow, normalizeMedium medium), (mcfValue cf, mcfUnit cf, matchStrategy mflow))
         | (cf, mflow) <- mappings
         , Just (Compartment medium subcomp _) <- [mcfCompartment cf]
         , T.null subcomp ]
