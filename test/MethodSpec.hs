@@ -253,7 +253,7 @@ spec = do
                                , (ch4CF, Just (ch4Flow, ByUUID))
                                ]
                 -- Score = 10*1 + 2*28 = 10 + 56 = 66
-                computeLCIAScore inventory mappings `shouldBe` 66.0
+                computeLCIAScore M.empty inventory mappings `shouldBe` 66.0
 
             it "ignores unmapped flows" $ do
                 let co2Uuid = UUID.fromWords 1 2 3 4
@@ -266,7 +266,7 @@ spec = do
                                , (ch4CF, Nothing)  -- CH4 not mapped
                                ]
                 -- Score = 10*1 = 10 (CH4 ignored because not mapped)
-                computeLCIAScore inventory mappings `shouldBe` 10.0
+                computeLCIAScore M.empty inventory mappings `shouldBe` 10.0
 
             it "returns 0 for flows not in inventory" $ do
                 let co2Uuid = UUID.fromWords 1 2 3 4
@@ -278,7 +278,7 @@ spec = do
                     n2oFlow = mkTestFlow n2oUuid "Dinitrogen monoxide"
                     mappings = [ (n2oCF, Just (n2oFlow, ByName)) ]
                 -- Score = 0 (N2O not in inventory)
-                computeLCIAScore inventory mappings `shouldBe` 0.0
+                computeLCIAScore M.empty inventory mappings `shouldBe` 0.0
 
             it "handles negative inventory values (resource extraction)" $ do
                 let oilUuid = UUID.fromWords 11 12 13 14
@@ -288,11 +288,11 @@ spec = do
                     oilFlow = mkTestFlow oilUuid "Crude oil"
                     mappings = [ (oilCF, Just (oilFlow, ByUUID)) ]
                 -- Score = -5 * 42 = -210 (negative = resource depletion)
-                computeLCIAScore inventory mappings `shouldBe` (-210.0)
+                computeLCIAScore M.empty inventory mappings `shouldBe` (-210.0)
 
             it "returns 0 for empty mappings" $ do
                 let inventory = M.fromList [(UUID.fromWords 1 2 3 4, 100.0)]
-                computeLCIAScore inventory [] `shouldBe` 0.0
+                computeLCIAScore M.empty inventory [] `shouldBe` 0.0
 
     describe "SimaPro Method CSV Parser" $ do
         it "detects SimaPro method CSV format" $ do

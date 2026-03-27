@@ -154,7 +154,7 @@ lciaAnalyzer = AnalyzeHandle
             mappings <- Mapping.mapMethodFlows defaultMappers mapCtx m
             pure $ toJSON $ M.fromList
                 [ ("method" :: String, toJSON (show m))
-                , ("score",  toJSON (Mapping.computeLCIAScore inv mappings))
+                , ("score",  toJSON (Mapping.computeLCIAScore (dbFlows db) inv mappings))
                 ]
             ) methods
         pure $ toJSON scores
@@ -281,16 +281,15 @@ hotspotAnalyzer = AnalyzeHandle
             methods = acMethods ctx
             mapCtx = Mapping.buildMapContext db
             topN = 20
-        results <- mapM (analyzeMethod mapCtx inv topN) methods
+        results <- mapM (analyzeMethod db mapCtx inv topN) methods
         pure $ toJSON results
     }
   where
-    analyzeMethod mapCtx inv topN method = do
+    analyzeMethod db mapCtx inv topN method = do
         mappings <- Mapping.mapMethodFlows defaultMappers mapCtx method
         let contributions = mapMaybe (flowContribution inv) mappings
             sorted = take topN $ sortOn (\(_,_,c) -> negate (abs c)) contributions
-            total = sum [qty * mcfValue cf | (cf, Just (flow, _)) <- mappings
-                                            , Just qty <- [M.lookup (flowId flow) inv]]
+            total = Mapping.computeLCIAScore (dbFlows db) inv mappings
         pure $ toJSON $ M.fromList
             [ ("method" :: String, toJSON (methodName method))
             , ("unit", toJSON (methodUnit method))

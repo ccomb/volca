@@ -35,7 +35,7 @@ import qualified Data.Text as T
 import Data.UUID (UUID)
 
 import Matrix (Inventory)
-import Types (Database(..), Flow(..))
+import Types (Database(..), Flow(..), FlowDB)
 import Method.Types
 import Plugin.Types (MapperHandle(..), MapContext(..), MapQuery(..), MapResult(..))
 import SynonymDB
@@ -193,8 +193,62 @@ computeMappingStats mappings = MappingStats
   where
     count strategy = length $ filter ((== Just strategy) . fmap snd . snd) mappings
 
--- | Compute LCIA score from inventory and flow mappings
-computeLCIAScore :: Inventory -> [(MethodCF, Maybe (Flow, MatchStrategy))] -> Double
-computeLCIAScore inventory mappings =
-    sum [qty * mcfValue cf | (cf, Just (flow, _)) <- mappings
-                           , Just qty <- [M.lookup (flowId flow) inventory]]
+-- | Compute LCIA score from inventory and flow mappings.
+-- Scores each inventory flow by finding its best matching CF:
+--   1. UUID-matched flows use the exact CF from the mapping.
+--   2. For other flows, tries exact (name, medium, subcompartment) match.
+--   3. Falls back to (name, medium) for CF entries with unspecified subcompartment.
+-- This implements SimaPro's fallback behavior: "Air;(unspecified)" CFs apply to
+-- any air emission that lacks a more specific CF, without aggregating across media.
+computeLCIAScore :: FlowDB -> Inventory -> [(MethodCF, Maybe (Flow, MatchStrategy))] -> Double
+computeLCIAScore flowDB inventory mappings =
+    sum [ scoreFlow fid qty | (fid, qty) <- M.toList inventory, qty /= 0 ]
+  where
+    scoreFlow fid qty = qty * fromMaybe 0 (lookupCF fid)
+
+    lookupCF fid = case M.lookup fid uuidCF of
+        Just cfv -> Just cfv
+        Nothing  -> case M.lookup fid flowDB of
+            Nothing   -> Nothing
+            Just flow ->
+                let name    = normalizeName (flowName flow)
+                    baseMed = normalizeMedium . T.takeWhile (/= '/') . T.toLower $ flowCategory flow
+                    subcomp = T.toLower $ fromMaybe "" (flowSubcompartment flow)
+                    exact   = M.lookup (name, baseMed, subcomp) exactCF
+                    isLongTerm = "long-term" `T.isInfixOf` subcomp
+                in case exact of
+                    Just _  -> exact
+                    Nothing -> if isLongTerm then Nothing
+                               else M.lookup (name, baseMed) fallbackCF
+
+    -- UUID-matched CFs: exact flow_id → CF_value
+    uuidCF = M.fromList
+        [ (flowId flow, mcfValue cf)
+        | (cf, Just (flow, ByUUID)) <- mappings ]
+
+    -- Exact CFs for specific subcompartments: (name, medium, subcomp) → max CF
+    exactCF = M.fromListWith max
+        [ ((nameKey cf mflow, normalizeMedium medium, subcomp), mcfValue cf)
+        | (cf, mflow) <- mappings
+        , Just (Compartment medium subcomp _) <- [mcfCompartment cf]
+        , not (T.null subcomp) ]
+
+    -- Fallback CFs for unspecified subcompartment: (name, medium) → max CF
+    fallbackCF = M.fromListWith max
+        [ ((nameKey cf mflow, normalizeMedium medium), mcfValue cf)
+        | (cf, mflow) <- mappings
+        , Just (Compartment medium subcomp _) <- [mcfCompartment cf]
+        , T.null subcomp ]
+
+    -- Use matched flow's name only for name/synonym matches (prevents CAS geographic
+    -- variant contamination: "Ammonia, DE" CAS-matched to "Ammonia" DB flow must not
+    -- override the "Ammonia" CF entry with the geographic variant's higher value)
+    nameKey cf mflow = normalizeName $ case mflow of
+        Just (flow, ByName)    -> flowName flow
+        Just (flow, BySynonym) -> flowName flow
+        _                      -> mcfFlowName cf
+
+    -- Normalize medium names between method CFs and database flows
+    normalizeMedium m
+        | m == "natural resource" = "resource"
+        | otherwise               = m

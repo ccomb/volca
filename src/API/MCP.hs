@@ -31,7 +31,7 @@ import Plugin.Types (PluginRegistry(..))
 import SharedSolver (SharedSolver)
 import qualified Data.List as L
 import qualified Service
-import Types (Database, flowName)
+import Types (Database(..), flowName)
 import API.Types (InventoryExport(..), InventoryFlowDetail(..))
 import UnitConversion (defaultUnitConfig)
 
@@ -428,7 +428,7 @@ callComputeLCIA dbManager rid args = do
                                             let mappers = prMappers (dmPlugins dbManager)
                                             mappings <- mapMethodToFlows mappers db method
                                             let stats = computeMappingStats mappings
-                                                score = computeLCIAScore inventory mappings
+                                                score = computeLCIAScore (dbFlows db) inventory mappings
                                             return $ toolSuccessJson rid $ object
                                                 [ "method"        .= methodName method
                                                 , "category"      .= methodCategory method
