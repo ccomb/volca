@@ -199,7 +199,17 @@ fi
 
 # Check for MUMPS sequential solver
 MUMPS_FOUND=false
-if [[ "$OS" == "windows" ]]; then
+MUMPS_BUILT_LOCALLY=false
+LOCAL_MUMPS_DIR="$SCRIPT_DIR/deps/mumps"
+
+# Always prefer a locally-built MUMPS (deps/mumps/) — consistent version on all platforms
+if [[ -f "$LOCAL_MUMPS_DIR/lib/libdmumps_seq.a" ]]; then
+    MUMPS_FOUND=true
+    MUMPS_BUILT_LOCALLY=true
+    MUMPS_LIB_DIR="$LOCAL_MUMPS_DIR/lib"
+    MUMPS_INCLUDE_DIR="$LOCAL_MUMPS_DIR/include"
+    log_success "MUMPS found (local build): $MUMPS_LIB_DIR"
+elif [[ "$OS" == "windows" ]]; then
     # MSYS2 packages
     if [[ -f "/ucrt64/lib/libdmumps_seq.a" ]] || [[ -f "/ucrt64/lib/libdmumps.a" ]]; then
         MUMPS_FOUND=true
@@ -217,13 +227,26 @@ elif [[ "$OS" == "macos" ]]; then
         log_success "MUMPS found: $MUMPS_LIB_DIR"
     fi
 else
-    # Linux: check for libmumps-seq-dev
+    # Linux: check system install
     if [[ -f "/usr/lib/x86_64-linux-gnu/libdmumps_seq.so" ]] || [[ -f "/usr/lib/x86_64-linux-gnu/libdmumps_seq.a" ]]; then
         MUMPS_FOUND=true
         MUMPS_LIB_DIR="/usr/lib/x86_64-linux-gnu"
         MUMPS_INCLUDE_DIR="/usr/include"
-        log_success "MUMPS_SEQ found: $MUMPS_LIB_DIR"
+        log_success "MUMPS_SEQ found (system): $MUMPS_LIB_DIR"
     fi
+fi
+
+# Linux fallback: build MUMPS from source
+if [[ "$MUMPS_FOUND" != "true" ]] && [[ "$OS" == "linux" ]]; then
+    log_info "MUMPS not found; building ${MUMPS_VERSION} from source (this may take a few minutes)..."
+    MUMPS_VERSION="$MUMPS_VERSION" \
+    OUTPUT_DIR="$LOCAL_MUMPS_DIR" \
+    BUILD_DIR="$SCRIPT_DIR/deps/build" \
+    "$SCRIPT_DIR/build-mumps.sh"
+    MUMPS_FOUND=true
+    MUMPS_BUILT_LOCALLY=true
+    MUMPS_LIB_DIR="$LOCAL_MUMPS_DIR/lib"
+    MUMPS_INCLUDE_DIR="$LOCAL_MUMPS_DIR/include"
 fi
 
 if [[ "$MUMPS_FOUND" != "true" ]]; then
@@ -336,7 +359,8 @@ if [[ "$OS" == "windows" ]]; then
     export MUMPS_LIB_DIR=$(win_path "$MUMPS_LIB_DIR")
     export MUMPS_INCLUDE_DIR=$(win_path "$MUMPS_INCLUDE_DIR")
     export MSYS2_LIB_DIR GCC_LIB_DIR
-elif [[ "$STATIC_BUILD" == "true" ]]; then
+elif [[ "$STATIC_BUILD" == "true" ]] || [[ "$MUMPS_BUILT_LOCALLY" == "true" ]]; then
+    # Static linking required when using locally-built MUMPS (only .a libs available)
     LINK_MODE="static"
 else
     LINK_MODE="dynamic"

@@ -193,9 +193,9 @@ bundle_databases_from_config() {
         /^\[\[/              { section = ""; next }
         /^\[/                { section = ""; next }
         section != "" && /^path\s*=/ {
-            # Extract the quoted path value
-            match($0, /"([^"]+)"/, m)
-            if (m[1] != "") print m[1]
+            # Extract the quoted path value (2-arg match for mawk compatibility)
+            if (match($0, /"[^"]+"/) > 0)
+                print substr($0, RSTART+1, RLENGTH-2)
         }
     ' "$config_file")
 

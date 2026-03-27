@@ -9,7 +9,8 @@ EF-v3.1/
 *\.bin
 uv.lock
 
-# External dependencies (downloaded by build script)
+# External dependencies (downloaded/built by build scripts)
+deps/
 petsc
 petsc/
 petsc-*/

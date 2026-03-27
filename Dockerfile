@@ -2,7 +2,7 @@
 # Build from volca directory: docker build -t volca .
 FROM debian:bookworm AS haskell-builder
 
-# Install system dependencies including MUMPS_SEQ
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     libgmp-dev \
@@ -17,11 +17,21 @@ RUN apt-get update && apt-get install -y \
     libnuma-dev \
     libncurses-dev \
     unzip \
-    libmumps-seq-dev \
+    libblas-dev \
+    liblapack-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy versions.env for GHC version
+# Copy build scripts and version pins
 COPY versions.env /tmp/
+COPY build-mumps.sh /tmp/
+
+# Build MUMPS from source (cached until MUMPS_VERSION or build-mumps.sh changes)
+RUN . /tmp/versions.env && \
+    MUMPS_VERSION="$MUMPS_VERSION" \
+    OUTPUT_DIR="/build/mumps" \
+    BUILD_DIR="/tmp/mumps-build" \
+    /tmp/build-mumps.sh && \
+    rm -rf /tmp/mumps-build
 
 # Install ghcup and GHC (version from versions.env)
 ENV GHCUP_INSTALL_BASE_PREFIX=/opt
@@ -42,11 +52,12 @@ COPY mumps-hs/ /build/mumps-hs/
 COPY gen-cabal-config.sh /build/volca/
 
 # Set up cabal.project with mumps-hs as local package
+# Static MUMPS: link .a libs into the binary so the runtime image needs no MUMPS package
 RUN echo "packages: ./volca ./mumps-hs" > /build/cabal.project \
     && echo "allow-newer: true" >> /build/cabal.project \
-    && MUMPS_LIB_DIR="/usr/lib/x86_64-linux-gnu" \
-    MUMPS_INCLUDE_DIR="/usr/include" \
-    LINK_MODE="dynamic" \
+    && MUMPS_LIB_DIR="/build/mumps/lib" \
+    MUMPS_INCLUDE_DIR="/build/mumps/include" \
+    LINK_MODE="static" \
     OUTPUT_DIR="/build" \
     /build/volca/gen-cabal-config.sh
 
@@ -77,13 +88,15 @@ FROM debian:bookworm-slim
 ARG GIT_HASH=unknown
 LABEL org.opencontainers.image.revision="${GIT_HASH}"
 
+# MUMPS is statically linked into the binary; only its runtime BLAS/Fortran deps are needed
 RUN apt-get update && apt-get install -y \
-    libmumps-seq-5.7 \
     libgfortran5 \
     libgomp1 \
     libgmp10 \
     zlib1g \
     libzstd1 \
+    libblas3 \
+    liblapack3 \
     ca-certificates \
     locales \
     7zip \

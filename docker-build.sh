@@ -50,8 +50,12 @@ if [[ -n "$CUSTOM_CONFIG" ]]; then
     # Rewrite paths for Docker's /app/data/ location
     sed -i 's|"data/|"/app/data/|g' "$BUNDLE_DIR/volca.toml"
 else
-    # Default: use docker config with reference data only
-    cp volca.docker.toml "$BUNDLE_DIR/volca.toml"
+    # Default: minimal config for Docker (bind on all interfaces, no pre-loaded databases)
+    cat > "$BUNDLE_DIR/volca.toml" <<'EOF'
+[server]
+port = 8080
+host = "0.0.0.0"
+EOF
 fi
 
 # Always include reference data
