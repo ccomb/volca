@@ -84,9 +84,9 @@ Normalization-Weighting set
 Test NW set
 
 Normalization
-Climate change;7575.76
-Acidification;55.56
-Water use;11467.89
+Climate change;1.32396265000545E-4
+Acidification;1.79954697817319E-2
+Water use;8.71937749334747E-5
 
 Weighting
 Climate change;0.2106

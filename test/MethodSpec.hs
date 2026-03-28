@@ -391,7 +391,9 @@ spec = do
                     length (mcNormWeightSets coll) `shouldBe` 1
                     let nw = head (mcNormWeightSets coll)
                     nwName nw `shouldBe` "Test NW set"
-                    M.lookup "Climate change" (nwNormalization nw) `shouldBe` Just 7575.76
+                    case M.lookup "Climate change" (nwNormalization nw) of
+                        Just v -> abs (v - 1.32396265000545e-4) `shouldSatisfy` (< 1e-18)
+                        Nothing -> expectationFailure "Climate change not found"
                     M.lookup "Acidification" (nwWeighting nw) `shouldBe` Just 0.062
 
     describe "Standalone NW CSV Parser" $ do
@@ -401,9 +403,11 @@ spec = do
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right nw -> do
                     nwName nw `shouldBe` "Custom EF NW"
-                    M.lookup "Climate change" (nwNormalization nw) `shouldBe` Just 7575.76
+                    case M.lookup "Climate change" (nwNormalization nw) of
+                        Just v -> abs (v - 1.32396265000545e-4) `shouldSatisfy` (< 1e-18)
+                        Nothing -> expectationFailure "Climate change not found"
                     case M.lookup "Acidification" (nwNormalization nw) of
-                        Just v -> abs (v - 55.56) `shouldSatisfy` (< 1e-10)
+                        Just v -> abs (v - 1.79954697817319e-2) `shouldSatisfy` (< 1e-16)
                         Nothing -> expectationFailure "Acidification not found"
                     M.lookup "Water use" (nwWeighting nw) `shouldBe` Just 0.0851
 
