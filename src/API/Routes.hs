@@ -645,7 +645,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
                         mWeight = M.lookup dmgCat (nwWeighting nw)
                     in case (mNorm, mWeight) of
                         (Just n, Just w) ->
-                            let ns = lrScore result / n
+                            let ns = lrScore result * n
                             in (Just ns, Just (ns * w))
                         _ -> (Nothing, Nothing)
                 Nothing -> (Nothing, Nothing)
