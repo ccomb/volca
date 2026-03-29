@@ -15,6 +15,8 @@ import Pages.Emissions
 import Pages.Graph
 import Pages.Inventory
 import Pages.LCIA
+import Pages.FlowHotspot
+import Pages.ProcessHotspot
 import Pages.DatabaseDetail
 import Pages.FlowMapping
 import Pages.MethodDetail
@@ -194,7 +196,16 @@ viewLeftMenu shared =
                 ( Just dbId, Loaded dbList ) ->
                     lookupDisplayName dbId dbList
 
-                _ ->
+                ( Nothing, _ ) ->
+                    Nothing
+
+                ( Just _, NotAsked ) ->
+                    Nothing
+
+                ( Just _, Loading ) ->
+                    Nothing
+
+                ( Just _, Failed _ ) ->
                     Nothing
 
         currentActivityName =
@@ -246,7 +257,13 @@ navigateToPage shared page =
                         |> List.head
                         |> Maybe.map .name
 
-                _ ->
+                NotAsked ->
+                    Nothing
+
+                Loading ->
+                    Nothing
+
+                Failed _ ->
                     Nothing
 
         dbName =
@@ -283,8 +300,47 @@ navigateToPage shared page =
         ActivityActive LCIA ->
             Shared.NavigateTo (LCIARoute dbName currentActivityId Nothing Nothing)
 
-        ActivityActive tab ->
-            Shared.NavigateTo (ActivityRoute tab dbName currentActivityId)
+        ActivityActive FlowHotspot ->
+            Shared.NavigateTo (FlowHotspotRoute dbName currentActivityId Nothing Nothing)
+
+        ActivityActive ProcessHotspot ->
+            Shared.NavigateTo (ProcessHotspotRoute dbName currentActivityId Nothing Nothing)
+
+        ActivityActive Upstream ->
+            Shared.NavigateTo (ActivityRoute Upstream dbName currentActivityId)
+
+        ActivityActive Emissions ->
+            Shared.NavigateTo (ActivityRoute Emissions dbName currentActivityId)
+
+        ActivityActive Resources ->
+            Shared.NavigateTo (ActivityRoute Resources dbName currentActivityId)
+
+        ActivityActive Products ->
+            Shared.NavigateTo (ActivityRoute Products dbName currentActivityId)
+
+        ActivityActive Tree ->
+            Shared.NavigateTo (ActivityRoute Tree dbName currentActivityId)
+
+        ActivityActive Inventory ->
+            Shared.NavigateTo (ActivityRoute Inventory dbName currentActivityId)
+
+        ActivityActive Graph ->
+            Shared.NavigateTo (ActivityRoute Graph dbName currentActivityId)
+
+        ActivityActive SupplyChainGraph ->
+            Shared.NavigateTo (ActivityRoute SupplyChainGraph dbName currentActivityId)
+
+        ActivityActive SupplyChainGraphDagre ->
+            Shared.NavigateTo (ActivityRoute SupplyChainGraphDagre dbName currentActivityId)
+
+        ActivityActive SupplyChainTable ->
+            Shared.NavigateTo (ActivityRoute SupplyChainTable dbName currentActivityId)
+
+        ActivityActive Variant ->
+            Shared.NavigateTo (ActivityRoute Variant dbName currentActivityId)
+
+        ActivityActive Consumers ->
+            Shared.NavigateTo (ActivityRoute Consumers dbName currentActivityId)
 
         DatabaseSetupActive ->
             Shared.NavigateTo DatabasesRoute
@@ -332,10 +388,64 @@ routeToActivityId route =
         LCIARoute _ pid _ _ ->
             Just pid
 
+        FlowHotspotRoute _ pid _ _ ->
+            Just pid
+
+        ProcessHotspotRoute _ pid _ _ ->
+            Just pid
+
         CompositionRoute flags ->
             Just flags.processId
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -432,6 +542,8 @@ main =
         |> Spa.addPublicPage mappers Route.matchSupplyChainTable Pages.SupplyChainTable.page
         |> Spa.addPublicPage mappers Route.matchVariant Pages.Variant.page
         |> Spa.addPublicPage mappers Route.matchLCIA Pages.LCIA.page
+        |> Spa.addPublicPage mappers Route.matchFlowHotspot Pages.FlowHotspot.page
+        |> Spa.addPublicPage mappers Route.matchProcessHotspot Pages.ProcessHotspot.page
         |> Spa.addPublicPage mappers Route.matchDatabases Pages.Databases.page
         |> Spa.addPublicPage mappers Route.matchUpload Pages.Upload.page
         |> Spa.addPublicPage mappers Route.matchDatabaseSetup Pages.DatabaseSetup.page

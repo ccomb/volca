@@ -133,9 +133,49 @@ executeCommand (CLIConfig globalOpts _) cmd manager = do
       executeMappingCommand registry outputFormat database manager opts
 
     -- Database-level commands
-    _ -> do
+    Activity _ -> do
       (database, _solver) <- requireDatabase manager (dbName globalOpts)
       executeDbCommand registry outputFormat globalOpts database cmd
+
+    Tree _ _ -> do
+      (database, _solver) <- requireDatabase manager (dbName globalOpts)
+      executeDbCommand registry outputFormat globalOpts database cmd
+
+    Inventory _ -> do
+      (database, _solver) <- requireDatabase manager (dbName globalOpts)
+      executeDbCommand registry outputFormat globalOpts database cmd
+
+    Flow _ _ -> do
+      (database, _solver) <- requireDatabase manager (dbName globalOpts)
+      executeDbCommand registry outputFormat globalOpts database cmd
+
+    SearchActivities _ -> do
+      (database, _solver) <- requireDatabase manager (dbName globalOpts)
+      executeDbCommand registry outputFormat globalOpts database cmd
+
+    SearchFlows _ -> do
+      (database, _solver) <- requireDatabase manager (dbName globalOpts)
+      executeDbCommand registry outputFormat globalOpts database cmd
+
+    LCIA _ _ -> do
+      (database, _solver) <- requireDatabase manager (dbName globalOpts)
+      executeDbCommand registry outputFormat globalOpts database cmd
+
+    DebugMatrices _ _ -> do
+      (database, _solver) <- requireDatabase manager (dbName globalOpts)
+      executeDbCommand registry outputFormat globalOpts database cmd
+
+    ExportMatrices _ -> do
+      (database, _solver) <- requireDatabase manager (dbName globalOpts)
+      executeDbCommand registry outputFormat globalOpts database cmd
+
+    Stop -> do
+      reportError "Stop command should be handled in Main.hs"
+      exitFailure
+
+    Repl -> do
+      reportError "Repl command should be handled in Main.hs"
+      exitFailure
 
 -- | Execute commands that require a loaded database
 executeDbCommand :: PluginRegistry -> OutputFormat -> GlobalOptions -> Database -> Command -> IO ()
@@ -171,8 +211,18 @@ executeDbCommand registry fmt globalOpts database = \case
     ExportMatrices outputDir ->
       executeExportMatricesCommand registry database outputDir
 
-    -- Manager-level commands already handled above
-    _ -> pure ()
+    -- Manager-level commands already handled above; should never be reached here
+    Server _ -> pure ()
+    Database _ -> pure ()
+    Method _ -> pure ()
+    Plugin _ -> pure ()
+    Methods -> pure ()
+    Synonyms -> pure ()
+    CompartmentMappings -> pure ()
+    Units -> pure ()
+    Mapping _ -> pure ()
+    Stop -> pure ()
+    Repl -> pure ()
 
 -- | Execute activity info command
 executeActivityCommand :: PluginRegistry -> OutputFormat -> Database -> T.Text -> IO ()
@@ -470,8 +520,46 @@ executeMappingCommand registry fmt database manager opts = do
                              then fromIntegral characterizedCount / fromIntegral dbBioCount * 100 :: Double
                              else 0.0
 
+          let prettyOutput = do
+                putStrLn $ "Method: " ++ T.unpack (Method.Types.methodName method)
+                putStrLn $ "Total CFs: " ++ show (msTotal stats)
+                putStrLn $ "Matched:   " ++ show totalMatched ++ " (" ++ showPercent coverage ++ ")"
+                putStrLn $ "  by UUID:    " ++ show (msByUUID stats)
+                putStrLn $ "  by CAS:     " ++ show (msByCAS stats)
+                putStrLn $ "  by Name:    " ++ show (msByName stats)
+                putStrLn $ "  by Synonym: " ++ show (msBySynonym stats)
+                when (msByFuzzy stats > 0) $
+                  putStrLn $ "  by Fuzzy:   " ++ show (msByFuzzy stats)
+                putStrLn $ "Unmatched:  " ++ show (msUnmatched stats)
+                putStrLn ""
+                putStrLn $ "DB biosphere flows: " ++ show dbBioCount
+                putStrLn $ "Characterized:      " ++ show characterizedCount ++ " (" ++ showPercent charCoverage ++ ")"
+                putStrLn $ "Uncharacterized:    " ++ show uncharacterizedCount
+
+                when (mappingShowMatched opts) $ do
+                  putStrLn ""
+                  putStrLn "--- Matched CFs ---"
+                  mapM_ (\(cf, f, strat) ->
+                      putStrLn $ "  [" ++ T.unpack (strategyText strat) ++ "] "
+                          ++ T.unpack (mcfFlowName cf)
+                          ++ " → " ++ T.unpack (Types.flowName f))
+                      [(cf, f, strat) | (cf, Just (f, strat)) <- mappings]
+
+                when (mappingShowUnmatched opts) $ do
+                  putStrLn ""
+                  putStrLn "--- Unmatched CFs (no DB flow found) ---"
+                  mapM_ (\(cf, _) -> putStrLn $ "  " ++ T.unpack (mcfFlowName cf)
+                              ++ maybe "" (\c -> " [CAS " ++ T.unpack c ++ "]") (mcfCAS cf))
+                      [(cf, m) | (cf, m@Nothing) <- mappings]
+
+                when (mappingShowUncharacterized opts) $ do
+                  putStrLn ""
+                  putStrLn "--- Uncharacterized DB flows (no CF matched) ---"
+                  mapM_ (\name -> putStrLn $ "  " ++ T.unpack name)
+                      (uncharacterizedFlowNames database characterizedUUIDs)
+
           case fmt of
-            JSON -> outputResult registry fmt $ toJSON $ object
+            JSON -> outputResult registry JSON $ toJSON $ object
               [ "method" .= Method.Types.methodName method
               , "totalCFs" .= msTotal stats
               , "matched" .= totalMatched
@@ -503,44 +591,9 @@ executeMappingCommand registry fmt database manager opts = do
                   then toJSON (uncharacterizedFlowNames database characterizedUUIDs)
                   else toJSON (Nothing :: Maybe Value)
               ]
-            _ -> do
-              -- Pretty/Table output
-              putStrLn $ "Method: " ++ T.unpack (Method.Types.methodName method)
-              putStrLn $ "Total CFs: " ++ show (msTotal stats)
-              putStrLn $ "Matched:   " ++ show totalMatched ++ " (" ++ showPercent coverage ++ ")"
-              putStrLn $ "  by UUID:    " ++ show (msByUUID stats)
-              putStrLn $ "  by CAS:     " ++ show (msByCAS stats)
-              putStrLn $ "  by Name:    " ++ show (msByName stats)
-              putStrLn $ "  by Synonym: " ++ show (msBySynonym stats)
-              when (msByFuzzy stats > 0) $
-                putStrLn $ "  by Fuzzy:   " ++ show (msByFuzzy stats)
-              putStrLn $ "Unmatched:  " ++ show (msUnmatched stats)
-              putStrLn ""
-              putStrLn $ "DB biosphere flows: " ++ show dbBioCount
-              putStrLn $ "Characterized:      " ++ show characterizedCount ++ " (" ++ showPercent charCoverage ++ ")"
-              putStrLn $ "Uncharacterized:    " ++ show uncharacterizedCount
-
-              when (mappingShowMatched opts) $ do
-                putStrLn ""
-                putStrLn "--- Matched CFs ---"
-                mapM_ (\(cf, f, strat) ->
-                    putStrLn $ "  [" ++ T.unpack (strategyText strat) ++ "] "
-                        ++ T.unpack (mcfFlowName cf)
-                        ++ " → " ++ T.unpack (Types.flowName f))
-                    [(cf, f, strat) | (cf, Just (f, strat)) <- mappings]
-
-              when (mappingShowUnmatched opts) $ do
-                putStrLn ""
-                putStrLn "--- Unmatched CFs (no DB flow found) ---"
-                mapM_ (\(cf, _) -> putStrLn $ "  " ++ T.unpack (mcfFlowName cf)
-                            ++ maybe "" (\c -> " [CAS " ++ T.unpack c ++ "]") (mcfCAS cf))
-                    [(cf, m) | (cf, m@Nothing) <- mappings]
-
-              when (mappingShowUncharacterized opts) $ do
-                putStrLn ""
-                putStrLn "--- Uncharacterized DB flows (no CF matched) ---"
-                mapM_ (\name -> putStrLn $ "  " ++ T.unpack name)
-                    (uncharacterizedFlowNames database characterizedUUIDs)
+            Pretty -> prettyOutput
+            Table  -> prettyOutput
+            CSV    -> prettyOutput
   where
     showPercent :: Double -> String
     showPercent p = show (round (p * 10) `div` 10 :: Int) ++ "." ++ show (round (p * 10) `mod` 10 :: Int) ++ "%"

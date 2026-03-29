@@ -2,17 +2,22 @@ module Models.LCIA exposing
     ( FlowCFEntry
     , FlowCFMapping
     , FlowContributionEntry
+    , FlowHotspotResult
     , LCIABatchResult
     , LCIAResult
     , MappingStatus
     , MethodSummary
+    , ProcessContribution
+    , ProcessHotspotResult
     , UnmappedFlow
     , flowCFMappingDecoder
+    , flowHotspotResultDecoder
     , lciaBatchResultDecoder
     , lciaResultDecoder
     , mappingStatusDecoder
     , methodSummaryDecoder
     , methodsListDecoder
+    , processHotspotResultDecoder
     )
 
 import Json.Decode as D exposing (Decoder)
@@ -65,6 +70,38 @@ type alias LCIABatchResult =
     , lbrSingleScoreUnit : Maybe String
     , lbrNormWeightSetName : Maybe String
     , lbrAvailableNWsets : List String
+    }
+
+
+{-| Top contributing elementary flows for an impact category
+-}
+type alias FlowHotspotResult =
+    { fhrMethod : String
+    , fhrUnit : String
+    , fhrTotalScore : Float
+    , fhrTopFlows : List FlowContributionEntry
+    }
+
+
+{-| A single upstream process contribution to an LCIA score
+-}
+type alias ProcessContribution =
+    { pcProcessId : String
+    , pcActivityName : String
+    , pcProductName : String
+    , pcLocation : String
+    , pcContribution : Float
+    , pcSharePct : Float
+    }
+
+
+{-| Top contributing upstream processes for an impact category
+-}
+type alias ProcessHotspotResult =
+    { phrMethod : String
+    , phrUnit : String
+    , phrTotalScore : Float
+    , phrProcesses : List ProcessContribution
     }
 
 
@@ -216,3 +253,32 @@ flowCFMappingDecoder =
         |> required "fcmTotalFlows" D.int
         |> required "fcmMatchedFlows" D.int
         |> required "fcmFlows" (D.list flowCFEntryDecoder)
+
+
+processContributionDecoder : Decoder ProcessContribution
+processContributionDecoder =
+    D.succeed ProcessContribution
+        |> required "pcProcessId" D.string
+        |> required "pcActivityName" D.string
+        |> required "pcProductName" D.string
+        |> required "pcLocation" D.string
+        |> required "pcContribution" D.float
+        |> required "pcSharePct" D.float
+
+
+flowHotspotResultDecoder : Decoder FlowHotspotResult
+flowHotspotResultDecoder =
+    D.succeed FlowHotspotResult
+        |> required "fhrMethod" D.string
+        |> required "fhrUnit" D.string
+        |> required "fhrTotalScore" D.float
+        |> required "fhrTopFlows" (D.list flowContributionEntryDecoder)
+
+
+processHotspotResultDecoder : Decoder ProcessHotspotResult
+processHotspotResultDecoder =
+    D.succeed ProcessHotspotResult
+        |> required "phrMethod" D.string
+        |> required "phrUnit" D.string
+        |> required "phrTotalScore" D.float
+        |> required "phrProcesses" (D.list processContributionDecoder)

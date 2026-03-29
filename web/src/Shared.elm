@@ -192,7 +192,13 @@ update msg model =
                 Loaded _ ->
                     ( model, loadDatabases )
 
-                _ ->
+                NotAsked ->
+                    ( { model | databases = Loading }, loadDatabases )
+
+                Loading ->
+                    ( { model | databases = Loading }, loadDatabases )
+
+                Failed _ ->
                     ( { model | databases = Loading }, loadDatabases )
 
         DatabasesLoaded (Ok dbList) ->
@@ -202,7 +208,13 @@ update msg model =
                         Loading ->
                             True
 
-                        _ ->
+                        NotAsked ->
+                            False
+
+                        Loaded _ ->
+                            False
+
+                        Failed _ ->
                             False
 
                 loadingNow =
@@ -239,7 +251,27 @@ update msg model =
                     , Cmd.none
                     )
 
-                _ ->
+                Http.BadStatus _ ->
+                    ( { model | databases = Failed (httpErrorToString error), loadingDatabases = Set.empty, loadProgressLines = [] }
+                    , Cmd.none
+                    )
+
+                Http.BadUrl _ ->
+                    ( { model | databases = Failed (httpErrorToString error), loadingDatabases = Set.empty, loadProgressLines = [] }
+                    , Cmd.none
+                    )
+
+                Http.Timeout ->
+                    ( { model | databases = Failed (httpErrorToString error), loadingDatabases = Set.empty, loadProgressLines = [] }
+                    , Cmd.none
+                    )
+
+                Http.NetworkError ->
+                    ( { model | databases = Failed (httpErrorToString error), loadingDatabases = Set.empty, loadProgressLines = [] }
+                    , Cmd.none
+                    )
+
+                Http.BadBody _ ->
                     ( { model | databases = Failed (httpErrorToString error), loadingDatabases = Set.empty, loadProgressLines = [] }
                     , Cmd.none
                     )
@@ -292,7 +324,7 @@ update msg model =
                         Expanded ->
                             Closed
 
-                        _ ->
+                        Closed ->
                             Expanded
               }
             , Cmd.none
@@ -386,7 +418,10 @@ update msg model =
                 NeedsAuth state ->
                     ( { model | authState = NeedsAuth { state | code = code } }, Cmd.none )
 
-                _ ->
+                AuthChecking ->
+                    ( model, Cmd.none )
+
+                Authenticated ->
                     ( model, Cmd.none )
 
         SubmitAuthCode ->
@@ -394,7 +429,10 @@ update msg model =
                 NeedsAuth state ->
                     ( model, postAuthCode state.code )
 
-                _ ->
+                AuthChecking ->
+                    ( model, Cmd.none )
+
+                Authenticated ->
                     ( model, Cmd.none )
 
         AuthResult (Ok _) ->
@@ -410,7 +448,10 @@ update msg model =
                     , Cmd.none
                     )
 
-                _ ->
+                AuthChecking ->
+                    ( model, Cmd.none )
+
+                Authenticated ->
                     ( model, Cmd.none )
 
         HostingLoaded (Ok isHosted) ->
@@ -454,7 +495,13 @@ isDatabaseLoaded model dbName =
         Loaded dbList ->
             List.any (\db -> db.name == dbName && db.status == DbLoaded) dbList.databases
 
-        _ ->
+        NotAsked ->
+            False
+
+        Loading ->
+            False
+
+        Failed _ ->
             False
 
 
@@ -469,7 +516,13 @@ getDatabaseDisplayName model dbName =
                 |> Maybe.map .displayName
                 |> Maybe.withDefault dbName
 
-        _ ->
+        NotAsked ->
+            dbName
+
+        Loading ->
+            dbName
+
+        Failed _ ->
             dbName
 
 

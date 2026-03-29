@@ -103,6 +103,8 @@ viewLeftMenu currentPage currentActivityId currentDatabaseName currentActivityNa
                                 ]
                                 [ text "Lab" ]
                             , menuItem currentPage (ActivityActive LCIA) "fas fa-chart-bar" "Impacts" True
+                            , menuItem currentPage (ActivityActive FlowHotspot) "fas fa-fire" "Flow Hotspot" True
+                            , menuItem currentPage (ActivityActive ProcessHotspot) "fas fa-industry" "Process Hotspot" True
                             , menuItem currentPage (ActivityActive Tree) "fas fa-project-diagram" "Tree" True
                             , menuItem currentPage (ActivityActive Graph) "fas fa-network-wired" "Graph" True
                             , menuItem currentPage (ActivityActive SupplyChainGraph) "fas fa-sitemap" "Supply Chain Graph" True
@@ -202,7 +204,7 @@ isLabTab : ActivePage -> Bool
 isLabTab page =
     case page of
         ActivityActive tab ->
-            List.member tab [ LCIA, Tree, Graph, SupplyChainGraph, SupplyChainGraphDagre, Variant, Consumers ]
+            List.member tab [ LCIA, FlowHotspot, ProcessHotspot, Tree, Graph, SupplyChainGraph, SupplyChainGraphDagre, Variant, Consumers ]
 
         CompositionActive ->
             True

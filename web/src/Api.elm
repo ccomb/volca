@@ -1,11 +1,11 @@
-module Api exposing (SupplyChainParams, computeLCIABatch, createVariant, defaultSupplyChainParams, loadActivityInfo, loadActivityTree, loadConsumers, loadFlowActivities, loadFlowMapping, loadMethodCollections, loadMethodMapping, loadSupplyChain, searchFlows)
+module Api exposing (SupplyChainParams, computeLCIABatch, createVariant, defaultSupplyChainParams, loadActivityInfo, loadActivityTree, loadConsumers, loadFlowActivities, loadFlowHotspot, loadFlowMapping, loadMethodCollections, loadMethodMapping, loadMethods, loadProcessHotspot, loadSupplyChain, searchFlows)
 
 import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
 import Models.Activity exposing (ActivityInfo, ActivitySummary, ActivityTree, SearchResults, activityInfoDecoder, activitySummaryDecoder, activityTreeDecoder, searchResultsDecoder)
 import Models.Flow exposing (FlowSearchResult, flowSearchResultDecoder)
-import Models.LCIA exposing (FlowCFMapping, LCIABatchResult, MappingStatus, flowCFMappingDecoder, lciaBatchResultDecoder, mappingStatusDecoder)
+import Models.LCIA exposing (FlowCFMapping, FlowHotspotResult, LCIABatchResult, MappingStatus, MethodSummary, ProcessHotspotResult, flowCFMappingDecoder, flowHotspotResultDecoder, lciaBatchResultDecoder, mappingStatusDecoder, methodsListDecoder, processHotspotResultDecoder)
 import Models.Method exposing (MethodCollectionList, methodCollectionListDecoder)
 import Models.SupplyChain exposing (SupplyChainResponse, supplyChainResponseDecoder)
 import Url.Builder
@@ -38,8 +38,32 @@ loadMethodCollections toMsg =
 computeLCIABatch : (Result Http.Error LCIABatchResult -> msg) -> String -> String -> String -> Cmd msg
 computeLCIABatch toMsg dbName processId collection =
     Http.get
-        { url = "/api/v1/db/" ++ dbName ++ "/activity/" ++ processId ++ "/lcia-batch/" ++ collection
+        { url = Url.Builder.absolute [ "api", "v1", "db", dbName, "activity", processId, "lcia", collection ] []
         , expect = Http.expectJson toMsg lciaBatchResultDecoder
+        }
+
+
+loadMethods : (Result Http.Error (List MethodSummary) -> msg) -> Cmd msg
+loadMethods toMsg =
+    Http.get
+        { url = "/api/v1/methods"
+        , expect = Http.expectJson toMsg methodsListDecoder
+        }
+
+
+loadFlowHotspot : (Result Http.Error FlowHotspotResult -> msg) -> String -> String -> String -> String -> Int -> Cmd msg
+loadFlowHotspot toMsg dbName processId collection methodId limit =
+    Http.get
+        { url = Url.Builder.absolute [ "api", "v1", "db", dbName, "activity", processId, "flow-hotspot", collection, methodId ] [ Url.Builder.int "limit" limit ]
+        , expect = Http.expectJson toMsg flowHotspotResultDecoder
+        }
+
+
+loadProcessHotspot : (Result Http.Error ProcessHotspotResult -> msg) -> String -> String -> String -> String -> Int -> Cmd msg
+loadProcessHotspot toMsg dbName processId collection methodId limit =
+    Http.get
+        { url = Url.Builder.absolute [ "api", "v1", "db", dbName, "activity", processId, "process-hotspot", collection, methodId ] [ Url.Builder.int "limit" limit ]
+        , expect = Http.expectJson toMsg processHotspotResultDecoder
         }
 
 

@@ -204,11 +204,16 @@ update shared msg model =
                 newViewMode =
                     flags.view |> Maybe.map viewModeFromString |> Maybe.withDefault LCIAView.Raw
             in
-            if flags.db == model.dbName && flags.processId == model.activityId && flags.method == model.selectedCollection then
-                ( { model | viewMode = newViewMode }, Effect.none )
+            case model.collections of
+                NotAsked ->
+                    init shared flags
 
-            else
-                init shared flags
+                _ ->
+                    if flags.db == model.dbName && flags.processId == model.activityId && flags.method == model.selectedCollection then
+                        ( { model | viewMode = newViewMode }, Effect.none )
+
+                    else
+                        init shared flags
 
 
 view : Shared.Model -> Model -> View Msg

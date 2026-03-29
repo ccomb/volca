@@ -441,13 +441,12 @@ callComputeLCIA dbManager baseUrl rid args = do
                     let db = ldDatabase ld
                         topN = fromMaybe 5 (intArg "top_flows" args)
                     loadedMethods <- DM.getLoadedMethods dbManager
-                    let allMethods = map snd loadedMethods
                     case UUID.fromText methodIdText of
                         Nothing -> return $ toolError rid "Invalid method UUID format"
                         Just uuid ->
-                            case filter (\m -> methodId m == uuid) allMethods of
+                            case filter (\(_, m) -> methodId m == uuid) loadedMethods of
                                 [] -> return $ toolError rid "Method not found"
-                                (method:_) ->
+                                ((colName, method):_) ->
                                     case Service.resolveActivityAndProcessId db pidText of
                                         Left err -> return $ toolError rid (T.pack $ show err)
                                         Right (processId, activity) -> do
@@ -461,7 +460,7 @@ callComputeLCIA dbManager baseUrl rid args = do
                                                 functionalUnit = T.pack (showFFloat (Just 2) prodAmount "") <> " " <> prodUnit <> " of " <> prodName
                                                 contribs = L.sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
                                                 topFlows = take topN contribs
-                                                webUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/lcia?method=" <> UUID.toText uuid
+                                                webUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/lcia/" <> colName <> "/" <> UUID.toText uuid
                                             return $ toolSuccessJson rid $ object
                                                 [ "method"          .= methodName method
                                                 , "category"        .= methodCategory method
@@ -525,16 +524,16 @@ callGetFlowMapping dbManager rid args =
                                         , "coverage"  .= coverage
                                         ]
 
--- | Helper: resolve method from UUID text
-resolveMethod :: DatabaseManager -> Text -> IO (Either Text Method)
+-- | Helper: resolve method from UUID text, also returning its collection name
+resolveMethod :: DatabaseManager -> Text -> IO (Either Text (Text, Method))
 resolveMethod dbManager methodIdText =
     case UUID.fromText methodIdText of
         Nothing -> return $ Left "Invalid method UUID format"
         Just uuid -> do
             loadedMethods <- DM.getLoadedMethods dbManager
-            case filter (\m -> methodId m == uuid) (map snd loadedMethods) of
-                []       -> return $ Left "Method not found"
-                (m:_)    -> return $ Right m
+            case filter (\(_, m) -> methodId m == uuid) loadedMethods of
+                []          -> return $ Left "Method not found"
+                ((col, m):_) -> return $ Right (col, m)
 
 callAnalyzeFlowHotspots :: DatabaseManager -> Text -> Value -> KeyMap Value -> IO Value
 callAnalyzeFlowHotspots dbManager baseUrl rid args =
@@ -550,14 +549,14 @@ callAnalyzeFlowHotspots dbManager baseUrl rid args =
                     eMethod <- resolveMethod dbManager methodIdText
                     case eMethod of
                         Left err -> return $ toolError rid err
-                        Right method ->
+                        Right (colName, method) ->
                             case Service.resolveActivityAndProcessId (ldDatabase ld) pidText of
                                 Left err -> return $ toolError rid (T.pack $ show err)
                                 Right (processId, _) -> do
                                     let db      = ldDatabase ld
                                         lim     = fromMaybe 20 (intArg "limit" args)
                                         mappers = prMappers (dmPlugins dbManager)
-                                        webUrl  = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/lcia?method=" <> methodIdText
+                                        webUrl  = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/flow-hotspot/" <> colName <> "/" <> methodIdText
                                     unitCfg  <- DM.getMergedUnitConfig dbManager
                                     scalingVec <- computeScalingVector db processId
                                     let inventory = applyBiosphereMatrix db scalingVec
@@ -593,7 +592,7 @@ callAnalyzeProcessHotspots dbManager baseUrl rid args =
                     eMethod <- resolveMethod dbManager methodIdText
                     case eMethod of
                         Left err -> return $ toolError rid err
-                        Right method ->
+                        Right (colName, method) ->
                             case Service.resolveActivityAndProcessId (ldDatabase ld) pidText of
                                 Left err -> return $ toolError rid (T.pack $ show err)
                                 Right (processId, _) -> do
@@ -617,7 +616,7 @@ callAnalyzeProcessHotspots dbManager baseUrl rid args =
                                                     Just act -> let (pn, _, _) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) act in pn
                                                     Nothing  -> ""
                                                 pidText' = processIdToText db pid
-                                                procWebUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText' <> "/lcia?method=" <> methodIdText
+                                                procWebUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText' <> "/process-hotspot/" <> colName <> "/" <> methodIdText
                                             in object
                                                 [ "process_id"    .= pidText'
                                                 , "activity_name" .= actName

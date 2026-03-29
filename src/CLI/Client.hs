@@ -12,7 +12,7 @@ import CLI.Types
 import Config (Config(..), ServerConfig(..))
 import Data.Aeson (Value(..), encode, object, (.=), decode, (.:))
 import Data.Aeson.Encode.Pretty (encodePretty)
-import Data.Aeson.Types (parseMaybe, withObject, Parser)
+import Data.Aeson.Types (parseMaybe, withObject, withArray, Parser)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as C8
@@ -142,8 +142,13 @@ executeRemoteCommand mgr rc globalOpts cmd = do
 
         LCIA uuid lciaOpts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
-            let methodId = T.unpack (lciaMethodId lciaOpts)
-            apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/lcia/" ++ methodId) >>= output fmt jp
+            let methodIdText = lciaMethodId lciaOpts
+            mCollection <- lookupMethodCollection mgr rc methodIdText
+            case mCollection of
+                Nothing  -> reportError "Method not found in loaded collections" >> exitFailure
+                Just col -> apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid
+                                ++ "/lcia/" ++ T.unpack col ++ "/" ++ T.unpack methodIdText)
+                            >>= output fmt jp
 
         Mapping opts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
@@ -162,6 +167,23 @@ executeRemoteCommand mgr rc globalOpts cmd = do
         DebugMatrices{}  -> reportError "debug-matrices is local-only" >> exitFailure
         ExportMatrices{} -> reportError "export-matrices is local-only" >> exitFailure
         Repl             -> reportError "repl should be handled in Main" >> exitFailure
+
+-- | Look up the collection name for a given method UUID via /api/v1/methods
+lookupMethodCollection :: Manager -> RemoteConfig -> Text -> IO (Maybe Text)
+lookupMethodCollection mgr rc methodId = do
+    result <- apiGet mgr rc "/api/v1/methods"
+    return $ either (const Nothing) (parseMaybe go) result
+  where
+    go :: Value -> Parser Text
+    go = withArray "methods" $ \arr ->
+        case mapMaybe (parseMaybe matchOne) (V.toList arr) of
+            (c:_) -> pure c
+            []    -> fail "method not found"
+    matchOne :: Value -> Parser Text
+    matchOne = withObject "method" $ \obj -> do
+        uuid <- obj .: "msmId"
+        col  <- obj .: "msmCollection"
+        if (uuid :: Text) == methodId then pure col else fail "no match"
 
 -- | Auto-detect the single loaded database, or use the specified one
 resolveDbName :: Manager -> RemoteConfig -> Maybe Text -> IO Text

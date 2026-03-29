@@ -204,7 +204,8 @@ extractUpload content targetDir = do
             return $ Left "Unsupported file format. Please upload a ZIP, 7z, tar.gz, tar.xz archive, XML, or CSV file."
         Archive7z -> extract7z content targetDir
         ArchiveZip -> extractZip content targetDir
-        _ -> extractArchive format content targetDir
+        ArchiveGzip -> extractArchive ArchiveGzip content targetDir
+        ArchiveXz -> extractArchive ArchiveXz content targetDir
 
 -- | Extract 7z archive using external 7z command
 -- The Haskell libarchive package doesn't properly support 7z extraction
@@ -352,9 +353,13 @@ extractZip archiveData targetDir = do
 extractArchive :: ArchiveFormat -> BL.ByteString -> FilePath -> IO (Either Text ())
 extractArchive format archiveData targetDir = do
     let ext = case format of
-            ArchiveGzip -> ".tar.gz"
-            ArchiveXz   -> ".tar.xz"
-            _           -> ".tar"
+            ArchiveGzip      -> ".tar.gz"
+            ArchiveXz        -> ".tar.xz"
+            ArchiveZip       -> ".tar"
+            Archive7z        -> ".tar"
+            ArchivePlainXML  -> ".tar"
+            ArchivePlainCSV  -> ".tar"
+            ArchiveUnknown   -> ".tar"
     let tempArchive = targetDir </> ".temp" <> ext
     BL.writeFile tempArchive archiveData
     result <- try @SomeException $
@@ -373,9 +378,13 @@ extractArchive format archiveData targetDir = do
             return $ Left $ formatName <> " extraction failed: " <> T.pack stderr
   where
     formatName = case format of
-        ArchiveGzip -> "tar.gz"
-        ArchiveXz   -> "tar.xz"
-        _           -> "archive"
+        ArchiveGzip      -> "tar.gz"
+        ArchiveXz        -> "tar.xz"
+        ArchiveZip       -> "archive"
+        Archive7z        -> "archive"
+        ArchivePlainXML  -> "archive"
+        ArchivePlainCSV  -> "archive"
+        ArchiveUnknown   -> "archive"
 
 -- | Find the actual data directory (picks the candidate with the most data files)
 -- Archives often contain multiple folders (e.g., "datasets", "MasterData")

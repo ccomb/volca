@@ -4,6 +4,7 @@ module Route exposing
     , ActivitiesFlags
     , DatabaseDetailFlags
     , FlowMappingFlags
+    , HotspotFlags
     , LCIAFlags
     , MethodDetailFlags
     , toRoute
@@ -17,6 +18,8 @@ module Route exposing
     , matchInventory
     , matchGraph
     , matchLCIA
+    , matchFlowHotspot
+    , matchProcessHotspot
     , matchDatabases
     , matchDatabaseDetail
     , matchUpload
@@ -70,6 +73,8 @@ type ActivityTab
     | Variant
     | LCIA
     | Consumers
+    | FlowHotspot
+    | ProcessHotspot
 
 
 type Route
@@ -90,6 +95,8 @@ type Route
     | DatabaseMappingRoute String (Maybe String) -- dbName, ?method=methodId
     | CompositionRoute CompositionFlags
     | FlowSearchRoute { db : String, q : Maybe String, limit : Maybe Int, offset : Maybe Int }
+    | FlowHotspotRoute String String (Maybe String) (Maybe String) -- db, pid, ?collection, ?methodId
+    | ProcessHotspotRoute String String (Maybe String) (Maybe String) -- db, pid, ?collection, ?methodId
     | CompartmentMappingsRoute
     | UnitsRoute
     | NotFoundRoute
@@ -125,6 +132,12 @@ routeToActivePage route =
 
         LCIARoute _ _ _ _ ->
             ActivityActive LCIA
+
+        FlowHotspotRoute _ _ _ _ ->
+            ActivityActive FlowHotspot
+
+        ProcessHotspotRoute _ _ _ _ ->
+            ActivityActive ProcessHotspot
 
         RootRoute ->
             HomeActive
@@ -193,10 +206,64 @@ withActivity db pid route =
         LCIARoute _ _ method view ->
             LCIARoute db pid method view
 
+        FlowHotspotRoute _ _ col mid ->
+            FlowHotspotRoute db pid col mid
+
+        ProcessHotspotRoute _ _ col mid ->
+            ProcessHotspotRoute db pid col mid
+
         CompositionRoute flags ->
             CompositionRoute { flags | db = db, processId = pid }
 
-        _ ->
+        RootRoute ->
+            ActivityRoute Upstream db pid
+
+        ActivitiesRoute _ ->
+            ActivityRoute Upstream db pid
+
+        DatabasesRoute ->
+            ActivityRoute Upstream db pid
+
+        DatabaseDetailRoute _ _ ->
+            ActivityRoute Upstream db pid
+
+        UploadRoute ->
+            ActivityRoute Upstream db pid
+
+        DatabaseSetupRoute _ ->
+            ActivityRoute Upstream db pid
+
+        MethodsRoute ->
+            ActivityRoute Upstream db pid
+
+        MethodUploadRoute ->
+            ActivityRoute Upstream db pid
+
+        MethodDetailRoute _ _ ->
+            ActivityRoute Upstream db pid
+
+        FlowMappingRoute _ _ ->
+            ActivityRoute Upstream db pid
+
+        FlowSynonymsRoute ->
+            ActivityRoute Upstream db pid
+
+        FlowSynonymDetailRoute _ ->
+            ActivityRoute Upstream db pid
+
+        DatabaseMappingRoute _ _ ->
+            ActivityRoute Upstream db pid
+
+        FlowSearchRoute _ ->
+            ActivityRoute Upstream db pid
+
+        CompartmentMappingsRoute ->
+            ActivityRoute Upstream db pid
+
+        UnitsRoute ->
+            ActivityRoute Upstream db pid
+
+        NotFoundRoute ->
             ActivityRoute Upstream db pid
 
 
@@ -300,10 +367,19 @@ routeParser =
         , Parser.map (ActivityRoute Variant) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "variant")
         , Parser.map (\db query -> FlowSearchRoute { db = db, q = query.q, limit = query.limit, offset = query.offset })
             (Parser.s "db" </> string </> Parser.s "flows" <?> flowSearchQueryParser)
-        , Parser.map (\db pid q -> LCIARoute db pid q.method q.view)
-            (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia"
-                <?> Query.map2 (\m v -> { method = m, view = v }) (Query.string "method") (Query.string "view")
-            )
+        , Parser.map (\db pid col view -> LCIARoute db pid (Just col) view)
+            (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia" </> string
+                <?> Query.string "view")
+        , Parser.map (\db pid -> LCIARoute db pid Nothing Nothing)
+            (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "lcia")
+        , Parser.map (\db pid col mid -> FlowHotspotRoute db pid (Just col) (Just mid))
+            (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "flow-hotspot" </> string </> string)
+        , Parser.map (\db pid -> FlowHotspotRoute db pid Nothing Nothing)
+            (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "flow-hotspot")
+        , Parser.map (\db pid col mid -> ProcessHotspotRoute db pid (Just col) (Just mid))
+            (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "process-hotspot" </> string </> string)
+        , Parser.map (\db pid -> ProcessHotspotRoute db pid Nothing Nothing)
+            (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "process-hotspot")
         , Parser.map (\db pid query -> CompositionRoute { db = db, processId = pid, name = query.name, location = query.location, classification = query.classification, maxDepth = query.maxDepth, minQuantity = query.minQuantity, sort = query.sort, order = query.order })
             (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "composition" <?> compositionQueryParser)
         , Parser.map (ActivityRoute Consumers) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "consumers")
@@ -359,6 +435,12 @@ activityTabSlug tab =
         Consumers ->
             "consumers"
 
+        FlowHotspot ->
+            "flow-hotspot"
+
+        ProcessHotspot ->
+            "process-hotspot"
+
 
 appendQuery : List (Maybe Url.Builder.QueryParameter) -> String
 appendQuery params =
@@ -393,11 +475,25 @@ routeToUrl route =
             "/db/" ++ db ++ "/activity/" ++ processId ++ "/" ++ activityTabSlug tab
 
         LCIARoute db processId method view ->
-            "/db/" ++ db ++ "/activity/" ++ processId ++ "/lcia"
-                ++ appendQuery
-                    [ Maybe.map (Url.Builder.string "method") method
-                    , Maybe.map (Url.Builder.string "view") view
-                    ]
+            let
+                segments =
+                    [ "db", db, "activity", processId, "lcia" ]
+                        ++ Maybe.withDefault [] (Maybe.map List.singleton method)
+            in
+            Url.Builder.absolute segments
+                (List.filterMap identity [ Maybe.map (Url.Builder.string "view") view ])
+
+        FlowHotspotRoute db pid (Just col) (Just mid) ->
+            Url.Builder.absolute [ "db", db, "activity", pid, "flow-hotspot", col, mid ] []
+
+        FlowHotspotRoute db pid _ _ ->
+            Url.Builder.absolute [ "db", db, "activity", pid, "flow-hotspot" ] []
+
+        ProcessHotspotRoute db pid (Just col) (Just mid) ->
+            Url.Builder.absolute [ "db", db, "activity", pid, "process-hotspot", col, mid ] []
+
+        ProcessHotspotRoute db pid _ _ ->
+            Url.Builder.absolute [ "db", db, "activity", pid, "process-hotspot" ] []
 
         DatabasesRoute ->
             "/databases"
@@ -493,7 +589,46 @@ routeToDatabase route =
         FlowSearchRoute { db } ->
             Just db
 
-        _ ->
+        FlowHotspotRoute db _ _ _ ->
+            Just db
+
+        ProcessHotspotRoute db _ _ _ ->
+            Just db
+
+        DatabasesRoute ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        RootRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -527,7 +662,67 @@ matchHome route =
         RootRoute ->
             Just ()
 
-        _ ->
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -537,7 +732,67 @@ matchActivities route =
         ActivitiesRoute flags ->
             Just flags
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -551,7 +806,67 @@ matchTab target route =
             else
                 Nothing
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -561,7 +876,70 @@ matchUpstream route =
         ActivityRoute Upstream db pid ->
             Just ( db, pid )
 
-        _ ->
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -601,7 +979,67 @@ matchLCIA route =
         LCIARoute db pid method view ->
             Just { db = db, processId = pid, method = method, view = view }
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -611,7 +1049,67 @@ matchDatabases route =
         DatabasesRoute ->
             Just ()
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -621,7 +1119,67 @@ matchDatabaseDetail route =
         DatabaseDetailRoute dbName method ->
             Just { dbName = dbName, method = method }
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -631,7 +1189,67 @@ matchUpload route =
         UploadRoute ->
             Just ()
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -641,7 +1259,67 @@ matchDatabaseSetup route =
         DatabaseSetupRoute name ->
             Just name
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -651,7 +1329,67 @@ matchMethods route =
         MethodsRoute ->
             Just ()
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -661,7 +1399,67 @@ matchMethodUpload route =
         MethodUploadRoute ->
             Just ()
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -671,7 +1469,67 @@ matchMethodDetail route =
         MethodDetailRoute collection db ->
             Just { collection = collection, db = db }
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -681,7 +1539,67 @@ matchFlowMapping route =
         FlowMappingRoute methodId db ->
             Just { methodId = methodId, db = db }
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -691,7 +1609,67 @@ matchFlowSynonyms route =
         FlowSynonymsRoute ->
             Just ()
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -705,7 +1683,67 @@ matchFlowSynonymDetail route =
         FlowSynonymDetailRoute name ->
             Just { name = name }
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -719,7 +1757,67 @@ matchDatabaseMapping route =
         DatabaseMappingRoute dbName method ->
             Just { dbName = dbName, method = method }
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -732,7 +1830,67 @@ matchDatabaseMappingOverview route =
         DatabaseMappingRoute dbName method ->
             Just { dbName = dbName, method = method }
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -744,7 +1902,67 @@ matchDatabaseDetailAsActivities route =
         DatabaseDetailRoute dbName _ ->
             Just { db = dbName, name = Nothing, product = Nothing, limit = Just 20, classification = Nothing, classificationValue = Nothing }
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -754,7 +1972,67 @@ matchCompartmentMappings route =
         CompartmentMappingsRoute ->
             Just ()
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -764,7 +2042,67 @@ matchUnits route =
         UnitsRoute ->
             Just ()
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -778,7 +2116,67 @@ matchComposition route =
         CompositionRoute flags ->
             Just flags
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
 
 
@@ -817,5 +2215,209 @@ matchFlowSearch route =
         FlowSearchRoute flags ->
             Just flags
 
-        _ ->
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
+            Nothing
+
+
+type alias HotspotFlags =
+    { db : String, processId : String, collection : Maybe String, method : Maybe String }
+
+
+matchFlowHotspot : Route -> Maybe HotspotFlags
+matchFlowHotspot route =
+    case route of
+        FlowHotspotRoute db pid col mid ->
+            Just { db = db, processId = pid, collection = col, method = mid }
+
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        ProcessHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
+            Nothing
+
+
+matchProcessHotspot : Route -> Maybe HotspotFlags
+matchProcessHotspot route =
+    case route of
+        ProcessHotspotRoute db pid col mid ->
+            Just { db = db, processId = pid, collection = col, method = mid }
+
+        RootRoute ->
+            Nothing
+
+        ActivitiesRoute _ ->
+            Nothing
+
+        ActivityRoute _ _ _ ->
+            Nothing
+
+        LCIARoute _ _ _ _ ->
+            Nothing
+
+        DatabasesRoute ->
+            Nothing
+
+        DatabaseDetailRoute _ _ ->
+            Nothing
+
+        UploadRoute ->
+            Nothing
+
+        DatabaseSetupRoute _ ->
+            Nothing
+
+        MethodsRoute ->
+            Nothing
+
+        MethodUploadRoute ->
+            Nothing
+
+        MethodDetailRoute _ _ ->
+            Nothing
+
+        FlowMappingRoute _ _ ->
+            Nothing
+
+        FlowSynonymsRoute ->
+            Nothing
+
+        FlowSynonymDetailRoute _ ->
+            Nothing
+
+        DatabaseMappingRoute _ _ ->
+            Nothing
+
+        CompositionRoute _ ->
+            Nothing
+
+        FlowSearchRoute _ ->
+            Nothing
+
+        FlowHotspotRoute _ _ _ _ ->
+            Nothing
+
+        CompartmentMappingsRoute ->
+            Nothing
+
+        UnitsRoute ->
+            Nothing
+
+        NotFoundRoute ->
             Nothing
