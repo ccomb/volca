@@ -256,19 +256,56 @@ data MethodFactorAPI = MethodFactorAPI
     }
     deriving (Generic)
 
+-- | A single flow's contribution to an LCIA score
+data FlowContributionEntry = FlowContributionEntry
+    { fcoFlowName    :: Text    -- Biosphere flow name (e.g. "Carbon dioxide, fossil")
+    , fcoContribution :: Double -- Contribution in impact unit
+    , fcoSharePct    :: Double  -- Percentage of total score (0-100)
+    }
+    deriving (Generic)
+
 -- | LCIA result for a single impact category
 data LCIAResult = LCIAResult
-    { lrMethodId :: UUID        -- Method UUID
-    , lrMethodName :: Text      -- Method name
-    , lrCategory :: Text        -- Impact category
-    , lrDamageCategory :: Text  -- Parent damage category (may == category)
-    , lrScore :: Double         -- Total impact score (raw)
-    , lrUnit :: Text            -- Unit (e.g., "kg CO2 eq")
+    { lrMethodId        :: UUID        -- Method UUID
+    , lrMethodName      :: Text        -- Method name
+    , lrCategory        :: Text        -- Impact category
+    , lrDamageCategory  :: Text        -- Parent damage category (may == category)
+    , lrScore           :: Double      -- Total impact score (raw)
+    , lrUnit            :: Text        -- Unit (e.g., "kg CO2 eq")
     , lrNormalizedScore :: Maybe Double  -- score * normalization factor
-    , lrWeightedScore :: Maybe Double    -- normalized * weight (in Pt)
-    , lrMappedFlows :: Int      -- Number of flows successfully mapped
-    , lrUnmappedFlows :: Int    -- Number of flows not mapped
-    , lrUnmappedNames :: [Text] -- First N unmapped CF names (for diagnostics)
+    , lrWeightedScore   :: Maybe Double  -- normalized * weight (in Pt)
+    , lrMappedFlows     :: Int         -- Number of flows successfully mapped
+    , lrFunctionalUnit  :: Text        -- e.g. "1.0 kg of Butter, unsalted"
+    , lrTopContributors :: [FlowContributionEntry]  -- Top contributing elementary flows
+    }
+    deriving (Generic)
+
+-- | Flow hotspot result: top elementary flows for a specific impact category
+data FlowHotspotResult = FlowHotspotResult
+    { fhrMethod     :: Text
+    , fhrUnit       :: Text
+    , fhrTotalScore :: Double
+    , fhrTopFlows   :: [FlowContributionEntry]
+    }
+    deriving (Generic)
+
+-- | A single process contribution to an LCIA score
+data ProcessContribution = ProcessContribution
+    { pcProcessId    :: Text    -- "activityUUID_productUUID" — usable as API process_id
+    , pcActivityName :: Text    -- e.g. "electricity production, nuclear"
+    , pcProductName  :: Text    -- e.g. "electricity, medium voltage"
+    , pcLocation     :: Text    -- e.g. "FR"
+    , pcContribution :: Double  -- Contribution in impact unit
+    , pcSharePct     :: Double  -- Percentage of total score (0-100)
+    }
+    deriving (Generic)
+
+-- | Process hotspot result: top upstream processes for a specific impact category
+data ProcessHotspotResult = ProcessHotspotResult
+    { phrMethod      :: Text
+    , phrUnit        :: Text
+    , phrTotalScore  :: Double
+    , phrProcesses   :: [ProcessContribution]
     }
     deriving (Generic)
 
@@ -561,8 +598,12 @@ instance ToJSON MethodCollectionListResponse
 instance ToJSON MethodCollectionStatusAPI
 instance ToJSON MethodDetail
 instance ToJSON MethodFactorAPI
+instance ToJSON FlowContributionEntry
 instance ToJSON LCIAResult
 instance ToJSON LCIABatchResult
+instance ToJSON FlowHotspotResult
+instance ToJSON ProcessContribution
+instance ToJSON ProcessHotspotResult
 instance ToJSON MappingStatus
 instance ToJSON UnmappedFlowAPI
 instance ToJSON FlowCFMapping

@@ -1,6 +1,7 @@
 module Models.LCIA exposing
     ( FlowCFEntry
     , FlowCFMapping
+    , FlowContributionEntry
     , LCIABatchResult
     , LCIAResult
     , MappingStatus
@@ -30,6 +31,15 @@ type alias MethodSummary =
     }
 
 
+{-| A single flow's contribution to an LCIA score
+-}
+type alias FlowContributionEntry =
+    { fcoFlowName : String
+    , fcoContribution : Float
+    , fcoSharePct : Float
+    }
+
+
 {-| LCIA computation result
 -}
 type alias LCIAResult =
@@ -42,8 +52,8 @@ type alias LCIAResult =
     , lrNormalizedScore : Maybe Float
     , lrWeightedScore : Maybe Float
     , lrMappedFlows : Int
-    , lrUnmappedFlows : Int
-    , lrUnmappedNames : List String
+    , lrFunctionalUnit : String
+    , lrTopContributors : List FlowContributionEntry
     }
 
 
@@ -128,6 +138,14 @@ methodsListDecoder =
     D.list methodSummaryDecoder
 
 
+flowContributionEntryDecoder : Decoder FlowContributionEntry
+flowContributionEntryDecoder =
+    D.succeed FlowContributionEntry
+        |> required "fcoFlowName" D.string
+        |> required "fcoContribution" D.float
+        |> required "fcoSharePct" D.float
+
+
 lciaResultDecoder : Decoder LCIAResult
 lciaResultDecoder =
     D.succeed LCIAResult
@@ -140,8 +158,8 @@ lciaResultDecoder =
         |> optional "lrNormalizedScore" (D.nullable D.float) Nothing
         |> optional "lrWeightedScore" (D.nullable D.float) Nothing
         |> required "lrMappedFlows" D.int
-        |> required "lrUnmappedFlows" D.int
-        |> optional "lrUnmappedNames" (D.list D.string) []
+        |> optional "lrFunctionalUnit" D.string ""
+        |> optional "lrTopContributors" (D.list flowContributionEntryDecoder) []
 
 
 lciaBatchResultDecoder : Decoder LCIABatchResult

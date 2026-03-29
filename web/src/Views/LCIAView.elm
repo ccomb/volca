@@ -153,7 +153,7 @@ viewViewModeToggle config batch =
 
 
 viewResultsTable : (String -> msg) -> Maybe String -> ViewMode -> List LCIAResult -> Html msg
-viewResultsTable onToggleRow expandedRow viewMode results =
+viewResultsTable _ _ viewMode results =
     let
         scoreAccessor =
             case viewMode of
@@ -204,33 +204,20 @@ viewResultsTable onToggleRow expandedRow viewMode results =
                     ]
                 ]
             , tbody []
-                (List.concatMap (viewResultRow onToggleRow expandedRow viewMode scoreAccessor maxScore scoreUnit) results)
+                (List.concatMap (viewResultRow viewMode scoreAccessor maxScore scoreUnit) results)
             ]
         ]
 
 
-viewResultRow : (String -> msg) -> Maybe String -> ViewMode -> (LCIAResult -> Float) -> Float -> String -> LCIAResult -> List (Html msg)
-viewResultRow onToggleRow expandedRow viewMode scoreAccessor maxScore scoreUnit result =
+viewResultRow : ViewMode -> (LCIAResult -> Float) -> Float -> String -> LCIAResult -> List (Html msg)
+viewResultRow viewMode scoreAccessor maxScore scoreUnit result =
     let
         score =
             scoreAccessor result
 
-        isExpanded =
-            expandedRow == Just result.lrMethodId
-
         pct =
             if maxScore > 0 then
                 abs score / maxScore * 100
-
-            else
-                0
-
-        total =
-            result.lrMappedFlows + result.lrUnmappedFlows
-
-        mappingPct =
-            if total > 0 then
-                toFloat result.lrMappedFlows / toFloat total * 100
 
             else
                 0
@@ -246,37 +233,16 @@ viewResultRow onToggleRow expandedRow viewMode scoreAccessor maxScore scoreUnit 
                 Weighted ->
                     scoreUnit
     in
-    [ tr
-        ([ style "cursor"
-            (if result.lrUnmappedFlows > 0 then
-                "pointer"
-
-             else
-                "default"
-            )
-         ]
-            ++ (if result.lrUnmappedFlows > 0 then
-                    [ onClick (onToggleRow result.lrMethodId) ]
-
-                else
-                    []
-               )
-        )
+    [ tr []
         [ td [ style "font-weight" "500" ] [ text result.lrMethodName ]
         , td [ style "text-align" "right", style "font-family" "monospace" ]
             [ text (Format.formatScientific score) ]
         , td [ class "has-text-grey" ] [ text unitText ]
         , td [ style "text-align" "center" ]
-            [ viewMappingBadge result.lrMappedFlows result.lrUnmappedFlows mappingPct ]
+            [ viewMappingBadge result.lrMappedFlows ]
         , td [] [ viewRelativeBar pct ]
         ]
     ]
-        ++ (if isExpanded && not (List.isEmpty result.lrUnmappedNames) then
-                [ viewExpandedRow result ]
-
-            else
-                []
-           )
 
 
 viewSingleScore : ViewMode -> LCIABatchResult -> Html msg
@@ -301,23 +267,10 @@ viewSingleScore viewMode batch =
             text ""
 
 
-viewMappingBadge : Int -> Int -> Float -> Html msg
-viewMappingBadge mapped unmapped pct =
-    span []
-        [ span [ class "tag is-success is-light", style "font-size" "0.75rem" ]
-            [ text (String.fromInt mapped) ]
-        , if unmapped > 0 then
-            span
-                [ class "tag is-warning is-light"
-                , style "font-size" "0.75rem"
-                , style "margin-left" "0.25rem"
-                , title ("Mapping coverage: " ++ String.fromInt (round pct) ++ "%")
-                ]
-                [ text (String.fromInt unmapped ++ " unmapped") ]
-
-          else
-            text ""
-        ]
+viewMappingBadge : Int -> Html msg
+viewMappingBadge mapped =
+    span [ class "tag is-success is-light", style "font-size" "0.75rem" ]
+        [ text (String.fromInt mapped ++ " CFs") ]
 
 
 viewRelativeBar : Float -> Html msg
@@ -339,24 +292,6 @@ viewRelativeBar pct =
             []
         ]
 
-
-viewExpandedRow : LCIAResult -> Html msg
-viewExpandedRow result =
-    tr []
-        [ td [ colspan 5, style "padding" "0.5rem 1rem", style "background" "#fafafa" ]
-            [ div [ style "max-height" "200px", style "overflow-y" "auto" ]
-                [ p [ class "has-text-weight-semibold is-size-7", style "margin-bottom" "0.5rem" ]
-                    [ text ("Unmapped flows (" ++ String.fromInt result.lrUnmappedFlows ++ " total, showing first " ++ String.fromInt (List.length result.lrUnmappedNames) ++ "):") ]
-                , div [ class "tags" ]
-                    (List.map
-                        (\name ->
-                            span [ class "tag is-light", style "font-size" "0.7rem" ] [ text name ]
-                        )
-                        result.lrUnmappedNames
-                    )
-                ]
-            ]
-        ]
 
 
 {-| Shared navbar component for all pages

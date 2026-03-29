@@ -32,6 +32,8 @@ module Plugin.Builtin
     , defaultMappers
       -- * Search
     , searchWithPlugins
+      -- * Flow contribution (for API handlers)
+    , flowContribution
     ) where
 
 import Data.Aeson (encode, toJSON)
@@ -46,7 +48,9 @@ import Plugin.Types
 import qualified Method.Mapping as Mapping
 import qualified Matrix.Export as MatrixExport
 import Method.Types (MethodCF(..), Method(..))
+import Method.Mapping (MatchStrategy)
 import Types (Flow(..), Database(..))
+import Matrix (Inventory)
 import SynonymDB (emptySynonymDB)
 import Data.Char (toLower)
 import Data.List (sortOn)
@@ -66,7 +70,7 @@ defaultRegistry = PluginRegistry
     , prMappers    = defaultMappers
     , prTransforms = []
     , prValidators = []
-    , prAnalyzers  = M.fromList [("lcia", lciaAnalyzer), ("hotspot", hotspotAnalyzer)]
+    , prAnalyzers  = M.fromList [("lcia", lciaAnalyzer), ("flow-hotspot", hotspotAnalyzer)]
     , prReporters  = M.fromList
         [ ("json",   jsonReporter)
         , ("csv",    csvReporter)
@@ -270,11 +274,18 @@ searchWithPlugins searchers db query = do
 -- Analyzer handles
 -- ──────────────────────────────────────────────
 
+-- | Contribution of a single flow to the LCIA score.
+-- Returns (MethodCF, Flow, contribution_value) when the flow is present in the inventory.
+flowContribution :: Inventory -> (MethodCF, Maybe (Flow, MatchStrategy)) -> Maybe (MethodCF, Flow, Double)
+flowContribution inv (cf, Just (flow, _))
+    | Just qty <- M.lookup (flowId flow) inv = Just (cf, flow, qty * mcfValue cf)
+flowContribution _ _ = Nothing
+
 -- | Hotspot analyzer: for each method, return top-N flows by contribution to the score.
 -- This answers "why is my product 2.5 kg CO2e?" by showing which flows contribute most.
 hotspotAnalyzer :: AnalyzeHandle
 hotspotAnalyzer = AnalyzeHandle
-    { ahName    = "hotspot"
+    { ahName    = "flow-hotspot"
     , ahBackend = Builtin
     , ahAnalyze = \ctx -> do
         let db = acDatabase ctx
@@ -304,11 +315,6 @@ hotspotAnalyzer = AnalyzeHandle
                 | (cf, f, contrib) <- sorted
                 ])
             ]
-
-    flowContribution inv (cf, Just (flow, _))
-        | Just qty <- M.lookup (flowId flow) inv =
-            Just (cf, flow, qty * mcfValue cf)
-    flowContribution _ _ = Nothing
 
 -- ──────────────────────────────────────────────
 -- Export handles (wrap Matrix.Export functions)

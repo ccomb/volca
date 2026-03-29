@@ -7,10 +7,11 @@
 module API.Routes where
 
 import qualified Matrix
-import Matrix (Inventory)
+import Matrix (Inventory, computeProcessLCIAContributions)
 import SharedSolver (SharedSolver)
 import Method.Mapping (computeLCIAScore, mapMethodToFlows, MatchStrategy(..), MappingStats(..), computeMappingStats)
 import Plugin.Types (PluginRegistry(..), AnalyzeHandle(..), AnalyzeContext(..))
+import Plugin.Builtin (flowContribution)
 import qualified Data.Vector as V
 import Method.Types (Method(..), MethodCF(..), MethodCollection(..), DamageCategory(..), NormWeightSet(..), FlowDirection(..))
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), DatabaseSetupInfo(..), getDatabase, MethodCollectionStatus(..), getMergedUnitConfig)
@@ -22,11 +23,11 @@ import Database
 import qualified Service
 import Tree (buildLoopAwareTree)
 import Types
-import API.Types (ActivityInfo (..), ActivitySummary (..), ClassificationSystem(..), ExchangeDetail (..), FlowCFEntry (..), FlowCFMapping (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIARequest (..), LCIAResult (..), LCIABatchResult(..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), RefDataListResponse(..), SynonymGroupsResponse(..), SearchResults (..), SubstitutionRequest(..), SupplyChainResponse(..), TreeExport (..), UnmappedFlowAPI (..), DatabaseListResponse(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
+import API.Types (ActivityInfo (..), ActivitySummary (..), ClassificationSystem(..), ExchangeDetail (..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry(..), FlowDetail (..), FlowHotspotResult(..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIARequest (..), LCIAResult (..), LCIABatchResult(..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), ProcessContribution(..), ProcessHotspotResult(..), RefDataListResponse(..), SynonymGroupsResponse(..), SearchResults (..), SubstitutionRequest(..), SupplyChainResponse(..), TreeExport (..), UnmappedFlowAPI (..), DatabaseListResponse(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -38,7 +39,7 @@ import Servant
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Data.List (intercalate)
+import Data.List (intercalate, sortOn)
 import Numeric (showFFloat)
 import qualified Config
 import qualified GHC.Stats
@@ -57,7 +58,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> Get '[JSON] InventoryExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "graph" :> QueryParam "cutoff" Double :> Get '[JSON] GraphExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "location" Text :> QueryParam "classification" Text :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> Get '[JSON] SupplyChainResponse
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "methodId" Text :> Get '[JSON] LCIAResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "methodId" Text :> QueryParam "top-flows" Int :> Get '[JSON] LCIAResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "methodId" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIAResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia-batch" :> Capture "collection" Text :> Get '[JSON] LCIABatchResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia-batch" :> Capture "collection" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIABatchResult
@@ -65,6 +66,8 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "location" Text :> QueryParam "classification" Text :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] SupplyChainResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "limit" Int :> Get '[JSON] [ActivitySummary]
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "analyze" :> Capture "analyzerName" Text :> Get '[JSON] Value
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "flow-hotspot" :> QueryParam "method" Text :> QueryParam "limit" Int :> Get '[JSON] FlowHotspotResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "process-hotspot" :> QueryParam "method" Text :> QueryParam "limit" Int :> Get '[JSON] ProcessHotspotResult
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> Get '[JSON] [ActivitySummary]
                 :<|> "methods" :> Get '[JSON] [MethodSummary]
@@ -188,6 +191,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
         :<|> postActivitySupplyChain
         :<|> getActivityConsumers
         :<|> getActivityAnalyze
+        :<|> getFlowHotspot
+        :<|> getProcessHotspot
         :<|> getFlowDetail
         :<|> getFlowActivities
         :<|> getMethods
@@ -403,17 +408,17 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
             Right supplyChain -> return supplyChain
 
     -- Activity LCIA endpoint (single method)
-    getActivityLCIA :: Text -> Text -> Text -> Handler LCIAResult
-    getActivityLCIA dbName processIdText methodIdText = do
+    getActivityLCIA :: Text -> Text -> Text -> Maybe Int -> Handler LCIAResult
+    getActivityLCIA dbName processIdText methodIdText topFlowsParam = do
         (db, _) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
         case Service.resolveActivityAndProcessId db processIdText of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
-            Right (actProcessId, _activity) -> do
+            Right (actProcessId, activity) -> do
                 inventory <- liftIO $ Matrix.computeInventoryMatrix db actProcessId
-                result <- liftIO $ computeCategoryResult db inventory method
+                result <- liftIO $ computeCategoryResult db activity (fromMaybe 5 topFlowsParam) inventory method
                 liftIO $ logLCIAResult result method
                 return result
 
@@ -422,14 +427,13 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
     postActivityLCIA dbName processIdText methodIdText subReq = do
         (db, sharedSolver) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
-        (processId, _) <- resolveOrThrow db processIdText
+        (processId, activity) <- resolveOrThrow db processIdText
         scalingResult <- liftIO $ Service.computeScalingVectorWithSubstitutions db sharedSolver processId (srSubstitutions subReq)
         case scalingResult of
             Left err -> throwServiceError err
             Right scalingVec -> do
                 let inventory = Matrix.applyBiosphereMatrix db scalingVec
-                result <- liftIO $ computeCategoryResult db inventory method
-                return result
+                liftIO $ computeCategoryResult db activity 5 inventory method
 
     -- Batch LCIA endpoint (all methods in a collection)
     getActivityLCIABatch :: Text -> Text -> Text -> Handler LCIABatchResult
@@ -468,7 +472,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
                 when (invSize > 0 && invSize <= 5) $
                     liftIO $ reportProgress Info $ "  Inventory UUIDs: "
                         <> intercalate ", " (map UUID.toString $ M.keys inventory)
-                rawResults <- liftIO $ mapM (computeCategoryResult db inventory) methods
+                rawResults <- liftIO $ mapM (computeCategoryResult db activity 5 inventory) methods
                 -- Enrich with NW data
                 let results = map (enrichWithNW dcLookup mNW) rawResults
                     singleScore = case mNW of
@@ -495,7 +499,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
     postActivityLCIABatch :: Text -> Text -> Text -> SubstitutionRequest -> Handler LCIABatchResult
     postActivityLCIABatch dbName processIdText collectionName subReq = do
         (db, sharedSolver) <- requireDatabaseByName dbManager dbName
-        (processId, _) <- resolveOrThrow db processIdText
+        (processId, activity) <- resolveOrThrow db processIdText
         (methods, damageCats, nwSets) <- loadCollection collectionName
         let dcLookup = M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
             mNW = case nwSets of { (nw:_) -> Just nw; [] -> Nothing }
@@ -504,7 +508,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
             Left err -> throwServiceError err
             Right scalingVec -> do
                 let inventory = Matrix.applyBiosphereMatrix db scalingVec
-                rawResults <- liftIO $ mapM (computeCategoryResult db inventory) methods
+                rawResults <- liftIO $ mapM (computeCategoryResult db activity 5 inventory) methods
                 let results = map (enrichWithNW dcLookup mNW) rawResults
                     singleScore = case mNW of
                         Just _ -> Just $ sum [s | r <- results, Just s <- [lrWeightedScore r]]
@@ -574,12 +578,10 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
     -- Log a single category result in the batch
     logBatchCategory :: Int -> LCIAResult -> IO ()
     logBatchCategory _invSize result = do
-        let mapped = lrMappedFlows result
-            total = mapped + lrUnmappedFlows result
-            scoreTxt = showFFloat (Just 4) (lrScore result) ""
+        let scoreTxt = showFFloat (Just 4) (lrScore result) ""
         reportProgress Info $ "  " <> T.unpack (lrMethodName result) <> ": "
             <> scoreTxt <> " " <> T.unpack (lrUnit result)
-            <> " (" <> show mapped <> "/" <> show total <> " CFs mapped)"
+            <> " (" <> show (lrMappedFlows result) <> " CFs mapped)"
 
     -- Load a method collection by name
     loadCollection :: Text -> Handler ([Method], [DamageCategory], [NormWeightSet])
@@ -612,27 +614,117 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
                                 }
                         liftIO $ ahAnalyze analyzer ctx
 
+    -- Flow hotspot: top elementary flows by LCIA contribution for a specific method
+    getFlowHotspot :: Text -> Text -> Maybe Text -> Maybe Int -> Handler FlowHotspotResult
+    getFlowHotspot dbName processIdText mMethodId limitParam = do
+        (db, _) <- requireDatabaseByName dbManager dbName
+        case mMethodId of
+            Nothing -> throwError err400{errBody = "Missing required parameter: method"}
+            Just methodIdText -> do
+                method <- loadMethodByUUID methodIdText
+                case Service.resolveActivityAndProcessId db processIdText of
+                    Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
+                    Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
+                    Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
+                    Right (actProcessId, _) -> do
+                        let mappers = prMappers (dmPlugins dbManager)
+                            lim = fromMaybe 20 limitParam
+                        unitCfg <- liftIO $ getMergedUnitConfig dbManager
+                        scalingVec <- liftIO $ Matrix.computeScalingVector db actProcessId
+                        let inventory = Matrix.applyBiosphereMatrix db scalingVec
+                        mappings <- liftIO $ mapMethodToFlows mappers db method
+                        let score = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
+                            contribs = sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
+                            topFlows = [ FlowContributionEntry
+                                { fcoFlowName    = flowName f
+                                , fcoContribution = c
+                                , fcoSharePct    = if score /= 0 then c / score * 100 else 0
+                                }
+                                | (_, f, c) <- take lim contribs
+                                ]
+                        return FlowHotspotResult
+                            { fhrMethod     = methodName method
+                            , fhrUnit       = methodUnit method
+                            , fhrTotalScore = score
+                            , fhrTopFlows   = topFlows
+                            }
+
+    -- Process hotspot: top upstream processes by LCIA contribution for a specific method
+    getProcessHotspot :: Text -> Text -> Maybe Text -> Maybe Int -> Handler ProcessHotspotResult
+    getProcessHotspot dbName processIdText mMethodId limitParam = do
+        (db, _) <- requireDatabaseByName dbManager dbName
+        case mMethodId of
+            Nothing -> throwError err400{errBody = "Missing required parameter: method"}
+            Just methodIdText -> do
+                method <- loadMethodByUUID methodIdText
+                case Service.resolveActivityAndProcessId db processIdText of
+                    Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
+                    Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
+                    Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
+                    Right (actProcessId, _) -> do
+                        let mappers = prMappers (dmPlugins dbManager)
+                            lim = fromMaybe 10 limitParam
+                        unitCfg <- liftIO $ getMergedUnitConfig dbManager
+                        scalingVec <- liftIO $ Matrix.computeScalingVector db actProcessId
+                        let inventory = Matrix.applyBiosphereMatrix db scalingVec
+                        mappings <- liftIO $ mapMethodToFlows mappers db method
+                        let score = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
+                            cfMap = M.fromList [(flowId f, mcfValue cf) | (cf, Just (f, _)) <- mappings]
+                            contributions = computeProcessLCIAContributions db scalingVec cfMap
+                            sorted = sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
+                            mkContrib (pid, c) =
+                                let mAct    = Service.findActivityByProcessId db pid
+                                    actName = maybe "" activityName mAct
+                                    actLoc  = maybe "" activityLocation mAct
+                                    prodName = case mAct of
+                                        Just act -> let (pn, _, _) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) act in pn
+                                        Nothing  -> ""
+                                in ProcessContribution
+                                    { pcProcessId    = processIdToText db pid
+                                    , pcActivityName = actName
+                                    , pcProductName  = prodName
+                                    , pcLocation     = actLoc
+                                    , pcContribution = c
+                                    , pcSharePct     = if score /= 0 then c / score * 100 else 0
+                                    }
+                        return ProcessHotspotResult
+                            { phrMethod     = methodName method
+                            , phrUnit       = methodUnit method
+                            , phrTotalScore = score
+                            , phrProcesses  = map mkContrib (take lim sorted)
+                            }
+
     -- Helper: compute LCIA result for a single method against an inventory
-    computeCategoryResult :: Database -> Inventory -> Method -> IO LCIAResult
-    computeCategoryResult db inventory method = do
+    computeCategoryResult :: Database -> Activity -> Int -> Inventory -> Method -> IO LCIAResult
+    computeCategoryResult db activity topFlows inventory method = do
         let mappers = prMappers (dmPlugins dbManager)
         unitCfg <- getMergedUnitConfig dbManager
         mappings <- mapMethodToFlows mappers db method
         let stats = computeMappingStats mappings
             score = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
-            unmappedNames = take 50 [mcfFlowName cf | (cf, Nothing) <- mappings]
+            (prodName, prodAmount, prodUnit) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) activity
+            functionalUnit = T.pack (showFFloat (Just 2) prodAmount "") <> " " <> prodUnit <> " of " <> prodName
+            contribs = sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
+            topContribs = take topFlows contribs
+            topContributors = [ FlowContributionEntry
+                { fcoFlowName = flowName f
+                , fcoContribution = c
+                , fcoSharePct = if score /= 0 then c / score * 100 else 0
+                }
+                | (_, f, c) <- topContribs
+                ]
         pure LCIAResult
-            { lrMethodId = methodId method
-            , lrMethodName = methodName method
-            , lrCategory = methodCategory method
-            , lrDamageCategory = methodCategory method  -- default, enriched later
-            , lrScore = score
-            , lrUnit = methodUnit method
+            { lrMethodId        = methodId method
+            , lrMethodName      = methodName method
+            , lrCategory        = methodCategory method
+            , lrDamageCategory  = methodCategory method  -- default, enriched later
+            , lrScore           = score
+            , lrUnit            = methodUnit method
             , lrNormalizedScore = Nothing  -- enriched later
-            , lrWeightedScore = Nothing    -- enriched later
-            , lrMappedFlows = msTotal stats - msUnmatched stats
-            , lrUnmappedFlows = msUnmatched stats
-            , lrUnmappedNames = unmappedNames
+            , lrWeightedScore   = Nothing  -- enriched later
+            , lrMappedFlows     = msTotal stats - msUnmatched stats
+            , lrFunctionalUnit  = functionalUnit
+            , lrTopContributors = topContributors
             }
 
     -- Enrich a raw LCIA result with damage category mapping and NW scores
@@ -657,14 +749,10 @@ lcaServer dbManager maxTreeDepth password hostingConfig =
     logLCIAResult :: LCIAResult -> Method -> IO ()
     logLCIAResult result method = do
         let mapped = lrMappedFlows result
-            total = mapped + lrUnmappedFlows result
-            pct :: Double
-            pct = if total > 0 then fromIntegral mapped / fromIntegral total * 100 else 0
         reportProgress Info $ "[LCIA] " <> T.unpack (methodName method)
             <> ": " <> showFFloat (Just 4) (lrScore result) ""
             <> " " <> T.unpack (methodUnit method)
-        reportProgress Info $ "  Flow mapping: " <> show mapped <> "/" <> show total
-            <> " (" <> showFFloat (Just 1) pct "" <> "%)"
+        reportProgress Info $ "  Flow mapping: " <> show mapped <> " CFs mapped"
 
     -- Flow detail endpoint
     getFlowDetail :: Text -> Text -> Handler FlowDetail

@@ -35,6 +35,7 @@ module Matrix (
     applyBiosphereMatrix,
     computeInventoryMatrix,
     computeInventoryWithDependencies,
+    computeProcessLCIAContributions,
     shermanMorrisonVariant,
     buildDemandVectorFromIndex,
     solveSparseLinearSystem,
@@ -246,6 +247,39 @@ applyBiosphereMatrix db supplyVec =
 computeInventoryMatrix :: Database -> ProcessId -> IO Inventory
 computeInventoryMatrix db rootProcessId =
     applyBiosphereMatrix db <$> computeScalingVector db rootProcessId
+
+{- |
+Per-process LCIA contributions for one impact category.
+contribution[p] = Σ_f  B[f,p] * s[p] * CF[f]   (in the method's impact unit)
+
+Exact for cyclic systems because it uses the full matrix-solved scaling vector.
+-}
+computeProcessLCIAContributions
+    :: Database
+    -> Vector               -- ^ Scaling vector (from computeScalingVector)
+    -> M.Map UUID Double    -- ^ CF map: flowUUID → CF value (single impact category)
+    -> M.Map ProcessId Double  -- ^ ProcessId → LCIA contribution in impact unit
+computeProcessLCIAContributions db scalingVec cfMap =
+    let actIdx      = dbActivityIndex db
+        bioTriples  = dbBiosphereTriples db
+        bioFlows    = dbBiosphereFlows db
+        -- Build inverse map: matrix column index → ProcessId
+        colToProcess :: M.Map Int ProcessId
+        colToProcess = M.fromList
+            [ (fromIntegral (actIdx V.! pid), fromIntegral pid)
+            | pid <- [0 .. V.length actIdx - 1]
+            ]
+        step acc (SparseTriple flowRow colIdx bioVal) =
+            let flowUUID = bioFlows V.! fromIntegral flowRow
+            in case M.lookup flowUUID cfMap of
+                Nothing    -> acc
+                Just cfVal ->
+                    case M.lookup (fromIntegral colIdx :: Int) colToProcess of
+                        Nothing  -> acc
+                        Just pid ->
+                            let s = scalingVec U.! fromIntegral colIdx
+                            in M.insertWith (+) pid (bioVal * s * cfVal) acc
+    in U.foldl' step M.empty bioTriples
 
 {- |
 Sherman-Morrison rank-1 update for ingredient substitution (~4ms per variant).

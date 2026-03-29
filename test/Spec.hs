@@ -16,6 +16,7 @@ import qualified PluginSpec
 import qualified ServerSpec
 import qualified ILCDParserSpec
 import qualified SupplyChainSpec
+import qualified HotspotSpec
 
 main :: IO ()
 main = hspec $ do
@@ -31,3 +32,4 @@ main = hspec $ do
         describe "Server Lifecycle" ServerSpec.spec
         describe "ILCD Parser" ILCDParserSpec.spec
         describe "Supply Chain" SupplyChainSpec.spec
+        describe "Hotspot Analysis" HotspotSpec.spec

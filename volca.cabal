@@ -149,6 +149,8 @@ test-suite acv-tests
                      , PluginSpec
                      , ServerSpec
                      , ILCDParserSpec
+                     , SupplyChainSpec
+                     , HotspotSpec
   build-depends:       base >=4.14 && <5
                      , volca
                      , hspec
