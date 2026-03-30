@@ -200,8 +200,19 @@ update shared msg model =
                     )
 
                 ActivitiesView.SelectClassificationSystem system ->
+                    let
+                        newRoute =
+                            ActivitiesRoute
+                                { db = model.dbName
+                                , name = if String.isEmpty model.searchQuery then Nothing else Just model.searchQuery
+                                , product = if String.isEmpty model.productQuery then Nothing else Just model.productQuery
+                                , limit = Just 20
+                                , classification = system
+                                , classificationValue = Nothing
+                                }
+                    in
                     ( { model | selectedSystem = system, selectedValue = Nothing }
-                    , Effect.none
+                    , Effect.fromCmd (Nav.replaceUrl shared.key (Route.routeToUrl newRoute))
                     )
 
                 ActivitiesView.SelectClassificationValue value ->
