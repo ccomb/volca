@@ -162,6 +162,7 @@ if [[ -d "$PROJECT_DIR/data" ]]; then
     cp "$PROJECT_DIR/data/flows.csv" "$RESOURCES_DIR/data/"
     cp "$PROJECT_DIR/data/compartments.csv" "$RESOURCES_DIR/data/"
     cp "$PROJECT_DIR/data/units.csv" "$RESOURCES_DIR/data/"
+    cp "$PROJECT_DIR/data/geographies.csv" "$RESOURCES_DIR/data/"
     log_success "Copied reference data"
 else
     log_warn "No data/ directory found - reference data will not be available"

@@ -62,6 +62,7 @@ fi
 cp data/flows.csv "$BUNDLE_DIR/data/" 2>/dev/null || true
 cp data/compartments.csv "$BUNDLE_DIR/data/" 2>/dev/null || true
 cp data/units.csv "$BUNDLE_DIR/data/" 2>/dev/null || true
+cp data/geographies.csv "$BUNDLE_DIR/data/" 2>/dev/null || true
 
 echo "Building Docker image: hash=$GIT_HASH tag=${GIT_TAG:-none}"
 
