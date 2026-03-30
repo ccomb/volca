@@ -293,13 +293,14 @@ activitiesQueryParser =
         )
 
 
-compositionQueryParser : Query.Parser { name : Maybe String, location : Maybe String, classification : Maybe String, maxDepth : Maybe String, minQuantity : Maybe String, sort : Maybe String, order : Maybe String }
+compositionQueryParser : Query.Parser { name : Maybe String, location : Maybe String, classification : Maybe String, classificationValue : Maybe String, maxDepth : Maybe String, minQuantity : Maybe String, sort : Maybe String, order : Maybe String }
 compositionQueryParser =
     Query.map2
         (\filters sorting ->
             { name = filters.name
             , location = filters.location
             , classification = filters.classification
+            , classificationValue = filters.classificationValue
             , maxDepth = filters.maxDepth
             , minQuantity = filters.minQuantity
             , sort = sorting.sort
@@ -307,14 +308,17 @@ compositionQueryParser =
             }
         )
         (Query.map2
-            (\base extra -> { name = base.name, location = base.location, classification = extra.classification, maxDepth = extra.maxDepth, minQuantity = extra.minQuantity })
+            (\base extra -> { name = base.name, location = base.location, classification = extra.classification, classificationValue = extra.classificationValue, maxDepth = extra.maxDepth, minQuantity = extra.minQuantity })
             (Query.map2 (\name location -> { name = name, location = location })
                 (Query.string "name")
                 (Query.string "location")
             )
             (Query.map2
-                (\cls depths -> { classification = cls, maxDepth = depths.maxDepth, minQuantity = depths.minQuantity })
-                (Query.string "classification")
+                (\clsAndVal depths -> { classification = clsAndVal.classification, classificationValue = clsAndVal.classificationValue, maxDepth = depths.maxDepth, minQuantity = depths.minQuantity })
+                (Query.map2 (\cls clsVal -> { classification = cls, classificationValue = clsVal })
+                    (Query.string "classification")
+                    (Query.string "classification-value")
+                )
                 (Query.map2 (\md mq -> { maxDepth = md, minQuantity = mq })
                     (Query.string "max-depth")
                     (Query.string "min-quantity")
@@ -380,7 +384,7 @@ routeParser =
             (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "process-hotspot" </> decodedString </> string)
         , Parser.map (\db pid -> ProcessHotspotRoute db pid Nothing Nothing)
             (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "process-hotspot")
-        , Parser.map (\db pid query -> CompositionRoute { db = db, processId = pid, name = query.name, location = query.location, classification = query.classification, maxDepth = query.maxDepth, minQuantity = query.minQuantity, sort = query.sort, order = query.order })
+        , Parser.map (\db pid query -> CompositionRoute { db = db, processId = pid, name = query.name, location = query.location, classification = query.classification, classificationValue = query.classificationValue, maxDepth = query.maxDepth, minQuantity = query.minQuantity, sort = query.sort, order = query.order })
             (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "composition" <?> compositionQueryParser)
         , Parser.map (ActivityRoute Consumers) (Parser.s "db" </> string </> Parser.s "activity" </> string </> Parser.s "consumers")
         , Parser.map (ActivityRoute Upstream) (Parser.s "db" </> string </> Parser.s "activity" </> string)
@@ -548,12 +552,13 @@ routeToUrl route =
         FlowSynonymDetailRoute name ->
             "/flow-synonyms/" ++ name
 
-        CompositionRoute { db, processId, name, location, classification, maxDepth, minQuantity, sort, order } ->
+        CompositionRoute { db, processId, name, location, classification, classificationValue, maxDepth, minQuantity, sort, order } ->
             "/db/" ++ db ++ "/activity/" ++ processId ++ "/composition"
                 ++ appendQuery
                     [ Maybe.map (Url.Builder.string "name") name
                     , Maybe.map (Url.Builder.string "location") location
                     , Maybe.map (Url.Builder.string "classification") classification
+                    , Maybe.map (Url.Builder.string "classification-value") classificationValue
                     , Maybe.map (Url.Builder.string "max-depth") maxDepth
                     , Maybe.map (Url.Builder.string "min-quantity") minQuantity
                     , Maybe.map (Url.Builder.string "sort") sort
@@ -2115,7 +2120,7 @@ matchUnits route =
 
 
 type alias CompositionFlags =
-    { db : String, processId : String, name : Maybe String, location : Maybe String, classification : Maybe String, maxDepth : Maybe String, minQuantity : Maybe String, sort : Maybe String, order : Maybe String }
+    { db : String, processId : String, name : Maybe String, location : Maybe String, classification : Maybe String, classificationValue : Maybe String, maxDepth : Maybe String, minQuantity : Maybe String, sort : Maybe String, order : Maybe String }
 
 
 matchComposition : Route -> Maybe CompositionFlags

@@ -9,13 +9,15 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http
-import Models.Activity exposing (ActivityInfo)
+import Json.Decode as Decode
+import Models.Activity exposing (ActivityInfo, ClassificationSystem, classificationSystemDecoder)
 import Process
 import Task
 import Models.SupplyChain exposing (SupplyChainEntry, SupplyChainResponse)
 import Route exposing (Route(..))
 import Shared exposing (RemoteData(..))
 import Spa.Page
+import Url.Builder
 import Utils.Format as Format
 import View exposing (View)
 import Views.ActivityHeader
@@ -31,6 +33,8 @@ type alias Model =
     , sortAscending : Bool
     , loadingMore : Bool
     , debounceCounter : Int
+    , classificationSystems : Maybe (List ClassificationSystem)
+    , selectedSystem : Maybe String
     }
 
 
@@ -48,7 +52,9 @@ type Msg
     | SupplyChainLoaded (Result Http.Error SupplyChainResponse)
     | SetNameFilter String
     | SetLocationFilter String
-    | SetClassificationFilter String
+    | SelectClassificationSystem (Maybe String)
+    | SelectClassificationValue (Maybe String)
+    | ClassificationsLoaded (Result Http.Error (List ClassificationSystem))
     | SetMaxDepth String
     | SetMinQuantity String
     | DebounceTick Int
@@ -85,6 +91,7 @@ init shared flags =
             { name = Maybe.withDefault "" flags.name
             , location = Maybe.withDefault "" flags.location
             , classification = Maybe.withDefault "" flags.classification
+            , classificationValue = Maybe.withDefault "" flags.classificationValue
             , maxDepth = Maybe.withDefault "" flags.maxDepth
             , minQuantity = Maybe.withDefault "" flags.minQuantity
             , limit = Api.defaultSupplyChainParams.limit
@@ -104,6 +111,8 @@ init shared flags =
             , sortAscending = Maybe.withDefault "asc" flags.order /= "desc"
             , loadingMore = False
             , debounceCounter = 0
+            , classificationSystems = Nothing
+            , selectedSystem = flags.classification
             }
     in
     if not (Shared.isDatabaseLoaded shared db) then
@@ -132,6 +141,7 @@ init shared flags =
                 Nothing ->
                     Effect.fromCmd (Api.loadActivityInfo ActivityInfoLoaded db activityId)
             , Effect.fromCmd (Api.loadSupplyChain SupplyChainLoaded db activityId params)
+            , Effect.fromCmd (fetchClassifications db)
             ]
         )
 
@@ -182,8 +192,21 @@ update shared msg model =
         SetLocationFilter val ->
             updateFilter shared model (\p -> { p | location = val })
 
-        SetClassificationFilter val ->
-            updateFilter shared model (\p -> { p | classification = val })
+        SelectClassificationSystem system ->
+            updateFilter shared { model | selectedSystem = system } (\p -> { p | classification = Maybe.withDefault "" system, classificationValue = "" })
+
+        SelectClassificationValue maybeVal ->
+            let
+                val =
+                    Maybe.withDefault "" maybeVal
+            in
+            updateFilter shared model (\p -> { p | classificationValue = val })
+
+        ClassificationsLoaded (Ok systems) ->
+            ( { model | classificationSystems = Just systems }, Effect.none )
+
+        ClassificationsLoaded (Err _) ->
+            ( model, Effect.none )
 
         SetMaxDepth val ->
             updateFilter shared model (\p -> { p | maxDepth = val })
@@ -201,6 +224,7 @@ update shared msg model =
                             , name = toMaybe model.params.name
                             , location = toMaybe model.params.location
                             , classification = toMaybe model.params.classification
+                            , classificationValue = toMaybe model.params.classificationValue
                             , maxDepth = toMaybe model.params.maxDepth
                             , minQuantity = toMaybe model.params.minQuantity
                             , sort = Just (sortColumnToString model.sortColumn)
@@ -242,6 +266,7 @@ update shared msg model =
                         , name = toMaybe model.params.name
                         , location = toMaybe model.params.location
                         , classification = toMaybe model.params.classification
+                        , classificationValue = toMaybe model.params.classificationValue
                         , maxDepth = toMaybe model.params.maxDepth
                         , minQuantity = toMaybe model.params.minQuantity
                         , sort = Just (sortColumnToString col)
@@ -284,6 +309,14 @@ update shared msg model =
 
         ScrollDone ->
             ( model, Effect.none )
+
+
+fetchClassifications : String -> Cmd Msg
+fetchClassifications dbName =
+    Http.get
+        { url = Url.Builder.absolute [ "api", "v1", "db", dbName, "classifications" ] []
+        , expect = Http.expectJson ClassificationsLoaded (Decode.list classificationSystemDecoder)
+        }
 
 
 view : Shared.Model -> Model -> View Msg
@@ -338,12 +371,85 @@ viewError err =
 viewFilters : Model -> Html Msg
 viewFilters model =
     div [ style "margin" "0.75rem 0", style "padding" "0 1.25rem", style "display" "flex", style "gap" "0.5rem", style "flex-wrap" "wrap", style "align-items" "flex-end" ]
-        [ viewFilterInput "Name" "Search activities..." model.params.name SetNameFilter
-        , viewFilterInput "Location" "e.g. FR, DE..." model.params.location SetLocationFilter
-        , viewFilterInput "Classification" "Search classifications..." model.params.classification SetClassificationFilter
-        , viewFilterInput "Max depth" "e.g. 3" model.params.maxDepth SetMaxDepth
-        , viewFilterInput "Min quantity" "e.g. 0.001" model.params.minQuantity SetMinQuantity
-        ]
+        ([ viewFilterInput "Name" "Search activities..." model.params.name SetNameFilter
+         , viewFilterInput "Location" "e.g. FR, DE..." model.params.location SetLocationFilter
+         ]
+         ++ viewClassificationFilter model
+         ++ [ viewFilterInput "Max depth" "e.g. 3" model.params.maxDepth SetMaxDepth
+            , viewFilterInput "Min quantity" "e.g. 0.001" model.params.minQuantity SetMinQuantity
+            ]
+        )
+
+
+viewClassificationFilter : Model -> List (Html Msg)
+viewClassificationFilter model =
+    case model.classificationSystems of
+        Nothing ->
+            [ viewFilterInput "Classification" "Search classifications..." model.params.classificationValue (\v -> SelectClassificationValue (if String.isEmpty v then Nothing else Just v)) ]
+
+        Just [] ->
+            []
+
+        Just systems ->
+            let
+                systemDropdown =
+                    div [ style "display" "flex", style "flex-direction" "column" ]
+                        [ label [ class "label is-small", style "margin-bottom" "0.25rem" ] [ text "Classification" ]
+                        , div [ class "select is-small" ]
+                            [ select
+                                [ onInput
+                                    (\val ->
+                                        if val == "" then
+                                            SelectClassificationSystem Nothing
+                                        else
+                                            SelectClassificationSystem (Just val)
+                                    )
+                                ]
+                                (option [ value "", selected (model.selectedSystem == Nothing) ] [ text "All systems..." ]
+                                    :: List.map
+                                        (\sys ->
+                                            option
+                                                [ value sys.name
+                                                , selected (model.selectedSystem == Just sys.name)
+                                                ]
+                                                [ text (sys.name ++ " (" ++ String.fromInt sys.activityCount ++ ")") ]
+                                        )
+                                        systems
+                                )
+                            ]
+                        ]
+
+                currentValues =
+                    case model.selectedSystem of
+                        Nothing ->
+                            []
+
+                        Just sys ->
+                            systems
+                                |> List.filter (\s -> s.name == sys)
+                                |> List.head
+                                |> Maybe.map .values
+                                |> Maybe.withDefault []
+
+                valueInput =
+                    div [ style "display" "flex", style "flex-direction" "column" ]
+                        [ label [ class "label is-small", style "margin-bottom" "0.25rem" ] [ text "Value" ]
+                        , input
+                            [ class "input is-small"
+                            , type_ "text"
+                            , placeholder "Filter by value..."
+                            , value model.params.classificationValue
+                            , list "composition-classification-values"
+                            , onInput (\v -> SelectClassificationValue (if String.isEmpty v then Nothing else Just v))
+                            , style "width" "180px"
+                            ]
+                            []
+                        , Html.node "datalist"
+                            [ id "composition-classification-values" ]
+                            (List.map (\v -> option [ value v ] []) currentValues)
+                        ]
+            in
+            [ systemDropdown, valueInput ]
 
 
 viewFilterInput : String -> String -> String -> (String -> Msg) -> Html Msg

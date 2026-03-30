@@ -978,10 +978,10 @@ getFlowActivities db flowIdText = do
 -- | Compute the supply chain for an activity using the scaling vector.
 -- Returns all upstream activities with their scaling factors and subgraph edges.
 getSupplyChain :: Database -> SharedSolver -> Text -> Maybe Text -> Maybe Int -> Maybe Double
-              -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text
+              -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text
               -> Maybe Text -> Maybe Text -> Bool
               -> IO (Either ServiceError SupplyChainResponse)
-getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter sortParam orderParam includeEdges = do
+getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter classificationValueFilter sortParam orderParam includeEdges = do
     case resolveActivityAndProcessId db processIdText of
         Left err -> return $ Left err
         Right (processId, _rootActivity) -> do
@@ -991,18 +991,18 @@ getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityPa
                     let activityIndex = dbActivityIndex db
                         demandVec = buildDemandVectorFromIndex activityIndex processId
                     supplyVec <- solveWithSharedSolver sharedSolver demandVec
-                    return $ Right $ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter sortParam orderParam includeEdges
+                    return $ Right $ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter classificationValueFilter sortParam orderParam includeEdges
 
 -- | Pure function: build a SupplyChainResponse from a scaling vector.
 -- Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
 buildSupplyChainFromScalingVector
     :: Database -> ProcessId -> U.Vector Double
     -> Maybe Text -> Maybe Int -> Maybe Double
-    -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text
+    -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text
     -> Maybe Text -> Maybe Text
     -> Bool  -- ^ include edges (expensive: extra pass over technosphere triples)
     -> SupplyChainResponse
-buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter sortParam orderParam includeEdges =
+buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter classificationValueFilter sortParam orderParam includeEdges =
     let minQ = fromMaybe 0 minQuantityParam
         limit = fromMaybe 100 limitParam
         offset = fromMaybe 0 offsetParam
@@ -1040,7 +1040,13 @@ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam m
         matchesFilters activity pid =
             let nameOk = maybe True (\pat -> textMatches pat (activityName activity)) nameFilter
                 locOk = maybe True (\pat -> textMatches pat (activityLocation activity)) locationFilter
-                classOk = maybe True (\pat -> any (textMatches pat) (M.elems (activityClassification activity))) classificationFilter
+                classOk = case (classificationFilter, classificationValueFilter) of
+                    (Just sys, Just val) -> case M.lookup sys (activityClassification activity) of
+                        Just v  -> textMatches val v
+                        Nothing -> False
+                    (Just sys, Nothing)  -> M.member sys (activityClassification activity)
+                    (Nothing,  Just val) -> any (textMatches val) (M.elems (activityClassification activity))
+                    (Nothing,  Nothing)  -> True
                 depth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
                 depthOk = maybe True (depth <=) maxDepthParam
             in nameOk && locOk && classOk && depthOk

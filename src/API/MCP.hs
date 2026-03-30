@@ -429,7 +429,7 @@ callGetSupplyChain rid args (db, solver) =
                 limit = intArg "limit" args
                 minQ  = doubleArg "min_quantity" args
             result <- Service.getSupplyChain db solver pid nameF limit minQ
-                        Nothing Nothing locF Nothing Nothing Nothing False
+                        Nothing Nothing locF Nothing Nothing Nothing Nothing False
             case result of
                 Left err  -> return $ toolError rid (T.pack $ show err)
                 Right val -> return $ toolSuccessJson rid (toJSON val)

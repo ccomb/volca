@@ -87,6 +87,7 @@ type alias SupplyChainParams =
     { name : String
     , location : String
     , classification : String
+    , classificationValue : String
     , maxDepth : String
     , minQuantity : String
     , limit : Int
@@ -102,6 +103,7 @@ defaultSupplyChainParams =
     { name = ""
     , location = ""
     , classification = ""
+    , classificationValue = ""
     , maxDepth = ""
     , minQuantity = ""
     , limit = 50
@@ -128,6 +130,7 @@ loadSupplyChain toMsg dbName activityId params =
                 ++ optParam "name" params.name
                 ++ optParam "location" params.location
                 ++ optParam "classification" params.classification
+                ++ optParam "classification-value" params.classificationValue
                 ++ optParam "max-depth" params.maxDepth
                 ++ optParam "min-quantity" params.minQuantity
                 ++ optParam "sort" params.sort

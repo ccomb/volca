@@ -373,7 +373,7 @@ navigateToPage shared page =
             Shared.NavigateTo CompartmentMappingsRoute
 
         CompositionActive ->
-            Shared.NavigateTo (CompositionRoute { db = dbName, processId = currentActivityId, name = Nothing, location = Nothing, classification = Nothing, maxDepth = Nothing, minQuantity = Nothing, sort = Nothing, order = Nothing })
+            Shared.NavigateTo (CompositionRoute { db = dbName, processId = currentActivityId, name = Nothing, location = Nothing, classification = Nothing, classificationValue = Nothing, maxDepth = Nothing, minQuantity = Nothing, sort = Nothing, order = Nothing })
 
         UnitsActive ->
             Shared.NavigateTo UnitsRoute
