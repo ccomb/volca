@@ -88,6 +88,7 @@ import Database.CrossLinking
     , defaultLinkingThreshold
     , extractProductPrefixes
     , normalizeUnicode
+    , locationHierarchy
     )
 import GHC.Conc (getNumCapabilities)
 import GHC.Fingerprint (Fingerprint (..))
@@ -1037,9 +1038,10 @@ loadDatabaseWithCrossDBLinking
     -> [IndexedDatabase]         -- ^ Pre-built indexes from other databases
     -> SynonymDB                  -- ^ Synonym database for name matching
     -> UC.UnitConfig              -- ^ Unit configuration for compatibility checking
+    -> M.Map T.Text [T.Text]      -- ^ Location hierarchy (empty = use built-in)
     -> FilePath                   -- ^ Path to load from
     -> IO (Either T.Text (SimpleDatabase, CrossDBLinkingStats))
-loadDatabaseWithCrossDBLinking locationAliases otherIndexes synonymDB unitConfig path = do
+loadDatabaseWithCrossDBLinking locationAliases otherIndexes synonymDB unitConfig locationHier path = do
     result <- loadDatabaseWithLocationAliases locationAliases path
     case result of
         Left err -> return $ Left err
@@ -1067,7 +1069,7 @@ loadDatabaseWithCrossDBLinking locationAliases otherIndexes synonymDB unitConfig
                 else do
                     -- Perform cross-database linking using pre-built indexes
                     (linkedDb, stats) <- fixActivityLinksWithCrossDB
-                        otherIndexes synonymDB unitConfig simpleDb
+                        otherIndexes synonymDB unitConfig locationHier simpleDb
                     return $ Right (linkedDb, stats { cdlUnknownUnits = unknownUnits })
 
 {- | Fix activity links using cross-database lookup.
@@ -1089,9 +1091,10 @@ fixActivityLinksWithCrossDB
     :: [IndexedDatabase]            -- ^ Pre-built indexes from other databases
     -> SynonymDB                    -- ^ Synonym database
     -> UC.UnitConfig                -- ^ Unit configuration
+    -> M.Map T.Text [T.Text]        -- ^ Location hierarchy (code → parent codes)
     -> SimpleDatabase               -- ^ Database to fix
     -> IO (SimpleDatabase, CrossDBLinkingStats)
-fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig db = do
+fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig locationHier db = do
     -- Count unlinked exchanges before
     let unlinkedBefore = countUnlinkedExchanges db
         !totalInputs = countTotalTechInputs db
@@ -1115,10 +1118,11 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig db = do
 
             -- Build the linking context with pre-built indexes
             let linkingCtx = LinkingContext
-                    { lcIndexedDatabases = indexedDbs
-                    , lcSynonymDB = synonymDB
-                    , lcUnitConfig = unitConfig
-                    , lcThreshold = defaultLinkingThreshold
+                    { lcIndexedDatabases  = indexedDbs
+                    , lcSynonymDB         = synonymDB
+                    , lcUnitConfig        = unitConfig
+                    , lcThreshold         = defaultLinkingThreshold
+                    , lcLocationHierarchy = if M.null locationHier then locationHierarchy else locationHier
                     }
 
             -- Process all activities to find cross-DB links

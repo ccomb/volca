@@ -47,6 +47,7 @@ data Config = Config
     , cfgUnits               :: ![RefDataConfig]
     , cfgPlugins             :: ![PluginConfig]
     , cfgHosting             :: !(Maybe HostingConfig)
+    , cfgGeographies         :: !(Maybe FilePath)    -- Path to geographies CSV (code,display_name,parents)
     } deriving (Show, Eq, Generic)
 
 -- | Hosting configuration for managed VoLCA instances
@@ -118,6 +119,7 @@ defaultConfig = Config
     , cfgUnits = []
     , cfgPlugins = []
     , cfgHosting = Nothing
+    , cfgGeographies = Nothing
     }
 
 -- TOML Decoders
@@ -132,6 +134,7 @@ instance DecodeTOML Config where
         cfgUnits <- fromMaybe [] <$> getFieldOptWith (getArrayOf tomlDecoder) "units"
         cfgPlugins <- fromMaybe [] <$> getFieldOptWith (getArrayOf tomlDecoder) "plugin"
         cfgHosting <- getFieldOptWith tomlDecoder "hosting"
+        cfgGeographies <- getFieldOpt "geographies"
         pure Config{..}
 
 instance DecodeTOML ServerConfig where

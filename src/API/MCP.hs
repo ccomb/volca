@@ -25,8 +25,10 @@ import System.Random (randomIO)
 import Network.Wai (Application, responseLBS, strictRequestBody, requestMethod)
 import qualified Data.ByteString as BS
 
+import Config (DatabaseConfig(..))
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), getDatabase)
 import qualified Database.Manager as DM
+
 import Matrix (computeInventoryMatrix, computeScalingVector, applyBiosphereMatrix, computeProcessLCIAContributions)
 import Method.Mapping (computeLCIAScore, mapMethodToFlows, computeMappingStats, MappingStats(..))
 import Method.Types (Method(..), MethodCF(..))
@@ -36,7 +38,7 @@ import SharedSolver (SharedSolver)
 import qualified Data.List as L
 import Data.Maybe (mapMaybe)
 import qualified Service
-import Types (Database(..), Activity(..), activityName, activityLocation, flowName, flowId, processIdToText)
+import Types (Database(..), Activity(..), Indexes(..), activityName, activityLocation, flowName, flowId, processIdToText)
 import API.Types (InventoryExport(..), InventoryFlowDetail(..))
 import UnitConversion (defaultUnitConfig)
 import Network.Wai (requestHeaders)
@@ -264,7 +266,7 @@ toolDefinitions =
             [ ("database", "string", "Database name")
             , ("method_id", "string", "Method UUID")
             ] [])
-    , mkTool "analyze_flow_hotspots" "Identify which elementary flows (emissions/resources) contribute most to a specific impact category. Answers 'which emissions drive my climate change score?'"
+    , mkTool "get_contributing_flows" "Identify which elementary flows (emissions/resources) contribute most to a specific impact category. Answers 'which emissions drive my climate change score?'"
         (props
             [ ("database", "string", "Database name")
             , ("process_id", "string", "Process ID")
@@ -272,7 +274,7 @@ toolDefinitions =
             ]
             [ ("limit", "integer", "Max flows to return, sorted by contribution (default 20)")
             ])
-    , mkTool "analyze_process_hotspots" "Identify which upstream processes contribute most to a specific impact category. Answers 'which suppliers drive my climate change score?' Uses exact matrix-based computation, valid even for cyclic supply chains."
+    , mkTool "get_contributing_processes" "Identify which upstream processes contribute most to a specific impact category. Answers 'which suppliers drive my climate change score?' Uses exact matrix-based computation, valid even for cyclic supply chains."
         (props
             [ ("database", "string", "Database name")
             , ("process_id", "string", "Process ID")
@@ -280,6 +282,10 @@ toolDefinitions =
             ]
             [ ("limit", "integer", "Max processes to return, sorted by contribution (default 10)")
             ])
+    , mkTool "list_geographies" "List all geography codes present in a database, with display names and parent regions. Use the 'geo' value as the geography filter in search_activities."
+        (props
+            [ ("database", "string", "Database name")
+            ] [])
     ]
 
 mkTool :: Text -> Text -> Value -> Value
@@ -333,9 +339,10 @@ callTool dbManager baseUrl rid name args = case name of
     "compute_lcia"            -> callComputeLCIA dbManager baseUrl rid args
     "list_methods"            -> callListMethods dbManager rid
     "get_flow_mapping"        -> callGetFlowMapping dbManager rid args
-    "analyze_flow_hotspots"   -> callAnalyzeFlowHotspots dbManager baseUrl rid args
-    "analyze_process_hotspots"-> callAnalyzeProcessHotspots dbManager baseUrl rid args
-    _                         -> return $ toolError rid ("Unknown tool: " <> name)
+    "get_contributing_flows"   -> callGetContributingFlows dbManager baseUrl rid args
+    "get_contributing_processes" -> callGetContributingProcesses dbManager baseUrl rid args
+    "list_geographies"         -> callListGeographies dbManager rid args
+    _                          -> return $ toolError rid ("Unknown tool: " <> name)
 
 -- Helper: extract database, then run action
 withDb :: DatabaseManager -> Value -> KeyMap Value
@@ -371,8 +378,20 @@ doubleArg key args = case KM.lookup (fromText key) args of
 callListDatabases :: DatabaseManager -> Value -> IO Value
 callListDatabases dbManager rid = do
     loaded <- readTVarIO (dmLoadedDbs dbManager)
-    let names = M.keys loaded
-    return $ toolSuccessJson rid $ object [ "databases" .= names ]
+    let mkDbEntry ld =
+            let cfg = ldConfig ld
+                base = [ "name"         .= dcName cfg
+                       , "display_name" .= dcDisplayName cfg
+                       ]
+                withDesc = case dcDescription cfg of
+                    Nothing -> base
+                    Just d  -> base ++ ["description" .= d]
+                withFmt = case dcFormat cfg of
+                    Nothing  -> withDesc
+                    Just fmt -> withDesc ++ ["format" .= fmt]
+            in object withFmt
+        entries = map mkDbEntry (M.elems loaded)
+    return $ toolSuccessJson rid $ object [ "databases" .= entries ]
 
 callSearchActivities :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callSearchActivities rid args (db, _) = do
@@ -499,18 +518,20 @@ callComputeLCIA dbManager baseUrl rid args = do
                                                 contribs = L.sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
                                                 topFlows = take topN contribs
                                                 webUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/lcia/" <> encodeSegment colName <> "/" <> UUID.toText uuid
+                                            let hasNeg = any (\(_, _, c) -> c < 0) contribs
                                             return $ toolSuccessJson rid $ object
-                                                [ "method"          .= methodName method
-                                                , "category"        .= methodCategory method
-                                                , "score"           .= score
-                                                , "unit"            .= methodUnit method
-                                                , "functional_unit" .= functionalUnit
-                                                , "mapped_flows"    .= (msTotal stats - msUnmatched stats)
-                                                , "web_url"         .= webUrl
-                                                , "top_flows"       .= [ object
-                                                    [ "flow_name"    .= flowName f
-                                                    , "contribution" .= c
-                                                    , "share_pct"    .= (if score /= 0 then c / score * 100 else 0 :: Double)
+                                                [ "method"                     .= methodName method
+                                                , "category"                   .= methodCategory method
+                                                , "score"                      .= score
+                                                , "unit"                       .= methodUnit method
+                                                , "functional_unit"            .= functionalUnit
+                                                , "mapped_flows"               .= (msTotal stats - msUnmatched stats)
+                                                , "has_negative_contributions" .= hasNeg
+                                                , "web_url"                    .= webUrl
+                                                , "top_flows"                  .= [ object
+                                                    [ "flow_name"           .= flowName f
+                                                    , "contribution"        .= c
+                                                    , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
                                                     ]
                                                     | (_, f, c) <- topFlows
                                                     ]
@@ -573,8 +594,8 @@ resolveMethod dbManager methodIdText =
                 []          -> return $ Left "Method not found"
                 ((col, m):_) -> return $ Right (col, m)
 
-callAnalyzeFlowHotspots :: DatabaseManager -> Text -> Value -> KeyMap Value -> IO Value
-callAnalyzeFlowHotspots dbManager baseUrl rid args =
+callGetContributingFlows :: DatabaseManager -> Text -> Value -> KeyMap Value -> IO Value
+callGetContributingFlows dbManager baseUrl rid args =
     case (textArg "database" args, textArg "process_id" args, textArg "method_id" args) of
         (Nothing, _, _) -> return $ toolError rid "Missing required parameter: database"
         (_, Nothing, _) -> return $ toolError rid "Missing required parameter: process_id"
@@ -602,22 +623,24 @@ callAnalyzeFlowHotspots dbManager baseUrl rid args =
                                     let score   = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
                                         contribs = L.sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
                                         top      = take lim contribs
+                                    let hasNeg = any (\(_, _, c) -> c < 0) contribs
                                     return $ toolSuccessJson rid $ object
-                                        [ "method"       .= methodName method
-                                        , "unit"         .= methodUnit method
-                                        , "total_score"  .= score
-                                        , "web_url"      .= webUrl
-                                        , "top_flows"    .= [ object
-                                            [ "flow_name"    .= flowName f
-                                            , "contribution" .= c
-                                            , "share_pct"    .= (if score /= 0 then c / score * 100 else 0 :: Double)
+                                        [ "method"                    .= methodName method
+                                        , "unit"                      .= methodUnit method
+                                        , "total_score"               .= score
+                                        , "has_negative_contributions" .= hasNeg
+                                        , "web_url"                   .= webUrl
+                                        , "top_flows"                 .= [ object
+                                            [ "flow_name"           .= flowName f
+                                            , "contribution"        .= c
+                                            , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
                                             ]
                                             | (_, f, c) <- top
                                             ]
                                         ]
 
-callAnalyzeProcessHotspots :: DatabaseManager -> Text -> Value -> KeyMap Value -> IO Value
-callAnalyzeProcessHotspots dbManager baseUrl rid args =
+callGetContributingProcesses :: DatabaseManager -> Text -> Value -> KeyMap Value -> IO Value
+callGetContributingProcesses dbManager baseUrl rid args =
     case (textArg "database" args, textArg "process_id" args, textArg "method_id" args) of
         (Nothing, _, _) -> return $ toolError rid "Missing required parameter: database"
         (_, Nothing, _) -> return $ toolError rid "Missing required parameter: process_id"
@@ -656,17 +679,42 @@ callAnalyzeProcessHotspots dbManager baseUrl rid args =
                                                 pidText' = processIdToText db pid
                                                 procWebUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText' <> "/process-hotspot/" <> encodeSegment colName <> "/" <> methodIdText
                                             in object
-                                                [ "process_id"    .= pidText'
-                                                , "activity_name" .= actName
-                                                , "product_name"  .= prodName
-                                                , "location"      .= actLoc
-                                                , "contribution"  .= c
-                                                , "share_pct"     .= (if score /= 0 then c / score * 100 else 0 :: Double)
-                                                , "web_url"       .= procWebUrl
+                                                [ "process_id"           .= pidText'
+                                                , "activity_name"        .= actName
+                                                , "product_name"         .= prodName
+                                                , "location"             .= actLoc
+                                                , "contribution"         .= c
+                                                , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
+                                                , "web_url"              .= procWebUrl
                                                 ]
+                                    let hasNeg = any (\(_, c) -> c < 0) top
                                     return $ toolSuccessJson rid $ object
-                                        [ "method"      .= methodName method
-                                        , "unit"        .= methodUnit method
-                                        , "total_score" .= score
-                                        , "processes"   .= map mkEntry top
+                                        [ "method"                     .= methodName method
+                                        , "unit"                       .= methodUnit method
+                                        , "total_score"                .= score
+                                        , "has_negative_contributions" .= hasNeg
+                                        , "processes"                  .= map mkEntry top
                                         ]
+
+callListGeographies :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callListGeographies dbManager rid args =
+    case textArg "database" args of
+        Nothing -> return $ toolError rid "Missing required parameter: database"
+        Just dbName -> do
+            mLoaded <- getDatabase dbManager dbName
+            case mLoaded of
+                Nothing -> return $ toolError rid ("Database not loaded: " <> dbName)
+                Just ld -> do
+                    let db      = ldDatabase ld
+                        geoMap  = dmGeographies dbManager
+                        codes   = L.sort $ M.keys (idxByLocation (dbIndexes db))
+                        mkEntry code =
+                            let (displayName, parents) = M.findWithDefault (code, []) code geoMap
+                                parentStr = T.intercalate "|" parents
+                            in object
+                                [ "geo"            .= code
+                                , "display_name"   .= displayName
+                                , "parent_regions" .= parentStr
+                                ]
+                    return $ toolSuccessJson rid $ object
+                        [ "geographies" .= map mkEntry codes ]

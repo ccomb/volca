@@ -64,6 +64,8 @@ host = "127.0.0.1"             # Bind address ("0.0.0.0" for all interfaces)
 
 # ── Reference data (shipped with VoLCA) ──────────────────────────────
 
+geographies = "data/geographies.csv"
+
 [[flow-synonyms]]
 name = "Default flow synonyms"
 path = "data/flows.csv"

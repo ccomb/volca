@@ -11,6 +11,8 @@
 # load = true
 
 # Reference data
+geographies = "data/geographies.csv"
+
 [[flow-synonyms]]
 path = "data/flows.csv"
 

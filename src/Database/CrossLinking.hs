@@ -84,10 +84,11 @@ data SupplierEntry = SupplierEntry
 
 -- | Context for cross-database linking (with pre-built indexes)
 data LinkingContext = LinkingContext
-    { lcIndexedDatabases :: ![IndexedDatabase]  -- ^ Pre-indexed databases to search
-    , lcSynonymDB        :: !SynonymDB          -- ^ For product name matching
-    , lcUnitConfig       :: !UC.UnitConfig      -- ^ For unit compatibility
-    , lcThreshold        :: !Int                -- ^ Minimum score to auto-link (default: 60)
+    { lcIndexedDatabases  :: ![IndexedDatabase]       -- ^ Pre-indexed databases to search
+    , lcSynonymDB         :: !SynonymDB               -- ^ For product name matching
+    , lcUnitConfig        :: !UC.UnitConfig            -- ^ For unit compatibility
+    , lcThreshold         :: !Int                      -- ^ Minimum score to auto-link (default: 60)
+    , lcLocationHierarchy :: !(M.Map Text [Text])      -- ^ Location hierarchy (code → parent codes)
     }
 
 -- | A candidate supplier from another database
@@ -394,7 +395,7 @@ findSupplierInIndexedDBs LinkingContext{..} productName location unit =
 
     scoreEntry :: Text -> (Text, SupplierEntry) -> CrossDBCandidate
     scoreEntry queryLoc (dbName, SupplierEntry{..}) =
-        let locScore = matchLocation queryLoc seLocation
+        let locScore = matchLocation lcLocationHierarchy queryLoc seLocation
             nameScore = 50
             !totalScore = nameScore + locScore
         in CrossDBCandidate
@@ -445,18 +446,18 @@ areSynonyms synDB name1 name2 =
 --   20 = Subregion match (e.g., FR ⊂ Europe)
 --   10 = Global fallback (GLO or RoW)
 --    5 = Different but not blocking
-matchLocation :: Text -> Text -> Int
-matchLocation queryLoc candidateLoc
-    | queryLoc == candidateLoc                        = 30  -- Exact
-    | isSubregionOf queryLoc candidateLoc             = 20  -- Widening (FR→GLO, FR→RER)
+matchLocation :: M.Map Text [Text] -> Text -> Text -> Int
+matchLocation hier queryLoc candidateLoc
+    | queryLoc == candidateLoc                           = 30  -- Exact
+    | isSubregionOf hier queryLoc candidateLoc           = 20  -- Widening (FR→GLO, FR→RER)
     | candidateLoc `elem` ["GLO", "RoW", "Unspecified"] = 10  -- Global fallback
-    | isSubregionOf candidateLoc queryLoc             = 0   -- Narrowing (GLO→FR) — blocked
-    | otherwise                                       = 5   -- Unrelated
+    | isSubregionOf hier candidateLoc queryLoc           = 0   -- Narrowing (GLO→FR) — blocked
+    | otherwise                                          = 5   -- Unrelated
 
 -- | Check if one location is a subregion of another
-isSubregionOf :: Text -> Text -> Bool
-isSubregionOf child parent =
-    case M.lookup child locationHierarchy of
+isSubregionOf :: M.Map Text [Text] -> Text -> Text -> Bool
+isSubregionOf hier child parent =
+    case M.lookup child hier of
         Just parents -> parent `elem` parents
         Nothing      -> False
 

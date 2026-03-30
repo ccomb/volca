@@ -112,6 +112,7 @@ import Database.CrossLinking (IndexedDatabase(..), buildIndexedDatabaseFromDB)
 import qualified Database.Upload as Upload
 import Database.Upload (findMethodDirectory)
 import qualified Database.UploadedDatabase as UploadedDB
+import qualified Data.Text.IO as TIO
 import qualified SimaPro.Parser as SimaPro
 import API.Types (DepLoadResult(..))
 import qualified Method.Parser
@@ -335,6 +336,7 @@ data DatabaseManager = DatabaseManager
     , dmLoadedUnitDefs    :: !(TVar (Map Text UnitConversion.UnitConfig))
     , dmNoCache          :: !Bool                              -- Caching disabled flag
     , dmPlugins          :: !PluginRegistry                    -- Plugin registry (built-in + external)
+    , dmGeographies      :: !(Map Text (Text, [Text]))          -- code → (display_name, parent_codes)
     }
 
 -- | Initialize database manager from config
@@ -388,6 +390,10 @@ initDatabaseManager config noCache configPath = do
     availableUnitDefsVar <- newTVarIO $ M.fromList [(rdName rd, rd) | rd <- allUnitDefs]
     loadedUnitDefsVar <- newTVarIO M.empty
 
+    geographies <- case cfgGeographies config of
+        Nothing   -> return M.empty
+        Just path -> parseGeographiesCSV (resolveRelative path)
+
     let manager = DatabaseManager
             { dmLoadedDbs = loadedDbsVar
             , dmStagedDbs = stagedDbsVar
@@ -404,6 +410,7 @@ initDatabaseManager config noCache configPath = do
             , dmLoadedUnitDefs = loadedUnitDefsVar
             , dmNoCache = noCache
             , dmPlugins = buildRegistry (cfgPlugins config)
+            , dmGeographies = geographies
             }
 
     -- Auto-load active reference data (flow synonyms, compartment mappings, units)
@@ -468,7 +475,7 @@ loadOneDatabase synonymDB unitConfig noCache otherIndexes loadedDbsVar indexedDb
     dbStart <- getCurrentTime
     reportProgress Info $ "[STARTING] Loading database: " <> T.unpack (dcDisplayName dbConfig)
     let transforms = prTransforms (dmPlugins manager)
-    result <- loadDatabaseFromConfigWithCrossDBAndTransforms transforms dbConfig synonymDB unitConfig noCache otherIndexes
+    result <- loadDatabaseFromConfigWithCrossDBAndTransforms transforms dbConfig synonymDB unitConfig noCache otherIndexes (M.map snd (dmGeographies manager))
     case result of
         Right loaded -> do
             let indexedDb = buildIndexedDatabaseFromDB (dcName dbConfig) synonymDB (ldDatabase loaded)
@@ -599,7 +606,7 @@ isCacheFile path =
 -- This is the original function, kept for backward compatibility
 loadDatabaseFromConfig :: DatabaseConfig -> SynonymDB -> Bool -> IO (Either Text LoadedDatabase)
 loadDatabaseFromConfig dbConfig synonymDB noCache =
-    loadDatabaseFromConfigWithCrossDB dbConfig synonymDB UnitConversion.defaultUnitConfig noCache []
+    loadDatabaseFromConfigWithCrossDB dbConfig synonymDB UnitConversion.defaultUnitConfig noCache [] M.empty
 
 -- | Resolve a database path: if it's an archive, extract it first.
 -- Extracts to "{archivePath}.d/" and finds the actual data directory inside.
@@ -646,6 +653,7 @@ loadDatabaseFromConfigWithCrossDB
     -> UnitConversion.UnitConfig
     -> Bool  -- noCache
     -> [IndexedDatabase]  -- Pre-built indexes from other databases for cross-DB linking
+    -> M.Map T.Text [T.Text]  -- Location hierarchy (empty = use built-in)
     -> IO (Either Text LoadedDatabase)
 loadDatabaseFromConfigWithCrossDB = loadDatabaseFromConfigWithCrossDBAndTransforms []
 
@@ -657,8 +665,9 @@ loadDatabaseFromConfigWithCrossDBAndTransforms
     -> UnitConversion.UnitConfig
     -> Bool  -- noCache
     -> [IndexedDatabase]  -- Pre-built indexes from other databases for cross-DB linking
+    -> M.Map T.Text [T.Text]  -- Location hierarchy (empty = use built-in)
     -> IO (Either Text LoadedDatabase)
-loadDatabaseFromConfigWithCrossDBAndTransforms transforms dbConfig synonymDB unitConfig noCache otherIndexes = do
+loadDatabaseFromConfigWithCrossDBAndTransforms transforms dbConfig synonymDB unitConfig noCache otherIndexes locationHier = do
     path <- resolveDataPath (dcPath dbConfig)
     let locationAliases = dcLocationAliases dbConfig
 
@@ -671,7 +680,7 @@ loadDatabaseFromConfigWithCrossDBAndTransforms transforms dbConfig synonymDB uni
         else do
             -- Load raw database with cross-DB linking
             reportProgress Info $ "Loading database from: " <> path
-            dbResult <- loadDatabaseRawWithCrossDB (dcName dbConfig) locationAliases path noCache synonymDB unitConfig otherIndexes
+            dbResult <- loadDatabaseRawWithCrossDB (dcName dbConfig) locationAliases path noCache synonymDB unitConfig otherIndexes locationHier
 
             case dbResult of
                 Left err -> return $ Left err
@@ -770,8 +779,9 @@ loadDatabaseRawWithCrossDB
     -> SynonymDB                    -- ^ Synonym database
     -> UnitConversion.UnitConfig    -- ^ Unit configuration
     -> [IndexedDatabase]            -- ^ Pre-built indexes from other databases
+    -> M.Map T.Text [T.Text]        -- ^ Location hierarchy (empty = use built-in)
     -> IO (Either Text Database)
-loadDatabaseRawWithCrossDB dbName locationAliases path noCache synonymDB unitConfig otherIndexes = do
+loadDatabaseRawWithCrossDB dbName locationAliases path noCache synonymDB unitConfig otherIndexes locationHier = do
     isFile <- doesFileExist path
     if isFile && isCacheFile path
         then do
@@ -841,7 +851,7 @@ loadDatabaseRawWithCrossDB dbName locationAliases path noCache synonymDB unitCon
                             when (isJust mCachedDb && not cacheUsable) $
                                 reportProgress Info "Cache has unresolved links, rebuilding with available dependencies..."
                             loadResult <- Loader.loadDatabaseWithCrossDBLinking
-                                locationAliases otherIndexes synonymDB unitConfig path
+                                locationAliases otherIndexes synonymDB unitConfig locationHier path
                             case loadResult of
                                 Left err -> return $ Left err
                                 Right (simpleDb, stats) -> do
@@ -907,6 +917,7 @@ loadDatabaseSingleFromConfig manager dbName = do
                         unitConfig
                         (dmNoCache manager)
                         otherIndexes
+                        (M.map snd (dmGeographies manager))
                     case eitherResult of
                         Left (ex :: SomeException) -> return $ Left $ "Exception loading database: " <> T.pack (show ex)
                         Right (Left err) -> return $ Left err
@@ -1033,6 +1044,7 @@ stageUploadedDatabase manager dbConfig = do
                 otherIndexes
                 synonymDB
                 unitConfig
+                (M.map snd (dmGeographies manager))
                 loadPath
 
             case loadResult of
@@ -1462,6 +1474,7 @@ addDependencyToStaged manager dbName depName = do
                     selectedIndexes
                     synonymDB
                     unitConfig
+                    (M.map snd (dmGeographies manager))
                     (sdSimpleDB staged)
 
                 -- Update staged database with new stats and dependency
@@ -1497,6 +1510,7 @@ removeDependencyFromStaged manager dbName depName = do
                 remainingIndexes
                 synonymDB
                 unitConfig
+                (M.map snd (dmGeographies manager))
                 (sdSimpleDB staged)
 
             -- Update staged database
@@ -1989,6 +2003,38 @@ removeUnitDefs = removeRefDataG unitDefOps
 --------------------------------------------------------------------------------
 -- Reference data helpers
 --------------------------------------------------------------------------------
+
+-- | Parse a geographies CSV file (code,display_name,parents) into a lookup map.
+-- Parents field uses '|' as separator. display_name is optional (falls back to code).
+-- Lines starting with "code" are treated as headers and skipped.
+parseGeographiesCSV :: FilePath -> IO (Map Text (Text, [Text]))
+parseGeographiesCSV path = do
+    exists <- doesFileExist path
+    if not exists
+        then do
+            reportProgress Info $ "Geographies file not found: " <> path <> " (using built-in hierarchy)"
+            return M.empty
+        else do
+            content <- TIO.readFile path
+            let ls = T.lines content
+                parsed = concatMap parseLine ls
+            reportProgress Info $ "Loaded " <> show (length parsed) <> " geographies from " <> path
+            return $ M.fromList parsed
+  where
+    parseLine line
+        | T.null (T.strip line)         = []
+        | "code" `T.isPrefixOf` line    = []   -- header row
+        | "#" `T.isPrefixOf` T.strip line = []  -- comment
+        | otherwise = case T.splitOn "," line of
+            []  -> []
+            [_] -> []
+            parts ->
+                let code        = T.strip (head parts)
+                    parentsStr  = T.strip (last parts)
+                    displayRaw  = T.intercalate "," (init (tail parts))
+                    displayName = let d = T.strip displayRaw in if T.null d then code else d
+                    parents     = if T.null parentsStr then [] else T.splitOn "|" parentsStr
+                in [(code, (displayName, parents))]
 
 -- | Load CSV file content from path.
 loadRefDataCSV :: FilePath -> IO (Either Text BL.ByteString)

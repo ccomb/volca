@@ -1,0 +1,92 @@
+code,display_name,parents
+FR,France,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+DE,Germany,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+IT,Italy,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+ES,Spain,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+GB,United Kingdom,Europe without Switzerland|Europe without Austria|Europe|RER|ENTSO-E|GLO|RoW
+UK,United Kingdom,Europe without Switzerland|Europe without Austria|Europe|RER|ENTSO-E|GLO|RoW
+PL,Poland,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+NL,Netherlands,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+BE,Belgium,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+AT,Austria,Europe without Switzerland|Europe|EU|RER|ENTSO-E|GLO|RoW
+CH,Switzerland,Europe without Austria|Europe|RER|ENTSO-E|GLO|RoW
+SE,Sweden,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|NORDEL|GLO|RoW
+NO,Norway,Europe without Switzerland|Europe without Austria|Europe|RER|ENTSO-E|NORDEL|GLO|RoW
+DK,Denmark,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|NORDEL|GLO|RoW
+FI,Finland,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|NORDEL|GLO|RoW
+PT,Portugal,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+GR,Greece,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+IE,Ireland,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+CZ,Czech Republic,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+RO,Romania,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+HU,Hungary,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+SK,Slovakia,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+BG,Bulgaria,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+HR,Croatia,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+SI,Slovenia,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+LT,Lithuania,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+LV,Latvia,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+EE,Estonia,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+LU,Luxembourg,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|GLO|RoW
+MT,Malta,Europe without Switzerland|Europe without Austria|Europe|EU|RER|GLO|RoW
+CY,Cyprus,Europe without Switzerland|Europe without Austria|Europe|EU|RER|GLO|RoW
+EU,European Union,Europe without Switzerland|Europe without Austria|Europe|RER|GLO|RoW
+EU-27,European Union (27),Europe without Switzerland|Europe without Austria|Europe|EU|RER|GLO|RoW
+EU-28,European Union (28),Europe without Switzerland|Europe without Austria|Europe|EU|RER|GLO|RoW
+RER,Rest of Europe,Europe|GLO|RoW
+ENTSO-E,Europe (ENTSO-E grid),Europe|RER|GLO|RoW
+NORDEL,Nordic countries,Europe|ENTSO-E|RER|GLO|RoW
+UCTE,Continental Europe (UCTE),Europe|ENTSO-E|RER|GLO|RoW
+Europe without Switzerland,Europe without Switzerland,Europe|RER|GLO|RoW
+Europe without Austria,Europe without Austria,Europe|RER|GLO|RoW
+Europe,Europe,GLO|RoW
+US,United States,North America|NAFTA|GLO|RoW
+CA,Canada,Canada without Quebec|North America|NAFTA|GLO|RoW
+MX,Mexico,North America|Latin America|NAFTA|GLO|RoW
+NAFTA,NAFTA,North America|GLO|RoW
+Canada without Quebec,Canada without Quebec,North America|CA|NAFTA|GLO|RoW
+North America,North America,GLO|RoW
+RNA,Rest of North America,North America|GLO|RoW
+CN,China,Asia|GLO|RoW
+JP,Japan,Asia|GLO|RoW
+KR,South Korea,Asia|GLO|RoW
+IN,India,Asia|GLO|RoW
+IN-Southern grid,India (Southern grid),IN|Asia|GLO|RoW
+IN-North-eastern grid,India (North-eastern grid),IN|Asia|GLO|RoW
+IN-Eastern grid,India (Eastern grid),IN|Asia|GLO|RoW
+IN-Northern grid,India (Northern grid),IN|Asia|GLO|RoW
+IN-Western grid,India (Western grid),IN|Asia|GLO|RoW
+TW,Taiwan,Asia|GLO|RoW
+ID,Indonesia,Asia|GLO|RoW
+TH,Thailand,Asia|GLO|RoW
+MY,Malaysia,Asia|GLO|RoW
+VN,Vietnam,Asia|GLO|RoW
+PH,Philippines,Asia|GLO|RoW
+SG,Singapore,Asia|GLO|RoW
+Asia,Asia,GLO|RoW
+RAS,Rest of Asia,Asia|GLO|RoW
+BR,Brazil,Latin America|South America|GLO|RoW
+AR,Argentina,Latin America|South America|GLO|RoW
+CL,Chile,Latin America|South America|GLO|RoW
+CO,Colombia,Latin America|South America|GLO|RoW
+PE,Peru,Latin America|South America|GLO|RoW
+Latin America,Latin America,GLO|RoW
+South America,South America,Latin America|GLO|RoW
+RLA,Rest of Latin America,Latin America|GLO|RoW
+ZA,South Africa,Africa|GLO|RoW
+EG,Egypt,Africa|Middle East|GLO|RoW
+NG,Nigeria,Africa|GLO|RoW
+MA,Morocco,Africa|GLO|RoW
+Africa,Africa,GLO|RoW
+RAF,Rest of Africa,Africa|GLO|RoW
+AU,Australia,Oceania|GLO|RoW
+NZ,New Zealand,Oceania|GLO|RoW
+Oceania,Oceania,GLO|RoW
+SA,Saudi Arabia,Middle East|Asia|GLO|RoW
+AE,United Arab Emirates,Middle East|Asia|GLO|RoW
+IL,Israel,Middle East|GLO|RoW
+TR,Turkey,Middle East|Europe|GLO|RoW
+Middle East,Middle East,GLO|RoW
+RME,Rest of Middle East,Middle East|GLO|RoW
+GLO,Global,RoW
+RoW,Rest of World,
