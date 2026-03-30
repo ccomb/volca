@@ -381,7 +381,12 @@ update shared msg model =
                     flags.classification /= model.selectedSystem || flags.classificationValue /= model.selectedValue
             in
             if newQuery == model.searchQuery && newProduct == model.productQuery && not needsRetry && not classChanged then
-                ( model, Effect.none )
+                ( model
+                , if dbNowLoaded && model.classificationSystems == Nothing then
+                    Effect.fromCmd (fetchClassifications flags.db)
+                  else
+                    Effect.none
+                )
 
             else if newQuery == model.searchQuery && newProduct == model.productQuery && not needsRetry then
                 -- Only classification changed — update state without stealing focus
