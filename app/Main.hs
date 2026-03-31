@@ -33,7 +33,9 @@ import Control.Concurrent.STM (readTVarIO)
 
 -- For server mode
 import API.MCP (mcpApp)
+import API.OpenApi (volcaOpenApi)
 import API.Routes (lcaAPI, lcaServer)
+import Data.Aeson (encode)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Network.HTTP.Types (status200)
@@ -205,6 +207,15 @@ overrideLoad dbNames dbConfig =
 createServerApp :: DatabaseManager -> Int -> FilePath -> Bool -> Maybe String -> Maybe HostingConfig -> [ClassificationPreset] -> IO Application
 createServerApp dbManager maxTreeDepth staticDir desktopMode password hostingConfig filterPresets = do
   mcp <- mcpApp dbManager
+  let openApiJson = encode volcaOpenApi
+      swaggerHtml = "<!DOCTYPE html><html><head><title>volca API</title>\
+        \<meta charset=\"utf-8\"/>\
+        \<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist/swagger-ui.css\">\
+        \</head><body>\
+        \<div id=\"swagger-ui\"></div>\
+        \<script src=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist/swagger-ui-bundle.js\"></script>\
+        \<script>SwaggerUIBundle({url:\"/api/v1/openapi.json\",dom_id:\"#swagger-ui\"})</script>\
+        \</body></html>"
   return $ \req respond -> do
     let path = rawPathInfo req
         qs = rawQueryString req
@@ -218,6 +229,12 @@ createServerApp dbManager maxTreeDepth staticDir desktopMode password hostingCon
     -- Route requests based on path prefix
     if path == "/mcp"
       then mcp req respond
+      else if path == "/api/v1/openapi.json"
+      then respond $ responseLBS status200
+              [(hContentType, "application/json")] openApiJson
+      else if path == "/api/v1/docs"
+      then respond $ responseLBS status200
+              [(hContentType, "text/html; charset=utf-8")] swaggerHtml
       else if path == "/api/v1/logs/stream"
       then handleLogStream req respond
       else if C8.pack "/api/" `BS.isPrefixOf` path

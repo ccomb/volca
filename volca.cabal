@@ -3,7 +3,7 @@ name:                volca
 version:             0.6.0-dev
 build-type:          Simple
 
-license:             AGPL-3.0-or-later
+license:             Apache-2.0
 license-file:        LICENSE
 author:              Christophe Combelles
 maintainer:          ccomb@free.fr
@@ -47,6 +47,7 @@ library
                      , API.DatabaseHandlers
                      , API.Auth
                      , API.MCP
+                     , API.OpenApi
                      , CLI.Types
                      , CLI.Parser
                      , CLI.Command
@@ -81,6 +82,8 @@ library
                      , servant-server
                      , servant
                      , servant-multipart
+                     , servant-openapi3
+                     , openapi3
                      , warp
                      , aeson
                      , aeson-pretty
