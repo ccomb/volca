@@ -70,3 +70,4 @@ coverage-report/
 desktop/resources/
 desktop/target/
 desktop/gen/
+.docker-bundle/
