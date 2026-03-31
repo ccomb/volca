@@ -666,11 +666,11 @@ searchFlows db (Just query) langParam limitParam offsetParam = do
         limit = maybe 50 (min 1000) limitParam
         offset = maybe 0 (max 0) offsetParam
         allResults = findFlowsBySynonym db query
+        total = length allResults
         dropped = drop offset allResults
         taken = take (limit + 1) dropped
         hasMore = length taken > limit
         pagedResults = take limit taken
-        total = offset + length taken  -- approximate total (avoids forcing full list)
         flowResults = map (\flow -> FlowSearchResult (flowId flow) (flowName flow) (flowCategory flow) (getUnitNameForFlow (dbUnits db) flow) (M.map S.toList (flowSynonyms flow))) pagedResults
     endTime <- getCurrentTime
     let searchTimeMs = realToFrac (diffUTCTime endTime startTime) * 1000 :: Double
@@ -683,15 +683,11 @@ searchActivities db nameParam geoParam productParam classFilters limitParam offs
     let allResults = findActivitiesByFields db nameParam geoParam productParam classFilters
         offset = maybe 0 (max 0) offsetParam
         dropped = drop offset allResults
-        -- Take limit+1 to detect hasMore without forcing the full list
         limit = fromMaybe 20 limitParam
+        total = length allResults
         taken = take (limit + 1) dropped
         hasMore = length taken > limit
         pagedResults = take limit taken
-        -- Compute total lazily: only force full list when no limit was given
-        total = case limitParam of
-            Nothing -> length allResults
-            Just _  -> offset + length taken -- approximate (exact for current page)
         activityResults =
             map
                 ( \(processId, activity) ->

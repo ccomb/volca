@@ -73,28 +73,11 @@ init shared flags =
 
         dbLoaded =
             Shared.isDatabaseLoaded shared flags.db
-
-        hasTextQuery =
-            not (String.isEmpty searchQuery)
-
-        hasProductQuery =
-            not (String.isEmpty productQuery)
-
-        hasClassFilter =
-            not (List.isEmpty flags.classifications)
-
-        shouldSearch =
-            (hasTextQuery || hasProductQuery || hasClassFilter) && dbLoaded
     in
     ( { searchQuery = searchQuery
       , productQuery = productQuery
       , dbName = flags.db
-      , results =
-            if shouldSearch then
-                Searching
-
-            else
-                NotSearched
+      , results = if dbLoaded then Searching else NotSearched
       , classificationSystems = Nothing
       , activeFilters = flags.classifications
       , pendingSystem = Nothing
@@ -102,13 +85,11 @@ init shared flags =
       , debounceCounter = 0
       }
     , Effect.batch
-        [ if shouldSearch then
-            Effect.fromCmd (searchActivities flags.db searchQuery productQuery flags.classifications)
-
-          else
-            Effect.none
-        , if dbLoaded then
-            Effect.fromCmd (fetchClassifications flags.db)
+        [ if dbLoaded then
+            Effect.batch
+                [ Effect.fromCmd (searchActivities flags.db searchQuery productQuery flags.classifications)
+                , Effect.fromCmd (fetchClassifications flags.db)
+                ]
 
           else
             Effect.none
@@ -162,30 +143,14 @@ update shared msg model =
                 ActivitiesView.SelectDatabase dbName ->
                     let
                         queryName =
-                            if String.isEmpty model.searchQuery then
-                                Nothing
-
-                            else
-                                Just model.searchQuery
+                            if String.isEmpty model.searchQuery then Nothing else Just model.searchQuery
 
                         queryProduct =
-                            if String.isEmpty model.productQuery then
-                                Nothing
-
-                            else
-                                Just model.productQuery
-
-                        shouldSearch =
-                            not (String.isEmpty model.searchQuery) || not (String.isEmpty model.productQuery) || not (List.isEmpty model.activeFilters)
+                            if String.isEmpty model.productQuery then Nothing else Just model.productQuery
                     in
                     ( { model
                         | dbName = dbName
-                        , results =
-                            if shouldSearch then
-                                Searching
-
-                            else
-                                NotSearched
+                        , results = Searching
                         , classificationSystems = Nothing
                         , activeFilters = []
                         , pendingSystem = Nothing
@@ -193,11 +158,7 @@ update shared msg model =
                       }
                     , Effect.batch
                         [ Effect.fromCmd (Nav.pushUrl shared.key (Route.routeToUrl (ActivitiesRoute { db = dbName, name = queryName, product = queryProduct, limit = Just 20, classifications = [] })))
-                        , if shouldSearch then
-                            Effect.fromCmd (searchActivities dbName model.searchQuery model.productQuery [])
-
-                          else
-                            Effect.none
+                        , Effect.fromCmd (searchActivities dbName model.searchQuery model.productQuery [])
                         , Effect.fromCmd (fetchClassifications dbName)
                         ]
                     )
@@ -207,8 +168,8 @@ update shared msg model =
                         newModel =
                             { model | pendingSystem = system, pendingValue = "" }
                     in
-                    ( { newModel | results = if system /= Nothing then Searching else model.results }
-                    , if system /= Nothing && Shared.isDatabaseLoaded shared model.dbName then
+                    ( { newModel | results = Searching }
+                    , if Shared.isDatabaseLoaded shared model.dbName then
                         Effect.fromCmd (searchActivities model.dbName model.searchQuery model.productQuery (currentFilters newModel))
                       else
                         Effect.none
@@ -356,41 +317,19 @@ update shared msg model =
             else
                 let
                     queryName =
-                        if String.isEmpty model.searchQuery then
-                            Nothing
-
-                        else
-                            Just model.searchQuery
+                        if String.isEmpty model.searchQuery then Nothing else Just model.searchQuery
 
                     queryProduct =
-                        if String.isEmpty model.productQuery then
-                            Nothing
-
-                        else
-                            Just model.productQuery
+                        if String.isEmpty model.productQuery then Nothing else Just model.productQuery
 
                     newRoute =
                         ActivitiesRoute { db = model.dbName, name = queryName, product = queryProduct, limit = Just 20, classifications = currentFilters model }
-
-                    hasQuery =
-                        not (String.isEmpty model.searchQuery) || not (String.isEmpty model.productQuery) || not (List.isEmpty (currentFilters model))
                 in
-                ( { model
-                    | results =
-                        if not hasQuery then
-                            NotSearched
-
-                        else
-                            Searching
-                  }
-                , if not hasQuery then
-                    Effect.fromCmd (Nav.replaceUrl shared.key (Route.routeToUrl newRoute))
-
-                  else
-                    Effect.batch
-                        [ Effect.fromCmd (Nav.replaceUrl shared.key (Route.routeToUrl newRoute))
-                        , Effect.fromCmd (searchActivities model.dbName model.searchQuery model.productQuery (currentFilters model))
-                        ]
+                ( { model | results = Searching }
+                , Effect.batch
+                    [ Effect.fromCmd (Nav.replaceUrl shared.key (Route.routeToUrl newRoute))
+                    , Effect.fromCmd (searchActivities model.dbName model.searchQuery model.productQuery (currentFilters model))
+                    ]
                 )
 
         NewFlags flags ->
@@ -404,12 +343,9 @@ update shared msg model =
                 dbNowLoaded =
                     Shared.isDatabaseLoaded shared flags.db
 
-                hasQuery =
-                    not (String.isEmpty newQuery) || not (String.isEmpty newProduct)
-
-                -- Re-init if DB just became available with a pending query
+                -- Re-init if DB just became available while we were waiting
                 needsRetry =
-                    model.results == NotSearched && hasQuery && dbNowLoaded
+                    model.results == NotSearched && dbNowLoaded
 
                 classChanged =
                     flags.classifications /= model.activeFilters
@@ -445,49 +381,19 @@ updateQuery shared model =
     else
         let
             queryName =
-                if String.isEmpty model.searchQuery then
-                    Nothing
-
-                else
-                    Just model.searchQuery
+                if String.isEmpty model.searchQuery then Nothing else Just model.searchQuery
 
             queryProduct =
-                if String.isEmpty model.productQuery then
-                    Nothing
-
-                else
-                    Just model.productQuery
-
-            hasQuery =
-                queryName /= Nothing || queryProduct /= Nothing || not (List.isEmpty (currentFilters model))
+                if String.isEmpty model.productQuery then Nothing else Just model.productQuery
 
             newRoute =
                 ActivitiesRoute { db = model.dbName, name = queryName, product = queryProduct, limit = Just 20, classifications = currentFilters model }
-
-            cmds =
-                if not hasQuery then
-                    Effect.fromCmd (Nav.replaceUrl shared.key (Route.routeToUrl newRoute))
-
-                else
-                    Effect.batch
-                        [ Effect.fromCmd (Nav.replaceUrl shared.key (Route.routeToUrl newRoute))
-                        , Effect.fromCmd (searchActivities model.dbName model.searchQuery model.productQuery (currentFilters model))
-                        ]
         in
-        ( { model
-            | results =
-                if not hasQuery then
-                    NotSearched
-
-                else
-                    case model.results of
-                        Results _ ->
-                            model.results
-
-                        _ ->
-                            Searching
-          }
-        , cmds
+        ( { model | results = Searching }
+        , Effect.batch
+            [ Effect.fromCmd (Nav.replaceUrl shared.key (Route.routeToUrl newRoute))
+            , Effect.fromCmd (searchActivities model.dbName model.searchQuery model.productQuery (currentFilters model))
+            ]
         )
 
 
