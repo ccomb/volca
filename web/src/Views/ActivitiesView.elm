@@ -2,7 +2,8 @@ module Views.ActivitiesView exposing (viewActivitiesPage, Msg(..))
 
 import Html exposing (Html, button, div, input, option, select, table, tbody, text, th, thead, tr, h2, p, span)
 import Html.Attributes exposing (class, disabled, id, list, placeholder, selected, style, type_, value)
-import Html.Events exposing (onInput, onClick)
+import Html.Events exposing (onInput, onClick, on)
+import Json.Decode as Decode
 import Models.Activity exposing (ActivitySummary, ClassificationSystem, SearchResults)
 import Models.Database exposing (DatabaseList, DatabaseLoadStatus(..), DatabaseStatus)
 import Views.ActivityRow as ActivityRow
@@ -101,9 +102,9 @@ viewFiltersRow maybeDatabaseList currentDbName maybeSystems activeFilters pendin
                 (\i ( sys, val ) ->
                     div [ class "control" ]
                         [ div [ class "tags has-addons" ]
-                            [ span [ class "tag is-info is-medium" ] [ text (sys ++ ": " ++ val) ]
+                            [ span [ class "tag is-info is-large" ] [ text (sys ++ ": " ++ val) ]
                             , span
-                                [ class "tag is-delete is-medium"
+                                [ class "tag is-delete is-large"
                                 , style "cursor" "pointer"
                                 , onClick (RemoveFilter i)
                                 ]
@@ -173,6 +174,7 @@ viewFiltersRow maybeDatabaseList currentDbName maybeSystems activeFilters pendin
                             , value pendingValue
                             , list datalistId
                             , onInput UpdatePendingValue
+                            , on "keydown" (Decode.andThen (\key -> if key == "Enter" then Decode.succeed CommitFilter else Decode.fail "not enter") (Decode.field "key" Decode.string))
                             ]
                             []
                         , Html.node "datalist"
