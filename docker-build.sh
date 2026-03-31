@@ -58,6 +58,17 @@ host = "0.0.0.0"
 EOF
 fi
 
+# Always ensure the bundled units.csv is referenced so unit recognition works
+if ! grep -q '^\[\[units\]\]' "$BUNDLE_DIR/volca.toml"; then
+    cat >> "$BUNDLE_DIR/volca.toml" <<'EOF'
+
+[[units]]
+name = "Default units"
+path = "/app/data/units.csv"
+active = true
+EOF
+fi
+
 # Always include reference data
 cp data/flows.csv "$BUNDLE_DIR/data/" 2>/dev/null || true
 cp data/compartments.csv "$BUNDLE_DIR/data/" 2>/dev/null || true
