@@ -431,22 +431,55 @@ viewClassificationFilter model =
                                 |> Maybe.map .values
                                 |> Maybe.withDefault []
 
+                filteredValues =
+                    if String.isEmpty model.params.classificationValue then
+                        []
+                    else
+                        List.filter (\v -> String.contains (String.toLower model.params.classificationValue) (String.toLower v)) currentValues
+
+                suggestionsDropdown =
+                    if List.isEmpty filteredValues then
+                        text ""
+                    else
+                        div
+                            [ style "position" "absolute"
+                            , style "z-index" "10"
+                            , style "background" "white"
+                            , style "border" "1px solid #dbdbdb"
+                            , style "border-radius" "4px"
+                            , style "max-height" "200px"
+                            , style "overflow-y" "auto"
+                            , style "width" "100%"
+                            , style "top" "100%"
+                            , style "left" "0"
+                            ]
+                            (List.map
+                                (\v ->
+                                    div
+                                        [ class "dropdown-item"
+                                        , style "cursor" "pointer"
+                                        , onClick (SelectClassificationValue (Just v))
+                                        ]
+                                        [ text v ]
+                                )
+                                filteredValues
+                            )
+
                 valueInput =
                     div [ style "display" "flex", style "flex-direction" "column" ]
                         [ label [ class "label is-small", style "margin-bottom" "0.25rem" ] [ text "Value" ]
-                        , input
-                            [ class "input is-small"
-                            , type_ "text"
-                            , placeholder "Filter by value..."
-                            , value model.params.classificationValue
-                            , list "composition-classification-values"
-                            , onInput (\v -> SelectClassificationValue (if String.isEmpty v then Nothing else Just v))
-                            , style "width" "180px"
+                        , div [ style "position" "relative" ]
+                            [ input
+                                [ class "input is-small"
+                                , type_ "text"
+                                , placeholder "Filter by value..."
+                                , value model.params.classificationValue
+                                , onInput (\v -> SelectClassificationValue (if String.isEmpty v then Nothing else Just v))
+                                , style "width" "180px"
+                                ]
+                                []
+                            , suggestionsDropdown
                             ]
-                            []
-                        , Html.node "datalist"
-                            [ id "composition-classification-values" ]
-                            (List.map (\v -> option [ value v ] []) currentValues)
                         ]
             in
             [ systemDropdown, valueInput ]

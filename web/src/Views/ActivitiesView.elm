@@ -1,7 +1,7 @@
 module Views.ActivitiesView exposing (viewActivitiesPage, Msg(..))
 
 import Html exposing (Html, button, div, input, option, select, table, tbody, text, th, thead, tr, h2, p, span)
-import Html.Attributes exposing (class, disabled, id, list, placeholder, selected, style, type_, value)
+import Html.Attributes exposing (class, disabled, id, placeholder, selected, style, type_, value)
 import Html.Events exposing (onInput, onClick, on)
 import Json.Decode as Decode
 import Models.Activity exposing (ActivitySummary, ClassificationSystem, SearchResults)
@@ -18,6 +18,7 @@ type Msg
     | SelectClassificationSystem (Maybe String)
     | UpdatePendingValue String
     | CommitFilter
+    | CommitWithValue String String
     | RemoveFilter String
 
 
@@ -165,23 +166,53 @@ viewFiltersRow maybeDatabaseList currentDbName maybeSystems activeFilters pendin
                                 |> Maybe.map .values
                                 |> Maybe.withDefault []
 
-                        datalistId =
-                            "classification-values"
+                        filteredValues =
+                            if String.isEmpty pendingValue then
+                                []
+                            else
+                                List.filter (\v -> String.contains (String.toLower pendingValue) (String.toLower v)) currentValues
+
+                        suggestionsDropdown =
+                            if List.isEmpty filteredValues then
+                                text ""
+                            else
+                                div
+                                    [ style "position" "absolute"
+                                    , style "z-index" "10"
+                                    , style "background" "white"
+                                    , style "border" "1px solid #dbdbdb"
+                                    , style "border-radius" "4px"
+                                    , style "max-height" "200px"
+                                    , style "overflow-y" "auto"
+                                    , style "width" "100%"
+                                    , style "top" "100%"
+                                    , style "left" "0"
+                                    ]
+                                    (List.map
+                                        (\v ->
+                                            div
+                                                [ class "dropdown-item"
+                                                , style "cursor" "pointer"
+                                                , onClick (CommitWithValue sys v)
+                                                ]
+                                                [ text v ]
+                                        )
+                                        filteredValues
+                                    )
                     in
                     [ div [ class "control is-expanded" ]
-                        [ input
-                            [ class "input"
-                            , type_ "text"
-                            , placeholder "Filter by classification value..."
-                            , value pendingValue
-                            , list datalistId
-                            , onInput UpdatePendingValue
-                            , on "keydown" (Decode.andThen (\key -> if key == "Enter" then Decode.succeed CommitFilter else Decode.fail "not enter") (Decode.field "key" Decode.string))
+                        [ div [ style "position" "relative" ]
+                            [ input
+                                [ class "input"
+                                , type_ "text"
+                                , placeholder "Filter by classification value..."
+                                , value pendingValue
+                                , onInput UpdatePendingValue
+                                , on "keydown" (Decode.andThen (\key -> if key == "Enter" then Decode.succeed CommitFilter else Decode.fail "not enter") (Decode.field "key" Decode.string))
+                                ]
+                                []
+                            , suggestionsDropdown
                             ]
-                            []
-                        , Html.node "datalist"
-                            [ id datalistId ]
-                            (List.map (\v -> option [ value v ] []) currentValues)
                         ]
                     ]
 

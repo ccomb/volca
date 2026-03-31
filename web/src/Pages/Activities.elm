@@ -184,6 +184,27 @@ update shared msg model =
                     , Effect.fromCmd (Process.sleep 100 |> Task.perform (\_ -> DebounceTick newCounter))
                     )
 
+                ActivitiesView.CommitWithValue sys val ->
+                    let
+                        newFilters =
+                            model.activeFilters ++ [ ( sys, val ) ]
+
+                        newRoute =
+                            ActivitiesRoute
+                                { db = model.dbName
+                                , name = if String.isEmpty model.searchQuery then Nothing else Just model.searchQuery
+                                , product = if String.isEmpty model.productQuery then Nothing else Just model.productQuery
+                                , limit = Just 20
+                                , classifications = newFilters
+                                }
+                    in
+                    ( { model | activeFilters = newFilters, pendingValue = "", results = Searching }
+                    , Effect.batch
+                        [ Effect.fromCmd (Nav.replaceUrl shared.key (Route.routeToUrl newRoute))
+                        , Effect.fromCmd (searchActivities model.dbName model.searchQuery model.productQuery newFilters)
+                        ]
+                    )
+
                 ActivitiesView.CommitFilter ->
                     case model.pendingSystem of
                         Nothing ->
