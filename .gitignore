@@ -37,6 +37,7 @@ volca.local.toml
 /volca.toml
 
 run*.sh
+worktree-build.sh
 
 # Data directories
 DBs/
