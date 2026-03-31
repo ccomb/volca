@@ -81,7 +81,8 @@ RUN cd /build/volca/web && npm install && ./build.sh
 
 # Find and copy the executable
 RUN mkdir -p /build/output \
-    && cp $(cd /build && cabal list-bin exe:volca) /build/output/volca
+    && cp $(cd /build && cabal list-bin exe:volca) /build/output/volca \
+    && strip /build/output/volca
 
 # Stage 2: Runtime image
 FROM debian:bookworm-slim
