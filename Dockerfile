@@ -112,9 +112,32 @@ WORKDIR /app
 ENV VOLCA_DATA_DIR=/data
 VOLUME /data
 
-# Copy runtime config and data (staged by docker-build.sh)
-COPY .docker-bundle/volca.toml /app/volca.toml
-COPY .docker-bundle/data/ /app/data/
+# Reference data (static, shipped with the repo)
+COPY data/ /app/data/
+
+# Default config: bind on all interfaces, no pre-loaded databases (BYOL)
+RUN cat > /app/volca.toml <<'EOF'
+[server]
+port = 8080
+host = "0.0.0.0"
+
+geographies = "data/geographies.csv"
+
+[[flow-synonyms]]
+name = "Default flow synonyms"
+path = "data/flows.csv"
+active = true
+
+[[compartment-mappings]]
+name = "Default compartment mapping"
+path = "data/compartments.csv"
+active = true
+
+[[units]]
+name = "Default units"
+path = "data/units.csv"
+active = true
+EOF
 
 COPY rts-flags.sh /app/rts-flags.sh
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
