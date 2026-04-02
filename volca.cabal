@@ -133,6 +133,7 @@ executable volca
                      , http-types
                      , http-client
                      , optparse-applicative
+                     , aeson
 
   default-language:    Haskell2010
 
