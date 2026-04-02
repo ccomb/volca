@@ -234,7 +234,7 @@ executeActivityCommand registry fmt database uuid =
 -- | Execute activity tree command
 executeActivityTreeCommand :: PluginRegistry -> OutputFormat -> Database -> T.Text -> Int -> IO ()
 executeActivityTreeCommand registry fmt database uuid depth =
-  case Service.getActivityTree database uuid depth of
+  case Service.getActivityTree database uuid depth Nothing of
     Left err -> reportServiceError err
     Right result -> outputResult registry fmt result
 

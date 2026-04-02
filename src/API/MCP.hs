@@ -188,7 +188,8 @@ handleInitialize req = return $ rpcResult (fromMaybe Null $ rpcId req) $ object
     , "instructions"    .= T.unlines
         [ "VoLCA is a Life Cycle Assessment engine."
         , "Use search_activities to find processes, then get_activity, get_tree, get_inventory, or compute_lcia to analyze them."
-        , "All tools that operate on activities require a 'database' parameter (name of a loaded DB) and a 'process_id' (format: activityUUID_productUUID)."
+        , "All tools that operate on activities require a 'database' parameter (name of a loaded DB) and a 'process_id'."
+        , "Preferred process_id format: activityUUID_productUUID. A bare activityUUID is also accepted when the activity has a unique reference product — no search_activities lookup is needed in that case."
         , "Use list_databases to see available databases, and list_methods for available LCIA methods."
         ]
     ]
@@ -233,9 +234,10 @@ toolDefinitions =
             [ ("database", "string", "Database name")
             , ("process_id", "string", "Process ID")
             ]
-            [ ("depth", "integer", "Max tree depth (default 3)")
+            [ ("depth", "integer", "Max tree depth (default 2)")
+            , ("name", "string", "Filter nodes by activity name; keeps matching nodes plus all their ancestors up to the root (case-insensitive substring)")
             ])
-    , mkTool "get_supply_chain" "Get a flat list of all upstream activities in the supply chain with their scaled quantities"
+    , mkTool "get_supply_chain" "Get a flat list of all upstream activities in the supply chain. The 'quantity' field is the cumulative scaled amount relative to the functional unit (scaling_factor × root reference product amount). To get the per-step yield ratio between two connected entries, divide the supplier's scaling_factor by the consumer's scaling_factor."
         (props
             [ ("database", "string", "Database name")
             , ("process_id", "string", "Process ID")
@@ -294,6 +296,12 @@ toolDefinitions =
             [ ("system", "string", "Classification system name to inspect (e.g. 'ISIC rev.4 ecoinvent'). If omitted, returns only system names and counts.")
             , ("filter", "string", "Substring filter applied to values when a system is specified (case-insensitive).")
             ])
+    , mkTool "get_path_to" "Find the shortest supply chain path from a process to the first upstream activity whose name matches a pattern. Each step includes cumulative_quantity, scaling_factor, and local_step_ratio (upstream ÷ downstream scaling factors). total_ratio is the product of all local_step_ratio values — the end-to-end conversion factor."
+        (props
+            [ ("database",   "string", "Database name")
+            , ("process_id", "string", "Root process ID to start from")
+            , ("target",     "string", "Case-insensitive name substring to stop at")
+            ] [])
     ]
 
 mkTool :: Text -> Text -> Value -> Value
@@ -351,6 +359,7 @@ callTool dbManager baseUrl rid name args = case name of
     "get_contributing_processes" -> callGetContributingProcesses dbManager baseUrl rid args
     "list_geographies"         -> callListGeographies dbManager rid args
     "list_classifications"     -> withDb dbManager rid args $ callListClassifications rid args
+    "get_path_to"              -> withDb dbManager rid args $ callGetPathTo rid args
     _                          -> return $ toolError rid ("Unknown tool: " <> name)
 
 -- Helper: extract database, then run action
@@ -463,8 +472,9 @@ callGetTree rid args (db, _) =
     case textArg "process_id" args of
         Nothing -> return $ toolError rid "Missing required parameter: process_id"
         Just pid ->
-            let depth = fromMaybe 3 (intArg "depth" args)
-            in case Service.getActivityTree db pid depth of
+            let depth  = fromMaybe 2 (intArg "depth" args)
+                nameF  = textArg "name" args
+            in case Service.getActivityTree db pid depth nameF of
                 Left err  -> return $ toolError rid (T.pack $ show err)
                 Right val -> return $ toolSuccessJson rid val
 
@@ -482,6 +492,17 @@ callGetSupplyChain rid args (db, solver) =
             case result of
                 Left err  -> return $ toolError rid (T.pack $ show err)
                 Right val -> return $ toolSuccessJson rid (toJSON val)
+
+callGetPathTo :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callGetPathTo rid args (db, solver) =
+    case (textArg "process_id" args, textArg "target" args) of
+        (Nothing, _) -> return $ toolError rid "Missing required parameter: process_id"
+        (_, Nothing) -> return $ toolError rid "Missing required parameter: target"
+        (Just pid, Just target) -> do
+            result <- Service.getPathTo db solver pid target
+            case result of
+                Left err  -> return $ toolError rid (T.pack $ show err)
+                Right val -> return $ toolSuccessJson rid val
 
 callGetInventory :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetInventory rid args (db, solver) =

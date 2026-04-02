@@ -13,7 +13,7 @@ import Tree (buildLoopAwareTree)
 import Types
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ClassificationSystem(..), EdgeType (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), NodeType (..), SearchResults (..), Substitution (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
 import UnitConversion (UnitConfig, defaultUnitConfig, unitsCompatible)
-import Data.Aeson (Value, toJSON)
+import Data.Aeson (Value, toJSON, object, (.=))
 import Plugin.Types (ValidateHandle(..), ValidateContext(..), ValidationPhase(..), ValidationIssue(..), Severity(..))
 import Data.Int (Int32)
 import qualified Data.List as L
@@ -500,8 +500,8 @@ convertToTreeExport db _rootProcessId maxDepth tree =
      in TreeExport metadata nodes edges
 
 -- | Get activity tree as rich TreeExport with configurable depth
-getActivityTree :: Database -> Text -> Int -> Either ServiceError Value
-getActivityTree db queryText maxDepth = do
+getActivityTree :: Database -> Text -> Int -> Maybe Text -> Either ServiceError Value
+getActivityTree db queryText maxDepth nameFilter = do
     (_processId, _activity) <- resolveActivityAndProcessId db queryText
     -- Get the activity UUID from the processIdText (which is activityUUID_productUUID)
     let activityUuidText = case T.splitOn "_" queryText of
@@ -511,8 +511,30 @@ getActivityTree db queryText maxDepth = do
         Just activityUuid ->
             let loopAwareTree = buildLoopAwareTree defaultUnitConfig db activityUuid maxDepth
                 treeExport = convertToTreeExport db queryText maxDepth loopAwareTree
-             in Right $ toJSON treeExport
+                filtered = case nameFilter of
+                    Nothing  -> treeExport
+                    Just pat -> filterTreeExport pat treeExport
+             in Right $ toJSON filtered
         Nothing -> Left $ InvalidUUID $ "Invalid activity UUID: " <> activityUuidText
+
+-- | Post-filter a TreeExport by name: keep matching nodes plus all their ancestors up to root.
+-- Uses the enParentId chain already stored in each ExportNode — no extra graph traversal.
+filterTreeExport :: Text -> TreeExport -> TreeExport
+filterTreeExport pat export =
+    let nodes = teNodes export
+        textMatches p n = T.toCaseFold p `T.isInfixOf` T.toCaseFold n
+        matchingIds = M.keysSet $ M.filter (textMatches pat . enName) nodes
+        ancestorsOf nId = case enParentId =<< M.lookup nId nodes of
+            Nothing  -> S.empty
+            Just pid -> S.insert pid (ancestorsOf pid)
+        allKept = S.union matchingIds
+                    (S.unions (map ancestorsOf (S.toList matchingIds)))
+        filteredNodes = M.filterWithKey (\k _ -> S.member k allKept) nodes
+        filteredEdges = filter (\e -> S.member (teFrom e) allKept
+                                   && S.member (teTo   e) allKept)
+                               (teEdges export)
+        meta = (teTree export) { tmTotalNodes = M.size filteredNodes }
+    in export { teTree = meta, teNodes = filteredNodes, teEdges = filteredEdges }
 
 -- | Build activity network graph from factorized matrix column
 -- Uses efficient sparse matrix operations to extract connections
@@ -989,6 +1011,63 @@ getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityPa
                     supplyVec <- solveWithSharedSolver sharedSolver demandVec
                     return $ Right $ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter classificationValueFilter sortParam orderParam includeEdges
 
+-- | Find the shortest supply chain path from a root process to the first upstream activity
+-- whose name contains the given substring (case-insensitive).
+-- Returns path steps ordered root → target, each with cumulative quantity, scaling factor,
+-- and local_step_ratio (upstream ÷ downstream scaling factors).
+getPathTo :: Database -> SharedSolver -> Text -> Text -> IO (Either ServiceError Value)
+getPathTo db solver pidText target = do
+    case resolveActivityAndProcessId db pidText of
+        Left err -> return $ Left err
+        Right (rootPid, rootAct) ->
+            case validateProcessIdInMatrixIndex db rootPid of
+                Left err -> return $ Left err
+                Right () -> do
+                    eVec <- computeScalingVectorWithSubstitutions db solver rootPid []
+                    case eVec of
+                        Left err -> return $ Left err
+                        Right supplyVec ->
+                            let rootRefAmount = getReferenceProductAmount rootAct
+                                adj = U.foldl' (\acc (SparseTriple row col _) ->
+                                          IM.insertWith (++) (fromIntegral col) [fromIntegral row] acc
+                                      ) IM.empty (dbTechnosphereTriples db)
+                                mPath = bfsToPattern (fromIntegral rootPid)
+                                            (\i -> T.toCaseFold target `T.isInfixOf`
+                                                   T.toCaseFold (activityName (dbActivities db V.! i)))
+                                            adj
+                            in return $ case mPath of
+                                Nothing -> Left $ ActivityNotFound $
+                                    "No upstream node matching '" <> target <> "' reachable from " <> pidText
+                                Just pids ->
+                                    let scalingOf i = supplyVec U.! i
+                                        mkStep i mRatio =
+                                            let act = dbActivities db V.! i
+                                                sf  = scalingOf i
+                                                base = [ "process_id"          .= processIdToText db (fromIntegral i)
+                                                       , "name"                .= activityName act
+                                                       , "location"            .= activityLocation act
+                                                       , "unit"                .= activityUnit act
+                                                       , "cumulative_quantity" .= (sf * rootRefAmount)
+                                                       , "scaling_factor"      .= sf
+                                                       ]
+                                            in object $ case mRatio of
+                                                Nothing -> base
+                                                Just r  -> base ++ ["local_step_ratio" .= r]
+                                        steps = mkStep (head pids) (Nothing :: Maybe Double)
+                                              : [ mkStep c (Just ratio)
+                                                | (p, c) <- zip pids (tail pids)
+                                                , let ratio = if scalingOf p == 0 then 0
+                                                              else scalingOf c / scalingOf p
+                                                ]
+                                        totalRatio = product [ scalingOf c / scalingOf p
+                                                             | (p, c) <- zip pids (tail pids)
+                                                             , scalingOf p /= 0 ]
+                                    in Right $ object
+                                        [ "path"        .= steps
+                                        , "path_length" .= length pids
+                                        , "total_ratio" .= totalRatio
+                                        ]
+
 -- | Pure function: build a SupplyChainResponse from a scaling vector.
 -- Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
 buildSupplyChainFromScalingVector
@@ -1121,6 +1200,25 @@ bfsDepth root adj = go (Empty |> root) (IM.singleton root 0)
                 else (q |> n, IM.insert n (depth + 1) v)
                 ) (queue, visited) neighbors
         in go queue' visited'
+
+-- | BFS from root; stop at the first node (other than root) satisfying a predicate.
+-- Returns the path from root to that node (inclusive), or Nothing.
+bfsToPattern :: Int -> (Int -> Bool) -> IM.IntMap [Int] -> Maybe [Int]
+bfsToPattern from matches adj = go (Empty |> from) (IM.singleton from from)
+  where
+    go Empty _             = Nothing
+    go (node :<| queue) parents
+        | node /= from && matches node = Just (reconstruct node parents)
+        | otherwise =
+            let neighbors = IM.findWithDefault [] node adj
+                (queue', parents') = L.foldl' (\(q, p) n ->
+                    if IM.member n p then (q, p)
+                    else (q |> n, IM.insert n node p)
+                    ) (queue, parents) neighbors
+            in go queue' parents'
+    reconstruct n ps
+        | n == from = [n]
+        | otherwise = reconstruct (ps IM.! n) ps ++ [n]
 
 -- | Get reference product amount for an activity (defaults to 1.0)
 getReferenceProductAmount :: Activity -> Double
