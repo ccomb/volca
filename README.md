@@ -27,8 +27,27 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, and ILCD process databases, builds s
 - **Activity classifications**: ISIC, CPC, and category fields parsed from EcoSpold1/2 and ILCD
 - **Auto-extracted synonyms**: Synonym pairs extracted automatically from loaded databases and method packages, available for toggling and download
 - **Reference data management**: Flow synonyms, compartment mappings, and unit definitions can be configured in TOML, uploaded via the API, or toggled independently
-- **Fast cache**: Per-database cache with automatic schema-based invalidation; large databases load in ~45s cold, ~2-3s cached
+- **Fast cache**: Per-database cache with automatic schema-based invalidation; large databases (26k activities) load in ~47s cold, ~3.4s cached
 - **Optional access control**: Single-code login with cookie-based session
+
+---
+
+## Performance
+
+All figures measured on Ecoinvent 3.12 (26 533 activities) on a 2018 laptop (Intel Core i7-7600U, 2 cores / 4 threads).
+
+| Phase | Time |
+|-------|------|
+| Cold startup — parse 26 533 .spold files from disk | ~47 s |
+| Hot startup — load binary cache (`.bin.zst`) | ~3.4 s |
+| First inventory or impact after hot start¹ | ~7.3 s |
+| Single inventory / impact score (warm) | ~80 ms |
+| Batch of 200 computations | ~19 s total (~95 ms each) |
+| Impact score for a modified supply chain² | ~7 s |
+
+¹ The LU factorisation of the full technosphere matrix is deferred to the first computation request and then cached for the lifetime of the server. Subsequent requests across the entire database reuse the same decomposition.
+
+² Substituting one process in a supply chain and recomputing the full impact score takes the same time as a regular computation. No re-factorisation is needed.
 
 ---
 
@@ -401,19 +420,6 @@ Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/), then:
 docker build -f docker/Dockerfile -t volca .
 docker run -p 8080:8080 -v /path/to/data:/data volca
 ```
-
----
-
-## Performance
-
-Databases are loaded entirely into memory. A schema-aware cache (`.bin.zst` per database, stored in `cache/`) makes subsequent startups fast. Once the server is running, CLI commands complete in ~0.2s.
-
-| Database | Cold load | Cached load |
-|----------|-----------|-------------|
-| Large database (25k activities) | ~45s | ~2-3s |
-| Small sector database | ~2s | <0.5s |
-
-Matrix solving uses MUMPS_SEQ sparse LU factorization. Inventory computation for a typical supply chain takes under 15 seconds on a large database.
 
 ---
 
