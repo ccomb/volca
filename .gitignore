@@ -1,23 +1,11 @@
 dist-newstyle
 weeder.toml
 .hie
-web/dist/
-web/elm-stuff/
-web/main.js
-SAMPLE*
-EF-v3.1/
 *\.bin
+**/*.zst
 uv.lock
 
-# External dependencies (downloaded/built by build scripts)
 deps/
-petsc
-petsc/
-petsc-*/
-slepc
-slepc/
-slepc-*/
-petsc-hs/
 *.tar.gz
 
 # Documentation and notes (except README)
@@ -25,16 +13,12 @@ petsc-hs/
 scripts/
 node_modules/
 
-# Generated frontend
-static/
-
 # Generated source
 src/Version.hs
 
 # Local configuration
 cabal.project.local
 volca.local.toml
-/volca.toml
 
 run*.sh
 worktree-build.sh
@@ -66,8 +50,4 @@ debug/
 coverage-report/
 *.tix
 
-# Desktop app build artifacts
-desktop/resources/
-desktop/target/
-desktop/gen/
 .docker-bundle/
