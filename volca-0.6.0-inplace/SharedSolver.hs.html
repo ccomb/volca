@@ -50,16 +50,16 @@ span.spaces    { background: white }
 <span class="lineno">   31 </span>-- | Shared solver with lazy factorization and thread synchronization.
 <span class="lineno">   32 </span>--   Factorization happens on first solve, not at startup.
 <span class="lineno">   33 </span>data SharedSolver = SharedSolver
-<span class="lineno">   34 </span>    { <span class="istickedoff"><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">solverLock</span></span></span> :: MVar ()                                -- ^ Serialize access to solver
-<span class="lineno">   35 </span>    , <span class="istickedoff"><span class="funcount">-- entered 15 times</span><span class="decl"><span class="istickedoff">solverFactorizationVar</span></span></span> :: MVar (Maybe MatrixFactorization) -- ^ Lazy: Nothing until first solve
-<span class="lineno">   36 </span>    , <span class="istickedoff"><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">solverTechTriples</span></span></span> :: [(Int, Int, Double)]             -- ^ Technosphere matrix data
-<span class="lineno">   37 </span>    , <span class="istickedoff"><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">solverActivityCount</span></span></span> :: Int                            -- ^ Number of activities
-<span class="lineno">   38 </span>    , <span class="istickedoff"><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">solverDbName</span></span></span> :: Text                                  -- ^ Database name (for solver cache key)
+<span class="lineno">   34 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">solverLock</span></span></span> :: MVar ()                                -- ^ Serialize access to solver
+<span class="lineno">   35 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">solverFactorizationVar</span></span></span> :: MVar (Maybe MatrixFactorization) -- ^ Lazy: Nothing until first solve
+<span class="lineno">   36 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">solverTechTriples</span></span></span> :: [(Int, Int, Double)]             -- ^ Technosphere matrix data
+<span class="lineno">   37 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">solverActivityCount</span></span></span> :: Int                            -- ^ Number of activities
+<span class="lineno">   38 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">solverDbName</span></span></span> :: Text                                  -- ^ Database name (for solver cache key)
 <span class="lineno">   39 </span>    }
 <span class="lineno">   40 </span>
 <span class="lineno">   41 </span>-- | Create a shared solver. No factorization happens here — deferred to first solve.
 <span class="lineno">   42 </span>createSharedSolver :: Text -&gt; [(Int, Int, Double)] -&gt; Int -&gt; IO SharedSolver
-<span class="lineno">   43 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">createSharedSolver dbName techTriples activityCount = do</span>
+<span class="lineno">   43 </span><span class="decl"><span class="istickedoff">createSharedSolver dbName techTriples activityCount = do</span>
 <span class="lineno">   44 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info $ &quot;Creating shared solver for '&quot; ++ show dbName ++ &quot;' (factorization deferred)&quot;</span>
 <span class="lineno">   45 </span><span class="spaces">    </span><span class="istickedoff">lock &lt;- newMVar <span class="nottickedoff">()</span></span>
 <span class="lineno">   46 </span><span class="spaces">    </span><span class="istickedoff">factVar &lt;- newMVar Nothing</span>
@@ -67,7 +67,7 @@ span.spaces    { background: white }
 <span class="lineno">   48 </span>
 <span class="lineno">   49 </span>-- | Solve using shared solver. On first call, triggers lazy factorization.
 <span class="lineno">   50 </span>solveWithSharedSolver :: SharedSolver -&gt; Vector -&gt; IO Vector
-<span class="lineno">   51 </span><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">solveWithSharedSolver solver demandVector = do</span>
+<span class="lineno">   51 </span><span class="decl"><span class="istickedoff">solveWithSharedSolver solver demandVector = do</span>
 <span class="lineno">   52 </span><span class="spaces">    </span><span class="istickedoff">withMVar (solverLock solver) $ \_ -&gt; do</span>
 <span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">maybeFact &lt;- readMVar (solverFactorizationVar solver)</span>
 <span class="lineno">   54 </span><span class="spaces">        </span><span class="istickedoff">case maybeFact of</span>
@@ -97,7 +97,7 @@ span.spaces    { background: white }
 <span class="lineno">   78 </span>
 <span class="lineno">   79 </span>-- | Read the cached factorization without solving. Returns Nothing until the first solve.
 <span class="lineno">   80 </span>getFactorization :: SharedSolver -&gt; IO (Maybe MatrixFactorization)
-<span class="lineno">   81 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">getFactorization solver = readMVar (solverFactorizationVar solver)</span></span>
+<span class="lineno">   81 </span><span class="decl"><span class="istickedoff">getFactorization solver = readMVar (solverFactorizationVar solver)</span></span>
 
 </pre>
 </body>

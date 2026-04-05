@@ -58,25 +58,25 @@ span.spaces    { background: white }
 <span class="lineno">   39 </span>import System.FilePath ((&lt;/&gt;), takeExtension)
 <span class="lineno">   40 </span>import Data.Char (toLower)
 <span class="lineno">   41 </span>
-<span class="lineno">   42 </span>import EcoSpold.Common (bsToText, isElement)
+<span class="lineno">   42 </span>import EcoSpold.Common (bsToText, isElement, distributeFiles)
 <span class="lineno">   43 </span>import EcoSpold.Parser2 (normalizeCAS)
 <span class="lineno">   44 </span>import Method.Types (Compartment(..))
 <span class="lineno">   45 </span>import Progress (reportProgress, ProgressLevel(..))
 <span class="lineno">   46 </span>
 <span class="lineno">   47 </span>-- | Enrichment data extracted from an ILCD flow XML
 <span class="lineno">   48 </span>data ILCDFlowInfo = ILCDFlowInfo
-<span class="lineno">   49 </span>    { <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdBaseName</span></span></span>       :: !Text
-<span class="lineno">   50 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdCompartment</span></span></span>    :: !(Maybe Compartment)
-<span class="lineno">   51 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdCAS</span></span></span>            :: !(Maybe Text)  -- normalized CAS
-<span class="lineno">   52 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdSynonyms</span></span></span>       :: ![Text]        -- from &lt;common:synonyms xml:lang=&quot;en&quot;&gt;, semicolon-split
-<span class="lineno">   53 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdFlowType</span></span></span>       :: !Text          -- &quot;Elementary flow&quot; / &quot;Product flow&quot; / &quot;Waste flow&quot;
-<span class="lineno">   54 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ilcdFlowPropertyRef</span></span></span> :: !(Maybe UUID) -- reference flow property UUID (for unit resolution)
-<span class="lineno">   55 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">   49 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">ilcdBaseName</span></span></span>       :: !Text
+<span class="lineno">   50 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">ilcdCompartment</span></span></span>    :: !(Maybe Compartment)
+<span class="lineno">   51 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">ilcdCAS</span></span></span>            :: !(Maybe Text)  -- normalized CAS
+<span class="lineno">   52 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">ilcdSynonyms</span></span></span>       :: ![Text]        -- from &lt;common:synonyms xml:lang=&quot;en&quot;&gt;, semicolon-split
+<span class="lineno">   53 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">ilcdFlowType</span></span></span>       :: !Text          -- &quot;Elementary flow&quot; / &quot;Product flow&quot; / &quot;Waste flow&quot;
+<span class="lineno">   54 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">ilcdFlowPropertyRef</span></span></span> :: !(Maybe UUID) -- reference flow property UUID (for unit resolution)
+<span class="lineno">   55 </span>    } deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">   56 </span>
 <span class="lineno">   57 </span>-- | Given a method directory (containing lciamethods/), find the sibling flows/ directory.
 <span class="lineno">   58 </span>-- ILCD packages have structure: ILCD/{lciamethods/, flows/, ...}
 <span class="lineno">   59 </span>resolveFlowDirectory :: FilePath -&gt; IO (Maybe FilePath)
-<span class="lineno">   60 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">resolveFlowDirectory methodDir = do</span>
+<span class="lineno">   60 </span><span class="decl"><span class="nottickedoff">resolveFlowDirectory methodDir = do</span>
 <span class="lineno">   61 </span><span class="spaces">    </span><span class="nottickedoff">-- methodDir is the directory containing method XMLs (e.g., .../ILCD/lciamethods)</span>
 <span class="lineno">   62 </span><span class="spaces">    </span><span class="nottickedoff">-- flows/ is a sibling: .../ILCD/flows</span>
 <span class="lineno">   63 </span><span class="spaces">    </span><span class="nottickedoff">let parent = takeParentDir methodDir</span>
@@ -91,7 +91,7 @@ span.spaces    { background: white }
 <span class="lineno">   72 </span>--   Uses a zstd-compressed cache to skip re-parsing on subsequent startups.
 <span class="lineno">   73 </span>--   Falls back to worker-based parallel parsing on cache miss.
 <span class="lineno">   74 </span>parseFlowDirectory :: FilePath -&gt; IO (M.Map UUID ILCDFlowInfo)
-<span class="lineno">   75 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseFlowDirectory dir = do</span>
+<span class="lineno">   75 </span><span class="decl"><span class="nottickedoff">parseFlowDirectory dir = do</span>
 <span class="lineno">   76 </span><span class="spaces">    </span><span class="nottickedoff">let cacheFile = flowCacheFile dir</span>
 <span class="lineno">   77 </span><span class="spaces">    </span><span class="nottickedoff">cached &lt;- loadFlowCache cacheFile dir</span>
 <span class="lineno">   78 </span><span class="spaces">    </span><span class="nottickedoff">case cached of</span>
@@ -103,7 +103,7 @@ span.spaces    { background: white }
 <span class="lineno">   84 </span>
 <span class="lineno">   85 </span>-- | Parse all flow XMLs from scratch using worker-based parallelism
 <span class="lineno">   86 </span>parseFlowDirectoryFresh :: FilePath -&gt; IO (M.Map UUID ILCDFlowInfo)
-<span class="lineno">   87 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseFlowDirectoryFresh dir = do</span>
+<span class="lineno">   87 </span><span class="decl"><span class="nottickedoff">parseFlowDirectoryFresh dir = do</span>
 <span class="lineno">   88 </span><span class="spaces">    </span><span class="nottickedoff">files &lt;- listDirectory dir</span>
 <span class="lineno">   89 </span><span class="spaces">    </span><span class="nottickedoff">let xmlFiles = [dir &lt;/&gt; f | f &lt;- files, map toLower (takeExtension f) == &quot;.xml&quot;]</span>
 <span class="lineno">   90 </span><span class="spaces">    </span><span class="nottickedoff">numWorkers &lt;- getNumCapabilities</span>
@@ -118,211 +118,199 @@ span.spaces    { background: white }
 <span class="lineno">   99 </span><span class="spaces">        </span><span class="nottickedoff">bytes &lt;- BS.readFile path</span>
 <span class="lineno">  100 </span><span class="spaces">        </span><span class="nottickedoff">return $ parseFlowXML bytes</span></span>
 <span class="lineno">  101 </span>
-<span class="lineno">  102 </span>-- | Distribute files evenly across N workers (same pattern as Database.Loader)
-<span class="lineno">  103 </span>distributeFiles :: Int -&gt; [a] -&gt; [[a]]
-<span class="lineno">  104 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">distributeFiles n xs =</span>
-<span class="lineno">  105 </span><span class="spaces">    </span><span class="nottickedoff">let len = length xs</span>
-<span class="lineno">  106 </span><span class="spaces">        </span><span class="nottickedoff">baseSize = len `div` n</span>
-<span class="lineno">  107 </span><span class="spaces">        </span><span class="nottickedoff">remainder = len `mod` n</span>
-<span class="lineno">  108 </span><span class="spaces">        </span><span class="nottickedoff">sizes = replicate remainder (baseSize + 1) ++ replicate (n - remainder) baseSize</span>
-<span class="lineno">  109 </span><span class="spaces">    </span><span class="nottickedoff">in go sizes xs</span>
-<span class="lineno">  110 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
-<span class="lineno">  111 </span><span class="spaces">    </span><span class="nottickedoff">go [] _ = []</span>
-<span class="lineno">  112 </span><span class="spaces">    </span><span class="nottickedoff">go (s:ss) ys = let (h, t) = splitAt s ys in h : go ss t</span></span>
-<span class="lineno">  113 </span>
-<span class="lineno">  114 </span>-- | Cache file path for a flows directory
-<span class="lineno">  115 </span>flowCacheFile :: FilePath -&gt; FilePath
-<span class="lineno">  116 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">flowCacheFile dir = dir &lt;/&gt; &quot;.volca.flows.cache.zst&quot;</span></span>
-<span class="lineno">  117 </span>
-<span class="lineno">  118 </span>-- | Load flow info from cache if valid (file exists and is newer than directory)
-<span class="lineno">  119 </span>loadFlowCache :: FilePath -&gt; FilePath -&gt; IO (Maybe (M.Map UUID ILCDFlowInfo))
-<span class="lineno">  120 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">loadFlowCache cacheFile dir = do</span>
-<span class="lineno">  121 </span><span class="spaces">    </span><span class="nottickedoff">exists &lt;- doesFileExist cacheFile</span>
-<span class="lineno">  122 </span><span class="spaces">    </span><span class="nottickedoff">if not exists then return Nothing</span>
-<span class="lineno">  123 </span><span class="spaces">    </span><span class="nottickedoff">else catch</span>
-<span class="lineno">  124 </span><span class="spaces">        </span><span class="nottickedoff">(do cacheTime &lt;- getModificationTime cacheFile</span>
-<span class="lineno">  125 </span><span class="spaces">            </span><span class="nottickedoff">dirTime &lt;- getModificationTime dir</span>
-<span class="lineno">  126 </span><span class="spaces">            </span><span class="nottickedoff">if cacheTime &lt; dirTime</span>
-<span class="lineno">  127 </span><span class="spaces">                </span><span class="nottickedoff">then do</span>
-<span class="lineno">  128 </span><span class="spaces">                    </span><span class="nottickedoff">reportProgress Info &quot;[FLOWS-CACHE] Stale, reparsing&quot;</span>
-<span class="lineno">  129 </span><span class="spaces">                    </span><span class="nottickedoff">removeFile cacheFile</span>
-<span class="lineno">  130 </span><span class="spaces">                    </span><span class="nottickedoff">return Nothing</span>
-<span class="lineno">  131 </span><span class="spaces">                </span><span class="nottickedoff">else do</span>
-<span class="lineno">  132 </span><span class="spaces">                    </span><span class="nottickedoff">compressed &lt;- BS.readFile cacheFile</span>
-<span class="lineno">  133 </span><span class="spaces">                    </span><span class="nottickedoff">case Zstd.decompress compressed of</span>
-<span class="lineno">  134 </span><span class="spaces">                        </span><span class="nottickedoff">Zstd.Decompress raw -&gt; do</span>
-<span class="lineno">  135 </span><span class="spaces">                            </span><span class="nottickedoff">let !info = decodeEx raw</span>
-<span class="lineno">  136 </span><span class="spaces">                            </span><span class="nottickedoff">result &lt;- evaluate (force info)</span>
-<span class="lineno">  137 </span><span class="spaces">                            </span><span class="nottickedoff">reportProgress Info $ &quot;[FLOWS-CACHE] Loaded &quot; &lt;&gt; show (M.size result) &lt;&gt; &quot; flow definitions from cache&quot;</span>
-<span class="lineno">  138 </span><span class="spaces">                            </span><span class="nottickedoff">return (Just result)</span>
-<span class="lineno">  139 </span><span class="spaces">                        </span><span class="nottickedoff">_ -&gt; do</span>
-<span class="lineno">  140 </span><span class="spaces">                            </span><span class="nottickedoff">reportProgress Warning &quot;[FLOWS-CACHE] Decompression failed, reparsing&quot;</span>
-<span class="lineno">  141 </span><span class="spaces">                            </span><span class="nottickedoff">removeFile cacheFile</span>
-<span class="lineno">  142 </span><span class="spaces">                            </span><span class="nottickedoff">return Nothing)</span>
-<span class="lineno">  143 </span><span class="spaces">        </span><span class="nottickedoff">(\(_ :: SomeException) -&gt; return Nothing)</span></span>
-<span class="lineno">  144 </span>
-<span class="lineno">  145 </span>-- | Save parsed flow info to cache
-<span class="lineno">  146 </span>saveFlowCache :: FilePath -&gt; M.Map UUID ILCDFlowInfo -&gt; IO ()
-<span class="lineno">  147 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">saveFlowCache cacheFile info = catch</span>
-<span class="lineno">  148 </span><span class="spaces">    </span><span class="nottickedoff">(do let serialized = encode info</span>
-<span class="lineno">  149 </span><span class="spaces">            </span><span class="nottickedoff">compressed = Zstd.compress 1 serialized</span>
-<span class="lineno">  150 </span><span class="spaces">        </span><span class="nottickedoff">BS.writeFile cacheFile compressed</span>
-<span class="lineno">  151 </span><span class="spaces">        </span><span class="nottickedoff">reportProgress Info $ &quot;[FLOWS-CACHE] Saved &quot; &lt;&gt; show (M.size info) &lt;&gt; &quot; flow definitions to cache&quot;)</span>
-<span class="lineno">  152 </span><span class="spaces">    </span><span class="nottickedoff">(\(_ :: SomeException) -&gt; return ())</span></span>
-<span class="lineno">  153 </span>
-<span class="lineno">  154 </span>-- | SAX parse state for flow XML
-<span class="lineno">  155 </span>data FlowParseState = FlowParseState
-<span class="lineno">  156 </span>    { <span class="istickedoff"><span class="funcount">-- entered 13 times</span><span class="decl"><span class="istickedoff">fpsUUID</span></span></span>        :: !Text
-<span class="lineno">  157 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">fpsBaseName</span></span></span>    :: !Text
-<span class="lineno">  158 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">fpsCAS</span></span></span>         :: !Text
-<span class="lineno">  159 </span>    , <span class="istickedoff"><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">fpsCategories</span></span></span>  :: ![Text]  -- category level=&quot;0&quot;, &quot;1&quot;, &quot;2&quot; in order
-<span class="lineno">  160 </span>    , <span class="istickedoff"><span class="funcount">-- entered 96 times</span><span class="decl"><span class="istickedoff">fpsPath</span></span></span>        :: ![BS.ByteString]
-<span class="lineno">  161 </span>    , <span class="istickedoff"><span class="funcount">-- entered 34 times</span><span class="decl"><span class="istickedoff">fpsTextAccum</span></span></span>   :: ![BS.ByteString]
-<span class="lineno">  162 </span>    , <span class="istickedoff"><span class="funcount">-- entered 42 times</span><span class="decl"><span class="istickedoff">fpsInBaseName</span></span></span>  :: !Bool
-<span class="lineno">  163 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">fpsSynonyms</span></span></span>    :: ![Text]  -- accumulated synonym names
-<span class="lineno">  164 </span>    , <span class="istickedoff"><span class="funcount">-- entered 71 times</span><span class="decl"><span class="istickedoff">fpsInSynonyms</span></span></span>  :: !Bool    -- inside &lt;common:synonyms&gt;
-<span class="lineno">  165 </span>    , <span class="istickedoff"><span class="funcount">-- entered 48 times</span><span class="decl"><span class="istickedoff">fpsLangIsEn</span></span></span>    :: !Bool    -- current synonyms element has xml:lang=&quot;en&quot;
-<span class="lineno">  166 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">fpsFlowType</span></span></span>    :: !Text    -- &lt;typeOfDataSet&gt; text
-<span class="lineno">  167 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fpsRefFlowPropIdx</span></span></span> :: !Int  -- referenceToReferenceFlowProperty index
-<span class="lineno">  168 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fpsCurrentFPIdx</span></span></span>   :: !Int  -- current flowProperty dataSetInternalID
-<span class="lineno">  169 </span>    , <span class="istickedoff"><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">fpsFlowPropRef</span></span></span>    :: !(Maybe UUID) -- resolved flow property UUID
-<span class="lineno">  170 </span>    , <span class="istickedoff"><span class="funcount">-- entered 48 times</span><span class="decl"><span class="istickedoff">fpsInFlowProperty</span></span></span> :: !Bool -- inside &lt;flowProperty&gt;
-<span class="lineno">  171 </span>    }
-<span class="lineno">  172 </span>
-<span class="lineno">  173 </span>initialFlowState :: FlowParseState
-<span class="lineno">  174 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">initialFlowState = FlowParseState &quot;&quot; &quot;&quot; &quot;&quot; [] [] [] False [] False False &quot;&quot; 0 (-1) Nothing False</span></span>
-<span class="lineno">  175 </span>
-<span class="lineno">  176 </span>-- | Parse a single ILCD flow XML from bytes
-<span class="lineno">  177 </span>parseFlowXML :: BS.ByteString -&gt; Maybe (UUID, ILCDFlowInfo)
-<span class="lineno">  178 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">parseFlowXML bytes =</span>
-<span class="lineno">  179 </span><span class="spaces">    </span><span class="istickedoff">case X.fold openTag attr endOpen txt closeTag <span class="nottickedoff">cdata</span> initialFlowState bytes of</span>
-<span class="lineno">  180 </span><span class="spaces">        </span><span class="istickedoff">Left _  -&gt; <span class="nottickedoff">Nothing</span></span>
-<span class="lineno">  181 </span><span class="spaces">        </span><span class="istickedoff">Right s -&gt; buildFlowInfo s</span>
-<span class="lineno">  182 </span><span class="spaces">  </span><span class="istickedoff">where</span>
-<span class="lineno">  183 </span><span class="spaces">    </span><span class="istickedoff">openTag s tag =</span>
-<span class="lineno">  184 </span><span class="spaces">        </span><span class="istickedoff">let !inSyn = isElement tag &quot;synonyms&quot; || fpsInSynonyms s</span>
-<span class="lineno">  185 </span><span class="spaces">            </span><span class="istickedoff">!inBase = isElement tag &quot;baseName&quot; || fpsInBaseName s</span>
-<span class="lineno">  186 </span><span class="spaces">            </span><span class="istickedoff">!inFP = isElement tag &quot;flowProperty&quot; || fpsInFlowProperty s</span>
-<span class="lineno">  187 </span><span class="spaces">        </span><span class="istickedoff">in s { fpsPath = <span class="nottickedoff">tag</span> : fpsPath s, fpsTextAccum = []</span>
-<span class="lineno">  188 </span><span class="spaces">             </span><span class="istickedoff">, fpsInBaseName = inBase, fpsInSynonyms = inSyn</span>
-<span class="lineno">  189 </span><span class="spaces">             </span><span class="istickedoff">, fpsLangIsEn = if isElement tag &quot;synonyms&quot; then False else fpsLangIsEn s</span>
-<span class="lineno">  190 </span><span class="spaces">             </span><span class="istickedoff">, fpsInFlowProperty = inFP }</span>
-<span class="lineno">  191 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  192 </span><span class="spaces">    </span><span class="istickedoff">attr s name value</span>
-<span class="lineno">  193 </span><span class="spaces">        </span><span class="istickedoff">| fpsInSynonyms s &amp;&amp; isElement name &quot;lang&quot; &amp;&amp; bsToText value == &quot;en&quot; =</span>
-<span class="lineno">  194 </span><span class="spaces">            </span><span class="istickedoff">s { fpsLangIsEn = True }</span>
-<span class="lineno">  195 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isElement name &quot;dataSetInternalID&quot; &amp;&amp; <span class="nottickedoff">fpsInFlowProperty s</span></span> =</span>
-<span class="lineno">  196 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">s { fpsCurrentFPIdx = case TR.decimal (bsToText value) of</span></span>
-<span class="lineno">  197 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Right (n, _) -&gt; n</span></span>
-<span class="lineno">  198 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Left _       -&gt; -1 }</span></span>
-<span class="lineno">  199 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isElement name &quot;refObjectId&quot; &amp;&amp; <span class="nottickedoff">fpsInFlowProperty s</span></span></span>
-<span class="lineno">  200 </span><span class="spaces">            </span><span class="istickedoff"><span class="tickonlyfalse"><span class="nottickedoff">&amp;&amp; fpsCurrentFPIdx s == fpsRefFlowPropIdx s</span></span> =</span>
-<span class="lineno">  201 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">s { fpsFlowPropRef = UUID.fromText (bsToText value) }</span></span>
-<span class="lineno">  202 </span><span class="spaces">        </span><span class="istickedoff">| isElement name &quot;level&quot; = s</span>
-<span class="lineno">  203 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = s</span>
-<span class="lineno">  204 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  205 </span><span class="spaces">    </span><span class="istickedoff">endOpen s _ = s</span>
-<span class="lineno">  206 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  207 </span><span class="spaces">    </span><span class="istickedoff">txt s content =</span>
-<span class="lineno">  208 </span><span class="spaces">        </span><span class="istickedoff">let trimmed = BS.dropWhile (== 32) $ BS.dropWhileEnd (== 32) content</span>
-<span class="lineno">  209 </span><span class="spaces">        </span><span class="istickedoff">in if <span class="tickonlyfalse">BS.null trimmed</span> then <span class="nottickedoff">s</span></span>
-<span class="lineno">  210 </span><span class="spaces">           </span><span class="istickedoff">else s { fpsTextAccum = trimmed : fpsTextAccum s }</span>
-<span class="lineno">  211 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  212 </span><span class="spaces">    </span><span class="istickedoff">closeTag s tag</span>
-<span class="lineno">  213 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;UUID&quot; &amp;&amp; T.null (fpsUUID s) =</span>
-<span class="lineno">  214 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsUUID = accum s, fpsTextAccum = [] }</span>
-<span class="lineno">  215 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;baseName&quot; =</span>
-<span class="lineno">  216 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsBaseName = accum s</span>
-<span class="lineno">  217 </span><span class="spaces">              </span><span class="istickedoff">, fpsTextAccum = [], fpsInBaseName = False }</span>
-<span class="lineno">  218 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;CASNumber&quot; =</span>
-<span class="lineno">  219 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsCAS = accum s, fpsTextAccum = [] }</span>
-<span class="lineno">  220 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;typeOfDataSet&quot; &amp;&amp; T.null (fpsFlowType s) =</span>
-<span class="lineno">  221 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsFlowType = accum s, fpsTextAccum = [] }</span>
-<span class="lineno">  222 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isElement tag &quot;referenceToReferenceFlowProperty&quot;</span> =</span>
-<span class="lineno">  223 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">s { fpsPath = dropPath s</span></span>
-<span class="lineno">  224 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">, fpsRefFlowPropIdx = case TR.decimal (accum s) of</span></span>
-<span class="lineno">  225 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Right (n, _) -&gt; n</span></span>
-<span class="lineno">  226 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Left _       -&gt; 0</span></span>
-<span class="lineno">  227 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">, fpsTextAccum = [] }</span></span>
-<span class="lineno">  228 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isElement tag &quot;flowProperty&quot;</span> =</span>
-<span class="lineno">  229 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">s { fpsPath = dropPath s, fpsTextAccum = [], fpsInFlowProperty = False }</span></span>
-<span class="lineno">  230 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;synonyms&quot; =</span>
-<span class="lineno">  231 </span><span class="spaces">            </span><span class="istickedoff">let !syns = if <span class="tickonlytrue">fpsLangIsEn s</span></span>
-<span class="lineno">  232 </span><span class="spaces">                        </span><span class="istickedoff">then filter (not . T.null) $ map T.strip $ T.splitOn &quot;;&quot; (accum s)</span>
-<span class="lineno">  233 </span><span class="spaces">                        </span><span class="istickedoff">else <span class="nottickedoff">[]</span></span>
-<span class="lineno">  234 </span><span class="spaces">            </span><span class="istickedoff">in s { fpsPath = dropPath s, fpsTextAccum = []</span>
-<span class="lineno">  235 </span><span class="spaces">                 </span><span class="istickedoff">, fpsInSynonyms = False, fpsLangIsEn = False</span>
-<span class="lineno">  236 </span><span class="spaces">                 </span><span class="istickedoff">, fpsSynonyms = fpsSynonyms s ++ syns }</span>
-<span class="lineno">  237 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;category&quot; =</span>
-<span class="lineno">  238 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s</span>
-<span class="lineno">  239 </span><span class="spaces">              </span><span class="istickedoff">, fpsCategories = fpsCategories s ++ [accum s]</span>
-<span class="lineno">  240 </span><span class="spaces">              </span><span class="istickedoff">, fpsTextAccum = [] }</span>
-<span class="lineno">  241 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
-<span class="lineno">  242 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsTextAccum = [] }</span>
-<span class="lineno">  243 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  244 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">cdata = txt</span></span>
-<span class="lineno">  245 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  246 </span><span class="spaces">    </span><span class="istickedoff">dropPath s = case fpsPath s of</span>
-<span class="lineno">  247 </span><span class="spaces">        </span><span class="istickedoff">(_:rest) -&gt; rest</span>
-<span class="lineno">  248 </span><span class="spaces">        </span><span class="istickedoff">[]       -&gt; <span class="nottickedoff">[]</span></span>
-<span class="lineno">  249 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  250 </span><span class="spaces">    </span><span class="istickedoff">accum s = T.strip $ T.concat $ reverse $ map bsToText (fpsTextAccum s)</span>
-<span class="lineno">  251 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  252 </span><span class="spaces">    </span><span class="istickedoff">buildFlowInfo s = do</span>
-<span class="lineno">  253 </span><span class="spaces">        </span><span class="istickedoff">uuid &lt;- UUID.fromText (fpsUUID s)</span>
-<span class="lineno">  254 </span><span class="spaces">        </span><span class="istickedoff">let baseName = fpsBaseName s</span>
-<span class="lineno">  255 </span><span class="spaces">        </span><span class="istickedoff">if T.null baseName then Nothing</span>
-<span class="lineno">  256 </span><span class="spaces">        </span><span class="istickedoff">else Just (uuid, ILCDFlowInfo</span>
-<span class="lineno">  257 </span><span class="spaces">            </span><span class="istickedoff">{ ilcdBaseName       = baseName</span>
-<span class="lineno">  258 </span><span class="spaces">            </span><span class="istickedoff">, ilcdCompartment    = parseCompartment (fpsCategories s)</span>
-<span class="lineno">  259 </span><span class="spaces">            </span><span class="istickedoff">, ilcdCAS            = if T.null (fpsCAS s) then Nothing</span>
-<span class="lineno">  260 </span><span class="spaces">                                   </span><span class="istickedoff">else Just (normalizeCAS (fpsCAS s))</span>
-<span class="lineno">  261 </span><span class="spaces">            </span><span class="istickedoff">, ilcdSynonyms       = fpsSynonyms s</span>
-<span class="lineno">  262 </span><span class="spaces">            </span><span class="istickedoff">, ilcdFlowType       = fpsFlowType s</span>
-<span class="lineno">  263 </span><span class="spaces">            </span><span class="istickedoff">, ilcdFlowPropertyRef = fpsFlowPropRef s</span>
-<span class="lineno">  264 </span><span class="spaces">            </span><span class="istickedoff">})</span></span>
-<span class="lineno">  265 </span>
-<span class="lineno">  266 </span>-- | Parse compartment from ILCD category levels.
-<span class="lineno">  267 </span>-- Level 0: &quot;Emissions&quot; or &quot;Resources&quot;
-<span class="lineno">  268 </span>-- Level 1: &quot;Emissions to air&quot; → medium = &quot;air&quot;
-<span class="lineno">  269 </span>-- Level 2: &quot;Emissions to air, indoor&quot; → subcompartment = &quot;indoor&quot;
-<span class="lineno">  270 </span>parseCompartment :: [Text] -&gt; Maybe Compartment
-<span class="lineno">  271 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">parseCompartment [] = Nothing</span>
-<span class="lineno">  272 </span><span class="spaces"></span><span class="istickedoff">parseCompartment cats =</span>
-<span class="lineno">  273 </span><span class="spaces">    </span><span class="istickedoff">let -- Level 1 typically contains medium: &quot;Emissions to air&quot;, &quot;Emissions to water&quot;, etc.</span>
-<span class="lineno">  274 </span><span class="spaces">        </span><span class="istickedoff">medium = case drop 1 cats of</span>
-<span class="lineno">  275 </span><span class="spaces">            </span><span class="istickedoff">(lvl1:_) -&gt; extractMedium lvl1</span>
-<span class="lineno">  276 </span><span class="spaces">            </span><span class="istickedoff">[]       -&gt; <span class="nottickedoff">extractMedium (head cats)</span>  -- cats is non-empty ([] case handled above)</span>
-<span class="lineno">  277 </span><span class="spaces">        </span><span class="istickedoff">-- Level 2 is the subcompartment</span>
-<span class="lineno">  278 </span><span class="spaces">        </span><span class="istickedoff">subcomp = case drop 2 cats of</span>
-<span class="lineno">  279 </span><span class="spaces">            </span><span class="istickedoff">(lvl2:_) -&gt; extractSubcompartment lvl2</span>
-<span class="lineno">  280 </span><span class="spaces">            </span><span class="istickedoff">[]       -&gt; <span class="nottickedoff">&quot;&quot;</span></span>
-<span class="lineno">  281 </span><span class="spaces">    </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null medium</span> then <span class="nottickedoff">Nothing</span></span>
-<span class="lineno">  282 </span><span class="spaces">       </span><span class="istickedoff">else Just (Compartment medium subcomp &quot;&quot;)</span>
-<span class="lineno">  283 </span><span class="spaces">  </span><span class="istickedoff">where</span>
-<span class="lineno">  284 </span><span class="spaces">    </span><span class="istickedoff">-- Extract medium from &quot;Emissions to air&quot; → &quot;air&quot;, &quot;Resources from ground&quot; → &quot;natural resource&quot;</span>
-<span class="lineno">  285 </span><span class="spaces">    </span><span class="istickedoff">extractMedium txt</span>
-<span class="lineno">  286 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">&quot;Emissions to air&quot; `T.isPrefixOf` txt</span>      = &quot;air&quot;</span>
-<span class="lineno">  287 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to water&quot; `T.isPrefixOf` txt</span>    = <span class="nottickedoff">&quot;water&quot;</span></span>
-<span class="lineno">  288 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to soil&quot; `T.isPrefixOf` txt</span>     = <span class="nottickedoff">&quot;soil&quot;</span></span>
-<span class="lineno">  289 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Resources&quot; `T.isPrefixOf` txt</span>             = <span class="nottickedoff">&quot;natural resource&quot;</span></span>
-<span class="lineno">  290 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to fresh water&quot; `T.isPrefixOf` txt</span> = <span class="nottickedoff">&quot;water&quot;</span></span>
-<span class="lineno">  291 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to sea water&quot; `T.isPrefixOf` txt</span>  = <span class="nottickedoff">&quot;water&quot;</span></span>
-<span class="lineno">  292 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">T.toLower $ T.strip txt</span></span>
-<span class="lineno">  293 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  294 </span><span class="spaces">    </span><span class="istickedoff">-- Extract subcompartment: take the last part after comma or &quot;to X,&quot;</span>
-<span class="lineno">  295 </span><span class="spaces">    </span><span class="istickedoff">extractSubcompartment txt</span>
-<span class="lineno">  296 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">&quot;Emissions to air, &quot; `T.isPrefixOf` txt</span> =</span>
-<span class="lineno">  297 </span><span class="spaces">            </span><span class="istickedoff">T.strip $ T.drop (T.length &quot;Emissions to air, &quot;) txt</span>
-<span class="lineno">  298 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to water, &quot; `T.isPrefixOf` txt</span> =</span>
-<span class="lineno">  299 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">T.strip $ T.drop (T.length &quot;Emissions to water, &quot;) txt</span></span>
-<span class="lineno">  300 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to soil, &quot; `T.isPrefixOf` txt</span> =</span>
-<span class="lineno">  301 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">T.strip $ T.drop (T.length &quot;Emissions to soil, &quot;) txt</span></span>
-<span class="lineno">  302 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to &quot; `T.isPrefixOf` txt</span> =</span>
-<span class="lineno">  303 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">T.strip $ T.drop (T.length &quot;Emissions to &quot;) txt</span></span>
-<span class="lineno">  304 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Resources &quot; `T.isPrefixOf` txt</span> =</span>
-<span class="lineno">  305 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">T.strip $ T.drop (T.length &quot;Resources &quot;) txt</span></span>
-<span class="lineno">  306 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">T.toLower $ T.strip txt</span></span></span>
+<span class="lineno">  102 </span>-- | Cache file path for a flows directory
+<span class="lineno">  103 </span>flowCacheFile :: FilePath -&gt; FilePath
+<span class="lineno">  104 </span><span class="decl"><span class="nottickedoff">flowCacheFile dir = dir &lt;/&gt; &quot;.volca.flows.cache.zst&quot;</span></span>
+<span class="lineno">  105 </span>
+<span class="lineno">  106 </span>-- | Load flow info from cache if valid (file exists and is newer than directory)
+<span class="lineno">  107 </span>loadFlowCache :: FilePath -&gt; FilePath -&gt; IO (Maybe (M.Map UUID ILCDFlowInfo))
+<span class="lineno">  108 </span><span class="decl"><span class="nottickedoff">loadFlowCache cacheFile dir = do</span>
+<span class="lineno">  109 </span><span class="spaces">    </span><span class="nottickedoff">exists &lt;- doesFileExist cacheFile</span>
+<span class="lineno">  110 </span><span class="spaces">    </span><span class="nottickedoff">if not exists then return Nothing</span>
+<span class="lineno">  111 </span><span class="spaces">    </span><span class="nottickedoff">else catch</span>
+<span class="lineno">  112 </span><span class="spaces">        </span><span class="nottickedoff">(do cacheTime &lt;- getModificationTime cacheFile</span>
+<span class="lineno">  113 </span><span class="spaces">            </span><span class="nottickedoff">dirTime &lt;- getModificationTime dir</span>
+<span class="lineno">  114 </span><span class="spaces">            </span><span class="nottickedoff">if cacheTime &lt; dirTime</span>
+<span class="lineno">  115 </span><span class="spaces">                </span><span class="nottickedoff">then do</span>
+<span class="lineno">  116 </span><span class="spaces">                    </span><span class="nottickedoff">reportProgress Info &quot;[FLOWS-CACHE] Stale, reparsing&quot;</span>
+<span class="lineno">  117 </span><span class="spaces">                    </span><span class="nottickedoff">removeFile cacheFile</span>
+<span class="lineno">  118 </span><span class="spaces">                    </span><span class="nottickedoff">return Nothing</span>
+<span class="lineno">  119 </span><span class="spaces">                </span><span class="nottickedoff">else do</span>
+<span class="lineno">  120 </span><span class="spaces">                    </span><span class="nottickedoff">compressed &lt;- BS.readFile cacheFile</span>
+<span class="lineno">  121 </span><span class="spaces">                    </span><span class="nottickedoff">case Zstd.decompress compressed of</span>
+<span class="lineno">  122 </span><span class="spaces">                        </span><span class="nottickedoff">Zstd.Decompress raw -&gt; do</span>
+<span class="lineno">  123 </span><span class="spaces">                            </span><span class="nottickedoff">let !info = decodeEx raw</span>
+<span class="lineno">  124 </span><span class="spaces">                            </span><span class="nottickedoff">result &lt;- evaluate (force info)</span>
+<span class="lineno">  125 </span><span class="spaces">                            </span><span class="nottickedoff">reportProgress Info $ &quot;[FLOWS-CACHE] Loaded &quot; &lt;&gt; show (M.size result) &lt;&gt; &quot; flow definitions from cache&quot;</span>
+<span class="lineno">  126 </span><span class="spaces">                            </span><span class="nottickedoff">return (Just result)</span>
+<span class="lineno">  127 </span><span class="spaces">                        </span><span class="nottickedoff">_ -&gt; do</span>
+<span class="lineno">  128 </span><span class="spaces">                            </span><span class="nottickedoff">reportProgress Warning &quot;[FLOWS-CACHE] Decompression failed, reparsing&quot;</span>
+<span class="lineno">  129 </span><span class="spaces">                            </span><span class="nottickedoff">removeFile cacheFile</span>
+<span class="lineno">  130 </span><span class="spaces">                            </span><span class="nottickedoff">return Nothing)</span>
+<span class="lineno">  131 </span><span class="spaces">        </span><span class="nottickedoff">(\(_ :: SomeException) -&gt; return Nothing)</span></span>
+<span class="lineno">  132 </span>
+<span class="lineno">  133 </span>-- | Save parsed flow info to cache
+<span class="lineno">  134 </span>saveFlowCache :: FilePath -&gt; M.Map UUID ILCDFlowInfo -&gt; IO ()
+<span class="lineno">  135 </span><span class="decl"><span class="nottickedoff">saveFlowCache cacheFile info = catch</span>
+<span class="lineno">  136 </span><span class="spaces">    </span><span class="nottickedoff">(do let serialized = encode info</span>
+<span class="lineno">  137 </span><span class="spaces">            </span><span class="nottickedoff">compressed = Zstd.compress 1 serialized</span>
+<span class="lineno">  138 </span><span class="spaces">        </span><span class="nottickedoff">BS.writeFile cacheFile compressed</span>
+<span class="lineno">  139 </span><span class="spaces">        </span><span class="nottickedoff">reportProgress Info $ &quot;[FLOWS-CACHE] Saved &quot; &lt;&gt; show (M.size info) &lt;&gt; &quot; flow definitions to cache&quot;)</span>
+<span class="lineno">  140 </span><span class="spaces">    </span><span class="nottickedoff">(\(_ :: SomeException) -&gt; return ())</span></span>
+<span class="lineno">  141 </span>
+<span class="lineno">  142 </span>-- | SAX parse state for flow XML
+<span class="lineno">  143 </span>data FlowParseState = FlowParseState
+<span class="lineno">  144 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsUUID</span></span></span>        :: !Text
+<span class="lineno">  145 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsBaseName</span></span></span>    :: !Text
+<span class="lineno">  146 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsCAS</span></span></span>         :: !Text
+<span class="lineno">  147 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsCategories</span></span></span>  :: ![Text]  -- category level=&quot;0&quot;, &quot;1&quot;, &quot;2&quot; in order
+<span class="lineno">  148 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsPath</span></span></span>        :: ![BS.ByteString]
+<span class="lineno">  149 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsTextAccum</span></span></span>   :: ![BS.ByteString]
+<span class="lineno">  150 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsInBaseName</span></span></span>  :: !Bool
+<span class="lineno">  151 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsSynonyms</span></span></span>    :: ![Text]  -- accumulated synonym names
+<span class="lineno">  152 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsInSynonyms</span></span></span>  :: !Bool    -- inside &lt;common:synonyms&gt;
+<span class="lineno">  153 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsLangIsEn</span></span></span>    :: !Bool    -- current synonyms element has xml:lang=&quot;en&quot;
+<span class="lineno">  154 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsFlowType</span></span></span>    :: !Text    -- &lt;typeOfDataSet&gt; text
+<span class="lineno">  155 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">fpsRefFlowPropIdx</span></span></span> :: !Int  -- referenceToReferenceFlowProperty index
+<span class="lineno">  156 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">fpsCurrentFPIdx</span></span></span>   :: !Int  -- current flowProperty dataSetInternalID
+<span class="lineno">  157 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsFlowPropRef</span></span></span>    :: !(Maybe UUID) -- resolved flow property UUID
+<span class="lineno">  158 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">fpsInFlowProperty</span></span></span> :: !Bool -- inside &lt;flowProperty&gt;
+<span class="lineno">  159 </span>    }
+<span class="lineno">  160 </span>
+<span class="lineno">  161 </span>initialFlowState :: FlowParseState
+<span class="lineno">  162 </span><span class="decl"><span class="istickedoff">initialFlowState = FlowParseState &quot;&quot; &quot;&quot; &quot;&quot; [] [] [] False [] False False &quot;&quot; 0 (-1) Nothing False</span></span>
+<span class="lineno">  163 </span>
+<span class="lineno">  164 </span>-- | Parse a single ILCD flow XML from bytes
+<span class="lineno">  165 </span>parseFlowXML :: BS.ByteString -&gt; Maybe (UUID, ILCDFlowInfo)
+<span class="lineno">  166 </span><span class="decl"><span class="istickedoff">parseFlowXML bytes =</span>
+<span class="lineno">  167 </span><span class="spaces">    </span><span class="istickedoff">case X.fold openTag attr endOpen txt closeTag <span class="nottickedoff">cdata</span> initialFlowState bytes of</span>
+<span class="lineno">  168 </span><span class="spaces">        </span><span class="istickedoff">Left _  -&gt; <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  169 </span><span class="spaces">        </span><span class="istickedoff">Right s -&gt; buildFlowInfo s</span>
+<span class="lineno">  170 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  171 </span><span class="spaces">    </span><span class="istickedoff">openTag s tag =</span>
+<span class="lineno">  172 </span><span class="spaces">        </span><span class="istickedoff">let !inSyn = isElement tag &quot;synonyms&quot; || fpsInSynonyms s</span>
+<span class="lineno">  173 </span><span class="spaces">            </span><span class="istickedoff">!inBase = isElement tag &quot;baseName&quot; || fpsInBaseName s</span>
+<span class="lineno">  174 </span><span class="spaces">            </span><span class="istickedoff">!inFP = isElement tag &quot;flowProperty&quot; || fpsInFlowProperty s</span>
+<span class="lineno">  175 </span><span class="spaces">        </span><span class="istickedoff">in s { fpsPath = <span class="nottickedoff">tag</span> : fpsPath s, fpsTextAccum = []</span>
+<span class="lineno">  176 </span><span class="spaces">             </span><span class="istickedoff">, fpsInBaseName = inBase, fpsInSynonyms = inSyn</span>
+<span class="lineno">  177 </span><span class="spaces">             </span><span class="istickedoff">, fpsLangIsEn = if isElement tag &quot;synonyms&quot; then False else fpsLangIsEn s</span>
+<span class="lineno">  178 </span><span class="spaces">             </span><span class="istickedoff">, fpsInFlowProperty = inFP }</span>
+<span class="lineno">  179 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  180 </span><span class="spaces">    </span><span class="istickedoff">attr s name value</span>
+<span class="lineno">  181 </span><span class="spaces">        </span><span class="istickedoff">| fpsInSynonyms s &amp;&amp; isElement name &quot;lang&quot; &amp;&amp; bsToText value == &quot;en&quot; =</span>
+<span class="lineno">  182 </span><span class="spaces">            </span><span class="istickedoff">s { fpsLangIsEn = True }</span>
+<span class="lineno">  183 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isElement name &quot;dataSetInternalID&quot; &amp;&amp; <span class="nottickedoff">fpsInFlowProperty s</span></span> =</span>
+<span class="lineno">  184 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">s { fpsCurrentFPIdx = case TR.decimal (bsToText value) of</span></span>
+<span class="lineno">  185 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Right (n, _) -&gt; n</span></span>
+<span class="lineno">  186 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Left _       -&gt; -1 }</span></span>
+<span class="lineno">  187 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isElement name &quot;refObjectId&quot; &amp;&amp; <span class="nottickedoff">fpsInFlowProperty s</span></span></span>
+<span class="lineno">  188 </span><span class="spaces">            </span><span class="istickedoff"><span class="tickonlyfalse"><span class="nottickedoff">&amp;&amp; fpsCurrentFPIdx s == fpsRefFlowPropIdx s</span></span> =</span>
+<span class="lineno">  189 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">s { fpsFlowPropRef = UUID.fromText (bsToText value) }</span></span>
+<span class="lineno">  190 </span><span class="spaces">        </span><span class="istickedoff">| isElement name &quot;level&quot; = s</span>
+<span class="lineno">  191 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = s</span>
+<span class="lineno">  192 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  193 </span><span class="spaces">    </span><span class="istickedoff">endOpen s _ = s</span>
+<span class="lineno">  194 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  195 </span><span class="spaces">    </span><span class="istickedoff">txt s content =</span>
+<span class="lineno">  196 </span><span class="spaces">        </span><span class="istickedoff">let trimmed = BS.dropWhile (== 32) $ BS.dropWhileEnd (== 32) content</span>
+<span class="lineno">  197 </span><span class="spaces">        </span><span class="istickedoff">in if <span class="tickonlyfalse">BS.null trimmed</span> then <span class="nottickedoff">s</span></span>
+<span class="lineno">  198 </span><span class="spaces">           </span><span class="istickedoff">else s { fpsTextAccum = trimmed : fpsTextAccum s }</span>
+<span class="lineno">  199 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  200 </span><span class="spaces">    </span><span class="istickedoff">closeTag s tag</span>
+<span class="lineno">  201 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;UUID&quot; &amp;&amp; T.null (fpsUUID s) =</span>
+<span class="lineno">  202 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsUUID = accum s, fpsTextAccum = [] }</span>
+<span class="lineno">  203 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;baseName&quot; =</span>
+<span class="lineno">  204 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsBaseName = accum s</span>
+<span class="lineno">  205 </span><span class="spaces">              </span><span class="istickedoff">, fpsTextAccum = [], fpsInBaseName = False }</span>
+<span class="lineno">  206 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;CASNumber&quot; =</span>
+<span class="lineno">  207 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsCAS = accum s, fpsTextAccum = [] }</span>
+<span class="lineno">  208 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;typeOfDataSet&quot; &amp;&amp; T.null (fpsFlowType s) =</span>
+<span class="lineno">  209 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsFlowType = accum s, fpsTextAccum = [] }</span>
+<span class="lineno">  210 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isElement tag &quot;referenceToReferenceFlowProperty&quot;</span> =</span>
+<span class="lineno">  211 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">s { fpsPath = dropPath s</span></span>
+<span class="lineno">  212 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">, fpsRefFlowPropIdx = case TR.decimal (accum s) of</span></span>
+<span class="lineno">  213 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Right (n, _) -&gt; n</span></span>
+<span class="lineno">  214 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Left _       -&gt; 0</span></span>
+<span class="lineno">  215 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">, fpsTextAccum = [] }</span></span>
+<span class="lineno">  216 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">isElement tag &quot;flowProperty&quot;</span> =</span>
+<span class="lineno">  217 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">s { fpsPath = dropPath s, fpsTextAccum = [], fpsInFlowProperty = False }</span></span>
+<span class="lineno">  218 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;synonyms&quot; =</span>
+<span class="lineno">  219 </span><span class="spaces">            </span><span class="istickedoff">let !syns = if <span class="tickonlytrue">fpsLangIsEn s</span></span>
+<span class="lineno">  220 </span><span class="spaces">                        </span><span class="istickedoff">then filter (not . T.null) $ map T.strip $ T.splitOn &quot;;&quot; (accum s)</span>
+<span class="lineno">  221 </span><span class="spaces">                        </span><span class="istickedoff">else <span class="nottickedoff">[]</span></span>
+<span class="lineno">  222 </span><span class="spaces">            </span><span class="istickedoff">in s { fpsPath = dropPath s, fpsTextAccum = []</span>
+<span class="lineno">  223 </span><span class="spaces">                 </span><span class="istickedoff">, fpsInSynonyms = False, fpsLangIsEn = False</span>
+<span class="lineno">  224 </span><span class="spaces">                 </span><span class="istickedoff">, fpsSynonyms = fpsSynonyms s ++ syns }</span>
+<span class="lineno">  225 </span><span class="spaces">        </span><span class="istickedoff">| isElement tag &quot;category&quot; =</span>
+<span class="lineno">  226 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s</span>
+<span class="lineno">  227 </span><span class="spaces">              </span><span class="istickedoff">, fpsCategories = fpsCategories s ++ [accum s]</span>
+<span class="lineno">  228 </span><span class="spaces">              </span><span class="istickedoff">, fpsTextAccum = [] }</span>
+<span class="lineno">  229 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  230 </span><span class="spaces">            </span><span class="istickedoff">s { fpsPath = dropPath s, fpsTextAccum = [] }</span>
+<span class="lineno">  231 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  232 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">cdata = txt</span></span>
+<span class="lineno">  233 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  234 </span><span class="spaces">    </span><span class="istickedoff">dropPath s = case fpsPath s of</span>
+<span class="lineno">  235 </span><span class="spaces">        </span><span class="istickedoff">(_:rest) -&gt; rest</span>
+<span class="lineno">  236 </span><span class="spaces">        </span><span class="istickedoff">[]       -&gt; <span class="nottickedoff">[]</span></span>
+<span class="lineno">  237 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  238 </span><span class="spaces">    </span><span class="istickedoff">accum s = T.strip $ T.concat $ reverse $ map bsToText (fpsTextAccum s)</span>
+<span class="lineno">  239 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  240 </span><span class="spaces">    </span><span class="istickedoff">buildFlowInfo s = do</span>
+<span class="lineno">  241 </span><span class="spaces">        </span><span class="istickedoff">uuid &lt;- UUID.fromText (fpsUUID s)</span>
+<span class="lineno">  242 </span><span class="spaces">        </span><span class="istickedoff">let baseName = fpsBaseName s</span>
+<span class="lineno">  243 </span><span class="spaces">        </span><span class="istickedoff">if T.null baseName then Nothing</span>
+<span class="lineno">  244 </span><span class="spaces">        </span><span class="istickedoff">else Just (uuid, ILCDFlowInfo</span>
+<span class="lineno">  245 </span><span class="spaces">            </span><span class="istickedoff">{ ilcdBaseName       = baseName</span>
+<span class="lineno">  246 </span><span class="spaces">            </span><span class="istickedoff">, ilcdCompartment    = parseCompartment (fpsCategories s)</span>
+<span class="lineno">  247 </span><span class="spaces">            </span><span class="istickedoff">, ilcdCAS            = if T.null (fpsCAS s) then Nothing</span>
+<span class="lineno">  248 </span><span class="spaces">                                   </span><span class="istickedoff">else Just (normalizeCAS (fpsCAS s))</span>
+<span class="lineno">  249 </span><span class="spaces">            </span><span class="istickedoff">, ilcdSynonyms       = fpsSynonyms s</span>
+<span class="lineno">  250 </span><span class="spaces">            </span><span class="istickedoff">, ilcdFlowType       = fpsFlowType s</span>
+<span class="lineno">  251 </span><span class="spaces">            </span><span class="istickedoff">, ilcdFlowPropertyRef = fpsFlowPropRef s</span>
+<span class="lineno">  252 </span><span class="spaces">            </span><span class="istickedoff">})</span></span>
+<span class="lineno">  253 </span>
+<span class="lineno">  254 </span>-- | Parse compartment from ILCD category levels.
+<span class="lineno">  255 </span>-- Level 0: &quot;Emissions&quot; or &quot;Resources&quot;
+<span class="lineno">  256 </span>-- Level 1: &quot;Emissions to air&quot; → medium = &quot;air&quot;
+<span class="lineno">  257 </span>-- Level 2: &quot;Emissions to air, indoor&quot; → subcompartment = &quot;indoor&quot;
+<span class="lineno">  258 </span>parseCompartment :: [Text] -&gt; Maybe Compartment
+<span class="lineno">  259 </span><span class="decl"><span class="istickedoff">parseCompartment [] = Nothing</span>
+<span class="lineno">  260 </span><span class="spaces"></span><span class="istickedoff">parseCompartment cats =</span>
+<span class="lineno">  261 </span><span class="spaces">    </span><span class="istickedoff">let -- Level 1 typically contains medium: &quot;Emissions to air&quot;, &quot;Emissions to water&quot;, etc.</span>
+<span class="lineno">  262 </span><span class="spaces">        </span><span class="istickedoff">medium = case drop 1 cats of</span>
+<span class="lineno">  263 </span><span class="spaces">            </span><span class="istickedoff">(lvl1:_) -&gt; extractMedium lvl1</span>
+<span class="lineno">  264 </span><span class="spaces">            </span><span class="istickedoff">[]       -&gt; <span class="nottickedoff">extractMedium (head cats)</span>  -- cats is non-empty ([] case handled above)</span>
+<span class="lineno">  265 </span><span class="spaces">        </span><span class="istickedoff">-- Level 2 is the subcompartment</span>
+<span class="lineno">  266 </span><span class="spaces">        </span><span class="istickedoff">subcomp = case drop 2 cats of</span>
+<span class="lineno">  267 </span><span class="spaces">            </span><span class="istickedoff">(lvl2:_) -&gt; extractSubcompartment lvl2</span>
+<span class="lineno">  268 </span><span class="spaces">            </span><span class="istickedoff">[]       -&gt; <span class="nottickedoff">&quot;&quot;</span></span>
+<span class="lineno">  269 </span><span class="spaces">    </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null medium</span> then <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  270 </span><span class="spaces">       </span><span class="istickedoff">else Just (Compartment medium subcomp &quot;&quot;)</span>
+<span class="lineno">  271 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  272 </span><span class="spaces">    </span><span class="istickedoff">-- Extract medium from &quot;Emissions to air&quot; → &quot;air&quot;, &quot;Resources from ground&quot; → &quot;natural resource&quot;</span>
+<span class="lineno">  273 </span><span class="spaces">    </span><span class="istickedoff">extractMedium txt</span>
+<span class="lineno">  274 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">&quot;Emissions to air&quot; `T.isPrefixOf` txt</span>      = &quot;air&quot;</span>
+<span class="lineno">  275 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to water&quot; `T.isPrefixOf` txt</span>    = <span class="nottickedoff">&quot;water&quot;</span></span>
+<span class="lineno">  276 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to soil&quot; `T.isPrefixOf` txt</span>     = <span class="nottickedoff">&quot;soil&quot;</span></span>
+<span class="lineno">  277 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Resources&quot; `T.isPrefixOf` txt</span>             = <span class="nottickedoff">&quot;natural resource&quot;</span></span>
+<span class="lineno">  278 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to fresh water&quot; `T.isPrefixOf` txt</span> = <span class="nottickedoff">&quot;water&quot;</span></span>
+<span class="lineno">  279 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to sea water&quot; `T.isPrefixOf` txt</span>  = <span class="nottickedoff">&quot;water&quot;</span></span>
+<span class="lineno">  280 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">T.toLower $ T.strip txt</span></span>
+<span class="lineno">  281 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  282 </span><span class="spaces">    </span><span class="istickedoff">-- Extract subcompartment: take the last part after comma or &quot;to X,&quot;</span>
+<span class="lineno">  283 </span><span class="spaces">    </span><span class="istickedoff">extractSubcompartment txt</span>
+<span class="lineno">  284 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">&quot;Emissions to air, &quot; `T.isPrefixOf` txt</span> =</span>
+<span class="lineno">  285 </span><span class="spaces">            </span><span class="istickedoff">T.strip $ T.drop (T.length &quot;Emissions to air, &quot;) txt</span>
+<span class="lineno">  286 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to water, &quot; `T.isPrefixOf` txt</span> =</span>
+<span class="lineno">  287 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">T.strip $ T.drop (T.length &quot;Emissions to water, &quot;) txt</span></span>
+<span class="lineno">  288 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to soil, &quot; `T.isPrefixOf` txt</span> =</span>
+<span class="lineno">  289 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">T.strip $ T.drop (T.length &quot;Emissions to soil, &quot;) txt</span></span>
+<span class="lineno">  290 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Emissions to &quot; `T.isPrefixOf` txt</span> =</span>
+<span class="lineno">  291 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">T.strip $ T.drop (T.length &quot;Emissions to &quot;) txt</span></span>
+<span class="lineno">  292 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">&quot;Resources &quot; `T.isPrefixOf` txt</span> =</span>
+<span class="lineno">  293 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">T.strip $ T.drop (T.length &quot;Resources &quot;) txt</span></span>
+<span class="lineno">  294 </span><span class="spaces">        </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">T.toLower $ T.strip txt</span></span></span>
 
 </pre>
 </body>

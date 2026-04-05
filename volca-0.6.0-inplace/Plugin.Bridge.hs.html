@@ -40,7 +40,7 @@ span.spaces    { background: white }
 <span class="lineno">   21 </span>-- | Call an external plugin with a single JSON request.
 <span class="lineno">   22 </span>-- Spawns the plugin executable, sends JSON on stdin, reads JSON from stdout.
 <span class="lineno">   23 </span>callPlugin :: FilePath -&gt; Value -&gt; IO (Either Text Value)
-<span class="lineno">   24 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">callPlugin pluginPath request = do</span>
+<span class="lineno">   24 </span><span class="decl"><span class="nottickedoff">callPlugin pluginPath request = do</span>
 <span class="lineno">   25 </span><span class="spaces">    </span><span class="nottickedoff">let input = BSL8.unpack (encode request)</span>
 <span class="lineno">   26 </span><span class="spaces">    </span><span class="nottickedoff">result &lt;- readProcessWithExitCode pluginPath [] input</span>
 <span class="lineno">   27 </span><span class="spaces">    </span><span class="nottickedoff">case result of</span>
@@ -56,7 +56,7 @@ span.spaces    { background: white }
 <span class="lineno">   37 </span>-- | Call an external plugin with a batch of JSON requests (JSON Lines).
 <span class="lineno">   38 </span>-- Sends all requests as newline-delimited JSON, reads newline-delimited responses.
 <span class="lineno">   39 </span>callPluginBatch :: FilePath -&gt; [Value] -&gt; IO (Either Text [Value])
-<span class="lineno">   40 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">callPluginBatch pluginPath requests = do</span>
+<span class="lineno">   40 </span><span class="decl"><span class="nottickedoff">callPluginBatch pluginPath requests = do</span>
 <span class="lineno">   41 </span><span class="spaces">    </span><span class="nottickedoff">let input = BSL8.unpack $ BSL.intercalate &quot;\n&quot; (map encode requests)</span>
 <span class="lineno">   42 </span><span class="spaces">    </span><span class="nottickedoff">result &lt;- readProcessWithExitCode pluginPath [] input</span>
 <span class="lineno">   43 </span><span class="spaces">    </span><span class="nottickedoff">case result of</span>
@@ -72,7 +72,7 @@ span.spaces    { background: white }
 <span class="lineno">   53 </span>
 <span class="lineno">   54 </span>-- | traverse for lists using mapM from Prelude
 <span class="lineno">   55 </span>parseLines :: [BSL.ByteString] -&gt; Either String [Value]
-<span class="lineno">   56 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseLines = mapM eitherDecode'</span></span>
+<span class="lineno">   56 </span><span class="decl"><span class="nottickedoff">parseLines = mapM eitherDecode'</span></span>
 
 </pre>
 </body>

@@ -31,7 +31,7 @@ span.spaces    { background: white }
 <span class="lineno">   12 </span>
 <span class="lineno">   13 </span>-- | Nouvelle version optimisée avec les variants Exchange
 <span class="lineno">   14 </span>isTechnosphereInput :: FlowDB -&gt; Exchange -&gt; Bool
-<span class="lineno">   15 </span><span class="funcount">-- entered 43 times</span><span class="decl"><span class="istickedoff">isTechnosphereInput _ ex =</span>
+<span class="lineno">   15 </span><span class="decl"><span class="istickedoff">isTechnosphereInput _ ex =</span>
 <span class="lineno">   16 </span><span class="spaces">    </span><span class="istickedoff">case ex of</span>
 <span class="lineno">   17 </span><span class="spaces">        </span><span class="istickedoff">TechnosphereExchange _ _ _ isInput isRef _ _ _ -&gt; isInput &amp;&amp; not isRef</span>
 <span class="lineno">   18 </span><span class="spaces">        </span><span class="istickedoff">BiosphereExchange _ _ _ _ _ -&gt; False</span></span>
@@ -39,7 +39,7 @@ span.spaces    { background: white }
 <span class="lineno">   20 </span>-- | Get converted exchange amount ensuring unit compatibility
 <span class="lineno">   21 </span>-- Converts exchange amount to the target activity's reference unit for proper scaling
 <span class="lineno">   22 </span>getConvertedExchangeAmount :: UnitConfig -&gt; Database -&gt; Exchange -&gt; UUID -&gt; Double
-<span class="lineno">   23 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">getConvertedExchangeAmount unitCfg db exchange targetActivityUUID =</span>
+<span class="lineno">   23 </span><span class="decl"><span class="istickedoff">getConvertedExchangeAmount unitCfg db exchange targetActivityUUID =</span>
 <span class="lineno">   24 </span><span class="spaces">    </span><span class="istickedoff">let originalAmount = exchangeAmount exchange</span>
 <span class="lineno">   25 </span><span class="spaces">        </span><span class="istickedoff">-- Get exchange unit name</span>
 <span class="lineno">   26 </span><span class="spaces">        </span><span class="istickedoff">exchangeUnitName = case M.lookup (exchangeUnitId exchange) (dbUnits db) of</span>
@@ -55,7 +55,7 @@ span.spaces    { background: white }
 <span class="lineno">   36 </span>
 <span class="lineno">   37 </span>-- | Build loop-aware tree for SVG export with maximum depth limit
 <span class="lineno">   38 </span>buildLoopAwareTree :: UnitConfig -&gt; Database -&gt; UUID -&gt; Int -&gt; LoopAwareTree
-<span class="lineno">   39 </span><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">buildLoopAwareTree unitCfg db rootUUID maxDepth =</span>
+<span class="lineno">   39 </span><span class="decl"><span class="istickedoff">buildLoopAwareTree unitCfg db rootUUID maxDepth =</span>
 <span class="lineno">   40 </span><span class="spaces">    </span><span class="istickedoff">let maxNodes = 300  -- Maximum total nodes to prevent performance issues</span>
 <span class="lineno">   41 </span><span class="spaces">        </span><span class="istickedoff">(tree, _) = buildLoopAwareTreeWithVisited unitCfg db rootUUID S.empty 0 maxDepth maxNodes</span>
 <span class="lineno">   42 </span><span class="spaces">    </span><span class="istickedoff">in tree</span></span>
@@ -63,7 +63,7 @@ span.spaces    { background: white }
 <span class="lineno">   44 </span>-- | Helper function with visited set, depth tracking, and node count limit
 <span class="lineno">   45 </span>-- Returns (tree, remainingNodeBudget)
 <span class="lineno">   46 </span>buildLoopAwareTreeWithVisited :: UnitConfig -&gt; Database -&gt; UUID -&gt; S.Set UUID -&gt; Int -&gt; Int -&gt; Int -&gt; (LoopAwareTree, Int)
-<span class="lineno">   47 </span><span class="funcount">-- entered 27 times</span><span class="decl"><span class="istickedoff">buildLoopAwareTreeWithVisited unitCfg db activityUUID visited depth maxDepth remainingNodes</span>
+<span class="lineno">   47 </span><span class="decl"><span class="istickedoff">buildLoopAwareTreeWithVisited unitCfg db activityUUID visited depth maxDepth remainingNodes</span>
 <span class="lineno">   48 </span><span class="spaces">    </span><span class="istickedoff">-- Stop if node budget exhausted</span>
 <span class="lineno">   49 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">remainingNodes &lt;= 0</span> =</span>
 <span class="lineno">   50 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">case findActivityByActivityUUID db activityUUID of</span></span>

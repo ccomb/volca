@@ -26,44 +26,58 @@ span.spaces    { background: white }
 <span class="lineno">    7 </span>    , bsToDouble
 <span class="lineno">    8 </span>    , bsToInt
 <span class="lineno">    9 </span>    , isElement
-<span class="lineno">   10 </span>    ) where
-<span class="lineno">   11 </span>
-<span class="lineno">   12 </span>import qualified Data.ByteString as BS
-<span class="lineno">   13 </span>import Data.Text (Text)
-<span class="lineno">   14 </span>import qualified Data.Text as T
-<span class="lineno">   15 </span>import qualified Data.Text.Encoding as TE
-<span class="lineno">   16 </span>import qualified Data.Text.Read as TR
-<span class="lineno">   17 </span>
-<span class="lineno">   18 </span>-- | ByteString to Text conversion with UTF-8 decoding and XML entity decoding
-<span class="lineno">   19 </span>bsToText :: BS.ByteString -&gt; Text
-<span class="lineno">   20 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">bsToText = decodeXmlEntities . TE.decodeUtf8</span></span>
-<span class="lineno">   21 </span>
-<span class="lineno">   22 </span>-- | Decode common XML entities that Xeno doesn't decode
-<span class="lineno">   23 </span>-- Xeno is a fast SAX parser but doesn't handle entity references
-<span class="lineno">   24 </span>decodeXmlEntities :: Text -&gt; Text
-<span class="lineno">   25 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">decodeXmlEntities = T.replace &quot;&amp;lt;&quot; &quot;&lt;&quot;</span>
-<span class="lineno">   26 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;gt;&quot; &quot;&gt;&quot;</span>
-<span class="lineno">   27 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;amp;&quot; &quot;&amp;&quot;</span>
-<span class="lineno">   28 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;quot;&quot; &quot;\&quot;&quot;</span>
-<span class="lineno">   29 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;apos;&quot; &quot;'&quot;</span></span>
-<span class="lineno">   30 </span>
-<span class="lineno">   31 </span>-- | ByteString to Double conversion (strict - errors on parse failure)
-<span class="lineno">   32 </span>bsToDouble :: BS.ByteString -&gt; Double
-<span class="lineno">   33 </span><span class="funcount">-- entered 549 times</span><span class="decl"><span class="istickedoff">bsToDouble bs = case TR.double (bsToText bs) of</span>
-<span class="lineno">   34 </span><span class="spaces">    </span><span class="istickedoff">Right (val, _) -&gt; val</span>
-<span class="lineno">   35 </span><span class="spaces">    </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">error $ &quot;Failed to parse double from: &quot; ++ show bs</span></span></span>
-<span class="lineno">   36 </span>
-<span class="lineno">   37 </span>-- | ByteString to Int conversion (strict - errors on parse failure)
-<span class="lineno">   38 </span>bsToInt :: BS.ByteString -&gt; Int
-<span class="lineno">   39 </span><span class="funcount">-- entered 216 times</span><span class="decl"><span class="istickedoff">bsToInt bs = case TR.decimal (bsToText bs) of</span>
-<span class="lineno">   40 </span><span class="spaces">    </span><span class="istickedoff">Right (val, _) -&gt; val</span>
-<span class="lineno">   41 </span><span class="spaces">    </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">error $ &quot;Failed to parse int from: &quot; ++ show bs</span></span></span>
-<span class="lineno">   42 </span>
-<span class="lineno">   43 </span>-- | Check if element name matches (with or without namespace prefix)
-<span class="lineno">   44 </span>-- Handles both &quot;tagName&quot; and &quot;prefix:tagName&quot; forms
-<span class="lineno">   45 </span>isElement :: BS.ByteString -&gt; BS.ByteString -&gt; Bool
-<span class="lineno">   46 </span><span class="funcount">-- entered 125,526 times</span><span class="decl"><span class="istickedoff">isElement tagName expected =</span>
-<span class="lineno">   47 </span><span class="spaces">    </span><span class="istickedoff">tagName == expected || BS.isSuffixOf (&quot;:&quot; `BS.append` expected) tagName</span></span>
+<span class="lineno">   10 </span>    , distributeFiles
+<span class="lineno">   11 </span>    ) where
+<span class="lineno">   12 </span>
+<span class="lineno">   13 </span>import qualified Data.ByteString as BS
+<span class="lineno">   14 </span>import Data.Text (Text)
+<span class="lineno">   15 </span>import qualified Data.Text as T
+<span class="lineno">   16 </span>import qualified Data.Text.Encoding as TE
+<span class="lineno">   17 </span>import qualified Data.Text.Read as TR
+<span class="lineno">   18 </span>
+<span class="lineno">   19 </span>-- | ByteString to Text conversion with UTF-8 decoding and XML entity decoding
+<span class="lineno">   20 </span>bsToText :: BS.ByteString -&gt; Text
+<span class="lineno">   21 </span><span class="decl"><span class="istickedoff">bsToText = decodeXmlEntities . TE.decodeUtf8</span></span>
+<span class="lineno">   22 </span>
+<span class="lineno">   23 </span>-- | Decode common XML entities that Xeno doesn't decode
+<span class="lineno">   24 </span>-- Xeno is a fast SAX parser but doesn't handle entity references
+<span class="lineno">   25 </span>decodeXmlEntities :: Text -&gt; Text
+<span class="lineno">   26 </span><span class="decl"><span class="istickedoff">decodeXmlEntities = T.replace &quot;&amp;lt;&quot; &quot;&lt;&quot;</span>
+<span class="lineno">   27 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;gt;&quot; &quot;&gt;&quot;</span>
+<span class="lineno">   28 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;amp;&quot; &quot;&amp;&quot;</span>
+<span class="lineno">   29 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;quot;&quot; &quot;\&quot;&quot;</span>
+<span class="lineno">   30 </span><span class="spaces">                  </span><span class="istickedoff">. T.replace &quot;&amp;apos;&quot; &quot;'&quot;</span></span>
+<span class="lineno">   31 </span>
+<span class="lineno">   32 </span>-- | ByteString to Double conversion (strict - errors on parse failure)
+<span class="lineno">   33 </span>bsToDouble :: BS.ByteString -&gt; Double
+<span class="lineno">   34 </span><span class="decl"><span class="istickedoff">bsToDouble bs = case TR.double (bsToText bs) of</span>
+<span class="lineno">   35 </span><span class="spaces">    </span><span class="istickedoff">Right (val, _) -&gt; val</span>
+<span class="lineno">   36 </span><span class="spaces">    </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">error $ &quot;Failed to parse double from: &quot; ++ show bs</span></span></span>
+<span class="lineno">   37 </span>
+<span class="lineno">   38 </span>-- | ByteString to Int conversion (strict - errors on parse failure)
+<span class="lineno">   39 </span>bsToInt :: BS.ByteString -&gt; Int
+<span class="lineno">   40 </span><span class="decl"><span class="istickedoff">bsToInt bs = case TR.decimal (bsToText bs) of</span>
+<span class="lineno">   41 </span><span class="spaces">    </span><span class="istickedoff">Right (val, _) -&gt; val</span>
+<span class="lineno">   42 </span><span class="spaces">    </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">error $ &quot;Failed to parse int from: &quot; ++ show bs</span></span></span>
+<span class="lineno">   43 </span>
+<span class="lineno">   44 </span>-- | Check if element name matches (with or without namespace prefix)
+<span class="lineno">   45 </span>-- Handles both &quot;tagName&quot; and &quot;prefix:tagName&quot; forms
+<span class="lineno">   46 </span>isElement :: BS.ByteString -&gt; BS.ByteString -&gt; Bool
+<span class="lineno">   47 </span><span class="decl"><span class="istickedoff">isElement tagName expected =</span>
+<span class="lineno">   48 </span><span class="spaces">    </span><span class="istickedoff">tagName == expected || BS.isSuffixOf (&quot;:&quot; `BS.append` expected) tagName</span></span>
+<span class="lineno">   49 </span>
+<span class="lineno">   50 </span>-- | Distribute a list evenly across N buckets (for parallel workers)
+<span class="lineno">   51 </span>distributeFiles :: Int -&gt; [a] -&gt; [[a]]
+<span class="lineno">   52 </span><span class="decl"><span class="istickedoff">distributeFiles n xs =</span>
+<span class="lineno">   53 </span><span class="spaces">    </span><span class="istickedoff">let len      = length xs</span>
+<span class="lineno">   54 </span><span class="spaces">        </span><span class="istickedoff">baseSize = len `div` n</span>
+<span class="lineno">   55 </span><span class="spaces">        </span><span class="istickedoff">remainder = len `mod` n</span>
+<span class="lineno">   56 </span><span class="spaces">        </span><span class="istickedoff">sizes    = replicate remainder (baseSize + 1) ++ replicate (n - remainder) <span class="nottickedoff">baseSize</span></span>
+<span class="lineno">   57 </span><span class="spaces">    </span><span class="istickedoff">in go sizes xs</span>
+<span class="lineno">   58 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   59 </span><span class="spaces">    </span><span class="istickedoff">go []     _  = <span class="nottickedoff">[]</span></span>
+<span class="lineno">   60 </span><span class="spaces">    </span><span class="istickedoff">go _      [] = []</span>
+<span class="lineno">   61 </span><span class="spaces">    </span><span class="istickedoff">go (s:ss) ys = let (h, t) = splitAt s ys in h : go ss t</span></span>
 
 </pre>
 </body>

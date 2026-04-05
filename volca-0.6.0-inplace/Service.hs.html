@@ -56,31 +56,31 @@ span.spaces    { background: white }
 <span class="lineno">   37 </span>    | ActivityNotFound Text
 <span class="lineno">   38 </span>    | FlowNotFound Text
 <span class="lineno">   39 </span>    | MatrixError Text  -- Generic error from matrix computations
-<span class="lineno">   40 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">   40 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
 <span class="lineno">   41 </span>
 <span class="lineno">   42 </span>-- | Validate UUID format
 <span class="lineno">   43 </span>validateUUID :: Text -&gt; Either ServiceError Text
-<span class="lineno">   44 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">validateUUID uuidText</span>
+<span class="lineno">   44 </span><span class="decl"><span class="istickedoff">validateUUID uuidText</span>
 <span class="lineno">   45 </span><span class="spaces">    </span><span class="istickedoff">| Just _ &lt;- UUID.fromText uuidText = Right uuidText</span>
 <span class="lineno">   46 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Left $ InvalidUUID $ <span class="nottickedoff">&quot;Invalid UUID format: &quot; &lt;&gt; uuidText</span></span></span>
 <span class="lineno">   47 </span>
 <span class="lineno">   48 </span>-- | Parse ProcessId from text (activity_uuid_product_uuid format)
 <span class="lineno">   49 </span>parseProcessIdFromText :: Database -&gt; Text -&gt; Either ServiceError ProcessId
-<span class="lineno">   50 </span><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">parseProcessIdFromText db text =</span>
+<span class="lineno">   50 </span><span class="decl"><span class="istickedoff">parseProcessIdFromText db text =</span>
 <span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">case parseProcessId db text of</span>
 <span class="lineno">   52 </span><span class="spaces">        </span><span class="istickedoff">Just processId -&gt; Right processId</span>
 <span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; Left $ InvalidProcessId $ <span class="nottickedoff">&quot;Invalid ProcessId format (expected activity_uuid_product_uuid): &quot; &lt;&gt; text</span></span></span>
 <span class="lineno">   54 </span>
 <span class="lineno">   55 </span>-- | Find activity by ProcessId using direct Vector access
 <span class="lineno">   56 </span>findActivityByProcessId :: Database -&gt; ProcessId -&gt; Maybe Activity
-<span class="lineno">   57 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">findActivityByProcessId db processId =</span>
+<span class="lineno">   57 </span><span class="decl"><span class="istickedoff">findActivityByProcessId db processId =</span>
 <span class="lineno">   58 </span><span class="spaces">    </span><span class="istickedoff">if <span class="tickonlytrue">processId &gt;= 0 &amp;&amp; fromIntegral processId &lt; V.length (dbActivities db)</span></span>
 <span class="lineno">   59 </span><span class="spaces">    </span><span class="istickedoff">then Just $ dbActivities db V.! fromIntegral processId</span>
 <span class="lineno">   60 </span><span class="spaces">    </span><span class="istickedoff">else <span class="nottickedoff">Nothing</span></span></span>
 <span class="lineno">   61 </span>
 <span class="lineno">   62 </span>-- | Resolve activity query using ProcessId format with UUID fallback for compatibility
 <span class="lineno">   63 </span>resolveActivityByProcessId :: Database -&gt; Text -&gt; Either ServiceError Activity
-<span class="lineno">   64 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">resolveActivityByProcessId db queryText =</span>
+<span class="lineno">   64 </span><span class="decl"><span class="nottickedoff">resolveActivityByProcessId db queryText =</span>
 <span class="lineno">   65 </span><span class="spaces">    </span><span class="nottickedoff">case resolveActivityAndProcessId db queryText of</span>
 <span class="lineno">   66 </span><span class="spaces">        </span><span class="nottickedoff">Right (_processId, activity) -&gt; Right activity</span>
 <span class="lineno">   67 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; Left err</span></span>
@@ -88,7 +88,7 @@ span.spaces    { background: white }
 <span class="lineno">   69 </span>-- | Resolve activity and get both ProcessId and Activity
 <span class="lineno">   70 </span>-- This is the preferred function when you need the ProcessId (e.g., for matrix operations)
 <span class="lineno">   71 </span>resolveActivityAndProcessId :: Database -&gt; Text -&gt; Either ServiceError (ProcessId, Activity)
-<span class="lineno">   72 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">resolveActivityAndProcessId db queryText =</span>
+<span class="lineno">   72 </span><span class="decl"><span class="istickedoff">resolveActivityAndProcessId db queryText =</span>
 <span class="lineno">   73 </span><span class="spaces">    </span><span class="istickedoff">case parseProcessIdFromText db queryText of</span>
 <span class="lineno">   74 </span><span class="spaces">        </span><span class="istickedoff">Right processId -&gt;</span>
 <span class="lineno">   75 </span><span class="spaces">            </span><span class="istickedoff">case findActivityByProcessId db processId of</span>
@@ -110,7 +110,7 @@ span.spaces    { background: white }
 <span class="lineno">   91 </span>-- This check ensures we fail fast with clear error messages before expensive matrix operations
 <span class="lineno">   92 </span>-- The activity index is required for building demand vectors and performing inventory calculations
 <span class="lineno">   93 </span>validateProcessIdInMatrixIndex :: Database -&gt; ProcessId -&gt; Either ServiceError ()
-<span class="lineno">   94 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">validateProcessIdInMatrixIndex db processId =</span>
+<span class="lineno">   94 </span><span class="decl"><span class="istickedoff">validateProcessIdInMatrixIndex db processId =</span>
 <span class="lineno">   95 </span><span class="spaces">    </span><span class="istickedoff">if processId &gt;= 0 &amp;&amp; fromIntegral processId &lt; V.length (dbActivityIndex db)</span>
 <span class="lineno">   96 </span><span class="spaces">    </span><span class="istickedoff">then Right ()</span>
 <span class="lineno">   97 </span><span class="spaces">    </span><span class="istickedoff">else Left $ MatrixError $</span>
@@ -121,7 +121,7 @@ span.spaces    { background: white }
 <span class="lineno">  102 </span>
 <span class="lineno">  103 </span>-- | Rich activity info (returns same format as API)
 <span class="lineno">  104 </span>getActivityInfo :: UnitConfig -&gt; Database -&gt; Text -&gt; Either ServiceError Value
-<span class="lineno">  105 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivityInfo unitCfg db queryText = do</span>
+<span class="lineno">  105 </span><span class="decl"><span class="nottickedoff">getActivityInfo unitCfg db queryText = do</span>
 <span class="lineno">  106 </span><span class="spaces">    </span><span class="nottickedoff">(processId, activity) &lt;- resolveActivityAndProcessId db queryText</span>
 <span class="lineno">  107 </span><span class="spaces">    </span><span class="nottickedoff">let activityForAPI = convertActivityForAPI unitCfg db processId activity</span>
 <span class="lineno">  108 </span><span class="spaces">        </span><span class="nottickedoff">metadata = calculateActivityMetadata db activity</span>
@@ -141,7 +141,7 @@ span.spaces    { background: white }
 <span class="lineno">  122 </span>-- | Core inventory calculation logic using matrix-based LCA calculations
 <span class="lineno">  123 </span>-- | Convert raw inventory to structured export format
 <span class="lineno">  124 </span>convertToInventoryExport :: Database -&gt; ProcessId -&gt; Activity -&gt; Inventory -&gt; InventoryExport
-<span class="lineno">  125 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">convertToInventoryExport db processId rootActivity inventory =</span>
+<span class="lineno">  125 </span><span class="decl"><span class="nottickedoff">convertToInventoryExport db processId rootActivity inventory =</span>
 <span class="lineno">  126 </span><span class="spaces">    </span><span class="nottickedoff">let</span>
 <span class="lineno">  127 </span><span class="spaces">        </span><span class="nottickedoff">-- Filter out flows with zero quantities to reduce noise in the results</span>
 <span class="lineno">  128 </span><span class="spaces">        </span><span class="nottickedoff">inventoryList = M.toList inventory</span>
@@ -199,14 +199,14 @@ span.spaces    { background: white }
 <span class="lineno">  180 </span>-- Since B matrix now stores all flows as positive (Ecoinvent convention), we use category instead of sign
 <span class="lineno">  181 </span>-- EcoSpold2: &quot;natural resource/in ground&quot;, SimaPro: &quot;resource/in ground&quot;
 <span class="lineno">  182 </span>isResourceExtraction :: Flow -&gt; Double -&gt; Bool
-<span class="lineno">  183 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">isResourceExtraction flow _ =</span>
+<span class="lineno">  183 </span><span class="decl"><span class="nottickedoff">isResourceExtraction flow _ =</span>
 <span class="lineno">  184 </span><span class="spaces">    </span><span class="nottickedoff">let cat = T.toLower (flowCategory flow)</span>
 <span class="lineno">  185 </span><span class="spaces">    </span><span class="nottickedoff">in flowType flow == Biosphere &amp;&amp;</span>
 <span class="lineno">  186 </span><span class="spaces">       </span><span class="nottickedoff">(&quot;natural resource&quot; `T.isPrefixOf` cat || &quot;resource&quot; `T.isPrefixOf` cat)</span></span>
 <span class="lineno">  187 </span>
 <span class="lineno">  188 </span>-- | Get activity inventory as rich InventoryExport (same as API)
 <span class="lineno">  189 </span>getActivityInventory :: Database -&gt; Text -&gt; IO (Either ServiceError Value)
-<span class="lineno">  190 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivityInventory db processIdText =</span>
+<span class="lineno">  190 </span><span class="decl"><span class="nottickedoff">getActivityInventory db processIdText =</span>
 <span class="lineno">  191 </span><span class="spaces">    </span><span class="nottickedoff">case resolveActivityAndProcessId db processIdText &gt;&gt;= \(pid, act) -&gt; validateProcessIdInMatrixIndex db pid &gt;&gt; Right (pid, act) of</span>
 <span class="lineno">  192 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; return $ Left err</span>
 <span class="lineno">  193 </span><span class="spaces">        </span><span class="nottickedoff">Right (processId, activity) -&gt; do</span>
@@ -217,7 +217,7 @@ span.spaces    { background: white }
 <span class="lineno">  198 </span>
 <span class="lineno">  199 </span>-- | Shared solver-aware activity inventory export for concurrent processing
 <span class="lineno">  200 </span>getActivityInventoryWithSharedSolver :: [ValidateHandle] -&gt; SharedSolver -&gt; Database -&gt; Text -&gt; IO (Either ServiceError InventoryExport)
-<span class="lineno">  201 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivityInventoryWithSharedSolver validators sharedSolver db processIdText = do</span>
+<span class="lineno">  201 </span><span class="decl"><span class="nottickedoff">getActivityInventoryWithSharedSolver validators sharedSolver db processIdText = do</span>
 <span class="lineno">  202 </span><span class="spaces">    </span><span class="nottickedoff">case resolveActivityAndProcessId db processIdText of</span>
 <span class="lineno">  203 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; return $ Left err</span>
 <span class="lineno">  204 </span><span class="spaces">        </span><span class="nottickedoff">Right (processId, activity) -&gt; do</span>
@@ -261,13 +261,13 @@ span.spaces    { background: white }
 <span class="lineno">  242 </span>data TreeStats = TreeStats Int Int Int -- total, loops, leaves
 <span class="lineno">  243 </span>
 <span class="lineno">  244 </span>combineStats :: TreeStats -&gt; TreeStats -&gt; TreeStats
-<span class="lineno">  245 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">combineStats (TreeStats t1 l1 v1) (TreeStats t2 l2 v2) = TreeStats (t1 + t2) (l1 + l2) (v1 + v2)</span></span>
+<span class="lineno">  245 </span><span class="decl"><span class="nottickedoff">combineStats (TreeStats t1 l1 v1) (TreeStats t2 l2 v2) = TreeStats (t1 + t2) (l1 + l2) (v1 + v2)</span></span>
 <span class="lineno">  246 </span>
 <span class="lineno">  247 </span>-- | Helper to find ProcessId for an activity by searching the database
 <span class="lineno">  248 </span>-- This is needed because activities don't store their own ProcessId/UUID
 <span class="lineno">  249 </span>-- Strategy: match activities by name, location, unit, and first reference product flow
 <span class="lineno">  250 </span>findProcessIdForActivity :: Database -&gt; Activity -&gt; Maybe ProcessId
-<span class="lineno">  251 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findProcessIdForActivity db activity =</span>
+<span class="lineno">  251 </span><span class="decl"><span class="nottickedoff">findProcessIdForActivity db activity =</span>
 <span class="lineno">  252 </span><span class="spaces">    </span><span class="nottickedoff">let actName = activityName activity</span>
 <span class="lineno">  253 </span><span class="spaces">        </span><span class="nottickedoff">actLoc = activityLocation activity</span>
 <span class="lineno">  254 </span><span class="spaces">        </span><span class="nottickedoff">actUnit = activityUnit activity</span>
@@ -291,7 +291,7 @@ span.spaces    { background: white }
 <span class="lineno">  272 </span>-- Primary: UUID lookup in ProductIndex
 <span class="lineno">  273 </span>-- Fallback: When UUID fails (e.g., SimaPro tkm vs kgkm), find by name with unit compatibility check
 <span class="lineno">  274 </span>findProcessIdByProductFlowWithFallback :: UnitConfig -&gt; Database -&gt; UUID -&gt; Maybe ProcessId
-<span class="lineno">  275 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findProcessIdByProductFlowWithFallback unitCfg db flowUUID =</span>
+<span class="lineno">  275 </span><span class="decl"><span class="nottickedoff">findProcessIdByProductFlowWithFallback unitCfg db flowUUID =</span>
 <span class="lineno">  276 </span><span class="spaces">    </span><span class="nottickedoff">case findProcessIdByProductFlow db flowUUID of</span>
 <span class="lineno">  277 </span><span class="spaces">        </span><span class="nottickedoff">Just pid -&gt; Just pid</span>
 <span class="lineno">  278 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt;</span>
@@ -326,7 +326,7 @@ span.spaces    { background: white }
 <span class="lineno">  307 </span>-- | Helper to get node ID from LoopAwareTree (returns ProcessId format)
 <span class="lineno">  308 </span>-- For all node types, we attempt to return ProcessId format for consistency
 <span class="lineno">  309 </span>getTreeNodeId :: Database -&gt; LoopAwareTree -&gt; Text
-<span class="lineno">  310 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getTreeNodeId db (TreeLeaf activity) =</span>
+<span class="lineno">  310 </span><span class="decl"><span class="nottickedoff">getTreeNodeId db (TreeLeaf activity) =</span>
 <span class="lineno">  311 </span><span class="spaces">    </span><span class="nottickedoff">case findProcessIdForActivity db activity of</span>
 <span class="lineno">  312 </span><span class="spaces">        </span><span class="nottickedoff">Just processId -&gt; processIdToText db processId</span>
 <span class="lineno">  313 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt; &quot;unknown-activity&quot;  -- Fallback</span>
@@ -342,7 +342,7 @@ span.spaces    { background: white }
 <span class="lineno">  323 </span>
 <span class="lineno">  324 </span>-- | Count potential children for navigation (technosphere inputs that could be expanded)
 <span class="lineno">  325 </span>countPotentialChildren :: Database -&gt; Activity -&gt; Int
-<span class="lineno">  326 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">countPotentialChildren db activity =</span>
+<span class="lineno">  326 </span><span class="decl"><span class="nottickedoff">countPotentialChildren db activity =</span>
 <span class="lineno">  327 </span><span class="spaces">    </span><span class="nottickedoff">length</span>
 <span class="lineno">  328 </span><span class="spaces">        </span><span class="nottickedoff">[ ex</span>
 <span class="lineno">  329 </span><span class="spaces">        </span><span class="nottickedoff">| ex &lt;- exchanges activity</span>
@@ -355,7 +355,7 @@ span.spaces    { background: white }
 <span class="lineno">  336 </span>
 <span class="lineno">  337 </span>-- | Helper to extract compartment from flow category
 <span class="lineno">  338 </span>extractCompartment :: Text -&gt; Text
-<span class="lineno">  339 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">extractCompartment category =</span>
+<span class="lineno">  339 </span><span class="decl"><span class="nottickedoff">extractCompartment category =</span>
 <span class="lineno">  340 </span><span class="spaces">    </span><span class="nottickedoff">let lowerCategory = T.toLower category</span>
 <span class="lineno">  341 </span><span class="spaces">    </span><span class="nottickedoff">in if &quot;air&quot; `T.isInfixOf` lowerCategory</span>
 <span class="lineno">  342 </span><span class="spaces">       </span><span class="nottickedoff">then &quot;air&quot;</span>
@@ -367,7 +367,7 @@ span.spaces    { background: white }
 <span class="lineno">  348 </span>
 <span class="lineno">  349 </span>-- | Extract biosphere exchanges from an activity and create nodes and edges
 <span class="lineno">  350 </span>extractBiosphereNodesAndEdges :: Database -&gt; Activity -&gt; Text -&gt; Int -&gt; M.Map Text ExportNode -&gt; [TreeEdge] -&gt; (M.Map Text ExportNode, [TreeEdge])
-<span class="lineno">  351 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">extractBiosphereNodesAndEdges db activity activityProcessId depth nodeAcc edgeAcc =</span>
+<span class="lineno">  351 </span><span class="decl"><span class="nottickedoff">extractBiosphereNodesAndEdges db activity activityProcessId depth nodeAcc edgeAcc =</span>
 <span class="lineno">  352 </span><span class="spaces">    </span><span class="nottickedoff">let allBiosphereExchanges = [ex | ex &lt;- exchanges activity, isBiosphereExchange ex]</span>
 <span class="lineno">  353 </span><span class="spaces">        </span><span class="nottickedoff">-- Limit to top 50 most significant flows to prevent performance issues with system processes</span>
 <span class="lineno">  354 </span><span class="spaces">        </span><span class="nottickedoff">maxBiosphereFlows = 50</span>
@@ -414,7 +414,7 @@ span.spaces    { background: white }
 <span class="lineno">  395 </span>
 <span class="lineno">  396 </span>-- | Extract nodes and edges from LoopAwareTree
 <span class="lineno">  397 </span>extractNodesAndEdges :: Database -&gt; LoopAwareTree -&gt; Int -&gt; Maybe Text -&gt; M.Map Text ExportNode -&gt; [TreeEdge] -&gt; (M.Map Text ExportNode, [TreeEdge], TreeStats)
-<span class="lineno">  398 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">extractNodesAndEdges db tree depth parentId nodeAcc edgeAcc = case tree of</span>
+<span class="lineno">  398 </span><span class="decl"><span class="nottickedoff">extractNodesAndEdges db tree depth parentId nodeAcc edgeAcc = case tree of</span>
 <span class="lineno">  399 </span><span class="spaces">    </span><span class="nottickedoff">TreeLeaf activity -&gt;</span>
 <span class="lineno">  400 </span><span class="spaces">        </span><span class="nottickedoff">let childrenCount = countPotentialChildren db activity</span>
 <span class="lineno">  401 </span><span class="spaces">            </span><span class="nottickedoff">processIdText = getTreeNodeId db tree</span>
@@ -502,7 +502,7 @@ span.spaces    { background: white }
 <span class="lineno">  483 </span>
 <span class="lineno">  484 </span>-- | Convert LoopAwareTree to TreeExport format for JSON serialization
 <span class="lineno">  485 </span>convertToTreeExport :: Database -&gt; Text -&gt; Int -&gt; LoopAwareTree -&gt; TreeExport
-<span class="lineno">  486 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">convertToTreeExport db _rootProcessId maxDepth tree =</span>
+<span class="lineno">  486 </span><span class="decl"><span class="nottickedoff">convertToTreeExport db _rootProcessId maxDepth tree =</span>
 <span class="lineno">  487 </span><span class="spaces">    </span><span class="nottickedoff">let (nodes, edges, _stats) = extractNodesAndEdges db tree 0 Nothing M.empty []</span>
 <span class="lineno">  488 </span><span class="spaces">        </span><span class="nottickedoff">-- Use the actual root node ID from the tree, not the passed parameter</span>
 <span class="lineno">  489 </span><span class="spaces">        </span><span class="nottickedoff">-- This ensures tmRootId always matches a key in the nodes map</span>
@@ -520,7 +520,7 @@ span.spaces    { background: white }
 <span class="lineno">  501 </span>
 <span class="lineno">  502 </span>-- | Get activity tree as rich TreeExport with configurable depth
 <span class="lineno">  503 </span>getActivityTree :: Database -&gt; Text -&gt; Int -&gt; Maybe Text -&gt; Either ServiceError Value
-<span class="lineno">  504 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivityTree db queryText maxDepth nameFilter = do</span>
+<span class="lineno">  504 </span><span class="decl"><span class="nottickedoff">getActivityTree db queryText maxDepth nameFilter = do</span>
 <span class="lineno">  505 </span><span class="spaces">    </span><span class="nottickedoff">(_processId, _activity) &lt;- resolveActivityAndProcessId db queryText</span>
 <span class="lineno">  506 </span><span class="spaces">    </span><span class="nottickedoff">-- Get the activity UUID from the processIdText (which is activityUUID_productUUID)</span>
 <span class="lineno">  507 </span><span class="spaces">    </span><span class="nottickedoff">let activityUuidText = case T.splitOn &quot;_&quot; queryText of</span>
@@ -539,7 +539,7 @@ span.spaces    { background: white }
 <span class="lineno">  520 </span>-- | Post-filter a TreeExport by name: keep matching nodes plus all their ancestors up to root.
 <span class="lineno">  521 </span>-- Uses the enParentId chain already stored in each ExportNode — no extra graph traversal.
 <span class="lineno">  522 </span>filterTreeExport :: Text -&gt; TreeExport -&gt; TreeExport
-<span class="lineno">  523 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">filterTreeExport pat export =</span>
+<span class="lineno">  523 </span><span class="decl"><span class="istickedoff">filterTreeExport pat export =</span>
 <span class="lineno">  524 </span><span class="spaces">    </span><span class="istickedoff">let nodes = teNodes export</span>
 <span class="lineno">  525 </span><span class="spaces">        </span><span class="istickedoff">textMatches p n = T.toCaseFold p `T.isInfixOf` T.toCaseFold n</span>
 <span class="lineno">  526 </span><span class="spaces">        </span><span class="istickedoff">matchingIds = M.keysSet $ M.filter (textMatches pat . enName) nodes</span>
@@ -558,7 +558,7 @@ span.spaces    { background: white }
 <span class="lineno">  539 </span>-- | Build activity network graph from factorized matrix column
 <span class="lineno">  540 </span>-- Uses efficient sparse matrix operations to extract connections
 <span class="lineno">  541 </span>buildActivityGraph :: Database -&gt; SharedSolver -&gt; Text -&gt; Double -&gt; IO (Either ServiceError GraphExport)
-<span class="lineno">  542 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">buildActivityGraph db sharedSolver queryText cutoffPercent = do</span>
+<span class="lineno">  542 </span><span class="decl"><span class="nottickedoff">buildActivityGraph db sharedSolver queryText cutoffPercent = do</span>
 <span class="lineno">  543 </span><span class="spaces">    </span><span class="nottickedoff">case resolveActivityAndProcessId db queryText of</span>
 <span class="lineno">  544 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; return $ Left err</span>
 <span class="lineno">  545 </span><span class="spaces">        </span><span class="nottickedoff">Right (processId, _activity) -&gt; do</span>
@@ -665,7 +665,7 @@ span.spaces    { background: white }
 <span class="lineno">  646 </span>
 <span class="lineno">  647 </span>-- | Classify units into groups for edge width normalization
 <span class="lineno">  648 </span>buildUnitGroups :: [Text] -&gt; M.Map Text Text
-<span class="lineno">  649 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">buildUnitGroups units =</span>
+<span class="lineno">  649 </span><span class="decl"><span class="nottickedoff">buildUnitGroups units =</span>
 <span class="lineno">  650 </span><span class="spaces">    </span><span class="nottickedoff">M.fromList [(unit, classifyUnit unit) | unit &lt;- L.nub units]</span>
 <span class="lineno">  651 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
 <span class="lineno">  652 </span><span class="spaces">    </span><span class="nottickedoff">classifyUnit u</span>
@@ -680,14 +680,14 @@ span.spaces    { background: white }
 <span class="lineno">  661 </span>
 <span class="lineno">  662 </span>-- | Get flow usage count across all activities
 <span class="lineno">  663 </span>getFlowUsageCount :: Database -&gt; UUID -&gt; Int
-<span class="lineno">  664 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getFlowUsageCount db flowUUID =</span>
+<span class="lineno">  664 </span><span class="decl"><span class="nottickedoff">getFlowUsageCount db flowUUID =</span>
 <span class="lineno">  665 </span><span class="spaces">    </span><span class="nottickedoff">case M.lookup flowUUID (idxByFlow $ dbIndexes db) of</span>
 <span class="lineno">  666 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt; 0</span>
 <span class="lineno">  667 </span><span class="spaces">        </span><span class="nottickedoff">Just activityUUIDs -&gt; length activityUUIDs</span></span>
 <span class="lineno">  668 </span>
 <span class="lineno">  669 </span>-- | Get flows used by an activity as lightweight summaries
 <span class="lineno">  670 </span>getActivityFlowSummaries :: Database -&gt; Activity -&gt; [FlowSummary]
-<span class="lineno">  671 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivityFlowSummaries db activity =</span>
+<span class="lineno">  671 </span><span class="decl"><span class="nottickedoff">getActivityFlowSummaries db activity =</span>
 <span class="lineno">  672 </span><span class="spaces">    </span><span class="nottickedoff">[ FlowSummary flow (getUnitNameForFlow (dbUnits db) flow) (getFlowUsageCount db (flowId flow)) (determineFlowRole exchange)</span>
 <span class="lineno">  673 </span><span class="spaces">    </span><span class="nottickedoff">| exchange &lt;- exchanges activity</span>
 <span class="lineno">  674 </span><span class="spaces">    </span><span class="nottickedoff">, Just flow &lt;- [M.lookup (exchangeFlowId exchange) (dbFlows db)]</span>
@@ -700,7 +700,7 @@ span.spaces    { background: white }
 <span class="lineno">  681 </span>
 <span class="lineno">  682 </span>-- | Search flows (returns same format as API)
 <span class="lineno">  683 </span>searchFlows :: Database -&gt; Maybe Text -&gt; Maybe Text -&gt; Maybe Int -&gt; Maybe Int -&gt; IO (Either ServiceError Value)
-<span class="lineno">  684 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">searchFlows _ Nothing _ _ _ = return $ Right $ toJSON $ SearchResults ([] :: [FlowSearchResult]) 0 0 50 False 0.0</span>
+<span class="lineno">  684 </span><span class="decl"><span class="nottickedoff">searchFlows _ Nothing _ _ _ = return $ Right $ toJSON $ SearchResults ([] :: [FlowSearchResult]) 0 0 50 False 0.0</span>
 <span class="lineno">  685 </span><span class="spaces"></span><span class="nottickedoff">searchFlows db (Just query) langParam limitParam offsetParam = do</span>
 <span class="lineno">  686 </span><span class="spaces">    </span><span class="nottickedoff">startTime &lt;- getCurrentTime</span>
 <span class="lineno">  687 </span><span class="spaces">    </span><span class="nottickedoff">let _lang = fromMaybe &quot;en&quot; langParam</span>
@@ -719,7 +719,7 @@ span.spaces    { background: white }
 <span class="lineno">  700 </span>
 <span class="lineno">  701 </span>-- | Search activities (returns same format as API)
 <span class="lineno">  702 </span>searchActivities :: Database -&gt; Maybe Text -&gt; Maybe Text -&gt; Maybe Text -&gt; [(Text, Text)] -&gt; Maybe Int -&gt; Maybe Int -&gt; IO (Either ServiceError Value)
-<span class="lineno">  703 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">searchActivities db nameParam geoParam productParam classFilters limitParam offsetParam = do</span>
+<span class="lineno">  703 </span><span class="decl"><span class="nottickedoff">searchActivities db nameParam geoParam productParam classFilters limitParam offsetParam = do</span>
 <span class="lineno">  704 </span><span class="spaces">    </span><span class="nottickedoff">startTime &lt;- getCurrentTime</span>
 <span class="lineno">  705 </span><span class="spaces">    </span><span class="nottickedoff">let allResults = findActivitiesByFields db nameParam geoParam productParam classFilters</span>
 <span class="lineno">  706 </span><span class="spaces">        </span><span class="nottickedoff">offset = maybe 0 (max 0) offsetParam</span>
@@ -748,7 +748,7 @@ span.spaces    { background: white }
 <span class="lineno">  729 </span>
 <span class="lineno">  730 </span>-- | List all classification systems and their distinct values for a database
 <span class="lineno">  731 </span>getClassifications :: Database -&gt; [ClassificationSystem]
-<span class="lineno">  732 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getClassifications db =</span>
+<span class="lineno">  732 </span><span class="decl"><span class="nottickedoff">getClassifications db =</span>
 <span class="lineno">  733 </span><span class="spaces">    </span><span class="nottickedoff">let activities = V.toList (dbActivities db)</span>
 <span class="lineno">  734 </span><span class="spaces">        </span><span class="nottickedoff">-- Collect all (system, value) pairs</span>
 <span class="lineno">  735 </span><span class="spaces">        </span><span class="nottickedoff">allPairs = concatMap (M.toList . activityClassification) activities</span>
@@ -760,7 +760,7 @@ span.spaces    { background: white }
 <span class="lineno">  741 </span>
 <span class="lineno">  742 </span>-- | Calculate extended metadata for an activity
 <span class="lineno">  743 </span>calculateActivityMetadata :: Database -&gt; Activity -&gt; ActivityMetadata
-<span class="lineno">  744 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">calculateActivityMetadata _db activity =</span>
+<span class="lineno">  744 </span><span class="decl"><span class="nottickedoff">calculateActivityMetadata _db activity =</span>
 <span class="lineno">  745 </span><span class="spaces">    </span><span class="nottickedoff">let allExchanges = exchanges activity</span>
 <span class="lineno">  746 </span><span class="spaces">        </span><span class="nottickedoff">uniqueFlows = length $ M.fromList [(exchangeFlowId ex, ()) | ex &lt;- allExchanges]</span>
 <span class="lineno">  747 </span><span class="spaces">        </span><span class="nottickedoff">techInputs = length [ex | ex &lt;- allExchanges, isTechnosphereExchange ex, exchangeIsInput ex, not (exchangeIsReference ex)]</span>
@@ -778,7 +778,7 @@ span.spaces    { background: white }
 <span class="lineno">  759 </span>
 <span class="lineno">  760 </span>-- | Generate links to sub-resources for an activity
 <span class="lineno">  761 </span>generateActivityLinks :: Text -&gt; ActivityLinks
-<span class="lineno">  762 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">generateActivityLinks uuid =</span>
+<span class="lineno">  762 </span><span class="decl"><span class="nottickedoff">generateActivityLinks uuid =</span>
 <span class="lineno">  763 </span><span class="spaces">    </span><span class="nottickedoff">ActivityLinks</span>
 <span class="lineno">  764 </span><span class="spaces">        </span><span class="nottickedoff">{ plFlowsUrl = &quot;/api/v1/activity/&quot; &lt;&gt; uuid &lt;&gt; &quot;/flows&quot;</span>
 <span class="lineno">  765 </span><span class="spaces">        </span><span class="nottickedoff">, plInputsUrl = &quot;/api/v1/activity/&quot; &lt;&gt; uuid &lt;&gt; &quot;/inputs&quot;</span>
@@ -788,7 +788,7 @@ span.spaces    { background: white }
 <span class="lineno">  769 </span>
 <span class="lineno">  770 </span>-- | Calculate activity statistics
 <span class="lineno">  771 </span>calculateActivityStats :: Activity -&gt; ActivityStats
-<span class="lineno">  772 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">calculateActivityStats activity =</span>
+<span class="lineno">  772 </span><span class="decl"><span class="nottickedoff">calculateActivityStats activity =</span>
 <span class="lineno">  773 </span><span class="spaces">    </span><span class="nottickedoff">ActivityStats</span>
 <span class="lineno">  774 </span><span class="spaces">        </span><span class="nottickedoff">{ psInputCount = length $ filter exchangeIsInput (exchanges activity)</span>
 <span class="lineno">  775 </span><span class="spaces">        </span><span class="nottickedoff">, psOutputCount = length $ filter (not . exchangeIsInput) (exchanges activity)</span>
@@ -799,7 +799,7 @@ span.spaces    { background: white }
 <span class="lineno">  780 </span>-- | Convert Activity to ActivityForAPI with unit names
 <span class="lineno">  781 </span>-- Note: This function requires the ProcessId to get the activity UUID
 <span class="lineno">  782 </span>convertActivityForAPI :: UnitConfig -&gt; Database -&gt; ProcessId -&gt; Activity -&gt; ActivityForAPI
-<span class="lineno">  783 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">convertActivityForAPI unitCfg db processId activity =</span>
+<span class="lineno">  783 </span><span class="decl"><span class="nottickedoff">convertActivityForAPI unitCfg db processId activity =</span>
 <span class="lineno">  784 </span><span class="spaces">    </span><span class="nottickedoff">let allProducts = case processIdToUUIDs db processId of</span>
 <span class="lineno">  785 </span><span class="spaces">            </span><span class="nottickedoff">Just (activityUUID, _) -&gt; getAllProductsForActivity db activityUUID</span>
 <span class="lineno">  786 </span><span class="spaces">            </span><span class="nottickedoff">Nothing -&gt; []</span>
@@ -873,14 +873,14 @@ span.spaces    { background: white }
 <span class="lineno">  854 </span>
 <span class="lineno">  855 </span>-- | Get reference product name from activity exchanges
 <span class="lineno">  856 </span>getReferenceProductName :: M.Map UUID Flow -&gt; Activity -&gt; Maybe Text
-<span class="lineno">  857 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getReferenceProductName flows activity =</span>
+<span class="lineno">  857 </span><span class="decl"><span class="nottickedoff">getReferenceProductName flows activity =</span>
 <span class="lineno">  858 </span><span class="spaces">    </span><span class="nottickedoff">case [ex | ex &lt;- exchanges activity, exchangeIsReference ex] of</span>
 <span class="lineno">  859 </span><span class="spaces">        </span><span class="nottickedoff">(ex : _) -&gt; fmap flowName (M.lookup (exchangeFlowId ex) flows)</span>
 <span class="lineno">  860 </span><span class="spaces">        </span><span class="nottickedoff">[] -&gt; Nothing</span></span>
 <span class="lineno">  861 </span>
 <span class="lineno">  862 </span>-- | Get reference product info (name, amount, unit) from activity exchanges
 <span class="lineno">  863 </span>getReferenceProductInfo :: M.Map UUID Flow -&gt; UnitDB -&gt; Activity -&gt; (Text, Double, Text)
-<span class="lineno">  864 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getReferenceProductInfo flows units activity =</span>
+<span class="lineno">  864 </span><span class="decl"><span class="nottickedoff">getReferenceProductInfo flows units activity =</span>
 <span class="lineno">  865 </span><span class="spaces">    </span><span class="nottickedoff">case [ex | ex &lt;- exchanges activity, exchangeIsReference ex] of</span>
 <span class="lineno">  866 </span><span class="spaces">        </span><span class="nottickedoff">(ex : _) -&gt;</span>
 <span class="lineno">  867 </span><span class="spaces">            </span><span class="nottickedoff">let name = maybe &quot;&quot; flowName (M.lookup (exchangeFlowId ex) flows)</span>
@@ -891,7 +891,7 @@ span.spaces    { background: white }
 <span class="lineno">  872 </span>
 <span class="lineno">  873 </span>-- | Get all products (ProcessIds) for an activity UUID using the products index
 <span class="lineno">  874 </span>getAllProductsForActivity :: Database -&gt; UUID -&gt; [ActivitySummary]
-<span class="lineno">  875 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getAllProductsForActivity db activityUUID =</span>
+<span class="lineno">  875 </span><span class="decl"><span class="nottickedoff">getAllProductsForActivity db activityUUID =</span>
 <span class="lineno">  876 </span><span class="spaces">    </span><span class="nottickedoff">case M.lookup activityUUID (dbActivityProductsIndex db) of</span>
 <span class="lineno">  877 </span><span class="spaces">        </span><span class="nottickedoff">Just processIds -&gt;</span>
 <span class="lineno">  878 </span><span class="spaces">            </span><span class="nottickedoff">[ let (prodName, prodAmount, prodUnit) = getProductInfo db pid</span>
@@ -922,7 +922,7 @@ span.spaces    { background: white }
 <span class="lineno">  903 </span>
 <span class="lineno">  904 </span>-- | Get target activity for technosphere navigation
 <span class="lineno">  905 </span>getTargetActivity :: Database -&gt; Exchange -&gt; Maybe ActivitySummary
-<span class="lineno">  906 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getTargetActivity db exchange = do</span>
+<span class="lineno">  906 </span><span class="decl"><span class="nottickedoff">getTargetActivity db exchange = do</span>
 <span class="lineno">  907 </span><span class="spaces">    </span><span class="nottickedoff">targetId &lt;- exchangeActivityLinkId exchange</span>
 <span class="lineno">  908 </span><span class="spaces">    </span><span class="nottickedoff">targetActivity &lt;- findActivityByActivityUUID db targetId</span>
 <span class="lineno">  909 </span><span class="spaces">    </span><span class="nottickedoff">processId &lt;- findProcessIdForActivity db targetActivity</span>
@@ -939,7 +939,7 @@ span.spaces    { background: white }
 <span class="lineno">  920 </span>
 <span class="lineno">  921 </span>-- | Get reference product as FlowDetail (if exists)
 <span class="lineno">  922 </span>getActivityReferenceProductDetail :: Database -&gt; Activity -&gt; Maybe FlowDetail
-<span class="lineno">  923 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivityReferenceProductDetail db activity = do</span>
+<span class="lineno">  923 </span><span class="decl"><span class="nottickedoff">getActivityReferenceProductDetail db activity = do</span>
 <span class="lineno">  924 </span><span class="spaces">    </span><span class="nottickedoff">refExchange &lt;- case filter exchangeIsReference (exchanges activity) of</span>
 <span class="lineno">  925 </span><span class="spaces">        </span><span class="nottickedoff">[] -&gt; Nothing</span>
 <span class="lineno">  926 </span><span class="spaces">        </span><span class="nottickedoff">(ex : _) -&gt; Just ex</span>
@@ -950,7 +950,7 @@ span.spaces    { background: white }
 <span class="lineno">  931 </span>
 <span class="lineno">  932 </span>-- | Get activities that use a specific flow as ActivitySummary list
 <span class="lineno">  933 </span>getActivitiesUsingFlow :: Database -&gt; UUID -&gt; [ActivitySummary]
-<span class="lineno">  934 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivitiesUsingFlow db flowUUID =</span>
+<span class="lineno">  934 </span><span class="decl"><span class="nottickedoff">getActivitiesUsingFlow db flowUUID =</span>
 <span class="lineno">  935 </span><span class="spaces">    </span><span class="nottickedoff">case M.lookup flowUUID (idxByFlow $ dbIndexes db) of</span>
 <span class="lineno">  936 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt; []</span>
 <span class="lineno">  937 </span><span class="spaces">        </span><span class="nottickedoff">Just activityUUIDs -&gt;</span>
@@ -970,7 +970,7 @@ span.spaces    { background: white }
 <span class="lineno">  951 </span>
 <span class="lineno">  952 </span>-- | Helper function to get detailed exchanges with filtering
 <span class="lineno">  953 </span>getActivityExchangeDetails :: Database -&gt; Activity -&gt; (Exchange -&gt; Bool) -&gt; [ExchangeDetail]
-<span class="lineno">  954 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivityExchangeDetails db activity filterFn =</span>
+<span class="lineno">  954 </span><span class="decl"><span class="nottickedoff">getActivityExchangeDetails db activity filterFn =</span>
 <span class="lineno">  955 </span><span class="spaces">    </span><span class="nottickedoff">[ ExchangeDetail exchange flow (getUnitNameForFlow (dbUnits db) flow) unit (getUnitNameForExchange (dbUnits db) exchange) (getTargetActivity db exchange)</span>
 <span class="lineno">  956 </span><span class="spaces">    </span><span class="nottickedoff">| exchange &lt;- exchanges activity</span>
 <span class="lineno">  957 </span><span class="spaces">    </span><span class="nottickedoff">, filterFn exchange</span>
@@ -980,15 +980,15 @@ span.spaces    { background: white }
 <span class="lineno">  961 </span>
 <span class="lineno">  962 </span>-- | Get detailed input exchanges
 <span class="lineno">  963 </span>getActivityInputDetails :: Database -&gt; Activity -&gt; [ExchangeDetail]
-<span class="lineno">  964 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivityInputDetails db activity = getActivityExchangeDetails db activity exchangeIsInput</span></span>
+<span class="lineno">  964 </span><span class="decl"><span class="nottickedoff">getActivityInputDetails db activity = getActivityExchangeDetails db activity exchangeIsInput</span></span>
 <span class="lineno">  965 </span>
 <span class="lineno">  966 </span>-- | Get detailed output exchanges
 <span class="lineno">  967 </span>getActivityOutputDetails :: Database -&gt; Activity -&gt; [ExchangeDetail]
-<span class="lineno">  968 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getActivityOutputDetails db activity = getActivityExchangeDetails db activity (not . exchangeIsInput)</span></span>
+<span class="lineno">  968 </span><span class="decl"><span class="nottickedoff">getActivityOutputDetails db activity = getActivityExchangeDetails db activity (not . exchangeIsInput)</span></span>
 <span class="lineno">  969 </span>
 <span class="lineno">  970 </span>-- | Get flow info as JSON (for CLI)
 <span class="lineno">  971 </span>getFlowInfo :: Database -&gt; Text -&gt; Either ServiceError Value
-<span class="lineno">  972 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getFlowInfo db flowIdText = do</span>
+<span class="lineno">  972 </span><span class="decl"><span class="nottickedoff">getFlowInfo db flowIdText = do</span>
 <span class="lineno">  973 </span><span class="spaces">    </span><span class="nottickedoff">case UUID.fromText flowIdText of</span>
 <span class="lineno">  974 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt; Left $ InvalidUUID $ &quot;Invalid flow UUID: &quot; &lt;&gt; flowIdText</span>
 <span class="lineno">  975 </span><span class="spaces">        </span><span class="nottickedoff">Just fId -&gt;</span>
@@ -1002,7 +1002,7 @@ span.spaces    { background: white }
 <span class="lineno">  983 </span>
 <span class="lineno">  984 </span>-- | Get activities that use a specific flow as JSON (for CLI)
 <span class="lineno">  985 </span>getFlowActivities :: Database -&gt; Text -&gt; Either ServiceError Value
-<span class="lineno">  986 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getFlowActivities db flowIdText = do</span>
+<span class="lineno">  986 </span><span class="decl"><span class="nottickedoff">getFlowActivities db flowIdText = do</span>
 <span class="lineno">  987 </span><span class="spaces">    </span><span class="nottickedoff">case UUID.fromText flowIdText of</span>
 <span class="lineno">  988 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt; Left $ InvalidUUID $ &quot;Invalid flow UUID: &quot; &lt;&gt; flowIdText</span>
 <span class="lineno">  989 </span><span class="spaces">        </span><span class="nottickedoff">Just fId -&gt;</span>
@@ -1018,7 +1018,7 @@ span.spaces    { background: white }
 <span class="lineno">  999 </span>              -&gt; Maybe Int -&gt; Maybe Int -&gt; Maybe Text -&gt; Maybe Text -&gt; Maybe Text
 <span class="lineno"> 1000 </span>              -&gt; Maybe Text -&gt; Maybe Text -&gt; Bool
 <span class="lineno"> 1001 </span>              -&gt; IO (Either ServiceError SupplyChainResponse)
-<span class="lineno"> 1002 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter classificationValueFilter sortParam orderParam includeEdges = do</span>
+<span class="lineno"> 1002 </span><span class="decl"><span class="nottickedoff">getSupplyChain db sharedSolver processIdText nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter classificationValueFilter sortParam orderParam includeEdges = do</span>
 <span class="lineno"> 1003 </span><span class="spaces">    </span><span class="nottickedoff">case resolveActivityAndProcessId db processIdText of</span>
 <span class="lineno"> 1004 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; return $ Left err</span>
 <span class="lineno"> 1005 </span><span class="spaces">        </span><span class="nottickedoff">Right (processId, _rootActivity) -&gt; do</span>
@@ -1035,7 +1035,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1016 </span>-- Returns path steps ordered root → target, each with cumulative quantity, scaling factor,
 <span class="lineno"> 1017 </span>-- and local_step_ratio (upstream ÷ downstream scaling factors).
 <span class="lineno"> 1018 </span>getPathTo :: Database -&gt; SharedSolver -&gt; Text -&gt; Text -&gt; IO (Either ServiceError Value)
-<span class="lineno"> 1019 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">getPathTo db solver pidText target = do</span>
+<span class="lineno"> 1019 </span><span class="decl"><span class="istickedoff">getPathTo db solver pidText target = do</span>
 <span class="lineno"> 1020 </span><span class="spaces">    </span><span class="istickedoff">case resolveActivityAndProcessId db pidText of</span>
 <span class="lineno"> 1021 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">return $ Left err</span></span>
 <span class="lineno"> 1022 </span><span class="spaces">        </span><span class="istickedoff">Right (rootPid, rootAct) -&gt;</span>
@@ -1096,7 +1096,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1077 </span>    -&gt; Maybe Text -&gt; Maybe Text
 <span class="lineno"> 1078 </span>    -&gt; Bool  -- ^ include edges (expensive: extra pass over technosphere triples)
 <span class="lineno"> 1079 </span>    -&gt; SupplyChainResponse
-<span class="lineno"> 1080 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter classificationValueFilter sortParam orderParam includeEdges =</span>
+<span class="lineno"> 1080 </span><span class="decl"><span class="istickedoff">buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam minQuantityParam offsetParam maxDepthParam locationFilter classificationFilter classificationValueFilter sortParam orderParam includeEdges =</span>
 <span class="lineno"> 1081 </span><span class="spaces">    </span><span class="istickedoff">let minQ = fromMaybe 0 minQuantityParam</span>
 <span class="lineno"> 1082 </span><span class="spaces">        </span><span class="istickedoff">limit = fromMaybe 100 limitParam</span>
 <span class="lineno"> 1083 </span><span class="spaces">        </span><span class="istickedoff">offset = fromMaybe 0 offsetParam</span>
@@ -1208,7 +1208,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1189 </span>
 <span class="lineno"> 1190 </span>-- | BFS from root on adjacency list, returns IntMap of node -&gt; shortest depth
 <span class="lineno"> 1191 </span>bfsDepth :: Int -&gt; IM.IntMap [Int] -&gt; IM.IntMap Int
-<span class="lineno"> 1192 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">bfsDepth root adj = go (Empty |&gt; root) (IM.singleton root 0)</span>
+<span class="lineno"> 1192 </span><span class="decl"><span class="istickedoff">bfsDepth root adj = go (Empty |&gt; root) (IM.singleton root 0)</span>
 <span class="lineno"> 1193 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno"> 1194 </span><span class="spaces">    </span><span class="istickedoff">go Empty visited = visited</span>
 <span class="lineno"> 1195 </span><span class="spaces">    </span><span class="istickedoff">go (node :&lt;| queue) visited =</span>
@@ -1223,7 +1223,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1204 </span>-- | BFS from root; stop at the first node (other than root) satisfying a predicate.
 <span class="lineno"> 1205 </span>-- Returns the path from root to that node (inclusive), or Nothing.
 <span class="lineno"> 1206 </span>bfsToPattern :: Int -&gt; (Int -&gt; Bool) -&gt; IM.IntMap [Int] -&gt; Maybe [Int]
-<span class="lineno"> 1207 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">bfsToPattern from matches adj = go (Empty |&gt; from) (IM.singleton from from)</span>
+<span class="lineno"> 1207 </span><span class="decl"><span class="istickedoff">bfsToPattern from matches adj = go (Empty |&gt; from) (IM.singleton from from)</span>
 <span class="lineno"> 1208 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno"> 1209 </span><span class="spaces">    </span><span class="istickedoff">go Empty _             = Nothing</span>
 <span class="lineno"> 1210 </span><span class="spaces">    </span><span class="istickedoff">go (node :&lt;| queue) parents</span>
@@ -1241,7 +1241,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1222 </span>
 <span class="lineno"> 1223 </span>-- | Get reference product amount for an activity (defaults to 1.0)
 <span class="lineno"> 1224 </span>getReferenceProductAmount :: Activity -&gt; Double
-<span class="lineno"> 1225 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">getReferenceProductAmount activity =</span>
+<span class="lineno"> 1225 </span><span class="decl"><span class="istickedoff">getReferenceProductAmount activity =</span>
 <span class="lineno"> 1226 </span><span class="spaces">    </span><span class="istickedoff">case [exchangeAmount ex | ex &lt;- exchanges activity, <span class="tickonlytrue">exchangeIsReference ex</span>] of</span>
 <span class="lineno"> 1227 </span><span class="spaces">        </span><span class="istickedoff">(amt:_) -&gt; amt</span>
 <span class="lineno"> 1228 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt; <span class="nottickedoff">1.0</span></span></span>
@@ -1252,7 +1252,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1233 </span>computeScalingVectorWithSubstitutions
 <span class="lineno"> 1234 </span>    :: Database -&gt; SharedSolver -&gt; ProcessId -&gt; [Substitution]
 <span class="lineno"> 1235 </span>    -&gt; IO (Either ServiceError (U.Vector Double))
-<span class="lineno"> 1236 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">computeScalingVectorWithSubstitutions db sharedSolver processId subs = do</span>
+<span class="lineno"> 1236 </span><span class="decl"><span class="istickedoff">computeScalingVectorWithSubstitutions db sharedSolver processId subs = do</span>
 <span class="lineno"> 1237 </span><span class="spaces">    </span><span class="istickedoff">let activityIndex = dbActivityIndex db</span>
 <span class="lineno"> 1238 </span><span class="spaces">        </span><span class="istickedoff">demandVec = buildDemandVectorFromIndex activityIndex processId</span>
 <span class="lineno"> 1239 </span><span class="spaces">    </span><span class="istickedoff">originalX &lt;- solveWithSharedSolver sharedSolver demandVec</span>
@@ -1293,7 +1293,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1274 </span>
 <span class="lineno"> 1275 </span>-- | Find the technosphere coefficient A[supplier, consumer] from the sparse triples
 <span class="lineno"> 1276 </span>findTechCoefficient :: Database -&gt; ProcessId -&gt; ProcessId -&gt; Maybe Double
-<span class="lineno"> 1277 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findTechCoefficient db consumer supplier =</span>
+<span class="lineno"> 1277 </span><span class="decl"><span class="nottickedoff">findTechCoefficient db consumer supplier =</span>
 <span class="lineno"> 1278 </span><span class="spaces">    </span><span class="nottickedoff">let techTriples = dbTechnosphereTriples db</span>
 <span class="lineno"> 1279 </span><span class="spaces">        </span><span class="nottickedoff">consumerIdx = fromIntegral consumer :: Int32</span>
 <span class="lineno"> 1280 </span><span class="spaces">        </span><span class="nottickedoff">supplierIdx = fromIntegral supplier :: Int32</span>
@@ -1307,7 +1307,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1288 </span>-- BFS through the technosphere matrix: supplier row → direct consumers → their consumers → ...
 <span class="lineno"> 1289 </span>getConsumers :: Database -&gt; Text -&gt; Maybe Text -&gt; Maybe Int
 <span class="lineno"> 1290 </span>             -&gt; Either ServiceError [ActivitySummary]
-<span class="lineno"> 1291 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getConsumers db processIdText nameFilter limitParam = do</span>
+<span class="lineno"> 1291 </span><span class="decl"><span class="nottickedoff">getConsumers db processIdText nameFilter limitParam = do</span>
 <span class="lineno"> 1292 </span><span class="spaces">    </span><span class="nottickedoff">(processId, _) &lt;- resolveActivityAndProcessId db processIdText</span>
 <span class="lineno"> 1293 </span><span class="spaces">    </span><span class="nottickedoff">let -- Build adjacency list: supplier → [direct consumers]</span>
 <span class="lineno"> 1294 </span><span class="spaces">        </span><span class="nottickedoff">adj = M.fromListWith (++)</span>
@@ -1350,22 +1350,22 @@ span.spaces    { background: white }
 <span class="lineno"> 1331 </span>
 <span class="lineno"> 1332 </span>-- | Compute LCIA scores (placeholder)
 <span class="lineno"> 1333 </span>computeLCIA :: Database -&gt; Text -&gt; FilePath -&gt; Either ServiceError Value
-<span class="lineno"> 1334 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">computeLCIA db queryText methodFile = do</span>
+<span class="lineno"> 1334 </span><span class="decl"><span class="nottickedoff">computeLCIA db queryText methodFile = do</span>
 <span class="lineno"> 1335 </span><span class="spaces">    </span><span class="nottickedoff">(processId, _activity) &lt;- resolveActivityAndProcessId db queryText</span>
 <span class="lineno"> 1336 </span><span class="spaces">    </span><span class="nottickedoff">let placeholder = M.fromList [(&quot;method&quot; :: Text, T.pack methodFile), (&quot;activity&quot;, processIdToText db processId)]</span>
 <span class="lineno"> 1337 </span><span class="spaces">     </span><span class="nottickedoff">in Right $ toJSON placeholder</span></span>
 <span class="lineno"> 1338 </span>
 <span class="lineno"> 1339 </span>-- | Export LCIA results as XML (placeholder)
 <span class="lineno"> 1340 </span>exportLCIAAsXML :: Value -&gt; FilePath -&gt; Either ServiceError ()
-<span class="lineno"> 1341 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exportLCIAAsXML _ _ = Right ()</span></span>
+<span class="lineno"> 1341 </span><span class="decl"><span class="nottickedoff">exportLCIAAsXML _ _ = Right ()</span></span>
 <span class="lineno"> 1342 </span>
 <span class="lineno"> 1343 </span>-- | Export LCIA results as CSV (placeholder)
 <span class="lineno"> 1344 </span>exportLCIAAsCSV :: Value -&gt; FilePath -&gt; Either ServiceError ()
-<span class="lineno"> 1345 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exportLCIAAsCSV _ _ = Right ()</span></span>
+<span class="lineno"> 1345 </span><span class="decl"><span class="nottickedoff">exportLCIAAsCSV _ _ = Right ()</span></span>
 <span class="lineno"> 1346 </span>
 <span class="lineno"> 1347 </span>-- | Export matrix debug data (delegates to Matrix.Export)
 <span class="lineno"> 1348 </span>exportMatrixDebugData :: Database -&gt; Text -&gt; DebugMatricesOptions -&gt; IO (Either ServiceError Value)
-<span class="lineno"> 1349 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exportMatrixDebugData database processIdText opts = do</span>
+<span class="lineno"> 1349 </span><span class="decl"><span class="nottickedoff">exportMatrixDebugData database processIdText opts = do</span>
 <span class="lineno"> 1350 </span><span class="spaces">    </span><span class="nottickedoff">case resolveActivityAndProcessId database processIdText of</span>
 <span class="lineno"> 1351 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; return $ Left err</span>
 <span class="lineno"> 1352 </span><span class="spaces">        </span><span class="nottickedoff">Right (_processId, targetActivity) -&gt; do</span>
@@ -1397,7 +1397,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1378 </span>
 <span class="lineno"> 1379 </span>-- | Export matrices in universal matrix format (delegates to Matrix.Export)
 <span class="lineno"> 1380 </span>exportUniversalMatrixFormat :: FilePath -&gt; Database -&gt; IO ()
-<span class="lineno"> 1381 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">exportUniversalMatrixFormat = MatrixExport.exportUniversalMatrixFormat</span></span>
+<span class="lineno"> 1381 </span><span class="decl"><span class="istickedoff">exportUniversalMatrixFormat = MatrixExport.exportUniversalMatrixFormat</span></span>
 <span class="lineno"> 1382 </span>
 <span class="lineno"> 1383 </span>-- ──────────────────────────────────────────────
 <span class="lineno"> 1384 </span>-- Plugin validation hooks
@@ -1405,19 +1405,19 @@ span.spaces    { background: white }
 <span class="lineno"> 1386 </span>
 <span class="lineno"> 1387 </span>-- | Run pre-compute validators (before matrix solve)
 <span class="lineno"> 1388 </span>runPreComputeValidation :: [ValidateHandle] -&gt; Database -&gt; IO [ValidationIssue]
-<span class="lineno"> 1389 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">runPreComputeValidation validators db = do</span>
+<span class="lineno"> 1389 </span><span class="decl"><span class="nottickedoff">runPreComputeValidation validators db = do</span>
 <span class="lineno"> 1390 </span><span class="spaces">    </span><span class="nottickedoff">let preValidators = filter ((== PreCompute) . vhPhase) validators</span>
 <span class="lineno"> 1391 </span><span class="spaces">    </span><span class="nottickedoff">concat &lt;$&gt; mapM (\v -&gt; vhValidate v (ValidateContext db Nothing)) preValidators</span></span>
 <span class="lineno"> 1392 </span>
 <span class="lineno"> 1393 </span>-- | Run post-compute validators (after inventory is computed)
 <span class="lineno"> 1394 </span>runPostComputeValidation :: [ValidateHandle] -&gt; Database -&gt; Inventory -&gt; IO [ValidationIssue]
-<span class="lineno"> 1395 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">runPostComputeValidation validators db inv = do</span>
+<span class="lineno"> 1395 </span><span class="decl"><span class="nottickedoff">runPostComputeValidation validators db inv = do</span>
 <span class="lineno"> 1396 </span><span class="spaces">    </span><span class="nottickedoff">let postValidators = filter ((== PostCompute) . vhPhase) validators</span>
 <span class="lineno"> 1397 </span><span class="spaces">    </span><span class="nottickedoff">concat &lt;$&gt; mapM (\v -&gt; vhValidate v (ValidateContext db (Just inv))) postValidators</span></span>
 <span class="lineno"> 1398 </span>
 <span class="lineno"> 1399 </span>-- | Check if any validation issues are errors (should abort computation)
 <span class="lineno"> 1400 </span>hasValidationErrors :: [ValidationIssue] -&gt; Bool
-<span class="lineno"> 1401 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">hasValidationErrors = any ((== Error) . viSeverity)</span></span>
+<span class="lineno"> 1401 </span><span class="decl"><span class="nottickedoff">hasValidationErrors = any ((== Error) . viSeverity)</span></span>
 
 </pre>
 </body>

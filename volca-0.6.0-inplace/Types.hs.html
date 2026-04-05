@@ -55,10 +55,10 @@ span.spaces    { background: white }
 <span class="lineno">   36 </span>
 <span class="lineno">   37 </span>-- | Orphan Store instance for UUID (16 bytes, host-native word order)
 <span class="lineno">   38 </span>instance Store UUID where
-<span class="lineno">   39 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">size = ConstSize 16</span></span>
-<span class="lineno">   40 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">poke uuid = let (a, b, c, d) = UUID.toWords uuid</span>
+<span class="lineno">   39 </span>    <span class="decl"><span class="nottickedoff">size = ConstSize 16</span></span>
+<span class="lineno">   40 </span>    <span class="decl"><span class="nottickedoff">poke uuid = let (a, b, c, d) = UUID.toWords uuid</span>
 <span class="lineno">   41 </span><span class="spaces">                </span><span class="nottickedoff">in poke a &gt;&gt; poke b &gt;&gt; poke c &gt;&gt; poke d</span></span>
-<span class="lineno">   42 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">peek = UUID.fromWords &lt;$&gt; peek &lt;*&gt; peek &lt;*&gt; peek &lt;*&gt; peek</span></span>
+<span class="lineno">   42 </span>    <span class="decl"><span class="nottickedoff">peek = UUID.fromWords &lt;$&gt; peek &lt;*&gt; peek &lt;*&gt; peek &lt;*&gt; peek</span></span>
 <span class="lineno">   43 </span>
 <span class="lineno">   44 </span>-- Note: UUID is now Data.UUID.UUID (16 bytes) instead of Text (~80+ bytes)
 <span class="lineno">   45 </span>-- This saves ~2-3GB of RAM by reducing memory footprint from ~100,000+ UUID instances
@@ -71,127 +71,127 @@ span.spaces    { background: white }
 <span class="lineno">   52 </span>
 <span class="lineno">   53 </span>-- | Flow type: Technosphere (exchange between activities) or Biosphere (exchange with the environment)
 <span class="lineno">   54 </span>data FlowType = Technosphere | Biosphere
-<span class="lineno">   55 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- entered 419 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- entered 45 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">   55 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="istickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">   56 </span>
 <span class="lineno">   57 </span>-- | Unit representation (kg, MJ, m³, etc.)
 <span class="lineno">   58 </span>data Unit = Unit
-<span class="lineno">   59 </span>    { <span class="istickedoff"><span class="funcount">-- entered 568 times</span><span class="decl"><span class="istickedoff">unitId</span></span></span> :: !UUID -- Unique unit identifier
-<span class="lineno">   60 </span>    , <span class="istickedoff"><span class="funcount">-- entered 319 times</span><span class="decl"><span class="istickedoff">unitName</span></span></span> :: !Text -- Unit name (e.g. &quot;kg&quot;, &quot;kilogram&quot;)
-<span class="lineno">   61 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">unitSymbol</span></span></span> :: !Text -- Symbol (e.g. &quot;kg&quot;, &quot;MJ&quot;)
-<span class="lineno">   62 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">unitComment</span></span></span> :: !Text -- Description/comment
+<span class="lineno">   59 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">unitId</span></span></span> :: !UUID -- Unique unit identifier
+<span class="lineno">   60 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">unitName</span></span></span> :: !Text -- Unit name (e.g. &quot;kg&quot;, &quot;kilogram&quot;)
+<span class="lineno">   61 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">unitSymbol</span></span></span> :: !Text -- Symbol (e.g. &quot;kg&quot;, &quot;MJ&quot;)
+<span class="lineno">   62 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">unitComment</span></span></span> :: !Text -- Description/comment
 <span class="lineno">   63 </span>    }
-<span class="lineno">   64 </span>    deriving (<span class="funcount">-- entered 27 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">   64 </span>    deriving (<span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="istickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">   65 </span>
 <span class="lineno">   66 </span>-- | Substance - groups flows with the same chemical identity across databases
 <span class="lineno">   67 </span>-- Used for flow matching between different LCA databases (ecoinvent, ILCD, SimaPro)
 <span class="lineno">   68 </span>-- The substanceId links to the flow_mapping.json generated by the Python ETL script
 <span class="lineno">   69 </span>data Substance = Substance
-<span class="lineno">   70 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">substanceId</span></span></span> :: !Int -- Unique identifier within the mapping
-<span class="lineno">   71 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">substanceCanonicalName</span></span></span> :: !Text -- Primary name for display
-<span class="lineno">   72 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">substanceCAS</span></span></span> :: !(Maybe Text) -- CAS number (e.g. &quot;7439-97-6&quot; for Mercury)
-<span class="lineno">   73 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">substanceSynonyms</span></span></span> :: !(S.Set Text) -- All normalized synonyms (lowercase)
+<span class="lineno">   70 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">substanceId</span></span></span> :: !Int -- Unique identifier within the mapping
+<span class="lineno">   71 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">substanceCanonicalName</span></span></span> :: !Text -- Primary name for display
+<span class="lineno">   72 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">substanceCAS</span></span></span> :: !(Maybe Text) -- CAS number (e.g. &quot;7439-97-6&quot; for Mercury)
+<span class="lineno">   73 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">substanceSynonyms</span></span></span> :: !(S.Set Text) -- All normalized synonyms (lowercase)
 <span class="lineno">   74 </span>    }
-<span class="lineno">   75 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">   75 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">   76 </span>
 <span class="lineno">   77 </span>-- | Flow representation (material, energy, emission, etc.)
 <span class="lineno">   78 </span>data Flow = Flow
-<span class="lineno">   79 </span>    { <span class="istickedoff"><span class="funcount">-- entered 595 times</span><span class="decl"><span class="istickedoff">flowId</span></span></span> :: !UUID -- Flow identifier
-<span class="lineno">   80 </span>    , <span class="istickedoff"><span class="funcount">-- entered 257 times</span><span class="decl"><span class="istickedoff">flowName</span></span></span> :: !Text -- Human-readable name
-<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered 377 times</span><span class="decl"><span class="istickedoff">flowCategory</span></span></span> :: !Text -- Category/compartment (e.g. air, water, soil, resource)
-<span class="lineno">   82 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">flowSubcompartment</span></span></span> :: !(Maybe Text) -- Sub-compartment (e.g. &quot;urban air&quot;, &quot;river water&quot;)
-<span class="lineno">   83 </span>    , <span class="istickedoff"><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">flowUnitId</span></span></span> :: !UUID -- Reference to default unit in UnitDB
-<span class="lineno">   84 </span>    , <span class="istickedoff"><span class="funcount">-- entered 360 times</span><span class="decl"><span class="istickedoff">flowType</span></span></span> :: !FlowType -- Flow type
-<span class="lineno">   85 </span>    , <span class="istickedoff"><span class="funcount">-- entered 156 times</span><span class="decl"><span class="istickedoff">flowSynonyms</span></span></span> :: !(M.Map Text (S.Set Text)) -- Synonyms by language (e.g. &quot;en&quot; -&gt; {&quot;BaP&quot;, &quot;benzo[a]pyrene&quot;})
-<span class="lineno">   86 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">flowCAS</span></span></span> :: !(Maybe Text) -- CAS number for substance identification
-<span class="lineno">   87 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">flowSubstanceId</span></span></span> :: !(Maybe Int) -- Link to Substance in FlowMappingData
+<span class="lineno">   79 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">flowId</span></span></span> :: !UUID -- Flow identifier
+<span class="lineno">   80 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">flowName</span></span></span> :: !Text -- Human-readable name
+<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">flowCategory</span></span></span> :: !Text -- Category/compartment (e.g. air, water, soil, resource)
+<span class="lineno">   82 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">flowSubcompartment</span></span></span> :: !(Maybe Text) -- Sub-compartment (e.g. &quot;urban air&quot;, &quot;river water&quot;)
+<span class="lineno">   83 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">flowUnitId</span></span></span> :: !UUID -- Reference to default unit in UnitDB
+<span class="lineno">   84 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">flowType</span></span></span> :: !FlowType -- Flow type
+<span class="lineno">   85 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">flowSynonyms</span></span></span> :: !(M.Map Text (S.Set Text)) -- Synonyms by language (e.g. &quot;en&quot; -&gt; {&quot;BaP&quot;, &quot;benzo[a]pyrene&quot;})
+<span class="lineno">   86 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">flowCAS</span></span></span> :: !(Maybe Text) -- CAS number for substance identification
+<span class="lineno">   87 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">flowSubstanceId</span></span></span> :: !(Maybe Int) -- Link to Substance in FlowMappingData
 <span class="lineno">   88 </span>    }
-<span class="lineno">   89 </span>    deriving (<span class="funcount">-- entered 45 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">   89 </span>    deriving (<span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="istickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">   90 </span>
 <span class="lineno">   91 </span>-- | Exchange in an activity - Mirrors EcoSpold intermediateExchange/elementaryExchange structure
 <span class="lineno">   92 </span>data Exchange
 <span class="lineno">   93 </span>    = TechnosphereExchange
-<span class="lineno">   94 </span>        { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">techFlowId</span></span></span> :: !UUID -- Flow being exchanged
-<span class="lineno">   95 </span>        , <span class="istickedoff"><span class="funcount">-- entered 16 times</span><span class="decl"><span class="istickedoff">techAmount</span></span></span> :: !Double -- Quantity exchanged
-<span class="lineno">   96 </span>        , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">techUnitId</span></span></span> :: !UUID -- Unit of measurement
-<span class="lineno">   97 </span>        , <span class="istickedoff"><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">techIsInput</span></span></span> :: !Bool -- True if input
-<span class="lineno">   98 </span>        , <span class="istickedoff"><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">techIsReference</span></span></span> :: !Bool -- True if reference product (main output)
-<span class="lineno">   99 </span>        , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">techActivityLinkId</span></span></span> :: !UUID -- Target activity ID (backward compatibility)
-<span class="lineno">  100 </span>        , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">techProcessLinkId</span></span></span> :: !(Maybe ProcessId) -- Target process ID (new field)
-<span class="lineno">  101 </span>        , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">techLocation</span></span></span> :: !Text -- Supplier location (EcoSpold1) or &quot;&quot; (EcoSpold2)
+<span class="lineno">   94 </span>        { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">techFlowId</span></span></span> :: !UUID -- Flow being exchanged
+<span class="lineno">   95 </span>        , <span class="istickedoff"><span class="decl"><span class="istickedoff">techAmount</span></span></span> :: !Double -- Quantity exchanged
+<span class="lineno">   96 </span>        , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">techUnitId</span></span></span> :: !UUID -- Unit of measurement
+<span class="lineno">   97 </span>        , <span class="istickedoff"><span class="decl"><span class="istickedoff">techIsInput</span></span></span> :: !Bool -- True if input
+<span class="lineno">   98 </span>        , <span class="istickedoff"><span class="decl"><span class="istickedoff">techIsReference</span></span></span> :: !Bool -- True if reference product (main output)
+<span class="lineno">   99 </span>        , <span class="istickedoff"><span class="decl"><span class="istickedoff">techActivityLinkId</span></span></span> :: !UUID -- Target activity ID (backward compatibility)
+<span class="lineno">  100 </span>        , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">techProcessLinkId</span></span></span> :: !(Maybe ProcessId) -- Target process ID (new field)
+<span class="lineno">  101 </span>        , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">techLocation</span></span></span> :: !Text -- Supplier location (EcoSpold1) or &quot;&quot; (EcoSpold2)
 <span class="lineno">  102 </span>        }
 <span class="lineno">  103 </span>    | BiosphereExchange
-<span class="lineno">  104 </span>        { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">bioFlowId</span></span></span> :: !UUID -- Flow being exchanged
-<span class="lineno">  105 </span>        , <span class="istickedoff"><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">bioAmount</span></span></span> :: !Double -- Quantity exchanged
-<span class="lineno">  106 </span>        , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">bioUnitId</span></span></span> :: !UUID -- Unit of measurement
-<span class="lineno">  107 </span>        , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">bioIsInput</span></span></span> :: !Bool -- True for resource extraction, False for emissions
-<span class="lineno">  108 </span>        , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">bioLocation</span></span></span> :: !Text -- Exchange location (EcoSpold1) or &quot;&quot; (EcoSpold2)
+<span class="lineno">  104 </span>        { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">bioFlowId</span></span></span> :: !UUID -- Flow being exchanged
+<span class="lineno">  105 </span>        , <span class="istickedoff"><span class="decl"><span class="istickedoff">bioAmount</span></span></span> :: !Double -- Quantity exchanged
+<span class="lineno">  106 </span>        , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">bioUnitId</span></span></span> :: !UUID -- Unit of measurement
+<span class="lineno">  107 </span>        , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">bioIsInput</span></span></span> :: !Bool -- True for resource extraction, False for emissions
+<span class="lineno">  108 </span>        , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">bioLocation</span></span></span> :: !Text -- Exchange location (EcoSpold1) or &quot;&quot; (EcoSpold2)
 <span class="lineno">  109 </span>        }
-<span class="lineno">  110 </span>    deriving (<span class="funcount">-- entered 45 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">  110 </span>    deriving (<span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="istickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">  111 </span>
 <span class="lineno">  112 </span>-- | Helper functions for Exchange variants
 <span class="lineno">  113 </span>exchangeFlowId :: Exchange -&gt; UUID
-<span class="lineno">  114 </span><span class="funcount">-- entered 1033 times</span><span class="decl"><span class="istickedoff">exchangeFlowId (TechnosphereExchange fid _ _ _ _ _ _ _) = fid</span>
+<span class="lineno">  114 </span><span class="decl"><span class="istickedoff">exchangeFlowId (TechnosphereExchange fid _ _ _ _ _ _ _) = fid</span>
 <span class="lineno">  115 </span><span class="spaces"></span><span class="istickedoff">exchangeFlowId (BiosphereExchange fid _ _ _ _) = fid</span></span>
 <span class="lineno">  116 </span>
 <span class="lineno">  117 </span>exchangeAmount :: Exchange -&gt; Double
-<span class="lineno">  118 </span><span class="funcount">-- entered 555 times</span><span class="decl"><span class="istickedoff">exchangeAmount (TechnosphereExchange _ amt _ _ _ _ _ _) = amt</span>
+<span class="lineno">  118 </span><span class="decl"><span class="istickedoff">exchangeAmount (TechnosphereExchange _ amt _ _ _ _ _ _) = amt</span>
 <span class="lineno">  119 </span><span class="spaces"></span><span class="istickedoff">exchangeAmount (BiosphereExchange _ amt _ _ _) = amt</span></span>
 <span class="lineno">  120 </span>
 <span class="lineno">  121 </span>exchangeUnitId :: Exchange -&gt; UUID
-<span class="lineno">  122 </span><span class="funcount">-- entered 283 times</span><span class="decl"><span class="istickedoff">exchangeUnitId (TechnosphereExchange _ _ uid _ _ _ _ _) = uid</span>
+<span class="lineno">  122 </span><span class="decl"><span class="istickedoff">exchangeUnitId (TechnosphereExchange _ _ uid _ _ _ _ _) = uid</span>
 <span class="lineno">  123 </span><span class="spaces"></span><span class="istickedoff">exchangeUnitId (BiosphereExchange _ _ uid _ _) = <span class="nottickedoff">uid</span></span></span>
 <span class="lineno">  124 </span>
 <span class="lineno">  125 </span>exchangeIsInput :: Exchange -&gt; Bool
-<span class="lineno">  126 </span><span class="funcount">-- entered 895 times</span><span class="decl"><span class="istickedoff">exchangeIsInput (TechnosphereExchange _ _ _ isInp _ _ _ _) = isInp</span>
+<span class="lineno">  126 </span><span class="decl"><span class="istickedoff">exchangeIsInput (TechnosphereExchange _ _ _ isInp _ _ _ _) = isInp</span>
 <span class="lineno">  127 </span><span class="spaces"></span><span class="istickedoff">exchangeIsInput (BiosphereExchange _ _ _ isInp _) = <span class="nottickedoff">isInp</span></span></span>
 <span class="lineno">  128 </span>
 <span class="lineno">  129 </span>exchangeIsReference :: Exchange -&gt; Bool
-<span class="lineno">  130 </span><span class="funcount">-- entered 1764 times</span><span class="decl"><span class="istickedoff">exchangeIsReference (TechnosphereExchange _ _ _ _ isRef _ _ _) = isRef</span>
+<span class="lineno">  130 </span><span class="decl"><span class="istickedoff">exchangeIsReference (TechnosphereExchange _ _ _ _ isRef _ _ _) = isRef</span>
 <span class="lineno">  131 </span><span class="spaces"></span><span class="istickedoff">exchangeIsReference (BiosphereExchange _ _ _ _ _) = False</span></span> -- Biosphere exchanges are never reference products
 <span class="lineno">  132 </span>
 <span class="lineno">  133 </span>-- | Get activity link ID (backward compatibility)
 <span class="lineno">  134 </span>exchangeActivityLinkId :: Exchange -&gt; Maybe UUID
-<span class="lineno">  135 </span><span class="funcount">-- entered 380 times</span><span class="decl"><span class="istickedoff">exchangeActivityLinkId (TechnosphereExchange _ _ _ _ _ linkId _ _) =</span>
+<span class="lineno">  135 </span><span class="decl"><span class="istickedoff">exchangeActivityLinkId (TechnosphereExchange _ _ _ _ _ linkId _ _) =</span>
 <span class="lineno">  136 </span><span class="spaces">    </span><span class="istickedoff">if linkId == UUID.nil then Nothing else Just linkId</span>
 <span class="lineno">  137 </span><span class="spaces"></span><span class="istickedoff">exchangeActivityLinkId (BiosphereExchange _ _ _ _ _) = <span class="nottickedoff">Nothing</span></span></span>
 <span class="lineno">  138 </span>
 <span class="lineno">  139 </span>-- | Get process link ID (new field)
 <span class="lineno">  140 </span>exchangeProcessLinkId :: Exchange -&gt; Maybe ProcessId
-<span class="lineno">  141 </span><span class="funcount">-- entered 174 times</span><span class="decl"><span class="istickedoff">exchangeProcessLinkId (TechnosphereExchange _ _ _ _ _ _ processLinkId _) = processLinkId</span>
+<span class="lineno">  141 </span><span class="decl"><span class="istickedoff">exchangeProcessLinkId (TechnosphereExchange _ _ _ _ _ _ processLinkId _) = processLinkId</span>
 <span class="lineno">  142 </span><span class="spaces"></span><span class="istickedoff">exchangeProcessLinkId (BiosphereExchange _ _ _ _ _) = <span class="nottickedoff">Nothing</span></span></span>
 <span class="lineno">  143 </span>
 <span class="lineno">  144 </span>-- | Get exchange location (for EcoSpold1 supplier lookup)
 <span class="lineno">  145 </span>exchangeLocation :: Exchange -&gt; Text
-<span class="lineno">  146 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exchangeLocation (TechnosphereExchange _ _ _ _ _ _ _ loc) = loc</span>
+<span class="lineno">  146 </span><span class="decl"><span class="nottickedoff">exchangeLocation (TechnosphereExchange _ _ _ _ _ _ _ loc) = loc</span>
 <span class="lineno">  147 </span><span class="spaces"></span><span class="nottickedoff">exchangeLocation (BiosphereExchange _ _ _ _ loc) = loc</span></span>
 <span class="lineno">  148 </span>
 <span class="lineno">  149 </span>-- | Check if exchange is technosphere
 <span class="lineno">  150 </span>isTechnosphereExchange :: Exchange -&gt; Bool
-<span class="lineno">  151 </span><span class="funcount">-- entered 2138 times</span><span class="decl"><span class="istickedoff">isTechnosphereExchange (TechnosphereExchange _ _ _ _ _ _ _ _) = True</span>
+<span class="lineno">  151 </span><span class="decl"><span class="istickedoff">isTechnosphereExchange (TechnosphereExchange _ _ _ _ _ _ _ _) = True</span>
 <span class="lineno">  152 </span><span class="spaces"></span><span class="istickedoff">isTechnosphereExchange (BiosphereExchange _ _ _ _ _) = False</span></span>
 <span class="lineno">  153 </span>
 <span class="lineno">  154 </span>-- | Check if exchange is biosphere
 <span class="lineno">  155 </span>isBiosphereExchange :: Exchange -&gt; Bool
-<span class="lineno">  156 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">isBiosphereExchange = not . isTechnosphereExchange</span></span>
+<span class="lineno">  156 </span><span class="decl"><span class="istickedoff">isBiosphereExchange = not . isTechnosphereExchange</span></span>
 <span class="lineno">  157 </span>
 <span class="lineno">  158 </span>-- | Get unit information for an exchange
 <span class="lineno">  159 </span>getUnitForExchange :: UnitDB -&gt; Exchange -&gt; Maybe Unit
-<span class="lineno">  160 </span><span class="funcount">-- entered 282 times</span><span class="decl"><span class="istickedoff">getUnitForExchange unitDB exchange = M.lookup (exchangeUnitId exchange) unitDB</span></span>
+<span class="lineno">  160 </span><span class="decl"><span class="istickedoff">getUnitForExchange unitDB exchange = M.lookup (exchangeUnitId exchange) unitDB</span></span>
 <span class="lineno">  161 </span>
 <span class="lineno">  162 </span>-- | Get unit name for an exchange (fallback to &quot;unknown&quot; if not found)
 <span class="lineno">  163 </span>getUnitNameForExchange :: UnitDB -&gt; Exchange -&gt; Text
-<span class="lineno">  164 </span><span class="funcount">-- entered 282 times</span><span class="decl"><span class="istickedoff">getUnitNameForExchange unitDB exchange =</span>
+<span class="lineno">  164 </span><span class="decl"><span class="istickedoff">getUnitNameForExchange unitDB exchange =</span>
 <span class="lineno">  165 </span><span class="spaces">    </span><span class="istickedoff">case getUnitForExchange unitDB exchange of</span>
 <span class="lineno">  166 </span><span class="spaces">        </span><span class="istickedoff">Just unit -&gt; unitName unit</span>
 <span class="lineno">  167 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">&quot;unknown&quot;</span></span></span>
 <span class="lineno">  168 </span>
 <span class="lineno">  169 </span>-- | Get unit information for a flow
 <span class="lineno">  170 </span>getUnitForFlow :: UnitDB -&gt; Flow -&gt; Maybe Unit
-<span class="lineno">  171 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">getUnitForFlow unitDB flow = M.lookup (flowUnitId flow) unitDB</span></span>
+<span class="lineno">  171 </span><span class="decl"><span class="istickedoff">getUnitForFlow unitDB flow = M.lookup (flowUnitId flow) unitDB</span></span>
 <span class="lineno">  172 </span>
 <span class="lineno">  173 </span>-- | Get unit name for a flow (fallback to &quot;unknown&quot; if not found)
 <span class="lineno">  174 </span>getUnitNameForFlow :: UnitDB -&gt; Flow -&gt; Text
-<span class="lineno">  175 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">getUnitNameForFlow unitDB flow =</span>
+<span class="lineno">  175 </span><span class="decl"><span class="istickedoff">getUnitNameForFlow unitDB flow =</span>
 <span class="lineno">  176 </span><span class="spaces">    </span><span class="istickedoff">case getUnitForFlow unitDB flow of</span>
 <span class="lineno">  177 </span><span class="spaces">        </span><span class="istickedoff">Just unit -&gt; unitName unit</span>
 <span class="lineno">  178 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">&quot;unknown&quot;</span></span></span>
@@ -199,17 +199,17 @@ span.spaces    { background: white }
 <span class="lineno">  180 </span>-- | Base LCA activity
 <span class="lineno">  181 </span>-- Note: ProcessId is the index in dbActivities vector, UUIDs stored in dbProcessIdTable
 <span class="lineno">  182 </span>data Activity = Activity
-<span class="lineno">  183 </span>    { <span class="istickedoff"><span class="funcount">-- entered 254 times</span><span class="decl"><span class="istickedoff">activityName</span></span></span> :: !Text -- Name
-<span class="lineno">  184 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">activityDescription</span></span></span> :: ![Text] -- General description (generalComment) by paragraphs
-<span class="lineno">  185 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">activitySynonyms</span></span></span> :: !(M.Map Text (S.Set Text)) -- Synonyms by language, same structure as flows
-<span class="lineno">  186 </span>    , <span class="istickedoff"><span class="funcount">-- entered 13 times</span><span class="decl"><span class="istickedoff">activityClassification</span></span></span> :: !(M.Map Text Text) -- Classifications (ISIC, CPC, etc.)
-<span class="lineno">  187 </span>    , <span class="istickedoff"><span class="funcount">-- entered 423 times</span><span class="decl"><span class="istickedoff">activityLocation</span></span></span> :: !Text -- Location code (e.g. FR, RER)
-<span class="lineno">  188 </span>    , <span class="istickedoff"><span class="funcount">-- entered 217 times</span><span class="decl"><span class="istickedoff">activityUnit</span></span></span> :: !Text -- Reference unit
-<span class="lineno">  189 </span>    , <span class="istickedoff"><span class="funcount">-- entered 1889 times</span><span class="decl"><span class="istickedoff">exchanges</span></span></span> :: ![Exchange] -- List of exchanges
-<span class="lineno">  190 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">activityParams</span></span></span> :: !(M.Map Text Double) -- Resolved SimaPro parameter values
-<span class="lineno">  191 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">activityParamExprs</span></span></span> :: !(M.Map Text Text) -- Raw SimaPro parameter expressions (for re-evaluation)
+<span class="lineno">  183 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">activityName</span></span></span> :: !Text -- Name
+<span class="lineno">  184 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">activityDescription</span></span></span> :: ![Text] -- General description (generalComment) by paragraphs
+<span class="lineno">  185 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">activitySynonyms</span></span></span> :: !(M.Map Text (S.Set Text)) -- Synonyms by language, same structure as flows
+<span class="lineno">  186 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">activityClassification</span></span></span> :: !(M.Map Text Text) -- Classifications (ISIC, CPC, etc.)
+<span class="lineno">  187 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">activityLocation</span></span></span> :: !Text -- Location code (e.g. FR, RER)
+<span class="lineno">  188 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">activityUnit</span></span></span> :: !Text -- Reference unit
+<span class="lineno">  189 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">exchanges</span></span></span> :: ![Exchange] -- List of exchanges
+<span class="lineno">  190 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">activityParams</span></span></span> :: !(M.Map Text Double) -- Resolved SimaPro parameter values
+<span class="lineno">  191 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">activityParamExprs</span></span></span> :: !(M.Map Text Text) -- Raw SimaPro parameter expressions (for re-evaluation)
 <span class="lineno">  192 </span>    }
-<span class="lineno">  193 </span>    deriving (<span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">  193 </span>    deriving (<span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="istickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">  194 </span>
 <span class="lineno">  195 </span>-- | LCA computation tree (recursive representation)
 <span class="lineno">  196 </span>data ActivityTree
@@ -276,29 +276,29 @@ span.spaces    { background: white }
 <span class="lineno">  257 </span>-- idxInputsByActivity, idxOutputsByActivity) - saves ~3-4GB RAM
 <span class="lineno">  258 </span>data Indexes = Indexes
 <span class="lineno">  259 </span>    { -- Activity-level indexes
-<span class="lineno">  260 </span>      <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">idxByName</span></span></span> :: !NameIndex -- Search activities by name
-<span class="lineno">  261 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">idxByLocation</span></span></span> :: !LocationIndex -- Search activities by location
-<span class="lineno">  262 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">idxByFlow</span></span></span> :: !FlowIndex -- Search activities using a flow
-<span class="lineno">  263 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">idxByUnit</span></span></span> :: !ActivityUnitIndex -- Search activities by reference unit
+<span class="lineno">  260 </span>      <span class="nottickedoff"><span class="decl"><span class="nottickedoff">idxByName</span></span></span> :: !NameIndex -- Search activities by name
+<span class="lineno">  261 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">idxByLocation</span></span></span> :: !LocationIndex -- Search activities by location
+<span class="lineno">  262 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">idxByFlow</span></span></span> :: !FlowIndex -- Search activities using a flow
+<span class="lineno">  263 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">idxByUnit</span></span></span> :: !ActivityUnitIndex -- Search activities by reference unit
 <span class="lineno">  264 </span>    -- Flow-level indexes
-<span class="lineno">  265 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">idxFlowByCategory</span></span></span> :: !FlowCategoryIndex -- Search flows by category
-<span class="lineno">  266 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">idxFlowByType</span></span></span> :: !FlowTypeIndex -- Search flows by type
+<span class="lineno">  265 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">idxFlowByCategory</span></span></span> :: !FlowCategoryIndex -- Search flows by category
+<span class="lineno">  266 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">idxFlowByType</span></span></span> :: !FlowTypeIndex -- Search flows by type
 <span class="lineno">  267 </span>    -- Note: Exchange-level indexes removed - exchanges can be accessed directly from Activity.exchanges
 <span class="lineno">  268 </span>    }
-<span class="lineno">  269 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">  269 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">  270 </span>
 <span class="lineno">  271 </span>-- | Sparse matrix coordinate triplet (row, col, value)
 <span class="lineno">  272 </span>-- Using Int32 for matrix indices to support large databases (up to 2 billion activities)
 <span class="lineno">  273 </span>-- Unboxed to eliminate per-element boxing overhead (~48 bytes → 16 bytes per triple)
 <span class="lineno">  274 </span>-- With ~800K triples, this saves ~25MB + significant GC pressure
 <span class="lineno">  275 </span>data SparseTriple = SparseTriple {-# UNPACK #-} !Int32 {-# UNPACK #-} !Int32 {-# UNPACK #-} !Double
-<span class="lineno">  276 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">  276 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
 <span class="lineno">  277 </span>
 <span class="lineno">  278 </span>-- Manual Unbox instance for SparseTriple to enable VU.Vector storage
 <span class="lineno">  279 </span>newtype instance VU.MVector s SparseTriple = MV_SparseTriple (VU.MVector s (Int32, Int32, Double))
 <span class="lineno">  280 </span>newtype instance VU.Vector SparseTriple = V_SparseTriple (VU.Vector (Int32, Int32, Double))
 <span class="lineno">  281 </span>
-<span class="lineno">  282 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- entered 289 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- entered 289 times</span><span class="decl"><span class="istickedoff">VGM.MVector VU.MVector SparseTriple</span></span></span></span></span></span></span></span></span></span></span></span> where
+<span class="lineno">  282 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="istickedoff">VGM.MVector VU.MVector SparseTriple</span></span></span></span></span></span></span></span></span></span></span></span> where
 <span class="lineno">  283 </span>    {-# INLINE basicLength #-}
 <span class="lineno">  284 </span>    {-# INLINE basicUnsafeSlice #-}
 <span class="lineno">  285 </span>    {-# INLINE basicOverlaps #-}
@@ -306,28 +306,28 @@ span.spaces    { background: white }
 <span class="lineno">  287 </span>    {-# INLINE basicInitialize #-}
 <span class="lineno">  288 </span>    {-# INLINE basicUnsafeRead #-}
 <span class="lineno">  289 </span>    {-# INLINE basicUnsafeWrite #-}
-<span class="lineno">  290 </span>    <span class="funcount">-- entered 1173 times</span><span class="decl"><span class="istickedoff">basicLength (MV_SparseTriple v) = VGM.basicLength v</span></span>
-<span class="lineno">  291 </span>    <span class="funcount">-- entered 732 times</span><span class="decl"><span class="istickedoff">basicUnsafeSlice i n (MV_SparseTriple v) = MV_SparseTriple $ VGM.basicUnsafeSlice i n v</span></span>
-<span class="lineno">  292 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">basicOverlaps (MV_SparseTriple v1) (MV_SparseTriple v2) = VGM.basicOverlaps v1 v2</span></span>
-<span class="lineno">  293 </span>    <span class="funcount">-- entered 426 times</span><span class="decl"><span class="istickedoff">basicUnsafeNew n = MV_SparseTriple &lt;$&gt; VGM.basicUnsafeNew n</span></span>
-<span class="lineno">  294 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">basicInitialize (MV_SparseTriple v) = VGM.basicInitialize v</span></span>
-<span class="lineno">  295 </span>    <span class="funcount">-- entered 201 times</span><span class="decl"><span class="istickedoff">basicUnsafeRead (MV_SparseTriple v) i = do</span>
+<span class="lineno">  290 </span>    <span class="decl"><span class="istickedoff">basicLength (MV_SparseTriple v) = VGM.basicLength v</span></span>
+<span class="lineno">  291 </span>    <span class="decl"><span class="istickedoff">basicUnsafeSlice i n (MV_SparseTriple v) = MV_SparseTriple $ VGM.basicUnsafeSlice i n v</span></span>
+<span class="lineno">  292 </span>    <span class="decl"><span class="nottickedoff">basicOverlaps (MV_SparseTriple v1) (MV_SparseTriple v2) = VGM.basicOverlaps v1 v2</span></span>
+<span class="lineno">  293 </span>    <span class="decl"><span class="istickedoff">basicUnsafeNew n = MV_SparseTriple &lt;$&gt; VGM.basicUnsafeNew n</span></span>
+<span class="lineno">  294 </span>    <span class="decl"><span class="nottickedoff">basicInitialize (MV_SparseTriple v) = VGM.basicInitialize v</span></span>
+<span class="lineno">  295 </span>    <span class="decl"><span class="istickedoff">basicUnsafeRead (MV_SparseTriple v) i = do</span>
 <span class="lineno">  296 </span><span class="spaces">        </span><span class="istickedoff">(r, c, val) &lt;- VGM.basicUnsafeRead v i</span>
 <span class="lineno">  297 </span><span class="spaces">        </span><span class="istickedoff">return $ SparseTriple r c val</span></span>
-<span class="lineno">  298 </span>    <span class="funcount">-- entered 507 times</span><span class="decl"><span class="istickedoff">basicUnsafeWrite (MV_SparseTriple v) i (SparseTriple r c val) =</span>
+<span class="lineno">  298 </span>    <span class="decl"><span class="istickedoff">basicUnsafeWrite (MV_SparseTriple v) i (SparseTriple r c val) =</span>
 <span class="lineno">  299 </span><span class="spaces">        </span><span class="istickedoff">VGM.basicUnsafeWrite v i (r, c, val)</span></span>
 <span class="lineno">  300 </span>
-<span class="lineno">  301 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">VG.Vector VU.Vector SparseTriple</span></span></span></span> where
+<span class="lineno">  301 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">VG.Vector VU.Vector SparseTriple</span></span></span></span> where
 <span class="lineno">  302 </span>    {-# INLINE basicUnsafeFreeze #-}
 <span class="lineno">  303 </span>    {-# INLINE basicUnsafeThaw #-}
 <span class="lineno">  304 </span>    {-# INLINE basicLength #-}
 <span class="lineno">  305 </span>    {-# INLINE basicUnsafeSlice #-}
 <span class="lineno">  306 </span>    {-# INLINE basicUnsafeIndexM #-}
-<span class="lineno">  307 </span>    <span class="funcount">-- entered 137 times</span><span class="decl"><span class="istickedoff">basicUnsafeFreeze (MV_SparseTriple v) = V_SparseTriple &lt;$&gt; VG.basicUnsafeFreeze v</span></span>
-<span class="lineno">  308 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">basicUnsafeThaw (V_SparseTriple v) = MV_SparseTriple &lt;$&gt; VG.basicUnsafeThaw v</span></span>
-<span class="lineno">  309 </span>    <span class="funcount">-- entered 326 times</span><span class="decl"><span class="istickedoff">basicLength (V_SparseTriple v) = VG.basicLength v</span></span>
-<span class="lineno">  310 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">basicUnsafeSlice i n (V_SparseTriple v) = V_SparseTriple $ VG.basicUnsafeSlice i n v</span></span>
-<span class="lineno">  311 </span>    <span class="funcount">-- entered 100 times</span><span class="decl"><span class="istickedoff">basicUnsafeIndexM (V_SparseTriple v) i = do</span>
+<span class="lineno">  307 </span>    <span class="decl"><span class="istickedoff">basicUnsafeFreeze (MV_SparseTriple v) = V_SparseTriple &lt;$&gt; VG.basicUnsafeFreeze v</span></span>
+<span class="lineno">  308 </span>    <span class="decl"><span class="nottickedoff">basicUnsafeThaw (V_SparseTriple v) = MV_SparseTriple &lt;$&gt; VG.basicUnsafeThaw v</span></span>
+<span class="lineno">  309 </span>    <span class="decl"><span class="istickedoff">basicLength (V_SparseTriple v) = VG.basicLength v</span></span>
+<span class="lineno">  310 </span>    <span class="decl"><span class="nottickedoff">basicUnsafeSlice i n (V_SparseTriple v) = V_SparseTriple $ VG.basicUnsafeSlice i n v</span></span>
+<span class="lineno">  311 </span>    <span class="decl"><span class="istickedoff">basicUnsafeIndexM (V_SparseTriple v) i = do</span>
 <span class="lineno">  312 </span><span class="spaces">        </span><span class="istickedoff">(r, c, val) &lt;- VG.basicUnsafeIndexM v i</span>
 <span class="lineno">  313 </span><span class="spaces">        </span><span class="istickedoff">return $ SparseTriple r c val</span></span>
 <span class="lineno">  314 </span>
@@ -335,88 +335,88 @@ span.spaces    { background: white }
 <span class="lineno">  316 </span>
 <span class="lineno">  317 </span>-- Store instance for cache serialization
 <span class="lineno">  318 </span>instance Store SparseTriple where
-<span class="lineno">  319 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">size = ConstSize 16</span></span> -- Int32 (4) + Int32 (4) + Double (8)
-<span class="lineno">  320 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">poke (SparseTriple r c v) = poke r &gt;&gt; poke c &gt;&gt; poke v</span></span>
-<span class="lineno">  321 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">peek = SparseTriple &lt;$&gt; peek &lt;*&gt; peek &lt;*&gt; peek</span></span>
+<span class="lineno">  319 </span>    <span class="decl"><span class="nottickedoff">size = ConstSize 16</span></span> -- Int32 (4) + Int32 (4) + Double (8)
+<span class="lineno">  320 </span>    <span class="decl"><span class="nottickedoff">poke (SparseTriple r c v) = poke r &gt;&gt; poke c &gt;&gt; poke v</span></span>
+<span class="lineno">  321 </span>    <span class="decl"><span class="nottickedoff">peek = SparseTriple &lt;$&gt; peek &lt;*&gt; peek &lt;*&gt; peek</span></span>
 <span class="lineno">  322 </span>
 <span class="lineno">  323 </span>-- NFData derived via Generic
-<span class="lineno">  324 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData SparseTriple</span></span>
+<span class="lineno">  324 </span>instance <span class="decl"><span class="nottickedoff">NFData SparseTriple</span></span>
 <span class="lineno">  325 </span>
 <span class="lineno">  326 </span>-- | Store instance for VU.Vector SparseTriple (store has no built-in instance for custom Unbox types)
 <span class="lineno">  327 </span>instance Store (VU.Vector SparseTriple) where
-<span class="lineno">  328 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">size = VarSize $ \v -&gt; 8 + VU.length v * 16</span></span>
-<span class="lineno">  329 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">poke v = do</span>
+<span class="lineno">  328 </span>    <span class="decl"><span class="nottickedoff">size = VarSize $ \v -&gt; 8 + VU.length v * 16</span></span>
+<span class="lineno">  329 </span>    <span class="decl"><span class="nottickedoff">poke v = do</span>
 <span class="lineno">  330 </span><span class="spaces">        </span><span class="nottickedoff">poke (VU.length v)</span>
 <span class="lineno">  331 </span><span class="spaces">        </span><span class="nottickedoff">VU.mapM_ poke v</span></span>
-<span class="lineno">  332 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">peek = do</span>
+<span class="lineno">  332 </span>    <span class="decl"><span class="nottickedoff">peek = do</span>
 <span class="lineno">  333 </span><span class="spaces">        </span><span class="nottickedoff">n &lt;- peek</span>
 <span class="lineno">  334 </span><span class="spaces">        </span><span class="nottickedoff">VU.replicateM n peek</span></span>
 <span class="lineno">  335 </span>
 <span class="lineno">  336 </span>-- | Compute serialized size for a Store value
 <span class="lineno">  337 </span>getSize :: Store a =&gt; a -&gt; Int
-<span class="lineno">  338 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getSize x = case size of</span>
+<span class="lineno">  338 </span><span class="decl"><span class="nottickedoff">getSize x = case size of</span>
 <span class="lineno">  339 </span><span class="spaces">    </span><span class="nottickedoff">ConstSize n -&gt; n</span>
 <span class="lineno">  340 </span><span class="spaces">    </span><span class="nottickedoff">VarSize f -&gt; f x</span></span>
 <span class="lineno">  341 </span>
 <span class="lineno">  342 </span>-- | Pre-computed matrix factorization for fast inventory calculations
 <span class="lineno">  343 </span>data MatrixFactorization = MatrixFactorization
-<span class="lineno">  344 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">mfSystemMatrix</span></span></span> :: !(VU.Vector SparseTriple) -- Cached (I - A) system matrix (unboxed)
-<span class="lineno">  345 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">mfActivityCount</span></span></span> :: !Int32 -- Matrix dimension
-<span class="lineno">  346 </span>    , <span class="istickedoff"><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">mfDatabaseId</span></span></span> :: !Text -- Database identifier for per-database cache lookup
-<span class="lineno">  347 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">  344 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">mfSystemMatrix</span></span></span> :: !(VU.Vector SparseTriple) -- Cached (I - A) system matrix (unboxed)
+<span class="lineno">  345 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">mfActivityCount</span></span></span> :: !Int32 -- Matrix dimension
+<span class="lineno">  346 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">mfDatabaseId</span></span></span> :: !Text -- Database identifier for per-database cache lookup
+<span class="lineno">  347 </span>    } deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">  348 </span>
 <span class="lineno">  349 </span>-- | Index for looking up activities by their reference product attributes
 <span class="lineno">  350 </span>-- Used for: (1) upstream link resolution for SimaPro data, (2) future product search
 <span class="lineno">  351 </span>data ProductIndex = ProductIndex
-<span class="lineno">  352 </span>    { <span class="istickedoff"><span class="funcount">-- entered 66 times</span><span class="decl"><span class="istickedoff">piByUUID</span></span></span>     :: !(M.Map UUID ProcessId)      -- Product flow UUID → ProcessId (for upstream links)
-<span class="lineno">  353 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">piByName</span></span></span>     :: !(M.Map Text [ProcessId])    -- Normalized product name → [ProcessId] (for search)
-<span class="lineno">  354 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">piByLocation</span></span></span> :: !(M.Map Text [ProcessId])    -- Location → [ProcessId] (for search)
-<span class="lineno">  355 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">  352 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">piByUUID</span></span></span>     :: !(M.Map UUID ProcessId)      -- Product flow UUID → ProcessId (for upstream links)
+<span class="lineno">  353 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">piByName</span></span></span>     :: !(M.Map Text [ProcessId])    -- Normalized product name → [ProcessId] (for search)
+<span class="lineno">  354 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">piByLocation</span></span></span> :: !(M.Map Text [ProcessId])    -- Location → [ProcessId] (for search)
+<span class="lineno">  355 </span>    } deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">  356 </span>
 <span class="lineno">  357 </span>-- | Empty product index (used as default when loading old cache files)
 <span class="lineno">  358 </span>emptyProductIndex :: ProductIndex
-<span class="lineno">  359 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">emptyProductIndex = ProductIndex M.empty M.empty M.empty</span></span>
+<span class="lineno">  359 </span><span class="decl"><span class="nottickedoff">emptyProductIndex = ProductIndex M.empty M.empty M.empty</span></span>
 <span class="lineno">  360 </span>
 <span class="lineno">  361 </span>-- | Complete database with indexes for efficient searches
 <span class="lineno">  362 </span>data Database = Database
 <span class="lineno">  363 </span>    { -- UUID interning tables for ProcessId ↔ (UUID, UUID) conversion
-<span class="lineno">  364 </span>      <span class="istickedoff"><span class="funcount">-- entered 16 times</span><span class="decl"><span class="istickedoff">dbProcessIdTable</span></span></span> :: !(V.Vector (UUID, UUID)) -- ProcessId (Int32) → (activityUUID, productUUID)
-<span class="lineno">  365 </span>    , <span class="istickedoff"><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">dbProcessIdLookup</span></span></span> :: !(M.Map (UUID, UUID) ProcessId) -- reverse lookup
-<span class="lineno">  366 </span>    , <span class="istickedoff"><span class="funcount">-- entered 31 times</span><span class="decl"><span class="istickedoff">dbActivityUUIDIndex</span></span></span> :: !(M.Map UUID ProcessId) -- Activity UUID → ProcessId (for O(1) lookups)
-<span class="lineno">  367 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbActivityProductsIndex</span></span></span> :: !(M.Map UUID [ProcessId]) -- Activity UUID → all ProcessIds (for multi-product activities)
-<span class="lineno">  368 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbProductIndex</span></span></span> :: !ProductIndex -- Product flow → ProcessId lookups (for SimaPro links &amp; product search)
-<span class="lineno">  369 </span>    , <span class="istickedoff"><span class="funcount">-- entered 84 times</span><span class="decl"><span class="istickedoff">dbActivities</span></span></span> :: !ActivityDB -- Vector of activities indexed by ProcessId
-<span class="lineno">  370 </span>    , <span class="istickedoff"><span class="funcount">-- entered 40 times</span><span class="decl"><span class="istickedoff">dbFlows</span></span></span> :: !FlowDB
-<span class="lineno">  371 </span>    , <span class="istickedoff"><span class="funcount">-- entered 14 times</span><span class="decl"><span class="istickedoff">dbUnits</span></span></span> :: !UnitDB
-<span class="lineno">  372 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbIndexes</span></span></span> :: !Indexes
+<span class="lineno">  364 </span>      <span class="istickedoff"><span class="decl"><span class="istickedoff">dbProcessIdTable</span></span></span> :: !(V.Vector (UUID, UUID)) -- ProcessId (Int32) → (activityUUID, productUUID)
+<span class="lineno">  365 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbProcessIdLookup</span></span></span> :: !(M.Map (UUID, UUID) ProcessId) -- reverse lookup
+<span class="lineno">  366 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbActivityUUIDIndex</span></span></span> :: !(M.Map UUID ProcessId) -- Activity UUID → ProcessId (for O(1) lookups)
+<span class="lineno">  367 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbActivityProductsIndex</span></span></span> :: !(M.Map UUID [ProcessId]) -- Activity UUID → all ProcessIds (for multi-product activities)
+<span class="lineno">  368 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbProductIndex</span></span></span> :: !ProductIndex -- Product flow → ProcessId lookups (for SimaPro links &amp; product search)
+<span class="lineno">  369 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbActivities</span></span></span> :: !ActivityDB -- Vector of activities indexed by ProcessId
+<span class="lineno">  370 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbFlows</span></span></span> :: !FlowDB
+<span class="lineno">  371 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbUnits</span></span></span> :: !UnitDB
+<span class="lineno">  372 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbIndexes</span></span></span> :: !Indexes
 <span class="lineno">  373 </span>    , -- Pre-computed sparse matrices for efficient LCA calculations (unboxed for memory efficiency)
-<span class="lineno">  374 </span>      <span class="istickedoff"><span class="funcount">-- entered 33 times</span><span class="decl"><span class="istickedoff">dbTechnosphereTriples</span></span></span> :: !(VU.Vector SparseTriple) -- A matrix: activities × activities (sparse, unboxed)
-<span class="lineno">  375 </span>    , <span class="istickedoff"><span class="funcount">-- entered 17 times</span><span class="decl"><span class="istickedoff">dbBiosphereTriples</span></span></span> :: !(VU.Vector SparseTriple) -- B matrix: biosphere flows × activities (sparse, unboxed)
-<span class="lineno">  376 </span>    , <span class="istickedoff"><span class="funcount">-- entered 28 times</span><span class="decl"><span class="istickedoff">dbActivityIndex</span></span></span> :: !(V.Vector Int32) -- ProcessId → matrix index mapping (direct vector indexing)
-<span class="lineno">  377 </span>    , <span class="istickedoff"><span class="funcount">-- entered 16 times</span><span class="decl"><span class="istickedoff">dbBiosphereFlows</span></span></span> :: !(V.Vector UUID) -- Ordered vector of biosphere flow UUIDs (source of truth for indexing, strict for memory efficiency)
-<span class="lineno">  378 </span>    , <span class="istickedoff"><span class="funcount">-- entered 27 times</span><span class="decl"><span class="istickedoff">dbActivityCount</span></span></span> :: !Int32 -- Number of activities (matrix dimension)
-<span class="lineno">  379 </span>    , <span class="istickedoff"><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">dbBiosphereCount</span></span></span> :: !Int32 -- Number of biosphere flows (matrix dimension)
+<span class="lineno">  374 </span>      <span class="istickedoff"><span class="decl"><span class="istickedoff">dbTechnosphereTriples</span></span></span> :: !(VU.Vector SparseTriple) -- A matrix: activities × activities (sparse, unboxed)
+<span class="lineno">  375 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbBiosphereTriples</span></span></span> :: !(VU.Vector SparseTriple) -- B matrix: biosphere flows × activities (sparse, unboxed)
+<span class="lineno">  376 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbActivityIndex</span></span></span> :: !(V.Vector Int32) -- ProcessId → matrix index mapping (direct vector indexing)
+<span class="lineno">  377 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbBiosphereFlows</span></span></span> :: !(V.Vector UUID) -- Ordered vector of biosphere flow UUIDs (source of truth for indexing, strict for memory efficiency)
+<span class="lineno">  378 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbActivityCount</span></span></span> :: !Int32 -- Number of activities (matrix dimension)
+<span class="lineno">  379 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbBiosphereCount</span></span></span> :: !Int32 -- Number of biosphere flows (matrix dimension)
 <span class="lineno">  380 </span>    -- Cross-database linking (serialized to cache)
-<span class="lineno">  381 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbCrossDBLinks</span></span></span> :: ![CrossDBLink] -- Cross-database supplier links (for chained solving)
-<span class="lineno">  382 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbDependsOn</span></span></span> :: ![Text] -- Names of databases this database depends on
+<span class="lineno">  381 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbCrossDBLinks</span></span></span> :: ![CrossDBLink] -- Cross-database supplier links (for chained solving)
+<span class="lineno">  382 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbDependsOn</span></span></span> :: ![Text] -- Names of databases this database depends on
 <span class="lineno">  383 </span>    -- Linking statistics (serialized to cache for setup page)
-<span class="lineno">  384 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbLinkingStats</span></span></span> :: !CrossDBLinkingStats -- Cross-DB linking statistics (completeness, fallbacks, etc.)
+<span class="lineno">  384 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbLinkingStats</span></span></span> :: !CrossDBLinkingStats -- Cross-DB linking statistics (completeness, fallbacks, etc.)
 <span class="lineno">  385 </span>    -- Runtime-only fields (not serialized to cache)
-<span class="lineno">  386 </span>    , <span class="istickedoff"><span class="funcount">-- entered 13 times</span><span class="decl"><span class="istickedoff">dbCachedFactorization</span></span></span> :: !(Maybe MatrixFactorization) -- Pre-computed (I - A) for fast solves
-<span class="lineno">  387 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbSynonymDB</span></span></span> :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
-<span class="lineno">  388 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbFlowsByName</span></span></span> :: !(M.Map Text [Flow]) -- Biosphere flow name index for LCIA matching
-<span class="lineno">  389 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbFlowsByCAS</span></span></span> :: !(M.Map Text [Flow]) -- CAS → biosphere flows for LCIA matching
+<span class="lineno">  386 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">dbCachedFactorization</span></span></span> :: !(Maybe MatrixFactorization) -- Pre-computed (I - A) for fast solves
+<span class="lineno">  387 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbSynonymDB</span></span></span> :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
+<span class="lineno">  388 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbFlowsByName</span></span></span> :: !(M.Map Text [Flow]) -- Biosphere flow name index for LCIA matching
+<span class="lineno">  389 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbFlowsByCAS</span></span></span> :: !(M.Map Text [Flow]) -- CAS → biosphere flows for LCIA matching
 <span class="lineno">  390 </span>    -- Search index: word token → ProcessId set (built at runtime for fast activity search)
-<span class="lineno">  391 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbSearchIndex</span></span></span> :: !(M.Map Text IS.IntSet)
+<span class="lineno">  391 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbSearchIndex</span></span></span> :: !(M.Map Text IS.IntSet)
 <span class="lineno">  392 </span>    -- Product name search index: word token → ProcessId set (built at runtime)
-<span class="lineno">  393 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">dbProductSearchIndex</span></span></span> :: !(M.Map Text IS.IntSet)
+<span class="lineno">  393 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">dbProductSearchIndex</span></span></span> :: !(M.Map Text IS.IntSet)
 <span class="lineno">  394 </span>    }
-<span class="lineno">  395 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>)
+<span class="lineno">  395 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>)
 <span class="lineno">  396 </span>
 <span class="lineno">  397 </span>-- | Custom Store instance for Database
 <span class="lineno">  398 </span>-- Only serializes persistent fields (not runtime-only: factorization, synonymDB, flowsByName)
 <span class="lineno">  399 </span>instance Store Database where
-<span class="lineno">  400 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">size = VarSize $ \db -&gt;</span>
+<span class="lineno">  400 </span>    <span class="decl"><span class="nottickedoff">size = VarSize $ \db -&gt;</span>
 <span class="lineno">  401 </span><span class="spaces">        </span><span class="nottickedoff">getSize (dbProcessIdTable db)</span>
 <span class="lineno">  402 </span><span class="spaces">        </span><span class="nottickedoff">+ getSize (dbProcessIdLookup db)</span>
 <span class="lineno">  403 </span><span class="spaces">        </span><span class="nottickedoff">+ getSize (dbActivityUUIDIndex db)</span>
@@ -436,7 +436,7 @@ span.spaces    { background: white }
 <span class="lineno">  417 </span><span class="spaces">        </span><span class="nottickedoff">+ getSize (dbDependsOn db)</span>
 <span class="lineno">  418 </span><span class="spaces">        </span><span class="nottickedoff">+ getSize (dbLinkingStats db)</span></span>
 <span class="lineno">  419 </span>
-<span class="lineno">  420 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">poke db = do</span>
+<span class="lineno">  420 </span>    <span class="decl"><span class="nottickedoff">poke db = do</span>
 <span class="lineno">  421 </span><span class="spaces">        </span><span class="nottickedoff">poke (dbProcessIdTable db)</span>
 <span class="lineno">  422 </span><span class="spaces">        </span><span class="nottickedoff">poke (dbProcessIdLookup db)</span>
 <span class="lineno">  423 </span><span class="spaces">        </span><span class="nottickedoff">poke (dbActivityUUIDIndex db)</span>
@@ -458,7 +458,7 @@ span.spaces    { background: white }
 <span class="lineno">  439 </span><span class="spaces">        </span><span class="nottickedoff">poke (dbLinkingStats db)</span></span>
 <span class="lineno">  440 </span>        -- Runtime-only fields are NOT serialized
 <span class="lineno">  441 </span>
-<span class="lineno">  442 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">peek = do</span>
+<span class="lineno">  442 </span>    <span class="decl"><span class="nottickedoff">peek = do</span>
 <span class="lineno">  443 </span><span class="spaces">        </span><span class="nottickedoff">processIdTable &lt;- peek</span>
 <span class="lineno">  444 </span><span class="spaces">        </span><span class="nottickedoff">processIdLookup &lt;- peek</span>
 <span class="lineno">  445 </span><span class="spaces">        </span><span class="nottickedoff">activityUUIDIndex &lt;- peek</span>
@@ -510,14 +510,14 @@ span.spaces    { background: white }
 <span class="lineno">  491 </span>
 <span class="lineno">  492 </span>-- | Get activity by ProcessId (direct vector indexing)
 <span class="lineno">  493 </span>getActivity :: Database -&gt; ProcessId -&gt; Maybe Activity
-<span class="lineno">  494 </span><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">getActivity db pid</span>
+<span class="lineno">  494 </span><span class="decl"><span class="istickedoff">getActivity db pid</span>
 <span class="lineno">  495 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">pid &gt;= 0 &amp;&amp; fromIntegral pid &lt; V.length (dbActivities db)</span> =</span>
 <span class="lineno">  496 </span><span class="spaces">        </span><span class="istickedoff">Just $ dbActivities db V.! fromIntegral pid</span>
 <span class="lineno">  497 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">Nothing</span></span></span>
 <span class="lineno">  498 </span>
 <span class="lineno">  499 </span>-- | Find ProcessId from UUID pair
 <span class="lineno">  500 </span>findProcessId :: Database -&gt; UUID -&gt; UUID -&gt; Maybe ProcessId
-<span class="lineno">  501 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">findProcessId db actUUID prodUUID =</span>
+<span class="lineno">  501 </span><span class="decl"><span class="istickedoff">findProcessId db actUUID prodUUID =</span>
 <span class="lineno">  502 </span><span class="spaces">    </span><span class="istickedoff">M.lookup (actUUID, prodUUID) (dbProcessIdLookup db)</span></span>
 <span class="lineno">  503 </span>
 <span class="lineno">  504 </span>-- | Find any ProcessId matching an activity UUID
@@ -525,7 +525,7 @@ span.spaces    { background: white }
 <span class="lineno">  506 </span>-- ESSENTIAL for EcoSpold data: exchange links only contain activity UUIDs (not full ProcessIds),
 <span class="lineno">  507 </span>-- so we must translate from UUID → ProcessId to handle multi-product activities.
 <span class="lineno">  508 </span>findProcessIdByActivityUUID :: Database -&gt; UUID -&gt; Maybe ProcessId
-<span class="lineno">  509 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">findProcessIdByActivityUUID db searchUUID =</span>
+<span class="lineno">  509 </span><span class="decl"><span class="istickedoff">findProcessIdByActivityUUID db searchUUID =</span>
 <span class="lineno">  510 </span><span class="spaces">    </span><span class="istickedoff">M.lookup searchUUID (dbActivityUUIDIndex db)</span></span>
 <span class="lineno">  511 </span>
 <span class="lineno">  512 </span>-- | Find activity by activity UUID (returns first matching product)
@@ -533,7 +533,7 @@ span.spaces    { background: white }
 <span class="lineno">  514 </span>-- When multiple products exist for one activity, this returns an arbitrary match.
 <span class="lineno">  515 </span>-- Uses O(1) Map lookup for efficient resolution
 <span class="lineno">  516 </span>findActivityByActivityUUID :: Database -&gt; UUID -&gt; Maybe Activity
-<span class="lineno">  517 </span><span class="funcount">-- entered 28 times</span><span class="decl"><span class="istickedoff">findActivityByActivityUUID db searchUUID = do</span>
+<span class="lineno">  517 </span><span class="decl"><span class="istickedoff">findActivityByActivityUUID db searchUUID = do</span>
 <span class="lineno">  518 </span><span class="spaces">    </span><span class="istickedoff">pid &lt;- M.lookup searchUUID (dbActivityUUIDIndex db)</span>
 <span class="lineno">  519 </span><span class="spaces">    </span><span class="istickedoff">getActivity db pid</span></span>
 <span class="lineno">  520 </span>
@@ -541,38 +541,38 @@ span.spaces    { background: white }
 <span class="lineno">  522 </span>-- ESSENTIAL for SimaPro data: exchanges have techActivityLinkId = nil, but techFlowId is valid.
 <span class="lineno">  523 </span>-- Uses the ProductIndex to resolve the supplier activity from the product flow.
 <span class="lineno">  524 </span>findProcessIdByProductFlow :: Database -&gt; UUID -&gt; Maybe ProcessId
-<span class="lineno">  525 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findProcessIdByProductFlow db flowUUID =</span>
+<span class="lineno">  525 </span><span class="decl"><span class="nottickedoff">findProcessIdByProductFlow db flowUUID =</span>
 <span class="lineno">  526 </span><span class="spaces">    </span><span class="nottickedoff">M.lookup flowUUID (piByUUID $ dbProductIndex db)</span></span>
 <span class="lineno">  527 </span>
 <span class="lineno">  528 </span>-- | Search products by name (for future product search feature)
 <span class="lineno">  529 </span>-- Returns all ProcessIds that produce products matching the given name
 <span class="lineno">  530 </span>searchProductsByName :: Database -&gt; Text -&gt; [ProcessId]
-<span class="lineno">  531 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">searchProductsByName db query =</span>
+<span class="lineno">  531 </span><span class="decl"><span class="nottickedoff">searchProductsByName db query =</span>
 <span class="lineno">  532 </span><span class="spaces">    </span><span class="nottickedoff">M.findWithDefault [] (T.toLower query) (piByName $ dbProductIndex db)</span></span>
 <span class="lineno">  533 </span>
 <span class="lineno">  534 </span>-- | Search products by location (for future product search feature)
 <span class="lineno">  535 </span>-- Returns all ProcessIds that produce products at the given location
 <span class="lineno">  536 </span>searchProductsByLocation :: Database -&gt; Text -&gt; [ProcessId]
-<span class="lineno">  537 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">searchProductsByLocation db loc =</span>
+<span class="lineno">  537 </span><span class="decl"><span class="nottickedoff">searchProductsByLocation db loc =</span>
 <span class="lineno">  538 </span><span class="spaces">    </span><span class="nottickedoff">M.findWithDefault [] loc (piByLocation $ dbProductIndex db)</span></span>
 <span class="lineno">  539 </span>
 <span class="lineno">  540 </span>-- | Convert ProcessId to UUID pair
 <span class="lineno">  541 </span>processIdToUUIDs :: Database -&gt; ProcessId -&gt; Maybe (UUID, UUID)
-<span class="lineno">  542 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">processIdToUUIDs db pid</span>
+<span class="lineno">  542 </span><span class="decl"><span class="istickedoff">processIdToUUIDs db pid</span>
 <span class="lineno">  543 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">pid &gt;= 0 &amp;&amp; fromIntegral pid &lt; V.length (dbProcessIdTable db)</span> =</span>
 <span class="lineno">  544 </span><span class="spaces">        </span><span class="istickedoff">Just $ dbProcessIdTable db V.! fromIntegral pid</span>
 <span class="lineno">  545 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">Nothing</span></span></span>
 <span class="lineno">  546 </span>
 <span class="lineno">  547 </span>-- | Convert ProcessId to Text representation for display (activityUUID_productUUID)
 <span class="lineno">  548 </span>processIdToText :: Database -&gt; ProcessId -&gt; Text
-<span class="lineno">  549 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">processIdToText db pid =</span>
+<span class="lineno">  549 </span><span class="decl"><span class="istickedoff">processIdToText db pid =</span>
 <span class="lineno">  550 </span><span class="spaces">    </span><span class="istickedoff">case processIdToUUIDs db pid of</span>
 <span class="lineno">  551 </span><span class="spaces">        </span><span class="istickedoff">Just (actUUID, prodUUID) -&gt; UUID.toText actUUID &lt;&gt; &quot;_&quot; &lt;&gt; UUID.toText prodUUID</span>
 <span class="lineno">  552 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">&quot;invalid-process-id-&quot; &lt;&gt; T.pack (show pid)</span></span></span>
 <span class="lineno">  553 </span>
 <span class="lineno">  554 </span>-- | Parse ProcessId from filename stem (requires Database for lookup)
 <span class="lineno">  555 </span>parseProcessId :: Database -&gt; Text -&gt; Maybe ProcessId
-<span class="lineno">  556 </span><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">parseProcessId db filename = case T.splitOn &quot;_&quot; filename of</span>
+<span class="lineno">  556 </span><span class="decl"><span class="istickedoff">parseProcessId db filename = case T.splitOn &quot;_&quot; filename of</span>
 <span class="lineno">  557 </span><span class="spaces">    </span><span class="istickedoff">[actUUIDText, prodUUIDText] | <span class="tickonlytrue">not (T.null actUUIDText) &amp;&amp; not (T.null prodUUIDText)</span> -&gt;</span>
 <span class="lineno">  558 </span><span class="spaces">        </span><span class="istickedoff">case (UUID.fromText actUUIDText, UUID.fromText prodUUIDText) of</span>
 <span class="lineno">  559 </span><span class="spaces">            </span><span class="istickedoff">(Just actUUID, Just prodUUID) -&gt; findProcessId db actUUID prodUUID</span>
@@ -581,12 +581,12 @@ span.spaces    { background: white }
 <span class="lineno">  562 </span>
 <span class="lineno">  563 </span>-- | Add SynonymDB to a Database (used after loading from cache)
 <span class="lineno">  564 </span>addSynonymDBToDatabase :: Database -&gt; SynonymDB -&gt; Database
-<span class="lineno">  565 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">addSynonymDBToDatabase db synDB = db { dbSynonymDB = Just synDB }</span></span>
+<span class="lineno">  565 </span><span class="decl"><span class="nottickedoff">addSynonymDBToDatabase db synDB = db { dbSynonymDB = Just synDB }</span></span>
 <span class="lineno">  566 </span>
 <span class="lineno">  567 </span>-- | Build the flow name index from biosphere flows only.
 <span class="lineno">  568 </span>-- Groups flows by their normalized names for efficient LCIA lookup.
 <span class="lineno">  569 </span>buildFlowNameIndex :: FlowDB -&gt; S.Set UUID -&gt; M.Map Text [Flow]
-<span class="lineno">  570 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">buildFlowNameIndex flowDB bioUUIDs =</span>
+<span class="lineno">  570 </span><span class="decl"><span class="nottickedoff">buildFlowNameIndex flowDB bioUUIDs =</span>
 <span class="lineno">  571 </span><span class="spaces">    </span><span class="nottickedoff">M.fromListWith (++) $ concatMap flowEntries bioFlows</span>
 <span class="lineno">  572 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
 <span class="lineno">  573 </span><span class="spaces">    </span><span class="nottickedoff">bioFlows = filter (\f -&gt; S.member (flowId f) bioUUIDs) (M.elems flowDB)</span>
@@ -599,7 +599,7 @@ span.spaces    { background: white }
 <span class="lineno">  580 </span>
 <span class="lineno">  581 </span>-- | Build CAS index from biosphere flows
 <span class="lineno">  582 </span>buildFlowCASIndex :: FlowDB -&gt; S.Set UUID -&gt; M.Map Text [Flow]
-<span class="lineno">  583 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">buildFlowCASIndex flowDB bioUUIDs =</span>
+<span class="lineno">  583 </span><span class="decl"><span class="nottickedoff">buildFlowCASIndex flowDB bioUUIDs =</span>
 <span class="lineno">  584 </span><span class="spaces">    </span><span class="nottickedoff">M.fromListWith (++) [(cas, [f]) | f &lt;- M.elems flowDB</span>
 <span class="lineno">  585 </span><span class="spaces">                                    </span><span class="nottickedoff">, S.member (flowId f) bioUUIDs</span>
 <span class="lineno">  586 </span><span class="spaces">                                    </span><span class="nottickedoff">, Just cas &lt;- [flowCAS f]</span>
@@ -607,7 +607,7 @@ span.spaces    { background: white }
 <span class="lineno">  588 </span>
 <span class="lineno">  589 </span>-- | Add biosphere flow indexes (name + CAS) and search index to a Database
 <span class="lineno">  590 </span>addFlowNameIndexToDatabase :: Database -&gt; Database
-<span class="lineno">  591 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">addFlowNameIndexToDatabase db =</span>
+<span class="lineno">  591 </span><span class="decl"><span class="nottickedoff">addFlowNameIndexToDatabase db =</span>
 <span class="lineno">  592 </span><span class="spaces">    </span><span class="nottickedoff">let bioUUIDs = S.fromList (V.toList (dbBiosphereFlows db))</span>
 <span class="lineno">  593 </span><span class="spaces">    </span><span class="nottickedoff">in db { dbFlowsByName = buildFlowNameIndex (dbFlows db) bioUUIDs</span>
 <span class="lineno">  594 </span><span class="spaces">          </span><span class="nottickedoff">, dbFlowsByCAS  = buildFlowCASIndex (dbFlows db) bioUUIDs</span>
@@ -619,7 +619,7 @@ span.spaces    { background: white }
 <span class="lineno">  600 </span>-- Tokenizes activity names and locations so search can intersect word sets
 <span class="lineno">  601 </span>-- instead of scanning all activities.
 <span class="lineno">  602 </span>buildSearchIndex :: V.Vector Activity -&gt; M.Map Text IS.IntSet
-<span class="lineno">  603 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">buildSearchIndex activities =</span>
+<span class="lineno">  603 </span><span class="decl"><span class="nottickedoff">buildSearchIndex activities =</span>
 <span class="lineno">  604 </span><span class="spaces">    </span><span class="nottickedoff">V.ifoldl' addActivity M.empty activities</span>
 <span class="lineno">  605 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
 <span class="lineno">  606 </span><span class="spaces">    </span><span class="nottickedoff">addActivity !acc i a =</span>
@@ -631,7 +631,7 @@ span.spaces    { background: white }
 <span class="lineno">  612 </span>-- | Build word-token product search index: lowercased word → IntSet of ProcessIds
 <span class="lineno">  613 </span>-- Tokenizes reference product flow names so product search can use index intersection.
 <span class="lineno">  614 </span>buildProductSearchIndex :: V.Vector Activity -&gt; M.Map UUID Flow -&gt; M.Map Text IS.IntSet
-<span class="lineno">  615 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">buildProductSearchIndex activities flowDb =</span>
+<span class="lineno">  615 </span><span class="decl"><span class="nottickedoff">buildProductSearchIndex activities flowDb =</span>
 <span class="lineno">  616 </span><span class="spaces">    </span><span class="nottickedoff">V.ifoldl' addActivity M.empty activities</span>
 <span class="lineno">  617 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
 <span class="lineno">  618 </span><span class="spaces">    </span><span class="nottickedoff">addActivity !acc i a =</span>
@@ -651,59 +651,59 @@ span.spaces    { background: white }
 <span class="lineno">  632 </span>-- | Add both SynonymDB and flow name index to a Database
 <span class="lineno">  633 </span>-- Convenience function for post-load initialization
 <span class="lineno">  634 </span>initializeRuntimeFields :: Database -&gt; SynonymDB -&gt; Database
-<span class="lineno">  635 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">initializeRuntimeFields db synDB =</span>
+<span class="lineno">  635 </span><span class="decl"><span class="nottickedoff">initializeRuntimeFields db synDB =</span>
 <span class="lineno">  636 </span><span class="spaces">    </span><span class="nottickedoff">let db' = addSynonymDBToDatabase db synDB</span>
 <span class="lineno">  637 </span><span class="spaces">    </span><span class="nottickedoff">in addFlowNameIndexToDatabase db'</span></span>
 <span class="lineno">  638 </span>
 <span class="lineno">  639 </span>-- | Simplified version without indexes (for loading compatibility)
 <span class="lineno">  640 </span>-- Used during database loading, before conversion to final Vector structure
 <span class="lineno">  641 </span>data SimpleDatabase = SimpleDatabase
-<span class="lineno">  642 </span>    { <span class="istickedoff"><span class="funcount">-- entered 71 times</span><span class="decl"><span class="istickedoff">sdbActivities</span></span></span> :: !ActivityMap  -- Temporary Map structure
-<span class="lineno">  643 </span>    , <span class="istickedoff"><span class="funcount">-- entered 74 times</span><span class="decl"><span class="istickedoff">sdbFlows</span></span></span> :: !FlowDB
-<span class="lineno">  644 </span>    , <span class="istickedoff"><span class="funcount">-- entered 66 times</span><span class="decl"><span class="istickedoff">sdbUnits</span></span></span> :: !UnitDB
+<span class="lineno">  642 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">sdbActivities</span></span></span> :: !ActivityMap  -- Temporary Map structure
+<span class="lineno">  643 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">sdbFlows</span></span></span> :: !FlowDB
+<span class="lineno">  644 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">sdbUnits</span></span></span> :: !UnitDB
 <span class="lineno">  645 </span>    }
-<span class="lineno">  646 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">  646 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">  647 </span>
 <span class="lineno">  648 </span>-- | Reconstruct SimpleDatabase from a fully-built Database
 <span class="lineno">  649 </span>-- Used to skip re-parsing when a valid cache exists during staging
 <span class="lineno">  650 </span>toSimpleDatabase :: Database -&gt; SimpleDatabase
-<span class="lineno">  651 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">toSimpleDatabase db = SimpleDatabase</span>
-<span class="lineno">  652 </span><span class="spaces">    </span><span class="nottickedoff">{ sdbActivities = M.fromList $ V.toList $ V.zipWith (,) (dbProcessIdTable db) (dbActivities db)</span>
-<span class="lineno">  653 </span><span class="spaces">    </span><span class="nottickedoff">, sdbFlows = dbFlows db</span>
-<span class="lineno">  654 </span><span class="spaces">    </span><span class="nottickedoff">, sdbUnits = dbUnits db</span>
-<span class="lineno">  655 </span><span class="spaces">    </span><span class="nottickedoff">}</span></span>
+<span class="lineno">  651 </span><span class="decl"><span class="istickedoff">toSimpleDatabase db = SimpleDatabase</span>
+<span class="lineno">  652 </span><span class="spaces">    </span><span class="istickedoff">{ sdbActivities = M.fromList $ V.toList $ V.zipWith (,) (dbProcessIdTable db) (dbActivities db)</span>
+<span class="lineno">  653 </span><span class="spaces">    </span><span class="istickedoff">, sdbFlows = dbFlows db</span>
+<span class="lineno">  654 </span><span class="spaces">    </span><span class="istickedoff">, sdbUnits = dbUnits db</span>
+<span class="lineno">  655 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
 <span class="lineno">  656 </span>
 <span class="lineno">  657 </span>-- | Impact category (e.g. Climate change)
 <span class="lineno">  658 </span>data ImpactCategory = ImpactCategory
-<span class="lineno">  659 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">categoryId</span></span></span> :: !Text
-<span class="lineno">  660 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">categoryName</span></span></span> :: !Text
+<span class="lineno">  659 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">categoryId</span></span></span> :: !Text
+<span class="lineno">  660 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">categoryName</span></span></span> :: !Text
 <span class="lineno">  661 </span>    }
-<span class="lineno">  662 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  662 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
 <span class="lineno">  663 </span>
 <span class="lineno">  664 </span>-- | Blocking reason for cross-database linking failure
 <span class="lineno">  665 </span>data LinkBlocker
 <span class="lineno">  666 </span>    = NoNameMatch                      -- ^ Product not found at all
 <span class="lineno">  667 </span>    | UnitIncompatible !Text !Text     -- ^ queryUnit, supplierUnit
 <span class="lineno">  668 </span>    | LocationUnavailable !Text        -- ^ requestedLoc (no fallback found above threshold)
-<span class="lineno">  669 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">  669 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">  670 </span>
 <span class="lineno">  671 </span>-- | Statistics from cross-database linking
 <span class="lineno">  672 </span>-- Only essential state is stored; counts are derived via accessor functions.
 <span class="lineno">  673 </span>data CrossDBLinkingStats = CrossDBLinkingStats
-<span class="lineno">  674 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlLinks</span></span></span>              :: ![CrossDBLink]                        -- ^ Resolved cross-DB links
-<span class="lineno">  675 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlUnresolvedProducts</span></span></span> :: !(M.Map Text (Int, LinkBlocker))     -- ^ Product name -&gt; (count, reason)
-<span class="lineno">  676 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlUnknownUnits</span></span></span>       :: !(S.Set Text)                        -- ^ Unknown units from sdbUnits
-<span class="lineno">  677 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlLocationFallbacks</span></span></span>  :: ![(Text, Text, Text)]                -- ^ (product, requestedLoc, actualLoc)
-<span class="lineno">  678 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlTotalInputs</span></span></span>        :: !Int                                 -- ^ Total technosphere inputs at time of linking
-<span class="lineno">  679 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">  674 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlLinks</span></span></span>              :: ![CrossDBLink]                        -- ^ Resolved cross-DB links
+<span class="lineno">  675 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlUnresolvedProducts</span></span></span> :: !(M.Map Text (Int, LinkBlocker))     -- ^ Product name -&gt; (count, reason)
+<span class="lineno">  676 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlUnknownUnits</span></span></span>       :: !(S.Set Text)                        -- ^ Unknown units from sdbUnits
+<span class="lineno">  677 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlLocationFallbacks</span></span></span>  :: ![(Text, Text, Text)]                -- ^ (product, requestedLoc, actualLoc)
+<span class="lineno">  678 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlTotalInputs</span></span></span>        :: !Int                                 -- ^ Total technosphere inputs at time of linking
+<span class="lineno">  679 </span>    } deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">  680 </span>
 <span class="lineno">  681 </span>-- | Empty stats
 <span class="lineno">  682 </span>emptyCrossDBLinkingStats :: CrossDBLinkingStats
-<span class="lineno">  683 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">emptyCrossDBLinkingStats = CrossDBLinkingStats [] M.empty S.empty [] 0</span></span>
+<span class="lineno">  683 </span><span class="decl"><span class="istickedoff">emptyCrossDBLinkingStats = CrossDBLinkingStats [] M.empty S.empty [] 0</span></span>
 <span class="lineno">  684 </span>
 <span class="lineno">  685 </span>-- | Merge two CrossDBLinkingStats
 <span class="lineno">  686 </span>mergeCrossDBStats :: CrossDBLinkingStats -&gt; CrossDBLinkingStats -&gt; CrossDBLinkingStats
-<span class="lineno">  687 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">mergeCrossDBStats s1 s2 = CrossDBLinkingStats</span>
+<span class="lineno">  687 </span><span class="decl"><span class="nottickedoff">mergeCrossDBStats s1 s2 = CrossDBLinkingStats</span>
 <span class="lineno">  688 </span><span class="spaces">    </span><span class="nottickedoff">{ cdlLinks = cdlLinks s1 ++ cdlLinks s2</span>
 <span class="lineno">  689 </span><span class="spaces">    </span><span class="nottickedoff">, cdlUnresolvedProducts = M.unionWith mergeUnresolved (cdlUnresolvedProducts s1) (cdlUnresolvedProducts s2)</span>
 <span class="lineno">  690 </span><span class="spaces">    </span><span class="nottickedoff">, cdlUnknownUnits = S.union (cdlUnknownUnits s1) (cdlUnknownUnits s2)</span>
@@ -715,21 +715,21 @@ span.spaces    { background: white }
 <span class="lineno">  696 </span>
 <span class="lineno">  697 </span>-- | Deduplicate location fallbacks by (product, requestedLoc)
 <span class="lineno">  698 </span>deduplicateFallbacks :: [(Text, Text, Text)] -&gt; [(Text, Text, Text)]
-<span class="lineno">  699 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">deduplicateFallbacks = map (\((p, r), a) -&gt; (p, r, a))</span>
+<span class="lineno">  699 </span><span class="decl"><span class="nottickedoff">deduplicateFallbacks = map (\((p, r), a) -&gt; (p, r, a))</span>
 <span class="lineno">  700 </span><span class="spaces">    </span><span class="nottickedoff">. M.toList . M.fromListWith (\_ b -&gt; b)</span>
 <span class="lineno">  701 </span><span class="spaces">    </span><span class="nottickedoff">. map (\(p, r, a) -&gt; ((p, r), a))</span></span>
 <span class="lineno">  702 </span>
 <span class="lineno">  703 </span>-- | Number of resolved cross-DB links
 <span class="lineno">  704 </span>crossDBLinksCount :: CrossDBLinkingStats -&gt; Int
-<span class="lineno">  705 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">crossDBLinksCount = length . cdlLinks</span></span>
+<span class="lineno">  705 </span><span class="decl"><span class="nottickedoff">crossDBLinksCount = length . cdlLinks</span></span>
 <span class="lineno">  706 </span>
 <span class="lineno">  707 </span>-- | Number of unresolved inputs
 <span class="lineno">  708 </span>unresolvedCount :: CrossDBLinkingStats -&gt; Int
-<span class="lineno">  709 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">unresolvedCount = sum . map fst . M.elems . cdlUnresolvedProducts</span></span>
+<span class="lineno">  709 </span><span class="decl"><span class="nottickedoff">unresolvedCount = sum . map fst . M.elems . cdlUnresolvedProducts</span></span>
 <span class="lineno">  710 </span>
 <span class="lineno">  711 </span>-- | Cross-DB links grouped by source database
 <span class="lineno">  712 </span>crossDBBySource :: CrossDBLinkingStats -&gt; M.Map Text Int
-<span class="lineno">  713 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">crossDBBySource = M.fromListWith (+) . map (\l -&gt; (cdlSourceDatabase l, 1)) . cdlLinks</span></span>
+<span class="lineno">  713 </span><span class="decl"><span class="nottickedoff">crossDBBySource = M.fromListWith (+) . map (\l -&gt; (cdlSourceDatabase l, 1)) . cdlLinks</span></span>
 <span class="lineno">  714 </span>
 <span class="lineno">  715 </span>-- | Cross-database link: records that an exchange in this database
 <span class="lineno">  716 </span>-- sources from a supplier in another database.
@@ -741,30 +741,30 @@ span.spaces    { background: white }
 <span class="lineno">  722 </span>-- Consumer UUIDs are resolved to ProcessIds at solve time via dbProcessIdLookup.
 <span class="lineno">  723 </span>-- Supplier UUIDs are looked up across loaded databases at solve time.
 <span class="lineno">  724 </span>data CrossDBLink = CrossDBLink
-<span class="lineno">  725 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlConsumerActUUID</span></span></span> :: !UUID           -- ^ Consumer activity UUID (in this database)
-<span class="lineno">  726 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlConsumerProdUUID</span></span></span> :: !UUID          -- ^ Consumer product UUID (in this database)
-<span class="lineno">  727 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlSupplierActUUID</span></span></span> :: !UUID           -- ^ Supplier activity UUID (in another database)
-<span class="lineno">  728 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlSupplierProdUUID</span></span></span> :: !UUID          -- ^ Supplier product UUID (in another database)
-<span class="lineno">  729 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlCoefficient</span></span></span>    :: !Double          -- ^ Amount consumed per unit output of consumer
-<span class="lineno">  730 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlFlowName</span></span></span>       :: !Text            -- ^ Product name (for display/debugging)
-<span class="lineno">  731 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlLocation</span></span></span>       :: !Text            -- ^ Supplier location (for display)
-<span class="lineno">  732 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cdlSourceDatabase</span></span></span> :: !Text            -- ^ Source database name
+<span class="lineno">  725 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlConsumerActUUID</span></span></span> :: !UUID           -- ^ Consumer activity UUID (in this database)
+<span class="lineno">  726 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlConsumerProdUUID</span></span></span> :: !UUID          -- ^ Consumer product UUID (in this database)
+<span class="lineno">  727 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlSupplierActUUID</span></span></span> :: !UUID           -- ^ Supplier activity UUID (in another database)
+<span class="lineno">  728 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlSupplierProdUUID</span></span></span> :: !UUID          -- ^ Supplier product UUID (in another database)
+<span class="lineno">  729 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlCoefficient</span></span></span>    :: !Double          -- ^ Amount consumed per unit output of consumer
+<span class="lineno">  730 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlFlowName</span></span></span>       :: !Text            -- ^ Product name (for display/debugging)
+<span class="lineno">  731 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlLocation</span></span></span>       :: !Text            -- ^ Supplier location (for display)
+<span class="lineno">  732 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cdlSourceDatabase</span></span></span> :: !Text            -- ^ Source database name
 <span class="lineno">  733 </span>    }
-<span class="lineno">  734 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
+<span class="lineno">  734 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
 <span class="lineno">  735 </span>
 <span class="lineno">  736 </span>-- | Characterization factor (associated with an LCIA method)
 <span class="lineno">  737 </span>data CF = CF
-<span class="lineno">  738 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cfFlowId</span></span></span> :: !UUID -- Biosphere flow being characterized
-<span class="lineno">  739 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cfCategory</span></span></span> :: !ImpactCategory -- Impact category
-<span class="lineno">  740 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">cfFactor</span></span></span> :: !Double -- Characterization factor
+<span class="lineno">  738 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cfFlowId</span></span></span> :: !UUID -- Biosphere flow being characterized
+<span class="lineno">  739 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cfCategory</span></span></span> :: !ImpactCategory -- Impact category
+<span class="lineno">  740 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">cfFactor</span></span></span> :: !Double -- Characterization factor
 <span class="lineno">  741 </span>    }
 <span class="lineno">  742 </span>
 <span class="lineno">  743 </span>-- JSON instances for API compatibility
 <span class="lineno">  744 </span>-- Note: ProcessId is Int32, which already has ToJSON/FromJSON instances
-<span class="lineno">  745 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON Exchange</span></span></span></span></span></span></span></span></span></span>
-<span class="lineno">  746 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON FlowType</span></span></span></span></span></span></span></span></span></span>
+<span class="lineno">  745 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">ToJSON Exchange</span></span></span></span></span></span></span></span></span></span>
+<span class="lineno">  746 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">ToJSON FlowType</span></span></span></span></span></span></span></span></span></span>
 <span class="lineno">  747 </span>
-<span class="lineno">  748 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON Exchange</span></span></span></span></span></span>
+<span class="lineno">  748 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">FromJSON Exchange</span></span></span></span></span></span>
 
 </pre>
 </body>

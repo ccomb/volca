@@ -73,17 +73,17 @@ span.spaces    { background: white }
 <span class="lineno">   54 </span>    | EcoSpold2      -- EcoSpold v2 XML format
 <span class="lineno">   55 </span>    | ILCDProcess    -- ILCD process dataset format
 <span class="lineno">   56 </span>    | UnknownFormat  -- Could not detect format
-<span class="lineno">   57 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">   57 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
 <span class="lineno">   58 </span>
-<span class="lineno">   59 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ToJSON DatabaseFormat</span></span></span></span></span></span></span></span> where
-<span class="lineno">   60 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">toJSON EcoSpold2     = A.String &quot;EcoSpold 2&quot;</span>
+<span class="lineno">   59 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">ToJSON DatabaseFormat</span></span></span></span></span></span></span></span> where
+<span class="lineno">   60 </span>    <span class="decl"><span class="nottickedoff">toJSON EcoSpold2     = A.String &quot;EcoSpold 2&quot;</span>
 <span class="lineno">   61 </span><span class="spaces">    </span><span class="nottickedoff">toJSON EcoSpold1     = A.String &quot;EcoSpold 1&quot;</span>
 <span class="lineno">   62 </span><span class="spaces">    </span><span class="nottickedoff">toJSON SimaProCSV    = A.String &quot;SimaPro CSV&quot;</span>
 <span class="lineno">   63 </span><span class="spaces">    </span><span class="nottickedoff">toJSON ILCDProcess   = A.String &quot;ILCD&quot;</span>
 <span class="lineno">   64 </span><span class="spaces">    </span><span class="nottickedoff">toJSON UnknownFormat = A.String &quot;&quot;</span></span>
 <span class="lineno">   65 </span>
-<span class="lineno">   66 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">FromJSON DatabaseFormat</span></span></span></span> where
-<span class="lineno">   67 </span>    <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseJSON = withText &quot;DatabaseFormat&quot; $ \case</span>
+<span class="lineno">   66 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">FromJSON DatabaseFormat</span></span></span></span> where
+<span class="lineno">   67 </span>    <span class="decl"><span class="nottickedoff">parseJSON = withText &quot;DatabaseFormat&quot; $ \case</span>
 <span class="lineno">   68 </span><span class="spaces">        </span><span class="nottickedoff">&quot;EcoSpold 2&quot;  -&gt; pure EcoSpold2</span>
 <span class="lineno">   69 </span><span class="spaces">        </span><span class="nottickedoff">&quot;EcoSpold 1&quot;  -&gt; pure EcoSpold1</span>
 <span class="lineno">   70 </span><span class="spaces">        </span><span class="nottickedoff">&quot;SimaPro CSV&quot; -&gt; pure SimaProCSV</span>
@@ -92,30 +92,30 @@ span.spaces    { background: white }
 <span class="lineno">   73 </span>
 <span class="lineno">   74 </span>-- | Progress event for upload/loading operations
 <span class="lineno">   75 </span>data ProgressEvent = ProgressEvent
-<span class="lineno">   76 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pePhase</span></span></span>   :: !Text    -- Current phase (extracting, parsing, etc.)
-<span class="lineno">   77 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pePercent</span></span></span> :: !Int     -- Progress percentage (0-100)
-<span class="lineno">   78 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">peMessage</span></span></span> :: !Text    -- Human-readable message
-<span class="lineno">   79 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">   76 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pePhase</span></span></span>   :: !Text    -- Current phase (extracting, parsing, etc.)
+<span class="lineno">   77 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pePercent</span></span></span> :: !Int     -- Progress percentage (0-100)
+<span class="lineno">   78 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">peMessage</span></span></span> :: !Text    -- Human-readable message
+<span class="lineno">   79 </span>    } deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
 <span class="lineno">   80 </span>
 <span class="lineno">   81 </span>-- | Data for database upload
 <span class="lineno">   82 </span>data UploadData = UploadData
-<span class="lineno">   83 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">udName</span></span></span>        :: !Text           -- User-provided name
-<span class="lineno">   84 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">udDescription</span></span></span> :: !(Maybe Text)   -- Optional description
-<span class="lineno">   85 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">udZipData</span></span></span>     :: !BL.ByteString  -- ZIP file content
-<span class="lineno">   86 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">   83 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">udName</span></span></span>        :: !Text           -- User-provided name
+<span class="lineno">   84 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">udDescription</span></span></span> :: !(Maybe Text)   -- Optional description
+<span class="lineno">   85 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">udZipData</span></span></span>     :: !BL.ByteString  -- ZIP file content
+<span class="lineno">   86 </span>    } deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
 <span class="lineno">   87 </span>
 <span class="lineno">   88 </span>-- | Result of successful upload
 <span class="lineno">   89 </span>data UploadResult = UploadResult
-<span class="lineno">   90 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">urSlug</span></span></span>      :: !Text       -- Generated slug (URL-safe identifier)
-<span class="lineno">   91 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">urPath</span></span></span>      :: !FilePath   -- Path to extracted data
-<span class="lineno">   92 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">urFormat</span></span></span>    :: !DatabaseFormat  -- Detected format
-<span class="lineno">   93 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">urFileCount</span></span></span> :: !Int        -- Number of data files
-<span class="lineno">   94 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">   90 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">urSlug</span></span></span>      :: !Text       -- Generated slug (URL-safe identifier)
+<span class="lineno">   91 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">urPath</span></span></span>      :: !FilePath   -- Path to extracted data
+<span class="lineno">   92 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">urFormat</span></span></span>    :: !DatabaseFormat  -- Detected format
+<span class="lineno">   93 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">urFileCount</span></span></span> :: !Int        -- Number of data files
+<span class="lineno">   94 </span>    } deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
 <span class="lineno">   95 </span>
 <span class="lineno">   96 </span>-- | Handle a database upload
 <span class="lineno">   97 </span>-- Extracts ZIP archive to uploadsDir/{slug}/ and detects format
 <span class="lineno">   98 </span>handleUpload :: FilePath -&gt; UploadData -&gt; (ProgressEvent -&gt; IO ()) -&gt; IO (Either Text UploadResult)
-<span class="lineno">   99 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">handleUpload uploadsDir UploadData{..} reportProgress = do</span>
+<span class="lineno">   99 </span><span class="decl"><span class="nottickedoff">handleUpload uploadsDir UploadData{..} reportProgress = do</span>
 <span class="lineno">  100 </span><span class="spaces">    </span><span class="nottickedoff">let slug = slugify udName</span>
 <span class="lineno">  101 </span><span class="spaces"></span><span class="nottickedoff"></span>
 <span class="lineno">  102 </span><span class="spaces">    </span><span class="nottickedoff">-- Check for valid slug</span>
@@ -173,11 +173,11 @@ span.spaces    { background: white }
 <span class="lineno">  154 </span>    | ArchivePlainXML -- Plain XML file (EcoSpold1)
 <span class="lineno">  155 </span>    | ArchivePlainCSV
 <span class="lineno">  156 </span>    | ArchiveUnknown
-<span class="lineno">  157 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
+<span class="lineno">  157 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
 <span class="lineno">  158 </span>
 <span class="lineno">  159 </span>-- | Detect archive format from magic bytes
 <span class="lineno">  160 </span>detectArchiveFormat :: BL.ByteString -&gt; ArchiveFormat
-<span class="lineno">  161 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">detectArchiveFormat content</span>
+<span class="lineno">  161 </span><span class="decl"><span class="nottickedoff">detectArchiveFormat content</span>
 <span class="lineno">  162 </span><span class="spaces">    </span><span class="nottickedoff">| BL.null content = ArchiveUnknown</span>
 <span class="lineno">  163 </span><span class="spaces">    </span><span class="nottickedoff">| matchesMagic [0x50, 0x4B] = ArchiveZip</span>
 <span class="lineno">  164 </span><span class="spaces">    </span><span class="nottickedoff">| matchesMagic [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C] = Archive7z</span>
@@ -201,14 +201,14 @@ span.spaces    { background: white }
 <span class="lineno">  182 </span>-- | Extract an archive file on disk to a target directory.
 <span class="lineno">  183 </span>-- Reuses extractUpload (reads file, detects format, extracts).
 <span class="lineno">  184 </span>extractArchiveFile :: FilePath -&gt; FilePath -&gt; IO (Either Text ())
-<span class="lineno">  185 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">extractArchiveFile archivePath targetDir = do</span>
+<span class="lineno">  185 </span><span class="decl"><span class="nottickedoff">extractArchiveFile archivePath targetDir = do</span>
 <span class="lineno">  186 </span><span class="spaces">    </span><span class="nottickedoff">content &lt;- BL.readFile archivePath</span>
 <span class="lineno">  187 </span><span class="spaces">    </span><span class="nottickedoff">extractUpload content targetDir</span></span>
 <span class="lineno">  188 </span>
 <span class="lineno">  189 </span>-- | Extract upload data to target directory.
 <span class="lineno">  190 </span>-- Supports ZIP, 7z, tar.gz, tar.xz archives (auto-detected), plain XML, and CSV files.
 <span class="lineno">  191 </span>extractUpload :: BL.ByteString -&gt; FilePath -&gt; IO (Either Text ())
-<span class="lineno">  192 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">extractUpload content targetDir = do</span>
+<span class="lineno">  192 </span><span class="decl"><span class="nottickedoff">extractUpload content targetDir = do</span>
 <span class="lineno">  193 </span><span class="spaces">    </span><span class="nottickedoff">let format = detectArchiveFormat content</span>
 <span class="lineno">  194 </span><span class="spaces">    </span><span class="nottickedoff">case format of</span>
 <span class="lineno">  195 </span><span class="spaces">        </span><span class="nottickedoff">ArchivePlainXML -&gt; do</span>
@@ -229,7 +229,7 @@ span.spaces    { background: white }
 <span class="lineno">  210 </span>-- | Extract 7z archive using external 7z command
 <span class="lineno">  211 </span>-- The Haskell libarchive package doesn't properly support 7z extraction
 <span class="lineno">  212 </span>extract7z :: BL.ByteString -&gt; FilePath -&gt; IO (Either Text ())
-<span class="lineno">  213 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">extract7z archiveData targetDir = do</span>
+<span class="lineno">  213 </span><span class="decl"><span class="nottickedoff">extract7z archiveData targetDir = do</span>
 <span class="lineno">  214 </span><span class="spaces">    </span><span class="nottickedoff">-- Write archive to a temp file</span>
 <span class="lineno">  215 </span><span class="spaces">    </span><span class="nottickedoff">let tempArchive = targetDir &lt;/&gt; &quot;.temp.7z&quot;</span>
 <span class="lineno">  216 </span><span class="spaces">    </span><span class="nottickedoff">BL.writeFile tempArchive archiveData</span>
@@ -314,7 +314,7 @@ span.spaces    { background: white }
 <span class="lineno">  295 </span>-- | Extract ZIP archive using external commands
 <span class="lineno">  296 </span>-- The Haskell libarchive package produces null-byte files for ZIP extraction
 <span class="lineno">  297 </span>extractZip :: BL.ByteString -&gt; FilePath -&gt; IO (Either Text ())
-<span class="lineno">  298 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">extractZip archiveData targetDir = do</span>
+<span class="lineno">  298 </span><span class="decl"><span class="nottickedoff">extractZip archiveData targetDir = do</span>
 <span class="lineno">  299 </span><span class="spaces">    </span><span class="nottickedoff">let tempArchive = targetDir &lt;/&gt; &quot;.temp.zip&quot;</span>
 <span class="lineno">  300 </span><span class="spaces">    </span><span class="nottickedoff">BL.writeFile tempArchive archiveData</span>
 <span class="lineno">  301 </span><span class="spaces"></span><span class="nottickedoff"></span>
@@ -370,7 +370,7 @@ span.spaces    { background: white }
 <span class="lineno">  351 </span>
 <span class="lineno">  352 </span>-- | Extract tar.gz/tar.xz archives using system tar command
 <span class="lineno">  353 </span>extractArchive :: ArchiveFormat -&gt; BL.ByteString -&gt; FilePath -&gt; IO (Either Text ())
-<span class="lineno">  354 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">extractArchive format archiveData targetDir = do</span>
+<span class="lineno">  354 </span><span class="decl"><span class="nottickedoff">extractArchive format archiveData targetDir = do</span>
 <span class="lineno">  355 </span><span class="spaces">    </span><span class="nottickedoff">let ext = case format of</span>
 <span class="lineno">  356 </span><span class="spaces">            </span><span class="nottickedoff">ArchiveGzip      -&gt; &quot;.tar.gz&quot;</span>
 <span class="lineno">  357 </span><span class="spaces">            </span><span class="nottickedoff">ArchiveXz        -&gt; &quot;.tar.xz&quot;</span>
@@ -409,7 +409,7 @@ span.spaces    { background: white }
 <span class="lineno">  390 </span>-- Archives often contain multiple folders (e.g., &quot;datasets&quot;, &quot;MasterData&quot;)
 <span class="lineno">  391 </span>-- For ILCD: detects directories with a processes/ subdirectory first.
 <span class="lineno">  392 </span>findDataDirectory :: FilePath -&gt; IO FilePath
-<span class="lineno">  393 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findDataDirectory dir = do</span>
+<span class="lineno">  393 </span><span class="decl"><span class="nottickedoff">findDataDirectory dir = do</span>
 <span class="lineno">  394 </span><span class="spaces">    </span><span class="nottickedoff">-- Check for ILCD format first (recursively find dirs with processes/ subdir)</span>
 <span class="lineno">  395 </span><span class="spaces">    </span><span class="nottickedoff">ilcdDir &lt;- findILCDRoot dir</span>
 <span class="lineno">  396 </span><span class="spaces">    </span><span class="nottickedoff">case ilcdDir of</span>
@@ -444,7 +444,7 @@ span.spaces    { background: white }
 <span class="lineno">  425 </span>
 <span class="lineno">  426 </span>-- | Find all directories containing recognized data files under a root.
 <span class="lineno">  427 </span>findAllDataDirectories :: FilePath -&gt; IO [FilePath]
-<span class="lineno">  428 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findAllDataDirectories root = go root</span>
+<span class="lineno">  428 </span><span class="decl"><span class="nottickedoff">findAllDataDirectories root = go root</span>
 <span class="lineno">  429 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
 <span class="lineno">  430 </span><span class="spaces">    </span><span class="nottickedoff">go dir = do</span>
 <span class="lineno">  431 </span><span class="spaces">        </span><span class="nottickedoff">result &lt;- try @SomeException $ do</span>
@@ -461,7 +461,7 @@ span.spaces    { background: white }
 <span class="lineno">  442 </span>
 <span class="lineno">  443 </span>-- | Count files with data extensions (.spold, .xml, .csv) in a single directory (non-recursive).
 <span class="lineno">  444 </span>countDataFilesIn :: FilePath -&gt; IO Int
-<span class="lineno">  445 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">countDataFilesIn dir = do</span>
+<span class="lineno">  445 </span><span class="decl"><span class="nottickedoff">countDataFilesIn dir = do</span>
 <span class="lineno">  446 </span><span class="spaces">    </span><span class="nottickedoff">fs &lt;- listDirectory dir</span>
 <span class="lineno">  447 </span><span class="spaces">    </span><span class="nottickedoff">let exts = map (map toLower . takeExtension) fs</span>
 <span class="lineno">  448 </span><span class="spaces">    </span><span class="nottickedoff">return $ length $ filter isDataExt exts</span>
@@ -472,7 +472,7 @@ span.spaces    { background: white }
 <span class="lineno">  453 </span>-- Uses content-aware checks for XML and CSV to avoid false positives
 <span class="lineno">  454 </span>-- (e.g. ILCD XML or non-SimaPro CSV files in sibling directories).
 <span class="lineno">  455 </span>anyDataFilesIn :: FilePath -&gt; IO Bool
-<span class="lineno">  456 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">anyDataFilesIn d = do</span>
+<span class="lineno">  456 </span><span class="decl"><span class="nottickedoff">anyDataFilesIn d = do</span>
 <span class="lineno">  457 </span><span class="spaces">    </span><span class="nottickedoff">fs &lt;- listDirectory d</span>
 <span class="lineno">  458 </span><span class="spaces">    </span><span class="nottickedoff">-- ILCD detection: directory contains a processes/ subdirectory</span>
 <span class="lineno">  459 </span><span class="spaces">    </span><span class="nottickedoff">hasProcessesDir &lt;- doesDirectoryExist (d &lt;/&gt; &quot;processes&quot;)</span>
@@ -493,7 +493,7 @@ span.spaces    { background: white }
 <span class="lineno">  474 </span>-- | Find the best directory containing ILCD method XML files.
 <span class="lineno">  475 </span>-- Picks the candidate with the most method files (same pattern as findDataDirectory).
 <span class="lineno">  476 </span>findMethodDirectory :: FilePath -&gt; IO FilePath
-<span class="lineno">  477 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findMethodDirectory dir = do</span>
+<span class="lineno">  477 </span><span class="decl"><span class="nottickedoff">findMethodDirectory dir = do</span>
 <span class="lineno">  478 </span><span class="spaces">    </span><span class="nottickedoff">candidates &lt;- findAllMethodDirectories dir</span>
 <span class="lineno">  479 </span><span class="spaces">    </span><span class="nottickedoff">case candidates of</span>
 <span class="lineno">  480 </span><span class="spaces">        </span><span class="nottickedoff">[]    -&gt; return dir</span>
@@ -504,7 +504,7 @@ span.spaces    { background: white }
 <span class="lineno">  485 </span>
 <span class="lineno">  486 </span>-- | Find all directories containing ILCD method XML files under a root.
 <span class="lineno">  487 </span>findAllMethodDirectories :: FilePath -&gt; IO [FilePath]
-<span class="lineno">  488 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findAllMethodDirectories root = go root</span>
+<span class="lineno">  488 </span><span class="decl"><span class="nottickedoff">findAllMethodDirectories root = go root</span>
 <span class="lineno">  489 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
 <span class="lineno">  490 </span><span class="spaces">    </span><span class="nottickedoff">go dir = do</span>
 <span class="lineno">  491 </span><span class="spaces">        </span><span class="nottickedoff">hasMethod &lt;- anyMethodFilesIn dir</span>
@@ -515,7 +515,7 @@ span.spaces    { background: white }
 <span class="lineno">  496 </span>
 <span class="lineno">  497 </span>-- | Count method files (ILCD XML or CSV) in a single directory (non-recursive).
 <span class="lineno">  498 </span>countMethodFilesIn :: FilePath -&gt; IO Int
-<span class="lineno">  499 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">countMethodFilesIn dir = do</span>
+<span class="lineno">  499 </span><span class="decl"><span class="nottickedoff">countMethodFilesIn dir = do</span>
 <span class="lineno">  500 </span><span class="spaces">    </span><span class="nottickedoff">fs &lt;- listDirectory dir</span>
 <span class="lineno">  501 </span><span class="spaces">    </span><span class="nottickedoff">let xmlFiles = [dir &lt;/&gt; f | f &lt;- fs, map toLower (takeExtension f) == &quot;.xml&quot;]</span>
 <span class="lineno">  502 </span><span class="spaces">        </span><span class="nottickedoff">csvCount = length [f | f &lt;- fs, map toLower (takeExtension f) == &quot;.csv&quot;]</span>
@@ -526,7 +526,7 @@ span.spaces    { background: white }
 <span class="lineno">  507 </span>-- Content-aware for XML: reads the first few bytes to check for
 <span class="lineno">  508 </span>-- LCIAMethodDataSet marker, avoiding false positives on contacts/, flows/, etc.
 <span class="lineno">  509 </span>anyMethodFilesIn :: FilePath -&gt; IO Bool
-<span class="lineno">  510 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">anyMethodFilesIn d = do</span>
+<span class="lineno">  510 </span><span class="decl"><span class="nottickedoff">anyMethodFilesIn d = do</span>
 <span class="lineno">  511 </span><span class="spaces">    </span><span class="nottickedoff">fs &lt;- listDirectory d</span>
 <span class="lineno">  512 </span><span class="spaces">    </span><span class="nottickedoff">let csvFiles = [f | f &lt;- fs, map toLower (takeExtension f) == &quot;.csv&quot;]</span>
 <span class="lineno">  513 </span><span class="spaces">        </span><span class="nottickedoff">xmlFiles = [d &lt;/&gt; f | f &lt;- fs, map toLower (takeExtension f) == &quot;.xml&quot;]</span>
@@ -538,7 +538,7 @@ span.spaces    { background: white }
 <span class="lineno">  519 </span>
 <span class="lineno">  520 </span>-- | Check if an XML file is an ILCD LCIA method dataset
 <span class="lineno">  521 </span>isMethodXml :: FilePath -&gt; IO Bool
-<span class="lineno">  522 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">isMethodXml f = do</span>
+<span class="lineno">  522 </span><span class="decl"><span class="nottickedoff">isMethodXml f = do</span>
 <span class="lineno">  523 </span><span class="spaces">    </span><span class="nottickedoff">result &lt;- try $ BS.readFile f</span>
 <span class="lineno">  524 </span><span class="spaces">    </span><span class="nottickedoff">case result of</span>
 <span class="lineno">  525 </span><span class="spaces">        </span><span class="nottickedoff">Left (_ :: SomeException) -&gt; return False</span>
@@ -549,7 +549,7 @@ span.spaces    { background: white }
 <span class="lineno">  530 </span>
 <span class="lineno">  531 </span>-- | Count data files based on format
 <span class="lineno">  532 </span>countDataFiles :: FilePath -&gt; DatabaseFormat -&gt; IO Int
-<span class="lineno">  533 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">countDataFiles d format = do</span>
+<span class="lineno">  533 </span><span class="decl"><span class="nottickedoff">countDataFiles d format = do</span>
 <span class="lineno">  534 </span><span class="spaces">    </span><span class="nottickedoff">fs &lt;- listDirectoryRecursive d</span>
 <span class="lineno">  535 </span><span class="spaces">    </span><span class="nottickedoff">return $ length $ filter (isDataFile format) fs</span>
 <span class="lineno">  536 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
@@ -561,7 +561,7 @@ span.spaces    { background: white }
 <span class="lineno">  542 </span>
 <span class="lineno">  543 </span>-- | Recursively list all files in a directory
 <span class="lineno">  544 </span>listDirectoryRecursive :: FilePath -&gt; IO [FilePath]
-<span class="lineno">  545 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">listDirectoryRecursive d = do</span>
+<span class="lineno">  545 </span><span class="decl"><span class="nottickedoff">listDirectoryRecursive d = do</span>
 <span class="lineno">  546 </span><span class="spaces">    </span><span class="nottickedoff">entries &lt;- listDirectory d</span>
 <span class="lineno">  547 </span><span class="spaces">    </span><span class="nottickedoff">results &lt;- forM entries $ \entry -&gt; do</span>
 <span class="lineno">  548 </span><span class="spaces">        </span><span class="nottickedoff">let path = d &lt;/&gt; entry</span>
@@ -573,7 +573,7 @@ span.spaces    { background: white }
 <span class="lineno">  554 </span>
 <span class="lineno">  555 </span>-- | Detect database format from extracted files or a single file
 <span class="lineno">  556 </span>detectDatabaseFormat :: FilePath -&gt; IO DatabaseFormat
-<span class="lineno">  557 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">detectDatabaseFormat path = do</span>
+<span class="lineno">  557 </span><span class="decl"><span class="nottickedoff">detectDatabaseFormat path = do</span>
 <span class="lineno">  558 </span><span class="spaces">    </span><span class="nottickedoff">isFile &lt;- doesFileExist path</span>
 <span class="lineno">  559 </span><span class="spaces">    </span><span class="nottickedoff">isDir &lt;- doesDirectoryExist path</span>
 <span class="lineno">  560 </span><span class="spaces"></span><span class="nottickedoff"></span>
@@ -616,7 +616,7 @@ span.spaces    { background: white }
 <span class="lineno">  597 </span>
 <span class="lineno">  598 </span>-- | Check if XML files are EcoSpold1 format
 <span class="lineno">  599 </span>checkForEcoSpold1 :: [FilePath] -&gt; IO Bool
-<span class="lineno">  600 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">checkForEcoSpold1 fs = do</span>
+<span class="lineno">  600 </span><span class="decl"><span class="nottickedoff">checkForEcoSpold1 fs = do</span>
 <span class="lineno">  601 </span><span class="spaces">    </span><span class="nottickedoff">let xmlFiles = filter (\f -&gt; &quot;.xml&quot; `isSuffixOf` map toLower f) fs</span>
 <span class="lineno">  602 </span><span class="spaces">    </span><span class="nottickedoff">case xmlFiles of</span>
 <span class="lineno">  603 </span><span class="spaces">        </span><span class="nottickedoff">[] -&gt; return False</span>
@@ -630,7 +630,7 @@ span.spaces    { background: white }
 <span class="lineno">  611 </span>-- | Check if CSV files are SimaPro format
 <span class="lineno">  612 </span>-- Uses ByteString to avoid UTF-8 encoding issues (SimaPro files often use Latin1)
 <span class="lineno">  613 </span>checkForSimaProCSV :: [FilePath] -&gt; IO Bool
-<span class="lineno">  614 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">checkForSimaProCSV fs = do</span>
+<span class="lineno">  614 </span><span class="decl"><span class="nottickedoff">checkForSimaProCSV fs = do</span>
 <span class="lineno">  615 </span><span class="spaces">    </span><span class="nottickedoff">let csvFiles = filter (\f -&gt; &quot;.csv&quot; `isSuffixOf` map toLower f) fs</span>
 <span class="lineno">  616 </span><span class="spaces">    </span><span class="nottickedoff">case csvFiles of</span>
 <span class="lineno">  617 </span><span class="spaces">        </span><span class="nottickedoff">[] -&gt; return False</span>
@@ -643,7 +643,7 @@ span.spaces    { background: white }
 <span class="lineno">  624 </span>
 <span class="lineno">  625 </span>-- | Convert name to URL-safe slug
 <span class="lineno">  626 </span>slugify :: Text -&gt; Text
-<span class="lineno">  627 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">slugify = T.intercalate &quot;-&quot; . filter (not . T.null) . T.split (not . isValidSlugChar) . T.toLower</span>
+<span class="lineno">  627 </span><span class="decl"><span class="nottickedoff">slugify = T.intercalate &quot;-&quot; . filter (not . T.null) . T.split (not . isValidSlugChar) . T.toLower</span>
 <span class="lineno">  628 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
 <span class="lineno">  629 </span><span class="spaces">    </span><span class="nottickedoff">isValidSlugChar c = isAlphaNum c || c == '-' || c == '_'</span></span>
 

@@ -60,7 +60,7 @@ span.spaces    { background: white }
 <span class="lineno">   41 </span>
 <span class="lineno">   42 </span>-- | Pure parser, exported for testing.
 <span class="lineno">   43 </span>parseMethodCSVBytes :: BS.ByteString -&gt; Either String [Method]
-<span class="lineno">   44 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">parseMethodCSVBytes bytes =</span>
+<span class="lineno">   44 </span><span class="decl"><span class="istickedoff">parseMethodCSVBytes bytes =</span>
 <span class="lineno">   45 </span><span class="spaces">    </span><span class="istickedoff">let allLines  = map stripCR $ BC.lines (stripBOM bytes)</span>
 <span class="lineno">   46 </span><span class="spaces">        </span><span class="istickedoff">(comments, dataLines) = span (\l -&gt; BC.isPrefixOf &quot;#&quot; l || BS.null l) allLines</span>
 <span class="lineno">   47 </span><span class="spaces">        </span><span class="istickedoff">methodology = extractMethodology comments</span>
@@ -76,7 +76,7 @@ span.spaces    { background: white }
 <span class="lineno">   57 </span>-- rows from data rows.  Returns (categories, names, units, dataRows, delimiter).
 <span class="lineno">   58 </span>-- 2-row layout → categories = names.  3-row layout → distinct.
 <span class="lineno">   59 </span>splitHeaderFromData :: [BS.ByteString] -&gt; Maybe ([Text], [Text], [Text], [BS.ByteString], Word8)
-<span class="lineno">   60 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">splitHeaderFromData dataLines =</span>
+<span class="lineno">   60 </span><span class="decl"><span class="istickedoff">splitHeaderFromData dataLines =</span>
 <span class="lineno">   61 </span><span class="spaces">    </span><span class="istickedoff">case break isLabelRow dataLines of</span>
 <span class="lineno">   62 </span><span class="spaces">        </span><span class="istickedoff">(headerRows, _labelRow : rows) -&gt;</span>
 <span class="lineno">   63 </span><span class="spaces">            </span><span class="istickedoff">let nonBlank = filter (not . BS.null) headerRows</span>
@@ -97,7 +97,7 @@ span.spaces    { background: white }
 <span class="lineno">   78 </span>
 <span class="lineno">   79 </span>-- | Detect the label row: first cell is a variation of &quot;substance&quot;.
 <span class="lineno">   80 </span>isLabelRow :: BS.ByteString -&gt; Bool
-<span class="lineno">   81 </span><span class="funcount">-- entered 25 times</span><span class="decl"><span class="istickedoff">isLabelRow line =</span>
+<span class="lineno">   81 </span><span class="decl"><span class="istickedoff">isLabelRow line =</span>
 <span class="lineno">   82 </span><span class="spaces">    </span><span class="istickedoff">let first = T.toCaseFold . T.strip . head' . splitRow (detectDelimiter line) $ line</span>
 <span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">in first == &quot;substance&quot;</span>
 <span class="lineno">   84 </span><span class="spaces">  </span><span class="istickedoff">where</span>
@@ -106,7 +106,7 @@ span.spaces    { background: white }
 <span class="lineno">   87 </span>
 <span class="lineno">   88 </span>-- | Build a single Method from one column of the CSV.
 <span class="lineno">   89 </span>mkMethod :: Maybe Text -&gt; Text -&gt; Text -&gt; Text -&gt; Int -&gt; [BS.ByteString] -&gt; Word8 -&gt; Method
-<span class="lineno">   90 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">mkMethod methodology catName impactName unit colIdx rows delim =</span>
+<span class="lineno">   90 </span><span class="decl"><span class="istickedoff">mkMethod methodology catName impactName unit colIdx rows delim =</span>
 <span class="lineno">   91 </span><span class="spaces">    </span><span class="istickedoff">let !ns       = csvMethodNamespace</span>
 <span class="lineno">   92 </span><span class="spaces">        </span><span class="istickedoff">!mId      = UUID5.generateNamed ns (bsKey $ &quot;method:&quot; &lt;&gt; impactName)</span>
 <span class="lineno">   93 </span><span class="spaces">        </span><span class="istickedoff">!factors  = [ <span class="nottickedoff">MethodCF</span></span>
@@ -140,18 +140,18 @@ span.spaces    { background: white }
 <span class="lineno">  121 </span>
 <span class="lineno">  122 </span>-- | Deterministic namespace for CSV-derived UUIDs.
 <span class="lineno">  123 </span>csvMethodNamespace :: UUID
-<span class="lineno">  124 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">csvMethodNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ TE.encodeUtf8 &quot;volca:csv-method&quot;)</span></span>
+<span class="lineno">  124 </span><span class="decl"><span class="istickedoff">csvMethodNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ TE.encodeUtf8 &quot;volca:csv-method&quot;)</span></span>
 <span class="lineno">  125 </span>
 <span class="lineno">  126 </span>-- | Direction: &quot;resources&quot; → Input, everything else → Output.
 <span class="lineno">  127 </span>directionFromCompartment :: Text -&gt; FlowDirection
-<span class="lineno">  128 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">directionFromCompartment comp</span>
+<span class="lineno">  128 </span><span class="decl"><span class="nottickedoff">directionFromCompartment comp</span>
 <span class="lineno">  129 </span><span class="spaces">    </span><span class="nottickedoff">| T.toCaseFold comp == &quot;resources&quot; = Input</span>
 <span class="lineno">  130 </span><span class="spaces">    </span><span class="nottickedoff">| otherwise                        = Output</span></span>
 <span class="lineno">  131 </span>
 <span class="lineno">  132 </span>-- | Parse compartment from CSV compartment column.
 <span class="lineno">  133 </span>-- Format: &quot;Emissions to air&quot;, &quot;Emissions to fresh water&quot;, &quot;Resources&quot;, etc.
 <span class="lineno">  134 </span>parseCSVCompartment :: Text -&gt; Maybe Compartment
-<span class="lineno">  135 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseCSVCompartment comp</span>
+<span class="lineno">  135 </span><span class="decl"><span class="nottickedoff">parseCSVCompartment comp</span>
 <span class="lineno">  136 </span><span class="spaces">    </span><span class="nottickedoff">| T.null comp = Nothing</span>
 <span class="lineno">  137 </span><span class="spaces">    </span><span class="nottickedoff">| &quot;air&quot; `T.isInfixOf` lc = Just (Compartment &quot;air&quot; &quot;&quot; &quot;&quot;)</span>
 <span class="lineno">  138 </span><span class="spaces">    </span><span class="nottickedoff">| &quot;water&quot; `T.isInfixOf` lc = Just (Compartment &quot;water&quot; &quot;&quot; &quot;&quot;)</span>
@@ -162,17 +162,17 @@ span.spaces    { background: white }
 <span class="lineno">  143 </span>
 <span class="lineno">  144 </span>-- | Auto-detect delimiter: semicolon if the line contains ';', else comma.
 <span class="lineno">  145 </span>detectDelimiter :: BS.ByteString -&gt; Word8
-<span class="lineno">  146 </span><span class="funcount">-- entered 32 times</span><span class="decl"><span class="istickedoff">detectDelimiter line</span>
+<span class="lineno">  146 </span><span class="decl"><span class="istickedoff">detectDelimiter line</span>
 <span class="lineno">  147 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">BC.elem ';' line</span> = 0x3B  -- ';'</span>
 <span class="lineno">  148 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span>        = <span class="nottickedoff">0x2C</span></span></span>  -- ','
 <span class="lineno">  149 </span>
 <span class="lineno">  150 </span>-- | Split a row on the delimiter, decoding to Text.
 <span class="lineno">  151 </span>splitRow :: Word8 -&gt; BS.ByteString -&gt; [Text]
-<span class="lineno">  152 </span><span class="funcount">-- entered 48 times</span><span class="decl"><span class="istickedoff">splitRow delim = map (TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span>) . BS.split delim</span></span>
+<span class="lineno">  152 </span><span class="decl"><span class="istickedoff">splitRow delim = map (TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span>) . BS.split delim</span></span>
 <span class="lineno">  153 </span>
 <span class="lineno">  154 </span>-- | Extract methodology from &quot;# methodology: ...&quot; comment.
 <span class="lineno">  155 </span>extractMethodology :: [BS.ByteString] -&gt; Maybe Text
-<span class="lineno">  156 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">extractMethodology = go</span>
+<span class="lineno">  156 </span><span class="decl"><span class="istickedoff">extractMethodology = go</span>
 <span class="lineno">  157 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">  158 </span><span class="spaces">    </span><span class="istickedoff">go [] = <span class="nottickedoff">Nothing</span></span>
 <span class="lineno">  159 </span><span class="spaces">    </span><span class="istickedoff">go (l:ls)</span>
@@ -182,25 +182,25 @@ span.spaces    { background: white }
 <span class="lineno">  163 </span>
 <span class="lineno">  164 </span>-- | Strict double parse, Nothing on failure.
 <span class="lineno">  165 </span>parseDouble :: Text -&gt; Maybe Double
-<span class="lineno">  166 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">parseDouble t = case TR.double t of</span>
+<span class="lineno">  166 </span><span class="decl"><span class="istickedoff">parseDouble t = case TR.double t of</span>
 <span class="lineno">  167 </span><span class="spaces">    </span><span class="istickedoff">Right (v, _) -&gt; Just <span class="nottickedoff">v</span></span>
 <span class="lineno">  168 </span><span class="spaces">    </span><span class="istickedoff">Left _       -&gt; <span class="nottickedoff">Nothing</span></span></span>
 <span class="lineno">  169 </span>
 <span class="lineno">  170 </span>-- | Strip trailing carriage return (Windows CRLF line endings).
 <span class="lineno">  171 </span>stripCR :: BS.ByteString -&gt; BS.ByteString
-<span class="lineno">  172 </span><span class="funcount">-- entered 37 times</span><span class="decl"><span class="istickedoff">stripCR bs</span>
+<span class="lineno">  172 </span><span class="decl"><span class="istickedoff">stripCR bs</span>
 <span class="lineno">  173 </span><span class="spaces">    </span><span class="istickedoff">| not (BS.null bs) &amp;&amp; BS.last bs == 0x0D = BS.init bs</span>
 <span class="lineno">  174 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = bs</span></span>
 <span class="lineno">  175 </span>
 <span class="lineno">  176 </span>-- | Strip UTF-8 BOM if present (common in Windows-created CSV files).
 <span class="lineno">  177 </span>stripBOM :: BS.ByteString -&gt; BS.ByteString
-<span class="lineno">  178 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">stripBOM bs</span>
+<span class="lineno">  178 </span><span class="decl"><span class="istickedoff">stripBOM bs</span>
 <span class="lineno">  179 </span><span class="spaces">    </span><span class="istickedoff">| BS.isPrefixOf &quot;\xEF\xBB\xBF&quot; bs = BS.drop 3 bs</span>
 <span class="lineno">  180 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = bs</span></span>
 <span class="lineno">  181 </span>
 <span class="lineno">  182 </span>-- | Convert Text to bytes for UUID5 key generation.
 <span class="lineno">  183 </span>bsKey :: Text -&gt; [Word8]
-<span class="lineno">  184 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">bsKey = BS.unpack . TE.encodeUtf8</span></span>
+<span class="lineno">  184 </span><span class="decl"><span class="istickedoff">bsKey = BS.unpack . TE.encodeUtf8</span></span>
 
 </pre>
 </body>

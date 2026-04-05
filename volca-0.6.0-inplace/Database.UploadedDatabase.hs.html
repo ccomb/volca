@@ -55,21 +55,21 @@ span.spaces    { background: white }
 <span class="lineno">   36 </span>
 <span class="lineno">   37 </span>-- | Metadata for an uploaded database
 <span class="lineno">   38 </span>data UploadMeta = UploadMeta
-<span class="lineno">   39 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umVersion</span></span></span>     :: !Int           -- Meta format version (for future compatibility)
-<span class="lineno">   40 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umDisplayName</span></span></span> :: !Text          -- Human-readable name
-<span class="lineno">   41 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umDescription</span></span></span> :: !(Maybe Text)  -- Optional description
-<span class="lineno">   42 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umFormat</span></span></span>      :: !DatabaseFormat -- Detected database format
-<span class="lineno">   43 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umDataPath</span></span></span>    :: !FilePath      -- Relative path to data within upload dir
-<span class="lineno">   44 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">   39 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">umVersion</span></span></span>     :: !Int           -- Meta format version (for future compatibility)
+<span class="lineno">   40 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">umDisplayName</span></span></span> :: !Text          -- Human-readable name
+<span class="lineno">   41 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">umDescription</span></span></span> :: !(Maybe Text)  -- Optional description
+<span class="lineno">   42 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">umFormat</span></span></span>      :: !DatabaseFormat -- Detected database format
+<span class="lineno">   43 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">umDataPath</span></span></span>    :: !FilePath      -- Relative path to data within upload dir
+<span class="lineno">   44 </span>    } deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
 <span class="lineno">   45 </span>
 <span class="lineno">   46 </span>-- | Name of the metadata file in each upload directory
 <span class="lineno">   47 </span>metaFileName :: FilePath
-<span class="lineno">   48 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">metaFileName = &quot;meta.toml&quot;</span></span>
+<span class="lineno">   48 </span><span class="decl"><span class="nottickedoff">metaFileName = &quot;meta.toml&quot;</span></span>
 <span class="lineno">   49 </span>
 <span class="lineno">   50 </span>-- | Get the base data directory (uploads, cache, etc.)
 <span class="lineno">   51 </span>-- Uses VOLCA_DATA_DIR env var, falls back to current directory
 <span class="lineno">   52 </span>getDataDir :: IO FilePath
-<span class="lineno">   53 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getDataDir = do</span>
+<span class="lineno">   53 </span><span class="decl"><span class="nottickedoff">getDataDir = do</span>
 <span class="lineno">   54 </span><span class="spaces">    </span><span class="nottickedoff">mdir &lt;- lookupEnv &quot;VOLCA_DATA_DIR&quot;</span>
 <span class="lineno">   55 </span><span class="spaces">    </span><span class="nottickedoff">case mdir of</span>
 <span class="lineno">   56 </span><span class="spaces">        </span><span class="nottickedoff">Just d  -&gt; return d</span>
@@ -77,7 +77,7 @@ span.spaces    { background: white }
 <span class="lineno">   58 </span>
 <span class="lineno">   59 </span>-- | Get the database uploads directory
 <span class="lineno">   60 </span>getDatabaseUploadsDir :: IO FilePath
-<span class="lineno">   61 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getDatabaseUploadsDir = do</span>
+<span class="lineno">   61 </span><span class="decl"><span class="nottickedoff">getDatabaseUploadsDir = do</span>
 <span class="lineno">   62 </span><span class="spaces">    </span><span class="nottickedoff">base &lt;- getDataDir</span>
 <span class="lineno">   63 </span><span class="spaces">    </span><span class="nottickedoff">let dir = base &lt;/&gt; &quot;uploads&quot; &lt;/&gt; &quot;databases&quot;</span>
 <span class="lineno">   64 </span><span class="spaces">    </span><span class="nottickedoff">createDirectoryIfMissing True dir</span>
@@ -85,7 +85,7 @@ span.spaces    { background: white }
 <span class="lineno">   66 </span>
 <span class="lineno">   67 </span>-- | Get the method uploads directory
 <span class="lineno">   68 </span>getMethodUploadsDir :: IO FilePath
-<span class="lineno">   69 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getMethodUploadsDir = do</span>
+<span class="lineno">   69 </span><span class="decl"><span class="nottickedoff">getMethodUploadsDir = do</span>
 <span class="lineno">   70 </span><span class="spaces">    </span><span class="nottickedoff">base &lt;- getDataDir</span>
 <span class="lineno">   71 </span><span class="spaces">    </span><span class="nottickedoff">let dir = base &lt;/&gt; &quot;uploads&quot; &lt;/&gt; &quot;methods&quot;</span>
 <span class="lineno">   72 </span><span class="spaces">    </span><span class="nottickedoff">createDirectoryIfMissing True dir</span>
@@ -93,13 +93,13 @@ span.spaces    { background: white }
 <span class="lineno">   74 </span>
 <span class="lineno">   75 </span>-- | Check if a path belongs to the uploads directory
 <span class="lineno">   76 </span>isUploadedPath :: FilePath -&gt; Bool
-<span class="lineno">   77 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">isUploadedPath path =</span>
+<span class="lineno">   77 </span><span class="decl"><span class="nottickedoff">isUploadedPath path =</span>
 <span class="lineno">   78 </span><span class="spaces">    </span><span class="nottickedoff">&quot;uploads&quot; `elem` splitDirectories path</span></span>
 <span class="lineno">   79 </span>
 <span class="lineno">   80 </span>-- | Read meta.toml from an upload directory
 <span class="lineno">   81 </span>-- Returns Nothing if file doesn't exist or can't be parsed
 <span class="lineno">   82 </span>readUploadMeta :: FilePath -&gt; IO (Maybe UploadMeta)
-<span class="lineno">   83 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">readUploadMeta uploadDir = do</span>
+<span class="lineno">   83 </span><span class="decl"><span class="nottickedoff">readUploadMeta uploadDir = do</span>
 <span class="lineno">   84 </span><span class="spaces">    </span><span class="nottickedoff">let metaPath = uploadDir &lt;/&gt; metaFileName</span>
 <span class="lineno">   85 </span><span class="spaces">    </span><span class="nottickedoff">exists &lt;- doesFileExist metaPath</span>
 <span class="lineno">   86 </span><span class="spaces">    </span><span class="nottickedoff">if not exists</span>
@@ -112,14 +112,14 @@ span.spaces    { background: white }
 <span class="lineno">   93 </span>
 <span class="lineno">   94 </span>-- | Write meta.toml to an upload directory
 <span class="lineno">   95 </span>writeUploadMeta :: FilePath -&gt; UploadMeta -&gt; IO ()
-<span class="lineno">   96 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">writeUploadMeta uploadDir meta = do</span>
+<span class="lineno">   96 </span><span class="decl"><span class="nottickedoff">writeUploadMeta uploadDir meta = do</span>
 <span class="lineno">   97 </span><span class="spaces">    </span><span class="nottickedoff">let metaPath = uploadDir &lt;/&gt; metaFileName</span>
 <span class="lineno">   98 </span><span class="spaces">    </span><span class="nottickedoff">TIO.writeFile metaPath (formatMetaToml meta)</span></span>
 <span class="lineno">   99 </span>
 <span class="lineno">  100 </span>-- | Parse meta.toml content
 <span class="lineno">  101 </span>-- Simple key=value parser (not a full TOML parser)
 <span class="lineno">  102 </span>parseMetaToml :: Text -&gt; Maybe UploadMeta
-<span class="lineno">  103 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseMetaToml content = do</span>
+<span class="lineno">  103 </span><span class="decl"><span class="nottickedoff">parseMetaToml content = do</span>
 <span class="lineno">  104 </span><span class="spaces">    </span><span class="nottickedoff">let lines' = map T.strip $ T.lines content</span>
 <span class="lineno">  105 </span><span class="spaces">        </span><span class="nottickedoff">kvPairs = [(T.strip k, v) | line &lt;- lines'</span>
 <span class="lineno">  106 </span><span class="spaces">                         </span><span class="nottickedoff">, not (T.null line)</span>
@@ -147,7 +147,7 @@ span.spaces    { background: white }
 <span class="lineno">  128 </span>
 <span class="lineno">  129 </span>-- | Parse format string to DatabaseFormat
 <span class="lineno">  130 </span>parseFormat :: Text -&gt; Maybe DatabaseFormat
-<span class="lineno">  131 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseFormat &quot;ecospold2&quot; = Just EcoSpold2</span>
+<span class="lineno">  131 </span><span class="decl"><span class="nottickedoff">parseFormat &quot;ecospold2&quot; = Just EcoSpold2</span>
 <span class="lineno">  132 </span><span class="spaces"></span><span class="nottickedoff">parseFormat &quot;ecospold1&quot; = Just EcoSpold1</span>
 <span class="lineno">  133 </span><span class="spaces"></span><span class="nottickedoff">parseFormat &quot;simapro&quot; = Just SimaProCSV</span>
 <span class="lineno">  134 </span><span class="spaces"></span><span class="nottickedoff">parseFormat &quot;ilcd&quot; = Just ILCDProcess</span>
@@ -155,7 +155,7 @@ span.spaces    { background: white }
 <span class="lineno">  136 </span>
 <span class="lineno">  137 </span>-- | Format meta.toml content
 <span class="lineno">  138 </span>formatMetaToml :: UploadMeta -&gt; Text
-<span class="lineno">  139 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">formatMetaToml UploadMeta{..} = T.unlines $</span>
+<span class="lineno">  139 </span><span class="decl"><span class="nottickedoff">formatMetaToml UploadMeta{..} = T.unlines $</span>
 <span class="lineno">  140 </span><span class="spaces">    </span><span class="nottickedoff">[ &quot;version = &quot; &lt;&gt; T.pack (show umVersion)</span>
 <span class="lineno">  141 </span><span class="spaces">    </span><span class="nottickedoff">, &quot;displayName = &quot; &lt;&gt; quote umDisplayName</span>
 <span class="lineno">  142 </span><span class="spaces">    </span><span class="nottickedoff">] ++</span>
@@ -181,7 +181,7 @@ span.spaces    { background: white }
 <span class="lineno">  162 </span>
 <span class="lineno">  163 </span>-- | Scan a directory for subdirectories with meta.toml
 <span class="lineno">  164 </span>scanUploadsIn :: FilePath -&gt; IO [(Text, FilePath, UploadMeta)]
-<span class="lineno">  165 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">scanUploadsIn dir = do</span>
+<span class="lineno">  165 </span><span class="decl"><span class="nottickedoff">scanUploadsIn dir = do</span>
 <span class="lineno">  166 </span><span class="spaces">    </span><span class="nottickedoff">exists &lt;- doesDirectoryExist dir</span>
 <span class="lineno">  167 </span><span class="spaces">    </span><span class="nottickedoff">if not exists</span>
 <span class="lineno">  168 </span><span class="spaces">        </span><span class="nottickedoff">then return []</span>
@@ -199,7 +199,7 @@ span.spaces    { background: white }
 <span class="lineno">  180 </span>-- | Discover all uploaded databases by scanning the uploads directory
 <span class="lineno">  181 </span>-- Scans ./uploads/databases/ first, then legacy ./uploads/ for backward compat
 <span class="lineno">  182 </span>discoverUploadedDatabases :: IO [(Text, FilePath, UploadMeta)]
-<span class="lineno">  183 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">discoverUploadedDatabases = do</span>
+<span class="lineno">  183 </span><span class="decl"><span class="nottickedoff">discoverUploadedDatabases = do</span>
 <span class="lineno">  184 </span><span class="spaces">    </span><span class="nottickedoff">dbDir &lt;- getDatabaseUploadsDir</span>
 <span class="lineno">  185 </span><span class="spaces">    </span><span class="nottickedoff">newResults &lt;- scanUploadsIn dbDir</span>
 <span class="lineno">  186 </span><span class="spaces">    </span><span class="nottickedoff">if not (null newResults)</span>
@@ -212,7 +212,7 @@ span.spaces    { background: white }
 <span class="lineno">  193 </span>
 <span class="lineno">  194 </span>-- | Discover all uploaded methods by scanning the methods upload directory
 <span class="lineno">  195 </span>discoverUploadedMethods :: IO [(Text, FilePath, UploadMeta)]
-<span class="lineno">  196 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">discoverUploadedMethods = do</span>
+<span class="lineno">  196 </span><span class="decl"><span class="nottickedoff">discoverUploadedMethods = do</span>
 <span class="lineno">  197 </span><span class="spaces">    </span><span class="nottickedoff">methodDir &lt;- getMethodUploadsDir</span>
 <span class="lineno">  198 </span><span class="spaces">    </span><span class="nottickedoff">scanUploadsIn methodDir</span></span>
 

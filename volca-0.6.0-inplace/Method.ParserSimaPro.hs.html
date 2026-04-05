@@ -53,11 +53,11 @@ span.spaces    { background: white }
 <span class="lineno">   34 </span>
 <span class="lineno">   35 </span>-- | Parse a SimaPro method CSV file from disk.
 <span class="lineno">   36 </span>parseSimaProMethodCSV :: FilePath -&gt; IO (Either String MethodCollection)
-<span class="lineno">   37 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseSimaProMethodCSV path = parseSimaProMethodCSVBytes &lt;$&gt; BS.readFile path</span></span>
+<span class="lineno">   37 </span><span class="decl"><span class="nottickedoff">parseSimaProMethodCSV path = parseSimaProMethodCSVBytes &lt;$&gt; BS.readFile path</span></span>
 <span class="lineno">   38 </span>
 <span class="lineno">   39 </span>-- | Pure parser for SimaPro method CSV bytes.
 <span class="lineno">   40 </span>parseSimaProMethodCSVBytes :: BS.ByteString -&gt; Either String MethodCollection
-<span class="lineno">   41 </span><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">parseSimaProMethodCSVBytes raw =</span>
+<span class="lineno">   41 </span><span class="decl"><span class="istickedoff">parseSimaProMethodCSVBytes raw =</span>
 <span class="lineno">   42 </span><span class="spaces">    </span><span class="istickedoff">let !utf8 = ensureUtf8 raw</span>
 <span class="lineno">   43 </span><span class="spaces">        </span><span class="istickedoff">lns = BS8.lines utf8</span>
 <span class="lineno">   44 </span><span class="spaces">        </span><span class="istickedoff">cfg = parseConfig lns</span>
@@ -72,7 +72,7 @@ span.spaces    { background: white }
 <span class="lineno">   53 </span>-- Spanish &quot;{métodos}&quot; — all start with the ASCII prefix &quot;{m&quot; or &quot;{M}&quot;.
 <span class="lineno">   54 </span>-- Database exports use &quot;{processes}&quot;, &quot;{products}&quot;, etc., which do not.
 <span class="lineno">   55 </span>isSimaProMethodCSV :: BS.ByteString -&gt; Bool
-<span class="lineno">   56 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">isSimaProMethodCSV bs =</span>
+<span class="lineno">   56 </span><span class="decl"><span class="istickedoff">isSimaProMethodCSV bs =</span>
 <span class="lineno">   57 </span><span class="spaces">    </span><span class="istickedoff">BS8.isPrefixOf &quot;{SimaPro&quot; bs &amp;&amp; isMethodTypeLine bs</span>
 <span class="lineno">   58 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">   59 </span><span class="spaces">    </span><span class="istickedoff">isMethodTypeLine bytes =</span>
@@ -85,21 +85,21 @@ span.spaces    { background: white }
 <span class="lineno">   66 </span>-- ============================================================================
 <span class="lineno">   67 </span>
 <span class="lineno">   68 </span>data ParseState = ParseState
-<span class="lineno">   69 </span>    { <span class="istickedoff"><span class="funcount">-- entered 980 times</span><span class="decl"><span class="istickedoff">psPhase</span></span></span>      :: !Phase
-<span class="lineno">   70 </span>    , <span class="istickedoff"><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">psCatName</span></span></span>    :: !Text          -- current impact category name
-<span class="lineno">   71 </span>    , <span class="istickedoff"><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">psCatUnit</span></span></span>    :: !Text          -- current impact category unit
-<span class="lineno">   72 </span>    , <span class="istickedoff"><span class="funcount">-- entered 120 times</span><span class="decl"><span class="istickedoff">psFactors</span></span></span>    :: ![MethodCF]    -- CFs accumulated (reversed) for current category
-<span class="lineno">   73 </span>    , <span class="istickedoff"><span class="funcount">-- entered 40 times</span><span class="decl"><span class="istickedoff">psMethods</span></span></span>    :: ![Method]      -- completed methods (reversed)
+<span class="lineno">   69 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">psPhase</span></span></span>      :: !Phase
+<span class="lineno">   70 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psCatName</span></span></span>    :: !Text          -- current impact category name
+<span class="lineno">   71 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psCatUnit</span></span></span>    :: !Text          -- current impact category unit
+<span class="lineno">   72 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psFactors</span></span></span>    :: ![MethodCF]    -- CFs accumulated (reversed) for current category
+<span class="lineno">   73 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psMethods</span></span></span>    :: ![Method]      -- completed methods (reversed)
 <span class="lineno">   74 </span>    -- Damage categories
-<span class="lineno">   75 </span>    , <span class="istickedoff"><span class="funcount">-- entered 40 times</span><span class="decl"><span class="istickedoff">psDamageCats</span></span></span> :: ![DamageCategory]   -- completed damage categories (reversed)
-<span class="lineno">   76 </span>    , <span class="istickedoff"><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">psDcName</span></span></span>     :: !Text               -- current damage category name
-<span class="lineno">   77 </span>    , <span class="istickedoff"><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">psDcUnit</span></span></span>     :: !Text               -- current damage category unit
-<span class="lineno">   78 </span>    , <span class="istickedoff"><span class="funcount">-- entered 60 times</span><span class="decl"><span class="istickedoff">psDcImpacts</span></span></span>  :: ![(Text, Double)]   -- current damage category impacts (reversed)
+<span class="lineno">   75 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psDamageCats</span></span></span> :: ![DamageCategory]   -- completed damage categories (reversed)
+<span class="lineno">   76 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psDcName</span></span></span>     :: !Text               -- current damage category name
+<span class="lineno">   77 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psDcUnit</span></span></span>     :: !Text               -- current damage category unit
+<span class="lineno">   78 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psDcImpacts</span></span></span>  :: ![(Text, Double)]   -- current damage category impacts (reversed)
 <span class="lineno">   79 </span>    -- Normalization/Weighting
-<span class="lineno">   80 </span>    , <span class="istickedoff"><span class="funcount">-- entered 20 times</span><span class="decl"><span class="istickedoff">psNWsets</span></span></span>     :: ![NormWeightSet]     -- completed NW sets (reversed)
-<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">psNWname</span></span></span>     :: !Text               -- current NW set name
-<span class="lineno">   82 </span>    , <span class="istickedoff"><span class="funcount">-- entered 50 times</span><span class="decl"><span class="istickedoff">psNormMap</span></span></span>    :: !(M.Map Text Double) -- current normalization factors
-<span class="lineno">   83 </span>    , <span class="istickedoff"><span class="funcount">-- entered 40 times</span><span class="decl"><span class="istickedoff">psWeightMap</span></span></span>  :: !(M.Map Text Double) -- current weighting factors
+<span class="lineno">   80 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psNWsets</span></span></span>     :: ![NormWeightSet]     -- completed NW sets (reversed)
+<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psNWname</span></span></span>     :: !Text               -- current NW set name
+<span class="lineno">   82 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psNormMap</span></span></span>    :: !(M.Map Text Double) -- current normalization factors
+<span class="lineno">   83 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">psWeightMap</span></span></span>  :: !(M.Map Text Double) -- current weighting factors
 <span class="lineno">   84 </span>    }
 <span class="lineno">   85 </span>
 <span class="lineno">   86 </span>data Phase
@@ -120,14 +120,14 @@ span.spaces    { background: white }
 <span class="lineno">  101 </span>    | PhReadingWeight   -- reading weighting rows
 <span class="lineno">  102 </span>
 <span class="lineno">  103 </span>initState :: ParseState
-<span class="lineno">  104 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">initState = ParseState PhHeader &quot;&quot; &quot;&quot; [] [] [] &quot;&quot; &quot;&quot; [] [] &quot;&quot; M.empty M.empty</span></span>
+<span class="lineno">  104 </span><span class="decl"><span class="istickedoff">initState = ParseState PhHeader &quot;&quot; &quot;&quot; [] [] [] &quot;&quot; &quot;&quot; [] [] &quot;&quot; M.empty M.empty</span></span>
 <span class="lineno">  105 </span>
 <span class="lineno">  106 </span>-- ============================================================================
 <span class="lineno">  107 </span>-- State Machine
 <span class="lineno">  108 </span>-- ============================================================================
 <span class="lineno">  109 </span>
 <span class="lineno">  110 </span>step :: SimaProConfig -&gt; Text -&gt; ParseState -&gt; BS.ByteString -&gt; ParseState
-<span class="lineno">  111 </span><span class="funcount">-- entered 960 times</span><span class="decl"><span class="istickedoff">step cfg methodologyName st line = case psPhase st of</span>
+<span class="lineno">  111 </span><span class="decl"><span class="istickedoff">step cfg methodologyName st line = case psPhase st of</span>
 <span class="lineno">  112 </span><span class="spaces">    </span><span class="istickedoff">PhHeader</span>
 <span class="lineno">  113 </span><span class="spaces">        </span><span class="istickedoff">| BS8.isPrefixOf &quot;{&quot; line -&gt; st</span>
 <span class="lineno">  114 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; st { psPhase = PhMethodMeta }</span>
@@ -290,7 +290,7 @@ span.spaces    { background: white }
 <span class="lineno">  271 </span><span class="spaces">                 </span><span class="istickedoff">, psNWsets = nw : psNWsets s }</span></span>
 <span class="lineno">  272 </span>
 <span class="lineno">  273 </span>finalize :: ParseState -&gt; MethodCollection
-<span class="lineno">  274 </span><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">finalize st =</span>
+<span class="lineno">  274 </span><span class="decl"><span class="istickedoff">finalize st =</span>
 <span class="lineno">  275 </span><span class="spaces">    </span><span class="istickedoff">let methods = case psPhase st of</span>
 <span class="lineno">  276 </span><span class="spaces">            </span><span class="istickedoff">PhReadingCFs | <span class="nottickedoff">not (null (psFactors st))</span> -&gt;</span>
 <span class="lineno">  277 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">let !m = Method</span></span>
@@ -321,11 +321,11 @@ span.spaces    { background: white }
 <span class="lineno">  302 </span>-- ============================================================================
 <span class="lineno">  303 </span>
 <span class="lineno">  304 </span>isNWsetMarker :: BS.ByteString -&gt; Bool
-<span class="lineno">  305 </span><span class="funcount">-- entered 460 times</span><span class="decl"><span class="istickedoff">isNWsetMarker s = BS8.isPrefixOf &quot;Normalization-Weighting set&quot; s</span>
+<span class="lineno">  305 </span><span class="decl"><span class="istickedoff">isNWsetMarker s = BS8.isPrefixOf &quot;Normalization-Weighting set&quot; s</span>
 <span class="lineno">  306 </span><span class="spaces">              </span><span class="istickedoff">|| BS8.isPrefixOf &quot;Normalisation-Weighting set&quot; s</span></span>
 <span class="lineno">  307 </span>
 <span class="lineno">  308 </span>parseConfig :: [BS.ByteString] -&gt; SimaProConfig
-<span class="lineno">  309 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">parseConfig = foldl' go defaultConfig</span>
+<span class="lineno">  309 </span><span class="decl"><span class="istickedoff">parseConfig = foldl' go defaultConfig</span>
 <span class="lineno">  310 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">  311 </span><span class="spaces">    </span><span class="istickedoff">go cfg line</span>
 <span class="lineno">  312 </span><span class="spaces">        </span><span class="istickedoff">| &quot;{CSV separator: Semicolon}&quot; `BS.isInfixOf` line = cfg { spDelimiter = ';' }</span>
@@ -336,7 +336,7 @@ span.spaces    { background: white }
 <span class="lineno">  317 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = cfg</span></span>
 <span class="lineno">  318 </span>
 <span class="lineno">  319 </span>parseMethodName :: SimaProConfig -&gt; [BS.ByteString] -&gt; Text
-<span class="lineno">  320 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">parseMethodName _cfg = go False</span>
+<span class="lineno">  320 </span><span class="decl"><span class="istickedoff">parseMethodName _cfg = go False</span>
 <span class="lineno">  321 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">  322 </span><span class="spaces">    </span><span class="istickedoff">go _ [] = <span class="nottickedoff">&quot;SimaPro Method&quot;</span></span>
 <span class="lineno">  323 </span><span class="spaces">    </span><span class="istickedoff">go True (l:_) = decodeBS (BS8.strip l)</span>
@@ -345,26 +345,26 @@ span.spaces    { background: white }
 <span class="lineno">  326 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = go False ls</span></span>
 <span class="lineno">  327 </span>
 <span class="lineno">  328 </span>isBlank :: BS.ByteString -&gt; Bool
-<span class="lineno">  329 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">isBlank = BS.null . BS8.strip</span></span>
+<span class="lineno">  329 </span><span class="decl"><span class="istickedoff">isBlank = BS.null . BS8.strip</span></span>
 <span class="lineno">  330 </span>
 <span class="lineno">  331 </span>head' :: [a] -&gt; a
-<span class="lineno">  332 </span><span class="funcount">-- entered 60 times</span><span class="decl"><span class="istickedoff">head' (x:_) = x</span>
+<span class="lineno">  332 </span><span class="decl"><span class="istickedoff">head' (x:_) = x</span>
 <span class="lineno">  333 </span><span class="spaces"></span><span class="istickedoff">head' [] = <span class="nottickedoff">error &quot;Method.ParserSimaPro: unexpected empty field list&quot;</span></span></span>
 <span class="lineno">  334 </span>
 <span class="lineno">  335 </span>makeFlowUUID :: BS.ByteString -&gt; BS.ByteString -&gt; BS.ByteString -&gt; UUID
-<span class="lineno">  336 </span><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">makeFlowUUID name comp sub =</span>
+<span class="lineno">  336 </span><span class="decl"><span class="istickedoff">makeFlowUUID name comp sub =</span>
 <span class="lineno">  337 </span><span class="spaces">    </span><span class="istickedoff">let compartment = decodeBS (BS8.strip comp) &lt;&gt; &quot;/&quot; &lt;&gt; decodeBS (BS8.strip sub)</span>
 <span class="lineno">  338 </span><span class="spaces">    </span><span class="istickedoff">in UUID5.generateNamed simaproNamespace</span>
 <span class="lineno">  339 </span><span class="spaces">        </span><span class="istickedoff">(BS.unpack $ TE.encodeUtf8 $ &quot;flow:&quot; &lt;&gt; decodeBS (BS8.strip name) &lt;&gt; &quot;:&quot; &lt;&gt; compartment &lt;&gt; &quot;:&quot; &lt;&gt; &quot;kg&quot;)</span></span>
 <span class="lineno">  340 </span>
 <span class="lineno">  341 </span>direction :: BS.ByteString -&gt; FlowDirection
-<span class="lineno">  342 </span><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">direction comp</span>
+<span class="lineno">  342 </span><span class="decl"><span class="istickedoff">direction comp</span>
 <span class="lineno">  343 </span><span class="spaces">    </span><span class="istickedoff">| lc == &quot;raw&quot; || lc == &quot;resources&quot; || &quot;raw&quot; `BS8.isPrefixOf` lc = Input</span>
 <span class="lineno">  344 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Output</span>
 <span class="lineno">  345 </span><span class="spaces">  </span><span class="istickedoff">where lc = BS8.map toLower (BS8.strip comp)</span></span>
 <span class="lineno">  346 </span>
 <span class="lineno">  347 </span>mkCompartment :: BS.ByteString -&gt; BS.ByteString -&gt; Maybe Compartment
-<span class="lineno">  348 </span><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">mkCompartment comp sub =</span>
+<span class="lineno">  348 </span><span class="decl"><span class="istickedoff">mkCompartment comp sub =</span>
 <span class="lineno">  349 </span><span class="spaces">    </span><span class="istickedoff">let medium = case BS8.map toLower (BS8.strip comp) of</span>
 <span class="lineno">  350 </span><span class="spaces">            </span><span class="istickedoff">&quot;air&quot;       -&gt; <span class="nottickedoff">&quot;air&quot;</span></span>
 <span class="lineno">  351 </span><span class="spaces">            </span><span class="istickedoff">&quot;water&quot;     -&gt; <span class="nottickedoff">&quot;water&quot;</span></span>
@@ -377,7 +377,7 @@ span.spaces    { background: white }
 <span class="lineno">  358 </span><span class="spaces">    </span><span class="istickedoff">in Just (Compartment medium subcomp &quot;&quot;)</span></span>
 <span class="lineno">  359 </span>
 <span class="lineno">  360 </span>normalizeCAS :: Text -&gt; Maybe Text
-<span class="lineno">  361 </span><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">normalizeCAS cas</span>
+<span class="lineno">  361 </span><span class="decl"><span class="istickedoff">normalizeCAS cas</span>
 <span class="lineno">  362 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">T.null cas</span> = <span class="nottickedoff">Nothing</span></span>
 <span class="lineno">  363 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
 <span class="lineno">  364 </span><span class="spaces">        </span><span class="istickedoff">let segments = T.splitOn &quot;-&quot; cas</span>

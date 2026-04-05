@@ -59,7 +59,7 @@ span.spaces    { background: white }
 <span class="lineno">   40 </span>- Solver constructs (I-A) by adding identity and negating technosphere triplets
 <span class="lineno">   41 </span>-}
 <span class="lineno">   42 </span>buildDatabaseWithMatrices :: UnitConfig -&gt; M.Map (UUID, UUID) Activity -&gt; FlowDB -&gt; UnitDB -&gt; IO Database
-<span class="lineno">   43 </span><span class="funcount">-- entered 66 times</span><span class="decl"><span class="istickedoff">buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do</span>
+<span class="lineno">   43 </span><span class="decl"><span class="istickedoff">buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do</span>
 <span class="lineno">   44 </span><span class="spaces">    </span><span class="istickedoff">reportMatrixOperation &quot;Building database with pre-computed sparse matrices&quot;</span>
 <span class="lineno">   45 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">   46 </span><span class="spaces">    </span><span class="istickedoff">-- Step 1: Build UUID interning tables from Map keys</span>
@@ -311,7 +311,7 @@ span.spaces    { background: white }
 <span class="lineno">  292 </span>
 <span class="lineno">  293 </span>-- | Build indexes with ProcessIds
 <span class="lineno">  294 </span>buildIndexesWithProcessIds :: V.Vector Activity -&gt; V.Vector (UUID, UUID) -&gt; FlowDB -&gt; Indexes
-<span class="lineno">  295 </span><span class="funcount">-- entered 63 times</span><span class="decl"><span class="istickedoff">buildIndexesWithProcessIds activityVec processIdTable flowDB =</span>
+<span class="lineno">  295 </span><span class="decl"><span class="istickedoff">buildIndexesWithProcessIds activityVec processIdTable flowDB =</span>
 <span class="lineno">  296 </span><span class="spaces">    </span><span class="istickedoff">let</span>
 <span class="lineno">  297 </span><span class="spaces">        </span><span class="istickedoff">-- Convert Vector to temporary Map for index building</span>
 <span class="lineno">  298 </span><span class="spaces">        </span><span class="istickedoff">-- We use the ProcessId-to-UUID mapping for lookups</span>
@@ -369,7 +369,7 @@ span.spaces    { background: white }
 <span class="lineno">  350 </span>-- Used for: (1) SimaPro upstream link resolution, (2) future product search
 <span class="lineno">  351 </span>-- Maps product flow UUIDs and names to the activities that produce them
 <span class="lineno">  352 </span>buildProductIndex :: V.Vector Activity -&gt; V.Vector (UUID, UUID) -&gt; FlowDB -&gt; ProductIndex
-<span class="lineno">  353 </span><span class="funcount">-- entered 66 times</span><span class="decl"><span class="istickedoff">buildProductIndex activities processIdTable flowDb =</span>
+<span class="lineno">  353 </span><span class="decl"><span class="istickedoff">buildProductIndex activities processIdTable flowDb =</span>
 <span class="lineno">  354 </span><span class="spaces">    </span><span class="istickedoff">let -- Build list of (ProcessId, productUUID, productName, location) for each activity</span>
 <span class="lineno">  355 </span><span class="spaces">        </span><span class="istickedoff">entries =</span>
 <span class="lineno">  356 </span><span class="spaces">            </span><span class="istickedoff">[ (<span class="nottickedoff">pid</span>, prodUUID, prodName, actLoc)</span>
@@ -390,7 +390,7 @@ span.spaces    { background: white }
 <span class="lineno">  371 </span>-- Returns (ProcessId, Activity) pairs so callers don't need to re-scan for ProcessId.
 <span class="lineno">  372 </span>-- Uses word-token index when available for O(matches) instead of O(total) name search.
 <span class="lineno">  373 </span>findActivitiesByFields :: Database -&gt; Maybe Text -&gt; Maybe Text -&gt; Maybe Text -&gt; [(Text, Text)] -&gt; [(ProcessId, Activity)]
-<span class="lineno">  374 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findActivitiesByFields db nameParam geoParam productParam classFilters =</span>
+<span class="lineno">  374 </span><span class="decl"><span class="nottickedoff">findActivitiesByFields db nameParam geoParam productParam classFilters =</span>
 <span class="lineno">  375 </span><span class="spaces">    </span><span class="nottickedoff">let actVec = dbActivities db</span>
 <span class="lineno">  376 </span><span class="spaces">        </span><span class="nottickedoff">idx = dbSearchIndex db</span>
 <span class="lineno">  377 </span><span class="spaces"></span><span class="nottickedoff"></span>
@@ -472,7 +472,7 @@ span.spaces    { background: white }
 <span class="lineno">  453 </span>
 <span class="lineno">  454 </span>-- | Search flows by synonym
 <span class="lineno">  455 </span>findFlowsBySynonym :: Database -&gt; Text -&gt; [Flow]
-<span class="lineno">  456 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findFlowsBySynonym db query =</span>
+<span class="lineno">  456 </span><span class="decl"><span class="nottickedoff">findFlowsBySynonym db query =</span>
 <span class="lineno">  457 </span><span class="spaces">    </span><span class="nottickedoff">let queryLower = T.toLower query</span>
 <span class="lineno">  458 </span><span class="spaces">        </span><span class="nottickedoff">flows = M.elems (dbFlows db)</span>
 <span class="lineno">  459 </span><span class="spaces">     </span><span class="nottickedoff">in [ f | f &lt;- flows, T.isInfixOf queryLower (T.toLower (flowName f))</span>

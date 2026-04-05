@@ -51,14 +51,14 @@ span.spaces    { background: white }
 <span class="lineno">   32 </span>
 <span class="lineno">   33 </span>-- | Parse a normalization/weighting CSV file from disk.
 <span class="lineno">   34 </span>parseNormWeightCSV :: FilePath -&gt; IO (Either String NormWeightSet)
-<span class="lineno">   35 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseNormWeightCSV path = do</span>
+<span class="lineno">   35 </span><span class="decl"><span class="nottickedoff">parseNormWeightCSV path = do</span>
 <span class="lineno">   36 </span><span class="spaces">    </span><span class="nottickedoff">bs &lt;- BS.readFile path</span>
 <span class="lineno">   37 </span><span class="spaces">    </span><span class="nottickedoff">let fallbackName = T.pack path</span>
 <span class="lineno">   38 </span><span class="spaces">    </span><span class="nottickedoff">return $ parseNormWeightCSVBytes fallbackName bs</span></span>
 <span class="lineno">   39 </span>
 <span class="lineno">   40 </span>-- | Pure parser. Takes a fallback name (used if no comment header found).
 <span class="lineno">   41 </span>parseNormWeightCSVBytes :: Text -&gt; BS.ByteString -&gt; Either String NormWeightSet
-<span class="lineno">   42 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">parseNormWeightCSVBytes fallbackName bs =</span>
+<span class="lineno">   42 </span><span class="decl"><span class="istickedoff">parseNormWeightCSVBytes fallbackName bs =</span>
 <span class="lineno">   43 </span><span class="spaces">    </span><span class="istickedoff">let allLines = BC.lines bs</span>
 <span class="lineno">   44 </span><span class="spaces">        </span><span class="istickedoff">(comments, rest) = span (\l -&gt; BC.isPrefixOf &quot;#&quot; l || BS.null l) allLines</span>
 <span class="lineno">   45 </span><span class="spaces">        </span><span class="istickedoff">name = extractName comments fallbackName</span>
@@ -75,7 +75,7 @@ span.spaces    { background: white }
 <span class="lineno">   56 </span>
 <span class="lineno">   57 </span>-- | Extract set name from &quot;# normalization-weighting set: NAME&quot; comment.
 <span class="lineno">   58 </span>extractName :: [BS.ByteString] -&gt; Text -&gt; Text
-<span class="lineno">   59 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">extractName [] fb = fb</span>
+<span class="lineno">   59 </span><span class="decl"><span class="istickedoff">extractName [] fb = fb</span>
 <span class="lineno">   60 </span><span class="spaces"></span><span class="istickedoff">extractName (l:ls) fb</span>
 <span class="lineno">   61 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">&quot;# normalization-weighting set:&quot; `BC.isPrefixOf` lc</span> =</span>
 <span class="lineno">   62 </span><span class="spaces">        </span><span class="istickedoff">T.strip $ decode $ BS.drop (BS.length &quot;# normalization-weighting set:&quot;) l</span>
@@ -86,19 +86,19 @@ span.spaces    { background: white }
 <span class="lineno">   67 </span>
 <span class="lineno">   68 </span>-- | Drop the header row (first non-empty, non-comment line starting with &quot;category&quot;).
 <span class="lineno">   69 </span>dropHeader :: [BS.ByteString] -&gt; [BS.ByteString]
-<span class="lineno">   70 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">dropHeader [] = <span class="nottickedoff">[]</span></span>
+<span class="lineno">   70 </span><span class="decl"><span class="istickedoff">dropHeader [] = <span class="nottickedoff">[]</span></span>
 <span class="lineno">   71 </span><span class="spaces"></span><span class="istickedoff">dropHeader (l:ls)</span>
 <span class="lineno">   72 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">isHeaderRow l</span> = ls</span>
 <span class="lineno">   73 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">ls</span></span></span>  -- skip first row even if not recognized as header
 <span class="lineno">   74 </span>
 <span class="lineno">   75 </span>isHeaderRow :: BS.ByteString -&gt; Bool
-<span class="lineno">   76 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">isHeaderRow l =</span>
+<span class="lineno">   76 </span><span class="decl"><span class="istickedoff">isHeaderRow l =</span>
 <span class="lineno">   77 </span><span class="spaces">    </span><span class="istickedoff">let first = T.toLower . T.strip . decode . head' . splitOn (detectDelimiterLine l) $ l</span>
 <span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">in first == &quot;category&quot; || <span class="nottickedoff">first == &quot;impact category&quot; || first == &quot;damage category&quot;</span></span></span>
 <span class="lineno">   79 </span>
 <span class="lineno">   80 </span>-- | Parse one data row: &quot;category;normalization;weighting&quot;
 <span class="lineno">   81 </span>parseRow :: Char -&gt; BS.ByteString -&gt; (Text, Double, Double)
-<span class="lineno">   82 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">parseRow delim line =</span>
+<span class="lineno">   82 </span><span class="decl"><span class="istickedoff">parseRow delim line =</span>
 <span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">case splitOn delim line of</span>
 <span class="lineno">   84 </span><span class="spaces">        </span><span class="istickedoff">(cat:norm:weight:_) -&gt;</span>
 <span class="lineno">   85 </span><span class="spaces">            </span><span class="istickedoff">( T.strip (decode cat)</span>
@@ -114,32 +114,32 @@ span.spaces    { background: white }
 <span class="lineno">   95 </span>
 <span class="lineno">   96 </span>-- | Detect delimiter from the first data-like lines.
 <span class="lineno">   97 </span>detectDelimiter :: [BS.ByteString] -&gt; Char
-<span class="lineno">   98 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">detectDelimiter [] = <span class="nottickedoff">';'</span></span>
+<span class="lineno">   98 </span><span class="decl"><span class="istickedoff">detectDelimiter [] = <span class="nottickedoff">';'</span></span>
 <span class="lineno">   99 </span><span class="spaces"></span><span class="istickedoff">detectDelimiter (l:_) = detectDelimiterLine l</span></span>
 <span class="lineno">  100 </span>
 <span class="lineno">  101 </span>detectDelimiterLine :: BS.ByteString -&gt; Char
-<span class="lineno">  102 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">detectDelimiterLine l</span>
+<span class="lineno">  102 </span><span class="decl"><span class="istickedoff">detectDelimiterLine l</span>
 <span class="lineno">  103 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">BC.elem ';' l</span> = ';'</span>
 <span class="lineno">  104 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">BC.elem '\t' l</span> = <span class="nottickedoff">'\t'</span></span>
 <span class="lineno">  105 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">','</span></span></span>
 <span class="lineno">  106 </span>
 <span class="lineno">  107 </span>splitOn :: Char -&gt; BS.ByteString -&gt; [BS.ByteString]
-<span class="lineno">  108 </span><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">splitOn delim = BC.split delim</span></span>
+<span class="lineno">  108 </span><span class="decl"><span class="istickedoff">splitOn delim = BC.split delim</span></span>
 <span class="lineno">  109 </span>
 <span class="lineno">  110 </span>decode :: BS.ByteString -&gt; Text
-<span class="lineno">  111 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">decode = TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span></span></span>
+<span class="lineno">  111 </span><span class="decl"><span class="istickedoff">decode = TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span></span></span>
 <span class="lineno">  112 </span>
 <span class="lineno">  113 </span>parseDouble :: BS.ByteString -&gt; Double
-<span class="lineno">  114 </span><span class="funcount">-- entered 14 times</span><span class="decl"><span class="istickedoff">parseDouble bs = case TR.double (decode bs) of</span>
+<span class="lineno">  114 </span><span class="decl"><span class="istickedoff">parseDouble bs = case TR.double (decode bs) of</span>
 <span class="lineno">  115 </span><span class="spaces">    </span><span class="istickedoff">Right (v, _) -&gt; v</span>
 <span class="lineno">  116 </span><span class="spaces">    </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">0</span></span></span>
 <span class="lineno">  117 </span>
 <span class="lineno">  118 </span>head' :: [a] -&gt; a
-<span class="lineno">  119 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">head' (x:_) = x</span>
+<span class="lineno">  119 </span><span class="decl"><span class="istickedoff">head' (x:_) = x</span>
 <span class="lineno">  120 </span><span class="spaces"></span><span class="istickedoff">head' [] = <span class="nottickedoff">error &quot;Method.ParserNW: unexpected empty split&quot;</span></span></span>
 <span class="lineno">  121 </span>
 <span class="lineno">  122 </span>toLowerASCII :: Char -&gt; Char
-<span class="lineno">  123 </span><span class="funcount">-- entered 86 times</span><span class="decl"><span class="istickedoff">toLowerASCII c</span>
+<span class="lineno">  123 </span><span class="decl"><span class="istickedoff">toLowerASCII c</span>
 <span class="lineno">  124 </span><span class="spaces">    </span><span class="istickedoff">| c &gt;= 'A' &amp;&amp; c &lt;= 'Z' = toEnum (fromEnum c + 32)</span>
 <span class="lineno">  125 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = c</span></span>
 

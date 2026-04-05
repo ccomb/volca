@@ -76,18 +76,18 @@ span.spaces    { background: white }
 <span class="lineno">   57 </span>
 <span class="lineno">   58 </span>-- | SimaPro file configuration extracted from header
 <span class="lineno">   59 </span>data SimaProConfig = SimaProConfig
-<span class="lineno">   60 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">spVersion</span></span></span> :: !Text           -- SimaPro version (e.g. &quot;9.6.0.1&quot;)
-<span class="lineno">   61 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">spFileType</span></span></span> :: !Text          -- &quot;processes&quot;, &quot;methods&quot;, &quot;product stages&quot;
-<span class="lineno">   62 </span>    , <span class="istickedoff"><span class="funcount">-- entered 326 times</span><span class="decl"><span class="istickedoff">spDelimiter</span></span></span> :: !Char         -- CSV delimiter (';', ',', '\t')
-<span class="lineno">   63 </span>    , <span class="istickedoff"><span class="funcount">-- entered 332 times</span><span class="decl"><span class="istickedoff">spDecimal</span></span></span> :: !Char           -- Decimal separator (',' or '.')
-<span class="lineno">   64 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">spDateFormat</span></span></span> :: !Text        -- Date format string
+<span class="lineno">   60 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">spVersion</span></span></span> :: !Text           -- SimaPro version (e.g. &quot;9.6.0.1&quot;)
+<span class="lineno">   61 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">spFileType</span></span></span> :: !Text          -- &quot;processes&quot;, &quot;methods&quot;, &quot;product stages&quot;
+<span class="lineno">   62 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">spDelimiter</span></span></span> :: !Char         -- CSV delimiter (';', ',', '\t')
+<span class="lineno">   63 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">spDecimal</span></span></span> :: !Char           -- Decimal separator (',' or '.')
+<span class="lineno">   64 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">spDateFormat</span></span></span> :: !Text        -- Date format string
 <span class="lineno">   65 </span>    }
-<span class="lineno">   66 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
-<span class="lineno">   67 </span>instance <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData SimaProConfig</span></span>
+<span class="lineno">   66 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">   67 </span>instance <span class="decl"><span class="nottickedoff">NFData SimaProConfig</span></span>
 <span class="lineno">   68 </span>
 <span class="lineno">   69 </span>-- | Default configuration (semicolon delimiter, comma decimal)
 <span class="lineno">   70 </span>defaultConfig :: SimaProConfig
-<span class="lineno">   71 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">defaultConfig = SimaProConfig</span>
+<span class="lineno">   71 </span><span class="decl"><span class="istickedoff">defaultConfig = SimaProConfig</span>
 <span class="lineno">   72 </span><span class="spaces">    </span><span class="istickedoff">{ spVersion = &quot;&quot;</span>
 <span class="lineno">   73 </span><span class="spaces">    </span><span class="istickedoff">, spFileType = &quot;processes&quot;</span>
 <span class="lineno">   74 </span><span class="spaces">    </span><span class="istickedoff">, spDelimiter = ';'</span>
@@ -101,43 +101,43 @@ span.spaces    { background: white }
 <span class="lineno">   82 </span>
 <span class="lineno">   83 </span>-- | Product row (reference output)
 <span class="lineno">   84 </span>data ProductRow = ProductRow
-<span class="lineno">   85 </span>    { <span class="istickedoff"><span class="funcount">-- entered 25 times</span><span class="decl"><span class="istickedoff">prName</span></span></span> :: !Text
-<span class="lineno">   86 </span>    , <span class="istickedoff"><span class="funcount">-- entered 52 times</span><span class="decl"><span class="istickedoff">prUnit</span></span></span> :: !Text
-<span class="lineno">   87 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">prAmount</span></span></span> :: !Double
-<span class="lineno">   88 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">prAmountRaw</span></span></span> :: !Text
-<span class="lineno">   89 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">prAllocation</span></span></span> :: !Double
-<span class="lineno">   90 </span>    , <span class="istickedoff"><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">prAllocRaw</span></span></span> :: !Text
-<span class="lineno">   91 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">prWasteType</span></span></span> :: !Text
-<span class="lineno">   92 </span>    , <span class="istickedoff"><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">prCategory</span></span></span> :: !Text
-<span class="lineno">   93 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">prComment</span></span></span> :: !Text
+<span class="lineno">   85 </span>    { <span class="istickedoff"><span class="decl"><span class="istickedoff">prName</span></span></span> :: !Text
+<span class="lineno">   86 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">prUnit</span></span></span> :: !Text
+<span class="lineno">   87 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">prAmount</span></span></span> :: !Double
+<span class="lineno">   88 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">prAmountRaw</span></span></span> :: !Text
+<span class="lineno">   89 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">prAllocation</span></span></span> :: !Double
+<span class="lineno">   90 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">prAllocRaw</span></span></span> :: !Text
+<span class="lineno">   91 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">prWasteType</span></span></span> :: !Text
+<span class="lineno">   92 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">prCategory</span></span></span> :: !Text
+<span class="lineno">   93 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">prComment</span></span></span> :: !Text
 <span class="lineno">   94 </span>    }
-<span class="lineno">   95 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
-<span class="lineno">   96 </span>instance <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData ProductRow</span></span>
+<span class="lineno">   95 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">   96 </span>instance <span class="decl"><span class="istickedoff">NFData ProductRow</span></span>
 <span class="lineno">   97 </span>
 <span class="lineno">   98 </span>-- | Technosphere exchange row (inputs from other processes)
 <span class="lineno">   99 </span>data TechExchangeRow = TechExchangeRow
-<span class="lineno">  100 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">terName</span></span></span> :: !Text
-<span class="lineno">  101 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">terUnit</span></span></span> :: !Text
-<span class="lineno">  102 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">terAmount</span></span></span> :: !Double
-<span class="lineno">  103 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">terAmountRaw</span></span></span> :: !Text
-<span class="lineno">  104 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">terUncertainty</span></span></span> :: !Text
-<span class="lineno">  105 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">terComment</span></span></span> :: !Text
+<span class="lineno">  100 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">terName</span></span></span> :: !Text
+<span class="lineno">  101 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">terUnit</span></span></span> :: !Text
+<span class="lineno">  102 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">terAmount</span></span></span> :: !Double
+<span class="lineno">  103 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">terAmountRaw</span></span></span> :: !Text
+<span class="lineno">  104 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">terUncertainty</span></span></span> :: !Text
+<span class="lineno">  105 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">terComment</span></span></span> :: !Text
 <span class="lineno">  106 </span>    }
-<span class="lineno">  107 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
-<span class="lineno">  108 </span>instance <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData TechExchangeRow</span></span>
+<span class="lineno">  107 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">  108 </span>instance <span class="decl"><span class="istickedoff">NFData TechExchangeRow</span></span>
 <span class="lineno">  109 </span>
 <span class="lineno">  110 </span>-- | Biosphere exchange row (emissions/resources)
 <span class="lineno">  111 </span>data BioExchangeRow = BioExchangeRow
-<span class="lineno">  112 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">berName</span></span></span> :: !Text
-<span class="lineno">  113 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">berCompartment</span></span></span> :: !Text
-<span class="lineno">  114 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">berUnit</span></span></span> :: !Text
-<span class="lineno">  115 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">berAmount</span></span></span> :: !Double
-<span class="lineno">  116 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">berAmountRaw</span></span></span> :: !Text
-<span class="lineno">  117 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">berUncertainty</span></span></span> :: !Text
-<span class="lineno">  118 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">berComment</span></span></span> :: !Text
+<span class="lineno">  112 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">berName</span></span></span> :: !Text
+<span class="lineno">  113 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">berCompartment</span></span></span> :: !Text
+<span class="lineno">  114 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">berUnit</span></span></span> :: !Text
+<span class="lineno">  115 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">berAmount</span></span></span> :: !Double
+<span class="lineno">  116 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">berAmountRaw</span></span></span> :: !Text
+<span class="lineno">  117 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">berUncertainty</span></span></span> :: !Text
+<span class="lineno">  118 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">berComment</span></span></span> :: !Text
 <span class="lineno">  119 </span>    }
-<span class="lineno">  120 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
-<span class="lineno">  121 </span>instance <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData BioExchangeRow</span></span>
+<span class="lineno">  120 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">  121 </span>instance <span class="decl"><span class="istickedoff">NFData BioExchangeRow</span></span>
 <span class="lineno">  122 </span>
 <span class="lineno">  123 </span>-- ============================================================================
 <span class="lineno">  124 </span>-- Process Block Accumulator
@@ -145,35 +145,35 @@ span.spaces    { background: white }
 <span class="lineno">  126 </span>
 <span class="lineno">  127 </span>-- | Accumulated data for a single process block
 <span class="lineno">  128 </span>data ProcessBlock = ProcessBlock
-<span class="lineno">  129 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbIdentifier</span></span></span> :: !Text
-<span class="lineno">  130 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbName</span></span></span> :: !Text
-<span class="lineno">  131 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbCategoryType</span></span></span> :: !Text
-<span class="lineno">  132 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbType</span></span></span> :: !Text             -- &quot;Unit process&quot; or &quot;System&quot;
-<span class="lineno">  133 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbLocation</span></span></span> :: !Text
-<span class="lineno">  134 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbStatus</span></span></span> :: !Text
-<span class="lineno">  135 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbTimePeriod</span></span></span> :: !Text
-<span class="lineno">  136 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbTechnology</span></span></span> :: !Text
-<span class="lineno">  137 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbRecord</span></span></span> :: !Text
-<span class="lineno">  138 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbComment</span></span></span> :: !Text
-<span class="lineno">  139 </span>    , <span class="istickedoff"><span class="funcount">-- entered 52 times</span><span class="decl"><span class="istickedoff">pbProducts</span></span></span> :: ![ProductRow]
-<span class="lineno">  140 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbAvoidedProducts</span></span></span> :: ![ProductRow]
-<span class="lineno">  141 </span>    , <span class="istickedoff"><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">pbMaterials</span></span></span> :: ![TechExchangeRow]
-<span class="lineno">  142 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbElectricity</span></span></span> :: ![TechExchangeRow]
-<span class="lineno">  143 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">pbWasteToTreatment</span></span></span> :: ![TechExchangeRow]
-<span class="lineno">  144 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbResources</span></span></span> :: ![BioExchangeRow]
-<span class="lineno">  145 </span>    , <span class="istickedoff"><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">pbEmissionsAir</span></span></span> :: ![BioExchangeRow]
-<span class="lineno">  146 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbEmissionsWater</span></span></span> :: ![BioExchangeRow]
-<span class="lineno">  147 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbEmissionsSoil</span></span></span> :: ![BioExchangeRow]
-<span class="lineno">  148 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">pbFinalWaste</span></span></span> :: ![BioExchangeRow]
-<span class="lineno">  149 </span>    , <span class="istickedoff"><span class="funcount">-- entered 31 times</span><span class="decl"><span class="istickedoff">pbInputParams</span></span></span> :: ![(Text, Text)]   -- name -&gt; raw value
-<span class="lineno">  150 </span>    , <span class="istickedoff"><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">pbCalcParams</span></span></span>  :: ![(Text, Text)]   -- name -&gt; expression
+<span class="lineno">  129 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbIdentifier</span></span></span> :: !Text
+<span class="lineno">  130 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbName</span></span></span> :: !Text
+<span class="lineno">  131 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbCategoryType</span></span></span> :: !Text
+<span class="lineno">  132 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbType</span></span></span> :: !Text             -- &quot;Unit process&quot; or &quot;System&quot;
+<span class="lineno">  133 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbLocation</span></span></span> :: !Text
+<span class="lineno">  134 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbStatus</span></span></span> :: !Text
+<span class="lineno">  135 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbTimePeriod</span></span></span> :: !Text
+<span class="lineno">  136 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbTechnology</span></span></span> :: !Text
+<span class="lineno">  137 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbRecord</span></span></span> :: !Text
+<span class="lineno">  138 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbComment</span></span></span> :: !Text
+<span class="lineno">  139 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">pbProducts</span></span></span> :: ![ProductRow]
+<span class="lineno">  140 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbAvoidedProducts</span></span></span> :: ![ProductRow]
+<span class="lineno">  141 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">pbMaterials</span></span></span> :: ![TechExchangeRow]
+<span class="lineno">  142 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbElectricity</span></span></span> :: ![TechExchangeRow]
+<span class="lineno">  143 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">pbWasteToTreatment</span></span></span> :: ![TechExchangeRow]
+<span class="lineno">  144 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbResources</span></span></span> :: ![BioExchangeRow]
+<span class="lineno">  145 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">pbEmissionsAir</span></span></span> :: ![BioExchangeRow]
+<span class="lineno">  146 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbEmissionsWater</span></span></span> :: ![BioExchangeRow]
+<span class="lineno">  147 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbEmissionsSoil</span></span></span> :: ![BioExchangeRow]
+<span class="lineno">  148 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">pbFinalWaste</span></span></span> :: ![BioExchangeRow]
+<span class="lineno">  149 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">pbInputParams</span></span></span> :: ![(Text, Text)]   -- name -&gt; raw value
+<span class="lineno">  150 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">pbCalcParams</span></span></span>  :: ![(Text, Text)]   -- name -&gt; expression
 <span class="lineno">  151 </span>    }
-<span class="lineno">  152 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
-<span class="lineno">  153 </span>instance <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData ProcessBlock</span></span>
+<span class="lineno">  152 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">  153 </span>instance <span class="decl"><span class="istickedoff">NFData ProcessBlock</span></span>
 <span class="lineno">  154 </span>
 <span class="lineno">  155 </span>-- | Empty process block
 <span class="lineno">  156 </span>emptyProcessBlock :: ProcessBlock
-<span class="lineno">  157 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">emptyProcessBlock = ProcessBlock</span>
+<span class="lineno">  157 </span><span class="decl"><span class="istickedoff">emptyProcessBlock = ProcessBlock</span>
 <span class="lineno">  158 </span><span class="spaces">    </span><span class="istickedoff">{ pbIdentifier = &quot;&quot;</span>
 <span class="lineno">  159 </span><span class="spaces">    </span><span class="istickedoff">, pbName = &quot;&quot;</span>
 <span class="lineno">  160 </span><span class="spaces">    </span><span class="istickedoff">, pbCategoryType = &quot;&quot;</span>
@@ -221,7 +221,7 @@ span.spaces    { background: white }
 <span class="lineno">  202 </span>    | SecProjInputParams
 <span class="lineno">  203 </span>    | SecProjCalcParams
 <span class="lineno">  204 </span>    | SecNone
-<span class="lineno">  205 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
+<span class="lineno">  205 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
 <span class="lineno">  206 </span>
 <span class="lineno">  207 </span>-- | Parser state
 <span class="lineno">  208 </span>data ParseState
@@ -229,19 +229,19 @@ span.spaces    { background: white }
 <span class="lineno">  210 </span>    | InProcessMeta !BS.ByteString  -- Current metadata key being read
 <span class="lineno">  211 </span>    | InSection !SectionType
 <span class="lineno">  212 </span>    | BetweenBlocks
-<span class="lineno">  213 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- entered 283 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
+<span class="lineno">  213 </span>    deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
 <span class="lineno">  214 </span>
 <span class="lineno">  215 </span>-- | Parse state accumulator
 <span class="lineno">  216 </span>data ParseAcc = ParseAcc
-<span class="lineno">  217 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">paConfig</span></span></span> :: !SimaProConfig
-<span class="lineno">  218 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">paState</span></span></span> :: !ParseState
-<span class="lineno">  219 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">paCurrentBlock</span></span></span> :: !ProcessBlock
-<span class="lineno">  220 </span>    , <span class="istickedoff"><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">paBlocks</span></span></span> :: ![ProcessBlock]
-<span class="lineno">  221 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">paLineNum</span></span></span> :: !Int
-<span class="lineno">  222 </span>    , <span class="istickedoff"><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">paDbInputParams</span></span></span>   :: ![(Text, Text)]
-<span class="lineno">  223 </span>    , <span class="istickedoff"><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">paDbCalcParams</span></span></span>    :: ![(Text, Text)]
-<span class="lineno">  224 </span>    , <span class="istickedoff"><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">paProjInputParams</span></span></span> :: ![(Text, Text)]
-<span class="lineno">  225 </span>    , <span class="istickedoff"><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">paProjCalcParams</span></span></span>  :: ![(Text, Text)]
+<span class="lineno">  217 </span>    { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">paConfig</span></span></span> :: !SimaProConfig
+<span class="lineno">  218 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">paState</span></span></span> :: !ParseState
+<span class="lineno">  219 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">paCurrentBlock</span></span></span> :: !ProcessBlock
+<span class="lineno">  220 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">paBlocks</span></span></span> :: ![ProcessBlock]
+<span class="lineno">  221 </span>    , <span class="nottickedoff"><span class="decl"><span class="nottickedoff">paLineNum</span></span></span> :: !Int
+<span class="lineno">  222 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">paDbInputParams</span></span></span>   :: ![(Text, Text)]
+<span class="lineno">  223 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">paDbCalcParams</span></span></span>    :: ![(Text, Text)]
+<span class="lineno">  224 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">paProjInputParams</span></span></span> :: ![(Text, Text)]
+<span class="lineno">  225 </span>    , <span class="istickedoff"><span class="decl"><span class="istickedoff">paProjCalcParams</span></span></span>  :: ![(Text, Text)]
 <span class="lineno">  226 </span>    }
 <span class="lineno">  227 </span>
 <span class="lineno">  228 </span>-- ============================================================================
@@ -250,7 +250,7 @@ span.spaces    { background: white }
 <span class="lineno">  231 </span>
 <span class="lineno">  232 </span>-- | Parse a header line like &quot;{key: value}&quot; or &quot;{value}&quot;
 <span class="lineno">  233 </span>parseHeaderLine :: BS.ByteString -&gt; Maybe (BS.ByteString, BS.ByteString)
-<span class="lineno">  234 </span><span class="funcount">-- entered 515 times</span><span class="decl"><span class="istickedoff">parseHeaderLine line</span>
+<span class="lineno">  234 </span><span class="decl"><span class="istickedoff">parseHeaderLine line</span>
 <span class="lineno">  235 </span><span class="spaces">    </span><span class="istickedoff">| BS8.isPrefixOf &quot;{&quot; line &amp;&amp; BS8.isSuffixOf &quot;}&quot; line =</span>
 <span class="lineno">  236 </span><span class="spaces">        </span><span class="istickedoff">let content = BS8.init (BS8.tail line)</span>
 <span class="lineno">  237 </span><span class="spaces">        </span><span class="istickedoff">in case BS8.breakSubstring &quot;: &quot; content of</span>
@@ -260,7 +260,7 @@ span.spaces    { background: white }
 <span class="lineno">  241 </span>
 <span class="lineno">  242 </span>-- | Update config from header line (takes ByteString, stores Text)
 <span class="lineno">  243 </span>updateConfigFromHeader :: SimaProConfig -&gt; BS.ByteString -&gt; BS.ByteString -&gt; SimaProConfig
-<span class="lineno">  244 </span><span class="funcount">-- entered 63 times</span><span class="decl"><span class="istickedoff">updateConfigFromHeader cfg key value = case BS8.map toLower key of</span>
+<span class="lineno">  244 </span><span class="decl"><span class="istickedoff">updateConfigFromHeader cfg key value = case BS8.map toLower key of</span>
 <span class="lineno">  245 </span><span class="spaces">    </span><span class="istickedoff">k | &quot;simapro&quot; `BS8.isPrefixOf` k -&gt; cfg { spVersion = decodeBS key }</span>
 <span class="lineno">  246 </span><span class="spaces">    </span><span class="istickedoff">&quot;processes&quot; -&gt; <span class="nottickedoff">cfg { spFileType = &quot;processes&quot; }</span></span>
 <span class="lineno">  247 </span><span class="spaces">    </span><span class="istickedoff">&quot;methods&quot; -&gt; <span class="nottickedoff">cfg { spFileType = &quot;methods&quot; }</span></span>
@@ -283,7 +283,7 @@ span.spaces    { background: white }
 <span class="lineno">  264 </span>
 <span class="lineno">  265 </span>-- | Detect section type from line (ByteString)
 <span class="lineno">  266 </span>detectSection :: BS.ByteString -&gt; Maybe SectionType
-<span class="lineno">  267 </span><span class="funcount">-- entered 378 times</span><span class="decl"><span class="istickedoff">detectSection line = case BS8.strip line of</span>
+<span class="lineno">  267 </span><span class="decl"><span class="istickedoff">detectSection line = case BS8.strip line of</span>
 <span class="lineno">  268 </span><span class="spaces">    </span><span class="istickedoff">&quot;Products&quot; -&gt; Just SecProducts</span>
 <span class="lineno">  269 </span><span class="spaces">    </span><span class="istickedoff">&quot;Waste treatment&quot; -&gt; Just SecProducts</span>
 <span class="lineno">  270 </span><span class="spaces">    </span><span class="istickedoff">&quot;Avoided products&quot; -&gt; <span class="nottickedoff">Just SecAvoidedProducts</span></span>
@@ -308,7 +308,7 @@ span.spaces    { background: white }
 <span class="lineno">  289 </span>
 <span class="lineno">  290 </span>-- | Known metadata keys in process block (ByteString)
 <span class="lineno">  291 </span>isMetadataKey :: BS.ByteString -&gt; Bool
-<span class="lineno">  292 </span><span class="funcount">-- entered 229 times</span><span class="decl"><span class="istickedoff">isMetadataKey key = key `elem`</span>
+<span class="lineno">  292 </span><span class="decl"><span class="istickedoff">isMetadataKey key = key `elem`</span>
 <span class="lineno">  293 </span><span class="spaces">    </span><span class="istickedoff">[ &quot;Category type&quot;, &quot;Process identifier&quot;, &quot;Type&quot;, &quot;Process name&quot;</span>
 <span class="lineno">  294 </span><span class="spaces">    </span><span class="istickedoff">, &quot;Status&quot;, &quot;Time period&quot;, &quot;Geography&quot;, &quot;Technology&quot;</span>
 <span class="lineno">  295 </span><span class="spaces">    </span><span class="istickedoff">, &quot;Representativeness&quot;, &quot;Multiple output allocation&quot;, &quot;Substitution allocation&quot;</span>
@@ -325,12 +325,12 @@ span.spaces    { background: white }
 <span class="lineno">  306 </span>
 <span class="lineno">  307 </span>-- | Decode ByteString to Text (lenient UTF-8)
 <span class="lineno">  308 </span>decodeBS :: BS.ByteString -&gt; Text
-<span class="lineno">  309 </span><span class="funcount">-- entered 1167 times</span><span class="decl"><span class="istickedoff">decodeBS = TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span></span></span>
+<span class="lineno">  309 </span><span class="decl"><span class="istickedoff">decodeBS = TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span></span></span>
 <span class="lineno">  310 </span>{-# INLINE decodeBS #-}
 <span class="lineno">  311 </span>
 <span class="lineno">  312 </span>-- | Parse amount with configurable decimal separator (ByteString)
 <span class="lineno">  313 </span>parseAmount :: Char -&gt; BS.ByteString -&gt; Double
-<span class="lineno">  314 </span><span class="funcount">-- entered 220 times</span><span class="decl"><span class="istickedoff">parseAmount decimalSep bs</span>
+<span class="lineno">  314 </span><span class="decl"><span class="istickedoff">parseAmount decimalSep bs</span>
 <span class="lineno">  315 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">BS.null bs</span> = <span class="nottickedoff">0.0</span></span>
 <span class="lineno">  316 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
 <span class="lineno">  317 </span><span class="spaces">        </span><span class="istickedoff">let normalized = if decimalSep == ','</span>
@@ -343,7 +343,7 @@ span.spaces    { background: white }
 <span class="lineno">  324 </span>
 <span class="lineno">  325 </span>-- | Split a CSV line by delimiter, respecting RFC 4180 quoted fields.
 <span class="lineno">  326 </span>splitCSV :: Char -&gt; BS.ByteString -&gt; [BS.ByteString]
-<span class="lineno">  327 </span><span class="funcount">-- entered 326 times</span><span class="decl"><span class="istickedoff">splitCSV delim bs =</span>
+<span class="lineno">  327 </span><span class="decl"><span class="istickedoff">splitCSV delim bs =</span>
 <span class="lineno">  328 </span><span class="spaces">    </span><span class="istickedoff">let opts = Csv.defaultDecodeOptions</span>
 <span class="lineno">  329 </span><span class="spaces">            </span><span class="istickedoff">{ Csv.decDelimiter = fromIntegral (fromEnum delim) }</span>
 <span class="lineno">  330 </span><span class="spaces">    </span><span class="istickedoff">in case Csv.decodeWith opts Csv.NoHeader (BL.fromStrict bs) of</span>
@@ -352,7 +352,7 @@ span.spaces    { background: white }
 <span class="lineno">  333 </span>
 <span class="lineno">  334 </span>-- | Parse a parameter row: name;value_or_expression;...
 <span class="lineno">  335 </span>parseParamRow :: SimaProConfig -&gt; BS.ByteString -&gt; Maybe (Text, Text)
-<span class="lineno">  336 </span><span class="funcount">-- entered 41 times</span><span class="decl"><span class="istickedoff">parseParamRow cfg line =</span>
+<span class="lineno">  336 </span><span class="decl"><span class="istickedoff">parseParamRow cfg line =</span>
 <span class="lineno">  337 </span><span class="spaces">    </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
 <span class="lineno">  338 </span><span class="spaces">    </span><span class="istickedoff">in case fields of</span>
 <span class="lineno">  339 </span><span class="spaces">        </span><span class="istickedoff">(name:value:_) -&gt;</span>
@@ -377,7 +377,7 @@ span.spaces    { background: white }
 <span class="lineno">  358 </span>-- Without this detection, the comment (which often contains \x7f-separated EcoSpold
 <span class="lineno">  359 </span>-- property metadata) ends up being parsed as the category.
 <span class="lineno">  360 </span>parseProductRow :: SimaProConfig -&gt; BS.ByteString -&gt; Maybe ProductRow
-<span class="lineno">  361 </span><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">parseProductRow cfg line =</span>
+<span class="lineno">  361 </span><span class="decl"><span class="istickedoff">parseProductRow cfg line =</span>
 <span class="lineno">  362 </span><span class="spaces">    </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
 <span class="lineno">  363 </span><span class="spaces">        </span><span class="istickedoff">norm = Expr.normalizeExpr (spDecimal cfg) . decodeBS . BS8.strip</span>
 <span class="lineno">  364 </span><span class="spaces">    </span><span class="istickedoff">in case fields of</span>
@@ -413,11 +413,11 @@ span.spaces    { background: white }
 <span class="lineno">  394 </span>-- Uses the Megaparsec expression parser syntactically — accepts any identifier without
 <span class="lineno">  395 </span>-- needing parameter values. Waste type descriptions (&quot;All waste types&quot;) fail to parse.
 <span class="lineno">  396 </span>isAllocationField :: SimaProConfig -&gt; BS.ByteString -&gt; Bool
-<span class="lineno">  397 </span><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">isAllocationField cfg bs = Expr.isExpression (spDecimal cfg) (decodeBS (BS8.strip bs))</span></span>
+<span class="lineno">  397 </span><span class="decl"><span class="istickedoff">isAllocationField cfg bs = Expr.isExpression (spDecimal cfg) (decodeBS (BS8.strip bs))</span></span>
 <span class="lineno">  398 </span>
 <span class="lineno">  399 </span>-- | Parse a technosphere exchange row (ByteString input, Text output)
 <span class="lineno">  400 </span>parseTechRow :: SimaProConfig -&gt; BS.ByteString -&gt; Maybe TechExchangeRow
-<span class="lineno">  401 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">parseTechRow cfg line =</span>
+<span class="lineno">  401 </span><span class="decl"><span class="istickedoff">parseTechRow cfg line =</span>
 <span class="lineno">  402 </span><span class="spaces">    </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
 <span class="lineno">  403 </span><span class="spaces">        </span><span class="istickedoff">norm = Expr.normalizeExpr (spDecimal cfg) . decodeBS . BS8.strip</span>
 <span class="lineno">  404 </span><span class="spaces">    </span><span class="istickedoff">in case fields of</span>
@@ -441,7 +441,7 @@ span.spaces    { background: white }
 <span class="lineno">  422 </span>
 <span class="lineno">  423 </span>-- | Parse a biosphere exchange row (ByteString input, Text output)
 <span class="lineno">  424 </span>parseBioRow :: SimaProConfig -&gt; BS.ByteString -&gt; Maybe BioExchangeRow
-<span class="lineno">  425 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">parseBioRow cfg line =</span>
+<span class="lineno">  425 </span><span class="decl"><span class="istickedoff">parseBioRow cfg line =</span>
 <span class="lineno">  426 </span><span class="spaces">    </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
 <span class="lineno">  427 </span><span class="spaces">        </span><span class="istickedoff">norm = Expr.normalizeExpr (spDecimal cfg) . decodeBS . BS8.strip</span>
 <span class="lineno">  428 </span><span class="spaces">    </span><span class="istickedoff">in case fields of</span>
@@ -471,7 +471,7 @@ span.spaces    { background: white }
 <span class="lineno">  452 </span>
 <span class="lineno">  453 </span>-- | Process a single line (ByteString)
 <span class="lineno">  454 </span>processLine :: ParseAcc -&gt; BS.ByteString -&gt; ParseAcc
-<span class="lineno">  455 </span><span class="funcount">-- entered 631 times</span><span class="decl"><span class="istickedoff">processLine acc@ParseAcc{..} line</span>
+<span class="lineno">  455 </span><span class="decl"><span class="istickedoff">processLine acc@ParseAcc{..} line</span>
 <span class="lineno">  456 </span><span class="spaces">    </span><span class="istickedoff">-- Empty line handling</span>
 <span class="lineno">  457 </span><span class="spaces">    </span><span class="istickedoff">| BS.null (BS8.strip line) = case paState of</span>
 <span class="lineno">  458 </span><span class="spaces">        </span><span class="istickedoff">InProcessMeta _ -&gt; <span class="nottickedoff">acc { paState = BetweenBlocks }</span></span>
@@ -539,7 +539,7 @@ span.spaces    { background: white }
 <span class="lineno">  520 </span>
 <span class="lineno">  521 </span>-- | Add a row to the appropriate list in the block (ByteString)
 <span class="lineno">  522 </span>addRowToBlock :: SimaProConfig -&gt; SectionType -&gt; BS.ByteString -&gt; ProcessBlock -&gt; ProcessBlock
-<span class="lineno">  523 </span><span class="funcount">-- entered 85 times</span><span class="decl"><span class="istickedoff">addRowToBlock cfg sec line block = case sec of</span>
+<span class="lineno">  523 </span><span class="decl"><span class="istickedoff">addRowToBlock cfg sec line block = case sec of</span>
 <span class="lineno">  524 </span><span class="spaces">    </span><span class="istickedoff">SecProducts -&gt; case parseProductRow cfg line of</span>
 <span class="lineno">  525 </span><span class="spaces">        </span><span class="istickedoff">Just row -&gt; block { pbProducts = row : pbProducts block }</span>
 <span class="lineno">  526 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">block</span></span>
@@ -580,7 +580,7 @@ span.spaces    { background: white }
 <span class="lineno">  561 </span>
 <span class="lineno">  562 </span>-- | Set metadata field in block (ByteString key, decode value to Text)
 <span class="lineno">  563 </span>setMetadata :: BS.ByteString -&gt; BS.ByteString -&gt; ProcessBlock -&gt; ProcessBlock
-<span class="lineno">  564 </span><span class="funcount">-- entered 88 times</span><span class="decl"><span class="istickedoff">setMetadata key value block = case key of</span>
+<span class="lineno">  564 </span><span class="decl"><span class="istickedoff">setMetadata key value block = case key of</span>
 <span class="lineno">  565 </span><span class="spaces">    </span><span class="istickedoff">&quot;Category type&quot; -&gt; block { pbCategoryType = decodeBS (BS8.strip value) }</span>
 <span class="lineno">  566 </span><span class="spaces">    </span><span class="istickedoff">&quot;Process identifier&quot; -&gt; <span class="nottickedoff">block { pbIdentifier = decodeBS (BS8.strip value) }</span></span>
 <span class="lineno">  567 </span><span class="spaces">    </span><span class="istickedoff">&quot;Type&quot; -&gt; block { pbType = decodeBS (BS8.strip value) }</span>
@@ -599,22 +599,22 @@ span.spaces    { background: white }
 <span class="lineno">  580 </span>
 <span class="lineno">  581 </span>-- | Namespace for SimaPro UUIDs
 <span class="lineno">  582 </span>simaproNamespace :: UUID
-<span class="lineno">  583 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">simaproNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ TE.encodeUtf8 &quot;simapro.pre.nl&quot;)</span></span>
+<span class="lineno">  583 </span><span class="decl"><span class="istickedoff">simaproNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ TE.encodeUtf8 &quot;simapro.pre.nl&quot;)</span></span>
 <span class="lineno">  584 </span>
 <span class="lineno">  585 </span>-- | Generate deterministic activity UUID from Activity (uses name + location)
 <span class="lineno">  586 </span>generateActivityUUID :: Activity -&gt; UUID
-<span class="lineno">  587 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">generateActivityUUID act =</span>
+<span class="lineno">  587 </span><span class="decl"><span class="nottickedoff">generateActivityUUID act =</span>
 <span class="lineno">  588 </span><span class="spaces">    </span><span class="nottickedoff">UUID5.generateNamed simaproNamespace</span>
 <span class="lineno">  589 </span><span class="spaces">        </span><span class="nottickedoff">(BS.unpack $ TE.encodeUtf8 $ &quot;activity:&quot; &lt;&gt; activityName act &lt;&gt; &quot;@&quot; &lt;&gt; activityLocation act)</span></span>
 <span class="lineno">  590 </span>
 <span class="lineno">  591 </span>-- | Generate deterministic flow UUID from name, compartment, unit
 <span class="lineno">  592 </span>generateFlowUUID :: Text -&gt; Text -&gt; Text -&gt; UUID
-<span class="lineno">  593 </span><span class="funcount">-- entered 45 times</span><span class="decl"><span class="istickedoff">generateFlowUUID name compartment unit =</span>
+<span class="lineno">  593 </span><span class="decl"><span class="istickedoff">generateFlowUUID name compartment unit =</span>
 <span class="lineno">  594 </span><span class="spaces">    </span><span class="istickedoff">UUID5.generateNamed simaproNamespace (BS.unpack $ TE.encodeUtf8 $ &quot;flow:&quot; &lt;&gt; name &lt;&gt; &quot;:&quot; &lt;&gt; compartment &lt;&gt; &quot;:&quot; &lt;&gt; unit)</span></span>
 <span class="lineno">  595 </span>
 <span class="lineno">  596 </span>-- | Generate deterministic unit UUID from name
 <span class="lineno">  597 </span>generateUnitUUID :: Text -&gt; UUID
-<span class="lineno">  598 </span><span class="funcount">-- entered 72 times</span><span class="decl"><span class="istickedoff">generateUnitUUID unitName =</span>
+<span class="lineno">  598 </span><span class="decl"><span class="istickedoff">generateUnitUUID unitName =</span>
 <span class="lineno">  599 </span><span class="spaces">    </span><span class="istickedoff">UUID5.generateNamed simaproNamespace (BS.unpack $ TE.encodeUtf8 $ &quot;unit:&quot; &lt;&gt; unitName)</span></span>
 <span class="lineno">  600 </span>
 <span class="lineno">  601 </span>-- ============================================================================
@@ -626,7 +626,7 @@ span.spaces    { background: white }
 <span class="lineno">  607 </span>-- Also handles WFLDB-style &quot;/XX&quot; suffix (e.g. &quot;Ammonium nitrate .../CN&quot;).
 <span class="lineno">  608 </span>-- In SimaPro format, curly braces always denote geography.
 <span class="lineno">  609 </span>extractLocation :: Text -&gt; (Text, Text)
-<span class="lineno">  610 </span><span class="funcount">-- entered 80 times</span><span class="decl"><span class="istickedoff">extractLocation name =</span>
+<span class="lineno">  610 </span><span class="decl"><span class="istickedoff">extractLocation name =</span>
 <span class="lineno">  611 </span><span class="spaces">    </span><span class="istickedoff">case T.breakOn &quot;{&quot; name of</span>
 <span class="lineno">  612 </span><span class="spaces">        </span><span class="istickedoff">(_, rest) | not (T.null rest) -&gt;</span>
 <span class="lineno">  613 </span><span class="spaces">            </span><span class="istickedoff">case T.breakOn &quot;}&quot; (T.drop 1 rest) of</span>
@@ -657,7 +657,7 @@ span.spaces    { background: white }
 <span class="lineno">  638 </span>
 <span class="lineno">  639 </span>-- | Resolve a parameterized amount: try expression evaluation, fall back to numeric parse
 <span class="lineno">  640 </span>resolveAmount :: M.Map Text Double -&gt; Text -&gt; Double -&gt; Double
-<span class="lineno">  641 </span><span class="funcount">-- entered 57 times</span><span class="decl"><span class="istickedoff">resolveAmount env raw fallback</span>
+<span class="lineno">  641 </span><span class="decl"><span class="istickedoff">resolveAmount env raw fallback</span>
 <span class="lineno">  642 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">T.null raw</span> = <span class="nottickedoff">fallback</span></span>
 <span class="lineno">  643 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = case TR.double raw of</span>
 <span class="lineno">  644 </span><span class="spaces">        </span><span class="istickedoff">Right (v, rest) | <span class="tickonlytrue">T.null (T.strip rest)</span> -&gt; v</span>
@@ -670,7 +670,7 @@ span.spaces    { background: white }
 <span class="lineno">  651 </span>-- Global params (db + project level) are passed in and combined with process-level params.
 <span class="lineno">  652 </span>processBlockToActivity :: ([(Text, Text)], [(Text, Text)], [(Text, Text)], [(Text, Text)])
 <span class="lineno">  653 </span>                       -&gt; ProcessBlock -&gt; [(Activity, [Flow], [Unit])]
-<span class="lineno">  654 </span><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">processBlockToActivity (dbInputPs, dbCalcPs, projInputPs, projCalcPs) ProcessBlock{..} =</span>
+<span class="lineno">  654 </span><span class="decl"><span class="istickedoff">processBlockToActivity (dbInputPs, dbCalcPs, projInputPs, projCalcPs) ProcessBlock{..} =</span>
 <span class="lineno">  655 </span><span class="spaces">    </span><span class="istickedoff">let -- Build parameter environment: input params first, then calculated params</span>
 <span class="lineno">  656 </span><span class="spaces">        </span><span class="istickedoff">evalParam acc (name, rawVal) = case Expr.evaluate acc rawVal of</span>
 <span class="lineno">  657 </span><span class="spaces">            </span><span class="istickedoff">Right v -&gt; M.insert name v acc</span>
@@ -752,12 +752,12 @@ span.spaces    { background: white }
 <span class="lineno">  733 </span>
 <span class="lineno">  734 </span>-- | Scale an exchange amount by a factor (for allocation)
 <span class="lineno">  735 </span>scaleExchange :: Double -&gt; Exchange -&gt; Exchange
-<span class="lineno">  736 </span><span class="funcount">-- entered 19 times</span><span class="decl"><span class="istickedoff">scaleExchange factor ex@TechnosphereExchange{} = ex { techAmount = techAmount ex * factor }</span>
+<span class="lineno">  736 </span><span class="decl"><span class="istickedoff">scaleExchange factor ex@TechnosphereExchange{} = ex { techAmount = techAmount ex * factor }</span>
 <span class="lineno">  737 </span><span class="spaces"></span><span class="istickedoff">scaleExchange factor ex@BiosphereExchange{} = ex { bioAmount = bioAmount ex * factor }</span></span>
 <span class="lineno">  738 </span>
 <span class="lineno">  739 </span>-- | Convert product row to exchange, flow, and unit in one pass
 <span class="lineno">  740 </span>productToExchange :: M.Map Text Double -&gt; Bool -&gt; ProductRow -&gt; (Exchange, Flow, Unit)
-<span class="lineno">  741 </span><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">productToExchange env isRef ProductRow{..} =</span>
+<span class="lineno">  741 </span><span class="decl"><span class="istickedoff">productToExchange env isRef ProductRow{..} =</span>
 <span class="lineno">  742 </span><span class="spaces">    </span><span class="istickedoff">let cleanName = fst (extractLocation prName)</span>
 <span class="lineno">  743 </span><span class="spaces">        </span><span class="istickedoff">flowUUID = generateFlowUUID cleanName &quot;&quot; prUnit</span>
 <span class="lineno">  744 </span><span class="spaces">        </span><span class="istickedoff">unitUUID = generateUnitUUID prUnit</span>
@@ -784,7 +784,7 @@ span.spaces    { background: white }
 <span class="lineno">  765 </span>-- | Convert technosphere row to exchange (if non-zero), flow, and unit.
 <span class="lineno">  766 </span>-- Always returns the flow/unit; exchange is Nothing for zero-amount rows.
 <span class="lineno">  767 </span>techRowToExchange :: M.Map Text Double -&gt; Bool -&gt; TechExchangeRow -&gt; (Maybe Exchange, Flow, Unit)
-<span class="lineno">  768 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">techRowToExchange env isInput TechExchangeRow{..} =</span>
+<span class="lineno">  768 </span><span class="decl"><span class="istickedoff">techRowToExchange env isInput TechExchangeRow{..} =</span>
 <span class="lineno">  769 </span><span class="spaces">    </span><span class="istickedoff">let (cleanName, location) = extractLocation terName</span>
 <span class="lineno">  770 </span><span class="spaces">        </span><span class="istickedoff">flowUUID = generateFlowUUID cleanName &quot;&quot; terUnit</span>
 <span class="lineno">  771 </span><span class="spaces">        </span><span class="istickedoff">unitUUID = generateUnitUUID terUnit</span>
@@ -812,7 +812,7 @@ span.spaces    { background: white }
 <span class="lineno">  793 </span>-- The compartment parameter is the section-level compartment (&quot;air&quot;, &quot;water&quot;, &quot;soil&quot;, &quot;resource&quot;, &quot;waste&quot;)
 <span class="lineno">  794 </span>-- and berCompartment is the row-level sub-compartment (&quot;high. pop.&quot;, &quot;river&quot;, etc. or empty)
 <span class="lineno">  795 </span>bioRowToExchange :: M.Map Text Double -&gt; Bool -&gt; Text -&gt; BioExchangeRow -&gt; (Exchange, Flow, Unit)
-<span class="lineno">  796 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">bioRowToExchange env isInput compartment BioExchangeRow{..} =</span>
+<span class="lineno">  796 </span><span class="decl"><span class="istickedoff">bioRowToExchange env isInput compartment BioExchangeRow{..} =</span>
 <span class="lineno">  797 </span><span class="spaces">    </span><span class="istickedoff">let category = if <span class="tickonlyfalse">T.null berCompartment</span> then <span class="nottickedoff">compartment</span></span>
 <span class="lineno">  798 </span><span class="spaces">                   </span><span class="istickedoff">else compartment &lt;&gt; &quot;/&quot; &lt;&gt; berCompartment</span>
 <span class="lineno">  799 </span><span class="spaces">        </span><span class="istickedoff">flowUUID = generateFlowUUID berName category berUnit</span>
@@ -846,7 +846,7 @@ span.spaces    { background: white }
 <span class="lineno">  827 </span>--   2. Valid UTF-8 but contains C1 controls (bad prior conversion) -&gt; fix C1 chars
 <span class="lineno">  828 </span>--   3. Raw Windows-1252 bytes (not valid UTF-8) -&gt; full Win-1252 decode
 <span class="lineno">  829 </span>ensureUtf8 :: BS.ByteString -&gt; BS.ByteString
-<span class="lineno">  830 </span><span class="funcount">-- entered 28 times</span><span class="decl"><span class="istickedoff">ensureUtf8 bs = case TE.decodeUtf8' bs of</span>
+<span class="lineno">  830 </span><span class="decl"><span class="istickedoff">ensureUtf8 bs = case TE.decodeUtf8' bs of</span>
 <span class="lineno">  831 </span><span class="spaces">    </span><span class="istickedoff">Right text</span>
 <span class="lineno">  832 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">T.any isC1Control text</span> -&gt; <span class="nottickedoff">TE.encodeUtf8 (fixWindows1252Controls text)</span></span>
 <span class="lineno">  833 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; bs  -- Already proper UTF-8, no changes needed</span>
@@ -858,13 +858,13 @@ span.spaces    { background: white }
 <span class="lineno">  839 </span>-- decodeLatin1 maps each byte to the same-valued Unicode codepoint,
 <span class="lineno">  840 </span>-- then fixWindows1252Controls corrects the 0x80-0x9F range.
 <span class="lineno">  841 </span>decodeWindows1252 :: BS.ByteString -&gt; Text
-<span class="lineno">  842 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">decodeWindows1252 = fixWindows1252Controls . TE.decodeLatin1</span></span>
+<span class="lineno">  842 </span><span class="decl"><span class="istickedoff">decodeWindows1252 = fixWindows1252Controls . TE.decodeLatin1</span></span>
 <span class="lineno">  843 </span>
 <span class="lineno">  844 </span>-- | Map C1 control characters (U+0080-U+009F) to their Windows-1252 equivalents.
 <span class="lineno">  845 </span>-- These control characters never appear in real text; when present, they're
 <span class="lineno">  846 </span>-- always Win-1252 bytes that were incorrectly mapped to Unicode codepoints.
 <span class="lineno">  847 </span>fixWindows1252Controls :: Text -&gt; Text
-<span class="lineno">  848 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">fixWindows1252Controls = T.map fixChar</span>
+<span class="lineno">  848 </span><span class="decl"><span class="istickedoff">fixWindows1252Controls = T.map fixChar</span>
 <span class="lineno">  849 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">  850 </span><span class="spaces">    </span><span class="istickedoff">fixChar '\x0080' = <span class="nottickedoff">'\x20AC'</span>  -- Euro sign</span>
 <span class="lineno">  851 </span><span class="spaces">    </span><span class="istickedoff">fixChar '\x0082' = <span class="nottickedoff">'\x201A'</span>  -- Single low-9 quotation mark</span>
@@ -906,7 +906,7 @@ span.spaces    { background: white }
 <span class="lineno">  887 </span>-- | Extract SimaProConfig from header lines (lines starting with '{').
 <span class="lineno">  888 </span>-- Stops at the first non-header, non-empty line.
 <span class="lineno">  889 </span>extractConfig :: [BS.ByteString] -&gt; SimaProConfig
-<span class="lineno">  890 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">extractConfig = foldl' step defaultConfig . takeWhile isHeaderOrEmpty</span>
+<span class="lineno">  890 </span><span class="decl"><span class="istickedoff">extractConfig = foldl' step defaultConfig . takeWhile isHeaderOrEmpty</span>
 <span class="lineno">  891 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">  892 </span><span class="spaces">    </span><span class="istickedoff">isHeaderOrEmpty l = let s = BS8.strip l in BS.null s || BS8.isPrefixOf &quot;{&quot; s</span>
 <span class="lineno">  893 </span><span class="spaces">    </span><span class="istickedoff">step cfg line = case parseHeaderLine line of</span>
@@ -916,7 +916,7 @@ span.spaces    { background: white }
 <span class="lineno">  897 </span>-- | Split lines into N contiguous chunks at End boundaries.
 <span class="lineno">  898 </span>-- Each chunk contains roughly totalEnds/N complete blocks.
 <span class="lineno">  899 </span>splitForWorkers :: Int -&gt; [BS.ByteString] -&gt; [[BS.ByteString]]
-<span class="lineno">  900 </span><span class="funcount">-- entered 18 times</span><span class="decl"><span class="istickedoff">splitForWorkers numWorkers allLines</span>
+<span class="lineno">  900 </span><span class="decl"><span class="istickedoff">splitForWorkers numWorkers allLines</span>
 <span class="lineno">  901 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">numWorkers &lt;= 1</span> = <span class="nottickedoff">[allLines]</span></span>
 <span class="lineno">  902 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">totalEnds == 0</span>  = <span class="nottickedoff">[allLines]</span></span>
 <span class="lineno">  903 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span>       = chopAtEnds endsPerChunk 0 [] allLines</span>
@@ -936,7 +936,7 @@ span.spaces    { background: white }
 <span class="lineno">  917 </span>
 <span class="lineno">  918 </span>-- | Parse a contiguous range of lines into ProcessBlocks + global params.
 <span class="lineno">  919 </span>parseWorkerLines :: SimaProConfig -&gt; [BS.ByteString] -&gt; ([ProcessBlock], [(Text,Text)], [(Text,Text)], [(Text,Text)], [(Text,Text)])
-<span class="lineno">  920 </span><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">parseWorkerLines cfg ls =</span>
+<span class="lineno">  920 </span><span class="decl"><span class="istickedoff">parseWorkerLines cfg ls =</span>
 <span class="lineno">  921 </span><span class="spaces">    </span><span class="istickedoff">let initAcc = ParseAcc</span>
 <span class="lineno">  922 </span><span class="spaces">            </span><span class="istickedoff">{ paConfig = cfg, paState = BetweenBlocks</span>
 <span class="lineno">  923 </span><span class="spaces">            </span><span class="istickedoff">, paCurrentBlock = emptyProcessBlock, paBlocks = []</span>
@@ -956,7 +956,7 @@ span.spaces    { background: white }
 <span class="lineno">  937 </span>-- | Parse a SimaPro CSV file
 <span class="lineno">  938 </span>-- Handles Windows-1252/Latin-1 encoding common in SimaPro exports
 <span class="lineno">  939 </span>parseSimaProCSV :: FilePath -&gt; IO ([Activity], FlowDB, UnitDB)
-<span class="lineno">  940 </span><span class="funcount">-- entered 18 times</span><span class="decl"><span class="istickedoff">parseSimaProCSV path = do</span>
+<span class="lineno">  940 </span><span class="decl"><span class="istickedoff">parseSimaProCSV path = do</span>
 <span class="lineno">  941 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info $ &quot;Loading SimaPro CSV file: &quot; ++ path</span>
 <span class="lineno">  942 </span><span class="spaces">    </span><span class="istickedoff">startTime &lt;- getCurrentTime</span>
 <span class="lineno">  943 </span><span class="spaces"></span><span class="istickedoff"></span>
