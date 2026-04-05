@@ -12,6 +12,7 @@ module Matrix.Export
 
 import Matrix (applySparseMatrix, buildDemandVectorFromIndex, solveSparseLinearSystem, toList)
 import Types
+import Progress (reportProgress, ProgressLevel(..))
 
 import Data.Int (Int32)
 import qualified Data.List as L
@@ -21,6 +22,12 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
+
+-- | Placeholder for the 5 uncertainty columns (type, variance, min, mostLikely, max).
+-- VoLCA does not model uncertainty; these are left empty for format compatibility
+-- with tools expecting the Ecoinvent universal matrix exchange format.
+emptyCsvUncertainty :: Text
+emptyCsvUncertainty = ";;;;;"
 
 -- | Matrix debug information container
 data MatrixDebugInfo = MatrixDebugInfo
@@ -93,32 +100,11 @@ extractMatrixDebugInfo database targetUUID flowFilter = do
 -- | Export matrix debug CSVs
 exportMatrixDebugCSVs :: FilePath -> MatrixDebugInfo -> IO ()
 exportMatrixDebugCSVs basePath debugInfo = do
-    let supplyChainPath = basePath ++ "_supply_chain.csv"
+    let supplyChainPath    = basePath ++ "_supply_chain.csv"
         biosphereMatrixPath = basePath ++ "_biosphere_matrix.csv"
-
-    putStrLn $ "DEBUG: exportMatrixDebugCSVs called with basePath: " ++ basePath
-    putStrLn $ "DEBUG: Will create files: " ++ supplyChainPath ++ " and " ++ biosphereMatrixPath
-
-    let demandVector = mdDemandVector debugInfo
-        targetProcessId = mdTargetProcessId debugInfo
-        activityIndexVec = mdActivityIndex debugInfo
-        targetIndex = fromIntegral (activityIndexVec V.! fromEnum targetProcessId) :: Int
-        targetDemand =
-            if targetIndex >= 0 && targetIndex < length demandVector
-                then demandVector !! targetIndex
-                else -999.0
-    putStrLn $ "DEBUG: Target activity index: " ++ show targetIndex
-    putStrLn $ "DEBUG: Target demand value: " ++ show targetDemand
-    putStrLn $ "DEBUG: Demand vector length: " ++ show (length demandVector)
-    putStrLn $ "DEBUG: Non-zero demand entries: " ++ show (length $ filter (/= 0.0) demandVector)
-
-    putStrLn "DEBUG: Calling exportSupplyChainData"
     exportSupplyChainData supplyChainPath debugInfo
-
-    putStrLn "DEBUG: Calling exportBiosphereMatrixData"
     exportBiosphereMatrixData biosphereMatrixPath debugInfo
-
-    putStrLn "DEBUG: Both CSV exports completed"
+    reportProgress Info $ "Debug CSVs written to: " ++ supplyChainPath ++ " and " ++ biosphereMatrixPath
 
 -- | Export supply chain data showing which activities contribute to target
 exportSupplyChainData :: FilePath -> MatrixDebugInfo -> IO ()
@@ -148,9 +134,8 @@ exportSupplyChainData filePath debugInfo = do
         allRows = csvHeader : supplyChainRows
         csvContent = L.intercalate "\n" (map (L.intercalate ",") allRows)
 
-    putStrLn $ "DEBUG: Writing supply chain data with " ++ show (length supplyChainRows) ++ " activities"
-    putStrLn $ "DEBUG: Supply vector length: " ++ show (length supplyVector)
     writeFile filePath csvContent
+    reportProgress Info $ "Supply chain: " ++ show (length supplyChainRows) ++ " activities → " ++ filePath
 
 -- | Export biosphere matrix contributions
 exportBiosphereMatrixData :: FilePath -> MatrixDebugInfo -> IO ()
@@ -210,20 +195,18 @@ exportBiosphereMatrixData filePath debugInfo = do
         allRows = csvHeader : matrixRows
         csvContent = L.intercalate "\n" (map (L.intercalate ",") allRows)
 
-    putStrLn $ "DEBUG: Writing biosphere matrix with " ++ show (length matrixRows) ++ " entries"
     writeFile filePath csvContent
+    reportProgress Info $ "Biosphere matrix: " ++ show (length matrixRows) ++ " entries → " ++ filePath
 
 -- | Export matrices in universal matrix format (Ecoinvent-compatible)
 exportUniversalMatrixFormat :: FilePath -> Database -> IO ()
 exportUniversalMatrixFormat outputDir db = do
-    putStrLn $ "Exporting matrices to universal format in: " ++ outputDir
-
+    reportProgress Info $ "Exporting matrices to universal format in: " ++ outputDir
     exportIEIndex (outputDir ++ "/ie_index.csv") db
     exportEEIndex (outputDir ++ "/ee_index.csv") db
     exportAMatrix (outputDir ++ "/A_public.csv") db
     exportBMatrix (outputDir ++ "/B_public.csv") db
-
-    putStrLn "Universal matrix export completed"
+    reportProgress Info "Universal matrix export completed"
 
 -- | Escape text for CSV output (semicolon delimiter)
 escapeCsvField :: Text -> Text
@@ -258,7 +241,7 @@ exportIEIndex filePath db = do
         content = T.unlines (header : rows)
 
     TIO.writeFile filePath content
-    putStrLn $ "Exported " ++ show (length rows) ++ " activities to " ++ filePath
+    reportProgress Info $ "ie_index: " ++ show (length rows) ++ " activities → " ++ filePath
 
 -- | Export ee_index.csv (Elementary Exchanges)
 exportEEIndex :: FilePath -> Database -> IO ()
@@ -288,7 +271,7 @@ exportEEIndex filePath db = do
         content = T.unlines (header : rows)
 
     TIO.writeFile filePath content
-    putStrLn $ "Exported " ++ show (length rows) ++ " biosphere flows to " ++ filePath
+    reportProgress Info $ "ee_index: " ++ show (length rows) ++ " biosphere flows → " ++ filePath
 
 -- | Export A_public.csv (Technosphere Matrix)
 exportAMatrix :: FilePath -> Database -> IO ()
@@ -305,12 +288,12 @@ exportAMatrix filePath db = do
             in if any (\ex -> exchangeIsReference ex && exchangeAmount ex < 0) (exchanges act)
                then "-1.0" else "1.0"
 
-        diagonalEntries = [T.pack $ show i ++ ";" ++ show i ++ ";" ++ diagValue i ++ ";;;;;"
+        diagonalEntries = [T.pack (show i ++ ";" ++ show i ++ ";" ++ diagValue i) <> emptyCsvUncertainty
                           | i <- [0..fromIntegral activityCount - 1 :: Int]]
 
         offDiagonalRows = U.foldr (\(SparseTriple row col value) acc ->
-                let rowStr = T.pack $ show row ++ ";" ++ show col ++ ";" ++
-                            show (-value) ++ ";;;;;"
+                let rowStr = T.pack (show row ++ ";" ++ show col ++ ";" ++ show (-value))
+                             <> emptyCsvUncertainty
                 in rowStr : acc
             ) [] techTriples
 
@@ -319,8 +302,8 @@ exportAMatrix filePath db = do
         content = T.unlines (header : allRows)
 
     TIO.writeFile filePath content
-    putStrLn $ "Exported technosphere matrix with " ++ show (length diagonalEntries) ++
-               " diagonal + " ++ show (U.length techTriples) ++ " off-diagonal entries to " ++ filePath
+    reportProgress Info $ "A_public: " ++ show (length diagonalEntries) ++ " diagonal + " ++
+                          show (U.length techTriples) ++ " off-diagonal entries → " ++ filePath
 
 -- | Export B_public.csv (Biosphere Matrix)
 exportBMatrix :: FilePath -> Database -> IO ()
@@ -328,8 +311,8 @@ exportBMatrix filePath db = do
     let bioTriples = dbBiosphereTriples db
 
         rows = U.foldr (\(SparseTriple row col value) acc ->
-                let rowStr = T.pack $ show row ++ ";" ++ show col ++ ";" ++
-                            show value ++ ";;;;;"
+                let rowStr = T.pack (show row ++ ";" ++ show col ++ ";" ++ show value)
+                             <> emptyCsvUncertainty
                 in rowStr : acc
             ) [] bioTriples
 
@@ -337,4 +320,4 @@ exportBMatrix filePath db = do
         content = T.unlines (header : rows)
 
     TIO.writeFile filePath content
-    putStrLn $ "Exported biosphere matrix with " ++ show (U.length bioTriples) ++ " entries to " ++ filePath
+    reportProgress Info $ "B_public: " ++ show (U.length bioTriples) ++ " entries → " ++ filePath
