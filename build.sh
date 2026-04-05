@@ -413,6 +413,7 @@ if [[ "$RUN_TESTS" == "true" ]]; then
             if [[ -n "$HPC_FLAGS" ]]; then
                 hpc markup "$TIX_FILE" $HPC_FLAGS \
                     --srcdir="$SCRIPT_DIR" \
+                    --srcdir="$SCRIPT_DIR/mumps-hs" \
                     --destdir="$COVERAGE_DIR" \
                     --fun-entry-count
                 hpc report "$TIX_FILE" $HPC_FLAGS
