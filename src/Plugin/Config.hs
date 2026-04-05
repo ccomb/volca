@@ -139,8 +139,7 @@ applyMapper reg pc =
             in reg { prMappers = mappers' }
         Just path ->
             -- Add external mapper
-            let priority = fromMaybe 50 (pcPriority pc)
-                handle = makeExternalMapper (pcName pc) path priority
+            let handle = makeExternalMapper (pcName pc) path (defaultPriority pc)
             in reg { prMappers = handle : prMappers reg }
 
 -- | Apply reporter config: add external reporter
@@ -148,7 +147,7 @@ applyReporter :: PluginRegistry -> PluginConfig -> PluginRegistry
 applyReporter reg pc = case pcPath pc of
     Nothing -> reg  -- Can't override built-in reporter fields (no meaningful overrides)
     Just path ->
-        let fmtId = fromMaybe (pcName pc) (pcFormatId pc)
+        let fmtId = resolvedFormatId pc
             mime  = fromMaybe "application/octet-stream" (pcMimeType pc)
             handle = makeExternalReporter (pcName pc) path fmtId mime
         in reg { prReporters = M.insert fmtId handle (prReporters reg) }
@@ -158,7 +157,7 @@ applyExporter :: PluginRegistry -> PluginConfig -> PluginRegistry
 applyExporter reg pc = case pcPath pc of
     Nothing -> reg
     Just path ->
-        let fmtId = fromMaybe (pcName pc) (pcFormatId pc)
+        let fmtId = resolvedFormatId pc
             handle = makeExternalExporter (pcName pc) path fmtId
         in reg { prExporters = M.insert fmtId handle (prExporters reg) }
 
@@ -179,8 +178,7 @@ applyTransform reg pc = case pcPath pc of
                 else t) (prTransforms reg)
         in reg { prTransforms = transforms' }
     Just path ->
-        let priority = fromMaybe 50 (pcPriority pc)
-            handle = makeExternalTransform (pcName pc) path priority
+        let handle = makeExternalTransform (pcName pc) path (defaultPriority pc)
         in reg { prTransforms = handle : prTransforms reg }
 
 -- | Apply validator config: add external validator
@@ -211,9 +209,18 @@ applySearcher reg pc = case pcPath pc of
                 else s) (prSearchers reg)
         in reg { prSearchers = searchers' }
     Just path ->
-        let priority = fromMaybe 50 (pcPriority pc)
-            handle = makeExternalSearcher (pcName pc) path priority
+        let handle = makeExternalSearcher (pcName pc) path (defaultPriority pc)
         in reg { prSearchers = handle : prSearchers reg }
+
+-- ──────────────────────────────────────────────
+-- Helpers
+-- ──────────────────────────────────────────────
+
+defaultPriority :: PluginConfig -> Int
+defaultPriority = fromMaybe 50 . pcPriority
+
+resolvedFormatId :: PluginConfig -> Text
+resolvedFormatId pc = fromMaybe (pcName pc) (pcFormatId pc)
 
 -- ──────────────────────────────────────────────
 -- External plugin handle constructors
