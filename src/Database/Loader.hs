@@ -52,6 +52,17 @@ module Database.Loader
     , fixSimaProActivityLinks
       -- * Reporting
     , reportCrossDBLinkingStats
+      -- * Internal (exposed for testing)
+    , normalizeText
+    , mergeFlows
+    , generateActivityUUIDFromActivity
+    , getReferenceProductUUID
+    , UnlinkedSummary(..)
+    , emptyUnlinkedSummary
+    , mergeUnlinkedSummaries
+    , buildSupplierIndex
+    , buildSupplierIndexByName
+    , fixExchangeLinkByName
     ) where
 
 import qualified Codec.Compression.Zstd as Zstd

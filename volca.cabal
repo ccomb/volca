@@ -162,6 +162,7 @@ test-suite lca-tests
                      , SharedSolverSpec
                      , FlowResolverSpec
                      , PluginConfigSpec
+                     , LoaderSpec
   build-depends:       base >=4.14 && <5
                      , volca
                      , hspec
