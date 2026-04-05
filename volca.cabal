@@ -161,6 +161,7 @@ test-suite lca-tests
                      , CrossLinkingSpec
                      , SharedSolverSpec
                      , FlowResolverSpec
+                     , PluginConfigSpec
   build-depends:       base >=4.14 && <5
                      , volca
                      , hspec

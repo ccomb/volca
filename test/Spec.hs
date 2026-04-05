@@ -22,6 +22,7 @@ import qualified ServiceSpec
 import qualified CrossLinkingSpec
 import qualified SharedSolverSpec
 import qualified FlowResolverSpec
+import qualified PluginConfigSpec
 
 main :: IO ()
 main = hspec $ do
@@ -43,3 +44,4 @@ main = hspec $ do
         describe "Cross-Database Linking" CrossLinkingSpec.spec
         describe "Shared Solver" SharedSolverSpec.spec
         describe "ILCD Flow Resolver" FlowResolverSpec.spec
+        describe "Plugin Config" PluginConfigSpec.spec
