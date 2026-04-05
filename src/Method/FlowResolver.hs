@@ -39,7 +39,7 @@ import System.Directory (doesDirectoryExist, doesFileExist, listDirectory, remov
 import System.FilePath ((</>), takeExtension)
 import Data.Char (toLower)
 
-import EcoSpold.Common (bsToText, isElement)
+import EcoSpold.Common (bsToText, isElement, distributeFiles)
 import EcoSpold.Parser2 (normalizeCAS)
 import Method.Types (Compartment(..))
 import Progress (reportProgress, ProgressLevel(..))
@@ -98,18 +98,6 @@ parseFlowDirectoryFresh dir = do
     parseOneFile path = do
         bytes <- BS.readFile path
         return $ parseFlowXML bytes
-
--- | Distribute files evenly across N workers (same pattern as Database.Loader)
-distributeFiles :: Int -> [a] -> [[a]]
-distributeFiles n xs =
-    let len = length xs
-        baseSize = len `div` n
-        remainder = len `mod` n
-        sizes = replicate remainder (baseSize + 1) ++ replicate (n - remainder) baseSize
-    in go sizes xs
-  where
-    go [] _ = []
-    go (s:ss) ys = let (h, t) = splitAt s ys in h : go ss t
 
 -- | Cache file path for a flows directory
 flowCacheFile :: FilePath -> FilePath

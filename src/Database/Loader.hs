@@ -77,6 +77,7 @@ import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word64)
+import EcoSpold.Common (distributeFiles)
 import EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile)
 import EcoSpold.Parser1 (streamParseActivityAndFlowsFromFile1, streamParseAllDatasetsFromFile1)
 import Database.CrossLinking
@@ -606,20 +607,6 @@ loadEcoSpoldDirectory locationAliases dir = do
                 if isEcoSpold1
                     then Right <$> fixEcoSpold1ActivityLinks locationAliases finalDsIndex finalSupplierLinks simpleDb
                     else return $ Right simpleDb
-
-    -- Distribute files evenly among N workers
-    distributeFiles :: Int -> [a] -> [[a]]
-    distributeFiles n xs =
-        let len = length xs
-            baseSize = len `div` n
-            remainder = len `mod` n
-            -- First 'remainder' workers get baseSize+1 files, rest get baseSize
-            sizes = replicate remainder (baseSize + 1) ++ replicate (n - remainder) baseSize
-         in distribute sizes xs
-      where
-        distribute [] _ = []
-        distribute _ [] = []
-        distribute (s : ss) items = take s items : distribute ss (drop s items)
 
     -- Process one worker's share of files
     processWorker :: UTCTime -> Bool -> (Int, [FilePath]) -> IO (Either T.Text (ActivityMap, FlowDB, UnitDB, Int, Int, DatasetNumberIndex, M.Map UUID.UUID Int))

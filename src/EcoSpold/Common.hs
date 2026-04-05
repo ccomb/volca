@@ -7,6 +7,7 @@ module EcoSpold.Common
     , bsToDouble
     , bsToInt
     , isElement
+    , distributeFiles
     ) where
 
 import qualified Data.ByteString as BS
@@ -45,3 +46,16 @@ bsToInt bs = case TR.decimal (bsToText bs) of
 isElement :: BS.ByteString -> BS.ByteString -> Bool
 isElement tagName expected =
     tagName == expected || BS.isSuffixOf (":" `BS.append` expected) tagName
+
+-- | Distribute a list evenly across N buckets (for parallel workers)
+distributeFiles :: Int -> [a] -> [[a]]
+distributeFiles n xs =
+    let len      = length xs
+        baseSize = len `div` n
+        remainder = len `mod` n
+        sizes    = replicate remainder (baseSize + 1) ++ replicate (n - remainder) baseSize
+    in go sizes xs
+  where
+    go []     _  = []
+    go _      [] = []
+    go (s:ss) ys = let (h, t) = splitAt s ys in h : go ss t
