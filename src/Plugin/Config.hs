@@ -216,8 +216,13 @@ applySearcher reg pc = case pcPath pc of
 -- Helpers
 -- ──────────────────────────────────────────────
 
+-- | Default priority for external plugins when none is specified.
+-- Built-in plugins use 0–30, so 50 places externals after all built-ins.
+defaultExternalPriority :: Int
+defaultExternalPriority = 50
+
 defaultPriority :: PluginConfig -> Int
-defaultPriority = fromMaybe 50 . pcPriority
+defaultPriority = fromMaybe defaultExternalPriority . pcPriority
 
 resolvedFormatId :: PluginConfig -> Text
 resolvedFormatId pc = fromMaybe (pcName pc) (pcFormatId pc)
