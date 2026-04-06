@@ -16,6 +16,7 @@ import Types (Activity(..), Exchange(..), Unit(..), Flow, UUID)
 import UnitConversion (defaultUnitConfig, isKnownUnit)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import qualified Data.Text as T
 import System.IO.Temp (withSystemTempFile)
 import System.IO (hClose)
@@ -372,12 +373,8 @@ spec = do
         it "correctly extracts units from CSV with quoted fields" $ do
             (_, _, unitDB) <- parseTestCSV
             let unitNames = map unitName $ M.elems unitDB
-            unitNames `shouldContain` ["kg"]
-            unitNames `shouldContain` ["foo_unit"]
-            -- No garbage from quoted product names should appear as unit names
-            -- Garbage strings would be long or contain parentheses
-            let isGarbage u = T.length u > 20 || T.isInfixOf ")" u || T.isInfixOf "treatment" u
-            filter isGarbage unitNames `shouldBe` []
+            -- Exactly these two units — no more, no less
+            S.fromList unitNames `shouldBe` S.fromList ["kg", "foo_unit"]
 
         it "reports unknown units correctly" $ do
             (_, _, unitDB) <- parseTestCSV

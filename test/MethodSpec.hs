@@ -614,7 +614,7 @@ spec = do
                     let nw = head (mcNormWeightSets coll)
                     nwName nw `shouldBe` "Test NW set"
                     case M.lookup "Climate change" (nwNormalization nw) of
-                        Just v -> abs (v - 1.32396265000545e-4) `shouldSatisfy` (< 1e-18)
+                        Just v -> v `shouldBe` 1.32396265000545e-4
                         Nothing -> expectationFailure "Climate change not found"
                     M.lookup "Acidification" (nwWeighting nw) `shouldBe` Just 0.062
 
@@ -626,10 +626,10 @@ spec = do
                 Right nw -> do
                     nwName nw `shouldBe` "Custom EF NW"
                     case M.lookup "Climate change" (nwNormalization nw) of
-                        Just v -> abs (v - 1.32396265000545e-4) `shouldSatisfy` (< 1e-18)
+                        Just v -> v `shouldBe` 1.32396265000545e-4
                         Nothing -> expectationFailure "Climate change not found"
                     case M.lookup "Acidification" (nwNormalization nw) of
-                        Just v -> abs (v - 1.79954697817319e-2) `shouldSatisfy` (< 1e-16)
+                        Just v -> v `shouldBe` 1.7995469781731898e-2
                         Nothing -> expectationFailure "Acidification not found"
                     M.lookup "Water use" (nwWeighting nw) `shouldBe` Just 0.0851
 

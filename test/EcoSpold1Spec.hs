@@ -57,9 +57,9 @@ spec :: Spec
 spec = do
 
     describe "generateFlowUUID" $ do
-        it "is deterministic for the same inputs" $
+        it "produces a stable UUID for known inputs" $
             generateFlowUUID 42 1 "CO2" "air"
-                `shouldBe` generateFlowUUID 42 1 "CO2" "air"
+                `shouldBe` read "4b869b57-e716-5e42-ae6f-0536cf112615"
 
         it "differs when dataset number changes" $
             generateFlowUUID 1 1 "CO2" "air"
@@ -74,8 +74,8 @@ spec = do
                 `shouldNotBe` generateFlowUUID 1 1 "methane" "air"
 
     describe "generateUnitUUID" $ do
-        it "is deterministic for the same unit name" $
-            generateUnitUUID "kg" `shouldBe` generateUnitUUID "kg"
+        it "produces a stable UUID for known inputs" $
+            generateUnitUUID "kg" `shouldBe` read "d74bc05e-6502-555a-a40c-e6e7580dbf93"
 
         it "differs for different unit names" $
             generateUnitUUID "kg" `shouldNotBe` generateUnitUUID "m3"
