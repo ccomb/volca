@@ -166,6 +166,7 @@ test-suite lca-tests
                      , MappingSpec
                      , UploadedDatabaseSpec
                      , ProgressSpec
+                     , EcoSpold1Spec
   build-depends:       base >=4.14 && <5
                      , volca
                      , hspec

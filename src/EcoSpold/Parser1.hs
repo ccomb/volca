@@ -8,7 +8,15 @@
 -- used in Ecoinvent versions 2.x (e.g., 2.2)
 module EcoSpold.Parser1
     ( streamParseActivityAndFlowsFromFile1
-    , streamParseAllDatasetsFromFile1  -- Parse multiple datasets from single file
+    , streamParseAllDatasetsFromFile1
+      -- * Pure helpers (exported for testing)
+    , generateFlowUUID
+    , generateUnitUUID
+    , applyCutoffStrategy
+    , hasReferenceProduct
+    , removeZeroAmountCoproducts
+    , assignSingleProductAsReference
+    , isProductionExchange
     ) where
 
 import Types

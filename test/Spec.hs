@@ -27,6 +27,7 @@ import qualified LoaderSpec
 import qualified MappingSpec
 import qualified UploadedDatabaseSpec
 import qualified ProgressSpec
+import qualified EcoSpold1Spec
 
 main :: IO ()
 main = hspec $ do
@@ -53,3 +54,4 @@ main = hspec $ do
         describe "Method Mapping" MappingSpec.spec
         describe "Uploaded Database" UploadedDatabaseSpec.spec
         describe "Progress Formatting" ProgressSpec.spec
+        describe "EcoSpold1 Parser" EcoSpold1Spec.spec
