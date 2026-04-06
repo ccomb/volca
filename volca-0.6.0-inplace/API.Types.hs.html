@@ -100,16 +100,16 @@ span.spaces    { background: white }
 <span class="lineno">   81 </span>
 <span class="lineno">   82 </span>-- | Tree export data structures for visualization
 <span class="lineno">   83 </span>data TreeExport = TreeExport
-<span class="lineno">   84 </span>    { <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">teTree</span></span></span> :: TreeMetadata
-<span class="lineno">   85 </span>    , <span class="istickedoff"><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">teNodes</span></span></span> :: M.Map Text ExportNode  -- Changed to Text (ProcessId format)
-<span class="lineno">   86 </span>    , <span class="istickedoff"><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">teEdges</span></span></span> :: [TreeEdge]
+<span class="lineno">   84 </span>    { <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">teTree</span></span></span> :: TreeMetadata
+<span class="lineno">   85 </span>    , <span class="istickedoff"><span class="funcount">-- entered 18 times</span><span class="decl"><span class="istickedoff">teNodes</span></span></span> :: M.Map Text ExportNode  -- Changed to Text (ProcessId format)
+<span class="lineno">   86 </span>    , <span class="istickedoff"><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">teEdges</span></span></span> :: [TreeEdge]
 <span class="lineno">   87 </span>    }
 <span class="lineno">   88 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
 <span class="lineno">   89 </span>
 <span class="lineno">   90 </span>data TreeMetadata = TreeMetadata
 <span class="lineno">   91 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">tmRootId</span></span></span> :: Text  -- Changed to Text (ProcessId format)
 <span class="lineno">   92 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">tmMaxDepth</span></span></span> :: Int
-<span class="lineno">   93 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">tmTotalNodes</span></span></span> :: Int
+<span class="lineno">   93 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">tmTotalNodes</span></span></span> :: Int
 <span class="lineno">   94 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">tmLoopNodes</span></span></span> :: Int
 <span class="lineno">   95 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">tmLeafNodes</span></span></span> :: Int
 <span class="lineno">   96 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">tmExpandableNodes</span></span></span> :: Int -- Nodes that could expand further
@@ -118,14 +118,14 @@ span.spaces    { background: white }
 <span class="lineno">   99 </span>
 <span class="lineno">  100 </span>data ExportNode = ExportNode
 <span class="lineno">  101 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">enId</span></span></span> :: Text  -- Changed to Text (ProcessId format)
-<span class="lineno">  102 </span>    , <span class="istickedoff"><span class="funcount">-- entered 18 times</span><span class="decl"><span class="istickedoff">enName</span></span></span> :: Text
+<span class="lineno">  102 </span>    , <span class="istickedoff"><span class="funcount">-- entered 29 times</span><span class="decl"><span class="istickedoff">enName</span></span></span> :: Text
 <span class="lineno">  103 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">enDescription</span></span></span> :: [Text]
 <span class="lineno">  104 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">enLocation</span></span></span> :: Text
 <span class="lineno">  105 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">enUnit</span></span></span> :: Text
 <span class="lineno">  106 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">enNodeType</span></span></span> :: NodeType
 <span class="lineno">  107 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">enDepth</span></span></span> :: Int
 <span class="lineno">  108 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">enLoopTarget</span></span></span> :: Maybe Text  -- Changed to Text (ProcessId format)
-<span class="lineno">  109 </span>    , <span class="istickedoff"><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">enParentId</span></span></span> :: Maybe Text -- Changed to Text (ProcessId format) -- For navigation back up
+<span class="lineno">  109 </span>    , <span class="istickedoff"><span class="funcount">-- entered 20 times</span><span class="decl"><span class="istickedoff">enParentId</span></span></span> :: Maybe Text -- Changed to Text (ProcessId format) -- For navigation back up
 <span class="lineno">  110 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">enChildrenCount</span></span></span> :: Int -- Number of potential children for expandability
 <span class="lineno">  111 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">enCompartment</span></span></span> :: Maybe Text -- Biosphere compartment (air/water/soil), only for BiosphereNodes
 <span class="lineno">  112 </span>    }
@@ -138,8 +138,8 @@ span.spaces    { background: white }
 <span class="lineno">  119 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
 <span class="lineno">  120 </span>
 <span class="lineno">  121 </span>data TreeEdge = TreeEdge
-<span class="lineno">  122 </span>    { <span class="istickedoff"><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">teFrom</span></span></span> :: Text  -- Changed to Text (ProcessId format)
-<span class="lineno">  123 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">teTo</span></span></span> :: Text    -- Changed to Text (ProcessId format)
+<span class="lineno">  122 </span>    { <span class="istickedoff"><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">teFrom</span></span></span> :: Text  -- Changed to Text (ProcessId format)
+<span class="lineno">  123 </span>    , <span class="istickedoff"><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">teTo</span></span></span> :: Text    -- Changed to Text (ProcessId format)
 <span class="lineno">  124 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">teFlow</span></span></span> :: FlowInfo
 <span class="lineno">  125 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">teQuantity</span></span></span> :: Double
 <span class="lineno">  126 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">teUnit</span></span></span> :: Text

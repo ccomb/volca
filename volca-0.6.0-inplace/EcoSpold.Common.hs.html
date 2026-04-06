@@ -63,12 +63,12 @@ span.spaces    { background: white }
 <span class="lineno">   44 </span>-- | Check if element name matches (with or without namespace prefix)
 <span class="lineno">   45 </span>-- Handles both &quot;tagName&quot; and &quot;prefix:tagName&quot; forms
 <span class="lineno">   46 </span>isElement :: BS.ByteString -&gt; BS.ByteString -&gt; Bool
-<span class="lineno">   47 </span><span class="funcount">-- entered 143,160 times</span><span class="decl"><span class="istickedoff">isElement tagName expected =</span>
+<span class="lineno">   47 </span><span class="funcount">-- entered 154,307 times</span><span class="decl"><span class="istickedoff">isElement tagName expected =</span>
 <span class="lineno">   48 </span><span class="spaces">    </span><span class="istickedoff">tagName == expected || BS.isSuffixOf (&quot;:&quot; `BS.append` expected) tagName</span></span>
 <span class="lineno">   49 </span>
 <span class="lineno">   50 </span>-- | Distribute a list evenly across N buckets (for parallel workers)
 <span class="lineno">   51 </span>distributeFiles :: Int -&gt; [a] -&gt; [[a]]
-<span class="lineno">   52 </span><span class="funcount">-- entered 76 times</span><span class="decl"><span class="istickedoff">distributeFiles n xs =</span>
+<span class="lineno">   52 </span><span class="funcount">-- entered 89 times</span><span class="decl"><span class="istickedoff">distributeFiles n xs =</span>
 <span class="lineno">   53 </span><span class="spaces">    </span><span class="istickedoff">let len      = length xs</span>
 <span class="lineno">   54 </span><span class="spaces">        </span><span class="istickedoff">baseSize = len `div` n</span>
 <span class="lineno">   55 </span><span class="spaces">        </span><span class="istickedoff">remainder = len `mod` n</span>

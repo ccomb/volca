@@ -1,0 +1,70 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module ProgressSpec (spec) where
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>import Test.Hspec
+<span class="lineno">    6 </span>import Progress (formatDuration, formatBytes)
+<span class="lineno">    7 </span>
+<span class="lineno">    8 </span>spec :: Spec
+<span class="lineno">    9 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">spec = do</span>
+<span class="lineno">   10 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   11 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;formatDuration&quot; $ do</span>
+<span class="lineno">   12 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats sub-millisecond durations with 2 decimal places&quot; $</span>
+<span class="lineno">   13 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 0.0005 `shouldBe` &quot;0.50ms&quot;</span>
+<span class="lineno">   14 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   15 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats millisecond durations as integer ms&quot; $</span>
+<span class="lineno">   16 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 0.5 `shouldBe` &quot;500ms&quot;</span>
+<span class="lineno">   17 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   18 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats second durations with 2 decimal places&quot; $</span>
+<span class="lineno">   19 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 1.5 `shouldBe` &quot;1.50s&quot;</span>
+<span class="lineno">   20 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   21 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats exact 1.0s boundary as seconds&quot; $</span>
+<span class="lineno">   22 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 1.0 `shouldBe` &quot;1.00s&quot;</span>
+<span class="lineno">   23 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   24 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats durations &gt;= 60s as minutes&quot; $</span>
+<span class="lineno">   25 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 90.0 `shouldBe` &quot;1.5min&quot;</span>
+<span class="lineno">   26 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   27 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats exactly 60s as 1.0min&quot; $</span>
+<span class="lineno">   28 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 60.0 `shouldBe` &quot;1.0min&quot;</span>
+<span class="lineno">   29 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   30 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;formatBytes&quot; $ do</span>
+<span class="lineno">   31 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats bytes below 1024 as B&quot; $</span>
+<span class="lineno">   32 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 512.0 `shouldBe` &quot;512 B&quot;</span>
+<span class="lineno">   33 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   34 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats exactly 1024 bytes as KB&quot; $</span>
+<span class="lineno">   35 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 1024.0 `shouldBe` &quot;1.0 KB&quot;</span>
+<span class="lineno">   36 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   37 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats KB with one decimal place&quot; $</span>
+<span class="lineno">   38 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 1536.0 `shouldBe` &quot;1.5 KB&quot;</span>
+<span class="lineno">   39 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   40 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats MB with one decimal place&quot; $</span>
+<span class="lineno">   41 </span><span class="spaces">            </span><span class="istickedoff">formatBytes (1.5 * 1024 * 1024) `shouldBe` &quot;1.5 MB&quot;</span>
+<span class="lineno">   42 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   43 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats GB with two decimal places&quot; $</span>
+<span class="lineno">   44 </span><span class="spaces">            </span><span class="istickedoff">formatBytes (1.5 * 1024 * 1024 * 1024) `shouldBe` &quot;1.50 GB&quot;</span>
+<span class="lineno">   45 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   46 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats zero bytes&quot; $</span>
+<span class="lineno">   47 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 0.0 `shouldBe` &quot;0 B&quot;</span></span>
+
+</pre>
+</body>
+</html>

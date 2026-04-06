@@ -54,7 +54,7 @@ span.spaces    { background: white }
 <span class="lineno">   35 </span>-- This ensures test data with invalid UUIDs like &quot;productX-uuid&quot; get unique UUIDs
 <span class="lineno">   36 </span>-- Returns (UUID, Maybe warning) to avoid unsafePerformIO in pure context
 <span class="lineno">   37 </span>parseUUID :: Text -&gt; (UUID, Maybe String)
-<span class="lineno">   38 </span><span class="funcount">-- entered 1414 times</span><span class="decl"><span class="istickedoff">parseUUID txt = case UUID.fromText txt of</span>
+<span class="lineno">   38 </span><span class="funcount">-- entered 1413 times</span><span class="decl"><span class="istickedoff">parseUUID txt = case UUID.fromText txt of</span>
 <span class="lineno">   39 </span><span class="spaces">    </span><span class="istickedoff">Just uuid -&gt; (uuid, Nothing)</span>
 <span class="lineno">   40 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt;</span>
 <span class="lineno">   41 </span><span class="spaces">        </span><span class="istickedoff">-- Generate deterministic UUID from the text using UUID v5</span>
@@ -92,13 +92,13 @@ span.spaces    { background: white }
 <span class="lineno">   73 </span>
 <span class="lineno">   74 </span>-- | Intermediate exchange accumulator
 <span class="lineno">   75 </span>data IntermediateData = IntermediateData
-<span class="lineno">   76 </span>    { <span class="istickedoff"><span class="funcount">-- entered 448 times</span><span class="decl"><span class="istickedoff">idFlowId</span></span></span> :: !Text
+<span class="lineno">   76 </span>    { <span class="istickedoff"><span class="funcount">-- entered 447 times</span><span class="decl"><span class="istickedoff">idFlowId</span></span></span> :: !Text
 <span class="lineno">   77 </span>    , <span class="istickedoff"><span class="funcount">-- entered 442 times</span><span class="decl"><span class="istickedoff">idAmount</span></span></span> :: !Double
 <span class="lineno">   78 </span>    , <span class="istickedoff"><span class="funcount">-- entered 442 times</span><span class="decl"><span class="istickedoff">idUnitId</span></span></span> :: !Text
 <span class="lineno">   79 </span>    , <span class="istickedoff"><span class="funcount">-- entered 868 times</span><span class="decl"><span class="istickedoff">idFlowName</span></span></span> :: !Text
 <span class="lineno">   80 </span>    , <span class="istickedoff"><span class="funcount">-- entered 1784 times</span><span class="decl"><span class="istickedoff">idUnitName</span></span></span> :: !Text
-<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered 446 times</span><span class="decl"><span class="istickedoff">idInputGroup</span></span></span> :: !Text
-<span class="lineno">   82 </span>    , <span class="istickedoff"><span class="funcount">-- entered 243 times</span><span class="decl"><span class="istickedoff">idOutputGroup</span></span></span> :: !Text
+<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered 445 times</span><span class="decl"><span class="istickedoff">idInputGroup</span></span></span> :: !Text
+<span class="lineno">   82 </span>    , <span class="istickedoff"><span class="funcount">-- entered 244 times</span><span class="decl"><span class="istickedoff">idOutputGroup</span></span></span> :: !Text
 <span class="lineno">   83 </span>    , <span class="istickedoff"><span class="funcount">-- entered 636 times</span><span class="decl"><span class="istickedoff">idActivityLinkId</span></span></span> :: !Text
 <span class="lineno">   84 </span>    , <span class="istickedoff"><span class="funcount">-- entered 436 times</span><span class="decl"><span class="istickedoff">idSynonyms</span></span></span> :: !(M.Map Text (S.Set Text))
 <span class="lineno">   85 </span>    }
@@ -129,8 +129,8 @@ span.spaces    { background: white }
 <span class="lineno">  110 </span>    , <span class="istickedoff"><span class="funcount">-- entered 850 times</span><span class="decl"><span class="istickedoff">psExchanges</span></span></span> :: ![Exchange]
 <span class="lineno">  111 </span>    , <span class="istickedoff"><span class="funcount">-- entered 840 times</span><span class="decl"><span class="istickedoff">psFlows</span></span></span> :: ![Flow]
 <span class="lineno">  112 </span>    , <span class="istickedoff"><span class="funcount">-- entered 840 times</span><span class="decl"><span class="istickedoff">psUnits</span></span></span> :: ![Unit]
-<span class="lineno">  113 </span>    , <span class="istickedoff"><span class="funcount">-- entered 20,313 times</span><span class="decl"><span class="istickedoff">psPath</span></span></span> :: ![BS.ByteString]  -- Element path stack
-<span class="lineno">  114 </span>    , <span class="istickedoff"><span class="funcount">-- entered 18,424 times</span><span class="decl"><span class="istickedoff">psContext</span></span></span> :: !ElementContext
+<span class="lineno">  113 </span>    , <span class="istickedoff"><span class="funcount">-- entered 20,292 times</span><span class="decl"><span class="istickedoff">psPath</span></span></span> :: ![BS.ByteString]  -- Element path stack
+<span class="lineno">  114 </span>    , <span class="istickedoff"><span class="funcount">-- entered 18,395 times</span><span class="decl"><span class="istickedoff">psContext</span></span></span> :: !ElementContext
 <span class="lineno">  115 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6760 times</span><span class="decl"><span class="istickedoff">psTextAccum</span></span></span> :: ![BS.ByteString]  -- Accumulated text content
 <span class="lineno">  116 </span>    , <span class="istickedoff"><span class="funcount">-- entered 605 times</span><span class="decl"><span class="istickedoff">psPendingInputGroup</span></span></span> :: !Text  -- Pending inputGroup value from child element
 <span class="lineno">  117 </span>    , <span class="istickedoff"><span class="funcount">-- entered 410 times</span><span class="decl"><span class="istickedoff">psPendingOutputGroup</span></span></span> :: !Text  -- Pending outputGroup value from child element

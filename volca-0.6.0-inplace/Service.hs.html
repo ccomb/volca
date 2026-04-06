@@ -199,10 +199,10 @@ span.spaces    { background: white }
 <span class="lineno">  180 </span>-- Since B matrix now stores all flows as positive (Ecoinvent convention), we use category instead of sign
 <span class="lineno">  181 </span>-- EcoSpold2: &quot;natural resource/in ground&quot;, SimaPro: &quot;resource/in ground&quot;
 <span class="lineno">  182 </span>isResourceExtraction :: Flow -&gt; Double -&gt; Bool
-<span class="lineno">  183 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">isResourceExtraction flow _ =</span>
-<span class="lineno">  184 </span><span class="spaces">    </span><span class="nottickedoff">let cat = T.toLower (flowCategory flow)</span>
-<span class="lineno">  185 </span><span class="spaces">    </span><span class="nottickedoff">in flowType flow == Biosphere &amp;&amp;</span>
-<span class="lineno">  186 </span><span class="spaces">       </span><span class="nottickedoff">(&quot;natural resource&quot; `T.isPrefixOf` cat || &quot;resource&quot; `T.isPrefixOf` cat)</span></span>
+<span class="lineno">  183 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">isResourceExtraction flow _ =</span>
+<span class="lineno">  184 </span><span class="spaces">    </span><span class="istickedoff">let cat = T.toLower (flowCategory flow)</span>
+<span class="lineno">  185 </span><span class="spaces">    </span><span class="istickedoff">in flowType flow == Biosphere &amp;&amp;</span>
+<span class="lineno">  186 </span><span class="spaces">       </span><span class="istickedoff">(&quot;natural resource&quot; `T.isPrefixOf` cat || &quot;resource&quot; `T.isPrefixOf` cat)</span></span>
 <span class="lineno">  187 </span>
 <span class="lineno">  188 </span>-- | Get activity inventory as rich InventoryExport (same as API)
 <span class="lineno">  189 </span>getActivityInventory :: Database -&gt; Text -&gt; IO (Either ServiceError Value)
@@ -355,15 +355,15 @@ span.spaces    { background: white }
 <span class="lineno">  336 </span>
 <span class="lineno">  337 </span>-- | Helper to extract compartment from flow category
 <span class="lineno">  338 </span>extractCompartment :: Text -&gt; Text
-<span class="lineno">  339 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">extractCompartment category =</span>
-<span class="lineno">  340 </span><span class="spaces">    </span><span class="nottickedoff">let lowerCategory = T.toLower category</span>
-<span class="lineno">  341 </span><span class="spaces">    </span><span class="nottickedoff">in if &quot;air&quot; `T.isInfixOf` lowerCategory</span>
-<span class="lineno">  342 </span><span class="spaces">       </span><span class="nottickedoff">then &quot;air&quot;</span>
-<span class="lineno">  343 </span><span class="spaces">       </span><span class="nottickedoff">else if &quot;water&quot; `T.isInfixOf` lowerCategory || &quot;aquatic&quot; `T.isInfixOf` lowerCategory</span>
-<span class="lineno">  344 </span><span class="spaces">       </span><span class="nottickedoff">then &quot;water&quot;</span>
-<span class="lineno">  345 </span><span class="spaces">       </span><span class="nottickedoff">else if &quot;soil&quot; `T.isInfixOf` lowerCategory || &quot;ground&quot; `T.isInfixOf` lowerCategory</span>
-<span class="lineno">  346 </span><span class="spaces">       </span><span class="nottickedoff">then &quot;soil&quot;</span>
-<span class="lineno">  347 </span><span class="spaces">       </span><span class="nottickedoff">else &quot;other&quot;</span></span>
+<span class="lineno">  339 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">extractCompartment category =</span>
+<span class="lineno">  340 </span><span class="spaces">    </span><span class="istickedoff">let lowerCategory = T.toLower category</span>
+<span class="lineno">  341 </span><span class="spaces">    </span><span class="istickedoff">in if &quot;air&quot; `T.isInfixOf` lowerCategory</span>
+<span class="lineno">  342 </span><span class="spaces">       </span><span class="istickedoff">then &quot;air&quot;</span>
+<span class="lineno">  343 </span><span class="spaces">       </span><span class="istickedoff">else if &quot;water&quot; `T.isInfixOf` lowerCategory || &quot;aquatic&quot; `T.isInfixOf` lowerCategory</span>
+<span class="lineno">  344 </span><span class="spaces">       </span><span class="istickedoff">then &quot;water&quot;</span>
+<span class="lineno">  345 </span><span class="spaces">       </span><span class="istickedoff">else if &quot;soil&quot; `T.isInfixOf` lowerCategory || &quot;ground&quot; `T.isInfixOf` lowerCategory</span>
+<span class="lineno">  346 </span><span class="spaces">       </span><span class="istickedoff">then &quot;soil&quot;</span>
+<span class="lineno">  347 </span><span class="spaces">       </span><span class="istickedoff">else &quot;other&quot;</span></span>
 <span class="lineno">  348 </span>
 <span class="lineno">  349 </span>-- | Extract biosphere exchanges from an activity and create nodes and edges
 <span class="lineno">  350 </span>extractBiosphereNodesAndEdges :: Database -&gt; Activity -&gt; Text -&gt; Int -&gt; M.Map Text ExportNode -&gt; [TreeEdge] -&gt; (M.Map Text ExportNode, [TreeEdge])
@@ -539,7 +539,7 @@ span.spaces    { background: white }
 <span class="lineno">  520 </span>-- | Post-filter a TreeExport by name: keep matching nodes plus all their ancestors up to root.
 <span class="lineno">  521 </span>-- Uses the enParentId chain already stored in each ExportNode — no extra graph traversal.
 <span class="lineno">  522 </span>filterTreeExport :: Text -&gt; TreeExport -&gt; TreeExport
-<span class="lineno">  523 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">filterTreeExport pat export =</span>
+<span class="lineno">  523 </span><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">filterTreeExport pat export =</span>
 <span class="lineno">  524 </span><span class="spaces">    </span><span class="istickedoff">let nodes = teNodes export</span>
 <span class="lineno">  525 </span><span class="spaces">        </span><span class="istickedoff">textMatches p n = T.toCaseFold p `T.isInfixOf` T.toCaseFold n</span>
 <span class="lineno">  526 </span><span class="spaces">        </span><span class="istickedoff">matchingIds = M.keysSet $ M.filter (textMatches pat . enName) nodes</span>
@@ -665,18 +665,18 @@ span.spaces    { background: white }
 <span class="lineno">  646 </span>
 <span class="lineno">  647 </span>-- | Classify units into groups for edge width normalization
 <span class="lineno">  648 </span>buildUnitGroups :: [Text] -&gt; M.Map Text Text
-<span class="lineno">  649 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">buildUnitGroups units =</span>
-<span class="lineno">  650 </span><span class="spaces">    </span><span class="nottickedoff">M.fromList [(unit, classifyUnit unit) | unit &lt;- L.nub units]</span>
-<span class="lineno">  651 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
-<span class="lineno">  652 </span><span class="spaces">    </span><span class="nottickedoff">classifyUnit u</span>
-<span class="lineno">  653 </span><span class="spaces">        </span><span class="nottickedoff">| u `elem` [&quot;kg&quot;, &quot;g&quot;, &quot;t&quot;, &quot;ton&quot;, &quot;metric ton&quot;, &quot;Mg&quot;] = &quot;mass&quot;</span>
-<span class="lineno">  654 </span><span class="spaces">        </span><span class="nottickedoff">| u `elem` [&quot;m3&quot;, &quot;l&quot;, &quot;L&quot;, &quot;litre&quot;, &quot;liter&quot;, &quot;dm3&quot;] = &quot;volume&quot;</span>
-<span class="lineno">  655 </span><span class="spaces">        </span><span class="nottickedoff">| u `elem` [&quot;MJ&quot;, &quot;kWh&quot;, &quot;J&quot;, &quot;kJ&quot;, &quot;GJ&quot;, &quot;Wh&quot;] = &quot;energy&quot;</span>
-<span class="lineno">  656 </span><span class="spaces">        </span><span class="nottickedoff">| u `elem` [&quot;Bq&quot;, &quot;kBq&quot;, &quot;MBq&quot;] = &quot;radioactivity&quot;</span>
-<span class="lineno">  657 </span><span class="spaces">        </span><span class="nottickedoff">| u `elem` [&quot;m2&quot;, &quot;ha&quot;, &quot;km2&quot;, &quot;m2*a&quot;, &quot;m2*year&quot;] = &quot;area&quot;</span>
-<span class="lineno">  658 </span><span class="spaces">        </span><span class="nottickedoff">| u `elem` [&quot;m&quot;, &quot;km&quot;, &quot;mm&quot;, &quot;tkm&quot;, &quot;vkm&quot;, &quot;pkm&quot;] = &quot;distance&quot;</span>
-<span class="lineno">  659 </span><span class="spaces">        </span><span class="nottickedoff">| u `elem` [&quot;h&quot;, &quot;hr&quot;, &quot;hour&quot;, &quot;hours&quot;, &quot;person*hour&quot;] = &quot;time&quot;</span>
-<span class="lineno">  660 </span><span class="spaces">        </span><span class="nottickedoff">| otherwise = &quot;other&quot;</span></span>
+<span class="lineno">  649 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">buildUnitGroups units =</span>
+<span class="lineno">  650 </span><span class="spaces">    </span><span class="istickedoff">M.fromList [(unit, classifyUnit unit) | unit &lt;- L.nub units]</span>
+<span class="lineno">  651 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  652 </span><span class="spaces">    </span><span class="istickedoff">classifyUnit u</span>
+<span class="lineno">  653 </span><span class="spaces">        </span><span class="istickedoff">| u `elem` [&quot;kg&quot;, &quot;g&quot;, &quot;t&quot;, &quot;ton&quot;, &quot;metric ton&quot;, &quot;Mg&quot;] = &quot;mass&quot;</span>
+<span class="lineno">  654 </span><span class="spaces">        </span><span class="istickedoff">| u `elem` [&quot;m3&quot;, &quot;l&quot;, &quot;L&quot;, &quot;litre&quot;, &quot;liter&quot;, &quot;dm3&quot;] = &quot;volume&quot;</span>
+<span class="lineno">  655 </span><span class="spaces">        </span><span class="istickedoff">| u `elem` [&quot;MJ&quot;, &quot;kWh&quot;, &quot;J&quot;, &quot;kJ&quot;, &quot;GJ&quot;, &quot;Wh&quot;] = &quot;energy&quot;</span>
+<span class="lineno">  656 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">u `elem` [&quot;Bq&quot;, &quot;kBq&quot;, &quot;MBq&quot;]</span> = <span class="nottickedoff">&quot;radioactivity&quot;</span></span>
+<span class="lineno">  657 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">u `elem` [&quot;m2&quot;, &quot;ha&quot;, &quot;km2&quot;, &quot;m2*a&quot;, &quot;m2*year&quot;]</span> = <span class="nottickedoff">&quot;area&quot;</span></span>
+<span class="lineno">  658 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">u `elem` [&quot;m&quot;, &quot;km&quot;, &quot;mm&quot;, &quot;tkm&quot;, &quot;vkm&quot;, &quot;pkm&quot;]</span> = <span class="nottickedoff">&quot;distance&quot;</span></span>
+<span class="lineno">  659 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">u `elem` [&quot;h&quot;, &quot;hr&quot;, &quot;hour&quot;, &quot;hours&quot;, &quot;person*hour&quot;]</span> = <span class="nottickedoff">&quot;time&quot;</span></span>
+<span class="lineno">  660 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = &quot;other&quot;</span></span>
 <span class="lineno">  661 </span>
 <span class="lineno">  662 </span>-- | Get flow usage count across all activities
 <span class="lineno">  663 </span>getFlowUsageCount :: Database -&gt; UUID -&gt; Int

@@ -90,15 +90,15 @@ span.spaces    { background: white }
 <span class="lineno">   71 </span>
 <span class="lineno">   72 </span>-- | Poll until server responds or timeout
 <span class="lineno">   73 </span>waitForReady :: Manager -&gt; Int -&gt; IO Bool
-<span class="lineno">   74 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">waitForReady _ 0 = <span class="nottickedoff">return False</span></span>
+<span class="lineno">   74 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">waitForReady _ 0 = <span class="nottickedoff">return False</span></span>
 <span class="lineno">   75 </span><span class="spaces"></span><span class="istickedoff">waitForReady mgr remaining = do</span>
 <span class="lineno">   76 </span><span class="spaces">    </span><span class="istickedoff">threadDelay 200000  -- 200ms</span>
 <span class="lineno">   77 </span><span class="spaces">    </span><span class="istickedoff">alive &lt;- isAlive mgr</span>
-<span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">if alive then return True else waitForReady mgr (remaining - 1)</span></span>
+<span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">if <span class="tickonlytrue">alive</span> then return True else <span class="nottickedoff">waitForReady mgr (remaining - 1)</span></span></span>
 <span class="lineno">   79 </span>
 <span class="lineno">   80 </span>-- | Check if server is reachable
 <span class="lineno">   81 </span>isAlive :: Manager -&gt; IO Bool
-<span class="lineno">   82 </span><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">isAlive mgr = do</span>
+<span class="lineno">   82 </span><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">isAlive mgr = do</span>
 <span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">result &lt;- try $ do</span>
 <span class="lineno">   84 </span><span class="spaces">        </span><span class="istickedoff">req &lt;- parseRequest $ &quot;http://127.0.0.1:&quot; ++ show testPort ++ &quot;/api/v1/db&quot;</span>
 <span class="lineno">   85 </span><span class="spaces">        </span><span class="istickedoff">resp &lt;- httpLbs req mgr</span>

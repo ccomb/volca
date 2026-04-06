@@ -64,31 +64,31 @@ span.spaces    { background: white }
 <span class="lineno">   45 </span>
 <span class="lineno">   46 </span>-- | Parse with ILCD flow info enrichment
 <span class="lineno">   47 </span>parseMethodBytesWithFlows :: M.Map UUID ILCDFlowInfo -&gt; BS.ByteString -&gt; Either String Method
-<span class="lineno">   48 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">parseMethodBytesWithFlows flowInfo bytes =</span>
+<span class="lineno">   48 </span><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">parseMethodBytesWithFlows flowInfo bytes =</span>
 <span class="lineno">   49 </span><span class="spaces">    </span><span class="istickedoff">case X.fold openTag attribute endOpen textHandler closeTag <span class="nottickedoff">cdataHandler</span> initialState bytes of</span>
 <span class="lineno">   50 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">Left $ &quot;XML parse error: &quot; ++ show err</span></span>
 <span class="lineno">   51 </span><span class="spaces">        </span><span class="istickedoff">Right state -&gt; buildMethod flowInfo state</span></span>
 <span class="lineno">   52 </span>
 <span class="lineno">   53 </span>-- | Parser state accumulator
 <span class="lineno">   54 </span>data ParseState = ParseState
-<span class="lineno">   55 </span>    { <span class="istickedoff"><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">psMethodId</span></span></span>      :: !Text
-<span class="lineno">   56 </span>    , <span class="istickedoff"><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">psMethodName</span></span></span>    :: !Text
-<span class="lineno">   57 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">psDescription</span></span></span>   :: !Text
-<span class="lineno">   58 </span>    , <span class="istickedoff"><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">psUnit</span></span></span>          :: !Text
-<span class="lineno">   59 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">psCategory</span></span></span>      :: !Text
-<span class="lineno">   60 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">psMethodology</span></span></span>   :: !Text
-<span class="lineno">   61 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">psFactors</span></span></span>       :: ![MethodCF]
+<span class="lineno">   55 </span>    { <span class="istickedoff"><span class="funcount">-- entered 24 times</span><span class="decl"><span class="istickedoff">psMethodId</span></span></span>      :: !Text
+<span class="lineno">   56 </span>    , <span class="istickedoff"><span class="funcount">-- entered 23 times</span><span class="decl"><span class="istickedoff">psMethodName</span></span></span>    :: !Text
+<span class="lineno">   57 </span>    , <span class="istickedoff"><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">psDescription</span></span></span>   :: !Text
+<span class="lineno">   58 </span>    , <span class="istickedoff"><span class="funcount">-- entered 27 times</span><span class="decl"><span class="istickedoff">psUnit</span></span></span>          :: !Text
+<span class="lineno">   59 </span>    , <span class="istickedoff"><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">psCategory</span></span></span>      :: !Text
+<span class="lineno">   60 </span>    , <span class="istickedoff"><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">psMethodology</span></span></span>   :: !Text
+<span class="lineno">   61 </span>    , <span class="istickedoff"><span class="funcount">-- entered 14 times</span><span class="decl"><span class="istickedoff">psFactors</span></span></span>       :: ![MethodCF]
 <span class="lineno">   62 </span>    -- Current factor being parsed
-<span class="lineno">   63 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">psCurrentFlowId</span></span></span> :: !Text
+<span class="lineno">   63 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">psCurrentFlowId</span></span></span> :: !Text
 <span class="lineno">   64 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">psCurrentFlowURI</span></span></span> :: !Text
-<span class="lineno">   65 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">psCurrentFlowName</span></span></span> :: !Text
-<span class="lineno">   66 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">psCurrentDirection</span></span></span> :: !Text
-<span class="lineno">   67 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">psCurrentValue</span></span></span>  :: !Text
+<span class="lineno">   65 </span>    , <span class="istickedoff"><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">psCurrentFlowName</span></span></span> :: !Text
+<span class="lineno">   66 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">psCurrentDirection</span></span></span> :: !Text
+<span class="lineno">   67 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">psCurrentValue</span></span></span>  :: !Text
 <span class="lineno">   68 </span>    -- Context tracking
-<span class="lineno">   69 </span>    , <span class="istickedoff"><span class="funcount">-- entered 105 times</span><span class="decl"><span class="istickedoff">psPath</span></span></span>          :: ![BS.ByteString]  -- Stack of element names
-<span class="lineno">   70 </span>    , <span class="istickedoff"><span class="funcount">-- entered 71 times</span><span class="decl"><span class="istickedoff">psInFactor</span></span></span>      :: !Bool
-<span class="lineno">   71 </span>    , <span class="istickedoff"><span class="funcount">-- entered 54 times</span><span class="decl"><span class="istickedoff">psInRefQuantity</span></span></span> :: !Bool             -- Inside referenceQuantity element
-<span class="lineno">   72 </span>    , <span class="istickedoff"><span class="funcount">-- entered 42 times</span><span class="decl"><span class="istickedoff">psTextAccum</span></span></span>     :: ![BS.ByteString]  -- Accumulated text content
+<span class="lineno">   69 </span>    , <span class="istickedoff"><span class="funcount">-- entered 221 times</span><span class="decl"><span class="istickedoff">psPath</span></span></span>          :: ![BS.ByteString]  -- Stack of element names
+<span class="lineno">   70 </span>    , <span class="istickedoff"><span class="funcount">-- entered 151 times</span><span class="decl"><span class="istickedoff">psInFactor</span></span></span>      :: !Bool
+<span class="lineno">   71 </span>    , <span class="istickedoff"><span class="funcount">-- entered 114 times</span><span class="decl"><span class="istickedoff">psInRefQuantity</span></span></span> :: !Bool             -- Inside referenceQuantity element
+<span class="lineno">   72 </span>    , <span class="istickedoff"><span class="funcount">-- entered 90 times</span><span class="decl"><span class="istickedoff">psTextAccum</span></span></span>     :: ![BS.ByteString]  -- Accumulated text content
 <span class="lineno">   73 </span>    }
 <span class="lineno">   74 </span>
 <span class="lineno">   75 </span>initialState :: ParseState
@@ -113,7 +113,7 @@ span.spaces    { background: white }
 <span class="lineno">   94 </span>
 <span class="lineno">   95 </span>-- | Handle opening tags - update path and context
 <span class="lineno">   96 </span>openTag :: ParseState -&gt; BS.ByteString -&gt; ParseState
-<span class="lineno">   97 </span><span class="funcount">-- entered 51 times</span><span class="decl"><span class="istickedoff">openTag state tagName =</span>
+<span class="lineno">   97 </span><span class="funcount">-- entered 107 times</span><span class="decl"><span class="istickedoff">openTag state tagName =</span>
 <span class="lineno">   98 </span><span class="spaces">    </span><span class="istickedoff">let newPath = tagName : psPath state</span>
 <span class="lineno">   99 </span><span class="spaces">        </span><span class="istickedoff">newInFactor = psInFactor state || isElement tagName &quot;factor&quot;</span>
 <span class="lineno">  100 </span><span class="spaces">        </span><span class="istickedoff">newInRefQuantity = psInRefQuantity state || isElement tagName &quot;referenceQuantity&quot;</span>
@@ -125,7 +125,7 @@ span.spaces    { background: white }
 <span class="lineno">  106 </span>
 <span class="lineno">  107 </span>-- | Handle attributes
 <span class="lineno">  108 </span>attribute :: ParseState -&gt; BS.ByteString -&gt; BS.ByteString -&gt; ParseState
-<span class="lineno">  109 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">attribute state attrName attrValue</span>
+<span class="lineno">  109 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">attribute state attrName attrValue</span>
 <span class="lineno">  110 </span><span class="spaces">    </span><span class="istickedoff">-- Capture flow UUID from referenceToFlowDataSet</span>
 <span class="lineno">  111 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">psInFactor state &amp;&amp; attrName == &quot;refObjectId&quot; &amp;&amp; inFlowRef</span> =</span>
 <span class="lineno">  112 </span><span class="spaces">        </span><span class="istickedoff">state { psCurrentFlowId = bsToText attrValue }</span>
@@ -140,11 +140,11 @@ span.spaces    { background: white }
 <span class="lineno">  121 </span>
 <span class="lineno">  122 </span>-- | Handle end of opening tag (after all attributes processed)
 <span class="lineno">  123 </span>endOpen :: ParseState -&gt; BS.ByteString -&gt; ParseState
-<span class="lineno">  124 </span><span class="funcount">-- entered 51 times</span><span class="decl"><span class="istickedoff">endOpen state _tagName = state</span></span>
+<span class="lineno">  124 </span><span class="funcount">-- entered 107 times</span><span class="decl"><span class="istickedoff">endOpen state _tagName = state</span></span>
 <span class="lineno">  125 </span>
 <span class="lineno">  126 </span>-- | Handle text content
 <span class="lineno">  127 </span>textHandler :: ParseState -&gt; BS.ByteString -&gt; ParseState
-<span class="lineno">  128 </span><span class="funcount">-- entered 107 times</span><span class="decl"><span class="istickedoff">textHandler state text =</span>
+<span class="lineno">  128 </span><span class="funcount">-- entered 215 times</span><span class="decl"><span class="istickedoff">textHandler state text =</span>
 <span class="lineno">  129 </span><span class="spaces">    </span><span class="istickedoff">state { psTextAccum = text : psTextAccum state }</span></span>
 <span class="lineno">  130 </span>
 <span class="lineno">  131 </span>-- | Handle CDATA sections (treat same as text)
@@ -153,7 +153,7 @@ span.spaces    { background: white }
 <span class="lineno">  134 </span>
 <span class="lineno">  135 </span>-- | Handle closing tags
 <span class="lineno">  136 </span>closeTag :: ParseState -&gt; BS.ByteString -&gt; ParseState
-<span class="lineno">  137 </span><span class="funcount">-- entered 51 times</span><span class="decl"><span class="istickedoff">closeTag state tagName</span>
+<span class="lineno">  137 </span><span class="funcount">-- entered 107 times</span><span class="decl"><span class="istickedoff">closeTag state tagName</span>
 <span class="lineno">  138 </span><span class="spaces">    </span><span class="istickedoff">-- End of factor element - build the CF (enrichment happens in buildMethod)</span>
 <span class="lineno">  139 </span><span class="spaces">    </span><span class="istickedoff">| isElement tagName &quot;factor&quot; &amp;&amp; psInFactor state =</span>
 <span class="lineno">  140 </span><span class="spaces">        </span><span class="istickedoff">let flowUUID = resolveFlowUUID (psCurrentFlowId state) <span class="nottickedoff">(psCurrentFlowURI state)</span></span>
@@ -259,7 +259,7 @@ span.spaces    { background: white }
 <span class="lineno">  240 </span>
 <span class="lineno">  241 </span>-- | Build the final Method from parsed state, enriching CFs with flow XML data
 <span class="lineno">  242 </span>buildMethod :: M.Map UUID ILCDFlowInfo -&gt; ParseState -&gt; Either String Method
-<span class="lineno">  243 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">buildMethod flowInfo state = do</span>
+<span class="lineno">  243 </span><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">buildMethod flowInfo state = do</span>
 <span class="lineno">  244 </span><span class="spaces">    </span><span class="istickedoff">when (T.null (psMethodId state)) $</span>
 <span class="lineno">  245 </span><span class="spaces">        </span><span class="istickedoff">Left <span class="nottickedoff">&quot;Missing method UUID&quot;</span></span>
 <span class="lineno">  246 </span><span class="spaces">    </span><span class="istickedoff">when (T.null (psMethodName state)) $</span>
@@ -288,20 +288,20 @@ span.spaces    { background: white }
 <span class="lineno">  269 </span>
 <span class="lineno">  270 </span>-- | Enrich a MethodCF with data from ILCD flow XMLs
 <span class="lineno">  271 </span>enrichCF :: M.Map UUID ILCDFlowInfo -&gt; MethodCF -&gt; MethodCF
-<span class="lineno">  272 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">enrichCF flowInfo cf = case M.lookup (mcfFlowRef cf) flowInfo of</span>
+<span class="lineno">  272 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">enrichCF flowInfo cf = case M.lookup (mcfFlowRef cf) flowInfo of</span>
 <span class="lineno">  273 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; cf  -- no flow XML found, keep fallback data from shortDescription</span>
-<span class="lineno">  274 </span><span class="spaces">    </span><span class="istickedoff">Just info -&gt; <span class="nottickedoff">cf</span></span>
-<span class="lineno">  275 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">{ mcfFlowName    = ilcdBaseName info  -- proper baseName replaces extracted name</span></span>
-<span class="lineno">  276 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">, mcfCompartment = firstJust (ilcdCompartment info) (mcfCompartment cf)</span></span>
-<span class="lineno">  277 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">, mcfCAS         = ilcdCAS info</span></span>
-<span class="lineno">  278 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">}</span></span>
+<span class="lineno">  274 </span><span class="spaces">    </span><span class="istickedoff">Just info -&gt; cf</span>
+<span class="lineno">  275 </span><span class="spaces">        </span><span class="istickedoff">{ mcfFlowName    = ilcdBaseName info  -- proper baseName replaces extracted name</span>
+<span class="lineno">  276 </span><span class="spaces">        </span><span class="istickedoff">, mcfCompartment = firstJust (ilcdCompartment info) <span class="nottickedoff">(mcfCompartment cf)</span></span>
+<span class="lineno">  277 </span><span class="spaces">        </span><span class="istickedoff">, mcfCAS         = ilcdCAS info</span>
+<span class="lineno">  278 </span><span class="spaces">        </span><span class="istickedoff">}</span>
 <span class="lineno">  279 </span><span class="spaces">  </span><span class="istickedoff">where</span>
-<span class="lineno">  280 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">firstJust (Just a) _ = Just a</span></span>
-<span class="lineno">  281 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">firstJust Nothing  b = b</span></span></span>
+<span class="lineno">  280 </span><span class="spaces">    </span><span class="istickedoff">firstJust (Just a) _ = Just a</span>
+<span class="lineno">  281 </span><span class="spaces">    </span><span class="istickedoff">firstJust Nothing  b = <span class="nottickedoff">b</span></span></span>
 <span class="lineno">  282 </span>
 <span class="lineno">  283 </span>-- | Resolve flow UUID: prefer refObjectId, fall back to extracting UUID from URI path
 <span class="lineno">  284 </span>resolveFlowUUID :: Text -&gt; Text -&gt; UUID
-<span class="lineno">  285 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">resolveFlowUUID refId uri</span>
+<span class="lineno">  285 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">resolveFlowUUID refId uri</span>
 <span class="lineno">  286 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">not (T.null refId)</span>, Just u &lt;- UUID.fromText refId = u</span>
 <span class="lineno">  287 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">not (T.null uri)</span> = <span class="nottickedoff">extractUUIDFromURI uri</span></span>
 <span class="lineno">  288 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">UUID.nil</span></span></span>
@@ -318,13 +318,13 @@ span.spaces    { background: white }
 <span class="lineno">  299 </span>
 <span class="lineno">  300 </span>-- | Parse Double from text, return 0 on failure
 <span class="lineno">  301 </span>parseDoubleSafe :: Text -&gt; Double
-<span class="lineno">  302 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">parseDoubleSafe txt = case TR.double txt of</span>
+<span class="lineno">  302 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">parseDoubleSafe txt = case TR.double txt of</span>
 <span class="lineno">  303 </span><span class="spaces">    </span><span class="istickedoff">Right (val, _) -&gt; val</span>
 <span class="lineno">  304 </span><span class="spaces">    </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">0.0</span></span></span>
 <span class="lineno">  305 </span>
 <span class="lineno">  306 </span>-- | Parse flow direction from text
 <span class="lineno">  307 </span>parseDirection :: Text -&gt; FlowDirection
-<span class="lineno">  308 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">parseDirection txt</span>
+<span class="lineno">  308 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">parseDirection txt</span>
 <span class="lineno">  309 </span><span class="spaces">    </span><span class="istickedoff">| &quot;Input&quot; `T.isPrefixOf` txt = Input</span>
 <span class="lineno">  310 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">&quot;input&quot; `T.isPrefixOf` txt</span> = <span class="nottickedoff">Input</span></span>
 <span class="lineno">  311 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Output</span></span>
@@ -334,37 +334,37 @@ span.spaces    { background: white }
 <span class="lineno">  315 </span>-- The flow name may contain parentheses (e.g. &quot;methane (fossil)&quot;),
 <span class="lineno">  316 </span>-- so we find the &quot;(Mass&quot; / &quot;(Volume&quot; marker as the boundary.
 <span class="lineno">  317 </span>extractFlowName :: Text -&gt; Text
-<span class="lineno">  318 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">extractFlowName txt =</span>
-<span class="lineno">  319 </span><span class="spaces">    </span><span class="istickedoff">let markers = [&quot;(Mass&quot;, <span class="nottickedoff">&quot;(Volume&quot;</span>, <span class="nottickedoff">&quot;(Area&quot;</span>, <span class="nottickedoff">&quot;(Energy&quot;</span>, <span class="nottickedoff">&quot;(Length&quot;</span>, <span class="nottickedoff">&quot;(Number of items&quot;</span>]</span>
-<span class="lineno">  320 </span><span class="spaces">        </span><span class="istickedoff">findMarker [] = <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  318 </span><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">extractFlowName txt =</span>
+<span class="lineno">  319 </span><span class="spaces">    </span><span class="istickedoff">let markers = [&quot;(Mass&quot;, &quot;(Volume&quot;, &quot;(Area&quot;, &quot;(Energy&quot;, &quot;(Length&quot;, &quot;(Number of items&quot;]</span>
+<span class="lineno">  320 </span><span class="spaces">        </span><span class="istickedoff">findMarker [] = Nothing</span>
 <span class="lineno">  321 </span><span class="spaces">        </span><span class="istickedoff">findMarker (m:ms) = case T.breakOn m txt of</span>
-<span class="lineno">  322 </span><span class="spaces">            </span><span class="istickedoff">(before, rest) | <span class="tickonlytrue">not (T.null rest)</span> -&gt; Just before</span>
-<span class="lineno">  323 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">findMarker ms</span></span>
+<span class="lineno">  322 </span><span class="spaces">            </span><span class="istickedoff">(before, rest) | not (T.null rest) -&gt; Just before</span>
+<span class="lineno">  323 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; findMarker ms</span>
 <span class="lineno">  324 </span><span class="spaces">    </span><span class="istickedoff">in T.strip $ case findMarker markers of</span>
 <span class="lineno">  325 </span><span class="spaces">        </span><span class="istickedoff">Just before -&gt; before</span>
-<span class="lineno">  326 </span><span class="spaces">        </span><span class="istickedoff">Nothing     -&gt; <span class="nottickedoff">txt</span></span></span>  -- no marker found: use full text
+<span class="lineno">  326 </span><span class="spaces">        </span><span class="istickedoff">Nothing     -&gt; txt</span></span>  -- no marker found: use full text
 <span class="lineno">  327 </span>
 <span class="lineno">  328 </span>-- | Extract compartment info from shortDescription as fallback
 <span class="lineno">  329 </span>-- Format: &quot;... Emissions to air, non-urban ...&quot;
 <span class="lineno">  330 </span>extractCompartmentFromDesc :: Text -&gt; Maybe Compartment
-<span class="lineno">  331 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">extractCompartmentFromDesc txt</span>
-<span class="lineno">  332 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">&quot;Emissions to air&quot; `T.isInfixOf` txt</span> =</span>
-<span class="lineno">  333 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">Just (Compartment &quot;air&quot; (extractSubFromDesc &quot;Emissions to air&quot; txt) &quot;&quot;)</span></span>
-<span class="lineno">  334 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">&quot;Emissions to water&quot; `T.isInfixOf` txt</span> =</span>
-<span class="lineno">  335 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">Just (Compartment &quot;water&quot; (extractSubFromDesc &quot;Emissions to water&quot; txt) &quot;&quot;)</span></span>
-<span class="lineno">  336 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">&quot;Emissions to soil&quot; `T.isInfixOf` txt</span> =</span>
-<span class="lineno">  337 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">Just (Compartment &quot;soil&quot; (extractSubFromDesc &quot;Emissions to soil&quot; txt) &quot;&quot;)</span></span>
-<span class="lineno">  338 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">&quot;Resources&quot; `T.isInfixOf` txt</span> =</span>
-<span class="lineno">  339 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">Just (Compartment &quot;natural resource&quot; &quot;&quot; &quot;&quot;)</span></span>
+<span class="lineno">  331 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">extractCompartmentFromDesc txt</span>
+<span class="lineno">  332 </span><span class="spaces">    </span><span class="istickedoff">| &quot;Emissions to air&quot; `T.isInfixOf` txt =</span>
+<span class="lineno">  333 </span><span class="spaces">        </span><span class="istickedoff">Just (Compartment &quot;air&quot; (extractSubFromDesc &quot;Emissions to air&quot; txt) &quot;&quot;)</span>
+<span class="lineno">  334 </span><span class="spaces">    </span><span class="istickedoff">| &quot;Emissions to water&quot; `T.isInfixOf` txt =</span>
+<span class="lineno">  335 </span><span class="spaces">        </span><span class="istickedoff">Just (Compartment &quot;water&quot; (extractSubFromDesc &quot;Emissions to water&quot; txt) &quot;&quot;)</span>
+<span class="lineno">  336 </span><span class="spaces">    </span><span class="istickedoff">| &quot;Emissions to soil&quot; `T.isInfixOf` txt =</span>
+<span class="lineno">  337 </span><span class="spaces">        </span><span class="istickedoff">Just (Compartment &quot;soil&quot; (extractSubFromDesc &quot;Emissions to soil&quot; txt) &quot;&quot;)</span>
+<span class="lineno">  338 </span><span class="spaces">    </span><span class="istickedoff">| &quot;Resources&quot; `T.isInfixOf` txt =</span>
+<span class="lineno">  339 </span><span class="spaces">        </span><span class="istickedoff">Just (Compartment &quot;natural resource&quot; &quot;&quot; &quot;&quot;)</span>
 <span class="lineno">  340 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span>
 <span class="lineno">  341 </span><span class="spaces">  </span><span class="istickedoff">where</span>
-<span class="lineno">  342 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">extractSubFromDesc prefix t =</span></span>
-<span class="lineno">  343 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">let (_, after) = T.breakOn prefix t</span></span>
-<span class="lineno">  344 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">rest = T.drop (T.length prefix) after</span></span>
-<span class="lineno">  345 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">-- Rest might be &quot;, non-urban air or from high stacks)&quot;</span></span>
-<span class="lineno">  346 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">cleaned = T.dropWhile (\c -&gt; c == ',' || c == ' ') rest</span></span>
-<span class="lineno">  347 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">sub = T.takeWhile (/= ')') cleaned</span></span>
-<span class="lineno">  348 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">in T.strip sub</span></span></span>
+<span class="lineno">  342 </span><span class="spaces">    </span><span class="istickedoff">extractSubFromDesc prefix t =</span>
+<span class="lineno">  343 </span><span class="spaces">        </span><span class="istickedoff">let (_, after) = T.breakOn prefix t</span>
+<span class="lineno">  344 </span><span class="spaces">            </span><span class="istickedoff">rest = T.drop (T.length prefix) after</span>
+<span class="lineno">  345 </span><span class="spaces">            </span><span class="istickedoff">-- Rest might be &quot;, non-urban air or from high stacks)&quot;</span>
+<span class="lineno">  346 </span><span class="spaces">            </span><span class="istickedoff">cleaned = T.dropWhile (\c -&gt; c == ',' || c == ' ') rest</span>
+<span class="lineno">  347 </span><span class="spaces">            </span><span class="istickedoff">sub = T.takeWhile (/= ')') cleaned</span>
+<span class="lineno">  348 </span><span class="spaces">        </span><span class="istickedoff">in T.strip sub</span></span>
 
 </pre>
 </body>

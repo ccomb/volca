@@ -29,192 +29,195 @@ span.spaces    { background: white }
 <span class="lineno">   10 </span>      -- * Meta file operations
 <span class="lineno">   11 </span>    , readUploadMeta
 <span class="lineno">   12 </span>    , writeUploadMeta
-<span class="lineno">   13 </span>      -- * Discovery
-<span class="lineno">   14 </span>    , discoverUploadedDatabases
-<span class="lineno">   15 </span>    , discoverUploadedMethods
-<span class="lineno">   16 </span>    , getDatabaseUploadsDir
-<span class="lineno">   17 </span>    , getMethodUploadsDir
-<span class="lineno">   18 </span>      -- * Data directory
-<span class="lineno">   19 </span>    , getDataDir
-<span class="lineno">   20 </span>    , isUploadedPath
-<span class="lineno">   21 </span>    ) where
-<span class="lineno">   22 </span>
-<span class="lineno">   23 </span>import Control.Exception (try, SomeException)
-<span class="lineno">   24 </span>import Control.Monad (forM, filterM)
-<span class="lineno">   25 </span>import Data.Text (Text)
-<span class="lineno">   26 </span>import qualified Data.Text as T
-<span class="lineno">   27 </span>import qualified Data.Text.IO as TIO
-<span class="lineno">   28 </span>import GHC.Generics (Generic)
-<span class="lineno">   29 </span>import System.Directory (doesDirectoryExist, doesFileExist, listDirectory, createDirectoryIfMissing)
-<span class="lineno">   30 </span>import System.Environment (lookupEnv)
-<span class="lineno">   31 </span>import System.FilePath ((&lt;/&gt;), splitDirectories)
-<span class="lineno">   32 </span>import Text.Read (readMaybe)
-<span class="lineno">   33 </span>
-<span class="lineno">   34 </span>-- Re-export DatabaseFormat from Database.Upload (single definition)
-<span class="lineno">   35 </span>import Database.Upload (DatabaseFormat(..))
+<span class="lineno">   13 </span>    , parseMetaToml
+<span class="lineno">   14 </span>    , formatMetaToml
+<span class="lineno">   15 </span>    , parseFormat
+<span class="lineno">   16 </span>      -- * Discovery
+<span class="lineno">   17 </span>    , discoverUploadedDatabases
+<span class="lineno">   18 </span>    , discoverUploadedMethods
+<span class="lineno">   19 </span>    , getDatabaseUploadsDir
+<span class="lineno">   20 </span>    , getMethodUploadsDir
+<span class="lineno">   21 </span>      -- * Data directory
+<span class="lineno">   22 </span>    , getDataDir
+<span class="lineno">   23 </span>    , isUploadedPath
+<span class="lineno">   24 </span>    ) where
+<span class="lineno">   25 </span>
+<span class="lineno">   26 </span>import Control.Exception (try, SomeException)
+<span class="lineno">   27 </span>import Control.Monad (forM, filterM)
+<span class="lineno">   28 </span>import Data.Text (Text)
+<span class="lineno">   29 </span>import qualified Data.Text as T
+<span class="lineno">   30 </span>import qualified Data.Text.IO as TIO
+<span class="lineno">   31 </span>import GHC.Generics (Generic)
+<span class="lineno">   32 </span>import System.Directory (doesDirectoryExist, doesFileExist, listDirectory, createDirectoryIfMissing)
+<span class="lineno">   33 </span>import System.Environment (lookupEnv)
+<span class="lineno">   34 </span>import System.FilePath ((&lt;/&gt;), splitDirectories)
+<span class="lineno">   35 </span>import Text.Read (readMaybe)
 <span class="lineno">   36 </span>
-<span class="lineno">   37 </span>-- | Metadata for an uploaded database
-<span class="lineno">   38 </span>data UploadMeta = UploadMeta
-<span class="lineno">   39 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umVersion</span></span></span>     :: !Int           -- Meta format version (for future compatibility)
-<span class="lineno">   40 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umDisplayName</span></span></span> :: !Text          -- Human-readable name
-<span class="lineno">   41 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umDescription</span></span></span> :: !(Maybe Text)  -- Optional description
-<span class="lineno">   42 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umFormat</span></span></span>      :: !DatabaseFormat -- Detected database format
-<span class="lineno">   43 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umDataPath</span></span></span>    :: !FilePath      -- Relative path to data within upload dir
-<span class="lineno">   44 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
-<span class="lineno">   45 </span>
-<span class="lineno">   46 </span>-- | Name of the metadata file in each upload directory
-<span class="lineno">   47 </span>metaFileName :: FilePath
-<span class="lineno">   48 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">metaFileName = &quot;meta.toml&quot;</span></span>
-<span class="lineno">   49 </span>
-<span class="lineno">   50 </span>-- | Get the base data directory (uploads, cache, etc.)
-<span class="lineno">   51 </span>-- Uses VOLCA_DATA_DIR env var, falls back to current directory
-<span class="lineno">   52 </span>getDataDir :: IO FilePath
-<span class="lineno">   53 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getDataDir = do</span>
-<span class="lineno">   54 </span><span class="spaces">    </span><span class="nottickedoff">mdir &lt;- lookupEnv &quot;VOLCA_DATA_DIR&quot;</span>
-<span class="lineno">   55 </span><span class="spaces">    </span><span class="nottickedoff">case mdir of</span>
-<span class="lineno">   56 </span><span class="spaces">        </span><span class="nottickedoff">Just d  -&gt; return d</span>
-<span class="lineno">   57 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt; return &quot;.&quot;</span></span>
-<span class="lineno">   58 </span>
-<span class="lineno">   59 </span>-- | Get the database uploads directory
-<span class="lineno">   60 </span>getDatabaseUploadsDir :: IO FilePath
-<span class="lineno">   61 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getDatabaseUploadsDir = do</span>
-<span class="lineno">   62 </span><span class="spaces">    </span><span class="nottickedoff">base &lt;- getDataDir</span>
-<span class="lineno">   63 </span><span class="spaces">    </span><span class="nottickedoff">let dir = base &lt;/&gt; &quot;uploads&quot; &lt;/&gt; &quot;databases&quot;</span>
-<span class="lineno">   64 </span><span class="spaces">    </span><span class="nottickedoff">createDirectoryIfMissing True dir</span>
-<span class="lineno">   65 </span><span class="spaces">    </span><span class="nottickedoff">return dir</span></span>
-<span class="lineno">   66 </span>
-<span class="lineno">   67 </span>-- | Get the method uploads directory
-<span class="lineno">   68 </span>getMethodUploadsDir :: IO FilePath
-<span class="lineno">   69 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getMethodUploadsDir = do</span>
-<span class="lineno">   70 </span><span class="spaces">    </span><span class="nottickedoff">base &lt;- getDataDir</span>
-<span class="lineno">   71 </span><span class="spaces">    </span><span class="nottickedoff">let dir = base &lt;/&gt; &quot;uploads&quot; &lt;/&gt; &quot;methods&quot;</span>
-<span class="lineno">   72 </span><span class="spaces">    </span><span class="nottickedoff">createDirectoryIfMissing True dir</span>
-<span class="lineno">   73 </span><span class="spaces">    </span><span class="nottickedoff">return dir</span></span>
-<span class="lineno">   74 </span>
-<span class="lineno">   75 </span>-- | Check if a path belongs to the uploads directory
-<span class="lineno">   76 </span>isUploadedPath :: FilePath -&gt; Bool
-<span class="lineno">   77 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">isUploadedPath path =</span>
-<span class="lineno">   78 </span><span class="spaces">    </span><span class="nottickedoff">&quot;uploads&quot; `elem` splitDirectories path</span></span>
-<span class="lineno">   79 </span>
-<span class="lineno">   80 </span>-- | Read meta.toml from an upload directory
-<span class="lineno">   81 </span>-- Returns Nothing if file doesn't exist or can't be parsed
-<span class="lineno">   82 </span>readUploadMeta :: FilePath -&gt; IO (Maybe UploadMeta)
-<span class="lineno">   83 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">readUploadMeta uploadDir = do</span>
-<span class="lineno">   84 </span><span class="spaces">    </span><span class="nottickedoff">let metaPath = uploadDir &lt;/&gt; metaFileName</span>
-<span class="lineno">   85 </span><span class="spaces">    </span><span class="nottickedoff">exists &lt;- doesFileExist metaPath</span>
-<span class="lineno">   86 </span><span class="spaces">    </span><span class="nottickedoff">if not exists</span>
-<span class="lineno">   87 </span><span class="spaces">        </span><span class="nottickedoff">then return Nothing</span>
-<span class="lineno">   88 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
-<span class="lineno">   89 </span><span class="spaces">            </span><span class="nottickedoff">result &lt;- try $ TIO.readFile metaPath</span>
-<span class="lineno">   90 </span><span class="spaces">            </span><span class="nottickedoff">case result of</span>
-<span class="lineno">   91 </span><span class="spaces">                </span><span class="nottickedoff">Left (_ :: SomeException) -&gt; return Nothing</span>
-<span class="lineno">   92 </span><span class="spaces">                </span><span class="nottickedoff">Right content -&gt; return $ parseMetaToml content</span></span>
-<span class="lineno">   93 </span>
-<span class="lineno">   94 </span>-- | Write meta.toml to an upload directory
-<span class="lineno">   95 </span>writeUploadMeta :: FilePath -&gt; UploadMeta -&gt; IO ()
-<span class="lineno">   96 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">writeUploadMeta uploadDir meta = do</span>
-<span class="lineno">   97 </span><span class="spaces">    </span><span class="nottickedoff">let metaPath = uploadDir &lt;/&gt; metaFileName</span>
-<span class="lineno">   98 </span><span class="spaces">    </span><span class="nottickedoff">TIO.writeFile metaPath (formatMetaToml meta)</span></span>
-<span class="lineno">   99 </span>
-<span class="lineno">  100 </span>-- | Parse meta.toml content
-<span class="lineno">  101 </span>-- Simple key=value parser (not a full TOML parser)
-<span class="lineno">  102 </span>parseMetaToml :: Text -&gt; Maybe UploadMeta
-<span class="lineno">  103 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseMetaToml content = do</span>
-<span class="lineno">  104 </span><span class="spaces">    </span><span class="nottickedoff">let lines' = map T.strip $ T.lines content</span>
-<span class="lineno">  105 </span><span class="spaces">        </span><span class="nottickedoff">kvPairs = [(T.strip k, v) | line &lt;- lines'</span>
-<span class="lineno">  106 </span><span class="spaces">                         </span><span class="nottickedoff">, not (T.null line)</span>
-<span class="lineno">  107 </span><span class="spaces">                         </span><span class="nottickedoff">, not (T.isPrefixOf &quot;#&quot; line)</span>
-<span class="lineno">  108 </span><span class="spaces">                         </span><span class="nottickedoff">, let (k, rest) = T.breakOn &quot;=&quot; line</span>
-<span class="lineno">  109 </span><span class="spaces">                         </span><span class="nottickedoff">, not (T.null rest)</span>
-<span class="lineno">  110 </span><span class="spaces">                         </span><span class="nottickedoff">, let v = T.strip $ T.drop 1 rest</span>
-<span class="lineno">  111 </span><span class="spaces">                         </span><span class="nottickedoff">]</span>
-<span class="lineno">  112 </span><span class="spaces">        </span><span class="nottickedoff">getValue key = lookup key kvPairs</span>
-<span class="lineno">  113 </span><span class="spaces">        </span><span class="nottickedoff">unquote t = T.dropAround (== '&quot;') t</span>
-<span class="lineno">  114 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno">  115 </span><span class="spaces">    </span><span class="nottickedoff">version &lt;- getValue &quot;version&quot; &gt;&gt;= readMaybe . T.unpack</span>
-<span class="lineno">  116 </span><span class="spaces">    </span><span class="nottickedoff">displayName &lt;- unquote &lt;$&gt; getValue &quot;displayName&quot;</span>
-<span class="lineno">  117 </span><span class="spaces">    </span><span class="nottickedoff">let description = unquote &lt;$&gt; getValue &quot;description&quot;</span>
-<span class="lineno">  118 </span><span class="spaces">    </span><span class="nottickedoff">format &lt;- getValue &quot;format&quot; &gt;&gt;= parseFormat . unquote</span>
-<span class="lineno">  119 </span><span class="spaces">    </span><span class="nottickedoff">dataPath &lt;- T.unpack . unquote &lt;$&gt; getValue &quot;dataPath&quot;</span>
-<span class="lineno">  120 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno">  121 </span><span class="spaces">    </span><span class="nottickedoff">return UploadMeta</span>
-<span class="lineno">  122 </span><span class="spaces">        </span><span class="nottickedoff">{ umVersion = version</span>
-<span class="lineno">  123 </span><span class="spaces">        </span><span class="nottickedoff">, umDisplayName = displayName</span>
-<span class="lineno">  124 </span><span class="spaces">        </span><span class="nottickedoff">, umDescription = description</span>
-<span class="lineno">  125 </span><span class="spaces">        </span><span class="nottickedoff">, umFormat = format</span>
-<span class="lineno">  126 </span><span class="spaces">        </span><span class="nottickedoff">, umDataPath = dataPath</span>
-<span class="lineno">  127 </span><span class="spaces">        </span><span class="nottickedoff">}</span></span>
-<span class="lineno">  128 </span>
-<span class="lineno">  129 </span>-- | Parse format string to DatabaseFormat
-<span class="lineno">  130 </span>parseFormat :: Text -&gt; Maybe DatabaseFormat
-<span class="lineno">  131 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseFormat &quot;ecospold2&quot; = Just EcoSpold2</span>
-<span class="lineno">  132 </span><span class="spaces"></span><span class="nottickedoff">parseFormat &quot;ecospold1&quot; = Just EcoSpold1</span>
-<span class="lineno">  133 </span><span class="spaces"></span><span class="nottickedoff">parseFormat &quot;simapro&quot; = Just SimaProCSV</span>
-<span class="lineno">  134 </span><span class="spaces"></span><span class="nottickedoff">parseFormat &quot;ilcd&quot; = Just ILCDProcess</span>
-<span class="lineno">  135 </span><span class="spaces"></span><span class="nottickedoff">parseFormat _ = Just UnknownFormat</span></span>
-<span class="lineno">  136 </span>
-<span class="lineno">  137 </span>-- | Format meta.toml content
-<span class="lineno">  138 </span>formatMetaToml :: UploadMeta -&gt; Text
-<span class="lineno">  139 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">formatMetaToml UploadMeta{..} = T.unlines $</span>
-<span class="lineno">  140 </span><span class="spaces">    </span><span class="nottickedoff">[ &quot;version = &quot; &lt;&gt; T.pack (show umVersion)</span>
-<span class="lineno">  141 </span><span class="spaces">    </span><span class="nottickedoff">, &quot;displayName = &quot; &lt;&gt; quote umDisplayName</span>
-<span class="lineno">  142 </span><span class="spaces">    </span><span class="nottickedoff">] ++</span>
-<span class="lineno">  143 </span><span class="spaces">    </span><span class="nottickedoff">maybe [] (\d -&gt; [&quot;description = &quot; &lt;&gt; quote d]) umDescription ++</span>
-<span class="lineno">  144 </span><span class="spaces">    </span><span class="nottickedoff">[ &quot;format = &quot; &lt;&gt; quote (formatToText umFormat)</span>
-<span class="lineno">  145 </span><span class="spaces">    </span><span class="nottickedoff">, &quot;dataPath = &quot; &lt;&gt; quote (T.pack umDataPath)</span>
-<span class="lineno">  146 </span><span class="spaces">    </span><span class="nottickedoff">]</span>
-<span class="lineno">  147 </span><span class="spaces">  </span><span class="nottickedoff">where</span>
-<span class="lineno">  148 </span><span class="spaces">    </span><span class="nottickedoff">quote t = &quot;\&quot;&quot; &lt;&gt; escapeToml t &lt;&gt; &quot;\&quot;&quot;</span>
-<span class="lineno">  149 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno">  150 </span><span class="spaces">    </span><span class="nottickedoff">escapeToml = T.concatMap escape</span>
-<span class="lineno">  151 </span><span class="spaces">      </span><span class="nottickedoff">where</span>
-<span class="lineno">  152 </span><span class="spaces">        </span><span class="nottickedoff">escape '&quot;' = &quot;\\\&quot;&quot;</span>
-<span class="lineno">  153 </span><span class="spaces">        </span><span class="nottickedoff">escape '\\' = &quot;\\\\&quot;</span>
-<span class="lineno">  154 </span><span class="spaces">        </span><span class="nottickedoff">escape '\n' = &quot;\\n&quot;</span>
-<span class="lineno">  155 </span><span class="spaces">        </span><span class="nottickedoff">escape c = T.singleton c</span>
-<span class="lineno">  156 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno">  157 </span><span class="spaces">    </span><span class="nottickedoff">formatToText EcoSpold2 = &quot;ecospold2&quot;</span>
-<span class="lineno">  158 </span><span class="spaces">    </span><span class="nottickedoff">formatToText EcoSpold1 = &quot;ecospold1&quot;</span>
-<span class="lineno">  159 </span><span class="spaces">    </span><span class="nottickedoff">formatToText SimaProCSV = &quot;simapro&quot;</span>
-<span class="lineno">  160 </span><span class="spaces">    </span><span class="nottickedoff">formatToText ILCDProcess = &quot;ilcd&quot;</span>
-<span class="lineno">  161 </span><span class="spaces">    </span><span class="nottickedoff">formatToText UnknownFormat = &quot;unknown&quot;</span></span>
-<span class="lineno">  162 </span>
-<span class="lineno">  163 </span>-- | Scan a directory for subdirectories with meta.toml
-<span class="lineno">  164 </span>scanUploadsIn :: FilePath -&gt; IO [(Text, FilePath, UploadMeta)]
-<span class="lineno">  165 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">scanUploadsIn dir = do</span>
-<span class="lineno">  166 </span><span class="spaces">    </span><span class="nottickedoff">exists &lt;- doesDirectoryExist dir</span>
-<span class="lineno">  167 </span><span class="spaces">    </span><span class="nottickedoff">if not exists</span>
-<span class="lineno">  168 </span><span class="spaces">        </span><span class="nottickedoff">then return []</span>
-<span class="lineno">  169 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
-<span class="lineno">  170 </span><span class="spaces">            </span><span class="nottickedoff">entries &lt;- listDirectory dir</span>
-<span class="lineno">  171 </span><span class="spaces">            </span><span class="nottickedoff">let fullPaths = [(T.pack entry, dir &lt;/&gt; entry) | entry &lt;- entries]</span>
-<span class="lineno">  172 </span><span class="spaces">            </span><span class="nottickedoff">dirsOnly &lt;- filterM (doesDirectoryExist . snd) fullPaths</span>
-<span class="lineno">  173 </span><span class="spaces">            </span><span class="nottickedoff">results &lt;- forM dirsOnly $ \(slug, dirPath) -&gt; do</span>
-<span class="lineno">  174 </span><span class="spaces">                </span><span class="nottickedoff">maybeMeta &lt;- readUploadMeta dirPath</span>
-<span class="lineno">  175 </span><span class="spaces">                </span><span class="nottickedoff">return $ case maybeMeta of</span>
-<span class="lineno">  176 </span><span class="spaces">                    </span><span class="nottickedoff">Just meta -&gt; Just (slug, dirPath, meta)</span>
-<span class="lineno">  177 </span><span class="spaces">                    </span><span class="nottickedoff">Nothing -&gt; Nothing</span>
-<span class="lineno">  178 </span><span class="spaces">            </span><span class="nottickedoff">return [r | Just r &lt;- results]</span></span>
-<span class="lineno">  179 </span>
-<span class="lineno">  180 </span>-- | Discover all uploaded databases by scanning the uploads directory
-<span class="lineno">  181 </span>-- Scans ./uploads/databases/ first, then legacy ./uploads/ for backward compat
-<span class="lineno">  182 </span>discoverUploadedDatabases :: IO [(Text, FilePath, UploadMeta)]
-<span class="lineno">  183 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">discoverUploadedDatabases = do</span>
-<span class="lineno">  184 </span><span class="spaces">    </span><span class="nottickedoff">dbDir &lt;- getDatabaseUploadsDir</span>
-<span class="lineno">  185 </span><span class="spaces">    </span><span class="nottickedoff">newResults &lt;- scanUploadsIn dbDir</span>
-<span class="lineno">  186 </span><span class="spaces">    </span><span class="nottickedoff">if not (null newResults)</span>
-<span class="lineno">  187 </span><span class="spaces">        </span><span class="nottickedoff">then return newResults</span>
-<span class="lineno">  188 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
-<span class="lineno">  189 </span><span class="spaces">            </span><span class="nottickedoff">-- Legacy fallback: scan ./uploads/ directly</span>
-<span class="lineno">  190 </span><span class="spaces">            </span><span class="nottickedoff">base &lt;- getDataDir</span>
-<span class="lineno">  191 </span><span class="spaces">            </span><span class="nottickedoff">let legacyDir = base &lt;/&gt; &quot;uploads&quot;</span>
-<span class="lineno">  192 </span><span class="spaces">            </span><span class="nottickedoff">scanUploadsIn legacyDir</span></span>
-<span class="lineno">  193 </span>
-<span class="lineno">  194 </span>-- | Discover all uploaded methods by scanning the methods upload directory
-<span class="lineno">  195 </span>discoverUploadedMethods :: IO [(Text, FilePath, UploadMeta)]
-<span class="lineno">  196 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">discoverUploadedMethods = do</span>
-<span class="lineno">  197 </span><span class="spaces">    </span><span class="nottickedoff">methodDir &lt;- getMethodUploadsDir</span>
-<span class="lineno">  198 </span><span class="spaces">    </span><span class="nottickedoff">scanUploadsIn methodDir</span></span>
+<span class="lineno">   37 </span>-- Re-export DatabaseFormat from Database.Upload (single definition)
+<span class="lineno">   38 </span>import Database.Upload (DatabaseFormat(..))
+<span class="lineno">   39 </span>
+<span class="lineno">   40 </span>-- | Metadata for an uploaded database
+<span class="lineno">   41 </span>data UploadMeta = UploadMeta
+<span class="lineno">   42 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umVersion</span></span></span>     :: !Int           -- Meta format version (for future compatibility)
+<span class="lineno">   43 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">umDisplayName</span></span></span> :: !Text          -- Human-readable name
+<span class="lineno">   44 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">umDescription</span></span></span> :: !(Maybe Text)  -- Optional description
+<span class="lineno">   45 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">umFormat</span></span></span>      :: !DatabaseFormat -- Detected database format
+<span class="lineno">   46 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">umDataPath</span></span></span>    :: !FilePath      -- Relative path to data within upload dir
+<span class="lineno">   47 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">   48 </span>
+<span class="lineno">   49 </span>-- | Name of the metadata file in each upload directory
+<span class="lineno">   50 </span>metaFileName :: FilePath
+<span class="lineno">   51 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">metaFileName = &quot;meta.toml&quot;</span></span>
+<span class="lineno">   52 </span>
+<span class="lineno">   53 </span>-- | Get the base data directory (uploads, cache, etc.)
+<span class="lineno">   54 </span>-- Uses VOLCA_DATA_DIR env var, falls back to current directory
+<span class="lineno">   55 </span>getDataDir :: IO FilePath
+<span class="lineno">   56 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getDataDir = do</span>
+<span class="lineno">   57 </span><span class="spaces">    </span><span class="nottickedoff">mdir &lt;- lookupEnv &quot;VOLCA_DATA_DIR&quot;</span>
+<span class="lineno">   58 </span><span class="spaces">    </span><span class="nottickedoff">case mdir of</span>
+<span class="lineno">   59 </span><span class="spaces">        </span><span class="nottickedoff">Just d  -&gt; return d</span>
+<span class="lineno">   60 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt; return &quot;.&quot;</span></span>
+<span class="lineno">   61 </span>
+<span class="lineno">   62 </span>-- | Get the database uploads directory
+<span class="lineno">   63 </span>getDatabaseUploadsDir :: IO FilePath
+<span class="lineno">   64 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getDatabaseUploadsDir = do</span>
+<span class="lineno">   65 </span><span class="spaces">    </span><span class="nottickedoff">base &lt;- getDataDir</span>
+<span class="lineno">   66 </span><span class="spaces">    </span><span class="nottickedoff">let dir = base &lt;/&gt; &quot;uploads&quot; &lt;/&gt; &quot;databases&quot;</span>
+<span class="lineno">   67 </span><span class="spaces">    </span><span class="nottickedoff">createDirectoryIfMissing True dir</span>
+<span class="lineno">   68 </span><span class="spaces">    </span><span class="nottickedoff">return dir</span></span>
+<span class="lineno">   69 </span>
+<span class="lineno">   70 </span>-- | Get the method uploads directory
+<span class="lineno">   71 </span>getMethodUploadsDir :: IO FilePath
+<span class="lineno">   72 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getMethodUploadsDir = do</span>
+<span class="lineno">   73 </span><span class="spaces">    </span><span class="nottickedoff">base &lt;- getDataDir</span>
+<span class="lineno">   74 </span><span class="spaces">    </span><span class="nottickedoff">let dir = base &lt;/&gt; &quot;uploads&quot; &lt;/&gt; &quot;methods&quot;</span>
+<span class="lineno">   75 </span><span class="spaces">    </span><span class="nottickedoff">createDirectoryIfMissing True dir</span>
+<span class="lineno">   76 </span><span class="spaces">    </span><span class="nottickedoff">return dir</span></span>
+<span class="lineno">   77 </span>
+<span class="lineno">   78 </span>-- | Check if a path belongs to the uploads directory
+<span class="lineno">   79 </span>isUploadedPath :: FilePath -&gt; Bool
+<span class="lineno">   80 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">isUploadedPath path =</span>
+<span class="lineno">   81 </span><span class="spaces">    </span><span class="istickedoff">&quot;uploads&quot; `elem` splitDirectories path</span></span>
+<span class="lineno">   82 </span>
+<span class="lineno">   83 </span>-- | Read meta.toml from an upload directory
+<span class="lineno">   84 </span>-- Returns Nothing if file doesn't exist or can't be parsed
+<span class="lineno">   85 </span>readUploadMeta :: FilePath -&gt; IO (Maybe UploadMeta)
+<span class="lineno">   86 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">readUploadMeta uploadDir = do</span>
+<span class="lineno">   87 </span><span class="spaces">    </span><span class="istickedoff">let metaPath = uploadDir &lt;/&gt; metaFileName</span>
+<span class="lineno">   88 </span><span class="spaces">    </span><span class="istickedoff">exists &lt;- doesFileExist metaPath</span>
+<span class="lineno">   89 </span><span class="spaces">    </span><span class="istickedoff">if not exists</span>
+<span class="lineno">   90 </span><span class="spaces">        </span><span class="istickedoff">then return Nothing</span>
+<span class="lineno">   91 </span><span class="spaces">        </span><span class="istickedoff">else do</span>
+<span class="lineno">   92 </span><span class="spaces">            </span><span class="istickedoff">result &lt;- try $ TIO.readFile metaPath</span>
+<span class="lineno">   93 </span><span class="spaces">            </span><span class="istickedoff">case result of</span>
+<span class="lineno">   94 </span><span class="spaces">                </span><span class="istickedoff">Left (_ :: SomeException) -&gt; <span class="nottickedoff">return Nothing</span></span>
+<span class="lineno">   95 </span><span class="spaces">                </span><span class="istickedoff">Right content -&gt; return $ parseMetaToml content</span></span>
+<span class="lineno">   96 </span>
+<span class="lineno">   97 </span>-- | Write meta.toml to an upload directory
+<span class="lineno">   98 </span>writeUploadMeta :: FilePath -&gt; UploadMeta -&gt; IO ()
+<span class="lineno">   99 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">writeUploadMeta uploadDir meta = do</span>
+<span class="lineno">  100 </span><span class="spaces">    </span><span class="istickedoff">let metaPath = uploadDir &lt;/&gt; metaFileName</span>
+<span class="lineno">  101 </span><span class="spaces">    </span><span class="istickedoff">TIO.writeFile metaPath (formatMetaToml meta)</span></span>
+<span class="lineno">  102 </span>
+<span class="lineno">  103 </span>-- | Parse meta.toml content
+<span class="lineno">  104 </span>-- Simple key=value parser (not a full TOML parser)
+<span class="lineno">  105 </span>parseMetaToml :: Text -&gt; Maybe UploadMeta
+<span class="lineno">  106 </span><span class="funcount">-- entered 14 times</span><span class="decl"><span class="istickedoff">parseMetaToml content = do</span>
+<span class="lineno">  107 </span><span class="spaces">    </span><span class="istickedoff">let lines' = map T.strip $ T.lines content</span>
+<span class="lineno">  108 </span><span class="spaces">        </span><span class="istickedoff">kvPairs = [(T.strip k, v) | line &lt;- lines'</span>
+<span class="lineno">  109 </span><span class="spaces">                         </span><span class="istickedoff">, <span class="tickonlytrue">not (T.null line)</span></span>
+<span class="lineno">  110 </span><span class="spaces">                         </span><span class="istickedoff">, not (T.isPrefixOf &quot;#&quot; line)</span>
+<span class="lineno">  111 </span><span class="spaces">                         </span><span class="istickedoff">, let (k, rest) = T.breakOn &quot;=&quot; line</span>
+<span class="lineno">  112 </span><span class="spaces">                         </span><span class="istickedoff">, <span class="tickonlytrue">not (T.null rest)</span></span>
+<span class="lineno">  113 </span><span class="spaces">                         </span><span class="istickedoff">, let v = T.strip $ T.drop 1 rest</span>
+<span class="lineno">  114 </span><span class="spaces">                         </span><span class="istickedoff">]</span>
+<span class="lineno">  115 </span><span class="spaces">        </span><span class="istickedoff">getValue key = lookup key kvPairs</span>
+<span class="lineno">  116 </span><span class="spaces">        </span><span class="istickedoff">unquote t = T.dropAround (== '&quot;') t</span>
+<span class="lineno">  117 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  118 </span><span class="spaces">    </span><span class="istickedoff">version &lt;- getValue &quot;version&quot; &gt;&gt;= readMaybe . T.unpack</span>
+<span class="lineno">  119 </span><span class="spaces">    </span><span class="istickedoff">displayName &lt;- unquote &lt;$&gt; getValue &quot;displayName&quot;</span>
+<span class="lineno">  120 </span><span class="spaces">    </span><span class="istickedoff">let description = unquote &lt;$&gt; getValue &quot;description&quot;</span>
+<span class="lineno">  121 </span><span class="spaces">    </span><span class="istickedoff">format &lt;- getValue &quot;format&quot; &gt;&gt;= parseFormat . unquote</span>
+<span class="lineno">  122 </span><span class="spaces">    </span><span class="istickedoff">dataPath &lt;- T.unpack . unquote &lt;$&gt; getValue &quot;dataPath&quot;</span>
+<span class="lineno">  123 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  124 </span><span class="spaces">    </span><span class="istickedoff">return UploadMeta</span>
+<span class="lineno">  125 </span><span class="spaces">        </span><span class="istickedoff">{ umVersion = version</span>
+<span class="lineno">  126 </span><span class="spaces">        </span><span class="istickedoff">, umDisplayName = displayName</span>
+<span class="lineno">  127 </span><span class="spaces">        </span><span class="istickedoff">, umDescription = description</span>
+<span class="lineno">  128 </span><span class="spaces">        </span><span class="istickedoff">, umFormat = format</span>
+<span class="lineno">  129 </span><span class="spaces">        </span><span class="istickedoff">, umDataPath = dataPath</span>
+<span class="lineno">  130 </span><span class="spaces">        </span><span class="istickedoff">}</span></span>
+<span class="lineno">  131 </span>
+<span class="lineno">  132 </span>-- | Parse format string to DatabaseFormat
+<span class="lineno">  133 </span>parseFormat :: Text -&gt; Maybe DatabaseFormat
+<span class="lineno">  134 </span><span class="funcount">-- entered 18 times</span><span class="decl"><span class="istickedoff">parseFormat &quot;ecospold2&quot; = Just EcoSpold2</span>
+<span class="lineno">  135 </span><span class="spaces"></span><span class="istickedoff">parseFormat &quot;ecospold1&quot; = Just EcoSpold1</span>
+<span class="lineno">  136 </span><span class="spaces"></span><span class="istickedoff">parseFormat &quot;simapro&quot; = Just SimaProCSV</span>
+<span class="lineno">  137 </span><span class="spaces"></span><span class="istickedoff">parseFormat &quot;ilcd&quot; = Just ILCDProcess</span>
+<span class="lineno">  138 </span><span class="spaces"></span><span class="istickedoff">parseFormat _ = Just UnknownFormat</span></span>
+<span class="lineno">  139 </span>
+<span class="lineno">  140 </span>-- | Format meta.toml content
+<span class="lineno">  141 </span>formatMetaToml :: UploadMeta -&gt; Text
+<span class="lineno">  142 </span><span class="funcount">-- entered 18 times</span><span class="decl"><span class="istickedoff">formatMetaToml UploadMeta{..} = T.unlines $</span>
+<span class="lineno">  143 </span><span class="spaces">    </span><span class="istickedoff">[ &quot;version = &quot; &lt;&gt; T.pack (show umVersion)</span>
+<span class="lineno">  144 </span><span class="spaces">    </span><span class="istickedoff">, &quot;displayName = &quot; &lt;&gt; quote umDisplayName</span>
+<span class="lineno">  145 </span><span class="spaces">    </span><span class="istickedoff">] ++</span>
+<span class="lineno">  146 </span><span class="spaces">    </span><span class="istickedoff">maybe [] (\d -&gt; [&quot;description = &quot; &lt;&gt; quote d]) umDescription ++</span>
+<span class="lineno">  147 </span><span class="spaces">    </span><span class="istickedoff">[ &quot;format = &quot; &lt;&gt; quote (formatToText umFormat)</span>
+<span class="lineno">  148 </span><span class="spaces">    </span><span class="istickedoff">, &quot;dataPath = &quot; &lt;&gt; quote (T.pack umDataPath)</span>
+<span class="lineno">  149 </span><span class="spaces">    </span><span class="istickedoff">]</span>
+<span class="lineno">  150 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  151 </span><span class="spaces">    </span><span class="istickedoff">quote t = &quot;\&quot;&quot; &lt;&gt; escapeToml t &lt;&gt; &quot;\&quot;&quot;</span>
+<span class="lineno">  152 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  153 </span><span class="spaces">    </span><span class="istickedoff">escapeToml = T.concatMap escape</span>
+<span class="lineno">  154 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  155 </span><span class="spaces">        </span><span class="istickedoff">escape '&quot;' = <span class="nottickedoff">&quot;\\\&quot;&quot;</span></span>
+<span class="lineno">  156 </span><span class="spaces">        </span><span class="istickedoff">escape '\\' = <span class="nottickedoff">&quot;\\\\&quot;</span></span>
+<span class="lineno">  157 </span><span class="spaces">        </span><span class="istickedoff">escape '\n' = <span class="nottickedoff">&quot;\\n&quot;</span></span>
+<span class="lineno">  158 </span><span class="spaces">        </span><span class="istickedoff">escape c = T.singleton c</span>
+<span class="lineno">  159 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  160 </span><span class="spaces">    </span><span class="istickedoff">formatToText EcoSpold2 = &quot;ecospold2&quot;</span>
+<span class="lineno">  161 </span><span class="spaces">    </span><span class="istickedoff">formatToText EcoSpold1 = &quot;ecospold1&quot;</span>
+<span class="lineno">  162 </span><span class="spaces">    </span><span class="istickedoff">formatToText SimaProCSV = &quot;simapro&quot;</span>
+<span class="lineno">  163 </span><span class="spaces">    </span><span class="istickedoff">formatToText ILCDProcess = &quot;ilcd&quot;</span>
+<span class="lineno">  164 </span><span class="spaces">    </span><span class="istickedoff">formatToText UnknownFormat = &quot;unknown&quot;</span></span>
+<span class="lineno">  165 </span>
+<span class="lineno">  166 </span>-- | Scan a directory for subdirectories with meta.toml
+<span class="lineno">  167 </span>scanUploadsIn :: FilePath -&gt; IO [(Text, FilePath, UploadMeta)]
+<span class="lineno">  168 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">scanUploadsIn dir = do</span>
+<span class="lineno">  169 </span><span class="spaces">    </span><span class="nottickedoff">exists &lt;- doesDirectoryExist dir</span>
+<span class="lineno">  170 </span><span class="spaces">    </span><span class="nottickedoff">if not exists</span>
+<span class="lineno">  171 </span><span class="spaces">        </span><span class="nottickedoff">then return []</span>
+<span class="lineno">  172 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  173 </span><span class="spaces">            </span><span class="nottickedoff">entries &lt;- listDirectory dir</span>
+<span class="lineno">  174 </span><span class="spaces">            </span><span class="nottickedoff">let fullPaths = [(T.pack entry, dir &lt;/&gt; entry) | entry &lt;- entries]</span>
+<span class="lineno">  175 </span><span class="spaces">            </span><span class="nottickedoff">dirsOnly &lt;- filterM (doesDirectoryExist . snd) fullPaths</span>
+<span class="lineno">  176 </span><span class="spaces">            </span><span class="nottickedoff">results &lt;- forM dirsOnly $ \(slug, dirPath) -&gt; do</span>
+<span class="lineno">  177 </span><span class="spaces">                </span><span class="nottickedoff">maybeMeta &lt;- readUploadMeta dirPath</span>
+<span class="lineno">  178 </span><span class="spaces">                </span><span class="nottickedoff">return $ case maybeMeta of</span>
+<span class="lineno">  179 </span><span class="spaces">                    </span><span class="nottickedoff">Just meta -&gt; Just (slug, dirPath, meta)</span>
+<span class="lineno">  180 </span><span class="spaces">                    </span><span class="nottickedoff">Nothing -&gt; Nothing</span>
+<span class="lineno">  181 </span><span class="spaces">            </span><span class="nottickedoff">return [r | Just r &lt;- results]</span></span>
+<span class="lineno">  182 </span>
+<span class="lineno">  183 </span>-- | Discover all uploaded databases by scanning the uploads directory
+<span class="lineno">  184 </span>-- Scans ./uploads/databases/ first, then legacy ./uploads/ for backward compat
+<span class="lineno">  185 </span>discoverUploadedDatabases :: IO [(Text, FilePath, UploadMeta)]
+<span class="lineno">  186 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">discoverUploadedDatabases = do</span>
+<span class="lineno">  187 </span><span class="spaces">    </span><span class="nottickedoff">dbDir &lt;- getDatabaseUploadsDir</span>
+<span class="lineno">  188 </span><span class="spaces">    </span><span class="nottickedoff">newResults &lt;- scanUploadsIn dbDir</span>
+<span class="lineno">  189 </span><span class="spaces">    </span><span class="nottickedoff">if not (null newResults)</span>
+<span class="lineno">  190 </span><span class="spaces">        </span><span class="nottickedoff">then return newResults</span>
+<span class="lineno">  191 </span><span class="spaces">        </span><span class="nottickedoff">else do</span>
+<span class="lineno">  192 </span><span class="spaces">            </span><span class="nottickedoff">-- Legacy fallback: scan ./uploads/ directly</span>
+<span class="lineno">  193 </span><span class="spaces">            </span><span class="nottickedoff">base &lt;- getDataDir</span>
+<span class="lineno">  194 </span><span class="spaces">            </span><span class="nottickedoff">let legacyDir = base &lt;/&gt; &quot;uploads&quot;</span>
+<span class="lineno">  195 </span><span class="spaces">            </span><span class="nottickedoff">scanUploadsIn legacyDir</span></span>
+<span class="lineno">  196 </span>
+<span class="lineno">  197 </span>-- | Discover all uploaded methods by scanning the methods upload directory
+<span class="lineno">  198 </span>discoverUploadedMethods :: IO [(Text, FilePath, UploadMeta)]
+<span class="lineno">  199 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">discoverUploadedMethods = do</span>
+<span class="lineno">  200 </span><span class="spaces">    </span><span class="nottickedoff">methodDir &lt;- getMethodUploadsDir</span>
+<span class="lineno">  201 </span><span class="spaces">    </span><span class="nottickedoff">scanUploadsIn methodDir</span></span>
 
 </pre>
 </body>

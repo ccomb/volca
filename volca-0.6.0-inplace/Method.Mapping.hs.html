@@ -148,11 +148,11 @@ span.spaces    { background: white }
 <span class="lineno">  129 </span>
 <span class="lineno">  130 </span>-- | Find flow by normalized name match (compartment-aware)
 <span class="lineno">  131 </span>findFlowByName :: M.Map Text [Flow] -&gt; Text -&gt; Maybe Flow
-<span class="lineno">  132 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">findFlowByName flowsByName name = findFlowByNameComp flowsByName name Nothing</span></span>
+<span class="lineno">  132 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">findFlowByName flowsByName name = findFlowByNameComp flowsByName name Nothing</span></span>
 <span class="lineno">  133 </span>
 <span class="lineno">  134 </span>-- | Find flow by normalized name with compartment preference
 <span class="lineno">  135 </span>findFlowByNameComp :: M.Map Text [Flow] -&gt; Text -&gt; Maybe Compartment -&gt; Maybe Flow
-<span class="lineno">  136 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">findFlowByNameComp flowsByName name mComp =</span>
+<span class="lineno">  136 </span><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">findFlowByNameComp flowsByName name mComp =</span>
 <span class="lineno">  137 </span><span class="spaces">    </span><span class="istickedoff">M.lookup (normalizeName name) flowsByName &gt;&gt;= \flows -&gt; pickByCompartment flows mComp</span></span>
 <span class="lineno">  138 </span>
 <span class="lineno">  139 </span>-- | Find flow via synonym group (compartment-aware)
@@ -161,18 +161,18 @@ span.spaces    { background: white }
 <span class="lineno">  142 </span>
 <span class="lineno">  143 </span>-- | Find flow via synonym group with compartment preference
 <span class="lineno">  144 </span>findFlowBySynonymComp :: SynonymDB -&gt; M.Map Text [Flow] -&gt; Text -&gt; Maybe Compartment -&gt; Maybe Flow
-<span class="lineno">  145 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">findFlowBySynonymComp synDB flowsByName name mComp =</span>
+<span class="lineno">  145 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">findFlowBySynonymComp synDB flowsByName name mComp =</span>
 <span class="lineno">  146 </span><span class="spaces">    </span><span class="istickedoff">case lookupSynonymGroup synDB name of</span>
 <span class="lineno">  147 </span><span class="spaces">        </span><span class="istickedoff">Nothing  -&gt; Nothing</span>
-<span class="lineno">  148 </span><span class="spaces">        </span><span class="istickedoff">Just gid -&gt; <span class="nottickedoff">getSynonyms synDB gid &gt;&gt;= \synonyms -&gt;</span></span>
-<span class="lineno">  149 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">pickByCompartment (concatMap (lookupFlows flowsByName) synonyms) mComp</span></span>
+<span class="lineno">  148 </span><span class="spaces">        </span><span class="istickedoff">Just gid -&gt; getSynonyms synDB gid &gt;&gt;= \synonyms -&gt;</span>
+<span class="lineno">  149 </span><span class="spaces">            </span><span class="istickedoff">pickByCompartment (concatMap (lookupFlows flowsByName) synonyms) mComp</span>
 <span class="lineno">  150 </span><span class="spaces">  </span><span class="istickedoff">where</span>
-<span class="lineno">  151 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">lookupFlows fbn syn = M.findWithDefault [] (normalizeName syn) fbn</span></span></span>
+<span class="lineno">  151 </span><span class="spaces">    </span><span class="istickedoff">lookupFlows fbn syn = M.findWithDefault [] (normalizeName syn) fbn</span></span>
 <span class="lineno">  152 </span>
 <span class="lineno">  153 </span>-- | Pick the best flow match based on compartment preference.
 <span class="lineno">  154 </span>-- Returns Nothing for an empty candidate list.
 <span class="lineno">  155 </span>pickByCompartment :: [Flow] -&gt; Maybe Compartment -&gt; Maybe Flow
-<span class="lineno">  156 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">pickByCompartment []    _          = <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  156 </span><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">pickByCompartment []    _          = Nothing</span>
 <span class="lineno">  157 </span><span class="spaces"></span><span class="istickedoff">pickByCompartment (f:_) Nothing    = Just f</span>
 <span class="lineno">  158 </span><span class="spaces"></span><span class="istickedoff">pickByCompartment (f:fs) (Just comp) = Just $</span>
 <span class="lineno">  159 </span><span class="spaces">    </span><span class="istickedoff">case find (exactCompMatch comp) (f:fs) of</span>

@@ -30,7 +30,7 @@ span.spaces    { background: white }
 <span class="lineno">   11 </span>import Types (Flow(..), FlowType(..), Unit(..))
 <span class="lineno">   12 </span>import Method.Types (MethodCF(..), Compartment(..), FlowDirection(..))
 <span class="lineno">   13 </span>import Method.Mapping
-<span class="lineno">   14 </span>import SynonymDB (emptySynonymDB)
+<span class="lineno">   14 </span>import SynonymDB (emptySynonymDB, buildFromPairs)
 <span class="lineno">   15 </span>import UnitConversion (defaultUnitConfig)
 <span class="lineno">   16 </span>
 <span class="lineno">   17 </span>-- ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ span.spaces    { background: white }
 <span class="lineno">   19 </span>-- ---------------------------------------------------------------------------
 <span class="lineno">   20 </span>
 <span class="lineno">   21 </span>mkFlow :: UUID -&gt; Text -&gt; Text -&gt; Maybe Text -&gt; Flow
-<span class="lineno">   22 </span><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">mkFlow fid name cat msub = Flow</span>
+<span class="lineno">   22 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">mkFlow fid name cat msub = Flow</span>
 <span class="lineno">   23 </span><span class="spaces">    </span><span class="istickedoff">{ flowId             = fid</span>
 <span class="lineno">   24 </span><span class="spaces">    </span><span class="istickedoff">, flowName           = name</span>
 <span class="lineno">   25 </span><span class="spaces">    </span><span class="istickedoff">, flowCategory       = cat</span>
@@ -131,68 +131,102 @@ span.spaces    { background: white }
 <span class="lineno">  112 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing for unknown CAS&quot; $</span>
 <span class="lineno">  113 </span><span class="spaces">            </span><span class="istickedoff">fmap <span class="nottickedoff">flowId</span> (findFlowByCAS M.empty &quot;000-00-0&quot; <span class="nottickedoff">Nothing</span>) `shouldBe` Nothing</span>
 <span class="lineno">  114 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  115 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;findFlowBySynonym&quot; $ do</span>
-<span class="lineno">  116 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing when synonym not in DB&quot; $ do</span>
+<span class="lineno">  115 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;findFlowByName&quot; $ do</span>
+<span class="lineno">  116 </span><span class="spaces">        </span><span class="istickedoff">it &quot;finds a flow by name (case-insensitive via normalization)&quot; $ do</span>
 <span class="lineno">  117 </span><span class="spaces">            </span><span class="istickedoff">fid &lt;- nextRandom</span>
-<span class="lineno">  118 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">flow   = mkFlow fid &quot;Carbon dioxide&quot; &quot;air&quot; Nothing</span></span>
-<span class="lineno">  119 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">byName = M.singleton &quot;carbon dioxide&quot; [flow]</span></span>
-<span class="lineno">  120 </span><span class="spaces">            </span><span class="istickedoff">fmap <span class="nottickedoff">flowId</span> (findFlowBySynonym emptySynonymDB <span class="nottickedoff">byName</span> &quot;CO2&quot;) `shouldBe` Nothing</span>
+<span class="lineno">  118 </span><span class="spaces">            </span><span class="istickedoff">let flow   = mkFlow fid &quot;Carbon dioxide&quot; &quot;air&quot; Nothing</span>
+<span class="lineno">  119 </span><span class="spaces">                </span><span class="istickedoff">byName = M.singleton &quot;carbon dioxide&quot; [flow]</span>
+<span class="lineno">  120 </span><span class="spaces">            </span><span class="istickedoff">fmap flowId (findFlowByName byName &quot;Carbon dioxide&quot;) `shouldBe` Just fid</span>
 <span class="lineno">  121 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  122 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;computeMappingStats&quot; $ do</span>
-<span class="lineno">  123 </span><span class="spaces">        </span><span class="istickedoff">it &quot;counts totals and strategies correctly&quot; $ do</span>
-<span class="lineno">  124 </span><span class="spaces">            </span><span class="istickedoff">fid1 &lt;- nextRandom; fid2 &lt;- nextRandom; fid3 &lt;- nextRandom</span>
-<span class="lineno">  125 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">f1 = mkFlow fid1 &quot;co2&quot;     &quot;air&quot; Nothing</span></span>
-<span class="lineno">  126 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">f2 = mkFlow fid2 &quot;methane&quot; &quot;air&quot; Nothing</span></span>
-<span class="lineno">  127 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">f3 = mkFlow fid3 &quot;n2o&quot;     &quot;air&quot; Nothing</span></span>
-<span class="lineno">  128 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf1 = mkCF &quot;co2&quot;     Nothing 1.0</span></span>
-<span class="lineno">  129 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf2 = mkCF &quot;methane&quot; Nothing 25.0</span></span>
-<span class="lineno">  130 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf3 = mkCF &quot;n2o&quot;     Nothing 298.0</span></span>
-<span class="lineno">  131 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf4 = mkCF &quot;hfc&quot;     Nothing 1300.0</span></span>
-<span class="lineno">  132 </span><span class="spaces">                </span><span class="istickedoff">mappings = [ (<span class="nottickedoff">cf1</span>, Just (<span class="nottickedoff">f1</span>, ByUUID))</span>
-<span class="lineno">  133 </span><span class="spaces">                           </span><span class="istickedoff">, (<span class="nottickedoff">cf2</span>, Just (<span class="nottickedoff">f2</span>, ByName))</span>
-<span class="lineno">  134 </span><span class="spaces">                           </span><span class="istickedoff">, (<span class="nottickedoff">cf3</span>, Just (<span class="nottickedoff">f3</span>, ByCAS))</span>
-<span class="lineno">  135 </span><span class="spaces">                           </span><span class="istickedoff">, (<span class="nottickedoff">cf4</span>, Nothing)</span>
-<span class="lineno">  136 </span><span class="spaces">                           </span><span class="istickedoff">]</span>
-<span class="lineno">  137 </span><span class="spaces">                </span><span class="istickedoff">stats = computeMappingStats mappings</span>
-<span class="lineno">  138 </span><span class="spaces">            </span><span class="istickedoff">msTotal stats     `shouldBe` 4</span>
-<span class="lineno">  139 </span><span class="spaces">            </span><span class="istickedoff">msByUUID stats    `shouldBe` 1</span>
-<span class="lineno">  140 </span><span class="spaces">            </span><span class="istickedoff">msByName stats    `shouldBe` 1</span>
-<span class="lineno">  141 </span><span class="spaces">            </span><span class="istickedoff">msByCAS stats     `shouldBe` 1</span>
-<span class="lineno">  142 </span><span class="spaces">            </span><span class="istickedoff">msBySynonym stats `shouldBe` 0</span>
-<span class="lineno">  143 </span><span class="spaces">            </span><span class="istickedoff">msUnmatched stats `shouldBe` 1</span>
-<span class="lineno">  144 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  145 </span><span class="spaces">        </span><span class="istickedoff">it &quot;handles all-unmatched&quot; $ do</span>
-<span class="lineno">  146 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">cf    = mkCF &quot;xyz&quot; Nothing 1.0</span></span>
-<span class="lineno">  147 </span><span class="spaces">                </span><span class="istickedoff">stats = computeMappingStats [(<span class="nottickedoff">cf</span>, Nothing)]</span>
-<span class="lineno">  148 </span><span class="spaces">            </span><span class="istickedoff">msUnmatched stats `shouldBe` 1</span>
-<span class="lineno">  149 </span><span class="spaces">            </span><span class="istickedoff">msByUUID stats    `shouldBe` 0</span>
+<span class="lineno">  122 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing for unknown name&quot; $</span>
+<span class="lineno">  123 </span><span class="spaces">            </span><span class="istickedoff">fmap <span class="nottickedoff">flowId</span> (findFlowByName M.empty &quot;co2&quot;) `shouldBe` Nothing</span>
+<span class="lineno">  124 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  125 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;findFlowBySynonym&quot; $ do</span>
+<span class="lineno">  126 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing when synonym not in DB&quot; $ do</span>
+<span class="lineno">  127 </span><span class="spaces">            </span><span class="istickedoff">fid &lt;- nextRandom</span>
+<span class="lineno">  128 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">flow   = mkFlow fid &quot;Carbon dioxide&quot; &quot;air&quot; Nothing</span></span>
+<span class="lineno">  129 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">byName = M.singleton &quot;carbon dioxide&quot; [flow]</span></span>
+<span class="lineno">  130 </span><span class="spaces">            </span><span class="istickedoff">fmap <span class="nottickedoff">flowId</span> (findFlowBySynonym emptySynonymDB <span class="nottickedoff">byName</span> &quot;CO2&quot;) `shouldBe` Nothing</span>
+<span class="lineno">  131 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  132 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;findFlowBySynonymComp&quot; $ do</span>
+<span class="lineno">  133 </span><span class="spaces">        </span><span class="istickedoff">it &quot;finds flow via synonym with compartment preference&quot; $ do</span>
+<span class="lineno">  134 </span><span class="spaces">            </span><span class="istickedoff">fid1 &lt;- nextRandom; fid2 &lt;- nextRandom</span>
+<span class="lineno">  135 </span><span class="spaces">            </span><span class="istickedoff">let synDB  = buildFromPairs [(&quot;CO2&quot;, &quot;Carbon dioxide&quot;)]</span>
+<span class="lineno">  136 </span><span class="spaces">                </span><span class="istickedoff">fAir   = mkFlow fid1 &quot;Carbon dioxide&quot; &quot;air&quot;   Nothing</span>
+<span class="lineno">  137 </span><span class="spaces">                </span><span class="istickedoff">fWater = mkFlow fid2 &quot;Carbon dioxide&quot; &quot;water&quot; Nothing</span>
+<span class="lineno">  138 </span><span class="spaces">                </span><span class="istickedoff">byName = M.singleton &quot;carbon dioxide&quot; [fWater, fAir]</span>
+<span class="lineno">  139 </span><span class="spaces">                </span><span class="istickedoff">comp   = Compartment &quot;air&quot; &quot;&quot; &quot;&quot;</span>
+<span class="lineno">  140 </span><span class="spaces">            </span><span class="istickedoff">fmap flowId (findFlowBySynonymComp synDB byName &quot;CO2&quot; (Just comp))</span>
+<span class="lineno">  141 </span><span class="spaces">                </span><span class="istickedoff">`shouldBe` Just fid1</span>
+<span class="lineno">  142 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  143 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing when synonym not in DB&quot; $ do</span>
+<span class="lineno">  144 </span><span class="spaces">            </span><span class="istickedoff">fid &lt;- nextRandom</span>
+<span class="lineno">  145 </span><span class="spaces">            </span><span class="istickedoff">let synDB  = buildFromPairs [(&quot;CO2&quot;, &quot;Carbon dioxide&quot;)]</span>
+<span class="lineno">  146 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">flow   = mkFlow fid &quot;Carbon dioxide&quot; &quot;air&quot; Nothing</span></span>
+<span class="lineno">  147 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">byName = M.singleton &quot;carbon dioxide&quot; [flow]</span></span>
+<span class="lineno">  148 </span><span class="spaces">            </span><span class="istickedoff">fmap <span class="nottickedoff">flowId</span> (findFlowBySynonymComp synDB <span class="nottickedoff">byName</span> &quot;methane&quot; <span class="nottickedoff">Nothing</span>)</span>
+<span class="lineno">  149 </span><span class="spaces">                </span><span class="istickedoff">`shouldBe` Nothing</span>
 <span class="lineno">  150 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  151 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;computeLCIAScore&quot; $ do</span>
-<span class="lineno">  152 </span><span class="spaces">        </span><span class="istickedoff">it &quot;sums UUID-matched flows&quot; $ do</span>
-<span class="lineno">  153 </span><span class="spaces">            </span><span class="istickedoff">fid &lt;- nextRandom</span>
-<span class="lineno">  154 </span><span class="spaces">            </span><span class="istickedoff">let flow  = mkFlow fid &quot;co2&quot; &quot;air&quot; Nothing</span>
-<span class="lineno">  155 </span><span class="spaces">                </span><span class="istickedoff">unit  = Unit { unitId = nil, unitName = &quot;kg&quot;, unitSymbol = &quot;kg&quot;, unitComment = &quot;&quot; }</span>
-<span class="lineno">  156 </span><span class="spaces">                </span><span class="istickedoff">cf    = mkCF &quot;co2&quot; Nothing 1.0</span>
-<span class="lineno">  157 </span><span class="spaces">                </span><span class="istickedoff">mapping   = [(cf, Just (flow, ByUUID))]</span>
-<span class="lineno">  158 </span><span class="spaces">                </span><span class="istickedoff">inventory = M.singleton fid 100.0</span>
-<span class="lineno">  159 </span><span class="spaces">                </span><span class="istickedoff">flowDB    = M.singleton fid flow</span>
-<span class="lineno">  160 </span><span class="spaces">                </span><span class="istickedoff">unitDB    = M.singleton nil unit</span>
-<span class="lineno">  161 </span><span class="spaces">                </span><span class="istickedoff">score = computeLCIAScore <span class="nottickedoff">defaultUnitConfig</span> unitDB flowDB inventory mapping</span>
-<span class="lineno">  162 </span><span class="spaces">            </span><span class="istickedoff">score `shouldBe` 100.0</span>
-<span class="lineno">  163 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  164 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns 0 when inventory is empty&quot; $ do</span>
-<span class="lineno">  165 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">cf    = mkCF &quot;co2&quot; Nothing 1.0</span></span>
-<span class="lineno">  166 </span><span class="spaces">                </span><span class="istickedoff">score = computeLCIAScore <span class="nottickedoff">defaultUnitConfig</span> <span class="nottickedoff">M.empty</span> <span class="nottickedoff">M.empty</span> M.empty <span class="nottickedoff">[(cf, Nothing)]</span></span>
-<span class="lineno">  167 </span><span class="spaces">            </span><span class="istickedoff">score `shouldBe` 0.0</span>
-<span class="lineno">  168 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  169 </span><span class="spaces">        </span><span class="istickedoff">it &quot;skips zero-quantity flows&quot; $ do</span>
-<span class="lineno">  170 </span><span class="spaces">            </span><span class="istickedoff">fid &lt;- nextRandom</span>
-<span class="lineno">  171 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">flow  = mkFlow fid &quot;co2&quot; &quot;air&quot; Nothing</span></span>
-<span class="lineno">  172 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf    = mkCF &quot;co2&quot; Nothing 1.0</span></span>
-<span class="lineno">  173 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">mapping   = [(cf, Just (flow, ByUUID))]</span></span>
-<span class="lineno">  174 </span><span class="spaces">                </span><span class="istickedoff">inventory = M.singleton fid 0.0</span>
-<span class="lineno">  175 </span><span class="spaces">                </span><span class="istickedoff">score = computeLCIAScore <span class="nottickedoff">defaultUnitConfig</span> <span class="nottickedoff">M.empty</span> <span class="nottickedoff">(M.singleton fid flow)</span> inventory <span class="nottickedoff">mapping</span></span>
-<span class="lineno">  176 </span><span class="spaces">            </span><span class="istickedoff">score `shouldBe` 0.0</span></span>
+<span class="lineno">  151 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing when no flows match any synonym&quot; $ do</span>
+<span class="lineno">  152 </span><span class="spaces">            </span><span class="istickedoff">let synDB  = buildFromPairs [(&quot;CO2&quot;, &quot;Carbon dioxide&quot;)]</span>
+<span class="lineno">  153 </span><span class="spaces">            </span><span class="istickedoff">fmap <span class="nottickedoff">flowId</span> (findFlowBySynonymComp synDB M.empty &quot;CO2&quot; <span class="nottickedoff">Nothing</span>)</span>
+<span class="lineno">  154 </span><span class="spaces">                </span><span class="istickedoff">`shouldBe` Nothing</span>
+<span class="lineno">  155 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  156 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;computeMappingStats&quot; $ do</span>
+<span class="lineno">  157 </span><span class="spaces">        </span><span class="istickedoff">it &quot;counts totals and strategies correctly&quot; $ do</span>
+<span class="lineno">  158 </span><span class="spaces">            </span><span class="istickedoff">fid1 &lt;- nextRandom; fid2 &lt;- nextRandom; fid3 &lt;- nextRandom</span>
+<span class="lineno">  159 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">f1 = mkFlow fid1 &quot;co2&quot;     &quot;air&quot; Nothing</span></span>
+<span class="lineno">  160 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">f2 = mkFlow fid2 &quot;methane&quot; &quot;air&quot; Nothing</span></span>
+<span class="lineno">  161 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">f3 = mkFlow fid3 &quot;n2o&quot;     &quot;air&quot; Nothing</span></span>
+<span class="lineno">  162 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf1 = mkCF &quot;co2&quot;     Nothing 1.0</span></span>
+<span class="lineno">  163 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf2 = mkCF &quot;methane&quot; Nothing 25.0</span></span>
+<span class="lineno">  164 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf3 = mkCF &quot;n2o&quot;     Nothing 298.0</span></span>
+<span class="lineno">  165 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf4 = mkCF &quot;hfc&quot;     Nothing 1300.0</span></span>
+<span class="lineno">  166 </span><span class="spaces">                </span><span class="istickedoff">mappings = [ (<span class="nottickedoff">cf1</span>, Just (<span class="nottickedoff">f1</span>, ByUUID))</span>
+<span class="lineno">  167 </span><span class="spaces">                           </span><span class="istickedoff">, (<span class="nottickedoff">cf2</span>, Just (<span class="nottickedoff">f2</span>, ByName))</span>
+<span class="lineno">  168 </span><span class="spaces">                           </span><span class="istickedoff">, (<span class="nottickedoff">cf3</span>, Just (<span class="nottickedoff">f3</span>, ByCAS))</span>
+<span class="lineno">  169 </span><span class="spaces">                           </span><span class="istickedoff">, (<span class="nottickedoff">cf4</span>, Nothing)</span>
+<span class="lineno">  170 </span><span class="spaces">                           </span><span class="istickedoff">]</span>
+<span class="lineno">  171 </span><span class="spaces">                </span><span class="istickedoff">stats = computeMappingStats mappings</span>
+<span class="lineno">  172 </span><span class="spaces">            </span><span class="istickedoff">msTotal stats     `shouldBe` 4</span>
+<span class="lineno">  173 </span><span class="spaces">            </span><span class="istickedoff">msByUUID stats    `shouldBe` 1</span>
+<span class="lineno">  174 </span><span class="spaces">            </span><span class="istickedoff">msByName stats    `shouldBe` 1</span>
+<span class="lineno">  175 </span><span class="spaces">            </span><span class="istickedoff">msByCAS stats     `shouldBe` 1</span>
+<span class="lineno">  176 </span><span class="spaces">            </span><span class="istickedoff">msBySynonym stats `shouldBe` 0</span>
+<span class="lineno">  177 </span><span class="spaces">            </span><span class="istickedoff">msUnmatched stats `shouldBe` 1</span>
+<span class="lineno">  178 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  179 </span><span class="spaces">        </span><span class="istickedoff">it &quot;handles all-unmatched&quot; $ do</span>
+<span class="lineno">  180 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">cf    = mkCF &quot;xyz&quot; Nothing 1.0</span></span>
+<span class="lineno">  181 </span><span class="spaces">                </span><span class="istickedoff">stats = computeMappingStats [(<span class="nottickedoff">cf</span>, Nothing)]</span>
+<span class="lineno">  182 </span><span class="spaces">            </span><span class="istickedoff">msUnmatched stats `shouldBe` 1</span>
+<span class="lineno">  183 </span><span class="spaces">            </span><span class="istickedoff">msByUUID stats    `shouldBe` 0</span>
+<span class="lineno">  184 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  185 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;computeLCIAScore&quot; $ do</span>
+<span class="lineno">  186 </span><span class="spaces">        </span><span class="istickedoff">it &quot;sums UUID-matched flows&quot; $ do</span>
+<span class="lineno">  187 </span><span class="spaces">            </span><span class="istickedoff">fid &lt;- nextRandom</span>
+<span class="lineno">  188 </span><span class="spaces">            </span><span class="istickedoff">let flow  = mkFlow fid &quot;co2&quot; &quot;air&quot; Nothing</span>
+<span class="lineno">  189 </span><span class="spaces">                </span><span class="istickedoff">unit  = Unit { unitId = nil, unitName = &quot;kg&quot;, unitSymbol = &quot;kg&quot;, unitComment = &quot;&quot; }</span>
+<span class="lineno">  190 </span><span class="spaces">                </span><span class="istickedoff">cf    = mkCF &quot;co2&quot; Nothing 1.0</span>
+<span class="lineno">  191 </span><span class="spaces">                </span><span class="istickedoff">mapping   = [(cf, Just (flow, ByUUID))]</span>
+<span class="lineno">  192 </span><span class="spaces">                </span><span class="istickedoff">inventory = M.singleton fid 100.0</span>
+<span class="lineno">  193 </span><span class="spaces">                </span><span class="istickedoff">flowDB    = M.singleton fid flow</span>
+<span class="lineno">  194 </span><span class="spaces">                </span><span class="istickedoff">unitDB    = M.singleton nil unit</span>
+<span class="lineno">  195 </span><span class="spaces">                </span><span class="istickedoff">score = computeLCIAScore <span class="nottickedoff">defaultUnitConfig</span> unitDB flowDB inventory mapping</span>
+<span class="lineno">  196 </span><span class="spaces">            </span><span class="istickedoff">score `shouldBe` 100.0</span>
+<span class="lineno">  197 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  198 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns 0 when inventory is empty&quot; $ do</span>
+<span class="lineno">  199 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">cf    = mkCF &quot;co2&quot; Nothing 1.0</span></span>
+<span class="lineno">  200 </span><span class="spaces">                </span><span class="istickedoff">score = computeLCIAScore <span class="nottickedoff">defaultUnitConfig</span> <span class="nottickedoff">M.empty</span> <span class="nottickedoff">M.empty</span> M.empty <span class="nottickedoff">[(cf, Nothing)]</span></span>
+<span class="lineno">  201 </span><span class="spaces">            </span><span class="istickedoff">score `shouldBe` 0.0</span>
+<span class="lineno">  202 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  203 </span><span class="spaces">        </span><span class="istickedoff">it &quot;skips zero-quantity flows&quot; $ do</span>
+<span class="lineno">  204 </span><span class="spaces">            </span><span class="istickedoff">fid &lt;- nextRandom</span>
+<span class="lineno">  205 </span><span class="spaces">            </span><span class="istickedoff">let <span class="nottickedoff">flow  = mkFlow fid &quot;co2&quot; &quot;air&quot; Nothing</span></span>
+<span class="lineno">  206 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">cf    = mkCF &quot;co2&quot; Nothing 1.0</span></span>
+<span class="lineno">  207 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">mapping   = [(cf, Just (flow, ByUUID))]</span></span>
+<span class="lineno">  208 </span><span class="spaces">                </span><span class="istickedoff">inventory = M.singleton fid 0.0</span>
+<span class="lineno">  209 </span><span class="spaces">                </span><span class="istickedoff">score = computeLCIAScore <span class="nottickedoff">defaultUnitConfig</span> <span class="nottickedoff">M.empty</span> <span class="nottickedoff">(M.singleton fid flow)</span> inventory <span class="nottickedoff">mapping</span></span>
+<span class="lineno">  210 </span><span class="spaces">            </span><span class="istickedoff">score `shouldBe` 0.0</span></span>
 
 </pre>
 </body>

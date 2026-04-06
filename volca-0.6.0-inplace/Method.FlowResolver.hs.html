@@ -65,13 +65,13 @@ span.spaces    { background: white }
 <span class="lineno">   46 </span>
 <span class="lineno">   47 </span>-- | Enrichment data extracted from an ILCD flow XML
 <span class="lineno">   48 </span>data ILCDFlowInfo = ILCDFlowInfo
-<span class="lineno">   49 </span>    { <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdBaseName</span></span></span>       :: !Text
-<span class="lineno">   50 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdCompartment</span></span></span>    :: !(Maybe Compartment)
-<span class="lineno">   51 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdCAS</span></span></span>            :: !(Maybe Text)  -- normalized CAS
+<span class="lineno">   49 </span>    { <span class="istickedoff"><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">ilcdBaseName</span></span></span>       :: !Text
+<span class="lineno">   50 </span>    , <span class="istickedoff"><span class="funcount">-- entered 56 times</span><span class="decl"><span class="istickedoff">ilcdCompartment</span></span></span>    :: !(Maybe Compartment)
+<span class="lineno">   51 </span>    , <span class="istickedoff"><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">ilcdCAS</span></span></span>            :: !(Maybe Text)  -- normalized CAS
 <span class="lineno">   52 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdSynonyms</span></span></span>       :: ![Text]        -- from &lt;common:synonyms xml:lang=&quot;en&quot;&gt;, semicolon-split
-<span class="lineno">   53 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ilcdFlowType</span></span></span>       :: !Text          -- &quot;Elementary flow&quot; / &quot;Product flow&quot; / &quot;Waste flow&quot;
-<span class="lineno">   54 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">ilcdFlowPropertyRef</span></span></span> :: !(Maybe UUID) -- reference flow property UUID (for unit resolution)
-<span class="lineno">   55 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
+<span class="lineno">   53 </span>    , <span class="istickedoff"><span class="funcount">-- entered 66 times</span><span class="decl"><span class="istickedoff">ilcdFlowType</span></span></span>       :: !Text          -- &quot;Elementary flow&quot; / &quot;Product flow&quot; / &quot;Waste flow&quot;
+<span class="lineno">   54 </span>    , <span class="istickedoff"><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">ilcdFlowPropertyRef</span></span></span> :: !(Maybe UUID) -- reference flow property UUID (for unit resolution)
+<span class="lineno">   55 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">Generic</span></span></span></span>, <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">Store</span></span></span></span></span></span>)
 <span class="lineno">   56 </span>
 <span class="lineno">   57 </span>-- | Given a method directory (containing lciamethods/), find the sibling flows/ directory.
 <span class="lineno">   58 </span>-- ILCD packages have structure: ILCD/{lciamethods/, flows/, ...}
@@ -91,15 +91,15 @@ span.spaces    { background: white }
 <span class="lineno">   72 </span>--   Uses a zstd-compressed cache to skip re-parsing on subsequent startups.
 <span class="lineno">   73 </span>--   Falls back to worker-based parallel parsing on cache miss.
 <span class="lineno">   74 </span>parseFlowDirectory :: FilePath -&gt; IO (M.Map UUID ILCDFlowInfo)
-<span class="lineno">   75 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">parseFlowDirectory dir = do</span>
-<span class="lineno">   76 </span><span class="spaces">    </span><span class="nottickedoff">let cacheFile = flowCacheFile dir</span>
-<span class="lineno">   77 </span><span class="spaces">    </span><span class="nottickedoff">cached &lt;- loadFlowCache cacheFile dir</span>
-<span class="lineno">   78 </span><span class="spaces">    </span><span class="nottickedoff">case cached of</span>
-<span class="lineno">   79 </span><span class="spaces">        </span><span class="nottickedoff">Just info -&gt; return info</span>
-<span class="lineno">   80 </span><span class="spaces">        </span><span class="nottickedoff">Nothing -&gt; do</span>
-<span class="lineno">   81 </span><span class="spaces">            </span><span class="nottickedoff">info &lt;- parseFlowDirectoryFresh dir</span>
-<span class="lineno">   82 </span><span class="spaces">            </span><span class="nottickedoff">saveFlowCache cacheFile info</span>
-<span class="lineno">   83 </span><span class="spaces">            </span><span class="nottickedoff">return info</span></span>
+<span class="lineno">   75 </span><span class="funcount">-- entered 13 times</span><span class="decl"><span class="istickedoff">parseFlowDirectory dir = do</span>
+<span class="lineno">   76 </span><span class="spaces">    </span><span class="istickedoff">let cacheFile = flowCacheFile dir</span>
+<span class="lineno">   77 </span><span class="spaces">    </span><span class="istickedoff">cached &lt;- loadFlowCache cacheFile dir</span>
+<span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">case cached of</span>
+<span class="lineno">   79 </span><span class="spaces">        </span><span class="istickedoff">Just info -&gt; return info</span>
+<span class="lineno">   80 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">do</span></span>
+<span class="lineno">   81 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">info &lt;- parseFlowDirectoryFresh dir</span></span>
+<span class="lineno">   82 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">saveFlowCache cacheFile info</span></span>
+<span class="lineno">   83 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">return info</span></span></span>
 <span class="lineno">   84 </span>
 <span class="lineno">   85 </span>-- | Parse all flow XMLs from scratch using worker-based parallelism
 <span class="lineno">   86 </span>parseFlowDirectoryFresh :: FilePath -&gt; IO (M.Map UUID ILCDFlowInfo)
@@ -120,34 +120,34 @@ span.spaces    { background: white }
 <span class="lineno">  101 </span>
 <span class="lineno">  102 </span>-- | Cache file path for a flows directory
 <span class="lineno">  103 </span>flowCacheFile :: FilePath -&gt; FilePath
-<span class="lineno">  104 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">flowCacheFile dir = dir &lt;/&gt; &quot;.volca.flows.cache.zst&quot;</span></span>
+<span class="lineno">  104 </span><span class="funcount">-- entered 13 times</span><span class="decl"><span class="istickedoff">flowCacheFile dir = dir &lt;/&gt; &quot;.volca.flows.cache.zst&quot;</span></span>
 <span class="lineno">  105 </span>
 <span class="lineno">  106 </span>-- | Load flow info from cache if valid (file exists and is newer than directory)
 <span class="lineno">  107 </span>loadFlowCache :: FilePath -&gt; FilePath -&gt; IO (Maybe (M.Map UUID ILCDFlowInfo))
-<span class="lineno">  108 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">loadFlowCache cacheFile dir = do</span>
-<span class="lineno">  109 </span><span class="spaces">    </span><span class="nottickedoff">exists &lt;- doesFileExist cacheFile</span>
-<span class="lineno">  110 </span><span class="spaces">    </span><span class="nottickedoff">if not exists then return Nothing</span>
-<span class="lineno">  111 </span><span class="spaces">    </span><span class="nottickedoff">else catch</span>
-<span class="lineno">  112 </span><span class="spaces">        </span><span class="nottickedoff">(do cacheTime &lt;- getModificationTime cacheFile</span>
-<span class="lineno">  113 </span><span class="spaces">            </span><span class="nottickedoff">dirTime &lt;- getModificationTime dir</span>
-<span class="lineno">  114 </span><span class="spaces">            </span><span class="nottickedoff">if cacheTime &lt; dirTime</span>
-<span class="lineno">  115 </span><span class="spaces">                </span><span class="nottickedoff">then do</span>
-<span class="lineno">  116 </span><span class="spaces">                    </span><span class="nottickedoff">reportProgress Info &quot;[FLOWS-CACHE] Stale, reparsing&quot;</span>
-<span class="lineno">  117 </span><span class="spaces">                    </span><span class="nottickedoff">removeFile cacheFile</span>
-<span class="lineno">  118 </span><span class="spaces">                    </span><span class="nottickedoff">return Nothing</span>
-<span class="lineno">  119 </span><span class="spaces">                </span><span class="nottickedoff">else do</span>
-<span class="lineno">  120 </span><span class="spaces">                    </span><span class="nottickedoff">compressed &lt;- BS.readFile cacheFile</span>
-<span class="lineno">  121 </span><span class="spaces">                    </span><span class="nottickedoff">case Zstd.decompress compressed of</span>
-<span class="lineno">  122 </span><span class="spaces">                        </span><span class="nottickedoff">Zstd.Decompress raw -&gt; do</span>
-<span class="lineno">  123 </span><span class="spaces">                            </span><span class="nottickedoff">let !info = decodeEx raw</span>
-<span class="lineno">  124 </span><span class="spaces">                            </span><span class="nottickedoff">result &lt;- evaluate (force info)</span>
-<span class="lineno">  125 </span><span class="spaces">                            </span><span class="nottickedoff">reportProgress Info $ &quot;[FLOWS-CACHE] Loaded &quot; &lt;&gt; show (M.size result) &lt;&gt; &quot; flow definitions from cache&quot;</span>
-<span class="lineno">  126 </span><span class="spaces">                            </span><span class="nottickedoff">return (Just result)</span>
-<span class="lineno">  127 </span><span class="spaces">                        </span><span class="nottickedoff">_ -&gt; do</span>
-<span class="lineno">  128 </span><span class="spaces">                            </span><span class="nottickedoff">reportProgress Warning &quot;[FLOWS-CACHE] Decompression failed, reparsing&quot;</span>
-<span class="lineno">  129 </span><span class="spaces">                            </span><span class="nottickedoff">removeFile cacheFile</span>
-<span class="lineno">  130 </span><span class="spaces">                            </span><span class="nottickedoff">return Nothing)</span>
-<span class="lineno">  131 </span><span class="spaces">        </span><span class="nottickedoff">(\(_ :: SomeException) -&gt; return Nothing)</span></span>
+<span class="lineno">  108 </span><span class="funcount">-- entered 13 times</span><span class="decl"><span class="istickedoff">loadFlowCache cacheFile dir = do</span>
+<span class="lineno">  109 </span><span class="spaces">    </span><span class="istickedoff">exists &lt;- doesFileExist cacheFile</span>
+<span class="lineno">  110 </span><span class="spaces">    </span><span class="istickedoff">if <span class="tickonlyfalse">not exists</span> then <span class="nottickedoff">return Nothing</span></span>
+<span class="lineno">  111 </span><span class="spaces">    </span><span class="istickedoff">else catch</span>
+<span class="lineno">  112 </span><span class="spaces">        </span><span class="istickedoff">(do cacheTime &lt;- getModificationTime cacheFile</span>
+<span class="lineno">  113 </span><span class="spaces">            </span><span class="istickedoff">dirTime &lt;- getModificationTime dir</span>
+<span class="lineno">  114 </span><span class="spaces">            </span><span class="istickedoff">if <span class="tickonlyfalse">cacheTime &lt; dirTime</span></span>
+<span class="lineno">  115 </span><span class="spaces">                </span><span class="istickedoff">then <span class="nottickedoff">do</span></span>
+<span class="lineno">  116 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">reportProgress Info &quot;[FLOWS-CACHE] Stale, reparsing&quot;</span></span>
+<span class="lineno">  117 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">removeFile cacheFile</span></span>
+<span class="lineno">  118 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">return Nothing</span></span>
+<span class="lineno">  119 </span><span class="spaces">                </span><span class="istickedoff">else do</span>
+<span class="lineno">  120 </span><span class="spaces">                    </span><span class="istickedoff">compressed &lt;- BS.readFile cacheFile</span>
+<span class="lineno">  121 </span><span class="spaces">                    </span><span class="istickedoff">case Zstd.decompress compressed of</span>
+<span class="lineno">  122 </span><span class="spaces">                        </span><span class="istickedoff">Zstd.Decompress raw -&gt; do</span>
+<span class="lineno">  123 </span><span class="spaces">                            </span><span class="istickedoff">let !info = decodeEx raw</span>
+<span class="lineno">  124 </span><span class="spaces">                            </span><span class="istickedoff">result &lt;- evaluate (force info)</span>
+<span class="lineno">  125 </span><span class="spaces">                            </span><span class="istickedoff">reportProgress Info $ &quot;[FLOWS-CACHE] Loaded &quot; &lt;&gt; show (M.size result) &lt;&gt; &quot; flow definitions from cache&quot;</span>
+<span class="lineno">  126 </span><span class="spaces">                            </span><span class="istickedoff">return (Just result)</span>
+<span class="lineno">  127 </span><span class="spaces">                        </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">do</span></span>
+<span class="lineno">  128 </span><span class="spaces">                            </span><span class="istickedoff"><span class="nottickedoff">reportProgress Warning &quot;[FLOWS-CACHE] Decompression failed, reparsing&quot;</span></span>
+<span class="lineno">  129 </span><span class="spaces">                            </span><span class="istickedoff"><span class="nottickedoff">removeFile cacheFile</span></span>
+<span class="lineno">  130 </span><span class="spaces">                            </span><span class="istickedoff"><span class="nottickedoff">return Nothing</span>)</span>
+<span class="lineno">  131 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">(\(_ :: SomeException) -&gt; return Nothing)</span></span></span>
 <span class="lineno">  132 </span>
 <span class="lineno">  133 </span>-- | Save parsed flow info to cache
 <span class="lineno">  134 </span>saveFlowCache :: FilePath -&gt; M.Map UUID ILCDFlowInfo -&gt; IO ()

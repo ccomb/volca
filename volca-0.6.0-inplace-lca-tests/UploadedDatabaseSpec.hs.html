@@ -1,0 +1,167 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module UploadedDatabaseSpec (spec) where
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>import Test.Hspec
+<span class="lineno">    6 </span>import System.IO.Temp (withSystemTempDirectory)
+<span class="lineno">    7 </span>import Data.Text (Text)
+<span class="lineno">    8 </span>import qualified Data.Text as T
+<span class="lineno">    9 </span>
+<span class="lineno">   10 </span>import Database.UploadedDatabase
+<span class="lineno">   11 </span>import Database.Upload (DatabaseFormat(..))
+<span class="lineno">   12 </span>
+<span class="lineno">   13 </span>-- | Minimal UploadMeta without description
+<span class="lineno">   14 </span>baseMeta :: UploadMeta
+<span class="lineno">   15 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">baseMeta = UploadMeta</span>
+<span class="lineno">   16 </span><span class="spaces">    </span><span class="istickedoff">{ umVersion     = 1</span>
+<span class="lineno">   17 </span><span class="spaces">    </span><span class="istickedoff">, umDisplayName = &quot;My Database&quot;</span>
+<span class="lineno">   18 </span><span class="spaces">    </span><span class="istickedoff">, umDescription = Nothing</span>
+<span class="lineno">   19 </span><span class="spaces">    </span><span class="istickedoff">, umFormat      = EcoSpold2</span>
+<span class="lineno">   20 </span><span class="spaces">    </span><span class="istickedoff">, umDataPath    = &quot;data&quot;</span>
+<span class="lineno">   21 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">   22 </span>
+<span class="lineno">   23 </span>spec :: Spec
+<span class="lineno">   24 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">spec = do</span>
+<span class="lineno">   25 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   26 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   27 </span><span class="spaces">    </span><span class="istickedoff">-- parseFormat</span>
+<span class="lineno">   28 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   29 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;parseFormat&quot; $ do</span>
+<span class="lineno">   30 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses ecospold2&quot;  $ parseFormat &quot;ecospold2&quot; `shouldBe` Just EcoSpold2</span>
+<span class="lineno">   31 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses ecospold1&quot;  $ parseFormat &quot;ecospold1&quot; `shouldBe` Just EcoSpold1</span>
+<span class="lineno">   32 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses simapro&quot;    $ parseFormat &quot;simapro&quot;   `shouldBe` Just SimaProCSV</span>
+<span class="lineno">   33 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses ilcd&quot;       $ parseFormat &quot;ilcd&quot;      `shouldBe` Just ILCDProcess</span>
+<span class="lineno">   34 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses unknown&quot;    $ parseFormat &quot;other&quot;     `shouldBe` Just UnknownFormat</span>
+<span class="lineno">   35 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   36 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   37 </span><span class="spaces">    </span><span class="istickedoff">-- isUploadedPath</span>
+<span class="lineno">   38 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   39 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;isUploadedPath&quot; $ do</span>
+<span class="lineno">   40 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns True when path contains 'uploads'&quot; $</span>
+<span class="lineno">   41 </span><span class="spaces">            </span><span class="istickedoff">isUploadedPath &quot;/data/uploads/databases/mydb&quot; `shouldBe` True</span>
+<span class="lineno">   42 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   43 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns False when path does not contain 'uploads'&quot; $</span>
+<span class="lineno">   44 </span><span class="spaces">            </span><span class="istickedoff">isUploadedPath &quot;/data/local/databases/mydb&quot; `shouldBe` False</span>
+<span class="lineno">   45 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   46 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns False for empty path&quot; $</span>
+<span class="lineno">   47 </span><span class="spaces">            </span><span class="istickedoff">isUploadedPath &quot;&quot; `shouldBe` False</span>
+<span class="lineno">   48 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   49 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   50 </span><span class="spaces">    </span><span class="istickedoff">-- formatMetaToml</span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   52 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;formatMetaToml&quot; $ do</span>
+<span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">it &quot;includes version field&quot; $</span>
+<span class="lineno">   54 </span><span class="spaces">            </span><span class="istickedoff">formatMetaToml baseMeta `shouldSatisfy` (&quot;version = 1&quot; `T.isInfixOf`)</span>
+<span class="lineno">   55 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   56 </span><span class="spaces">        </span><span class="istickedoff">it &quot;includes displayName&quot; $</span>
+<span class="lineno">   57 </span><span class="spaces">            </span><span class="istickedoff">formatMetaToml baseMeta `shouldSatisfy` (&quot;My Database&quot; `T.isInfixOf`)</span>
+<span class="lineno">   58 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   59 </span><span class="spaces">        </span><span class="istickedoff">it &quot;includes format field for ecospold2&quot; $</span>
+<span class="lineno">   60 </span><span class="spaces">            </span><span class="istickedoff">formatMetaToml baseMeta `shouldSatisfy` (&quot;ecospold2&quot; `T.isInfixOf`)</span>
+<span class="lineno">   61 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   62 </span><span class="spaces">        </span><span class="istickedoff">it &quot;includes dataPath field&quot; $</span>
+<span class="lineno">   63 </span><span class="spaces">            </span><span class="istickedoff">formatMetaToml baseMeta `shouldSatisfy` (&quot;dataPath&quot; `T.isInfixOf`)</span>
+<span class="lineno">   64 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   65 </span><span class="spaces">        </span><span class="istickedoff">it &quot;omits description when Nothing&quot; $</span>
+<span class="lineno">   66 </span><span class="spaces">            </span><span class="istickedoff">formatMetaToml baseMeta `shouldSatisfy` (not . (&quot;description&quot; `T.isInfixOf`))</span>
+<span class="lineno">   67 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   68 </span><span class="spaces">        </span><span class="istickedoff">it &quot;includes description when Just&quot; $</span>
+<span class="lineno">   69 </span><span class="spaces">            </span><span class="istickedoff">let meta = baseMeta { umDescription = Just &quot;My description&quot; }</span>
+<span class="lineno">   70 </span><span class="spaces">            </span><span class="istickedoff">in formatMetaToml meta `shouldSatisfy` (&quot;My description&quot; `T.isInfixOf`)</span>
+<span class="lineno">   71 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   72 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats simapro as 'simapro'&quot; $</span>
+<span class="lineno">   73 </span><span class="spaces">            </span><span class="istickedoff">let meta = baseMeta { umFormat = SimaProCSV }</span>
+<span class="lineno">   74 </span><span class="spaces">            </span><span class="istickedoff">in formatMetaToml meta `shouldSatisfy` (&quot;simapro&quot; `T.isInfixOf`)</span>
+<span class="lineno">   75 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   76 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats ilcd as 'ilcd'&quot; $</span>
+<span class="lineno">   77 </span><span class="spaces">            </span><span class="istickedoff">let meta = baseMeta { umFormat = ILCDProcess }</span>
+<span class="lineno">   78 </span><span class="spaces">            </span><span class="istickedoff">in formatMetaToml meta `shouldSatisfy` (&quot;ilcd&quot; `T.isInfixOf`)</span>
+<span class="lineno">   79 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   80 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   81 </span><span class="spaces">    </span><span class="istickedoff">-- parseMetaToml</span>
+<span class="lineno">   82 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;parseMetaToml&quot; $ do</span>
+<span class="lineno">   84 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses minimal meta without description&quot; $ do</span>
+<span class="lineno">   85 </span><span class="spaces">            </span><span class="istickedoff">let toml = &quot;version = 1\ndisplayName = \&quot;My DB\&quot;\nformat = \&quot;ecospold2\&quot;\ndataPath = \&quot;data\&quot;\n&quot;</span>
+<span class="lineno">   86 </span><span class="spaces">            </span><span class="istickedoff">parseMetaToml toml `shouldBe` Just UploadMeta</span>
+<span class="lineno">   87 </span><span class="spaces">                </span><span class="istickedoff">{ umVersion = 1, umDisplayName = &quot;My DB&quot;</span>
+<span class="lineno">   88 </span><span class="spaces">                </span><span class="istickedoff">, umDescription = Nothing, umFormat = EcoSpold2</span>
+<span class="lineno">   89 </span><span class="spaces">                </span><span class="istickedoff">, umDataPath = &quot;data&quot; }</span>
+<span class="lineno">   90 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   91 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses meta with description&quot; $ do</span>
+<span class="lineno">   92 </span><span class="spaces">            </span><span class="istickedoff">let toml = &quot;version = 1\ndisplayName = \&quot;DB\&quot;\ndescription = \&quot;Desc\&quot;\nformat = \&quot;simapro\&quot;\ndataPath = \&quot;d\&quot;\n&quot;</span>
+<span class="lineno">   93 </span><span class="spaces">            </span><span class="istickedoff">fmap umDescription (parseMetaToml toml) `shouldBe` Just (Just &quot;Desc&quot;)</span>
+<span class="lineno">   94 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   95 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing for missing required field&quot; $</span>
+<span class="lineno">   96 </span><span class="spaces">            </span><span class="istickedoff">parseMetaToml &quot;displayName = \&quot;x\&quot;\n&quot; `shouldBe` Nothing</span>
+<span class="lineno">   97 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   98 </span><span class="spaces">        </span><span class="istickedoff">it &quot;ignores comment lines&quot; $ do</span>
+<span class="lineno">   99 </span><span class="spaces">            </span><span class="istickedoff">let toml = &quot;# This is a comment\nversion = 1\ndisplayName = \&quot;DB\&quot;\nformat = \&quot;ilcd\&quot;\ndataPath = \&quot;d\&quot;\n&quot;</span>
+<span class="lineno">  100 </span><span class="spaces">            </span><span class="istickedoff">fmap umFormat (parseMetaToml toml) `shouldBe` Just ILCDProcess</span>
+<span class="lineno">  101 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  102 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">  103 </span><span class="spaces">    </span><span class="istickedoff">-- Round-trip: formatMetaToml → parseMetaToml</span>
+<span class="lineno">  104 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">  105 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;formatMetaToml / parseMetaToml roundtrip&quot; $ do</span>
+<span class="lineno">  106 </span><span class="spaces">        </span><span class="istickedoff">it &quot;round-trips a meta without description&quot; $</span>
+<span class="lineno">  107 </span><span class="spaces">            </span><span class="istickedoff">parseMetaToml (formatMetaToml baseMeta) `shouldBe` Just baseMeta</span>
+<span class="lineno">  108 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  109 </span><span class="spaces">        </span><span class="istickedoff">it &quot;round-trips a meta with description&quot; $ do</span>
+<span class="lineno">  110 </span><span class="spaces">            </span><span class="istickedoff">let meta = baseMeta { umDescription = Just &quot;A nice database&quot; }</span>
+<span class="lineno">  111 </span><span class="spaces">            </span><span class="istickedoff">parseMetaToml (formatMetaToml meta) `shouldBe` Just meta</span>
+<span class="lineno">  112 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  113 </span><span class="spaces">        </span><span class="istickedoff">it &quot;round-trips all database formats&quot; $</span>
+<span class="lineno">  114 </span><span class="spaces">            </span><span class="istickedoff">mapM_ (\fmt -&gt; do</span>
+<span class="lineno">  115 </span><span class="spaces">                </span><span class="istickedoff">let meta = baseMeta { umFormat = fmt }</span>
+<span class="lineno">  116 </span><span class="spaces">                </span><span class="istickedoff">fmap umFormat (parseMetaToml (formatMetaToml meta)) `shouldBe` Just fmt</span>
+<span class="lineno">  117 </span><span class="spaces">                </span><span class="istickedoff">) [EcoSpold2, EcoSpold1, SimaProCSV, ILCDProcess, UnknownFormat]</span>
+<span class="lineno">  118 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  119 </span><span class="spaces">        </span><span class="istickedoff">it &quot;round-trips a path with spaces&quot; $ do</span>
+<span class="lineno">  120 </span><span class="spaces">            </span><span class="istickedoff">let meta = baseMeta { umDataPath = &quot;my data/sub dir&quot; }</span>
+<span class="lineno">  121 </span><span class="spaces">            </span><span class="istickedoff">fmap umDataPath (parseMetaToml (formatMetaToml meta)) `shouldBe` Just &quot;my data/sub dir&quot;</span>
+<span class="lineno">  122 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  123 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">  124 </span><span class="spaces">    </span><span class="istickedoff">-- readUploadMeta / writeUploadMeta (IO roundtrip)</span>
+<span class="lineno">  125 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">  126 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;readUploadMeta / writeUploadMeta&quot; $ do</span>
+<span class="lineno">  127 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Nothing for a directory without meta.toml&quot; $</span>
+<span class="lineno">  128 </span><span class="spaces">            </span><span class="istickedoff">withSystemTempDirectory &quot;volca-test&quot; $ \dir -&gt; do</span>
+<span class="lineno">  129 </span><span class="spaces">                </span><span class="istickedoff">result &lt;- readUploadMeta dir</span>
+<span class="lineno">  130 </span><span class="spaces">                </span><span class="istickedoff">result `shouldBe` Nothing</span>
+<span class="lineno">  131 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  132 </span><span class="spaces">        </span><span class="istickedoff">it &quot;round-trips write then read&quot; $</span>
+<span class="lineno">  133 </span><span class="spaces">            </span><span class="istickedoff">withSystemTempDirectory &quot;volca-test&quot; $ \dir -&gt; do</span>
+<span class="lineno">  134 </span><span class="spaces">                </span><span class="istickedoff">writeUploadMeta dir baseMeta</span>
+<span class="lineno">  135 </span><span class="spaces">                </span><span class="istickedoff">result &lt;- readUploadMeta dir</span>
+<span class="lineno">  136 </span><span class="spaces">                </span><span class="istickedoff">result `shouldBe` Just baseMeta</span>
+<span class="lineno">  137 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  138 </span><span class="spaces">        </span><span class="istickedoff">it &quot;round-trips with description&quot; $</span>
+<span class="lineno">  139 </span><span class="spaces">            </span><span class="istickedoff">withSystemTempDirectory &quot;volca-test&quot; $ \dir -&gt; do</span>
+<span class="lineno">  140 </span><span class="spaces">                </span><span class="istickedoff">let meta = baseMeta { umDescription = Just &quot;test&quot; }</span>
+<span class="lineno">  141 </span><span class="spaces">                </span><span class="istickedoff">writeUploadMeta dir meta</span>
+<span class="lineno">  142 </span><span class="spaces">                </span><span class="istickedoff">result &lt;- readUploadMeta dir</span>
+<span class="lineno">  143 </span><span class="spaces">                </span><span class="istickedoff">result `shouldBe` Just meta</span></span>
+<span class="lineno">  144 </span>
+
+</pre>
+</body>
+</html>

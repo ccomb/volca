@@ -170,7 +170,7 @@ span.spaces    { background: white }
 <span class="lineno">  151 </span>-- suffix where the content is all uppercase letters.
 <span class="lineno">  152 </span>-- Returns Just strippedName if a tag was found, Nothing otherwise.
 <span class="lineno">  153 </span>stripTrailingDBTag :: Text -&gt; Maybe Text
-<span class="lineno">  154 </span><span class="funcount">-- entered 16 times</span><span class="decl"><span class="istickedoff">stripTrailingDBTag name</span>
+<span class="lineno">  154 </span><span class="funcount">-- entered 19 times</span><span class="decl"><span class="istickedoff">stripTrailingDBTag name</span>
 <span class="lineno">  155 </span><span class="spaces">    </span><span class="istickedoff">| T.null name = Nothing</span>
 <span class="lineno">  156 </span><span class="spaces">    </span><span class="istickedoff">| T.last name /= ')' = Nothing</span>
 <span class="lineno">  157 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
@@ -191,7 +191,7 @@ span.spaces    { background: white }
 <span class="lineno">  172 </span>-- WFLDB names use the pattern @ProductName (WFLDB)\/CA U@ where the suffix
 <span class="lineno">  173 </span>-- encodes location (2-3 uppercase letters) and unit type (1 uppercase letter).
 <span class="lineno">  174 </span>stripTrailingLocationSuffix :: Text -&gt; Maybe Text
-<span class="lineno">  175 </span><span class="funcount">-- entered 14 times</span><span class="decl"><span class="istickedoff">stripTrailingLocationSuffix name =</span>
+<span class="lineno">  175 </span><span class="funcount">-- entered 16 times</span><span class="decl"><span class="istickedoff">stripTrailingLocationSuffix name =</span>
 <span class="lineno">  176 </span><span class="spaces">    </span><span class="istickedoff">case T.breakOnEnd &quot;/&quot; name of</span>
 <span class="lineno">  177 </span><span class="spaces">        </span><span class="istickedoff">(&quot;&quot;, _) -&gt; Nothing</span>
 <span class="lineno">  178 </span><span class="spaces">        </span><span class="istickedoff">(beforeSlash, afterSlash) -&gt;</span>
@@ -210,7 +210,7 @@ span.spaces    { background: white }
 <span class="lineno">  191 </span>-- location suffix like &quot;/CA U&quot; (WFLDB convention).
 <span class="lineno">  192 </span>-- Returns empty list if no separator is found and no tag detected.
 <span class="lineno">  193 </span>extractProductPrefixes :: Text -&gt; [Text]
-<span class="lineno">  194 </span><span class="funcount">-- entered 13 times</span><span class="decl"><span class="istickedoff">extractProductPrefixes name =</span>
+<span class="lineno">  194 </span><span class="funcount">-- entered 16 times</span><span class="decl"><span class="istickedoff">extractProductPrefixes name =</span>
 <span class="lineno">  195 </span><span class="spaces">    </span><span class="istickedoff">let separatorPrefixes =</span>
 <span class="lineno">  196 </span><span class="spaces">            </span><span class="istickedoff">[ T.strip prefix</span>
 <span class="lineno">  197 </span><span class="spaces">            </span><span class="istickedoff">| sep &lt;- compoundSeparators</span>
@@ -222,9 +222,9 @@ span.spaces    { background: white }
 <span class="lineno">  203 </span><span class="spaces">            </span><span class="istickedoff">Just stripped -&gt; [stripped]</span>
 <span class="lineno">  204 </span><span class="spaces">            </span><span class="istickedoff">Nothing       -&gt; []</span>
 <span class="lineno">  205 </span><span class="spaces">        </span><span class="istickedoff">locationSuffixStripped = case stripTrailingLocationSuffix name of</span>
-<span class="lineno">  206 </span><span class="spaces">            </span><span class="istickedoff">Just stripped -&gt; <span class="nottickedoff">stripped : case stripTrailingDBTag stripped of</span></span>
-<span class="lineno">  207 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">Just alsoTagStripped -&gt; [alsoTagStripped]</span></span>
-<span class="lineno">  208 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">Nothing              -&gt; []</span></span>
+<span class="lineno">  206 </span><span class="spaces">            </span><span class="istickedoff">Just stripped -&gt; stripped : case stripTrailingDBTag stripped of</span>
+<span class="lineno">  207 </span><span class="spaces">                </span><span class="istickedoff">Just alsoTagStripped -&gt; [alsoTagStripped]</span>
+<span class="lineno">  208 </span><span class="spaces">                </span><span class="istickedoff">Nothing              -&gt; <span class="nottickedoff">[]</span></span>
 <span class="lineno">  209 </span><span class="spaces">            </span><span class="istickedoff">Nothing -&gt; []</span>
 <span class="lineno">  210 </span><span class="spaces">    </span><span class="istickedoff">in separatorPrefixes ++ tagStripped ++ locationSuffixStripped</span></span>
 <span class="lineno">  211 </span>
@@ -445,17 +445,17 @@ span.spaces    { background: white }
 <span class="lineno">  426 </span>-- | Match product names (simplified - just for scoring display)
 <span class="lineno">  427 </span>-- Actual matching is done via index lookup
 <span class="lineno">  428 </span>matchProductName :: SynonymDB -&gt; Text -&gt; Text -&gt; Int
-<span class="lineno">  429 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">matchProductName synDB query candidate</span>
+<span class="lineno">  429 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">matchProductName synDB query candidate</span>
 <span class="lineno">  430 </span><span class="spaces">    </span><span class="istickedoff">| normalizeText query == normalizeText candidate = 50  -- Exact match</span>
-<span class="lineno">  431 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">areSynonyms synDB query <span class="nottickedoff">candidate</span></span>              = <span class="nottickedoff">45</span>  -- Synonym match</span>
+<span class="lineno">  431 </span><span class="spaces">    </span><span class="istickedoff">| areSynonyms synDB query candidate              = 45  -- Synonym match</span>
 <span class="lineno">  432 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span>                                      = 0</span></span>   -- No match
 <span class="lineno">  433 </span>
 <span class="lineno">  434 </span>-- | Check if two names are synonyms using the SynonymDB
 <span class="lineno">  435 </span>areSynonyms :: SynonymDB -&gt; Text -&gt; Text -&gt; Bool
-<span class="lineno">  436 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">areSynonyms synDB name1 name2 =</span>
+<span class="lineno">  436 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">areSynonyms synDB name1 name2 =</span>
 <span class="lineno">  437 </span><span class="spaces">    </span><span class="istickedoff">case (lookupSynonymGroup synDB (normalizeName name1),</span>
-<span class="lineno">  438 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">lookupSynonymGroup synDB (normalizeName name2)</span>) of</span>
-<span class="lineno">  439 </span><span class="spaces">        </span><span class="istickedoff">(Just g1, Just g2) -&gt; <span class="nottickedoff">g1 == g2</span></span>
+<span class="lineno">  438 </span><span class="spaces">          </span><span class="istickedoff">lookupSynonymGroup synDB (normalizeName name2)) of</span>
+<span class="lineno">  439 </span><span class="spaces">        </span><span class="istickedoff">(Just g1, Just g2) -&gt; g1 == g2</span>
 <span class="lineno">  440 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; False</span></span>
 <span class="lineno">  441 </span>
 <span class="lineno">  442 </span>-- | Match locations with hierarchy fallback
