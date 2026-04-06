@@ -29,6 +29,24 @@ spec = do
         it "normalizes soft hyphen to ASCII hyphen" $
             normalizeText "bio\x00ADgas" `shouldBe` "bio-gas"
 
+        it "normalizes hyphen (U+2010) to ASCII hyphen" $
+            normalizeText "bio\x2010gas" `shouldBe` "bio-gas"
+
+        it "normalizes non-breaking hyphen (U+2011) to ASCII hyphen" $
+            normalizeText "bio\x2011gas" `shouldBe` "bio-gas"
+
+        it "normalizes figure dash (U+2012) to ASCII hyphen" $
+            normalizeText "bio\x2012gas" `shouldBe` "bio-gas"
+
+        it "normalizes em-dash (U+2014) to ASCII hyphen" $
+            normalizeText "bio\x2014gas" `shouldBe` "bio-gas"
+
+        it "normalizes non-breaking space (U+00A0) to regular space" $
+            normalizeText "bio\x00A0gas" `shouldBe` "bio gas"
+
+        it "normalizes narrow no-break space (U+202F) to regular space" $
+            normalizeText "bio\x202Fgas" `shouldBe` "bio gas"
+
     -- -----------------------------------------------------------------------
     -- stripTrailingDBTag
     -- -----------------------------------------------------------------------
@@ -173,6 +191,40 @@ spec = do
 
         it "splits on ' |' separator" $
             extractProductPrefixes "heat | natural gas | CH" `shouldContain` ["heat"]
+
+    -- -----------------------------------------------------------------------
+    -- isSubregionOf — additional location pairs
+    -- -----------------------------------------------------------------------
+    describe "isSubregionOf (additional)" $ do
+
+        it "US is a subregion of North America" $
+            isSubregionOf locationHierarchy "US" "North America" `shouldBe` True
+
+        it "CA is a subregion of NAFTA" $
+            isSubregionOf locationHierarchy "CA" "NAFTA" `shouldBe` True
+
+        it "JP is a subregion of Asia" $
+            isSubregionOf locationHierarchy "JP" "Asia" `shouldBe` True
+
+        it "BR is a subregion of Latin America" $
+            isSubregionOf locationHierarchy "BR" "Latin America" `shouldBe` True
+
+        it "AU is a subregion of GLO" $
+            isSubregionOf locationHierarchy "AU" "GLO" `shouldBe` True
+
+    -- -----------------------------------------------------------------------
+    -- matchLocation — additional scoring cases
+    -- -----------------------------------------------------------------------
+    describe "matchLocation (additional)" $ do
+
+        it "US consumer, NAFTA supplier scores 20 (widening)" $
+            matchLocation locationHierarchy "US" "NAFTA" `shouldBe` 20
+
+        it "GLO consumer, GLO supplier scores 30 (exact)" $
+            matchLocation locationHierarchy "GLO" "GLO" `shouldBe` 30
+
+        it "RoW consumer, RoW supplier scores 30 (exact)" $
+            matchLocation locationHierarchy "RoW" "RoW" `shouldBe` 30
 
     -- -----------------------------------------------------------------------
     -- findSupplierInIndexedDBs — integration using SAMPLE.min3
