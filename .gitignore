@@ -35,6 +35,8 @@ cache/
 
 # temporary python stuff (not pyvolca/)
 /pyproject.toml
+**/__pycache__/
+**/*.egg-info/
 
 # hidden files
 .*
