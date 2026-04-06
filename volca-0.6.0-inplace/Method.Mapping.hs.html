@@ -69,7 +69,7 @@ span.spaces    { background: white }
 <span class="lineno">   50 </span>    | BySynonym    -- ^ Via synonym group
 <span class="lineno">   51 </span>    | ByFuzzy      -- ^ Fuzzy string matching
 <span class="lineno">   52 </span>    | NoMatch      -- ^ No match found
-<span class="lineno">   53 </span>    deriving (<span class="funcount">-- entered 21 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">   53 </span>    deriving (<span class="funcount">-- entered 31 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
 <span class="lineno">   54 </span>
 <span class="lineno">   55 </span>-- | Statistics about mapping results
 <span class="lineno">   56 </span>data MappingStats = MappingStats
@@ -77,8 +77,8 @@ span.spaces    { background: white }
 <span class="lineno">   58 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">msByUUID</span></span></span>     :: !Int  -- ^ Matched by UUID
 <span class="lineno">   59 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">msByCAS</span></span></span>      :: !Int  -- ^ Matched by CAS
 <span class="lineno">   60 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">msByName</span></span></span>     :: !Int  -- ^ Matched by name
-<span class="lineno">   61 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">msBySynonym</span></span></span>  :: !Int  -- ^ Matched by synonym
-<span class="lineno">   62 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">msByFuzzy</span></span></span>    :: !Int  -- ^ Matched by fuzzy
+<span class="lineno">   61 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">msBySynonym</span></span></span>  :: !Int  -- ^ Matched by synonym
+<span class="lineno">   62 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">msByFuzzy</span></span></span>    :: !Int  -- ^ Matched by fuzzy
 <span class="lineno">   63 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">msUnmatched</span></span></span>  :: !Int  -- ^ Not matched
 <span class="lineno">   64 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
 <span class="lineno">   65 </span>
@@ -152,16 +152,16 @@ span.spaces    { background: white }
 <span class="lineno">  133 </span>
 <span class="lineno">  134 </span>-- | Find flow by normalized name with compartment preference
 <span class="lineno">  135 </span>findFlowByNameComp :: M.Map Text [Flow] -&gt; Text -&gt; Maybe Compartment -&gt; Maybe Flow
-<span class="lineno">  136 </span><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">findFlowByNameComp flowsByName name mComp =</span>
+<span class="lineno">  136 </span><span class="funcount">-- entered 10 times</span><span class="decl"><span class="istickedoff">findFlowByNameComp flowsByName name mComp =</span>
 <span class="lineno">  137 </span><span class="spaces">    </span><span class="istickedoff">M.lookup (normalizeName name) flowsByName &gt;&gt;= \flows -&gt; pickByCompartment flows mComp</span></span>
 <span class="lineno">  138 </span>
 <span class="lineno">  139 </span>-- | Find flow via synonym group (compartment-aware)
 <span class="lineno">  140 </span>findFlowBySynonym :: SynonymDB -&gt; M.Map Text [Flow] -&gt; Text -&gt; Maybe Flow
-<span class="lineno">  141 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">findFlowBySynonym synDB flowsByName name = findFlowBySynonymComp synDB <span class="nottickedoff">flowsByName</span> name <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">  141 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">findFlowBySynonym synDB flowsByName name = findFlowBySynonymComp synDB flowsByName name Nothing</span></span>
 <span class="lineno">  142 </span>
 <span class="lineno">  143 </span>-- | Find flow via synonym group with compartment preference
 <span class="lineno">  144 </span>findFlowBySynonymComp :: SynonymDB -&gt; M.Map Text [Flow] -&gt; Text -&gt; Maybe Compartment -&gt; Maybe Flow
-<span class="lineno">  145 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">findFlowBySynonymComp synDB flowsByName name mComp =</span>
+<span class="lineno">  145 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">findFlowBySynonymComp synDB flowsByName name mComp =</span>
 <span class="lineno">  146 </span><span class="spaces">    </span><span class="istickedoff">case lookupSynonymGroup synDB name of</span>
 <span class="lineno">  147 </span><span class="spaces">        </span><span class="istickedoff">Nothing  -&gt; Nothing</span>
 <span class="lineno">  148 </span><span class="spaces">        </span><span class="istickedoff">Just gid -&gt; getSynonyms synDB gid &gt;&gt;= \synonyms -&gt;</span>
@@ -172,7 +172,7 @@ span.spaces    { background: white }
 <span class="lineno">  153 </span>-- | Pick the best flow match based on compartment preference.
 <span class="lineno">  154 </span>-- Returns Nothing for an empty candidate list.
 <span class="lineno">  155 </span>pickByCompartment :: [Flow] -&gt; Maybe Compartment -&gt; Maybe Flow
-<span class="lineno">  156 </span><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">pickByCompartment []    _          = Nothing</span>
+<span class="lineno">  156 </span><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">pickByCompartment []    _          = Nothing</span>
 <span class="lineno">  157 </span><span class="spaces"></span><span class="istickedoff">pickByCompartment (f:_) Nothing    = Just f</span>
 <span class="lineno">  158 </span><span class="spaces"></span><span class="istickedoff">pickByCompartment (f:fs) (Just comp) = Just $</span>
 <span class="lineno">  159 </span><span class="spaces">    </span><span class="istickedoff">case find (exactCompMatch comp) (f:fs) of</span>
@@ -181,21 +181,21 @@ span.spaces    { background: white }
 <span class="lineno">  162 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">  163 </span><span class="spaces">    </span><span class="istickedoff">exactCompMatch (Compartment med sub _) fl =</span>
 <span class="lineno">  164 </span><span class="spaces">        </span><span class="istickedoff">let cat    = T.toLower (flowCategory fl)</span>
-<span class="lineno">  165 </span><span class="spaces">            </span><span class="istickedoff">subcomp = maybe <span class="nottickedoff">&quot;&quot;</span> T.toLower (flowSubcompartment fl)</span>
+<span class="lineno">  165 </span><span class="spaces">            </span><span class="istickedoff">subcomp = maybe &quot;&quot; T.toLower (flowSubcompartment fl)</span>
 <span class="lineno">  166 </span><span class="spaces">        </span><span class="istickedoff">in matchMedium med cat &amp;&amp; (T.null sub || sub == subcomp || sub `T.isInfixOf` subcomp)</span>
 <span class="lineno">  167 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  168 </span><span class="spaces">    </span><span class="istickedoff">mediumMatch (Compartment med _ _) fl =</span>
 <span class="lineno">  169 </span><span class="spaces">        </span><span class="istickedoff">matchMedium med (T.toLower (flowCategory fl))</span>
 <span class="lineno">  170 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  171 </span><span class="spaces">    </span><span class="istickedoff">matchMedium med cat</span>
-<span class="lineno">  172 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">T.null med</span>        = <span class="nottickedoff">True</span></span>
+<span class="lineno">  172 </span><span class="spaces">        </span><span class="istickedoff">| T.null med        = True</span>
 <span class="lineno">  173 </span><span class="spaces">        </span><span class="istickedoff">| med == cat        = True</span>
-<span class="lineno">  174 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlyfalse">med `T.isInfixOf` cat</span> = <span class="nottickedoff">True</span></span>
+<span class="lineno">  174 </span><span class="spaces">        </span><span class="istickedoff">| med `T.isInfixOf` cat = True</span>
 <span class="lineno">  175 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span>         = False</span></span>
 <span class="lineno">  176 </span>
 <span class="lineno">  177 </span>-- | Compute statistics about mapping results
 <span class="lineno">  178 </span>computeMappingStats :: [(MethodCF, Maybe (Flow, MatchStrategy))] -&gt; MappingStats
-<span class="lineno">  179 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">computeMappingStats mappings = MappingStats</span>
+<span class="lineno">  179 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">computeMappingStats mappings = MappingStats</span>
 <span class="lineno">  180 </span><span class="spaces">    </span><span class="istickedoff">{ msTotal = length mappings</span>
 <span class="lineno">  181 </span><span class="spaces">    </span><span class="istickedoff">, msByUUID = count ByUUID</span>
 <span class="lineno">  182 </span><span class="spaces">    </span><span class="istickedoff">, msByCAS = count ByCAS</span>
@@ -216,7 +216,7 @@ span.spaces    { background: white }
 <span class="lineno">  197 </span>-- any air emission that lacks a more specific CF, without aggregating across media.
 <span class="lineno">  198 </span>-- Unit conversion is applied when the inventory flow's unit differs from the CF's unit.
 <span class="lineno">  199 </span>computeLCIAScore :: UnitConfig -&gt; UnitDB -&gt; FlowDB -&gt; Inventory -&gt; [(MethodCF, Maybe (Flow, MatchStrategy))] -&gt; Double
-<span class="lineno">  200 </span><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">computeLCIAScore unitConfig unitDB flowDB inventory mappings =</span>
+<span class="lineno">  200 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">computeLCIAScore unitConfig unitDB flowDB inventory mappings =</span>
 <span class="lineno">  201 </span><span class="spaces">    </span><span class="istickedoff">sum [ scoreFlow fid qty | (fid, qty) &lt;- M.toList inventory, qty /= 0 ]</span>
 <span class="lineno">  202 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">  203 </span><span class="spaces">    </span><span class="istickedoff">scoreFlow fid qty = case lookupCF fid of</span>
@@ -232,14 +232,14 @@ span.spaces    { background: white }
 <span class="lineno">  213 </span><span class="spaces">        </span><span class="istickedoff">Nothing  -&gt; case M.lookup fid flowDB of</span>
 <span class="lineno">  214 </span><span class="spaces">            </span><span class="istickedoff">Nothing   -&gt; Nothing</span>
 <span class="lineno">  215 </span><span class="spaces">            </span><span class="istickedoff">Just flow -&gt;</span>
-<span class="lineno">  216 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">let name    = normalizeName (flowName flow)</span></span>
-<span class="lineno">  217 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">baseMed = normalizeMedium . T.takeWhile (/= '/') . T.toLower $ flowCategory flow</span></span>
-<span class="lineno">  218 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">subcomp = T.toLower $ fromMaybe &quot;&quot; (flowSubcompartment flow)</span></span>
-<span class="lineno">  219 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">strip3 (v, u, _) = (v, u)</span></span>
-<span class="lineno">  220 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">exact   = strip3 &lt;$&gt; M.lookup (name, baseMed, subcomp) exactCF</span></span>
-<span class="lineno">  221 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">in case exact of</span></span>
-<span class="lineno">  222 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Just _  -&gt; exact</span></span>
-<span class="lineno">  223 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Nothing -&gt; strip3 &lt;$&gt; M.lookup (name, baseMed) fallbackCF</span></span>
+<span class="lineno">  216 </span><span class="spaces">                </span><span class="istickedoff">let name    = normalizeName (flowName flow)</span>
+<span class="lineno">  217 </span><span class="spaces">                    </span><span class="istickedoff">baseMed = normalizeMedium . T.takeWhile (/= '/') . T.toLower $ flowCategory flow</span>
+<span class="lineno">  218 </span><span class="spaces">                    </span><span class="istickedoff">subcomp = T.toLower $ fromMaybe <span class="nottickedoff">&quot;&quot;</span> (flowSubcompartment flow)</span>
+<span class="lineno">  219 </span><span class="spaces">                    </span><span class="istickedoff">strip3 (v, u, _) = (v, u)</span>
+<span class="lineno">  220 </span><span class="spaces">                    </span><span class="istickedoff">exact   = strip3 &lt;$&gt; M.lookup (name, baseMed, subcomp) exactCF</span>
+<span class="lineno">  221 </span><span class="spaces">                </span><span class="istickedoff">in case exact of</span>
+<span class="lineno">  222 </span><span class="spaces">                    </span><span class="istickedoff">Just _  -&gt; exact</span>
+<span class="lineno">  223 </span><span class="spaces">                    </span><span class="istickedoff">Nothing -&gt; strip3 &lt;$&gt; M.lookup (name, baseMed) fallbackCF</span>
 <span class="lineno">  224 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  225 </span><span class="spaces">    </span><span class="istickedoff">-- UUID-matched CFs: exact flow_id → (CF_value, CF_unit)</span>
 <span class="lineno">  226 </span><span class="spaces">    </span><span class="istickedoff">uuidCF = M.fromList</span>
@@ -263,29 +263,29 @@ span.spaces    { background: white }
 <span class="lineno">  244 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">Nothing     -&gt; NoMatch</span></span>
 <span class="lineno">  245 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  246 </span><span class="spaces">    </span><span class="istickedoff">-- Exact CFs for specific subcompartments: (name, medium, subcomp) → (CF, unit, strategy)</span>
-<span class="lineno">  247 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">exactCF = M.fromListWith preferBetter</span></span>
-<span class="lineno">  248 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">[ ((nameKey cf mflow, normalizeMedium medium, subcomp), (mcfValue cf, mcfUnit cf, matchStrategy mflow))</span></span>
-<span class="lineno">  249 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">| (cf, mflow) &lt;- mappings</span></span>
-<span class="lineno">  250 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">, Just (Compartment medium subcomp _) &lt;- [mcfCompartment cf]</span></span>
-<span class="lineno">  251 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">, not (T.null subcomp) ]</span></span>
+<span class="lineno">  247 </span><span class="spaces">    </span><span class="istickedoff">exactCF = M.fromListWith <span class="nottickedoff">preferBetter</span></span>
+<span class="lineno">  248 </span><span class="spaces">        </span><span class="istickedoff">[ ((nameKey cf mflow, normalizeMedium medium, subcomp), (mcfValue cf, mcfUnit cf, <span class="nottickedoff">matchStrategy mflow</span>))</span>
+<span class="lineno">  249 </span><span class="spaces">        </span><span class="istickedoff">| (cf, mflow) &lt;- mappings</span>
+<span class="lineno">  250 </span><span class="spaces">        </span><span class="istickedoff">, Just (Compartment medium subcomp _) &lt;- [mcfCompartment cf]</span>
+<span class="lineno">  251 </span><span class="spaces">        </span><span class="istickedoff">, not (T.null subcomp) ]</span>
 <span class="lineno">  252 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  253 </span><span class="spaces">    </span><span class="istickedoff">-- Fallback CFs for unspecified subcompartment: (name, medium) → (CF, unit, strategy)</span>
-<span class="lineno">  254 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">fallbackCF = M.fromListWith preferBetter</span></span>
-<span class="lineno">  255 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">[ ((nameKey cf mflow, normalizeMedium medium), (mcfValue cf, mcfUnit cf, matchStrategy mflow))</span></span>
-<span class="lineno">  256 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">| (cf, mflow) &lt;- mappings</span></span>
-<span class="lineno">  257 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">, Just (Compartment medium subcomp _) &lt;- [mcfCompartment cf]</span></span>
-<span class="lineno">  258 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">, T.null subcomp ]</span></span>
+<span class="lineno">  254 </span><span class="spaces">    </span><span class="istickedoff">fallbackCF = M.fromListWith <span class="nottickedoff">preferBetter</span></span>
+<span class="lineno">  255 </span><span class="spaces">        </span><span class="istickedoff">[ ((nameKey cf mflow, normalizeMedium medium), (mcfValue cf, mcfUnit cf, <span class="nottickedoff">matchStrategy mflow</span>))</span>
+<span class="lineno">  256 </span><span class="spaces">        </span><span class="istickedoff">| (cf, mflow) &lt;- mappings</span>
+<span class="lineno">  257 </span><span class="spaces">        </span><span class="istickedoff">, Just (Compartment medium subcomp _) &lt;- [mcfCompartment cf]</span>
+<span class="lineno">  258 </span><span class="spaces">        </span><span class="istickedoff">, <span class="tickonlytrue">T.null subcomp</span> ]</span>
 <span class="lineno">  259 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  260 </span><span class="spaces">    </span><span class="istickedoff">-- Use matched flow's name only for name/synonym matches</span>
-<span class="lineno">  261 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">nameKey cf mflow = normalizeName $ case mflow of</span></span>
-<span class="lineno">  262 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">Just (flow, ByName)    -&gt; flowName flow</span></span>
-<span class="lineno">  263 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">Just (flow, BySynonym) -&gt; flowName flow</span></span>
-<span class="lineno">  264 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">_                      -&gt; mcfFlowName cf</span></span>
+<span class="lineno">  261 </span><span class="spaces">    </span><span class="istickedoff">nameKey cf mflow = normalizeName $ case mflow of</span>
+<span class="lineno">  262 </span><span class="spaces">        </span><span class="istickedoff">Just (flow, ByName)    -&gt; <span class="nottickedoff">flowName flow</span></span>
+<span class="lineno">  263 </span><span class="spaces">        </span><span class="istickedoff">Just (flow, BySynonym) -&gt; <span class="nottickedoff">flowName flow</span></span>
+<span class="lineno">  264 </span><span class="spaces">        </span><span class="istickedoff">_                      -&gt; mcfFlowName cf</span>
 <span class="lineno">  265 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  266 </span><span class="spaces">    </span><span class="istickedoff">-- Normalize medium names between method CFs and database flows</span>
-<span class="lineno">  267 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">normalizeMedium m</span></span>
-<span class="lineno">  268 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">| m == &quot;natural resource&quot; = &quot;resource&quot;</span></span>
-<span class="lineno">  269 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">| otherwise               = m</span></span></span>
+<span class="lineno">  267 </span><span class="spaces">    </span><span class="istickedoff">normalizeMedium m</span>
+<span class="lineno">  268 </span><span class="spaces">        </span><span class="istickedoff">| m == &quot;natural resource&quot; = &quot;resource&quot;</span>
+<span class="lineno">  269 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span>               = m</span></span>
 
 </pre>
 </body>

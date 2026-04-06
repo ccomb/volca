@@ -75,7 +75,7 @@ span.spaces    { background: white }
 <span class="lineno">   56 </span>
 <span class="lineno">   57 </span>-- | Unit representation (kg, MJ, m³, etc.)
 <span class="lineno">   58 </span>data Unit = Unit
-<span class="lineno">   59 </span>    { <span class="istickedoff"><span class="funcount">-- entered 643 times</span><span class="decl"><span class="istickedoff">unitId</span></span></span> :: !UUID -- Unique unit identifier
+<span class="lineno">   59 </span>    { <span class="istickedoff"><span class="funcount">-- entered 664 times</span><span class="decl"><span class="istickedoff">unitId</span></span></span> :: !UUID -- Unique unit identifier
 <span class="lineno">   60 </span>    , <span class="istickedoff"><span class="funcount">-- entered 392 times</span><span class="decl"><span class="istickedoff">unitName</span></span></span> :: !Text -- Unit name (e.g. &quot;kg&quot;, &quot;kilogram&quot;)
 <span class="lineno">   61 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">unitSymbol</span></span></span> :: !Text -- Symbol (e.g. &quot;kg&quot;, &quot;MJ&quot;)
 <span class="lineno">   62 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">unitComment</span></span></span> :: !Text -- Description/comment
@@ -95,14 +95,14 @@ span.spaces    { background: white }
 <span class="lineno">   76 </span>
 <span class="lineno">   77 </span>-- | Flow representation (material, energy, emission, etc.)
 <span class="lineno">   78 </span>data Flow = Flow
-<span class="lineno">   79 </span>    { <span class="istickedoff"><span class="funcount">-- entered 681 times</span><span class="decl"><span class="istickedoff">flowId</span></span></span> :: !UUID -- Flow identifier
-<span class="lineno">   80 </span>    , <span class="istickedoff"><span class="funcount">-- entered 294 times</span><span class="decl"><span class="istickedoff">flowName</span></span></span> :: !Text -- Human-readable name
-<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered 435 times</span><span class="decl"><span class="istickedoff">flowCategory</span></span></span> :: !Text -- Category/compartment (e.g. air, water, soil, resource)
-<span class="lineno">   82 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">flowSubcompartment</span></span></span> :: !(Maybe Text) -- Sub-compartment (e.g. &quot;urban air&quot;, &quot;river water&quot;)
-<span class="lineno">   83 </span>    , <span class="istickedoff"><span class="funcount">-- entered 82 times</span><span class="decl"><span class="istickedoff">flowUnitId</span></span></span> :: !UUID -- Reference to default unit in UnitDB
+<span class="lineno">   79 </span>    { <span class="istickedoff"><span class="funcount">-- entered 705 times</span><span class="decl"><span class="istickedoff">flowId</span></span></span> :: !UUID -- Flow identifier
+<span class="lineno">   80 </span>    , <span class="istickedoff"><span class="funcount">-- entered 312 times</span><span class="decl"><span class="istickedoff">flowName</span></span></span> :: !Text -- Human-readable name
+<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered 442 times</span><span class="decl"><span class="istickedoff">flowCategory</span></span></span> :: !Text -- Category/compartment (e.g. air, water, soil, resource)
+<span class="lineno">   82 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">flowSubcompartment</span></span></span> :: !(Maybe Text) -- Sub-compartment (e.g. &quot;urban air&quot;, &quot;river water&quot;)
+<span class="lineno">   83 </span>    , <span class="istickedoff"><span class="funcount">-- entered 85 times</span><span class="decl"><span class="istickedoff">flowUnitId</span></span></span> :: !UUID -- Reference to default unit in UnitDB
 <span class="lineno">   84 </span>    , <span class="istickedoff"><span class="funcount">-- entered 411 times</span><span class="decl"><span class="istickedoff">flowType</span></span></span> :: !FlowType -- Flow type
-<span class="lineno">   85 </span>    , <span class="istickedoff"><span class="funcount">-- entered 177 times</span><span class="decl"><span class="istickedoff">flowSynonyms</span></span></span> :: !(M.Map Text (S.Set Text)) -- Synonyms by language (e.g. &quot;en&quot; -&gt; {&quot;BaP&quot;, &quot;benzo[a]pyrene&quot;})
-<span class="lineno">   86 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">flowCAS</span></span></span> :: !(Maybe Text) -- CAS number for substance identification
+<span class="lineno">   85 </span>    , <span class="istickedoff"><span class="funcount">-- entered 183 times</span><span class="decl"><span class="istickedoff">flowSynonyms</span></span></span> :: !(M.Map Text (S.Set Text)) -- Synonyms by language (e.g. &quot;en&quot; -&gt; {&quot;BaP&quot;, &quot;benzo[a]pyrene&quot;})
+<span class="lineno">   86 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">flowCAS</span></span></span> :: !(Maybe Text) -- CAS number for substance identification
 <span class="lineno">   87 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">flowSubstanceId</span></span></span> :: !(Maybe Int) -- Link to Substance in FlowMappingData
 <span class="lineno">   88 </span>    }
 <span class="lineno">   89 </span>    deriving (<span class="funcount">-- entered 59 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">NFData</span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)
@@ -130,7 +130,7 @@ span.spaces    { background: white }
 <span class="lineno">  111 </span>
 <span class="lineno">  112 </span>-- | Helper functions for Exchange variants
 <span class="lineno">  113 </span>exchangeFlowId :: Exchange -&gt; UUID
-<span class="lineno">  114 </span><span class="funcount">-- entered 1189 times</span><span class="decl"><span class="istickedoff">exchangeFlowId (TechnosphereExchange fid _ _ _ _ _ _ _) = fid</span>
+<span class="lineno">  114 </span><span class="funcount">-- entered 1199 times</span><span class="decl"><span class="istickedoff">exchangeFlowId (TechnosphereExchange fid _ _ _ _ _ _ _) = fid</span>
 <span class="lineno">  115 </span><span class="spaces"></span><span class="istickedoff">exchangeFlowId (BiosphereExchange fid _ _ _ _) = fid</span></span>
 <span class="lineno">  116 </span>
 <span class="lineno">  117 </span>exchangeAmount :: Exchange -&gt; Double
@@ -146,7 +146,7 @@ span.spaces    { background: white }
 <span class="lineno">  127 </span><span class="spaces"></span><span class="istickedoff">exchangeIsInput (BiosphereExchange _ _ _ isInp _) = <span class="nottickedoff">isInp</span></span></span>
 <span class="lineno">  128 </span>
 <span class="lineno">  129 </span>exchangeIsReference :: Exchange -&gt; Bool
-<span class="lineno">  130 </span><span class="funcount">-- entered 2031 times</span><span class="decl"><span class="istickedoff">exchangeIsReference (TechnosphereExchange _ _ _ _ isRef _ _ _) = isRef</span>
+<span class="lineno">  130 </span><span class="funcount">-- entered 2089 times</span><span class="decl"><span class="istickedoff">exchangeIsReference (TechnosphereExchange _ _ _ _ isRef _ _ _) = isRef</span>
 <span class="lineno">  131 </span><span class="spaces"></span><span class="istickedoff">exchangeIsReference (BiosphereExchange _ _ _ _ _) = False</span></span> -- Biosphere exchanges are never reference products
 <span class="lineno">  132 </span>
 <span class="lineno">  133 </span>-- | Get activity link ID (backward compatibility)
@@ -199,13 +199,13 @@ span.spaces    { background: white }
 <span class="lineno">  180 </span>-- | Base LCA activity
 <span class="lineno">  181 </span>-- Note: ProcessId is the index in dbActivities vector, UUIDs stored in dbProcessIdTable
 <span class="lineno">  182 </span>data Activity = Activity
-<span class="lineno">  183 </span>    { <span class="istickedoff"><span class="funcount">-- entered 310 times</span><span class="decl"><span class="istickedoff">activityName</span></span></span> :: !Text -- Name
+<span class="lineno">  183 </span>    { <span class="istickedoff"><span class="funcount">-- entered 313 times</span><span class="decl"><span class="istickedoff">activityName</span></span></span> :: !Text -- Name
 <span class="lineno">  184 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">activityDescription</span></span></span> :: ![Text] -- General description (generalComment) by paragraphs
 <span class="lineno">  185 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">activitySynonyms</span></span></span> :: !(M.Map Text (S.Set Text)) -- Synonyms by language, same structure as flows
-<span class="lineno">  186 </span>    , <span class="istickedoff"><span class="funcount">-- entered 14 times</span><span class="decl"><span class="istickedoff">activityClassification</span></span></span> :: !(M.Map Text Text) -- Classifications (ISIC, CPC, etc.)
-<span class="lineno">  187 </span>    , <span class="istickedoff"><span class="funcount">-- entered 493 times</span><span class="decl"><span class="istickedoff">activityLocation</span></span></span> :: !Text -- Location code (e.g. FR, RER)
-<span class="lineno">  188 </span>    , <span class="istickedoff"><span class="funcount">-- entered 244 times</span><span class="decl"><span class="istickedoff">activityUnit</span></span></span> :: !Text -- Reference unit
-<span class="lineno">  189 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2230 times</span><span class="decl"><span class="istickedoff">exchanges</span></span></span> :: ![Exchange] -- List of exchanges
+<span class="lineno">  186 </span>    , <span class="istickedoff"><span class="funcount">-- entered 15 times</span><span class="decl"><span class="istickedoff">activityClassification</span></span></span> :: !(M.Map Text Text) -- Classifications (ISIC, CPC, etc.)
+<span class="lineno">  187 </span>    , <span class="istickedoff"><span class="funcount">-- entered 498 times</span><span class="decl"><span class="istickedoff">activityLocation</span></span></span> :: !Text -- Location code (e.g. FR, RER)
+<span class="lineno">  188 </span>    , <span class="istickedoff"><span class="funcount">-- entered 247 times</span><span class="decl"><span class="istickedoff">activityUnit</span></span></span> :: !Text -- Reference unit
+<span class="lineno">  189 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2278 times</span><span class="decl"><span class="istickedoff">exchanges</span></span></span> :: ![Exchange] -- List of exchanges
 <span class="lineno">  190 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">activityParams</span></span></span> :: !(M.Map Text Double) -- Resolved SimaPro parameter values
 <span class="lineno">  191 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">activityParamExprs</span></span></span> :: !(M.Map Text Text) -- Raw SimaPro parameter expressions (for re-evaluation)
 <span class="lineno">  192 </span>    }
@@ -658,8 +658,8 @@ span.spaces    { background: white }
 <span class="lineno">  639 </span>-- | Simplified version without indexes (for loading compatibility)
 <span class="lineno">  640 </span>-- Used during database loading, before conversion to final Vector structure
 <span class="lineno">  641 </span>data SimpleDatabase = SimpleDatabase
-<span class="lineno">  642 </span>    { <span class="istickedoff"><span class="funcount">-- entered 129 times</span><span class="decl"><span class="istickedoff">sdbActivities</span></span></span> :: !ActivityMap  -- Temporary Map structure
-<span class="lineno">  643 </span>    , <span class="istickedoff"><span class="funcount">-- entered 100 times</span><span class="decl"><span class="istickedoff">sdbFlows</span></span></span> :: !FlowDB
+<span class="lineno">  642 </span>    { <span class="istickedoff"><span class="funcount">-- entered 132 times</span><span class="decl"><span class="istickedoff">sdbActivities</span></span></span> :: !ActivityMap  -- Temporary Map structure
+<span class="lineno">  643 </span>    , <span class="istickedoff"><span class="funcount">-- entered 109 times</span><span class="decl"><span class="istickedoff">sdbFlows</span></span></span> :: !FlowDB
 <span class="lineno">  644 </span>    , <span class="istickedoff"><span class="funcount">-- entered 89 times</span><span class="decl"><span class="istickedoff">sdbUnits</span></span></span> :: !UnitDB
 <span class="lineno">  645 </span>    }
 <span class="lineno">  646 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Store</span></span></span></span></span></span>)

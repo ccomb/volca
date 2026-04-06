@@ -86,9 +86,9 @@ span.spaces    { background: white }
 <span class="lineno">   67 </span>-- | Pre-indexed database for fast cross-DB supplier lookup
 <span class="lineno">   68 </span>-- Built once when database is loaded, reused for all lookups
 <span class="lineno">   69 </span>data IndexedDatabase = IndexedDatabase
-<span class="lineno">   70 </span>    { <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">idbName</span></span></span>           :: !Text
-<span class="lineno">   71 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">idbByProductName</span></span></span>  :: !(M.Map Text [SupplierEntry])  -- Normalized product name → suppliers
-<span class="lineno">   72 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">idbBySynonymGroup</span></span></span> :: !(M.Map Int [SupplierEntry])   -- Synonym group ID → suppliers
+<span class="lineno">   70 </span>    { <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">idbName</span></span></span>           :: !Text
+<span class="lineno">   71 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">idbByProductName</span></span></span>  :: !(M.Map Text [SupplierEntry])  -- Normalized product name → suppliers
+<span class="lineno">   72 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">idbBySynonymGroup</span></span></span> :: !(M.Map Int [SupplierEntry])   -- Synonym group ID → suppliers
 <span class="lineno">   73 </span>    }
 <span class="lineno">   74 </span>
 <span class="lineno">   75 </span>-- | Entry in the supplier index
@@ -97,7 +97,7 @@ span.spaces    { background: white }
 <span class="lineno">   78 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">seActivityUUID</span></span></span> :: !UUID
 <span class="lineno">   79 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">seProductUUID</span></span></span>  :: !UUID
 <span class="lineno">   80 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">seLocation</span></span></span>     :: !Text
-<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">seUnit</span></span></span>         :: !Text
+<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">seUnit</span></span></span>         :: !Text
 <span class="lineno">   82 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">seProductName</span></span></span>  :: !Text        -- Product name for display/debugging
 <span class="lineno">   83 </span>    }
 <span class="lineno">   84 </span>
@@ -112,12 +112,12 @@ span.spaces    { background: white }
 <span class="lineno">   93 </span>
 <span class="lineno">   94 </span>-- | A candidate supplier from another database
 <span class="lineno">   95 </span>data CrossDBCandidate = CrossDBCandidate
-<span class="lineno">   96 </span>    { <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">cdbActivityUUID</span></span></span>  :: !UUID        -- ^ Activity UUID in the other database
-<span class="lineno">   97 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">cdbProductUUID</span></span></span>   :: !UUID        -- ^ Reference product UUID
-<span class="lineno">   98 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">cdbDatabaseName</span></span></span>  :: !Text        -- ^ Name of the source database
-<span class="lineno">   99 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">cdbScore</span></span></span>         :: !Int         -- ^ Match score (higher = better)
-<span class="lineno">  100 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">cdbLocation</span></span></span>      :: !Text        -- ^ Location of the activity
-<span class="lineno">  101 </span>    , <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">cdbProductName</span></span></span>   :: !Text        -- ^ Product name for display/debugging
+<span class="lineno">   96 </span>    { <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">cdbActivityUUID</span></span></span>  :: !UUID        -- ^ Activity UUID in the other database
+<span class="lineno">   97 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">cdbProductUUID</span></span></span>   :: !UUID        -- ^ Reference product UUID
+<span class="lineno">   98 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">cdbDatabaseName</span></span></span>  :: !Text        -- ^ Name of the source database
+<span class="lineno">   99 </span>    , <span class="istickedoff"><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">cdbScore</span></span></span>         :: !Int         -- ^ Match score (higher = better)
+<span class="lineno">  100 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">cdbLocation</span></span></span>      :: !Text        -- ^ Location of the activity
+<span class="lineno">  101 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">cdbProductName</span></span></span>   :: !Text        -- ^ Product name for display/debugging
 <span class="lineno">  102 </span>    }
 <span class="lineno">  103 </span>
 <span class="lineno">  104 </span>-- | Result of cross-database linking attempt
@@ -146,13 +146,13 @@ span.spaces    { background: white }
 <span class="lineno">  127 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">normalizeUnicode = T.map replaceChar</span>
 <span class="lineno">  128 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">  129 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x00AD' = '-'   -- Soft hyphen → ASCII hyphen</span>
-<span class="lineno">  130 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x2010' = <span class="nottickedoff">'-'</span>   -- Hyphen → ASCII hyphen</span>
-<span class="lineno">  131 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x2011' = <span class="nottickedoff">'-'</span>   -- Non-breaking hyphen → ASCII hyphen</span>
-<span class="lineno">  132 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x2012' = <span class="nottickedoff">'-'</span>   -- Figure dash → ASCII hyphen</span>
+<span class="lineno">  130 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x2010' = '-'   -- Hyphen → ASCII hyphen</span>
+<span class="lineno">  131 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x2011' = '-'   -- Non-breaking hyphen → ASCII hyphen</span>
+<span class="lineno">  132 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x2012' = '-'   -- Figure dash → ASCII hyphen</span>
 <span class="lineno">  133 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x2013' = '-'   -- En dash → ASCII hyphen</span>
-<span class="lineno">  134 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x2014' = <span class="nottickedoff">'-'</span>   -- Em dash → ASCII hyphen</span>
-<span class="lineno">  135 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x00A0' = <span class="nottickedoff">' '</span>   -- Non-breaking space → space</span>
-<span class="lineno">  136 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x202F' = <span class="nottickedoff">' '</span>   -- Narrow no-break space → space</span>
+<span class="lineno">  134 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x2014' = '-'   -- Em dash → ASCII hyphen</span>
+<span class="lineno">  135 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x00A0' = ' '   -- Non-breaking space → space</span>
+<span class="lineno">  136 </span><span class="spaces">    </span><span class="istickedoff">replaceChar '\x202F' = ' '   -- Narrow no-break space → space</span>
 <span class="lineno">  137 </span><span class="spaces">    </span><span class="istickedoff">replaceChar c = c</span></span>
 <span class="lineno">  138 </span>
 <span class="lineno">  139 </span>-- | Normalize text for matching: lowercase, strip whitespace, normalize Unicode
@@ -170,7 +170,7 @@ span.spaces    { background: white }
 <span class="lineno">  151 </span>-- suffix where the content is all uppercase letters.
 <span class="lineno">  152 </span>-- Returns Just strippedName if a tag was found, Nothing otherwise.
 <span class="lineno">  153 </span>stripTrailingDBTag :: Text -&gt; Maybe Text
-<span class="lineno">  154 </span><span class="funcount">-- entered 19 times</span><span class="decl"><span class="istickedoff">stripTrailingDBTag name</span>
+<span class="lineno">  154 </span><span class="funcount">-- entered 29 times</span><span class="decl"><span class="istickedoff">stripTrailingDBTag name</span>
 <span class="lineno">  155 </span><span class="spaces">    </span><span class="istickedoff">| T.null name = Nothing</span>
 <span class="lineno">  156 </span><span class="spaces">    </span><span class="istickedoff">| T.last name /= ')' = Nothing</span>
 <span class="lineno">  157 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
@@ -191,7 +191,7 @@ span.spaces    { background: white }
 <span class="lineno">  172 </span>-- WFLDB names use the pattern @ProductName (WFLDB)\/CA U@ where the suffix
 <span class="lineno">  173 </span>-- encodes location (2-3 uppercase letters) and unit type (1 uppercase letter).
 <span class="lineno">  174 </span>stripTrailingLocationSuffix :: Text -&gt; Maybe Text
-<span class="lineno">  175 </span><span class="funcount">-- entered 16 times</span><span class="decl"><span class="istickedoff">stripTrailingLocationSuffix name =</span>
+<span class="lineno">  175 </span><span class="funcount">-- entered 26 times</span><span class="decl"><span class="istickedoff">stripTrailingLocationSuffix name =</span>
 <span class="lineno">  176 </span><span class="spaces">    </span><span class="istickedoff">case T.breakOnEnd &quot;/&quot; name of</span>
 <span class="lineno">  177 </span><span class="spaces">        </span><span class="istickedoff">(&quot;&quot;, _) -&gt; Nothing</span>
 <span class="lineno">  178 </span><span class="spaces">        </span><span class="istickedoff">(beforeSlash, afterSlash) -&gt;</span>
@@ -210,7 +210,7 @@ span.spaces    { background: white }
 <span class="lineno">  191 </span>-- location suffix like &quot;/CA U&quot; (WFLDB convention).
 <span class="lineno">  192 </span>-- Returns empty list if no separator is found and no tag detected.
 <span class="lineno">  193 </span>extractProductPrefixes :: Text -&gt; [Text]
-<span class="lineno">  194 </span><span class="funcount">-- entered 16 times</span><span class="decl"><span class="istickedoff">extractProductPrefixes name =</span>
+<span class="lineno">  194 </span><span class="funcount">-- entered 27 times</span><span class="decl"><span class="istickedoff">extractProductPrefixes name =</span>
 <span class="lineno">  195 </span><span class="spaces">    </span><span class="istickedoff">let separatorPrefixes =</span>
 <span class="lineno">  196 </span><span class="spaces">            </span><span class="istickedoff">[ T.strip prefix</span>
 <span class="lineno">  197 </span><span class="spaces">            </span><span class="istickedoff">| sep &lt;- compoundSeparators</span>
@@ -232,7 +232,7 @@ span.spaces    { background: white }
 <span class="lineno">  213 </span>-- Tries {XX} first (standard LCA geography notation), then [XX] with
 <span class="lineno">  214 </span>-- validation to avoid chemical notation like [thio] or metadata like [Dummy].
 <span class="lineno">  215 </span>extractBracketedLocation :: Text -&gt; Text
-<span class="lineno">  216 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">extractBracketedLocation name =</span>
+<span class="lineno">  216 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">extractBracketedLocation name =</span>
 <span class="lineno">  217 </span><span class="spaces">    </span><span class="istickedoff">case extractFromBrackets '{' '}' name of</span>
 <span class="lineno">  218 </span><span class="spaces">        </span><span class="istickedoff">Just loc | <span class="tickonlytrue">not (T.null loc)</span> -&gt; loc</span>
 <span class="lineno">  219 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; case extractFromBrackets '[' ']' name of</span>
@@ -257,7 +257,7 @@ span.spaces    { background: white }
 <span class="lineno">  238 </span>-- | Build an indexed database for fast cross-DB lookups
 <span class="lineno">  239 </span>-- This should be called once when a database is loaded
 <span class="lineno">  240 </span>buildIndexedDatabase :: Text -&gt; SynonymDB -&gt; SimpleDatabase -&gt; IndexedDatabase
-<span class="lineno">  241 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">buildIndexedDatabase dbName synDB db =</span>
+<span class="lineno">  241 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">buildIndexedDatabase dbName synDB db =</span>
 <span class="lineno">  242 </span><span class="spaces">    </span><span class="istickedoff">let entries = buildSupplierEntries db</span>
 <span class="lineno">  243 </span><span class="spaces">        </span><span class="istickedoff">-- Index by normalized product name + extracted prefixes</span>
 <span class="lineno">  244 </span><span class="spaces">        </span><span class="istickedoff">byName = M.fromListWith <span class="nottickedoff">(++)</span></span>
@@ -280,7 +280,7 @@ span.spaces    { background: white }
 <span class="lineno">  261 </span>
 <span class="lineno">  262 </span>-- | Build supplier entries from a SimpleDatabase
 <span class="lineno">  263 </span>buildSupplierEntries :: SimpleDatabase -&gt; [(Text, SupplierEntry)]
-<span class="lineno">  264 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">buildSupplierEntries db =</span>
+<span class="lineno">  264 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">buildSupplierEntries db =</span>
 <span class="lineno">  265 </span><span class="spaces">    </span><span class="istickedoff">[ (flowName flow, SupplierEntry actUUID prodUUID (activityLocation act) (activityUnit act) (flowName flow))</span>
 <span class="lineno">  266 </span><span class="spaces">    </span><span class="istickedoff">| ((actUUID, prodUUID), act) &lt;- M.toList (sdbActivities db)</span>
 <span class="lineno">  267 </span><span class="spaces">    </span><span class="istickedoff">, ex &lt;- exchanges act</span>
@@ -347,14 +347,14 @@ span.spaces    { background: white }
 <span class="lineno">  328 </span>    -&gt; Text           -- ^ Location of the consumer
 <span class="lineno">  329 </span>    -&gt; Text           -- ^ Unit of the exchange
 <span class="lineno">  330 </span>    -&gt; CrossDBLinkResult
-<span class="lineno">  331 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">findSupplierInIndexedDBs LinkingContext{..} productName location unit =</span>
+<span class="lineno">  331 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">findSupplierInIndexedDBs LinkingContext{..} productName location unit =</span>
 <span class="lineno">  332 </span><span class="spaces">    </span><span class="istickedoff">let normalizedName = normalizeText productName</span>
 <span class="lineno">  333 </span><span class="spaces">        </span><span class="istickedoff">-- Try exact match first (O(1) lookup)</span>
 <span class="lineno">  334 </span><span class="spaces">        </span><span class="istickedoff">exactCandidates = concatMap (lookupExact normalizedName) lcIndexedDatabases</span>
 <span class="lineno">  335 </span><span class="spaces">        </span><span class="istickedoff">-- Try synonym match if no exact match</span>
 <span class="lineno">  336 </span><span class="spaces">        </span><span class="istickedoff">synonymCandidates = if null exactCandidates</span>
 <span class="lineno">  337 </span><span class="spaces">            </span><span class="istickedoff">then case lookupSynonymGroup lcSynonymDB (normalizeName productName) of</span>
-<span class="lineno">  338 </span><span class="spaces">                </span><span class="istickedoff">Just groupId -&gt; <span class="nottickedoff">concatMap (lookupBySynonym groupId) lcIndexedDatabases</span></span>
+<span class="lineno">  338 </span><span class="spaces">                </span><span class="istickedoff">Just groupId -&gt; concatMap (lookupBySynonym groupId) lcIndexedDatabases</span>
 <span class="lineno">  339 </span><span class="spaces">                </span><span class="istickedoff">Nothing -&gt; []</span>
 <span class="lineno">  340 </span><span class="spaces">            </span><span class="istickedoff">else []</span>
 <span class="lineno">  341 </span><span class="spaces">        </span><span class="istickedoff">-- Fallback: try prefix-based splitting for compound names (e.g. SimaPro)</span>
@@ -363,19 +363,19 @@ span.spaces    { background: white }
 <span class="lineno">  344 </span><span class="spaces">            </span><span class="istickedoff">else []</span>
 <span class="lineno">  345 </span><span class="spaces">        </span><span class="istickedoff">allCandidates = exactCandidates ++ synonymCandidates ++ prefixCandidates</span>
 <span class="lineno">  346 </span><span class="spaces">        </span><span class="istickedoff">-- Effective location: if raw location is empty, try extracting from compound name</span>
-<span class="lineno">  347 </span><span class="spaces">        </span><span class="istickedoff">effectiveLocation = if <span class="tickonlyfalse">T.null location</span></span>
-<span class="lineno">  348 </span><span class="spaces">            </span><span class="istickedoff">then <span class="nottickedoff">extractBracketedLocation productName</span></span>
+<span class="lineno">  347 </span><span class="spaces">        </span><span class="istickedoff">effectiveLocation = if T.null location</span>
+<span class="lineno">  348 </span><span class="spaces">            </span><span class="istickedoff">then extractBracketedLocation productName</span>
 <span class="lineno">  349 </span><span class="spaces">            </span><span class="istickedoff">else location</span>
 <span class="lineno">  350 </span><span class="spaces">    </span><span class="istickedoff">in if null allCandidates</span>
 <span class="lineno">  351 </span><span class="spaces">        </span><span class="istickedoff">then CrossDBNotLinked NoNameMatch</span>
 <span class="lineno">  352 </span><span class="spaces">        </span><span class="istickedoff">else</span>
 <span class="lineno">  353 </span><span class="spaces">            </span><span class="istickedoff">-- Check unit compatibility first</span>
-<span class="lineno">  354 </span><span class="spaces">            </span><span class="istickedoff">let unitCompatible = filter (\(_, se) -&gt; unitsAreCompatible <span class="nottickedoff">lcUnitConfig</span> unit (seUnit se)) allCandidates</span>
-<span class="lineno">  355 </span><span class="spaces">            </span><span class="istickedoff">in if <span class="tickonlyfalse">null unitCompatible</span></span>
+<span class="lineno">  354 </span><span class="spaces">            </span><span class="istickedoff">let unitCompatible = filter (\(_, se) -&gt; unitsAreCompatible lcUnitConfig unit (seUnit se)) allCandidates</span>
+<span class="lineno">  355 </span><span class="spaces">            </span><span class="istickedoff">in if null unitCompatible</span>
 <span class="lineno">  356 </span><span class="spaces">                </span><span class="istickedoff">then</span>
 <span class="lineno">  357 </span><span class="spaces">                    </span><span class="istickedoff">-- All candidates failed unit check — report the first supplier's unit</span>
-<span class="lineno">  358 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">let (_, firstSe) = head allCandidates</span></span>
-<span class="lineno">  359 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">in CrossDBNotLinked (UnitIncompatible unit (seUnit firstSe))</span></span>
+<span class="lineno">  358 </span><span class="spaces">                    </span><span class="istickedoff">let (_, firstSe) = head allCandidates</span>
+<span class="lineno">  359 </span><span class="spaces">                    </span><span class="istickedoff">in CrossDBNotLinked (UnitIncompatible unit (seUnit firstSe))</span>
 <span class="lineno">  360 </span><span class="spaces">                </span><span class="istickedoff">else</span>
 <span class="lineno">  361 </span><span class="spaces">                    </span><span class="istickedoff">-- Score by effective location</span>
 <span class="lineno">  362 </span><span class="spaces">                    </span><span class="istickedoff">let scoredCandidates = map (scoreEntry effectiveLocation) unitCompatible</span>
@@ -383,7 +383,7 @@ span.spaces    { background: white }
 <span class="lineno">  364 </span><span class="spaces">                    </span><span class="istickedoff">in if <span class="tickonlytrue">cdbScore best &gt;= lcThreshold</span></span>
 <span class="lineno">  365 </span><span class="spaces">                        </span><span class="istickedoff">then</span>
 <span class="lineno">  366 </span><span class="spaces">                            </span><span class="istickedoff">-- Build warnings (only when original location was explicit)</span>
-<span class="lineno">  367 </span><span class="spaces">                            </span><span class="istickedoff">let warnings = if <span class="tickonlyfalse">T.null location</span> then <span class="nottickedoff">[]</span> else buildWarnings effectiveLocation (cdbLocation best)</span>
+<span class="lineno">  367 </span><span class="spaces">                            </span><span class="istickedoff">let warnings = if T.null location then [] else buildWarnings effectiveLocation (cdbLocation best)</span>
 <span class="lineno">  368 </span><span class="spaces">                            </span><span class="istickedoff">in CrossDBLinked (cdbActivityUUID best) (cdbProductUUID best)</span>
 <span class="lineno">  369 </span><span class="spaces">                                            </span><span class="istickedoff">(cdbDatabaseName best) (cdbScore best)</span>
 <span class="lineno">  370 </span><span class="spaces">                                            </span><span class="istickedoff">(cdbProductName best) (cdbLocation best) warnings</span>
@@ -394,23 +394,23 @@ span.spaces    { background: white }
 <span class="lineno">  375 </span><span class="spaces">        </span><span class="istickedoff">[(idbName idb, entry) | entry &lt;- fromMaybe [] (M.lookup name (idbByProductName idb))]</span>
 <span class="lineno">  376 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  377 </span><span class="spaces">    </span><span class="istickedoff">lookupBySynonym :: Int -&gt; IndexedDatabase -&gt; [(Text, SupplierEntry)]</span>
-<span class="lineno">  378 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">lookupBySynonym groupId idb =</span></span>
-<span class="lineno">  379 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">[(idbName idb, entry) | entry &lt;- fromMaybe [] (M.lookup groupId (idbBySynonymGroup idb))]</span></span>
+<span class="lineno">  378 </span><span class="spaces">    </span><span class="istickedoff">lookupBySynonym groupId idb =</span>
+<span class="lineno">  379 </span><span class="spaces">        </span><span class="istickedoff">[<span class="nottickedoff">(idbName idb, entry)</span> | entry &lt;- fromMaybe [] (M.lookup groupId (idbBySynonymGroup idb))]</span>
 <span class="lineno">  380 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  381 </span><span class="spaces">    </span><span class="istickedoff">-- Try each prefix from compound name splitting, return first match</span>
 <span class="lineno">  382 </span><span class="spaces">    </span><span class="istickedoff">tryPrefixes :: [Text] -&gt; [(Text, SupplierEntry)]</span>
 <span class="lineno">  383 </span><span class="spaces">    </span><span class="istickedoff">tryPrefixes [] = []</span>
 <span class="lineno">  384 </span><span class="spaces">    </span><span class="istickedoff">tryPrefixes (p:ps) =</span>
-<span class="lineno">  385 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">let normalized = normalizeText p</span></span>
-<span class="lineno">  386 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">candidates = concatMap (lookupExact normalized) lcIndexedDatabases</span></span>
-<span class="lineno">  387 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">in if null candidates</span></span>
-<span class="lineno">  388 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">then -- Also try synonym match for this prefix</span></span>
+<span class="lineno">  385 </span><span class="spaces">        </span><span class="istickedoff">let normalized = normalizeText p</span>
+<span class="lineno">  386 </span><span class="spaces">            </span><span class="istickedoff">candidates = concatMap (lookupExact normalized) lcIndexedDatabases</span>
+<span class="lineno">  387 </span><span class="spaces">        </span><span class="istickedoff">in if <span class="tickonlyfalse">null candidates</span></span>
+<span class="lineno">  388 </span><span class="spaces">            </span><span class="istickedoff">then -- Also try synonym match for this prefix</span>
 <span class="lineno">  389 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">case lookupSynonymGroup lcSynonymDB (normalizeName p) of</span></span>
 <span class="lineno">  390 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Just groupId -&gt;</span></span>
 <span class="lineno">  391 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">let synCandidates = concatMap (lookupBySynonym groupId) lcIndexedDatabases</span></span>
 <span class="lineno">  392 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">in if null synCandidates then tryPrefixes ps else synCandidates</span></span>
 <span class="lineno">  393 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">Nothing -&gt; tryPrefixes ps</span></span>
-<span class="lineno">  394 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">else candidates</span></span>
+<span class="lineno">  394 </span><span class="spaces">            </span><span class="istickedoff">else candidates</span>
 <span class="lineno">  395 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  396 </span><span class="spaces">    </span><span class="istickedoff">scoreEntry :: Text -&gt; (Text, SupplierEntry) -&gt; CrossDBCandidate</span>
 <span class="lineno">  397 </span><span class="spaces">    </span><span class="istickedoff">scoreEntry queryLoc (dbName, SupplierEntry{..}) =</span>
@@ -466,7 +466,7 @@ span.spaces    { background: white }
 <span class="lineno">  447 </span>--   10 = Global fallback (GLO or RoW)
 <span class="lineno">  448 </span>--    5 = Different but not blocking
 <span class="lineno">  449 </span>matchLocation :: M.Map Text [Text] -&gt; Text -&gt; Text -&gt; Int
-<span class="lineno">  450 </span><span class="funcount">-- entered 8 times</span><span class="decl"><span class="istickedoff">matchLocation hier queryLoc candidateLoc</span>
+<span class="lineno">  450 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">matchLocation hier queryLoc candidateLoc</span>
 <span class="lineno">  451 </span><span class="spaces">    </span><span class="istickedoff">| queryLoc == candidateLoc                           = 30  -- Exact</span>
 <span class="lineno">  452 </span><span class="spaces">    </span><span class="istickedoff">| isSubregionOf hier queryLoc candidateLoc           = 20  -- Widening (FR→GLO, FR→RER)</span>
 <span class="lineno">  453 </span><span class="spaces">    </span><span class="istickedoff">| candidateLoc `elem` [&quot;GLO&quot;, &quot;RoW&quot;, &quot;Unspecified&quot;] = 10  -- Global fallback</span>
@@ -475,7 +475,7 @@ span.spaces    { background: white }
 <span class="lineno">  456 </span>
 <span class="lineno">  457 </span>-- | Check if one location is a subregion of another
 <span class="lineno">  458 </span>isSubregionOf :: M.Map Text [Text] -&gt; Text -&gt; Text -&gt; Bool
-<span class="lineno">  459 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">isSubregionOf hier child parent =</span>
+<span class="lineno">  459 </span><span class="funcount">-- entered 18 times</span><span class="decl"><span class="istickedoff">isSubregionOf hier child parent =</span>
 <span class="lineno">  460 </span><span class="spaces">    </span><span class="istickedoff">case M.lookup child hier of</span>
 <span class="lineno">  461 </span><span class="spaces">        </span><span class="istickedoff">Just parents -&gt; parent `elem` parents</span>
 <span class="lineno">  462 </span><span class="spaces">        </span><span class="istickedoff">Nothing      -&gt; False</span></span>
@@ -530,8 +530,8 @@ span.spaces    { background: white }
 <span class="lineno">  511 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;Europe&quot;, [<span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  512 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  513 </span><span class="spaces">    </span><span class="istickedoff">-- North American countries</span>
-<span class="lineno">  514 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;US&quot;, [<span class="nottickedoff">&quot;North America&quot;</span>, <span class="nottickedoff">&quot;NAFTA&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
-<span class="lineno">  515 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;CA&quot;, [<span class="nottickedoff">&quot;Canada without Quebec&quot;</span>, <span class="nottickedoff">&quot;North America&quot;</span>, <span class="nottickedoff">&quot;NAFTA&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
+<span class="lineno">  514 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;US&quot;, [&quot;North America&quot;, &quot;NAFTA&quot;, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
+<span class="lineno">  515 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;CA&quot;, [&quot;Canada without Quebec&quot;, &quot;North America&quot;, &quot;NAFTA&quot;, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  516 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;MX&quot;, [<span class="nottickedoff">&quot;North America&quot;</span>, <span class="nottickedoff">&quot;Latin America&quot;</span>, <span class="nottickedoff">&quot;NAFTA&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  517 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;NAFTA&quot;, [<span class="nottickedoff">&quot;North America&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  518 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;Canada without Quebec&quot;, [<span class="nottickedoff">&quot;North America&quot;</span>, <span class="nottickedoff">&quot;CA&quot;</span>, <span class="nottickedoff">&quot;NAFTA&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
@@ -540,7 +540,7 @@ span.spaces    { background: white }
 <span class="lineno">  521 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  522 </span><span class="spaces">    </span><span class="istickedoff">-- Asian countries</span>
 <span class="lineno">  523 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;CN&quot;, [&quot;Asia&quot;, &quot;GLO&quot;, &quot;RoW&quot;])</span>
-<span class="lineno">  524 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;JP&quot;, [<span class="nottickedoff">&quot;Asia&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
+<span class="lineno">  524 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;JP&quot;, [&quot;Asia&quot;, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  525 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;KR&quot;, [<span class="nottickedoff">&quot;Asia&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  526 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;IN&quot;, [<span class="nottickedoff">&quot;Asia&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  527 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;IN-Southern grid&quot;, [<span class="nottickedoff">&quot;IN&quot;</span>, <span class="nottickedoff">&quot;Asia&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
@@ -559,7 +559,7 @@ span.spaces    { background: white }
 <span class="lineno">  540 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;RAS&quot;, [<span class="nottickedoff">&quot;Asia&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  541 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  542 </span><span class="spaces">    </span><span class="istickedoff">-- Latin American countries</span>
-<span class="lineno">  543 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;BR&quot;, [<span class="nottickedoff">&quot;Latin America&quot;</span>, <span class="nottickedoff">&quot;South America&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
+<span class="lineno">  543 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;BR&quot;, [&quot;Latin America&quot;, <span class="nottickedoff">&quot;South America&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  544 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;AR&quot;, [<span class="nottickedoff">&quot;Latin America&quot;</span>, <span class="nottickedoff">&quot;South America&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  545 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;CL&quot;, [<span class="nottickedoff">&quot;Latin America&quot;</span>, <span class="nottickedoff">&quot;South America&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  546 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;CO&quot;, [<span class="nottickedoff">&quot;Latin America&quot;</span>, <span class="nottickedoff">&quot;South America&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
@@ -577,7 +577,7 @@ span.spaces    { background: white }
 <span class="lineno">  558 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;RAF&quot;, [<span class="nottickedoff">&quot;Africa&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  559 </span><span class="spaces"></span><span class="istickedoff"></span>
 <span class="lineno">  560 </span><span class="spaces">    </span><span class="istickedoff">-- Oceania</span>
-<span class="lineno">  561 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;AU&quot;, [<span class="nottickedoff">&quot;Oceania&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
+<span class="lineno">  561 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;AU&quot;, [&quot;Oceania&quot;, &quot;GLO&quot;, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  562 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;NZ&quot;, [<span class="nottickedoff">&quot;Oceania&quot;</span>, <span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  563 </span><span class="spaces">    </span><span class="istickedoff">, (&quot;Oceania&quot;, [<span class="nottickedoff">&quot;GLO&quot;</span>, <span class="nottickedoff">&quot;RoW&quot;</span>])</span>
 <span class="lineno">  564 </span><span class="spaces"></span><span class="istickedoff"></span>
@@ -596,9 +596,9 @@ span.spaces    { background: white }
 <span class="lineno">  577 </span>
 <span class="lineno">  578 </span>-- | Check if two units are compatible for linking
 <span class="lineno">  579 </span>unitsAreCompatible :: UC.UnitConfig -&gt; Text -&gt; Text -&gt; Bool
-<span class="lineno">  580 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">unitsAreCompatible cfg unit1 unit2</span>
-<span class="lineno">  581 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">normalizeText unit1 == normalizeText unit2</span> = True  -- Same unit (after normalization)</span>
-<span class="lineno">  582 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">UC.unitsCompatible cfg unit1 unit2</span></span></span>     -- Dimensionally compatible
+<span class="lineno">  580 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">unitsAreCompatible cfg unit1 unit2</span>
+<span class="lineno">  581 </span><span class="spaces">    </span><span class="istickedoff">| normalizeText unit1 == normalizeText unit2 = True  -- Same unit (after normalization)</span>
+<span class="lineno">  582 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = UC.unitsCompatible cfg unit1 <span class="nottickedoff">unit2</span></span></span>     -- Dimensionally compatible
 
 </pre>
 </body>

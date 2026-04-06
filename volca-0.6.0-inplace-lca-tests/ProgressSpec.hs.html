@@ -22,48 +22,107 @@ span.spaces    { background: white }
 <span class="lineno">    3 </span>module ProgressSpec (spec) where
 <span class="lineno">    4 </span>
 <span class="lineno">    5 </span>import Test.Hspec
-<span class="lineno">    6 </span>import Progress (formatDuration, formatBytes)
-<span class="lineno">    7 </span>
-<span class="lineno">    8 </span>spec :: Spec
-<span class="lineno">    9 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">spec = do</span>
-<span class="lineno">   10 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   11 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;formatDuration&quot; $ do</span>
-<span class="lineno">   12 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats sub-millisecond durations with 2 decimal places&quot; $</span>
-<span class="lineno">   13 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 0.0005 `shouldBe` &quot;0.50ms&quot;</span>
-<span class="lineno">   14 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   15 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats millisecond durations as integer ms&quot; $</span>
-<span class="lineno">   16 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 0.5 `shouldBe` &quot;500ms&quot;</span>
-<span class="lineno">   17 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   18 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats second durations with 2 decimal places&quot; $</span>
-<span class="lineno">   19 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 1.5 `shouldBe` &quot;1.50s&quot;</span>
-<span class="lineno">   20 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   21 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats exact 1.0s boundary as seconds&quot; $</span>
-<span class="lineno">   22 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 1.0 `shouldBe` &quot;1.00s&quot;</span>
-<span class="lineno">   23 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   24 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats durations &gt;= 60s as minutes&quot; $</span>
-<span class="lineno">   25 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 90.0 `shouldBe` &quot;1.5min&quot;</span>
-<span class="lineno">   26 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   27 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats exactly 60s as 1.0min&quot; $</span>
-<span class="lineno">   28 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 60.0 `shouldBe` &quot;1.0min&quot;</span>
-<span class="lineno">   29 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   30 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;formatBytes&quot; $ do</span>
-<span class="lineno">   31 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats bytes below 1024 as B&quot; $</span>
-<span class="lineno">   32 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 512.0 `shouldBe` &quot;512 B&quot;</span>
-<span class="lineno">   33 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   34 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats exactly 1024 bytes as KB&quot; $</span>
-<span class="lineno">   35 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 1024.0 `shouldBe` &quot;1.0 KB&quot;</span>
-<span class="lineno">   36 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   37 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats KB with one decimal place&quot; $</span>
-<span class="lineno">   38 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 1536.0 `shouldBe` &quot;1.5 KB&quot;</span>
-<span class="lineno">   39 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   40 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats MB with one decimal place&quot; $</span>
-<span class="lineno">   41 </span><span class="spaces">            </span><span class="istickedoff">formatBytes (1.5 * 1024 * 1024) `shouldBe` &quot;1.5 MB&quot;</span>
-<span class="lineno">   42 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   43 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats GB with two decimal places&quot; $</span>
-<span class="lineno">   44 </span><span class="spaces">            </span><span class="istickedoff">formatBytes (1.5 * 1024 * 1024 * 1024) `shouldBe` &quot;1.50 GB&quot;</span>
-<span class="lineno">   45 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   46 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats zero bytes&quot; $</span>
-<span class="lineno">   47 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 0.0 `shouldBe` &quot;0 B&quot;</span></span>
+<span class="lineno">    6 </span>import Progress (formatDuration, formatBytes, getLogLines, reportProgress, reportError,
+<span class="lineno">    7 </span>                 reportCacheOperation, reportMatrixOperation, reportSolverOperation,
+<span class="lineno">    8 </span>                 ProgressLevel(..))
+<span class="lineno">    9 </span>
+<span class="lineno">   10 </span>spec :: Spec
+<span class="lineno">   11 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">spec = do</span>
+<span class="lineno">   12 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   13 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;formatDuration&quot; $ do</span>
+<span class="lineno">   14 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats sub-millisecond durations with 2 decimal places&quot; $</span>
+<span class="lineno">   15 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 0.0005 `shouldBe` &quot;0.50ms&quot;</span>
+<span class="lineno">   16 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   17 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats millisecond durations as integer ms&quot; $</span>
+<span class="lineno">   18 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 0.5 `shouldBe` &quot;500ms&quot;</span>
+<span class="lineno">   19 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   20 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats second durations with 2 decimal places&quot; $</span>
+<span class="lineno">   21 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 1.5 `shouldBe` &quot;1.50s&quot;</span>
+<span class="lineno">   22 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   23 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats exact 1.0s boundary as seconds&quot; $</span>
+<span class="lineno">   24 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 1.0 `shouldBe` &quot;1.00s&quot;</span>
+<span class="lineno">   25 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   26 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats durations &gt;= 60s as minutes&quot; $</span>
+<span class="lineno">   27 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 90.0 `shouldBe` &quot;1.5min&quot;</span>
+<span class="lineno">   28 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   29 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats exactly 60s as 1.0min&quot; $</span>
+<span class="lineno">   30 </span><span class="spaces">            </span><span class="istickedoff">formatDuration 60.0 `shouldBe` &quot;1.0min&quot;</span>
+<span class="lineno">   31 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   32 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;formatBytes&quot; $ do</span>
+<span class="lineno">   33 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats bytes below 1024 as B&quot; $</span>
+<span class="lineno">   34 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 512.0 `shouldBe` &quot;512 B&quot;</span>
+<span class="lineno">   35 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   36 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats exactly 1024 bytes as KB&quot; $</span>
+<span class="lineno">   37 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 1024.0 `shouldBe` &quot;1.0 KB&quot;</span>
+<span class="lineno">   38 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   39 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats KB with one decimal place&quot; $</span>
+<span class="lineno">   40 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 1536.0 `shouldBe` &quot;1.5 KB&quot;</span>
+<span class="lineno">   41 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   42 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats MB with one decimal place&quot; $</span>
+<span class="lineno">   43 </span><span class="spaces">            </span><span class="istickedoff">formatBytes (1.5 * 1024 * 1024) `shouldBe` &quot;1.5 MB&quot;</span>
+<span class="lineno">   44 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   45 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats GB with two decimal places&quot; $</span>
+<span class="lineno">   46 </span><span class="spaces">            </span><span class="istickedoff">formatBytes (1.5 * 1024 * 1024 * 1024) `shouldBe` &quot;1.50 GB&quot;</span>
+<span class="lineno">   47 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   48 </span><span class="spaces">        </span><span class="istickedoff">it &quot;formats zero bytes&quot; $</span>
+<span class="lineno">   49 </span><span class="spaces">            </span><span class="istickedoff">formatBytes 0.0 `shouldBe` &quot;0 B&quot;</span>
+<span class="lineno">   50 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   52 </span><span class="spaces">    </span><span class="istickedoff">-- Log buffer IO functions (read-only; global state is append-only)</span>
+<span class="lineno">   53 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">   54 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;getLogLines&quot; $ do</span>
+<span class="lineno">   55 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns a non-negative next index&quot; $ do</span>
+<span class="lineno">   56 </span><span class="spaces">            </span><span class="istickedoff">(idx, _) &lt;- getLogLines <span class="nottickedoff">0</span></span>
+<span class="lineno">   57 </span><span class="spaces">            </span><span class="istickedoff">idx `shouldSatisfy` (&gt;= 0)</span>
+<span class="lineno">   58 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   59 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns empty list when since &gt;= nextIndex&quot; $ do</span>
+<span class="lineno">   60 </span><span class="spaces">            </span><span class="istickedoff">(idx, _) &lt;- getLogLines <span class="nottickedoff">0</span></span>
+<span class="lineno">   61 </span><span class="spaces">            </span><span class="istickedoff">(_, lines2) &lt;- getLogLines idx</span>
+<span class="lineno">   62 </span><span class="spaces">            </span><span class="istickedoff">lines2 `shouldBe` []</span>
+<span class="lineno">   63 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   64 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;reportProgress&quot; $ do</span>
+<span class="lineno">   65 </span><span class="spaces">        </span><span class="istickedoff">it &quot;appends a line to the log buffer (Info level)&quot; $ do</span>
+<span class="lineno">   66 </span><span class="spaces">            </span><span class="istickedoff">(before, _) &lt;- getLogLines <span class="nottickedoff">0</span></span>
+<span class="lineno">   67 </span><span class="spaces">            </span><span class="istickedoff">reportProgress Info &quot;test-info-message&quot;</span>
+<span class="lineno">   68 </span><span class="spaces">            </span><span class="istickedoff">(after, newLines) &lt;- getLogLines before</span>
+<span class="lineno">   69 </span><span class="spaces">            </span><span class="istickedoff">after `shouldSatisfy` (&gt; before)</span>
+<span class="lineno">   70 </span><span class="spaces">            </span><span class="istickedoff">concatLines newLines `shouldSatisfy` (&quot;test-info-message&quot; `isInfixOf`)</span>
+<span class="lineno">   71 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   72 </span><span class="spaces">        </span><span class="istickedoff">it &quot;prefixes Error level with [ERROR]&quot; $ do</span>
+<span class="lineno">   73 </span><span class="spaces">            </span><span class="istickedoff">(before, _) &lt;- getLogLines <span class="nottickedoff">0</span></span>
+<span class="lineno">   74 </span><span class="spaces">            </span><span class="istickedoff">reportError &quot;something failed&quot;</span>
+<span class="lineno">   75 </span><span class="spaces">            </span><span class="istickedoff">(_, newLines) &lt;- getLogLines before</span>
+<span class="lineno">   76 </span><span class="spaces">            </span><span class="istickedoff">concatLines newLines `shouldSatisfy` (&quot;[ERROR]&quot; `isInfixOf`)</span>
+<span class="lineno">   77 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   78 </span><span class="spaces">        </span><span class="istickedoff">it &quot;prefixes Cache level with [CACHE]&quot; $ do</span>
+<span class="lineno">   79 </span><span class="spaces">            </span><span class="istickedoff">(before, _) &lt;- getLogLines <span class="nottickedoff">0</span></span>
+<span class="lineno">   80 </span><span class="spaces">            </span><span class="istickedoff">reportCacheOperation &quot;cache hit&quot;</span>
+<span class="lineno">   81 </span><span class="spaces">            </span><span class="istickedoff">(_, newLines) &lt;- getLogLines before</span>
+<span class="lineno">   82 </span><span class="spaces">            </span><span class="istickedoff">concatLines newLines `shouldSatisfy` (&quot;[CACHE]&quot; `isInfixOf`)</span>
+<span class="lineno">   83 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   84 </span><span class="spaces">        </span><span class="istickedoff">it &quot;prefixes Matrix level with [MATRIX]&quot; $ do</span>
+<span class="lineno">   85 </span><span class="spaces">            </span><span class="istickedoff">(before, _) &lt;- getLogLines <span class="nottickedoff">0</span></span>
+<span class="lineno">   86 </span><span class="spaces">            </span><span class="istickedoff">reportMatrixOperation &quot;building matrix&quot;</span>
+<span class="lineno">   87 </span><span class="spaces">            </span><span class="istickedoff">(_, newLines) &lt;- getLogLines before</span>
+<span class="lineno">   88 </span><span class="spaces">            </span><span class="istickedoff">concatLines newLines `shouldSatisfy` (&quot;[MATRIX]&quot; `isInfixOf`)</span>
+<span class="lineno">   89 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   90 </span><span class="spaces">        </span><span class="istickedoff">it &quot;prefixes Solver level with [SOLVER]&quot; $ do</span>
+<span class="lineno">   91 </span><span class="spaces">            </span><span class="istickedoff">(before, _) &lt;- getLogLines <span class="nottickedoff">0</span></span>
+<span class="lineno">   92 </span><span class="spaces">            </span><span class="istickedoff">reportSolverOperation &quot;solving&quot;</span>
+<span class="lineno">   93 </span><span class="spaces">            </span><span class="istickedoff">(_, newLines) &lt;- getLogLines before</span>
+<span class="lineno">   94 </span><span class="spaces">            </span><span class="istickedoff">concatLines newLines `shouldSatisfy` (&quot;[SOLVER]&quot; `isInfixOf`)</span></span>
+<span class="lineno">   95 </span>
+<span class="lineno">   96 </span>concatLines :: [String] -&gt; String
+<span class="lineno">   97 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">concatLines = concatMap (\l -&gt; l ++ <span class="nottickedoff">&quot;\n&quot;</span>)</span></span>
+<span class="lineno">   98 </span>
+<span class="lineno">   99 </span>isInfixOf :: String -&gt; String -&gt; Bool
+<span class="lineno">  100 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">isInfixOf needle haystack = any (needle `isPrefixOf'`) (tails' haystack)</span>
+<span class="lineno">  101 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  102 </span><span class="spaces">    </span><span class="istickedoff">isPrefixOf' [] _       = True</span>
+<span class="lineno">  103 </span><span class="spaces">    </span><span class="istickedoff">isPrefixOf' _ []       = <span class="nottickedoff">False</span></span>
+<span class="lineno">  104 </span><span class="spaces">    </span><span class="istickedoff">isPrefixOf' (x:xs) (y:ys) = x == y &amp;&amp; isPrefixOf' xs ys</span>
+<span class="lineno">  105 </span><span class="spaces">    </span><span class="istickedoff">tails' []     = <span class="nottickedoff">[[]]</span></span>
+<span class="lineno">  106 </span><span class="spaces">    </span><span class="istickedoff">tails' s@(_:rest) = s : <span class="nottickedoff">tails' rest</span></span></span>
 
 </pre>
 </body>

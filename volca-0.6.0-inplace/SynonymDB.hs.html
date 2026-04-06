@@ -63,9 +63,9 @@ span.spaces    { background: white }
 <span class="lineno">   44 </span>-- if A↔B and B↔C, looking up A returns {A,B} but NOT C.
 <span class="lineno">   45 </span>-- This prevents chain pollution (e.g., sulfate→gypsum→calcium→calcite→carbonate→lithium carbonate).
 <span class="lineno">   46 </span>buildFromCSV :: BL.ByteString -&gt; Either String SynonymDB
-<span class="lineno">   47 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">buildFromCSV csvData =</span>
+<span class="lineno">   47 </span><span class="funcount">-- entered 5 times</span><span class="decl"><span class="istickedoff">buildFromCSV csvData =</span>
 <span class="lineno">   48 </span><span class="spaces">    </span><span class="istickedoff">case decode HasHeader csvData of</span>
-<span class="lineno">   49 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">Left $ &quot;CSV parse error: &quot; &lt;&gt; err</span></span>
+<span class="lineno">   49 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; Left $ <span class="nottickedoff">&quot;CSV parse error: &quot; &lt;&gt; err</span></span>
 <span class="lineno">   50 </span><span class="spaces">        </span><span class="istickedoff">Right rows -&gt; Right $ buildFromPairs (V.toList (rows :: V.Vector (Text, Text)))</span></span>
 <span class="lineno">   51 </span>
 <span class="lineno">   52 </span>-- | Build SynonymDB from direct pairs (no transitive closure).
@@ -73,7 +73,7 @@ span.spaces    { background: white }
 <span class="lineno">   54 </span>-- If A appears in multiple pairs, all its direct partners are in one group.
 <span class="lineno">   55 </span>-- But partners' partners are NOT included (no transitivity).
 <span class="lineno">   56 </span>buildFromPairs :: [(Text, Text)] -&gt; SynonymDB
-<span class="lineno">   57 </span><span class="funcount">-- entered 20 times</span><span class="decl"><span class="istickedoff">buildFromPairs pairs =</span>
+<span class="lineno">   57 </span><span class="funcount">-- entered 22 times</span><span class="decl"><span class="istickedoff">buildFromPairs pairs =</span>
 <span class="lineno">   58 </span><span class="spaces">    </span><span class="istickedoff">let -- Collect direct neighbors for each name (star topology, not transitive)</span>
 <span class="lineno">   59 </span><span class="spaces">        </span><span class="istickedoff">directNeighbors = foldl addPair M.empty pairs</span>
 <span class="lineno">   60 </span><span class="spaces">        </span><span class="istickedoff">-- Filter: reject names with too many direct synonyms (overly generic terms)</span>
@@ -158,7 +158,7 @@ span.spaces    { background: white }
 <span class="lineno">  139 </span>-- - Strip &quot;/kg&quot; suffix (SimaPro unit convention)
 <span class="lineno">  140 </span>-- - Remove punctuation: commas, parentheses, quotes
 <span class="lineno">  141 </span>normalizeName :: Text -&gt; Text
-<span class="lineno">  142 </span><span class="funcount">-- entered 222 times</span><span class="decl"><span class="istickedoff">normalizeName name =</span>
+<span class="lineno">  142 </span><span class="funcount">-- entered 259 times</span><span class="decl"><span class="istickedoff">normalizeName name =</span>
 <span class="lineno">  143 </span><span class="spaces">    </span><span class="istickedoff">let -- Lowercase and strip</span>
 <span class="lineno">  144 </span><span class="spaces">        </span><span class="istickedoff">t1 = T.strip $ T.toLower name</span>
 <span class="lineno">  145 </span><span class="spaces">        </span><span class="istickedoff">-- Collapse whitespace</span>
@@ -181,12 +181,12 @@ span.spaces    { background: white }
 <span class="lineno">  162 </span>
 <span class="lineno">  163 </span>-- | Look up the synonym group ID for a flow name
 <span class="lineno">  164 </span>lookupSynonymGroup :: SynonymDB -&gt; Text -&gt; Maybe Int
-<span class="lineno">  165 </span><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">lookupSynonymGroup db name =</span>
+<span class="lineno">  165 </span><span class="funcount">-- entered 42 times</span><span class="decl"><span class="istickedoff">lookupSynonymGroup db name =</span>
 <span class="lineno">  166 </span><span class="spaces">    </span><span class="istickedoff">M.lookup (normalizeName name) (synNameToId db)</span></span>
 <span class="lineno">  167 </span>
 <span class="lineno">  168 </span>-- | Get all synonyms for a group ID
 <span class="lineno">  169 </span>getSynonyms :: SynonymDB -&gt; Int -&gt; Maybe [Text]
-<span class="lineno">  170 </span><span class="funcount">-- entered 3 times</span><span class="decl"><span class="istickedoff">getSynonyms db gid = M.lookup gid (synIdToNames db)</span></span>
+<span class="lineno">  170 </span><span class="funcount">-- entered 4 times</span><span class="decl"><span class="istickedoff">getSynonyms db gid = M.lookup gid (synIdToNames db)</span></span>
 
 </pre>
 </body>

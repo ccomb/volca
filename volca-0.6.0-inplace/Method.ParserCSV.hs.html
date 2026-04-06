@@ -60,12 +60,12 @@ span.spaces    { background: white }
 <span class="lineno">   41 </span>
 <span class="lineno">   42 </span>-- | Pure parser, exported for testing.
 <span class="lineno">   43 </span>parseMethodCSVBytes :: BS.ByteString -&gt; Either String [Method]
-<span class="lineno">   44 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">parseMethodCSVBytes bytes =</span>
+<span class="lineno">   44 </span><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">parseMethodCSVBytes bytes =</span>
 <span class="lineno">   45 </span><span class="spaces">    </span><span class="istickedoff">let allLines  = map stripCR $ BC.lines (stripBOM bytes)</span>
 <span class="lineno">   46 </span><span class="spaces">        </span><span class="istickedoff">(comments, dataLines) = span (\l -&gt; BC.isPrefixOf &quot;#&quot; l || BS.null l) allLines</span>
 <span class="lineno">   47 </span><span class="spaces">        </span><span class="istickedoff">methodology = extractMethodology comments</span>
 <span class="lineno">   48 </span><span class="spaces">    </span><span class="istickedoff">in case splitHeaderFromData dataLines of</span>
-<span class="lineno">   49 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Left &quot;CSV method file needs at least 3 header rows (names, units, column labels)&quot;</span></span>
+<span class="lineno">   49 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; Left <span class="nottickedoff">&quot;CSV method file needs at least 3 header rows (names, units, column labels)&quot;</span></span>
 <span class="lineno">   50 </span><span class="spaces">        </span><span class="istickedoff">Just (cats, names, units, rows, delim) -&gt;</span>
 <span class="lineno">   51 </span><span class="spaces">            </span><span class="istickedoff">Right [ mkMethod methodology catName impactName unit colIdx rows delim</span>
 <span class="lineno">   52 </span><span class="spaces">                  </span><span class="istickedoff">| (colIdx, catName, impactName, unit) &lt;- zip4 [0..] cats names units</span>
@@ -76,7 +76,7 @@ span.spaces    { background: white }
 <span class="lineno">   57 </span>-- rows from data rows.  Returns (categories, names, units, dataRows, delimiter).
 <span class="lineno">   58 </span>-- 2-row layout → categories = names.  3-row layout → distinct.
 <span class="lineno">   59 </span>splitHeaderFromData :: [BS.ByteString] -&gt; Maybe ([Text], [Text], [Text], [BS.ByteString], Word8)
-<span class="lineno">   60 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">splitHeaderFromData dataLines =</span>
+<span class="lineno">   60 </span><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">splitHeaderFromData dataLines =</span>
 <span class="lineno">   61 </span><span class="spaces">    </span><span class="istickedoff">case break isLabelRow dataLines of</span>
 <span class="lineno">   62 </span><span class="spaces">        </span><span class="istickedoff">(headerRows, _labelRow : rows) -&gt;</span>
 <span class="lineno">   63 </span><span class="spaces">            </span><span class="istickedoff">let nonBlank = filter (not . BS.null) headerRows</span>
@@ -92,12 +92,12 @@ span.spaces    { background: white }
 <span class="lineno">   73 </span><span class="spaces">                        </span><span class="istickedoff">names = drop 2 $ splitRow delim nameRow</span>
 <span class="lineno">   74 </span><span class="spaces">                        </span><span class="istickedoff">units = drop 2 $ splitRow delim unitRow</span>
 <span class="lineno">   75 </span><span class="spaces">                    </span><span class="istickedoff">in Just (cats, names, units, rows, delim)</span>
-<span class="lineno">   76 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">   76 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; Nothing</span>
 <span class="lineno">   77 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Nothing</span></span></span>
 <span class="lineno">   78 </span>
 <span class="lineno">   79 </span>-- | Detect the label row: first cell is a variation of &quot;substance&quot;.
 <span class="lineno">   80 </span>isLabelRow :: BS.ByteString -&gt; Bool
-<span class="lineno">   81 </span><span class="funcount">-- entered 25 times</span><span class="decl"><span class="istickedoff">isLabelRow line =</span>
+<span class="lineno">   81 </span><span class="funcount">-- entered 30 times</span><span class="decl"><span class="istickedoff">isLabelRow line =</span>
 <span class="lineno">   82 </span><span class="spaces">    </span><span class="istickedoff">let first = T.toCaseFold . T.strip . head' . splitRow (detectDelimiter line) $ line</span>
 <span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">in first == &quot;substance&quot;</span>
 <span class="lineno">   84 </span><span class="spaces">  </span><span class="istickedoff">where</span>
@@ -162,13 +162,13 @@ span.spaces    { background: white }
 <span class="lineno">  143 </span>
 <span class="lineno">  144 </span>-- | Auto-detect delimiter: semicolon if the line contains ';', else comma.
 <span class="lineno">  145 </span>detectDelimiter :: BS.ByteString -&gt; Word8
-<span class="lineno">  146 </span><span class="funcount">-- entered 32 times</span><span class="decl"><span class="istickedoff">detectDelimiter line</span>
+<span class="lineno">  146 </span><span class="funcount">-- entered 38 times</span><span class="decl"><span class="istickedoff">detectDelimiter line</span>
 <span class="lineno">  147 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">BC.elem ';' line</span> = 0x3B  -- ';'</span>
 <span class="lineno">  148 </span><span class="spaces">    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span>        = <span class="nottickedoff">0x2C</span></span></span>  -- ','
 <span class="lineno">  149 </span>
 <span class="lineno">  150 </span>-- | Split a row on the delimiter, decoding to Text.
 <span class="lineno">  151 </span>splitRow :: Word8 -&gt; BS.ByteString -&gt; [Text]
-<span class="lineno">  152 </span><span class="funcount">-- entered 48 times</span><span class="decl"><span class="istickedoff">splitRow delim = map (TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span>) . BS.split delim</span></span>
+<span class="lineno">  152 </span><span class="funcount">-- entered 55 times</span><span class="decl"><span class="istickedoff">splitRow delim = map (TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span>) . BS.split delim</span></span>
 <span class="lineno">  153 </span>
 <span class="lineno">  154 </span>-- | Extract methodology from &quot;# methodology: ...&quot; comment.
 <span class="lineno">  155 </span>extractMethodology :: [BS.ByteString] -&gt; Maybe Text
@@ -188,13 +188,13 @@ span.spaces    { background: white }
 <span class="lineno">  169 </span>
 <span class="lineno">  170 </span>-- | Strip trailing carriage return (Windows CRLF line endings).
 <span class="lineno">  171 </span>stripCR :: BS.ByteString -&gt; BS.ByteString
-<span class="lineno">  172 </span><span class="funcount">-- entered 37 times</span><span class="decl"><span class="istickedoff">stripCR bs</span>
+<span class="lineno">  172 </span><span class="funcount">-- entered 42 times</span><span class="decl"><span class="istickedoff">stripCR bs</span>
 <span class="lineno">  173 </span><span class="spaces">    </span><span class="istickedoff">| not (BS.null bs) &amp;&amp; BS.last bs == 0x0D = BS.init bs</span>
 <span class="lineno">  174 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = bs</span></span>
 <span class="lineno">  175 </span>
 <span class="lineno">  176 </span>-- | Strip UTF-8 BOM if present (common in Windows-created CSV files).
 <span class="lineno">  177 </span>stripBOM :: BS.ByteString -&gt; BS.ByteString
-<span class="lineno">  178 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">stripBOM bs</span>
+<span class="lineno">  178 </span><span class="funcount">-- entered 9 times</span><span class="decl"><span class="istickedoff">stripBOM bs</span>
 <span class="lineno">  179 </span><span class="spaces">    </span><span class="istickedoff">| BS.isPrefixOf &quot;\xEF\xBB\xBF&quot; bs = BS.drop 3 bs</span>
 <span class="lineno">  180 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = bs</span></span>
 <span class="lineno">  181 </span>

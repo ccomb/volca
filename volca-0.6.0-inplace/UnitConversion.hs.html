@@ -85,7 +85,7 @@ span.spaces    { background: white }
 <span class="lineno">   66 </span>-- | Unit configuration loaded from CSV.
 <span class="lineno">   67 </span>data UnitConfig = UnitConfig
 <span class="lineno">   68 </span>    { <span class="istickedoff"><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">ucDimensionOrder</span></span></span> :: ![Text]              -- [&quot;mass&quot;, &quot;length&quot;, &quot;time&quot;, ...]
-<span class="lineno">   69 </span>    , <span class="istickedoff"><span class="funcount">-- entered 379 times</span><span class="decl"><span class="istickedoff">ucUnits</span></span></span>          :: !(M.Map Text UnitDef) -- normalized (lowercase, trimmed) keys
+<span class="lineno">   69 </span>    , <span class="istickedoff"><span class="funcount">-- entered 387 times</span><span class="decl"><span class="istickedoff">ucUnits</span></span></span>          :: !(M.Map Text UnitDef) -- normalized (lowercase, trimmed) keys
 <span class="lineno">   70 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">ucOriginalKeys</span></span></span>   :: !(M.Map Text Text)    -- normalized -&gt; original (for error messages)
 <span class="lineno">   71 </span>    } deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
 <span class="lineno">   72 </span>
@@ -105,11 +105,11 @@ span.spaces    { background: white }
 <span class="lineno">   86 </span>
 <span class="lineno">   87 </span>-- | Look up a unit definition.
 <span class="lineno">   88 </span>lookupUnitDef :: UnitConfig -&gt; Text -&gt; Maybe UnitDef
-<span class="lineno">   89 </span><span class="funcount">-- entered 368 times</span><span class="decl"><span class="istickedoff">lookupUnitDef cfg u = M.lookup (normalizeUnit u) (ucUnits cfg)</span></span>
+<span class="lineno">   89 </span><span class="funcount">-- entered 372 times</span><span class="decl"><span class="istickedoff">lookupUnitDef cfg u = M.lookup (normalizeUnit u) (ucUnits cfg)</span></span>
 <span class="lineno">   90 </span>
 <span class="lineno">   91 </span>-- | Check if two units are dimensionally compatible.
 <span class="lineno">   92 </span>unitsCompatible :: UnitConfig -&gt; Text -&gt; Text -&gt; Bool
-<span class="lineno">   93 </span><span class="funcount">-- entered 11 times</span><span class="decl"><span class="istickedoff">unitsCompatible cfg u1 u2 =</span>
+<span class="lineno">   93 </span><span class="funcount">-- entered 12 times</span><span class="decl"><span class="istickedoff">unitsCompatible cfg u1 u2 =</span>
 <span class="lineno">   94 </span><span class="spaces">    </span><span class="istickedoff">case (lookupUnitDef cfg u1, lookupUnitDef cfg u2) of</span>
 <span class="lineno">   95 </span><span class="spaces">        </span><span class="istickedoff">(Just d1, Just d2) -&gt; udDimension d1 == udDimension d2</span>
 <span class="lineno">   96 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; False</span></span>
@@ -117,7 +117,7 @@ span.spaces    { background: white }
 <span class="lineno">   98 </span>-- | Convert amount from one unit to another.
 <span class="lineno">   99 </span>-- Returns Nothing if units are incompatible or unknown.
 <span class="lineno">  100 </span>convertUnit :: UnitConfig -&gt; Text -&gt; Text -&gt; Double -&gt; Maybe Double
-<span class="lineno">  101 </span><span class="funcount">-- entered 175 times</span><span class="decl"><span class="istickedoff">convertUnit cfg fromUnit toUnit amount = do</span>
+<span class="lineno">  101 </span><span class="funcount">-- entered 178 times</span><span class="decl"><span class="istickedoff">convertUnit cfg fromUnit toUnit amount = do</span>
 <span class="lineno">  102 </span><span class="spaces">    </span><span class="istickedoff">UnitDef dimFrom factorFrom &lt;- lookupUnitDef cfg fromUnit</span>
 <span class="lineno">  103 </span><span class="spaces">    </span><span class="istickedoff">UnitDef dimTo factorTo     &lt;- lookupUnitDef cfg toUnit</span>
 <span class="lineno">  104 </span><span class="spaces">    </span><span class="istickedoff">if dimFrom == dimTo &amp;&amp; factorTo /= 0</span>
@@ -126,8 +126,8 @@ span.spaces    { background: white }
 <span class="lineno">  107 </span>
 <span class="lineno">  108 </span>-- | Parse a dimension expression like &quot;mass*length/time&quot; into an exponent vector.
 <span class="lineno">  109 </span>parseDimension :: [Text] -&gt; Text -&gt; Either Text Dimension
-<span class="lineno">  110 </span><span class="funcount">-- entered 4742 times</span><span class="decl"><span class="istickedoff">parseDimension dimOrder expr</span>
-<span class="lineno">  111 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlyfalse">T.null (T.strip expr)</span> = <span class="nottickedoff">Left &quot;Empty dimension expression&quot;</span></span>
+<span class="lineno">  110 </span><span class="funcount">-- entered 4745 times</span><span class="decl"><span class="istickedoff">parseDimension dimOrder expr</span>
+<span class="lineno">  111 </span><span class="spaces">    </span><span class="istickedoff">| T.null (T.strip expr) = Left <span class="nottickedoff">&quot;Empty dimension expression&quot;</span></span>
 <span class="lineno">  112 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = do</span>
 <span class="lineno">  113 </span><span class="spaces">        </span><span class="istickedoff">let baseVec = replicate (length dimOrder) 0</span>
 <span class="lineno">  114 </span><span class="spaces">            </span><span class="istickedoff">(numExpr, denExpr) = case T.breakOn &quot;/&quot; expr of</span>
@@ -159,9 +159,9 @@ span.spaces    { background: white }
 <span class="lineno">  140 </span>
 <span class="lineno">  141 </span>-- | Build a UnitConfig from CSV content (three columns: name, dimension, factor).
 <span class="lineno">  142 </span>buildFromCSV :: BL.ByteString -&gt; Either Text UnitConfig
-<span class="lineno">  143 </span><span class="funcount">-- entered 27 times</span><span class="decl"><span class="istickedoff">buildFromCSV csvData =</span>
+<span class="lineno">  143 </span><span class="funcount">-- entered 29 times</span><span class="decl"><span class="istickedoff">buildFromCSV csvData =</span>
 <span class="lineno">  144 </span><span class="spaces">    </span><span class="istickedoff">case decode HasHeader csvData of</span>
-<span class="lineno">  145 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">Left $ &quot;CSV parse error: &quot; &lt;&gt; T.pack err</span></span>
+<span class="lineno">  145 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; Left $ <span class="nottickedoff">&quot;CSV parse error: &quot; &lt;&gt; T.pack err</span></span>
 <span class="lineno">  146 </span><span class="spaces">        </span><span class="istickedoff">Right rows -&gt;</span>
 <span class="lineno">  147 </span><span class="spaces">            </span><span class="istickedoff">let dimOrder = defaultDimensionOrder</span>
 <span class="lineno">  148 </span><span class="spaces">            </span><span class="istickedoff">in buildFromRows dimOrder (V.toList (rows :: V.Vector (Text, Text, Double)))</span>
@@ -182,7 +182,7 @@ span.spaces    { background: white }
 <span class="lineno">  163 </span>-- | Merge multiple UnitConfigs (later entries override earlier ones).
 <span class="lineno">  164 </span>-- | Merge unit configs. Later entries override earlier ones.
 <span class="lineno">  165 </span>mergeUnitConfigs :: [UnitConfig] -&gt; UnitConfig
-<span class="lineno">  166 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">mergeUnitConfigs [] = <span class="nottickedoff">defaultUnitConfig</span></span>
+<span class="lineno">  166 </span><span class="funcount">-- entered 2 times</span><span class="decl"><span class="istickedoff">mergeUnitConfigs [] = defaultUnitConfig</span>
 <span class="lineno">  167 </span><span class="spaces"></span><span class="istickedoff">mergeUnitConfigs cfgs = UnitConfig</span>
 <span class="lineno">  168 </span><span class="spaces">    </span><span class="istickedoff">{ ucDimensionOrder = ucDimensionOrder (head cfgs)</span>
 <span class="lineno">  169 </span><span class="spaces">    </span><span class="istickedoff">, ucUnits = M.unions (reverse $ map ucUnits cfgs)</span>
@@ -191,7 +191,7 @@ span.spaces    { background: white }
 <span class="lineno">  172 </span>
 <span class="lineno">  173 </span>-- | Number of unit definitions.
 <span class="lineno">  174 </span>unitCount :: UnitConfig -&gt; Int
-<span class="lineno">  175 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">unitCount = M.size . ucUnits</span></span>
+<span class="lineno">  175 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">unitCount = M.size . ucUnits</span></span>
 <span class="lineno">  176 </span>
 <span class="lineno">  177 </span>-- | Minimal bootstrap unit config (kg, m, s, item) for when no CSV is loaded.
 <span class="lineno">  178 </span>defaultUnitConfig :: UnitConfig

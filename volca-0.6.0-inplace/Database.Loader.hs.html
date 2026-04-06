@@ -142,7 +142,7 @@ span.spaces    { background: white }
 <span class="lineno">  123 </span>-- When multiple .spold files reference the same biosphere flow, each may carry
 <span class="lineno">  124 </span>-- different synonyms. M.fromListWith mergeFlows ensures no synonym is lost.
 <span class="lineno">  125 </span>mergeFlows :: Flow -&gt; Flow -&gt; Flow
-<span class="lineno">  126 </span><span class="funcount">-- entered 176 times</span><span class="decl"><span class="istickedoff">mergeFlows a b = a { flowSynonyms = M.unionWith S.union (flowSynonyms a) (flowSynonyms b) }</span></span>
+<span class="lineno">  126 </span><span class="funcount">-- entered 182 times</span><span class="decl"><span class="istickedoff">mergeFlows a b = a { flowSynonyms = M.unionWith S.union (flowSynonyms a) (flowSynonyms b) }</span></span>
 <span class="lineno">  127 </span>
 <span class="lineno">  128 </span>{- |
 <span class="lineno">  129 </span>Schema signature automatically derived from the Database type structure.
@@ -168,7 +168,7 @@ span.spaces    { background: white }
 <span class="lineno">  149 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">testDataNamespace = UUID5.generateNamed UUID5.namespaceURL (BS.unpack $ T.encodeUtf8 &quot;acvengine.test&quot;)</span></span>
 <span class="lineno">  150 </span>
 <span class="lineno">  151 </span>parseUUID :: T.Text -&gt; UUID.UUID
-<span class="lineno">  152 </span><span class="funcount">-- entered 471 times</span><span class="decl"><span class="istickedoff">parseUUID txt = fromMaybe (UUID5.generateNamed testDataNamespace (BS.unpack $ T.encodeUtf8 txt)) (UUID.fromText txt)</span></span>
+<span class="lineno">  152 </span><span class="funcount">-- entered 482 times</span><span class="decl"><span class="istickedoff">parseUUID txt = fromMaybe (UUID5.generateNamed testDataNamespace (BS.unpack $ T.encodeUtf8 txt)) (UUID.fromText txt)</span></span>
 <span class="lineno">  153 </span>
 <span class="lineno">  154 </span>-- | Namespace for EcoSpold1 UUID generation
 <span class="lineno">  155 </span>ecospold1Namespace :: UUID.UUID
@@ -436,7 +436,7 @@ span.spaces    { background: white }
 <span class="lineno">  417 </span>Location aliases map wrongLocation → correctLocation (e.g., &quot;ENTSO&quot; → &quot;ENTSO-E&quot;)
 <span class="lineno">  418 </span>-}
 <span class="lineno">  419 </span>loadDatabaseWithLocationAliases :: M.Map T.Text T.Text -&gt; FilePath -&gt; IO (Either T.Text SimpleDatabase)
-<span class="lineno">  420 </span><span class="funcount">-- entered 77 times</span><span class="decl"><span class="istickedoff">loadDatabaseWithLocationAliases locationAliases path = do</span>
+<span class="lineno">  420 </span><span class="funcount">-- entered 80 times</span><span class="decl"><span class="istickedoff">loadDatabaseWithLocationAliases locationAliases path = do</span>
 <span class="lineno">  421 </span><span class="spaces">    </span><span class="istickedoff">-- Check if path is a file (SimaPro CSV) or directory (EcoSpold)</span>
 <span class="lineno">  422 </span><span class="spaces">    </span><span class="istickedoff">isFile &lt;- doesFileExist path</span>
 <span class="lineno">  423 </span><span class="spaces">    </span><span class="istickedoff">isDir &lt;- doesDirectoryExist path</span>
@@ -553,7 +553,7 @@ span.spaces    { background: white }
 <span class="lineno">  534 </span>
 <span class="lineno">  535 </span>-- | Load EcoSpold files from directory
 <span class="lineno">  536 </span>loadEcoSpoldDirectory :: M.Map T.Text T.Text -&gt; FilePath -&gt; IO (Either T.Text SimpleDatabase)
-<span class="lineno">  537 </span><span class="funcount">-- entered 77 times</span><span class="decl"><span class="istickedoff">loadEcoSpoldDirectory locationAliases dir = do</span>
+<span class="lineno">  537 </span><span class="funcount">-- entered 80 times</span><span class="decl"><span class="istickedoff">loadEcoSpoldDirectory locationAliases dir = do</span>
 <span class="lineno">  538 </span><span class="spaces">    </span><span class="istickedoff">reportProgress Info &quot;Scanning directory for EcoSpold files&quot;</span>
 <span class="lineno">  539 </span><span class="spaces">    </span><span class="istickedoff">files &lt;- listDirectory dir</span>
 <span class="lineno">  540 </span><span class="spaces">    </span><span class="istickedoff">-- Support both EcoSpold2 (.spold) and EcoSpold1 (.XML/.xml) files</span>

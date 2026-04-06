@@ -40,7 +40,7 @@ span.spaces    { background: white }
 <span class="lineno">   21 </span>-- | Normalize CAS number by stripping leading zeros from first segment.
 <span class="lineno">   22 </span>-- Ecoinvent zero-pads: &quot;001309-36-0&quot; → &quot;1309-36-0&quot;. ILCD uses canonical form.
 <span class="lineno">   23 </span>normalizeCAS :: Text -&gt; Text
-<span class="lineno">   24 </span><span class="funcount">-- entered 6 times</span><span class="decl"><span class="istickedoff">normalizeCAS cas = case T.splitOn &quot;-&quot; cas of</span>
+<span class="lineno">   24 </span><span class="funcount">-- entered 7 times</span><span class="decl"><span class="istickedoff">normalizeCAS cas = case T.splitOn &quot;-&quot; cas of</span>
 <span class="lineno">   25 </span><span class="spaces">    </span><span class="istickedoff">[a, b, c] -&gt; let a' = T.dropWhile (== '0') a</span>
 <span class="lineno">   26 </span><span class="spaces">                 </span><span class="istickedoff">in (if T.null a' then &quot;0&quot; else a') &lt;&gt; &quot;-&quot; &lt;&gt; b &lt;&gt; &quot;-&quot; &lt;&gt; c</span>
 <span class="lineno">   27 </span><span class="spaces">    </span><span class="istickedoff">_         -&gt; T.strip cas</span></span>
@@ -54,7 +54,7 @@ span.spaces    { background: white }
 <span class="lineno">   35 </span>-- This ensures test data with invalid UUIDs like &quot;productX-uuid&quot; get unique UUIDs
 <span class="lineno">   36 </span>-- Returns (UUID, Maybe warning) to avoid unsafePerformIO in pure context
 <span class="lineno">   37 </span>parseUUID :: Text -&gt; (UUID, Maybe String)
-<span class="lineno">   38 </span><span class="funcount">-- entered 1413 times</span><span class="decl"><span class="istickedoff">parseUUID txt = case UUID.fromText txt of</span>
+<span class="lineno">   38 </span><span class="funcount">-- entered 1462 times</span><span class="decl"><span class="istickedoff">parseUUID txt = case UUID.fromText txt of</span>
 <span class="lineno">   39 </span><span class="spaces">    </span><span class="istickedoff">Just uuid -&gt; (uuid, Nothing)</span>
 <span class="lineno">   40 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt;</span>
 <span class="lineno">   41 </span><span class="spaces">        </span><span class="istickedoff">-- Generate deterministic UUID from the text using UUID v5</span>
@@ -69,7 +69,7 @@ span.spaces    { background: white }
 <span class="lineno">   50 </span>-- | Parse ProcessId from filename (no Database needed here)
 <span class="lineno">   51 </span>-- Expects format: activity_uuid_product_uuid.spold
 <span class="lineno">   52 </span>parseProcessId :: Text -&gt; Maybe ProcessId
-<span class="lineno">   53 </span><span class="funcount">-- entered 240 times</span><span class="decl"><span class="istickedoff">parseProcessId filename = case T.splitOn &quot;_&quot; filename of</span>
+<span class="lineno">   53 </span><span class="funcount">-- entered 249 times</span><span class="decl"><span class="istickedoff">parseProcessId filename = case T.splitOn &quot;_&quot; filename of</span>
 <span class="lineno">   54 </span><span class="spaces">    </span><span class="istickedoff">[_, _] | <span class="tickonlytrue">not (T.null filename)</span> -&gt;</span>
 <span class="lineno">   55 </span><span class="spaces">        </span><span class="istickedoff">-- During parsing we don't have ProcessId yet, just return a placeholder</span>
 <span class="lineno">   56 </span><span class="spaces">        </span><span class="istickedoff">-- The actual ProcessId will be assigned during database construction</span>
@@ -88,55 +88,55 @@ span.spaces    { background: white }
 <span class="lineno">   69 </span>    | InElementaryExchange !ElementaryData
 <span class="lineno">   70 </span>    | InGeneralCommentText !Int  -- Track index
 <span class="lineno">   71 </span>    | Other
-<span class="lineno">   72 </span>    deriving (<span class="funcount">-- entered 240 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
+<span class="lineno">   72 </span>    deriving (<span class="funcount">-- entered 249 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
 <span class="lineno">   73 </span>
 <span class="lineno">   74 </span>-- | Intermediate exchange accumulator
 <span class="lineno">   75 </span>data IntermediateData = IntermediateData
-<span class="lineno">   76 </span>    { <span class="istickedoff"><span class="funcount">-- entered 447 times</span><span class="decl"><span class="istickedoff">idFlowId</span></span></span> :: !Text
-<span class="lineno">   77 </span>    , <span class="istickedoff"><span class="funcount">-- entered 442 times</span><span class="decl"><span class="istickedoff">idAmount</span></span></span> :: !Double
-<span class="lineno">   78 </span>    , <span class="istickedoff"><span class="funcount">-- entered 442 times</span><span class="decl"><span class="istickedoff">idUnitId</span></span></span> :: !Text
-<span class="lineno">   79 </span>    , <span class="istickedoff"><span class="funcount">-- entered 868 times</span><span class="decl"><span class="istickedoff">idFlowName</span></span></span> :: !Text
-<span class="lineno">   80 </span>    , <span class="istickedoff"><span class="funcount">-- entered 1784 times</span><span class="decl"><span class="istickedoff">idUnitName</span></span></span> :: !Text
-<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered 445 times</span><span class="decl"><span class="istickedoff">idInputGroup</span></span></span> :: !Text
-<span class="lineno">   82 </span>    , <span class="istickedoff"><span class="funcount">-- entered 244 times</span><span class="decl"><span class="istickedoff">idOutputGroup</span></span></span> :: !Text
-<span class="lineno">   83 </span>    , <span class="istickedoff"><span class="funcount">-- entered 636 times</span><span class="decl"><span class="istickedoff">idActivityLinkId</span></span></span> :: !Text
-<span class="lineno">   84 </span>    , <span class="istickedoff"><span class="funcount">-- entered 436 times</span><span class="decl"><span class="istickedoff">idSynonyms</span></span></span> :: !(M.Map Text (S.Set Text))
+<span class="lineno">   76 </span>    { <span class="istickedoff"><span class="funcount">-- entered 463 times</span><span class="decl"><span class="istickedoff">idFlowId</span></span></span> :: !Text
+<span class="lineno">   77 </span>    , <span class="istickedoff"><span class="funcount">-- entered 457 times</span><span class="decl"><span class="istickedoff">idAmount</span></span></span> :: !Double
+<span class="lineno">   78 </span>    , <span class="istickedoff"><span class="funcount">-- entered 457 times</span><span class="decl"><span class="istickedoff">idUnitId</span></span></span> :: !Text
+<span class="lineno">   79 </span>    , <span class="istickedoff"><span class="funcount">-- entered 898 times</span><span class="decl"><span class="istickedoff">idFlowName</span></span></span> :: !Text
+<span class="lineno">   80 </span>    , <span class="istickedoff"><span class="funcount">-- entered 1847 times</span><span class="decl"><span class="istickedoff">idUnitName</span></span></span> :: !Text
+<span class="lineno">   81 </span>    , <span class="istickedoff"><span class="funcount">-- entered 461 times</span><span class="decl"><span class="istickedoff">idInputGroup</span></span></span> :: !Text
+<span class="lineno">   82 </span>    , <span class="istickedoff"><span class="funcount">-- entered 253 times</span><span class="decl"><span class="istickedoff">idOutputGroup</span></span></span> :: !Text
+<span class="lineno">   83 </span>    , <span class="istickedoff"><span class="funcount">-- entered 657 times</span><span class="decl"><span class="istickedoff">idActivityLinkId</span></span></span> :: !Text
+<span class="lineno">   84 </span>    , <span class="istickedoff"><span class="funcount">-- entered 451 times</span><span class="decl"><span class="istickedoff">idSynonyms</span></span></span> :: !(M.Map Text (S.Set Text))
 <span class="lineno">   85 </span>    }
 <span class="lineno">   86 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
 <span class="lineno">   87 </span>
 <span class="lineno">   88 </span>-- | Elementary exchange accumulator
 <span class="lineno">   89 </span>data ElementaryData = ElementaryData
-<span class="lineno">   90 </span>    { <span class="istickedoff"><span class="funcount">-- entered 168 times</span><span class="decl"><span class="istickedoff">edFlowId</span></span></span> :: !Text
-<span class="lineno">   91 </span>    , <span class="istickedoff"><span class="funcount">-- entered 168 times</span><span class="decl"><span class="istickedoff">edAmount</span></span></span> :: !Double
-<span class="lineno">   92 </span>    , <span class="istickedoff"><span class="funcount">-- entered 168 times</span><span class="decl"><span class="istickedoff">edUnitId</span></span></span> :: !Text
-<span class="lineno">   93 </span>    , <span class="istickedoff"><span class="funcount">-- entered 332 times</span><span class="decl"><span class="istickedoff">edFlowName</span></span></span> :: !Text
-<span class="lineno">   94 </span>    , <span class="istickedoff"><span class="funcount">-- entered 498 times</span><span class="decl"><span class="istickedoff">edUnitName</span></span></span> :: !Text
-<span class="lineno">   95 </span>    , <span class="istickedoff"><span class="funcount">-- entered 168 times</span><span class="decl"><span class="istickedoff">edInputGroup</span></span></span> :: !Text
-<span class="lineno">   96 </span>    , <span class="istickedoff"><span class="funcount">-- entered 166 times</span><span class="decl"><span class="istickedoff">edOutputGroup</span></span></span> :: !Text
-<span class="lineno">   97 </span>    , <span class="istickedoff"><span class="funcount">-- entered 166 times</span><span class="decl"><span class="istickedoff">edCompartments</span></span></span> :: ![Text]
-<span class="lineno">   98 </span>    , <span class="istickedoff"><span class="funcount">-- entered 332 times</span><span class="decl"><span class="istickedoff">edSubcompartments</span></span></span> :: ![Text]
-<span class="lineno">   99 </span>    , <span class="istickedoff"><span class="funcount">-- entered 166 times</span><span class="decl"><span class="istickedoff">edSynonyms</span></span></span> :: !(M.Map Text (S.Set Text))
-<span class="lineno">  100 </span>    , <span class="istickedoff"><span class="funcount">-- entered 166 times</span><span class="decl"><span class="istickedoff">edCAS</span></span></span> :: !(Maybe Text)
+<span class="lineno">   90 </span>    { <span class="istickedoff"><span class="funcount">-- entered 174 times</span><span class="decl"><span class="istickedoff">edFlowId</span></span></span> :: !Text
+<span class="lineno">   91 </span>    , <span class="istickedoff"><span class="funcount">-- entered 174 times</span><span class="decl"><span class="istickedoff">edAmount</span></span></span> :: !Double
+<span class="lineno">   92 </span>    , <span class="istickedoff"><span class="funcount">-- entered 174 times</span><span class="decl"><span class="istickedoff">edUnitId</span></span></span> :: !Text
+<span class="lineno">   93 </span>    , <span class="istickedoff"><span class="funcount">-- entered 344 times</span><span class="decl"><span class="istickedoff">edFlowName</span></span></span> :: !Text
+<span class="lineno">   94 </span>    , <span class="istickedoff"><span class="funcount">-- entered 516 times</span><span class="decl"><span class="istickedoff">edUnitName</span></span></span> :: !Text
+<span class="lineno">   95 </span>    , <span class="istickedoff"><span class="funcount">-- entered 174 times</span><span class="decl"><span class="istickedoff">edInputGroup</span></span></span> :: !Text
+<span class="lineno">   96 </span>    , <span class="istickedoff"><span class="funcount">-- entered 172 times</span><span class="decl"><span class="istickedoff">edOutputGroup</span></span></span> :: !Text
+<span class="lineno">   97 </span>    , <span class="istickedoff"><span class="funcount">-- entered 172 times</span><span class="decl"><span class="istickedoff">edCompartments</span></span></span> :: ![Text]
+<span class="lineno">   98 </span>    , <span class="istickedoff"><span class="funcount">-- entered 344 times</span><span class="decl"><span class="istickedoff">edSubcompartments</span></span></span> :: ![Text]
+<span class="lineno">   99 </span>    , <span class="istickedoff"><span class="funcount">-- entered 172 times</span><span class="decl"><span class="istickedoff">edSynonyms</span></span></span> :: !(M.Map Text (S.Set Text))
+<span class="lineno">  100 </span>    , <span class="istickedoff"><span class="funcount">-- entered 172 times</span><span class="decl"><span class="istickedoff">edCAS</span></span></span> :: !(Maybe Text)
 <span class="lineno">  101 </span>    }
 <span class="lineno">  102 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
 <span class="lineno">  103 </span>
 <span class="lineno">  104 </span>-- | Parsing state accumulator for SAX parsing
 <span class="lineno">  105 </span>data ParseState = ParseState
-<span class="lineno">  106 </span>    { <span class="istickedoff"><span class="funcount">-- entered 240 times</span><span class="decl"><span class="istickedoff">psActivityName</span></span></span> :: !(Maybe Text)
-<span class="lineno">  107 </span>    , <span class="istickedoff"><span class="funcount">-- entered 240 times</span><span class="decl"><span class="istickedoff">psLocation</span></span></span> :: !(Maybe Text)
-<span class="lineno">  108 </span>    , <span class="istickedoff"><span class="funcount">-- entered 444 times</span><span class="decl"><span class="istickedoff">psRefUnit</span></span></span> :: !(Maybe Text)
-<span class="lineno">  109 </span>    , <span class="istickedoff"><span class="funcount">-- entered 480 times</span><span class="decl"><span class="istickedoff">psDescription</span></span></span> :: ![Text]
-<span class="lineno">  110 </span>    , <span class="istickedoff"><span class="funcount">-- entered 850 times</span><span class="decl"><span class="istickedoff">psExchanges</span></span></span> :: ![Exchange]
-<span class="lineno">  111 </span>    , <span class="istickedoff"><span class="funcount">-- entered 840 times</span><span class="decl"><span class="istickedoff">psFlows</span></span></span> :: ![Flow]
-<span class="lineno">  112 </span>    , <span class="istickedoff"><span class="funcount">-- entered 840 times</span><span class="decl"><span class="istickedoff">psUnits</span></span></span> :: ![Unit]
-<span class="lineno">  113 </span>    , <span class="istickedoff"><span class="funcount">-- entered 20,292 times</span><span class="decl"><span class="istickedoff">psPath</span></span></span> :: ![BS.ByteString]  -- Element path stack
-<span class="lineno">  114 </span>    , <span class="istickedoff"><span class="funcount">-- entered 18,395 times</span><span class="decl"><span class="istickedoff">psContext</span></span></span> :: !ElementContext
-<span class="lineno">  115 </span>    , <span class="istickedoff"><span class="funcount">-- entered 6760 times</span><span class="decl"><span class="istickedoff">psTextAccum</span></span></span> :: ![BS.ByteString]  -- Accumulated text content
-<span class="lineno">  116 </span>    , <span class="istickedoff"><span class="funcount">-- entered 605 times</span><span class="decl"><span class="istickedoff">psPendingInputGroup</span></span></span> :: !Text  -- Pending inputGroup value from child element
-<span class="lineno">  117 </span>    , <span class="istickedoff"><span class="funcount">-- entered 410 times</span><span class="decl"><span class="istickedoff">psPendingOutputGroup</span></span></span> :: !Text  -- Pending outputGroup value from child element
-<span class="lineno">  118 </span>    , <span class="istickedoff"><span class="funcount">-- entered 840 times</span><span class="decl"><span class="istickedoff">psWarnings</span></span></span> :: ![String]  -- Accumulated warnings (emitted in IO after fold)
-<span class="lineno">  119 </span>    , <span class="istickedoff"><span class="funcount">-- entered 450 times</span><span class="decl"><span class="istickedoff">psClassifications</span></span></span> :: !(M.Map Text Text)  -- Classification system -&gt; value
-<span class="lineno">  120 </span>    , <span class="istickedoff"><span class="funcount">-- entered 210 times</span><span class="decl"><span class="istickedoff">psPendingClassSystem</span></span></span> :: !Text  -- Current classification system name
+<span class="lineno">  106 </span>    { <span class="istickedoff"><span class="funcount">-- entered 249 times</span><span class="decl"><span class="istickedoff">psActivityName</span></span></span> :: !(Maybe Text)
+<span class="lineno">  107 </span>    , <span class="istickedoff"><span class="funcount">-- entered 249 times</span><span class="decl"><span class="istickedoff">psLocation</span></span></span> :: !(Maybe Text)
+<span class="lineno">  108 </span>    , <span class="istickedoff"><span class="funcount">-- entered 458 times</span><span class="decl"><span class="istickedoff">psRefUnit</span></span></span> :: !(Maybe Text)
+<span class="lineno">  109 </span>    , <span class="istickedoff"><span class="funcount">-- entered 498 times</span><span class="decl"><span class="istickedoff">psDescription</span></span></span> :: ![Text]
+<span class="lineno">  110 </span>    , <span class="istickedoff"><span class="funcount">-- entered 880 times</span><span class="decl"><span class="istickedoff">psExchanges</span></span></span> :: ![Exchange]
+<span class="lineno">  111 </span>    , <span class="istickedoff"><span class="funcount">-- entered 870 times</span><span class="decl"><span class="istickedoff">psFlows</span></span></span> :: ![Flow]
+<span class="lineno">  112 </span>    , <span class="istickedoff"><span class="funcount">-- entered 870 times</span><span class="decl"><span class="istickedoff">psUnits</span></span></span> :: ![Unit]
+<span class="lineno">  113 </span>    , <span class="istickedoff"><span class="funcount">-- entered 21,056 times</span><span class="decl"><span class="istickedoff">psPath</span></span></span> :: ![BS.ByteString]  -- Element path stack
+<span class="lineno">  114 </span>    , <span class="istickedoff"><span class="funcount">-- entered 19,048 times</span><span class="decl"><span class="istickedoff">psContext</span></span></span> :: !ElementContext
+<span class="lineno">  115 </span>    , <span class="istickedoff"><span class="funcount">-- entered 7002 times</span><span class="decl"><span class="istickedoff">psTextAccum</span></span></span> :: ![BS.ByteString]  -- Accumulated text content
+<span class="lineno">  116 </span>    , <span class="istickedoff"><span class="funcount">-- entered 627 times</span><span class="decl"><span class="istickedoff">psPendingInputGroup</span></span></span> :: !Text  -- Pending inputGroup value from child element
+<span class="lineno">  117 </span>    , <span class="istickedoff"><span class="funcount">-- entered 425 times</span><span class="decl"><span class="istickedoff">psPendingOutputGroup</span></span></span> :: !Text  -- Pending outputGroup value from child element
+<span class="lineno">  118 </span>    , <span class="istickedoff"><span class="funcount">-- entered 870 times</span><span class="decl"><span class="istickedoff">psWarnings</span></span></span> :: ![String]  -- Accumulated warnings (emitted in IO after fold)
+<span class="lineno">  119 </span>    , <span class="istickedoff"><span class="funcount">-- entered 468 times</span><span class="decl"><span class="istickedoff">psClassifications</span></span></span> :: !(M.Map Text Text)  -- Classification system -&gt; value
+<span class="lineno">  120 </span>    , <span class="istickedoff"><span class="funcount">-- entered 219 times</span><span class="decl"><span class="istickedoff">psPendingClassSystem</span></span></span> :: !Text  -- Current classification system name
 <span class="lineno">  121 </span>    }
 <span class="lineno">  122 </span>
 <span class="lineno">  123 </span>-- | Initial parsing state
@@ -161,7 +161,7 @@ span.spaces    { background: white }
 <span class="lineno">  142 </span>
 <span class="lineno">  143 </span>-- | Xeno SAX parser implementation
 <span class="lineno">  144 </span>parseWithXeno :: BS.ByteString -&gt; ProcessId -&gt; Either String ((Activity, [Flow], [Unit]), [String])
-<span class="lineno">  145 </span><span class="funcount">-- entered 240 times</span><span class="decl"><span class="istickedoff">parseWithXeno xmlContent processId =</span>
+<span class="lineno">  145 </span><span class="funcount">-- entered 249 times</span><span class="decl"><span class="istickedoff">parseWithXeno xmlContent processId =</span>
 <span class="lineno">  146 </span><span class="spaces">    </span><span class="istickedoff">case X.fold openTag attribute endOpen text closeTag <span class="nottickedoff">cdata</span> initialParseState xmlContent of</span>
 <span class="lineno">  147 </span><span class="spaces">        </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">Left (show err)</span></span>
 <span class="lineno">  148 </span><span class="spaces">        </span><span class="istickedoff">Right finalState -&gt; case buildResult finalState <span class="nottickedoff">processId</span> of</span>
@@ -471,7 +471,7 @@ span.spaces    { background: white }
 <span class="lineno">  452 </span>
 <span class="lineno">  453 </span>-- | Parse EcoSpold file using Xeno SAX parser
 <span class="lineno">  454 </span>streamParseActivityAndFlowsFromFile :: FilePath -&gt; IO (Either String (Activity, [Flow], [Unit]))
-<span class="lineno">  455 </span><span class="funcount">-- entered 240 times</span><span class="decl"><span class="istickedoff">streamParseActivityAndFlowsFromFile path = do</span>
+<span class="lineno">  455 </span><span class="funcount">-- entered 249 times</span><span class="decl"><span class="istickedoff">streamParseActivityAndFlowsFromFile path = do</span>
 <span class="lineno">  456 </span><span class="spaces">    </span><span class="istickedoff">!xmlContent &lt;- BS.readFile path</span>
 <span class="lineno">  457 </span><span class="spaces">    </span><span class="istickedoff">let filenameBase = T.pack $ takeBaseName path</span>
 <span class="lineno">  458 </span><span class="spaces">    </span><span class="istickedoff">case EcoSpold.Parser2.parseProcessId filenameBase of</span>
@@ -489,7 +489,7 @@ span.spaces    { background: white }
 <span class="lineno">  470 </span>4. VALIDATION: Fail if no reference product can be established
 <span class="lineno">  471 </span>-}
 <span class="lineno">  472 </span>applyCutoffStrategy :: Activity -&gt; Either String Activity
-<span class="lineno">  473 </span><span class="funcount">-- entered 240 times</span><span class="decl"><span class="istickedoff">applyCutoffStrategy activity =</span>
+<span class="lineno">  473 </span><span class="funcount">-- entered 249 times</span><span class="decl"><span class="istickedoff">applyCutoffStrategy activity =</span>
 <span class="lineno">  474 </span><span class="spaces">    </span><span class="istickedoff">let filteredExchanges = removeZeroAmountCoproducts (exchanges activity)</span>
 <span class="lineno">  475 </span><span class="spaces">        </span><span class="istickedoff">updatedActivity = activity{exchanges = filteredExchanges}</span>
 <span class="lineno">  476 </span><span class="spaces">        </span><span class="istickedoff">finalActivity =</span>
@@ -502,11 +502,11 @@ span.spaces    { background: white }
 <span class="lineno">  483 </span>
 <span class="lineno">  484 </span>-- | Check if activity has any reference product
 <span class="lineno">  485 </span>hasReferenceProduct :: Activity -&gt; Bool
-<span class="lineno">  486 </span><span class="funcount">-- entered 240 times</span><span class="decl"><span class="istickedoff">hasReferenceProduct activity = any exchangeIsReference (exchanges activity)</span></span>
+<span class="lineno">  486 </span><span class="funcount">-- entered 249 times</span><span class="decl"><span class="istickedoff">hasReferenceProduct activity = any exchangeIsReference (exchanges activity)</span></span>
 <span class="lineno">  487 </span>
 <span class="lineno">  488 </span>-- | Remove production exchanges with zero amounts
 <span class="lineno">  489 </span>removeZeroAmountCoproducts :: [Exchange] -&gt; [Exchange]
-<span class="lineno">  490 </span><span class="funcount">-- entered 240 times</span><span class="decl"><span class="istickedoff">removeZeroAmountCoproducts exs = filter keepExchange exs</span>
+<span class="lineno">  490 </span><span class="funcount">-- entered 249 times</span><span class="decl"><span class="istickedoff">removeZeroAmountCoproducts exs = filter keepExchange exs</span>
 <span class="lineno">  491 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno">  492 </span><span class="spaces">    </span><span class="istickedoff">keepExchange (TechnosphereExchange _ _ _ False True _ _ _) = True</span>
 <span class="lineno">  493 </span><span class="spaces">    </span><span class="istickedoff">keepExchange (TechnosphereExchange _ amount _ False False _ _ _) = amount /= 0.0</span>

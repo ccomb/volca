@@ -30,7 +30,7 @@ span.spaces    { background: white }
 <span class="lineno">   11 </span>import Database (findActivitiesByFields, findFlowsBySynonym)
 <span class="lineno">   12 </span>import Tree (buildLoopAwareTree)
 <span class="lineno">   13 </span>import Types
-<span class="lineno">   14 </span>import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ClassificationSystem(..), EdgeType (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), NodeType (..), SearchResults (..), Substitution (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
+<span class="lineno">   14 </span>import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ClassificationSystem(..), ConsumerResult (..), EdgeType (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), NodeType (..), SearchResults (..), Substitution (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
 <span class="lineno">   15 </span>import UnitConversion (UnitConfig, defaultUnitConfig, unitsCompatible)
 <span class="lineno">   16 </span>import Data.Aeson (Value, toJSON, object, (.=))
 <span class="lineno">   17 </span>import Plugin.Types (ValidateHandle(..), ValidateContext(..), ValidationPhase(..), ValidationIssue(..), Severity(..))
@@ -1304,10 +1304,10 @@ span.spaces    { background: white }
 <span class="lineno"> 1285 </span><span class="spaces">       </span><span class="nottickedoff">else let SparseTriple _ _ val = U.head matching in Just val</span></span>
 <span class="lineno"> 1286 </span>
 <span class="lineno"> 1287 </span>-- | Find all activities that transitively depend on a given supplier.
-<span class="lineno"> 1288 </span>-- BFS through the technosphere matrix: supplier row → direct consumers → their consumers → ...
-<span class="lineno"> 1289 </span>getConsumers :: Database -&gt; Text -&gt; Maybe Text -&gt; Maybe Int
-<span class="lineno"> 1290 </span>             -&gt; Either ServiceError [ActivitySummary]
-<span class="lineno"> 1291 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getConsumers db processIdText nameFilter limitParam = do</span>
+<span class="lineno"> 1288 </span>-- BFS through the technosphere matrix tracking depth; optional max-depth cap.
+<span class="lineno"> 1289 </span>getConsumers :: Database -&gt; Text -&gt; Maybe Text -&gt; Maybe Int -&gt; Maybe Int -&gt; [(Text, Text)]
+<span class="lineno"> 1290 </span>             -&gt; Either ServiceError [ConsumerResult]
+<span class="lineno"> 1291 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getConsumers db processIdText nameFilter limitParam maxDepthParam classFilters = do</span>
 <span class="lineno"> 1292 </span><span class="spaces">    </span><span class="nottickedoff">(processId, _) &lt;- resolveActivityAndProcessId db processIdText</span>
 <span class="lineno"> 1293 </span><span class="spaces">    </span><span class="nottickedoff">let -- Build adjacency list: supplier → [direct consumers]</span>
 <span class="lineno"> 1294 </span><span class="spaces">        </span><span class="nottickedoff">adj = M.fromListWith (++)</span>
@@ -1316,108 +1316,125 @@ span.spaces    { background: white }
 <span class="lineno"> 1297 </span><span class="spaces">            </span><span class="nottickedoff">, row /= col  -- skip self-loops</span>
 <span class="lineno"> 1298 </span><span class="spaces">            </span><span class="nottickedoff">]</span>
 <span class="lineno"> 1299 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno"> 1300 </span><span class="spaces">        </span><span class="nottickedoff">-- BFS from processId</span>
-<span class="lineno"> 1301 </span><span class="spaces">        </span><span class="nottickedoff">bfs visited [] = visited</span>
-<span class="lineno"> 1302 </span><span class="spaces">        </span><span class="nottickedoff">bfs visited frontier =</span>
-<span class="lineno"> 1303 </span><span class="spaces">            </span><span class="nottickedoff">let next = [ c | pid &lt;- frontier</span>
-<span class="lineno"> 1304 </span><span class="spaces">                           </span><span class="nottickedoff">, c &lt;- M.findWithDefault [] pid adj</span>
-<span class="lineno"> 1305 </span><span class="spaces">                           </span><span class="nottickedoff">, not (S.member c visited)</span>
-<span class="lineno"> 1306 </span><span class="spaces">                       </span><span class="nottickedoff">]</span>
-<span class="lineno"> 1307 </span><span class="spaces">                </span><span class="nottickedoff">visited' = L.foldl' (flip S.insert) visited next</span>
-<span class="lineno"> 1308 </span><span class="spaces">            </span><span class="nottickedoff">in bfs visited' next</span>
-<span class="lineno"> 1309 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno"> 1310 </span><span class="spaces">        </span><span class="nottickedoff">allConsumers = S.delete processId $ bfs (S.singleton processId) [processId]</span>
-<span class="lineno"> 1311 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno"> 1312 </span><span class="spaces">        </span><span class="nottickedoff">nameMatches activity = case nameFilter of</span>
-<span class="lineno"> 1313 </span><span class="spaces">            </span><span class="nottickedoff">Nothing -&gt; True</span>
-<span class="lineno"> 1314 </span><span class="spaces">            </span><span class="nottickedoff">Just pat -&gt; T.toCaseFold pat `T.isInfixOf` T.toCaseFold (activityName activity)</span>
-<span class="lineno"> 1315 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno"> 1316 </span><span class="spaces">        </span><span class="nottickedoff">limit = maybe 1000 id limitParam</span>
-<span class="lineno"> 1317 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno"> 1318 </span><span class="spaces">        </span><span class="nottickedoff">results =</span>
-<span class="lineno"> 1319 </span><span class="spaces">            </span><span class="nottickedoff">[ ActivitySummary</span>
-<span class="lineno"> 1320 </span><span class="spaces">                </span><span class="nottickedoff">(processIdToText db pid)</span>
-<span class="lineno"> 1321 </span><span class="spaces">                </span><span class="nottickedoff">(activityName activity)</span>
-<span class="lineno"> 1322 </span><span class="spaces">                </span><span class="nottickedoff">(activityLocation activity)</span>
-<span class="lineno"> 1323 </span><span class="spaces">                </span><span class="nottickedoff">prodName prodAmount prodUnit</span>
-<span class="lineno"> 1324 </span><span class="spaces">            </span><span class="nottickedoff">| pid &lt;- S.toList allConsumers</span>
-<span class="lineno"> 1325 </span><span class="spaces">            </span><span class="nottickedoff">, let activity = dbActivities db V.! fromIntegral pid</span>
-<span class="lineno"> 1326 </span><span class="spaces">            </span><span class="nottickedoff">, nameMatches activity</span>
-<span class="lineno"> 1327 </span><span class="spaces">            </span><span class="nottickedoff">, let (prodName, prodAmount, prodUnit) = getReferenceProductInfo (dbFlows db) (dbUnits db) activity</span>
-<span class="lineno"> 1328 </span><span class="spaces">            </span><span class="nottickedoff">]</span>
+<span class="lineno"> 1300 </span><span class="spaces">        </span><span class="nottickedoff">-- BFS tracking depth per node (Map ProcessId depth)</span>
+<span class="lineno"> 1301 </span><span class="spaces">        </span><span class="nottickedoff">bfs depthMap [] = depthMap</span>
+<span class="lineno"> 1302 </span><span class="spaces">        </span><span class="nottickedoff">bfs depthMap frontier =</span>
+<span class="lineno"> 1303 </span><span class="spaces">            </span><span class="nottickedoff">let next     = [ (c, d + 1)</span>
+<span class="lineno"> 1304 </span><span class="spaces">                           </span><span class="nottickedoff">| (pid, d) &lt;- frontier</span>
+<span class="lineno"> 1305 </span><span class="spaces">                           </span><span class="nottickedoff">, c        &lt;- M.findWithDefault [] pid adj</span>
+<span class="lineno"> 1306 </span><span class="spaces">                           </span><span class="nottickedoff">, not (M.member c depthMap)</span>
+<span class="lineno"> 1307 </span><span class="spaces">                           </span><span class="nottickedoff">]</span>
+<span class="lineno"> 1308 </span><span class="spaces">                </span><span class="nottickedoff">-- deduplicate: keep minimum depth for nodes seen in this wave</span>
+<span class="lineno"> 1309 </span><span class="spaces">                </span><span class="nottickedoff">nextDeduped  = M.toList $ M.fromListWith min next</span>
+<span class="lineno"> 1310 </span><span class="spaces">                </span><span class="nottickedoff">nextFiltered = filter (\(_, d) -&gt; maybe True (d &lt;=) maxDepthParam) nextDeduped</span>
+<span class="lineno"> 1311 </span><span class="spaces">                </span><span class="nottickedoff">depthMap'    = L.foldl' (\m (c, d) -&gt; M.insert c d m) depthMap nextFiltered</span>
+<span class="lineno"> 1312 </span><span class="spaces">            </span><span class="nottickedoff">in bfs depthMap' nextFiltered</span>
+<span class="lineno"> 1313 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1314 </span><span class="spaces">        </span><span class="nottickedoff">allConsumers = M.delete processId $</span>
+<span class="lineno"> 1315 </span><span class="spaces">                           </span><span class="nottickedoff">bfs (M.singleton processId 0) [(processId, 0)]</span>
+<span class="lineno"> 1316 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1317 </span><span class="spaces">        </span><span class="nottickedoff">nameMatches activity = case nameFilter of</span>
+<span class="lineno"> 1318 </span><span class="spaces">            </span><span class="nottickedoff">Nothing  -&gt; True</span>
+<span class="lineno"> 1319 </span><span class="spaces">            </span><span class="nottickedoff">Just pat -&gt; T.toCaseFold pat `T.isInfixOf` T.toCaseFold (activityName activity)</span>
+<span class="lineno"> 1320 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1321 </span><span class="spaces">        </span><span class="nottickedoff">-- OR within same system, AND across systems</span>
+<span class="lineno"> 1322 </span><span class="spaces">        </span><span class="nottickedoff">classMatches activity =</span>
+<span class="lineno"> 1323 </span><span class="spaces">            </span><span class="nottickedoff">let groups = M.fromListWith (++) [(sys, [val]) | (sys, val) &lt;- classFilters]</span>
+<span class="lineno"> 1324 </span><span class="spaces">                </span><span class="nottickedoff">applyGroup acc (sys, vals) =</span>
+<span class="lineno"> 1325 </span><span class="spaces">                    </span><span class="nottickedoff">acc &amp;&amp; case M.lookup sys (activityClassification activity) of</span>
+<span class="lineno"> 1326 </span><span class="spaces">                        </span><span class="nottickedoff">Just v  -&gt; any (\q -&gt; T.isInfixOf (T.toLower q) (T.toLower v)) vals</span>
+<span class="lineno"> 1327 </span><span class="spaces">                        </span><span class="nottickedoff">Nothing -&gt; False</span>
+<span class="lineno"> 1328 </span><span class="spaces">            </span><span class="nottickedoff">in foldl applyGroup True (M.toList groups)</span>
 <span class="lineno"> 1329 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno"> 1330 </span><span class="spaces">    </span><span class="nottickedoff">Right $ take limit results</span></span>
-<span class="lineno"> 1331 </span>
-<span class="lineno"> 1332 </span>-- | Compute LCIA scores (placeholder)
-<span class="lineno"> 1333 </span>computeLCIA :: Database -&gt; Text -&gt; FilePath -&gt; Either ServiceError Value
-<span class="lineno"> 1334 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">computeLCIA db queryText methodFile = do</span>
-<span class="lineno"> 1335 </span><span class="spaces">    </span><span class="nottickedoff">(processId, _activity) &lt;- resolveActivityAndProcessId db queryText</span>
-<span class="lineno"> 1336 </span><span class="spaces">    </span><span class="nottickedoff">let placeholder = M.fromList [(&quot;method&quot; :: Text, T.pack methodFile), (&quot;activity&quot;, processIdToText db processId)]</span>
-<span class="lineno"> 1337 </span><span class="spaces">     </span><span class="nottickedoff">in Right $ toJSON placeholder</span></span>
-<span class="lineno"> 1338 </span>
-<span class="lineno"> 1339 </span>-- | Export LCIA results as XML (placeholder)
-<span class="lineno"> 1340 </span>exportLCIAAsXML :: Value -&gt; FilePath -&gt; Either ServiceError ()
-<span class="lineno"> 1341 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exportLCIAAsXML _ _ = Right ()</span></span>
-<span class="lineno"> 1342 </span>
-<span class="lineno"> 1343 </span>-- | Export LCIA results as CSV (placeholder)
-<span class="lineno"> 1344 </span>exportLCIAAsCSV :: Value -&gt; FilePath -&gt; Either ServiceError ()
-<span class="lineno"> 1345 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exportLCIAAsCSV _ _ = Right ()</span></span>
-<span class="lineno"> 1346 </span>
-<span class="lineno"> 1347 </span>-- | Export matrix debug data (delegates to Matrix.Export)
-<span class="lineno"> 1348 </span>exportMatrixDebugData :: Database -&gt; Text -&gt; DebugMatricesOptions -&gt; IO (Either ServiceError Value)
-<span class="lineno"> 1349 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exportMatrixDebugData database processIdText opts = do</span>
-<span class="lineno"> 1350 </span><span class="spaces">    </span><span class="nottickedoff">case resolveActivityAndProcessId database processIdText of</span>
-<span class="lineno"> 1351 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; return $ Left err</span>
-<span class="lineno"> 1352 </span><span class="spaces">        </span><span class="nottickedoff">Right (_processId, targetActivity) -&gt; do</span>
-<span class="lineno"> 1353 </span><span class="spaces">            </span><span class="nottickedoff">let activityUuidText = case T.splitOn &quot;_&quot; processIdText of</span>
-<span class="lineno"> 1354 </span><span class="spaces">                    </span><span class="nottickedoff">(uuid:_) -&gt; uuid</span>
-<span class="lineno"> 1355 </span><span class="spaces">                    </span><span class="nottickedoff">[] -&gt; processIdText</span>
-<span class="lineno"> 1356 </span><span class="spaces">            </span><span class="nottickedoff">case UUID.fromText activityUuidText of</span>
-<span class="lineno"> 1357 </span><span class="spaces">                </span><span class="nottickedoff">Nothing -&gt; return $ Left $ InvalidUUID $ &quot;Invalid activity UUID: &quot; &lt;&gt; activityUuidText</span>
-<span class="lineno"> 1358 </span><span class="spaces">                </span><span class="nottickedoff">Just activityUuid -&gt; do</span>
-<span class="lineno"> 1359 </span><span class="spaces">                    </span><span class="nottickedoff">matrixData &lt;- MatrixExport.extractMatrixDebugInfo database activityUuid (debugFlowFilter opts)</span>
-<span class="lineno"> 1360 </span><span class="spaces">                    </span><span class="nottickedoff">let inventoryList = MatrixExport.mdInventoryVector matrixData</span>
-<span class="lineno"> 1361 </span><span class="spaces">                        </span><span class="nottickedoff">bioFlowUUIDs = MatrixExport.mdBioFlowUUIDs matrixData</span>
-<span class="lineno"> 1362 </span><span class="spaces">                        </span><span class="nottickedoff">inventory = M.fromList $ zip (V.toList bioFlowUUIDs) inventoryList</span>
-<span class="lineno"> 1363 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno"> 1364 </span><span class="spaces">                    </span><span class="nottickedoff">Progress.reportProgress Progress.Info $ &quot;DEBUG: Starting CSV export to &quot; ++ debugOutput opts</span>
-<span class="lineno"> 1365 </span><span class="spaces">                    </span><span class="nottickedoff">MatrixExport.exportMatrixDebugCSVs (debugOutput opts) matrixData</span>
-<span class="lineno"> 1366 </span><span class="spaces">                    </span><span class="nottickedoff">Progress.reportProgress Progress.Info &quot;DEBUG: CSV export completed&quot;</span>
-<span class="lineno"> 1367 </span><span class="spaces"></span><span class="nottickedoff"></span>
-<span class="lineno"> 1368 </span><span class="spaces">                    </span><span class="nottickedoff">let summary =</span>
-<span class="lineno"> 1369 </span><span class="spaces">                            </span><span class="nottickedoff">M.fromList</span>
-<span class="lineno"> 1370 </span><span class="spaces">                                </span><span class="nottickedoff">[ (&quot;activity_uuid&quot; :: Text, UUID.toText activityUuid)</span>
-<span class="lineno"> 1371 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;activity_name&quot; :: Text, activityName targetActivity)</span>
-<span class="lineno"> 1372 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;total_inventory_flows&quot; :: Text, T.pack $ show $ M.size inventory)</span>
-<span class="lineno"> 1373 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;matrix_debug_exported&quot; :: Text, &quot;CSV_EXPORTED&quot;)</span>
-<span class="lineno"> 1374 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;supply_chain_file&quot; :: Text, T.pack $ debugOutput opts ++ &quot;_supply_chain.csv&quot;)</span>
-<span class="lineno"> 1375 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;biosphere_matrix_file&quot; :: Text, T.pack $ debugOutput opts ++ &quot;_biosphere_matrix.csv&quot;)</span>
-<span class="lineno"> 1376 </span><span class="spaces">                                </span><span class="nottickedoff">]</span>
-<span class="lineno"> 1377 </span><span class="spaces">                    </span><span class="nottickedoff">return $ Right $ toJSON summary</span></span>
-<span class="lineno"> 1378 </span>
-<span class="lineno"> 1379 </span>-- | Export matrices in universal matrix format (delegates to Matrix.Export)
-<span class="lineno"> 1380 </span>exportUniversalMatrixFormat :: FilePath -&gt; Database -&gt; IO ()
-<span class="lineno"> 1381 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">exportUniversalMatrixFormat = MatrixExport.exportUniversalMatrixFormat</span></span>
-<span class="lineno"> 1382 </span>
-<span class="lineno"> 1383 </span>-- ──────────────────────────────────────────────
-<span class="lineno"> 1384 </span>-- Plugin validation hooks
-<span class="lineno"> 1385 </span>-- ──────────────────────────────────────────────
-<span class="lineno"> 1386 </span>
-<span class="lineno"> 1387 </span>-- | Run pre-compute validators (before matrix solve)
-<span class="lineno"> 1388 </span>runPreComputeValidation :: [ValidateHandle] -&gt; Database -&gt; IO [ValidationIssue]
-<span class="lineno"> 1389 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">runPreComputeValidation validators db = do</span>
-<span class="lineno"> 1390 </span><span class="spaces">    </span><span class="nottickedoff">let preValidators = filter ((== PreCompute) . vhPhase) validators</span>
-<span class="lineno"> 1391 </span><span class="spaces">    </span><span class="nottickedoff">concat &lt;$&gt; mapM (\v -&gt; vhValidate v (ValidateContext db Nothing)) preValidators</span></span>
-<span class="lineno"> 1392 </span>
-<span class="lineno"> 1393 </span>-- | Run post-compute validators (after inventory is computed)
-<span class="lineno"> 1394 </span>runPostComputeValidation :: [ValidateHandle] -&gt; Database -&gt; Inventory -&gt; IO [ValidationIssue]
-<span class="lineno"> 1395 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">runPostComputeValidation validators db inv = do</span>
-<span class="lineno"> 1396 </span><span class="spaces">    </span><span class="nottickedoff">let postValidators = filter ((== PostCompute) . vhPhase) validators</span>
-<span class="lineno"> 1397 </span><span class="spaces">    </span><span class="nottickedoff">concat &lt;$&gt; mapM (\v -&gt; vhValidate v (ValidateContext db (Just inv))) postValidators</span></span>
-<span class="lineno"> 1398 </span>
-<span class="lineno"> 1399 </span>-- | Check if any validation issues are errors (should abort computation)
-<span class="lineno"> 1400 </span>hasValidationErrors :: [ValidationIssue] -&gt; Bool
-<span class="lineno"> 1401 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">hasValidationErrors = any ((== Error) . viSeverity)</span></span>
+<span class="lineno"> 1330 </span><span class="spaces">        </span><span class="nottickedoff">limit = maybe 1000 id limitParam</span>
+<span class="lineno"> 1331 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1332 </span><span class="spaces">        </span><span class="nottickedoff">results =</span>
+<span class="lineno"> 1333 </span><span class="spaces">            </span><span class="nottickedoff">[ ConsumerResult</span>
+<span class="lineno"> 1334 </span><span class="spaces">                </span><span class="nottickedoff">(processIdToText db pid)</span>
+<span class="lineno"> 1335 </span><span class="spaces">                </span><span class="nottickedoff">(activityName activity)</span>
+<span class="lineno"> 1336 </span><span class="spaces">                </span><span class="nottickedoff">(activityLocation activity)</span>
+<span class="lineno"> 1337 </span><span class="spaces">                </span><span class="nottickedoff">prodName prodAmount prodUnit</span>
+<span class="lineno"> 1338 </span><span class="spaces">                </span><span class="nottickedoff">depth</span>
+<span class="lineno"> 1339 </span><span class="spaces">            </span><span class="nottickedoff">| (pid, depth) &lt;- M.toAscList allConsumers</span>
+<span class="lineno"> 1340 </span><span class="spaces">            </span><span class="nottickedoff">, let activity = dbActivities db V.! fromIntegral pid</span>
+<span class="lineno"> 1341 </span><span class="spaces">            </span><span class="nottickedoff">, nameMatches activity</span>
+<span class="lineno"> 1342 </span><span class="spaces">            </span><span class="nottickedoff">, classMatches activity</span>
+<span class="lineno"> 1343 </span><span class="spaces">            </span><span class="nottickedoff">, let (prodName, prodAmount, prodUnit) =</span>
+<span class="lineno"> 1344 </span><span class="spaces">                      </span><span class="nottickedoff">getReferenceProductInfo (dbFlows db) (dbUnits db) activity</span>
+<span class="lineno"> 1345 </span><span class="spaces">            </span><span class="nottickedoff">]</span>
+<span class="lineno"> 1346 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1347 </span><span class="spaces">    </span><span class="nottickedoff">Right $ take limit results</span></span>
+<span class="lineno"> 1348 </span>
+<span class="lineno"> 1349 </span>-- | Compute LCIA scores (placeholder)
+<span class="lineno"> 1350 </span>computeLCIA :: Database -&gt; Text -&gt; FilePath -&gt; Either ServiceError Value
+<span class="lineno"> 1351 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">computeLCIA db queryText methodFile = do</span>
+<span class="lineno"> 1352 </span><span class="spaces">    </span><span class="nottickedoff">(processId, _activity) &lt;- resolveActivityAndProcessId db queryText</span>
+<span class="lineno"> 1353 </span><span class="spaces">    </span><span class="nottickedoff">let placeholder = M.fromList [(&quot;method&quot; :: Text, T.pack methodFile), (&quot;activity&quot;, processIdToText db processId)]</span>
+<span class="lineno"> 1354 </span><span class="spaces">     </span><span class="nottickedoff">in Right $ toJSON placeholder</span></span>
+<span class="lineno"> 1355 </span>
+<span class="lineno"> 1356 </span>-- | Export LCIA results as XML (placeholder)
+<span class="lineno"> 1357 </span>exportLCIAAsXML :: Value -&gt; FilePath -&gt; Either ServiceError ()
+<span class="lineno"> 1358 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exportLCIAAsXML _ _ = Right ()</span></span>
+<span class="lineno"> 1359 </span>
+<span class="lineno"> 1360 </span>-- | Export LCIA results as CSV (placeholder)
+<span class="lineno"> 1361 </span>exportLCIAAsCSV :: Value -&gt; FilePath -&gt; Either ServiceError ()
+<span class="lineno"> 1362 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exportLCIAAsCSV _ _ = Right ()</span></span>
+<span class="lineno"> 1363 </span>
+<span class="lineno"> 1364 </span>-- | Export matrix debug data (delegates to Matrix.Export)
+<span class="lineno"> 1365 </span>exportMatrixDebugData :: Database -&gt; Text -&gt; DebugMatricesOptions -&gt; IO (Either ServiceError Value)
+<span class="lineno"> 1366 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">exportMatrixDebugData database processIdText opts = do</span>
+<span class="lineno"> 1367 </span><span class="spaces">    </span><span class="nottickedoff">case resolveActivityAndProcessId database processIdText of</span>
+<span class="lineno"> 1368 </span><span class="spaces">        </span><span class="nottickedoff">Left err -&gt; return $ Left err</span>
+<span class="lineno"> 1369 </span><span class="spaces">        </span><span class="nottickedoff">Right (_processId, targetActivity) -&gt; do</span>
+<span class="lineno"> 1370 </span><span class="spaces">            </span><span class="nottickedoff">let activityUuidText = case T.splitOn &quot;_&quot; processIdText of</span>
+<span class="lineno"> 1371 </span><span class="spaces">                    </span><span class="nottickedoff">(uuid:_) -&gt; uuid</span>
+<span class="lineno"> 1372 </span><span class="spaces">                    </span><span class="nottickedoff">[] -&gt; processIdText</span>
+<span class="lineno"> 1373 </span><span class="spaces">            </span><span class="nottickedoff">case UUID.fromText activityUuidText of</span>
+<span class="lineno"> 1374 </span><span class="spaces">                </span><span class="nottickedoff">Nothing -&gt; return $ Left $ InvalidUUID $ &quot;Invalid activity UUID: &quot; &lt;&gt; activityUuidText</span>
+<span class="lineno"> 1375 </span><span class="spaces">                </span><span class="nottickedoff">Just activityUuid -&gt; do</span>
+<span class="lineno"> 1376 </span><span class="spaces">                    </span><span class="nottickedoff">matrixData &lt;- MatrixExport.extractMatrixDebugInfo database activityUuid (debugFlowFilter opts)</span>
+<span class="lineno"> 1377 </span><span class="spaces">                    </span><span class="nottickedoff">let inventoryList = MatrixExport.mdInventoryVector matrixData</span>
+<span class="lineno"> 1378 </span><span class="spaces">                        </span><span class="nottickedoff">bioFlowUUIDs = MatrixExport.mdBioFlowUUIDs matrixData</span>
+<span class="lineno"> 1379 </span><span class="spaces">                        </span><span class="nottickedoff">inventory = M.fromList $ zip (V.toList bioFlowUUIDs) inventoryList</span>
+<span class="lineno"> 1380 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1381 </span><span class="spaces">                    </span><span class="nottickedoff">Progress.reportProgress Progress.Info $ &quot;DEBUG: Starting CSV export to &quot; ++ debugOutput opts</span>
+<span class="lineno"> 1382 </span><span class="spaces">                    </span><span class="nottickedoff">MatrixExport.exportMatrixDebugCSVs (debugOutput opts) matrixData</span>
+<span class="lineno"> 1383 </span><span class="spaces">                    </span><span class="nottickedoff">Progress.reportProgress Progress.Info &quot;DEBUG: CSV export completed&quot;</span>
+<span class="lineno"> 1384 </span><span class="spaces"></span><span class="nottickedoff"></span>
+<span class="lineno"> 1385 </span><span class="spaces">                    </span><span class="nottickedoff">let summary =</span>
+<span class="lineno"> 1386 </span><span class="spaces">                            </span><span class="nottickedoff">M.fromList</span>
+<span class="lineno"> 1387 </span><span class="spaces">                                </span><span class="nottickedoff">[ (&quot;activity_uuid&quot; :: Text, UUID.toText activityUuid)</span>
+<span class="lineno"> 1388 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;activity_name&quot; :: Text, activityName targetActivity)</span>
+<span class="lineno"> 1389 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;total_inventory_flows&quot; :: Text, T.pack $ show $ M.size inventory)</span>
+<span class="lineno"> 1390 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;matrix_debug_exported&quot; :: Text, &quot;CSV_EXPORTED&quot;)</span>
+<span class="lineno"> 1391 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;supply_chain_file&quot; :: Text, T.pack $ debugOutput opts ++ &quot;_supply_chain.csv&quot;)</span>
+<span class="lineno"> 1392 </span><span class="spaces">                                </span><span class="nottickedoff">, (&quot;biosphere_matrix_file&quot; :: Text, T.pack $ debugOutput opts ++ &quot;_biosphere_matrix.csv&quot;)</span>
+<span class="lineno"> 1393 </span><span class="spaces">                                </span><span class="nottickedoff">]</span>
+<span class="lineno"> 1394 </span><span class="spaces">                    </span><span class="nottickedoff">return $ Right $ toJSON summary</span></span>
+<span class="lineno"> 1395 </span>
+<span class="lineno"> 1396 </span>-- | Export matrices in universal matrix format (delegates to Matrix.Export)
+<span class="lineno"> 1397 </span>exportUniversalMatrixFormat :: FilePath -&gt; Database -&gt; IO ()
+<span class="lineno"> 1398 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">exportUniversalMatrixFormat = MatrixExport.exportUniversalMatrixFormat</span></span>
+<span class="lineno"> 1399 </span>
+<span class="lineno"> 1400 </span>-- ──────────────────────────────────────────────
+<span class="lineno"> 1401 </span>-- Plugin validation hooks
+<span class="lineno"> 1402 </span>-- ──────────────────────────────────────────────
+<span class="lineno"> 1403 </span>
+<span class="lineno"> 1404 </span>-- | Run pre-compute validators (before matrix solve)
+<span class="lineno"> 1405 </span>runPreComputeValidation :: [ValidateHandle] -&gt; Database -&gt; IO [ValidationIssue]
+<span class="lineno"> 1406 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">runPreComputeValidation validators db = do</span>
+<span class="lineno"> 1407 </span><span class="spaces">    </span><span class="nottickedoff">let preValidators = filter ((== PreCompute) . vhPhase) validators</span>
+<span class="lineno"> 1408 </span><span class="spaces">    </span><span class="nottickedoff">concat &lt;$&gt; mapM (\v -&gt; vhValidate v (ValidateContext db Nothing)) preValidators</span></span>
+<span class="lineno"> 1409 </span>
+<span class="lineno"> 1410 </span>-- | Run post-compute validators (after inventory is computed)
+<span class="lineno"> 1411 </span>runPostComputeValidation :: [ValidateHandle] -&gt; Database -&gt; Inventory -&gt; IO [ValidationIssue]
+<span class="lineno"> 1412 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">runPostComputeValidation validators db inv = do</span>
+<span class="lineno"> 1413 </span><span class="spaces">    </span><span class="nottickedoff">let postValidators = filter ((== PostCompute) . vhPhase) validators</span>
+<span class="lineno"> 1414 </span><span class="spaces">    </span><span class="nottickedoff">concat &lt;$&gt; mapM (\v -&gt; vhValidate v (ValidateContext db (Just inv))) postValidators</span></span>
+<span class="lineno"> 1415 </span>
+<span class="lineno"> 1416 </span>-- | Check if any validation issues are errors (should abort computation)
+<span class="lineno"> 1417 </span>hasValidationErrors :: [ValidationIssue] -&gt; Bool
+<span class="lineno"> 1418 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">hasValidationErrors = any ((== Error) . viSeverity)</span></span>
 
 </pre>
 </body>

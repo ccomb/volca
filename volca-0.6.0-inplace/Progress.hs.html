@@ -87,9 +87,9 @@ span.spaces    { background: white }
 <span class="lineno">   68 </span>
 <span class="lineno">   69 </span>-- | In-memory log buffer state
 <span class="lineno">   70 </span>data LogBuffer = LogBuffer
-<span class="lineno">   71 </span>    { <span class="istickedoff"><span class="funcount">-- entered 3619 times</span><span class="decl"><span class="istickedoff">lbLines</span></span></span>   :: !(Seq String)  -- ^ Buffered log lines
-<span class="lineno">   72 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2620 times</span><span class="decl"><span class="istickedoff">lbOffset</span></span></span>  :: !Int           -- ^ Absolute index of first line in buffer
-<span class="lineno">   73 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3623 times</span><span class="decl"><span class="istickedoff">lbMaxSize</span></span></span> :: !Int           -- ^ Maximum number of lines to keep
+<span class="lineno">   71 </span>    { <span class="istickedoff"><span class="funcount">-- entered 3721 times</span><span class="decl"><span class="istickedoff">lbLines</span></span></span>   :: !(Seq String)  -- ^ Buffered log lines
+<span class="lineno">   72 </span>    , <span class="istickedoff"><span class="funcount">-- entered 2720 times</span><span class="decl"><span class="istickedoff">lbOffset</span></span></span>  :: !Int           -- ^ Absolute index of first line in buffer
+<span class="lineno">   73 </span>    , <span class="istickedoff"><span class="funcount">-- entered 3710 times</span><span class="decl"><span class="istickedoff">lbMaxSize</span></span></span> :: !Int           -- ^ Maximum number of lines to keep
 <span class="lineno">   74 </span>    }
 <span class="lineno">   75 </span>
 <span class="lineno">   76 </span>-- | Global mutex to serialize all progress output operations
@@ -109,8 +109,8 @@ span.spaces    { background: white }
 <span class="lineno">   90 </span>
 <span class="lineno">   91 </span>-- | Append a line to the global log buffer
 <span class="lineno">   92 </span>appendLogLine :: String -&gt; IO ()
-<span class="lineno">   93 </span><span class="funcount">-- entered 3605 times</span><span class="decl"><span class="istickedoff">appendLogLine line = atomically $ modifyTVar' logBufferRef $ \buf -&gt;</span>
-<span class="lineno">   94 </span><span class="spaces">    </span><span class="istickedoff">let newLines = lbLines buf Seq.|&gt; <span class="nottickedoff">line</span></span>
+<span class="lineno">   93 </span><span class="funcount">-- entered 3694 times</span><span class="decl"><span class="istickedoff">appendLogLine line = atomically $ modifyTVar' logBufferRef $ \buf -&gt;</span>
+<span class="lineno">   94 </span><span class="spaces">    </span><span class="istickedoff">let newLines = lbLines buf Seq.|&gt; line</span>
 <span class="lineno">   95 </span><span class="spaces">        </span><span class="istickedoff">len = Seq.length newLines</span>
 <span class="lineno">   96 </span><span class="spaces">        </span><span class="istickedoff">maxSz = lbMaxSize buf</span>
 <span class="lineno">   97 </span><span class="spaces">    </span><span class="istickedoff">in if len &gt; maxSz</span>
@@ -123,11 +123,11 @@ span.spaces    { background: white }
 <span class="lineno">  104 </span>-- | Get log lines since a given absolute index.
 <span class="lineno">  105 </span>-- Returns (nextIndex, newLines).
 <span class="lineno">  106 </span>getLogLines :: Int -&gt; IO (Int, [String])
-<span class="lineno">  107 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">getLogLines since = do</span>
-<span class="lineno">  108 </span><span class="spaces">    </span><span class="nottickedoff">buf &lt;- readTVarIO logBufferRef</span>
-<span class="lineno">  109 </span><span class="spaces">    </span><span class="nottickedoff">let nextIndex = lbOffset buf + Seq.length (lbLines buf)</span>
-<span class="lineno">  110 </span><span class="spaces">        </span><span class="nottickedoff">startInSeq = max 0 (since - lbOffset buf)</span>
-<span class="lineno">  111 </span><span class="spaces">    </span><span class="nottickedoff">return (nextIndex, foldr (:) [] (Seq.drop startInSeq (lbLines buf)))</span></span>
+<span class="lineno">  107 </span><span class="funcount">-- entered 13 times</span><span class="decl"><span class="istickedoff">getLogLines since = do</span>
+<span class="lineno">  108 </span><span class="spaces">    </span><span class="istickedoff">buf &lt;- readTVarIO logBufferRef</span>
+<span class="lineno">  109 </span><span class="spaces">    </span><span class="istickedoff">let nextIndex = lbOffset buf + Seq.length (lbLines buf)</span>
+<span class="lineno">  110 </span><span class="spaces">        </span><span class="istickedoff">startInSeq = max 0 (since - lbOffset buf)</span>
+<span class="lineno">  111 </span><span class="spaces">    </span><span class="istickedoff">return (nextIndex, foldr (:) [] (Seq.drop startInSeq (lbLines buf)))</span></span>
 <span class="lineno">  112 </span>
 <span class="lineno">  113 </span>-- | Block until new lines appear after the given index.
 <span class="lineno">  114 </span>-- Returns (nextIndex, newLines). Uses STM retry for efficient blocking.
@@ -143,17 +143,17 @@ span.spaces    { background: white }
 <span class="lineno">  124 </span>
 <span class="lineno">  125 </span>-- | Report progress with consistent formatting and thread-safe output
 <span class="lineno">  126 </span>reportProgress :: ProgressLevel -&gt; String -&gt; IO ()
-<span class="lineno">  127 </span><span class="funcount">-- entered 3517 times</span><span class="decl"><span class="istickedoff">reportProgress level message = do</span>
+<span class="lineno">  127 </span><span class="funcount">-- entered 3604 times</span><span class="decl"><span class="istickedoff">reportProgress level message = do</span>
 <span class="lineno">  128 </span><span class="spaces">    </span><span class="istickedoff">let prefix = case level of</span>
 <span class="lineno">  129 </span><span class="spaces">            </span><span class="istickedoff">Info    -&gt; &quot;&quot;</span>
 <span class="lineno">  130 </span><span class="spaces">            </span><span class="istickedoff">Warning -&gt; &quot;[WARN] &quot;</span>
-<span class="lineno">  131 </span><span class="spaces">            </span><span class="istickedoff">Cache   -&gt; <span class="nottickedoff">&quot;[CACHE] &quot;</span></span>
+<span class="lineno">  131 </span><span class="spaces">            </span><span class="istickedoff">Cache   -&gt; &quot;[CACHE] &quot;</span>
 <span class="lineno">  132 </span><span class="spaces">            </span><span class="istickedoff">Matrix  -&gt; &quot;[MATRIX] &quot;</span>
 <span class="lineno">  133 </span><span class="spaces">            </span><span class="istickedoff">Solver  -&gt; &quot;[SOLVER] &quot;</span>
-<span class="lineno">  134 </span><span class="spaces">            </span><span class="istickedoff">Error   -&gt; <span class="nottickedoff">&quot;[ERROR] &quot;</span></span>
+<span class="lineno">  134 </span><span class="spaces">            </span><span class="istickedoff">Error   -&gt; &quot;[ERROR] &quot;</span>
 <span class="lineno">  135 </span><span class="spaces">        </span><span class="istickedoff">formatted = prefix ++ message</span>
 <span class="lineno">  136 </span><span class="spaces">    </span><span class="istickedoff">-- Append to in-memory buffer</span>
-<span class="lineno">  137 </span><span class="spaces">    </span><span class="istickedoff">appendLogLine <span class="nottickedoff">formatted</span></span>
+<span class="lineno">  137 </span><span class="spaces">    </span><span class="istickedoff">appendLogLine formatted</span>
 <span class="lineno">  138 </span><span class="spaces">    </span><span class="istickedoff">-- Serialize all output to prevent thread-unsafe stderr corruption</span>
 <span class="lineno">  139 </span><span class="spaces">    </span><span class="istickedoff">-- Catch encoding errors (safety net for Windows code page issues)</span>
 <span class="lineno">  140 </span><span class="spaces">    </span><span class="istickedoff">withMVar progressOutputMutex $ \_ -&gt;</span>
@@ -168,11 +168,11 @@ span.spaces    { background: white }
 <span class="lineno">  149 </span>
 <span class="lineno">  150 </span>-- | Report error messages
 <span class="lineno">  151 </span>reportError :: String -&gt; IO ()
-<span class="lineno">  152 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">reportError = reportProgress Error</span></span>
+<span class="lineno">  152 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">reportError = reportProgress Error</span></span>
 <span class="lineno">  153 </span>
 <span class="lineno">  154 </span>-- | Report cache-related operations
 <span class="lineno">  155 </span>reportCacheOperation :: String -&gt; IO ()
-<span class="lineno">  156 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">reportCacheOperation = reportProgress Cache</span></span>
+<span class="lineno">  156 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">reportCacheOperation = reportProgress Cache</span></span>
 <span class="lineno">  157 </span>
 <span class="lineno">  158 </span>-- | Report matrix construction operations
 <span class="lineno">  159 </span>reportMatrixOperation :: String -&gt; IO ()
@@ -180,7 +180,7 @@ span.spaces    { background: white }
 <span class="lineno">  161 </span>
 <span class="lineno">  162 </span>-- | Report matrix solver operations
 <span class="lineno">  163 </span>reportSolverOperation :: String -&gt; IO ()
-<span class="lineno">  164 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">reportSolverOperation = reportProgress Solver</span></span>
+<span class="lineno">  164 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">reportSolverOperation = reportProgress Solver</span></span>
 <span class="lineno">  165 </span>
 <span class="lineno">  166 </span>-- | Execute an operation with automatic timing and progress reporting
 <span class="lineno">  167 </span>withProgressTiming :: ProgressLevel -&gt; String -&gt; IO a -&gt; IO a
@@ -195,7 +195,7 @@ span.spaces    { background: white }
 <span class="lineno">  176 </span>
 <span class="lineno">  177 </span>-- | Format duration in seconds with appropriate precision
 <span class="lineno">  178 </span>formatDuration :: Double -&gt; String
-<span class="lineno">  179 </span><span class="funcount">-- entered 350 times</span><span class="decl"><span class="istickedoff">formatDuration duration</span>
+<span class="lineno">  179 </span><span class="funcount">-- entered 362 times</span><span class="decl"><span class="istickedoff">formatDuration duration</span>
 <span class="lineno">  180 </span><span class="spaces">    </span><span class="istickedoff">| duration &lt; 0.001 = printf &quot;%.2fms&quot; (duration * 1000)</span>
 <span class="lineno">  181 </span><span class="spaces">    </span><span class="istickedoff">| duration &lt; 1.0   = printf &quot;%.0fms&quot; (duration * 1000)</span>
 <span class="lineno">  182 </span><span class="spaces">    </span><span class="istickedoff">| duration &lt; 60.0  = printf &quot;%.2fs&quot; duration</span>

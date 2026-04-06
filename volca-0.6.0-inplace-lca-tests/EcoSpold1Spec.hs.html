@@ -24,7 +24,7 @@ span.spaces    { background: white }
 <span class="lineno">    5 </span>import Test.Hspec
 <span class="lineno">    6 </span>import Data.UUID (nil)
 <span class="lineno">    7 </span>import qualified Data.Map.Strict as M
-<span class="lineno">    8 </span>import qualified Data.Set as S
+<span class="lineno">    8 </span>import qualified Data.ByteString.Char8 as BC
 <span class="lineno">    9 </span>
 <span class="lineno">   10 </span>import Types
 <span class="lineno">   11 </span>import EcoSpold.Parser1
@@ -68,122 +68,295 @@ span.spaces    { background: white }
 <span class="lineno">   49 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">fid2 = read &quot;22222222-2222-2222-2222-222222222222&quot;</span></span>
 <span class="lineno">   50 </span><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">fid3 = read &quot;33333333-3333-3333-3333-333333333333&quot;</span></span>
 <span class="lineno">   51 </span>
-<span class="lineno">   52 </span>-- ---------------------------------------------------------------------------
-<span class="lineno">   53 </span>-- Spec
-<span class="lineno">   54 </span>-- ---------------------------------------------------------------------------
-<span class="lineno">   55 </span>
-<span class="lineno">   56 </span>spec :: Spec
-<span class="lineno">   57 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">spec = do</span>
-<span class="lineno">   58 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   59 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;generateFlowUUID&quot; $ do</span>
-<span class="lineno">   60 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is deterministic for the same inputs&quot; $</span>
-<span class="lineno">   61 </span><span class="spaces">            </span><span class="istickedoff">generateFlowUUID 42 1 &quot;CO2&quot; &quot;air&quot;</span>
-<span class="lineno">   62 </span><span class="spaces">                </span><span class="istickedoff">`shouldBe` generateFlowUUID 42 1 &quot;CO2&quot; &quot;air&quot;</span>
-<span class="lineno">   63 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   64 </span><span class="spaces">        </span><span class="istickedoff">it &quot;differs when dataset number changes&quot; $</span>
-<span class="lineno">   65 </span><span class="spaces">            </span><span class="istickedoff">generateFlowUUID 1 1 &quot;CO2&quot; &quot;air&quot;</span>
-<span class="lineno">   66 </span><span class="spaces">                </span><span class="istickedoff">`shouldNotBe` generateFlowUUID 2 1 &quot;CO2&quot; &quot;air&quot;</span>
-<span class="lineno">   67 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   68 </span><span class="spaces">        </span><span class="istickedoff">it &quot;differs when exchange number changes&quot; $</span>
-<span class="lineno">   69 </span><span class="spaces">            </span><span class="istickedoff">generateFlowUUID 1 1 &quot;CO2&quot; &quot;air&quot;</span>
-<span class="lineno">   70 </span><span class="spaces">                </span><span class="istickedoff">`shouldNotBe` generateFlowUUID 1 2 &quot;CO2&quot; &quot;air&quot;</span>
-<span class="lineno">   71 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   72 </span><span class="spaces">        </span><span class="istickedoff">it &quot;differs when flow name changes&quot; $</span>
-<span class="lineno">   73 </span><span class="spaces">            </span><span class="istickedoff">generateFlowUUID 1 1 &quot;CO2&quot; &quot;air&quot;</span>
-<span class="lineno">   74 </span><span class="spaces">                </span><span class="istickedoff">`shouldNotBe` generateFlowUUID 1 1 &quot;methane&quot; &quot;air&quot;</span>
-<span class="lineno">   75 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   76 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;generateUnitUUID&quot; $ do</span>
-<span class="lineno">   77 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is deterministic for the same unit name&quot; $</span>
-<span class="lineno">   78 </span><span class="spaces">            </span><span class="istickedoff">generateUnitUUID &quot;kg&quot; `shouldBe` generateUnitUUID &quot;kg&quot;</span>
-<span class="lineno">   79 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   80 </span><span class="spaces">        </span><span class="istickedoff">it &quot;differs for different unit names&quot; $</span>
-<span class="lineno">   81 </span><span class="spaces">            </span><span class="istickedoff">generateUnitUUID &quot;kg&quot; `shouldNotBe` generateUnitUUID &quot;m3&quot;</span>
-<span class="lineno">   82 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;isProductionExchange&quot; $ do</span>
-<span class="lineno">   84 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is True for a TechnosphereExchange output (isInput=False)&quot; $</span>
-<span class="lineno">   85 </span><span class="spaces">            </span><span class="istickedoff">isProductionExchange (mkOutput fid1 1.0) `shouldBe` True</span>
-<span class="lineno">   86 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   87 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is False for a TechnosphereExchange input (isInput=True)&quot; $</span>
-<span class="lineno">   88 </span><span class="spaces">            </span><span class="istickedoff">isProductionExchange (mkInput fid1 1.0) `shouldBe` False</span>
-<span class="lineno">   89 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   90 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is False for a BiosphereExchange&quot; $</span>
-<span class="lineno">   91 </span><span class="spaces">            </span><span class="istickedoff">isProductionExchange (mkBio fid1 1.0) `shouldBe` False</span>
-<span class="lineno">   92 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   93 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;hasReferenceProduct&quot; $ do</span>
-<span class="lineno">   94 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is False for an activity with no exchanges&quot; $</span>
-<span class="lineno">   95 </span><span class="spaces">            </span><span class="istickedoff">hasReferenceProduct emptyActivity `shouldBe` False</span>
-<span class="lineno">   96 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">   97 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is False when only non-reference outputs exist&quot; $ do</span>
-<span class="lineno">   98 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0] }</span>
-<span class="lineno">   99 </span><span class="spaces">            </span><span class="istickedoff">hasReferenceProduct act `shouldBe` False</span>
-<span class="lineno">  100 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  101 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is True when at least one reference exchange exists&quot; $ do</span>
-<span class="lineno">  102 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkRefOutput fid1 1.0] }</span>
-<span class="lineno">  103 </span><span class="spaces">            </span><span class="istickedoff">hasReferenceProduct act `shouldBe` True</span>
-<span class="lineno">  104 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  105 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;removeZeroAmountCoproducts&quot; $ do</span>
-<span class="lineno">  106 </span><span class="spaces">        </span><span class="istickedoff">it &quot;keeps non-zero production outputs&quot; $</span>
-<span class="lineno">  107 </span><span class="spaces">            </span><span class="istickedoff">length (removeZeroAmountCoproducts [mkOutput fid1 1.0]) `shouldBe` 1</span>
-<span class="lineno">  108 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  109 </span><span class="spaces">        </span><span class="istickedoff">it &quot;removes zero-amount non-reference production outputs&quot; $</span>
-<span class="lineno">  110 </span><span class="spaces">            </span><span class="istickedoff">length (removeZeroAmountCoproducts [mkOutput fid1 0.0]) `shouldBe` 0</span>
-<span class="lineno">  111 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  112 </span><span class="spaces">        </span><span class="istickedoff">it &quot;keeps reference outputs even at zero amount&quot; $ do</span>
-<span class="lineno">  113 </span><span class="spaces">            </span><span class="istickedoff">let result = removeZeroAmountCoproducts [mkRefOutput fid1 0.0]</span>
-<span class="lineno">  114 </span><span class="spaces">            </span><span class="istickedoff">length result `shouldBe` 1</span>
-<span class="lineno">  115 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  116 </span><span class="spaces">        </span><span class="istickedoff">it &quot;keeps inputs regardless of amount&quot; $</span>
-<span class="lineno">  117 </span><span class="spaces">            </span><span class="istickedoff">length (removeZeroAmountCoproducts [mkInput fid1 0.0]) `shouldBe` 1</span>
-<span class="lineno">  118 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  119 </span><span class="spaces">        </span><span class="istickedoff">it &quot;keeps biosphere exchanges regardless of amount&quot; $</span>
-<span class="lineno">  120 </span><span class="spaces">            </span><span class="istickedoff">length (removeZeroAmountCoproducts [mkBio fid1 0.0]) `shouldBe` 1</span>
-<span class="lineno">  121 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  122 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;assignSingleProductAsReference&quot; $ do</span>
-<span class="lineno">  123 </span><span class="spaces">        </span><span class="istickedoff">it &quot;marks the only non-zero production output as reference&quot; $ do</span>
-<span class="lineno">  124 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0, mkBio fid2 0.5] }</span>
-<span class="lineno">  125 </span><span class="spaces">                </span><span class="istickedoff">result = assignSingleProductAsReference act</span>
-<span class="lineno">  126 </span><span class="spaces">            </span><span class="istickedoff">length (filter exchangeIsReference (exchanges result)) `shouldBe` 1</span>
-<span class="lineno">  127 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  128 </span><span class="spaces">        </span><span class="istickedoff">it &quot;does not assign when multiple non-zero outputs exist&quot; $ do</span>
-<span class="lineno">  129 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0, mkOutput fid2 2.0] }</span>
-<span class="lineno">  130 </span><span class="spaces">                </span><span class="istickedoff">result = assignSingleProductAsReference act</span>
-<span class="lineno">  131 </span><span class="spaces">            </span><span class="istickedoff">length (filter exchangeIsReference (exchanges result)) `shouldBe` 0</span>
-<span class="lineno">  132 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  133 </span><span class="spaces">        </span><span class="istickedoff">it &quot;does not assign when no non-zero outputs exist&quot; $ do</span>
-<span class="lineno">  134 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 0.0] }</span>
-<span class="lineno">  135 </span><span class="spaces">                </span><span class="istickedoff">result = assignSingleProductAsReference act</span>
-<span class="lineno">  136 </span><span class="spaces">            </span><span class="istickedoff">length (filter exchangeIsReference (exchanges result)) `shouldBe` 0</span>
-<span class="lineno">  137 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  138 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;applyCutoffStrategy&quot; $ do</span>
-<span class="lineno">  139 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Right when a reference product exists&quot; $ do</span>
-<span class="lineno">  140 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkRefOutput fid1 1.0] }</span>
-<span class="lineno">  141 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
-<span class="lineno">  142 </span><span class="spaces">                </span><span class="istickedoff">Right _  -&gt; return <span class="nottickedoff">()</span></span>
-<span class="lineno">  143 </span><span class="spaces">                </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">expectationFailure $ &quot;Expected Right: &quot; ++ err</span></span>
-<span class="lineno">  144 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  145 </span><span class="spaces">        </span><span class="istickedoff">it &quot;assigns reference product when exactly one non-zero output&quot; $ do</span>
-<span class="lineno">  146 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0] }</span>
-<span class="lineno">  147 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
-<span class="lineno">  148 </span><span class="spaces">                </span><span class="istickedoff">Right result -&gt; length (filter exchangeIsReference (exchanges result)) `shouldBe` 1</span>
-<span class="lineno">  149 </span><span class="spaces">                </span><span class="istickedoff">Left err     -&gt; <span class="nottickedoff">expectationFailure $ &quot;Expected Right: &quot; ++ err</span></span>
+<span class="lineno">   52 </span>-- | Minimal valid EcoSpold1 XML with one reference product and one air emission
+<span class="lineno">   53 </span>minimalXml :: BC.ByteString
+<span class="lineno">   54 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">minimalXml = BC.unlines</span>
+<span class="lineno">   55 </span><span class="spaces">    </span><span class="istickedoff">[ &quot;&lt;?xml version=\&quot;1.0\&quot; encoding=\&quot;UTF-8\&quot;?&gt;&quot;</span>
+<span class="lineno">   56 </span><span class="spaces">    </span><span class="istickedoff">, &quot;&lt;ecoSpold xmlns=\&quot;http://www.EcoInvent.org/EcoSpold01\&quot;&gt;&quot;</span>
+<span class="lineno">   57 </span><span class="spaces">    </span><span class="istickedoff">, &quot;  &lt;dataset number=\&quot;42\&quot;&gt;&quot;</span>
+<span class="lineno">   58 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;metaInformation&gt;&quot;</span>
+<span class="lineno">   59 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;processInformation&gt;&quot;</span>
+<span class="lineno">   60 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;referenceFunction name=\&quot;electricity production\&quot; category=\&quot;Energy\&quot;&quot;</span>
+<span class="lineno">   61 </span><span class="spaces">    </span><span class="istickedoff">, &quot;                           subCategory=\&quot;Electricity\&quot; unit=\&quot;kWh\&quot;&quot;</span>
+<span class="lineno">   62 </span><span class="spaces">    </span><span class="istickedoff">, &quot;                           generalComment=\&quot;A comment\&quot;/&gt;&quot;</span>
+<span class="lineno">   63 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;geography location=\&quot;DE\&quot; /&gt;&quot;</span>
+<span class="lineno">   64 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;/processInformation&gt;&quot;</span>
+<span class="lineno">   65 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;/metaInformation&gt;&quot;</span>
+<span class="lineno">   66 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;flowData&gt;&quot;</span>
+<span class="lineno">   67 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;exchange number=\&quot;1\&quot; name=\&quot;electricity, high voltage\&quot; category=\&quot;Energy\&quot;&quot;</span>
+<span class="lineno">   68 </span><span class="spaces">    </span><span class="istickedoff">, &quot;                subCategory=\&quot;Electricity\&quot; unit=\&quot;kWh\&quot; meanValue=\&quot;1.0\&quot;&gt;&quot;</span>
+<span class="lineno">   69 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;outputGroup&gt;0&lt;/outputGroup&gt;&quot;</span>
+<span class="lineno">   70 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;/exchange&gt;&quot;</span>
+<span class="lineno">   71 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;exchange number=\&quot;2\&quot; name=\&quot;Carbon dioxide, fossil\&quot; category=\&quot;air\&quot;&quot;</span>
+<span class="lineno">   72 </span><span class="spaces">    </span><span class="istickedoff">, &quot;                subCategory=\&quot;low population density\&quot; unit=\&quot;kg\&quot; meanValue=\&quot;0.05\&quot;&quot;</span>
+<span class="lineno">   73 </span><span class="spaces">    </span><span class="istickedoff">, &quot;                CASNumber=\&quot;124-38-9\&quot;&gt;&quot;</span>
+<span class="lineno">   74 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;outputGroup&gt;4&lt;/outputGroup&gt;&quot;</span>
+<span class="lineno">   75 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;/exchange&gt;&quot;</span>
+<span class="lineno">   76 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;exchange number=\&quot;3\&quot; name=\&quot;natural gas\&quot; category=\&quot;resource\&quot;&quot;</span>
+<span class="lineno">   77 </span><span class="spaces">    </span><span class="istickedoff">, &quot;                subCategory=\&quot;in ground\&quot; unit=\&quot;MJ\&quot; meanValue=\&quot;10.0\&quot;&gt;&quot;</span>
+<span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;inputGroup&gt;4&lt;/inputGroup&gt;&quot;</span>
+<span class="lineno">   79 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;/exchange&gt;&quot;</span>
+<span class="lineno">   80 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;exchange number=\&quot;4\&quot; name=\&quot;fuel oil\&quot; category=\&quot;Liquid fuels\&quot;&quot;</span>
+<span class="lineno">   81 </span><span class="spaces">    </span><span class="istickedoff">, &quot;                unit=\&quot;kg\&quot; meanValue=\&quot;2.0\&quot;&gt;&quot;</span>
+<span class="lineno">   82 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;inputGroup&gt;5&lt;/inputGroup&gt;&quot;</span>
+<span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;/exchange&gt;&quot;</span>
+<span class="lineno">   84 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;/flowData&gt;&quot;</span>
+<span class="lineno">   85 </span><span class="spaces">    </span><span class="istickedoff">, &quot;  &lt;/dataset&gt;&quot;</span>
+<span class="lineno">   86 </span><span class="spaces">    </span><span class="istickedoff">, &quot;&lt;/ecoSpold&gt;&quot;</span>
+<span class="lineno">   87 </span><span class="spaces">    </span><span class="istickedoff">]</span></span>
+<span class="lineno">   88 </span>
+<span class="lineno">   89 </span>-- | Multi-dataset EcoSpold1 XML
+<span class="lineno">   90 </span>multiDatasetXml :: BC.ByteString
+<span class="lineno">   91 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">multiDatasetXml = BC.unlines</span>
+<span class="lineno">   92 </span><span class="spaces">    </span><span class="istickedoff">[ &quot;&lt;?xml version=\&quot;1.0\&quot; encoding=\&quot;UTF-8\&quot;?&gt;&quot;</span>
+<span class="lineno">   93 </span><span class="spaces">    </span><span class="istickedoff">, &quot;&lt;ecoSpold xmlns=\&quot;http://www.EcoInvent.org/EcoSpold01\&quot;&gt;&quot;</span>
+<span class="lineno">   94 </span><span class="spaces">    </span><span class="istickedoff">, &quot;  &lt;dataset number=\&quot;1\&quot;&gt;&quot;</span>
+<span class="lineno">   95 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;metaInformation&gt;&quot;</span>
+<span class="lineno">   96 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;processInformation&gt;&quot;</span>
+<span class="lineno">   97 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;referenceFunction name=\&quot;process A\&quot; unit=\&quot;kg\&quot;/&gt;&quot;</span>
+<span class="lineno">   98 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;geography location=\&quot;CH\&quot; /&gt;&quot;</span>
+<span class="lineno">   99 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;/processInformation&gt;&quot;</span>
+<span class="lineno">  100 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;/metaInformation&gt;&quot;</span>
+<span class="lineno">  101 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;flowData&gt;&quot;</span>
+<span class="lineno">  102 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;exchange number=\&quot;1\&quot; name=\&quot;product A\&quot; category=\&quot;goods\&quot; unit=\&quot;kg\&quot; meanValue=\&quot;1.0\&quot;&gt;&quot;</span>
+<span class="lineno">  103 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;outputGroup&gt;0&lt;/outputGroup&gt;&quot;</span>
+<span class="lineno">  104 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;/exchange&gt;&quot;</span>
+<span class="lineno">  105 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;/flowData&gt;&quot;</span>
+<span class="lineno">  106 </span><span class="spaces">    </span><span class="istickedoff">, &quot;  &lt;/dataset&gt;&quot;</span>
+<span class="lineno">  107 </span><span class="spaces">    </span><span class="istickedoff">, &quot;  &lt;dataset number=\&quot;2\&quot;&gt;&quot;</span>
+<span class="lineno">  108 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;metaInformation&gt;&quot;</span>
+<span class="lineno">  109 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;processInformation&gt;&quot;</span>
+<span class="lineno">  110 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;referenceFunction name=\&quot;process B\&quot; unit=\&quot;kg\&quot;/&gt;&quot;</span>
+<span class="lineno">  111 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;geography location=\&quot;FR\&quot; /&gt;&quot;</span>
+<span class="lineno">  112 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;/processInformation&gt;&quot;</span>
+<span class="lineno">  113 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;/metaInformation&gt;&quot;</span>
+<span class="lineno">  114 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;flowData&gt;&quot;</span>
+<span class="lineno">  115 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;exchange number=\&quot;1\&quot; name=\&quot;product B\&quot; category=\&quot;goods\&quot; unit=\&quot;kg\&quot; meanValue=\&quot;1.0\&quot;&gt;&quot;</span>
+<span class="lineno">  116 </span><span class="spaces">    </span><span class="istickedoff">, &quot;        &lt;outputGroup&gt;0&lt;/outputGroup&gt;&quot;</span>
+<span class="lineno">  117 </span><span class="spaces">    </span><span class="istickedoff">, &quot;      &lt;/exchange&gt;&quot;</span>
+<span class="lineno">  118 </span><span class="spaces">    </span><span class="istickedoff">, &quot;    &lt;/flowData&gt;&quot;</span>
+<span class="lineno">  119 </span><span class="spaces">    </span><span class="istickedoff">, &quot;  &lt;/dataset&gt;&quot;</span>
+<span class="lineno">  120 </span><span class="spaces">    </span><span class="istickedoff">, &quot;&lt;/ecoSpold&gt;&quot;</span>
+<span class="lineno">  121 </span><span class="spaces">    </span><span class="istickedoff">]</span></span>
+<span class="lineno">  122 </span>
+<span class="lineno">  123 </span>-- ---------------------------------------------------------------------------
+<span class="lineno">  124 </span>-- Spec
+<span class="lineno">  125 </span>-- ---------------------------------------------------------------------------
+<span class="lineno">  126 </span>
+<span class="lineno">  127 </span>spec :: Spec
+<span class="lineno">  128 </span><span class="funcount">-- entered once</span><span class="decl"><span class="istickedoff">spec = do</span>
+<span class="lineno">  129 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  130 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;generateFlowUUID&quot; $ do</span>
+<span class="lineno">  131 </span><span class="spaces">        </span><span class="istickedoff">it &quot;produces a stable UUID for known inputs&quot; $</span>
+<span class="lineno">  132 </span><span class="spaces">            </span><span class="istickedoff">generateFlowUUID 42 1 &quot;CO2&quot; &quot;air&quot;</span>
+<span class="lineno">  133 </span><span class="spaces">                </span><span class="istickedoff">`shouldBe` read &quot;4b869b57-e716-5e42-ae6f-0536cf112615&quot;</span>
+<span class="lineno">  134 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  135 </span><span class="spaces">        </span><span class="istickedoff">it &quot;differs when dataset number changes&quot; $</span>
+<span class="lineno">  136 </span><span class="spaces">            </span><span class="istickedoff">generateFlowUUID 1 1 &quot;CO2&quot; &quot;air&quot;</span>
+<span class="lineno">  137 </span><span class="spaces">                </span><span class="istickedoff">`shouldNotBe` generateFlowUUID 2 1 &quot;CO2&quot; &quot;air&quot;</span>
+<span class="lineno">  138 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  139 </span><span class="spaces">        </span><span class="istickedoff">it &quot;differs when exchange number changes&quot; $</span>
+<span class="lineno">  140 </span><span class="spaces">            </span><span class="istickedoff">generateFlowUUID 1 1 &quot;CO2&quot; &quot;air&quot;</span>
+<span class="lineno">  141 </span><span class="spaces">                </span><span class="istickedoff">`shouldNotBe` generateFlowUUID 1 2 &quot;CO2&quot; &quot;air&quot;</span>
+<span class="lineno">  142 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  143 </span><span class="spaces">        </span><span class="istickedoff">it &quot;differs when flow name changes&quot; $</span>
+<span class="lineno">  144 </span><span class="spaces">            </span><span class="istickedoff">generateFlowUUID 1 1 &quot;CO2&quot; &quot;air&quot;</span>
+<span class="lineno">  145 </span><span class="spaces">                </span><span class="istickedoff">`shouldNotBe` generateFlowUUID 1 1 &quot;methane&quot; &quot;air&quot;</span>
+<span class="lineno">  146 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  147 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;generateUnitUUID&quot; $ do</span>
+<span class="lineno">  148 </span><span class="spaces">        </span><span class="istickedoff">it &quot;produces a stable UUID for known inputs&quot; $</span>
+<span class="lineno">  149 </span><span class="spaces">            </span><span class="istickedoff">generateUnitUUID &quot;kg&quot; `shouldBe` read &quot;d74bc05e-6502-555a-a40c-e6e7580dbf93&quot;</span>
 <span class="lineno">  150 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  151 </span><span class="spaces">        </span><span class="istickedoff">it &quot;removes zero-amount coproducts before strategy&quot; $ do</span>
-<span class="lineno">  152 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkRefOutput fid1 1.0, mkOutput fid2 0.0] }</span>
-<span class="lineno">  153 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
-<span class="lineno">  154 </span><span class="spaces">                </span><span class="istickedoff">Right result -&gt; length (exchanges result) `shouldBe` 1</span>
-<span class="lineno">  155 </span><span class="spaces">                </span><span class="istickedoff">Left err     -&gt; <span class="nottickedoff">expectationFailure $ &quot;Expected Right: &quot; ++ err</span></span>
-<span class="lineno">  156 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  157 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Left when no reference product can be assigned&quot; $ do</span>
-<span class="lineno">  158 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [] }</span>
-<span class="lineno">  159 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
-<span class="lineno">  160 </span><span class="spaces">                </span><span class="istickedoff">Left _  -&gt; return <span class="nottickedoff">()</span></span>
-<span class="lineno">  161 </span><span class="spaces">                </span><span class="istickedoff">Right _ -&gt; <span class="nottickedoff">expectationFailure &quot;Expected Left for activity with no exchanges&quot;</span></span>
-<span class="lineno">  162 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno">  163 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Left when multiple non-zero outputs and no reference&quot; $ do</span>
-<span class="lineno">  164 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0, mkOutput fid2 2.0] }</span>
-<span class="lineno">  165 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
-<span class="lineno">  166 </span><span class="spaces">                </span><span class="istickedoff">Left _  -&gt; return <span class="nottickedoff">()</span></span>
-<span class="lineno">  167 </span><span class="spaces">                </span><span class="istickedoff">Right _ -&gt; <span class="nottickedoff">expectationFailure &quot;Expected Left for ambiguous coproducts&quot;</span></span></span>
+<span class="lineno">  151 </span><span class="spaces">        </span><span class="istickedoff">it &quot;differs for different unit names&quot; $</span>
+<span class="lineno">  152 </span><span class="spaces">            </span><span class="istickedoff">generateUnitUUID &quot;kg&quot; `shouldNotBe` generateUnitUUID &quot;m3&quot;</span>
+<span class="lineno">  153 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  154 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;isProductionExchange&quot; $ do</span>
+<span class="lineno">  155 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is True for a TechnosphereExchange output (isInput=False)&quot; $</span>
+<span class="lineno">  156 </span><span class="spaces">            </span><span class="istickedoff">isProductionExchange (mkOutput fid1 1.0) `shouldBe` True</span>
+<span class="lineno">  157 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  158 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is False for a TechnosphereExchange input (isInput=True)&quot; $</span>
+<span class="lineno">  159 </span><span class="spaces">            </span><span class="istickedoff">isProductionExchange (mkInput fid1 1.0) `shouldBe` False</span>
+<span class="lineno">  160 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  161 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is False for a BiosphereExchange&quot; $</span>
+<span class="lineno">  162 </span><span class="spaces">            </span><span class="istickedoff">isProductionExchange (mkBio fid1 1.0) `shouldBe` False</span>
+<span class="lineno">  163 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  164 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;hasReferenceProduct&quot; $ do</span>
+<span class="lineno">  165 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is False for an activity with no exchanges&quot; $</span>
+<span class="lineno">  166 </span><span class="spaces">            </span><span class="istickedoff">hasReferenceProduct emptyActivity `shouldBe` False</span>
+<span class="lineno">  167 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  168 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is False when only non-reference outputs exist&quot; $ do</span>
+<span class="lineno">  169 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0] }</span>
+<span class="lineno">  170 </span><span class="spaces">            </span><span class="istickedoff">hasReferenceProduct act `shouldBe` False</span>
+<span class="lineno">  171 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  172 </span><span class="spaces">        </span><span class="istickedoff">it &quot;is True when at least one reference exchange exists&quot; $ do</span>
+<span class="lineno">  173 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkRefOutput fid1 1.0] }</span>
+<span class="lineno">  174 </span><span class="spaces">            </span><span class="istickedoff">hasReferenceProduct act `shouldBe` True</span>
+<span class="lineno">  175 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  176 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;removeZeroAmountCoproducts&quot; $ do</span>
+<span class="lineno">  177 </span><span class="spaces">        </span><span class="istickedoff">it &quot;keeps non-zero production outputs&quot; $</span>
+<span class="lineno">  178 </span><span class="spaces">            </span><span class="istickedoff">length (removeZeroAmountCoproducts [mkOutput fid1 1.0]) `shouldBe` 1</span>
+<span class="lineno">  179 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  180 </span><span class="spaces">        </span><span class="istickedoff">it &quot;removes zero-amount non-reference production outputs&quot; $</span>
+<span class="lineno">  181 </span><span class="spaces">            </span><span class="istickedoff">length (removeZeroAmountCoproducts [mkOutput fid1 0.0]) `shouldBe` 0</span>
+<span class="lineno">  182 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  183 </span><span class="spaces">        </span><span class="istickedoff">it &quot;keeps reference outputs even at zero amount&quot; $ do</span>
+<span class="lineno">  184 </span><span class="spaces">            </span><span class="istickedoff">let result = removeZeroAmountCoproducts [mkRefOutput fid1 0.0]</span>
+<span class="lineno">  185 </span><span class="spaces">            </span><span class="istickedoff">length result `shouldBe` 1</span>
+<span class="lineno">  186 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  187 </span><span class="spaces">        </span><span class="istickedoff">it &quot;keeps inputs regardless of amount&quot; $</span>
+<span class="lineno">  188 </span><span class="spaces">            </span><span class="istickedoff">length (removeZeroAmountCoproducts [mkInput fid1 0.0]) `shouldBe` 1</span>
+<span class="lineno">  189 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  190 </span><span class="spaces">        </span><span class="istickedoff">it &quot;keeps biosphere exchanges regardless of amount&quot; $</span>
+<span class="lineno">  191 </span><span class="spaces">            </span><span class="istickedoff">length (removeZeroAmountCoproducts [mkBio fid1 0.0]) `shouldBe` 1</span>
+<span class="lineno">  192 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  193 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;assignSingleProductAsReference&quot; $ do</span>
+<span class="lineno">  194 </span><span class="spaces">        </span><span class="istickedoff">it &quot;marks the only non-zero production output as reference&quot; $ do</span>
+<span class="lineno">  195 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0, mkBio fid2 0.5] }</span>
+<span class="lineno">  196 </span><span class="spaces">                </span><span class="istickedoff">result = assignSingleProductAsReference act</span>
+<span class="lineno">  197 </span><span class="spaces">            </span><span class="istickedoff">length (filter exchangeIsReference (exchanges result)) `shouldBe` 1</span>
+<span class="lineno">  198 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  199 </span><span class="spaces">        </span><span class="istickedoff">it &quot;does not assign when multiple non-zero outputs exist&quot; $ do</span>
+<span class="lineno">  200 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0, mkOutput fid2 2.0] }</span>
+<span class="lineno">  201 </span><span class="spaces">                </span><span class="istickedoff">result = assignSingleProductAsReference act</span>
+<span class="lineno">  202 </span><span class="spaces">            </span><span class="istickedoff">length (filter exchangeIsReference (exchanges result)) `shouldBe` 0</span>
+<span class="lineno">  203 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  204 </span><span class="spaces">        </span><span class="istickedoff">it &quot;does not assign when no non-zero outputs exist&quot; $ do</span>
+<span class="lineno">  205 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 0.0] }</span>
+<span class="lineno">  206 </span><span class="spaces">                </span><span class="istickedoff">result = assignSingleProductAsReference act</span>
+<span class="lineno">  207 </span><span class="spaces">            </span><span class="istickedoff">length (filter exchangeIsReference (exchanges result)) `shouldBe` 0</span>
+<span class="lineno">  208 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  209 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;applyCutoffStrategy&quot; $ do</span>
+<span class="lineno">  210 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Right when a reference product exists&quot; $ do</span>
+<span class="lineno">  211 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkRefOutput fid1 1.0] }</span>
+<span class="lineno">  212 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
+<span class="lineno">  213 </span><span class="spaces">                </span><span class="istickedoff">Right _  -&gt; return <span class="nottickedoff">()</span></span>
+<span class="lineno">  214 </span><span class="spaces">                </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">expectationFailure $ &quot;Expected Right: &quot; ++ err</span></span>
+<span class="lineno">  215 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  216 </span><span class="spaces">        </span><span class="istickedoff">it &quot;assigns reference product when exactly one non-zero output&quot; $ do</span>
+<span class="lineno">  217 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0] }</span>
+<span class="lineno">  218 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
+<span class="lineno">  219 </span><span class="spaces">                </span><span class="istickedoff">Right result -&gt; length (filter exchangeIsReference (exchanges result)) `shouldBe` 1</span>
+<span class="lineno">  220 </span><span class="spaces">                </span><span class="istickedoff">Left err     -&gt; <span class="nottickedoff">expectationFailure $ &quot;Expected Right: &quot; ++ err</span></span>
+<span class="lineno">  221 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  222 </span><span class="spaces">        </span><span class="istickedoff">it &quot;removes zero-amount coproducts before strategy&quot; $ do</span>
+<span class="lineno">  223 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkRefOutput fid1 1.0, mkOutput fid2 0.0] }</span>
+<span class="lineno">  224 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
+<span class="lineno">  225 </span><span class="spaces">                </span><span class="istickedoff">Right result -&gt; length (exchanges result) `shouldBe` 1</span>
+<span class="lineno">  226 </span><span class="spaces">                </span><span class="istickedoff">Left err     -&gt; <span class="nottickedoff">expectationFailure $ &quot;Expected Right: &quot; ++ err</span></span>
+<span class="lineno">  227 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  228 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Left when no reference product can be assigned&quot; $ do</span>
+<span class="lineno">  229 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [] }</span>
+<span class="lineno">  230 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
+<span class="lineno">  231 </span><span class="spaces">                </span><span class="istickedoff">Left _  -&gt; return <span class="nottickedoff">()</span></span>
+<span class="lineno">  232 </span><span class="spaces">                </span><span class="istickedoff">Right _ -&gt; <span class="nottickedoff">expectationFailure &quot;Expected Left for activity with no exchanges&quot;</span></span>
+<span class="lineno">  233 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  234 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Left when multiple non-zero outputs and no reference&quot; $ do</span>
+<span class="lineno">  235 </span><span class="spaces">            </span><span class="istickedoff">let act = emptyActivity { exchanges = [mkOutput fid1 1.0, mkOutput fid2 2.0] }</span>
+<span class="lineno">  236 </span><span class="spaces">            </span><span class="istickedoff">case applyCutoffStrategy act of</span>
+<span class="lineno">  237 </span><span class="spaces">                </span><span class="istickedoff">Left _  -&gt; return <span class="nottickedoff">()</span></span>
+<span class="lineno">  238 </span><span class="spaces">                </span><span class="istickedoff">Right _ -&gt; <span class="nottickedoff">expectationFailure &quot;Expected Left for ambiguous coproducts&quot;</span></span>
+<span class="lineno">  239 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  240 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">  241 </span><span class="spaces">    </span><span class="istickedoff">-- parseWithXeno — parsing inline XML</span>
+<span class="lineno">  242 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">  243 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;parseWithXeno&quot; $ do</span>
+<span class="lineno">  244 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Left for invalid XML&quot; $</span>
+<span class="lineno">  245 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno &quot;&lt;not-xml&quot; of</span>
+<span class="lineno">  246 </span><span class="spaces">                </span><span class="istickedoff">Left _  -&gt; return <span class="nottickedoff">()</span></span>
+<span class="lineno">  247 </span><span class="spaces">                </span><span class="istickedoff">Right _ -&gt; <span class="nottickedoff">expectationFailure &quot;Expected Left for invalid XML&quot;</span></span>
+<span class="lineno">  248 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  249 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses activity name from referenceFunction&quot; $</span>
+<span class="lineno">  250 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  251 </span><span class="spaces">                </span><span class="istickedoff">Left err        -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  252 </span><span class="spaces">                </span><span class="istickedoff">Right (act, _, _, _, _) -&gt; activityName act `shouldBe` &quot;electricity production&quot;</span>
+<span class="lineno">  253 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  254 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses activity location from geography&quot; $</span>
+<span class="lineno">  255 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  256 </span><span class="spaces">                </span><span class="istickedoff">Left err        -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  257 </span><span class="spaces">                </span><span class="istickedoff">Right (act, _, _, _, _) -&gt; activityLocation act `shouldBe` &quot;DE&quot;</span>
+<span class="lineno">  258 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  259 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses activity unit from referenceFunction&quot; $</span>
+<span class="lineno">  260 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  261 </span><span class="spaces">                </span><span class="istickedoff">Left err        -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  262 </span><span class="spaces">                </span><span class="istickedoff">Right (act, _, _, _, _) -&gt; activityUnit act `shouldBe` &quot;kWh&quot;</span>
+<span class="lineno">  263 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  264 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses dataset number&quot; $</span>
+<span class="lineno">  265 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  266 </span><span class="spaces">                </span><span class="istickedoff">Left err        -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  267 </span><span class="spaces">                </span><span class="istickedoff">Right (_, _, _, num, _) -&gt; num `shouldBe` 42</span>
+<span class="lineno">  268 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  269 </span><span class="spaces">        </span><span class="istickedoff">it &quot;produces 4 exchanges&quot; $</span>
+<span class="lineno">  270 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  271 </span><span class="spaces">                </span><span class="istickedoff">Left err        -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  272 </span><span class="spaces">                </span><span class="istickedoff">Right (act, _, _, _, _) -&gt; length (exchanges act) `shouldBe` 4</span>
+<span class="lineno">  273 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  274 </span><span class="spaces">        </span><span class="istickedoff">it &quot;produces 4 flows&quot; $</span>
+<span class="lineno">  275 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  276 </span><span class="spaces">                </span><span class="istickedoff">Left err        -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  277 </span><span class="spaces">                </span><span class="istickedoff">Right (_, flows, _, _, _) -&gt; length flows `shouldBe` 4</span>
+<span class="lineno">  278 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  279 </span><span class="spaces">        </span><span class="istickedoff">it &quot;marks the reference output (outputGroup 0) as isReference&quot; $</span>
+<span class="lineno">  280 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  281 </span><span class="spaces">                </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  282 </span><span class="spaces">                </span><span class="istickedoff">Right (act, _, _, _, _) -&gt;</span>
+<span class="lineno">  283 </span><span class="spaces">                    </span><span class="istickedoff">length (filter exchangeIsReference (exchanges act)) `shouldBe` 1</span>
+<span class="lineno">  284 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  285 </span><span class="spaces">        </span><span class="istickedoff">it &quot;marks biosphere exchange (outputGroup 4) as BiosphereExchange&quot; $</span>
+<span class="lineno">  286 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  287 </span><span class="spaces">                </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  288 </span><span class="spaces">                </span><span class="istickedoff">Right (act, _, _, _, _) -&gt;</span>
+<span class="lineno">  289 </span><span class="spaces">                    </span><span class="istickedoff">let bios = filter (\e -&gt; case e of { BiosphereExchange {} -&gt; True; _ -&gt; False }) (exchanges act)</span>
+<span class="lineno">  290 </span><span class="spaces">                    </span><span class="istickedoff">in length bios `shouldBe` 2   -- CO2 output + natural gas input (inputGroup 4)</span>
+<span class="lineno">  291 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  292 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses flow with CAS number&quot; $</span>
+<span class="lineno">  293 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  294 </span><span class="spaces">                </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  295 </span><span class="spaces">                </span><span class="istickedoff">Right (_, flows, _, _, _) -&gt;</span>
+<span class="lineno">  296 </span><span class="spaces">                    </span><span class="istickedoff">let co2Flows = filter (\f -&gt; flowName f == &quot;Carbon dioxide, fossil&quot;) flows</span>
+<span class="lineno">  297 </span><span class="spaces">                    </span><span class="istickedoff">in case co2Flows of</span>
+<span class="lineno">  298 </span><span class="spaces">                        </span><span class="istickedoff">[f] -&gt; flowCAS f `shouldBe` Just &quot;124-38-9&quot;</span>
+<span class="lineno">  299 </span><span class="spaces">                        </span><span class="istickedoff">_   -&gt; <span class="nottickedoff">expectationFailure &quot;Expected exactly one CO2 flow&quot;</span></span>
+<span class="lineno">  300 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  301 </span><span class="spaces">        </span><span class="istickedoff">it &quot;sets activity classification from category/subCategory&quot; $</span>
+<span class="lineno">  302 </span><span class="spaces">            </span><span class="istickedoff">case parseWithXeno minimalXml of</span>
+<span class="lineno">  303 </span><span class="spaces">                </span><span class="istickedoff">Left err -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  304 </span><span class="spaces">                </span><span class="istickedoff">Right (act, _, _, _, _) -&gt;</span>
+<span class="lineno">  305 </span><span class="spaces">                    </span><span class="istickedoff">M.lookup &quot;Category&quot; (activityClassification act) `shouldBe` Just &quot;Energy&quot;</span>
+<span class="lineno">  306 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  307 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">  308 </span><span class="spaces">    </span><span class="istickedoff">-- parseAllWithXeno — multi-dataset</span>
+<span class="lineno">  309 </span><span class="spaces">    </span><span class="istickedoff">-- -----------------------------------------------------------------------</span>
+<span class="lineno">  310 </span><span class="spaces">    </span><span class="istickedoff">describe &quot;parseAllWithXeno&quot; $ do</span>
+<span class="lineno">  311 </span><span class="spaces">        </span><span class="istickedoff">it &quot;returns Left for invalid XML&quot; $</span>
+<span class="lineno">  312 </span><span class="spaces">            </span><span class="istickedoff">case parseAllWithXeno &quot;&lt;not-xml&quot; of</span>
+<span class="lineno">  313 </span><span class="spaces">                </span><span class="istickedoff">Left _  -&gt; return <span class="nottickedoff">()</span></span>
+<span class="lineno">  314 </span><span class="spaces">                </span><span class="istickedoff">Right _ -&gt; <span class="nottickedoff">expectationFailure &quot;Expected Left for invalid XML&quot;</span></span>
+<span class="lineno">  315 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  316 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses two datasets from multi-dataset XML&quot; $</span>
+<span class="lineno">  317 </span><span class="spaces">            </span><span class="istickedoff">case parseAllWithXeno multiDatasetXml of</span>
+<span class="lineno">  318 </span><span class="spaces">                </span><span class="istickedoff">Left err     -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  319 </span><span class="spaces">                </span><span class="istickedoff">Right results -&gt; length results `shouldBe` 2</span>
+<span class="lineno">  320 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  321 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses activity names from both datasets&quot; $</span>
+<span class="lineno">  322 </span><span class="spaces">            </span><span class="istickedoff">case parseAllWithXeno multiDatasetXml of</span>
+<span class="lineno">  323 </span><span class="spaces">                </span><span class="istickedoff">Left err     -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  324 </span><span class="spaces">                </span><span class="istickedoff">Right results -&gt;</span>
+<span class="lineno">  325 </span><span class="spaces">                    </span><span class="istickedoff">let names = [ activityName act | Right (act, _, _, _, _) &lt;- results ]</span>
+<span class="lineno">  326 </span><span class="spaces">                    </span><span class="istickedoff">in names `shouldBe` [&quot;process A&quot;, &quot;process B&quot;]</span>
+<span class="lineno">  327 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  328 </span><span class="spaces">        </span><span class="istickedoff">it &quot;preserves dataset numbers in order&quot; $</span>
+<span class="lineno">  329 </span><span class="spaces">            </span><span class="istickedoff">case parseAllWithXeno multiDatasetXml of</span>
+<span class="lineno">  330 </span><span class="spaces">                </span><span class="istickedoff">Left err     -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  331 </span><span class="spaces">                </span><span class="istickedoff">Right results -&gt;</span>
+<span class="lineno">  332 </span><span class="spaces">                    </span><span class="istickedoff">let nums = [ n | Right (_, _, _, n, _) &lt;- results ]</span>
+<span class="lineno">  333 </span><span class="spaces">                    </span><span class="istickedoff">in nums `shouldBe` [1, 2]</span>
+<span class="lineno">  334 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  335 </span><span class="spaces">        </span><span class="istickedoff">it &quot;parses location from each dataset&quot; $</span>
+<span class="lineno">  336 </span><span class="spaces">            </span><span class="istickedoff">case parseAllWithXeno multiDatasetXml of</span>
+<span class="lineno">  337 </span><span class="spaces">                </span><span class="istickedoff">Left err     -&gt; <span class="nottickedoff">expectationFailure $ &quot;Parse failed: &quot; ++ err</span></span>
+<span class="lineno">  338 </span><span class="spaces">                </span><span class="istickedoff">Right results -&gt;</span>
+<span class="lineno">  339 </span><span class="spaces">                    </span><span class="istickedoff">let locs = [ activityLocation act | Right (act, _, _, _, _) &lt;- results ]</span>
+<span class="lineno">  340 </span><span class="spaces">                    </span><span class="istickedoff">in locs `shouldBe` [&quot;CH&quot;, &quot;FR&quot;]</span></span>
 
 </pre>
 </body>

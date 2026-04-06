@@ -82,7 +82,7 @@ span.spaces    { background: white }
 <span class="lineno">   63 </span>    { <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">spVersion</span></span></span> :: !Text           -- SimaPro version (e.g. &quot;9.6.0.1&quot;)
 <span class="lineno">   64 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">spFileType</span></span></span> :: !Text          -- &quot;processes&quot;, &quot;methods&quot;, &quot;product stages&quot;
 <span class="lineno">   65 </span>    , <span class="istickedoff"><span class="funcount">-- entered 348 times</span><span class="decl"><span class="istickedoff">spDelimiter</span></span></span> :: !Char         -- CSV delimiter (';', ',', '\t')
-<span class="lineno">   66 </span>    , <span class="istickedoff"><span class="funcount">-- entered 393 times</span><span class="decl"><span class="istickedoff">spDecimal</span></span></span> :: !Char           -- Decimal separator (',' or '.')
+<span class="lineno">   66 </span>    , <span class="istickedoff"><span class="funcount">-- entered 394 times</span><span class="decl"><span class="istickedoff">spDecimal</span></span></span> :: !Char           -- Decimal separator (',' or '.')
 <span class="lineno">   67 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">spDateFormat</span></span></span> :: !Text        -- Date format string
 <span class="lineno">   68 </span>    }
 <span class="lineno">   69 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
@@ -104,7 +104,7 @@ span.spaces    { background: white }
 <span class="lineno">   85 </span>
 <span class="lineno">   86 </span>-- | Product row (reference output)
 <span class="lineno">   87 </span>data ProductRow = ProductRow
-<span class="lineno">   88 </span>    { <span class="istickedoff"><span class="funcount">-- entered 34 times</span><span class="decl"><span class="istickedoff">prName</span></span></span> :: !Text
+<span class="lineno">   88 </span>    { <span class="istickedoff"><span class="funcount">-- entered 35 times</span><span class="decl"><span class="istickedoff">prName</span></span></span> :: !Text
 <span class="lineno">   89 </span>    , <span class="istickedoff"><span class="funcount">-- entered 70 times</span><span class="decl"><span class="istickedoff">prUnit</span></span></span> :: !Text
 <span class="lineno">   90 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">prAmount</span></span></span> :: !Double
 <span class="lineno">   91 </span>    , <span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">prAmountRaw</span></span></span> :: !Text
@@ -232,7 +232,7 @@ span.spaces    { background: white }
 <span class="lineno">  213 </span>    | InProcessMeta !BS.ByteString  -- Current metadata key being read
 <span class="lineno">  214 </span>    | InSection !SectionType
 <span class="lineno">  215 </span>    | BetweenBlocks
-<span class="lineno">  216 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- entered 390 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
+<span class="lineno">  216 </span>    deriving (<span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="funcount">-- entered 389 times</span><span class="decl"><span class="istickedoff"><span class="funcount">-- never entered</span><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
 <span class="lineno">  217 </span>
 <span class="lineno">  218 </span>-- | Parse state accumulator
 <span class="lineno">  219 </span>data ParseAcc = ParseAcc
@@ -253,7 +253,7 @@ span.spaces    { background: white }
 <span class="lineno">  234 </span>
 <span class="lineno">  235 </span>-- | Parse a header line like &quot;{key: value}&quot; or &quot;{value}&quot;
 <span class="lineno">  236 </span>parseHeaderLine :: BS.ByteString -&gt; Maybe (BS.ByteString, BS.ByteString)
-<span class="lineno">  237 </span><span class="funcount">-- entered 676 times</span><span class="decl"><span class="istickedoff">parseHeaderLine line</span>
+<span class="lineno">  237 </span><span class="funcount">-- entered 685 times</span><span class="decl"><span class="istickedoff">parseHeaderLine line</span>
 <span class="lineno">  238 </span><span class="spaces">    </span><span class="istickedoff">| BS8.isPrefixOf &quot;{&quot; line &amp;&amp; BS8.isSuffixOf &quot;}&quot; line =</span>
 <span class="lineno">  239 </span><span class="spaces">        </span><span class="istickedoff">let content = BS8.init (BS8.tail line)</span>
 <span class="lineno">  240 </span><span class="spaces">        </span><span class="istickedoff">in case BS8.breakSubstring &quot;: &quot; content of</span>
@@ -263,7 +263,7 @@ span.spaces    { background: white }
 <span class="lineno">  244 </span>
 <span class="lineno">  245 </span>-- | Update config from header line (takes ByteString, stores Text)
 <span class="lineno">  246 </span>updateConfigFromHeader :: SimaProConfig -&gt; BS.ByteString -&gt; BS.ByteString -&gt; SimaProConfig
-<span class="lineno">  247 </span><span class="funcount">-- entered 93 times</span><span class="decl"><span class="istickedoff">updateConfigFromHeader cfg key value = case BS8.map toLower key of</span>
+<span class="lineno">  247 </span><span class="funcount">-- entered 97 times</span><span class="decl"><span class="istickedoff">updateConfigFromHeader cfg key value = case BS8.map toLower key of</span>
 <span class="lineno">  248 </span><span class="spaces">    </span><span class="istickedoff">k | &quot;simapro&quot; `BS8.isPrefixOf` k -&gt; cfg { spVersion = decodeBS key }</span>
 <span class="lineno">  249 </span><span class="spaces">    </span><span class="istickedoff">&quot;processes&quot; -&gt; <span class="nottickedoff">cfg { spFileType = &quot;processes&quot; }</span></span>
 <span class="lineno">  250 </span><span class="spaces">    </span><span class="istickedoff">&quot;methods&quot; -&gt; <span class="nottickedoff">cfg { spFileType = &quot;methods&quot; }</span></span>
@@ -286,7 +286,7 @@ span.spaces    { background: white }
 <span class="lineno">  267 </span>
 <span class="lineno">  268 </span>-- | Detect section type from line (ByteString)
 <span class="lineno">  269 </span>detectSection :: BS.ByteString -&gt; Maybe SectionType
-<span class="lineno">  270 </span><span class="funcount">-- entered 486 times</span><span class="decl"><span class="istickedoff">detectSection line = case BS8.strip line of</span>
+<span class="lineno">  270 </span><span class="funcount">-- entered 488 times</span><span class="decl"><span class="istickedoff">detectSection line = case BS8.strip line of</span>
 <span class="lineno">  271 </span><span class="spaces">    </span><span class="istickedoff">&quot;Products&quot; -&gt; Just SecProducts</span>
 <span class="lineno">  272 </span><span class="spaces">    </span><span class="istickedoff">&quot;Waste treatment&quot; -&gt; Just SecProducts</span>
 <span class="lineno">  273 </span><span class="spaces">    </span><span class="istickedoff">&quot;Avoided products&quot; -&gt; <span class="nottickedoff">Just SecAvoidedProducts</span></span>
@@ -311,7 +311,7 @@ span.spaces    { background: white }
 <span class="lineno">  292 </span>
 <span class="lineno">  293 </span>-- | Known metadata keys in process block (ByteString)
 <span class="lineno">  294 </span>isMetadataKey :: BS.ByteString -&gt; Bool
-<span class="lineno">  295 </span><span class="funcount">-- entered 312 times</span><span class="decl"><span class="istickedoff">isMetadataKey key = key `elem`</span>
+<span class="lineno">  295 </span><span class="funcount">-- entered 311 times</span><span class="decl"><span class="istickedoff">isMetadataKey key = key `elem`</span>
 <span class="lineno">  296 </span><span class="spaces">    </span><span class="istickedoff">[ &quot;Category type&quot;, &quot;Process identifier&quot;, &quot;Type&quot;, &quot;Process name&quot;</span>
 <span class="lineno">  297 </span><span class="spaces">    </span><span class="istickedoff">, &quot;Status&quot;, &quot;Time period&quot;, &quot;Geography&quot;, &quot;Technology&quot;</span>
 <span class="lineno">  298 </span><span class="spaces">    </span><span class="istickedoff">, &quot;Representativeness&quot;, &quot;Multiple output allocation&quot;, &quot;Substitution allocation&quot;</span>
@@ -328,7 +328,7 @@ span.spaces    { background: white }
 <span class="lineno">  309 </span>
 <span class="lineno">  310 </span>-- | Decode ByteString to Text (lenient UTF-8)
 <span class="lineno">  311 </span>decodeBS :: BS.ByteString -&gt; Text
-<span class="lineno">  312 </span><span class="funcount">-- entered 1310 times</span><span class="decl"><span class="istickedoff">decodeBS = TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span></span></span>
+<span class="lineno">  312 </span><span class="funcount">-- entered 1311 times</span><span class="decl"><span class="istickedoff">decodeBS = TE.decodeUtf8With <span class="nottickedoff">TEE.lenientDecode</span></span></span>
 <span class="lineno">  313 </span>{-# INLINE decodeBS #-}
 <span class="lineno">  314 </span>
 <span class="lineno">  315 </span>-- | Parse amount with configurable decimal separator (ByteString)
@@ -380,7 +380,7 @@ span.spaces    { background: white }
 <span class="lineno">  361 </span>-- Without this detection, the comment (which often contains \x7f-separated EcoSpold
 <span class="lineno">  362 </span>-- property metadata) ends up being parsed as the category.
 <span class="lineno">  363 </span>parseProductRow :: SimaProConfig -&gt; BS.ByteString -&gt; Maybe ProductRow
-<span class="lineno">  364 </span><span class="funcount">-- entered 37 times</span><span class="decl"><span class="istickedoff">parseProductRow cfg line =</span>
+<span class="lineno">  364 </span><span class="funcount">-- entered 38 times</span><span class="decl"><span class="istickedoff">parseProductRow cfg line =</span>
 <span class="lineno">  365 </span><span class="spaces">    </span><span class="istickedoff">let fields = splitCSV (spDelimiter cfg) line</span>
 <span class="lineno">  366 </span><span class="spaces">        </span><span class="istickedoff">norm = Expr.normalizeExpr (spDecimal cfg) . decodeBS . BS8.strip</span>
 <span class="lineno">  367 </span><span class="spaces">    </span><span class="istickedoff">in case fields of</span>
@@ -474,7 +474,7 @@ span.spaces    { background: white }
 <span class="lineno">  455 </span>
 <span class="lineno">  456 </span>-- | Process a single line (ByteString)
 <span class="lineno">  457 </span>processLine :: ParseAcc -&gt; BS.ByteString -&gt; ParseAcc
-<span class="lineno">  458 </span><span class="funcount">-- entered 819 times</span><span class="decl"><span class="istickedoff">processLine acc@ParseAcc{..} line</span>
+<span class="lineno">  458 </span><span class="funcount">-- entered 823 times</span><span class="decl"><span class="istickedoff">processLine acc@ParseAcc{..} line</span>
 <span class="lineno">  459 </span><span class="spaces">    </span><span class="istickedoff">-- Empty line handling</span>
 <span class="lineno">  460 </span><span class="spaces">    </span><span class="istickedoff">| BS.null (BS8.strip line) = case paState of</span>
 <span class="lineno">  461 </span><span class="spaces">        </span><span class="istickedoff">InProcessMeta _ -&gt; <span class="nottickedoff">acc { paState = BetweenBlocks }</span></span>
