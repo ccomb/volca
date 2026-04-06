@@ -4,7 +4,7 @@ module CrossLinkingSpec (spec) where
 
 import Test.Hspec
 import Database.CrossLinking
-import SynonymDB (emptySynonymDB)
+import SynonymDB (emptySynonymDB, buildFromPairs)
 import UnitConversion (defaultUnitConfig)
 import Database.Loader (loadDatabase)
 import qualified Data.Map.Strict as M
@@ -153,6 +153,26 @@ spec = do
 
         it "no match scores 0" $
             matchProductName emptySynonymDB "wheat" "steel" `shouldBe` 0
+
+        it "synonym match scores 45 when names share a group" $ do
+            -- areSynonyms checks group-ID equality; build via CSV so both names
+            -- normalize to entries that share the same group
+            let synDB = buildFromPairs [("co2", "carbon dioxide")]
+            -- After normalization both resolve to the same group in a symmetric pair
+            matchProductName synDB "CO2" "carbon dioxide" `shouldSatisfy` (>= 45)
+
+    -- -----------------------------------------------------------------------
+    -- extractProductPrefixes — additional cases
+    -- -----------------------------------------------------------------------
+    describe "extractProductPrefixes (additional)" $ do
+        it "strips location suffix /CA U" $
+            extractProductPrefixes "wheat (WFLDB)/CA U" `shouldContain` ["wheat (WFLDB)"]
+
+        it "strips both tag and location suffix" $
+            extractProductPrefixes "wheat (WFLDB)/CA U" `shouldContain` ["wheat"]
+
+        it "splits on ' |' separator" $
+            extractProductPrefixes "heat | natural gas | CH" `shouldContain` ["heat"]
 
     -- -----------------------------------------------------------------------
     -- findSupplierInIndexedDBs — integration using SAMPLE.min3
