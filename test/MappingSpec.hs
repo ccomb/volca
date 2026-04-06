@@ -42,6 +42,10 @@ mkCF name mCas val = MethodCF
     , mcfUnit        = "kg"
     }
 
+mkCFComp :: Text -> Text -> Text -> Double -> MethodCF
+mkCFComp name medium subcomp val = (mkCF name Nothing val)
+    { mcfCompartment = Just (Compartment medium subcomp "") }
+
 -- ---------------------------------------------------------------------------
 -- Spec
 -- ---------------------------------------------------------------------------
@@ -208,3 +212,82 @@ spec = do
                 inventory = M.singleton fid 0.0
                 score = computeLCIAScore defaultUnitConfig M.empty (M.singleton fid flow) inventory mapping
             score `shouldBe` 0.0
+
+        it "scores via fallback CF (name+medium, empty subcomp)" $ do
+            fid <- nextRandom
+            let flow      = mkFlow fid "Carbon dioxide" "air" Nothing
+                cf        = mkCFComp "Carbon dioxide" "air" "" 2.5
+                mapping   = [(cf, Nothing)]   -- unmatched → name-based lookup
+                inventory = M.singleton fid 10.0
+                flowDB    = M.singleton fid flow
+                score     = computeLCIAScore defaultUnitConfig M.empty flowDB inventory mapping
+            score `shouldBe` 25.0
+
+        it "scores via exact CF (name+medium+subcomp)" $ do
+            fid <- nextRandom
+            let flow      = mkFlow fid "Carbon dioxide" "air" (Just "urban air close to ground")
+                cf        = mkCFComp "Carbon dioxide" "air" "urban air close to ground" 3.0
+                mapping   = [(cf, Nothing)]
+                inventory = M.singleton fid 5.0
+                flowDB    = M.singleton fid flow
+                score     = computeLCIAScore defaultUnitConfig M.empty flowDB inventory mapping
+            score `shouldBe` 15.0
+
+        it "normalizes 'natural resource' category to 'resource'" $ do
+            fid <- nextRandom
+            let flow      = mkFlow fid "crude oil" "natural resource" Nothing
+                cf        = mkCFComp "crude oil" "natural resource" "" 1.5
+                mapping   = [(cf, Nothing)]
+                inventory = M.singleton fid 4.0
+                flowDB    = M.singleton fid flow
+                score     = computeLCIAScore defaultUnitConfig M.empty flowDB inventory mapping
+            score `shouldBe` 6.0
+
+        it "returns 0 for flow not in flowDB" $ do
+            fid <- nextRandom
+            let cf        = mkCF "co2" Nothing 1.0
+                mapping   = [(cf, Nothing)]
+                inventory = M.singleton fid 10.0
+                score     = computeLCIAScore defaultUnitConfig M.empty M.empty inventory mapping
+            score `shouldBe` 0.0
+
+    describe "computeMappingStats (ByFuzzy and BySynonym)" $ do
+        it "counts ByFuzzy matches" $ do
+            fid <- nextRandom
+            let flow = mkFlow fid "co2" "air" Nothing
+                cf   = mkCF "co2" Nothing 1.0
+                stats = computeMappingStats [(cf, Just (flow, ByFuzzy))]
+            msByFuzzy stats `shouldBe` 1
+            msBySynonym stats `shouldBe` 0
+
+        it "counts BySynonym matches" $ do
+            fid <- nextRandom
+            let flow = mkFlow fid "co2" "air" Nothing
+                cf   = mkCF "co2" Nothing 1.0
+                stats = computeMappingStats [(cf, Just (flow, BySynonym))]
+            msBySynonym stats `shouldBe` 1
+
+    describe "findFlowBySynonym (finds via synonym)" $ do
+        it "finds flow via synonym group (no compartment)" $ do
+            fid <- nextRandom
+            let synDB  = buildFromPairs [("co2", "carbon dioxide")]
+                flow   = mkFlow fid "carbon dioxide" "air" Nothing
+                byName = M.singleton "carbon dioxide" [flow]
+            fmap flowId (findFlowBySynonym synDB byName "co2")
+                `shouldBe` Just fid
+
+    describe "pickByCompartment (matchMedium edge cases)" $ do
+        it "null medium matches any flow" $ do
+            fid <- nextRandom
+            let flow   = mkFlow fid "co2" "water" Nothing
+                byName = M.singleton "co2" [flow]
+                comp   = Compartment "" "" ""
+            fmap flowId (findFlowByNameComp byName "co2" (Just comp)) `shouldBe` Just fid
+
+        it "medium isInfixOf category matches (air in urban air)" $ do
+            fid1 <- nextRandom; fid2 <- nextRandom
+            let fUrbanAir = mkFlow fid1 "nox" "urban air" Nothing
+                fWater    = mkFlow fid2 "nox" "water"     Nothing
+                byName    = M.singleton "nox" [fWater, fUrbanAir]
+                comp      = Compartment "air" "urban" ""
+            fmap flowId (findFlowByNameComp byName "nox" (Just comp)) `shouldBe` Just fid1

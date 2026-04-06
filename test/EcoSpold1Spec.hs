@@ -5,7 +5,7 @@ module EcoSpold1Spec (spec) where
 import Test.Hspec
 import Data.UUID (nil)
 import qualified Data.Map.Strict as M
-import qualified Data.Set as S
+import qualified Data.ByteString.Char8 as BC
 
 import Types
 import EcoSpold.Parser1
@@ -48,6 +48,77 @@ fid1, fid2, fid3 :: UUID
 fid1 = read "11111111-1111-1111-1111-111111111111"
 fid2 = read "22222222-2222-2222-2222-222222222222"
 fid3 = read "33333333-3333-3333-3333-333333333333"
+
+-- | Minimal valid EcoSpold1 XML with one reference product and one air emission
+minimalXml :: BC.ByteString
+minimalXml = BC.unlines
+    [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+    , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
+    , "  <dataset number=\"42\">"
+    , "    <metaInformation>"
+    , "      <processInformation>"
+    , "        <referenceFunction name=\"electricity production\" category=\"Energy\""
+    , "                           subCategory=\"Electricity\" unit=\"kWh\""
+    , "                           generalComment=\"A comment\"/>"
+    , "        <geography location=\"DE\" />"
+    , "      </processInformation>"
+    , "    </metaInformation>"
+    , "    <flowData>"
+    , "      <exchange number=\"1\" name=\"electricity, high voltage\" category=\"Energy\""
+    , "                subCategory=\"Electricity\" unit=\"kWh\" meanValue=\"1.0\">"
+    , "        <outputGroup>0</outputGroup>"
+    , "      </exchange>"
+    , "      <exchange number=\"2\" name=\"Carbon dioxide, fossil\" category=\"air\""
+    , "                subCategory=\"low population density\" unit=\"kg\" meanValue=\"0.05\""
+    , "                CASNumber=\"124-38-9\">"
+    , "        <outputGroup>4</outputGroup>"
+    , "      </exchange>"
+    , "      <exchange number=\"3\" name=\"natural gas\" category=\"resource\""
+    , "                subCategory=\"in ground\" unit=\"MJ\" meanValue=\"10.0\">"
+    , "        <inputGroup>4</inputGroup>"
+    , "      </exchange>"
+    , "      <exchange number=\"4\" name=\"fuel oil\" category=\"Liquid fuels\""
+    , "                unit=\"kg\" meanValue=\"2.0\">"
+    , "        <inputGroup>5</inputGroup>"
+    , "      </exchange>"
+    , "    </flowData>"
+    , "  </dataset>"
+    , "</ecoSpold>"
+    ]
+
+-- | Multi-dataset EcoSpold1 XML
+multiDatasetXml :: BC.ByteString
+multiDatasetXml = BC.unlines
+    [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+    , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
+    , "  <dataset number=\"1\">"
+    , "    <metaInformation>"
+    , "      <processInformation>"
+    , "        <referenceFunction name=\"process A\" unit=\"kg\"/>"
+    , "        <geography location=\"CH\" />"
+    , "      </processInformation>"
+    , "    </metaInformation>"
+    , "    <flowData>"
+    , "      <exchange number=\"1\" name=\"product A\" category=\"goods\" unit=\"kg\" meanValue=\"1.0\">"
+    , "        <outputGroup>0</outputGroup>"
+    , "      </exchange>"
+    , "    </flowData>"
+    , "  </dataset>"
+    , "  <dataset number=\"2\">"
+    , "    <metaInformation>"
+    , "      <processInformation>"
+    , "        <referenceFunction name=\"process B\" unit=\"kg\"/>"
+    , "        <geography location=\"FR\" />"
+    , "      </processInformation>"
+    , "    </metaInformation>"
+    , "    <flowData>"
+    , "      <exchange number=\"1\" name=\"product B\" category=\"goods\" unit=\"kg\" meanValue=\"1.0\">"
+    , "        <outputGroup>0</outputGroup>"
+    , "      </exchange>"
+    , "    </flowData>"
+    , "  </dataset>"
+    , "</ecoSpold>"
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Spec
@@ -165,3 +236,105 @@ spec = do
             case applyCutoffStrategy act of
                 Left _  -> return ()
                 Right _ -> expectationFailure "Expected Left for ambiguous coproducts"
+
+    -- -----------------------------------------------------------------------
+    -- parseWithXeno — parsing inline XML
+    -- -----------------------------------------------------------------------
+    describe "parseWithXeno" $ do
+        it "returns Left for invalid XML" $
+            case parseWithXeno "<not-xml" of
+                Left _  -> return ()
+                Right _ -> expectationFailure "Expected Left for invalid XML"
+
+        it "parses activity name from referenceFunction" $
+            case parseWithXeno minimalXml of
+                Left err        -> expectationFailure $ "Parse failed: " ++ err
+                Right (act, _, _, _, _) -> activityName act `shouldBe` "electricity production"
+
+        it "parses activity location from geography" $
+            case parseWithXeno minimalXml of
+                Left err        -> expectationFailure $ "Parse failed: " ++ err
+                Right (act, _, _, _, _) -> activityLocation act `shouldBe` "DE"
+
+        it "parses activity unit from referenceFunction" $
+            case parseWithXeno minimalXml of
+                Left err        -> expectationFailure $ "Parse failed: " ++ err
+                Right (act, _, _, _, _) -> activityUnit act `shouldBe` "kWh"
+
+        it "parses dataset number" $
+            case parseWithXeno minimalXml of
+                Left err        -> expectationFailure $ "Parse failed: " ++ err
+                Right (_, _, _, num, _) -> num `shouldBe` 42
+
+        it "produces 4 exchanges" $
+            case parseWithXeno minimalXml of
+                Left err        -> expectationFailure $ "Parse failed: " ++ err
+                Right (act, _, _, _, _) -> length (exchanges act) `shouldBe` 4
+
+        it "produces 4 flows" $
+            case parseWithXeno minimalXml of
+                Left err        -> expectationFailure $ "Parse failed: " ++ err
+                Right (_, flows, _, _, _) -> length flows `shouldBe` 4
+
+        it "marks the reference output (outputGroup 0) as isReference" $
+            case parseWithXeno minimalXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right (act, _, _, _, _) ->
+                    length (filter exchangeIsReference (exchanges act)) `shouldBe` 1
+
+        it "marks biosphere exchange (outputGroup 4) as BiosphereExchange" $
+            case parseWithXeno minimalXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right (act, _, _, _, _) ->
+                    let bios = filter (\e -> case e of { BiosphereExchange {} -> True; _ -> False }) (exchanges act)
+                    in length bios `shouldBe` 2   -- CO2 output + natural gas input (inputGroup 4)
+
+        it "parses flow with CAS number" $
+            case parseWithXeno minimalXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right (_, flows, _, _, _) ->
+                    let co2Flows = filter (\f -> flowName f == "Carbon dioxide, fossil") flows
+                    in case co2Flows of
+                        [f] -> flowCAS f `shouldBe` Just "124-38-9"
+                        _   -> expectationFailure "Expected exactly one CO2 flow"
+
+        it "sets activity classification from category/subCategory" $
+            case parseWithXeno minimalXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right (act, _, _, _, _) ->
+                    M.lookup "Category" (activityClassification act) `shouldBe` Just "Energy"
+
+    -- -----------------------------------------------------------------------
+    -- parseAllWithXeno — multi-dataset
+    -- -----------------------------------------------------------------------
+    describe "parseAllWithXeno" $ do
+        it "returns Left for invalid XML" $
+            case parseAllWithXeno "<not-xml" of
+                Left _  -> return ()
+                Right _ -> expectationFailure "Expected Left for invalid XML"
+
+        it "parses two datasets from multi-dataset XML" $
+            case parseAllWithXeno multiDatasetXml of
+                Left err     -> expectationFailure $ "Parse failed: " ++ err
+                Right results -> length results `shouldBe` 2
+
+        it "parses activity names from both datasets" $
+            case parseAllWithXeno multiDatasetXml of
+                Left err     -> expectationFailure $ "Parse failed: " ++ err
+                Right results ->
+                    let names = [ activityName act | Right (act, _, _, _, _) <- results ]
+                    in names `shouldBe` ["process A", "process B"]
+
+        it "preserves dataset numbers in order" $
+            case parseAllWithXeno multiDatasetXml of
+                Left err     -> expectationFailure $ "Parse failed: " ++ err
+                Right results ->
+                    let nums = [ n | Right (_, _, _, n, _) <- results ]
+                    in nums `shouldBe` [1, 2]
+
+        it "parses location from each dataset" $
+            case parseAllWithXeno multiDatasetXml of
+                Left err     -> expectationFailure $ "Parse failed: " ++ err
+                Right results ->
+                    let locs = [ activityLocation act | Right (act, _, _, _, _) <- results ]
+                    in locs `shouldBe` ["CH", "FR"]

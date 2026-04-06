@@ -9,6 +9,9 @@
 module EcoSpold.Parser1
     ( streamParseActivityAndFlowsFromFile1
     , streamParseAllDatasetsFromFile1
+      -- * XML parsing (exported for testing)
+    , parseWithXeno
+    , parseAllWithXeno
       -- * Pure helpers (exported for testing)
     , generateFlowUUID
     , generateUnitUUID
