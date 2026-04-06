@@ -18,6 +18,8 @@ module Method.FlowResolver
     , resolveFlowDirectory
     , parseFlowDirectory
     , parseFlowXML
+      -- * Pure helpers (exported for testing)
+    , parseCompartment
     ) where
 
 import Control.Concurrent (getNumCapabilities)

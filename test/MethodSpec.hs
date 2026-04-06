@@ -15,7 +15,8 @@ import qualified Data.ByteString.Lazy as BL
 import Method.Mapping (computeLCIAScore, MatchStrategy(..))
 import UnitConversion (defaultUnitConfig)
 import Method.Parser
-import Method.FlowResolver (ILCDFlowInfo(..))
+import Method.FlowResolver (ILCDFlowInfo(..), parseFlowXML, parseCompartment)
+import Method.Types (Compartment(..))
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.ParserSimaPro (parseSimaProMethodCSVBytes, isSimaProMethodCSV)
 import Method.ParserNW (parseNormWeightCSVBytes)
@@ -195,6 +196,112 @@ spec = do
         it "returns Nothing when no compartment keyword matches" $
             extractCompartmentFromDesc "methane production volume"
                 `shouldBe` Nothing
+
+    -- -----------------------------------------------------------------------
+    -- Method.FlowResolver: parseCompartment
+    -- -----------------------------------------------------------------------
+    describe "parseCompartment" $ do
+        it "returns Nothing for empty list" $
+            parseCompartment [] `shouldBe` Nothing
+
+        it "parses 'Emissions to air' at level 1 → medium=air" $
+            parseCompartment ["Emissions", "Emissions to air"]
+                `shouldBe` Just (Compartment "air" "" "")
+
+        it "parses 'Emissions to water' at level 1 → medium=water" $
+            parseCompartment ["Emissions", "Emissions to water"]
+                `shouldBe` Just (Compartment "water" "" "")
+
+        it "parses 'Emissions to soil' → medium=soil" $
+            parseCompartment ["Emissions", "Emissions to soil"]
+                `shouldBe` Just (Compartment "soil" "" "")
+
+        it "parses 'Resources' → medium=natural resource" $
+            parseCompartment ["Resources", "Resources from ground"]
+                `shouldBe` Just (Compartment "natural resource" "" "")
+
+        it "parses 'Emissions to fresh water' → medium=water" $
+            parseCompartment ["Emissions", "Emissions to fresh water"]
+                `shouldBe` Just (Compartment "water" "" "")
+
+        it "parses 'Emissions to sea water' → medium=water" $
+            parseCompartment ["Emissions", "Emissions to sea water"]
+                `shouldBe` Just (Compartment "water" "" "")
+
+        it "parses subcompartment from level 2" $
+            parseCompartment ["Emissions", "Emissions to air", "Emissions to air, urban air close to ground"]
+                `shouldBe` Just (Compartment "air" "urban air close to ground" "")
+
+        it "parses water subcompartment from level 2" $
+            parseCompartment ["Emissions", "Emissions to water", "Emissions to water, river"]
+                `shouldBe` Just (Compartment "water" "river" "")
+
+        it "falls back to lowercased category when medium is unrecognized" $
+            case parseCompartment ["Some unknown category"] of
+                Just (Compartment med _ _) -> med `shouldBe` "some unknown category"
+                Nothing -> expectationFailure "Expected Just with lowercased medium"
+
+    -- -----------------------------------------------------------------------
+    -- Method.FlowResolver: parseFlowXML
+    -- -----------------------------------------------------------------------
+    describe "parseFlowXML" $ do
+        it "returns Nothing for invalid XML" $
+            case parseFlowXML "<not-xml" of
+                Nothing -> return ()
+                Just _  -> expectationFailure "Expected Nothing for invalid XML"
+
+        it "returns Nothing when baseName is missing" $ do
+            let xml = TE.encodeUtf8 $ T.unlines
+                    [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                    , "<flowDataSet>"
+                    , "  <flowInformation>"
+                    , "    <dataSetInformation>"
+                    , "      <UUID>aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</UUID>"
+                    , "    </dataSetInformation>"
+                    , "  </flowInformation>"
+                    , "</flowDataSet>"
+                    ]
+            case parseFlowXML xml of
+                Nothing -> return ()
+                Just _  -> expectationFailure "Expected Nothing when baseName missing"
+
+        it "returns Nothing when UUID is invalid" $ do
+            let xml = TE.encodeUtf8 $ T.unlines
+                    [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                    , "<flowDataSet>"
+                    , "  <flowInformation>"
+                    , "    <dataSetInformation>"
+                    , "      <UUID>not-a-uuid</UUID>"
+                    , "      <baseName>Carbon dioxide</baseName>"
+                    , "    </dataSetInformation>"
+                    , "  </flowInformation>"
+                    , "</flowDataSet>"
+                    ]
+            case parseFlowXML xml of
+                Nothing -> return ()
+                Just _  -> expectationFailure "Expected Nothing for invalid UUID"
+
+        it "parses baseName and UUID from ILCD flow XML" $ do
+            let xml = TE.encodeUtf8 $ T.unlines
+                    [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                    , "<flowDataSet>"
+                    , "  <flowInformation>"
+                    , "    <dataSetInformation>"
+                    , "      <UUID>aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</UUID>"
+                    , "      <name>"
+                    , "        <baseName>Carbon dioxide</baseName>"
+                    , "      </name>"
+                    , "      <CASNumber>124-38-9</CASNumber>"
+                    , "    </dataSetInformation>"
+                    , "  </flowInformation>"
+                    , "</flowDataSet>"
+                    ]
+            case parseFlowXML xml of
+                Nothing -> expectationFailure "Expected Just result"
+                Just (uuid, info) -> do
+                    show uuid `shouldBe` "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+                    ilcdBaseName info `shouldBe` "Carbon dioxide"
+                    ilcdCAS info `shouldBe` Just "124-38-9"
 
     describe "Method Parser" $ do
         describe "parseMethodBytes" $ do
