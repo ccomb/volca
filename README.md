@@ -7,7 +7,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, and ILCD process databases, builds s
 ## What It Does
 
 - **Browse** activities and flows across multiple databases
-- **Explore** supply chain trees, force-directed dependency graphs, and supply chain composition by sector classification
+- **Explore** supply chain trees, force-directed dependency graphs, and supply chain analysis by sector classification
 - **Compute** life cycle inventories (LCI) and impact scores (LCIA) — single method or batch across a full collection
 - **Normalize and weight** LCIA results with Raw / Normalized / Weighted view toggle; compute a single-score in Pt when normalization-weighting data is available
 - **Map** method characterization factors to database flows with a 4-step cascade (UUID → CAS → name → synonym) and coverage statistics
@@ -153,7 +153,7 @@ GET    /api/v1/db/{name}/activity/{id}                  Activity details
 GET    /api/v1/db/{name}/activity/{id}/tree             Supply chain tree
 GET    /api/v1/db/{name}/activity/{id}/inventory        Life cycle inventory
 GET    /api/v1/db/{name}/activity/{id}/graph?cutoff=    Supply chain graph
-GET    /api/v1/db/{name}/activity/{id}/supply-chain     Supply chain composition
+GET    /api/v1/db/{name}/activity/{id}/supply-chain     Supply chain table
 GET    /api/v1/db/{name}/activity/{id}/lcia/{methodId}  LCIA score (single method)
 GET    /api/v1/db/{name}/activity/{id}/lcia-batch/{col} LCIA batch (all categories, with optional NW scores and single-score)
 GET    /api/v1/db/{name}/activities?name=&geo=&product= Search activities

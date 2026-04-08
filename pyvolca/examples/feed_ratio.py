@@ -34,13 +34,13 @@ def select_from_list(items: list, prompt: str, fmt=str, limit: int = 10) -> int:
         print(f"  Please enter 1–{min(len(items), limit)}")
 
 
-def print_composition(
+def print_supply_chain(
     groups: dict[str, list[SupplyChainEntry]], ref_amount: float, title: str,
     filter_text: str = "",
 ) -> list[dict]:
-    """Print supply chain composition grouped by classification path."""
+    """Print supply chain grouped by classification path."""
     print(f"\n{'=' * 70}")
-    print(f"Composition: {title}")
+    print(f"Supply Chain: {title}")
     print(f"Reference product: {ref_amount:.1f} kg")
     print(f"{'=' * 70}")
 
@@ -78,7 +78,7 @@ def export_csv(rows: list[dict], filename: str) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Supply chain composition analysis")
+    parser = argparse.ArgumentParser(description="Supply chain analysis")
     parser.add_argument("--url", default="http://localhost:8080", help="VoLCA server URL")
     parser.add_argument("--db", default="agribalyse-3.2", help="Database name")
     parser.add_argument("--password", default="", help="Server password")
@@ -127,15 +127,15 @@ def main():
             lower = filter_text.lower()
             groups = {k: v for k, v in groups.items() if lower in k.lower()}
 
-    # Step 5: Display composition
+    # Step 5: Display supply chain
     # Get reference amount for normalization
     activity = c.get_activity(product.process_id)
     all_products = activity.get("piActivity", {}).get("pfaAllProducts", [])
     ref_amount = float(all_products[0]["prsProductAmount"]) if all_products else 1.0
 
-    csv_rows = print_composition(groups, ref_amount, product.name, filter_text if not args.prefix else (args.prefix or ""))
+    csv_rows = print_supply_chain(groups, ref_amount, product.name, filter_text if not args.prefix else (args.prefix or ""))
     safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in product.name)[:50]
-    export_csv(csv_rows, f"composition_{safe_name}.csv")
+    export_csv(csv_rows, f"supply_chain_{safe_name}.csv")
 
 
 if __name__ == "__main__":

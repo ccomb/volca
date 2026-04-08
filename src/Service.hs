@@ -680,14 +680,20 @@ getActivityFlowSummaries db activity =
         | otherwise = OutputFlow
 
 -- | Search flows (returns same format as API)
-searchFlows :: Database -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> IO (Either ServiceError Value)
-searchFlows _ Nothing _ _ _ = return $ Right $ toJSON $ SearchResults ([] :: [FlowSearchResult]) 0 0 50 False 0.0
-searchFlows db (Just query) langParam limitParam offsetParam = do
+searchFlows :: Database -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> IO (Either ServiceError Value)
+searchFlows _ Nothing _ _ _ _ _ = return $ Right $ toJSON $ SearchResults ([] :: [FlowSearchResult]) 0 0 50 False 0.0
+searchFlows db (Just query) langParam limitParam offsetParam sortParam orderParam = do
     startTime <- getCurrentTime
     let _lang = fromMaybe "en" langParam
         limit = maybe 50 (min 1000) limitParam
         offset = maybe 0 (max 0) offsetParam
-        allResults = findFlowsBySynonym db query
+        rawResults = findFlowsBySynonym db query
+        isDesc = orderParam == Just "desc"
+        flowCmp = case sortParam of
+            Just "category" -> \a b -> compare (flowCategory a) (flowCategory b)
+            Just "unit"     -> \a b -> compare (getUnitNameForFlow (dbUnits db) a) (getUnitNameForFlow (dbUnits db) b)
+            _               -> \a b -> compare (flowName a) (flowName b)
+        allResults = L.sortBy (if isDesc then flip flowCmp else flowCmp) rawResults
         total = length allResults
         dropped = drop offset allResults
         taken = take (limit + 1) dropped
@@ -699,17 +705,20 @@ searchFlows db (Just query) langParam limitParam offsetParam = do
     return $ Right $ toJSON $ SearchResults flowResults total offset limit hasMore searchTimeMs
 
 -- | Search activities (returns same format as API)
-searchActivities :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> [(Text, Text)] -> Maybe Int -> Maybe Int -> IO (Either ServiceError Value)
-searchActivities db nameParam geoParam productParam classFilters limitParam offsetParam = do
+searchActivities :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> [(Text, Text)] -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> IO (Either ServiceError Value)
+searchActivities db nameParam geoParam productParam classFilters limitParam offsetParam sortParam orderParam = do
     startTime <- getCurrentTime
-    let allResults = findActivitiesByFields db nameParam geoParam productParam classFilters
+    let rawResults = findActivitiesByFields db nameParam geoParam productParam classFilters
+        isDesc = orderParam == Just "desc"
+        actCmp = case sortParam of
+            Just "location" -> \(_, a) (_, b) -> compare (activityLocation a) (activityLocation b)
+            _               -> \(_, a) (_, b) -> compare (activityName a) (activityName b)
+        allResults = L.sortBy (if isDesc then flip actCmp else actCmp) rawResults
         offset = maybe 0 (max 0) offsetParam
-        dropped = drop offset allResults
         limit = fromMaybe 20 limitParam
         total = length allResults
-        taken = take (limit + 1) dropped
-        hasMore = length taken > limit
-        pagedResults = take limit taken
+        pagedResults = take limit $ drop offset allResults
+        hasMore = offset + limit < total
         activityResults =
             map
                 ( \(processId, activity) ->
@@ -1169,7 +1178,7 @@ buildSupplyChainFromScalingVector db processId supplyVec nameFilter limitParam m
             , prsProductUnit = activityUnit rootActivity
             }
 
-        -- Edges: only computed when requested (graph views), skipped for composition
+        -- Edges: only computed when requested (graph views), skipped for supply chain table
         allIndices = S.fromList (processId : map fst allEntries)
         edges = if includeEdges
             then U.foldl' (\acc (SparseTriple row col val) ->
@@ -1286,9 +1295,9 @@ findTechCoefficient db consumer supplier =
 
 -- | Find all activities that transitively depend on a given supplier.
 -- BFS through the technosphere matrix tracking depth; optional max-depth cap.
-getConsumers :: Database -> Text -> Maybe Text -> Maybe Int -> Maybe Int -> [(Text, Text)]
-             -> Either ServiceError [ConsumerResult]
-getConsumers db processIdText nameFilter limitParam maxDepthParam classFilters = do
+getConsumers :: Database -> Text -> Maybe Text -> Maybe Int -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> [(Text, Text)]
+             -> Either ServiceError (SearchResults ConsumerResult)
+getConsumers db processIdText nameFilter limitParam offsetParam maxDepthParam sortParam orderParam classFilters = do
     (processId, _) <- resolveActivityAndProcessId db processIdText
     let -- Build adjacency list: supplier → [direct consumers]
         adj = M.fromListWith (++)
@@ -1327,9 +1336,10 @@ getConsumers db processIdText nameFilter limitParam maxDepthParam classFilters =
                         Nothing -> False
             in foldl applyGroup True (M.toList groups)
 
-        limit = maybe 1000 id limitParam
+        limit  = maybe 1000 id limitParam
+        offset = maybe 0    id offsetParam
 
-        results =
+        rawResults =
             [ ConsumerResult
                 (processIdToText db pid)
                 (activityName activity)
@@ -1344,7 +1354,21 @@ getConsumers db processIdText nameFilter limitParam maxDepthParam classFilters =
                       getReferenceProductInfo (dbFlows db) (dbUnits db) activity
             ]
 
-    Right $ take limit results
+        isDesc = orderParam == Just "desc"
+        crCmp  = case sortParam of
+            Just "name"     -> \a b -> compare (crName a)          (crName b)
+            Just "location" -> \a b -> compare (crLocation a)      (crLocation b)
+            Just "amount"   -> \a b -> compare (crProductAmount a) (crProductAmount b)
+            Just "unit"     -> \a b -> compare (crProductUnit a)   (crProductUnit b)
+            Just "product"  -> \a b -> compare (crProduct a)       (crProduct b)
+            _               -> \a b -> compare (crDepth a)         (crDepth b)
+        allResults = L.sortBy (if isDesc then flip crCmp else crCmp) rawResults
+
+        total   = length allResults
+        page    = take limit $ drop offset allResults
+        hasMore = offset + limit < total
+
+    Right $ SearchResults page total offset limit hasMore 0.0
 
 -- | Compute LCIA scores (placeholder)
 computeLCIA :: Database -> Text -> FilePath -> Either ServiceError Value
