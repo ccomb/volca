@@ -177,6 +177,14 @@ executeCommand (CLIConfig globalOpts _) cmd manager = do
       reportError "Repl command should be handled in Main.hs"
       exitFailure
 
+    DumpOpenApi -> do
+      reportError "DumpOpenApi should be handled in Main.hs"
+      exitFailure
+
+    DumpMcpTools -> do
+      reportError "DumpMcpTools should be handled in Main.hs"
+      exitFailure
+
 -- | Execute commands that require a loaded database
 executeDbCommand :: PluginRegistry -> OutputFormat -> GlobalOptions -> Database -> Command -> IO ()
 executeDbCommand registry fmt globalOpts database = \case
@@ -223,6 +231,8 @@ executeDbCommand registry fmt globalOpts database = \case
     Mapping _ -> pure ()
     Stop -> pure ()
     Repl -> pure ()
+    DumpOpenApi -> pure ()
+    DumpMcpTools -> pure ()
 
 -- | Execute activity info command
 executeActivityCommand :: PluginRegistry -> OutputFormat -> Database -> T.Text -> IO ()
