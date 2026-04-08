@@ -1,6 +1,6 @@
 # Stage 1: Build Haskell application
 # Build from volca directory: docker build -f docker/Dockerfile -t volca .
-FROM debian:bookworm AS haskell-builder
+FROM debian:bookworm@sha256:1d6cd964917a13b547d1ea392dff9a000c3f36070686ebc5c8755d53fb374435 AS haskell-builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -80,7 +80,7 @@ RUN mkdir -p /build/output \
     && strip /build/output/volca
 
 # Stage 2: Runtime image
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:4724b8cc51e33e398f0e2e15e18d5ec2851ff0c2280647e1310bc1642182655d
 ARG GIT_HASH=unknown
 LABEL org.opencontainers.image.revision="${GIT_HASH}"
 
