@@ -312,6 +312,8 @@ toolDefinitions =
             , ("process_id", "string", "Process ID of the supplier to trace downstream")
             ]
             [ ("name",                 "string",  "Filter by name (case-insensitive substring)")
+            , ("location",             "string",  "Filter by geography/location (case-insensitive substring, e.g. 'FR', 'DE')")
+            , ("product",              "string",  "Filter by product name (case-insensitive substring)")
             , ("classification",       "string",  "Classification system name (e.g. 'ISIC rev.4 ecoinvent')")
             , ("classification_value", "string",  "Classification value substring to match")
             , ("limit",                "integer", "Max results (default 1000)")
@@ -518,12 +520,18 @@ callGetSupplyChain rid args (db, solver) =
     case textArg "process_id" args of
         Nothing -> return $ toolError rid "Missing required parameter: process_id"
         Just pid -> do
-            let nameF = textArg "name" args
-                locF  = textArg "location" args
-                limit = intArg "limit" args
-                minQ  = doubleArg "min_quantity" args
-            result <- Service.getSupplyChain db solver pid nameF limit minQ
-                        Nothing Nothing locF Nothing [] Nothing Nothing False
+            let af = Service.ActivityFilter
+                    { Service.afName = textArg "name" args
+                    , Service.afLocation = textArg "location" args
+                    , Service.afProduct = Nothing
+                    , Service.afClassifications = []
+                    , Service.afLimit = intArg "limit" args
+                    , Service.afOffset = Nothing
+                    , Service.afMaxDepth = Nothing
+                    , Service.afMinQuantity = doubleArg "min_quantity" args
+                    , Service.afSort = Nothing
+                    , Service.afOrder = Nothing }
+            result <- Service.getSupplyChain db solver pid af False
             case result of
                 Left err  -> return $ toolError rid (T.pack $ show err)
                 Right val -> return $ toolSuccessJson rid (toJSON val)
@@ -544,14 +552,22 @@ callGetConsumers rid args (db, _) =
     case textArg "process_id" args of
         Nothing -> return $ toolError rid "Missing required parameter: process_id"
         Just pid ->
-            let nameFilter   = textArg "name" args
-                limitParam   = intArg "limit" args
-                maxDepth     = intArg "max_depth" args
-                isExact      = textArg "classification_match" args `elem` [Just "equals", Just "exact"]
+            let isExact      = textArg "classification_match" args `elem` [Just "equals", Just "exact"]
                 classFilters = case (textArg "classification" args, textArg "classification_value" args) of
                     (Just sys, Just val) -> [(sys, val, isExact)]
                     _                   -> []
-            in case Service.getConsumers db pid nameFilter limitParam Nothing maxDepth Nothing Nothing classFilters of
+                af = Service.ActivityFilter
+                    { Service.afName = textArg "name" args
+                    , Service.afLocation = textArg "location" args
+                    , Service.afProduct = textArg "product" args
+                    , Service.afClassifications = classFilters
+                    , Service.afLimit = intArg "limit" args
+                    , Service.afOffset = Nothing
+                    , Service.afMaxDepth = intArg "max_depth" args
+                    , Service.afMinQuantity = Nothing
+                    , Service.afSort = Nothing
+                    , Service.afOrder = Nothing }
+            in case Service.getConsumers db pid af of
                 Left err      -> return $ toolError rid (T.pack $ show err)
                 Right results -> return $ toolSuccessJson rid (toJSON results)
 
