@@ -23,7 +23,7 @@ import Database
 import qualified Service
 import Tree (buildLoopAwareTree)
 import Types
-import API.Types (ActivityInfo (..), ActivitySummary (..), BinaryContent(..), ClassificationSystem(..), ConsumerResult (..), ExchangeDetail (..), ClassificationEntryInfo(..), ClassificationPresetInfo(..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry(..), FlowDetail (..), FlowHotspotResult(..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIARequest (..), LCIAResult (..), LCIABatchResult(..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), ProcessContribution(..), ProcessHotspotResult(..), RefDataListResponse(..), SynonymGroupsResponse(..), SearchResults (..), SubstitutionRequest(..), SupplyChainResponse(..), TreeExport (..), UnmappedFlowAPI (..), DatabaseListResponse(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
+import API.Types (ActivityInfo (..), ActivitySummary (..), BinaryContent(..), ClassificationSystem(..), ConsumerResult (..), ExchangeDetail (..), ClassificationEntryInfo(..), ClassificationPresetInfo(..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry(..), FlowDetail (..), ContributingFlowsResult(..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIARequest (..), LCIAResult (..), LCIABatchResult(..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), ActivityContribution(..), ContributingActivitiesResult(..), RefDataListResponse(..), SynonymGroupsResponse(..), SearchResults (..), SubstitutionRequest(..), SupplyChainResponse(..), TreeExport (..), UnmappedFlowAPI (..), CharacterizationResult(..), CharacterizationEntry(..), DatabaseListResponse(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as M
@@ -67,8 +67,8 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults ConsumerResult)
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> Get '[JSON] Value
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "analyze" :> Capture "analyzerName" Text :> Get '[JSON] Value
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "flow-hotspot" :> Capture "collection" Text :> Capture "methodId" Text :> QueryParam "limit" Int :> Get '[JSON] FlowHotspotResult
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "process-hotspot" :> Capture "collection" Text :> Capture "methodId" Text :> QueryParam "limit" Int :> Get '[JSON] ProcessHotspotResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" Text :> Capture "methodId" Text :> QueryParam "limit" Int :> Get '[JSON] ContributingFlowsResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" Text :> Capture "methodId" Text :> QueryParam "limit" Int :> Get '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> Get '[JSON] [ActivitySummary]
                 :<|> "methods" :> Get '[JSON] [MethodSummary]
@@ -76,6 +76,7 @@ type LCAAPI =
                 :<|> "method" :> Capture "methodId" Text :> "factors" :> Get '[JSON] [MethodFactorAPI]
                 :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "mapping" :> Get '[JSON] MappingStatus
                 :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "flow-mapping" :> Get '[JSON] FlowCFMapping
+                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "characterization" :> QueryParam "flow" Text :> QueryParam "limit" Int :> Get '[JSON] CharacterizationResult
                 :<|> "db" :> Capture "dbName" Text :> "flows" :> QueryParam "q" Text :> QueryParam "lang" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults FlowSearchResult)
                 :<|> "db" :> Capture "dbName" Text :> "activities" :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults ActivitySummary)
                 :<|> "db" :> Capture "dbName" Text :> "classifications" :> Get '[JSON] [ClassificationSystem]
@@ -195,8 +196,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
         :<|> getActivityConsumers
         :<|> getActivityPathTo
         :<|> getActivityAnalyze
-        :<|> getFlowHotspot
-        :<|> getProcessHotspot
+        :<|> getContributingFlows
+        :<|> getContributingActivities
         :<|> getFlowDetail
         :<|> getFlowActivities
         :<|> getMethods
@@ -204,6 +205,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
         :<|> getMethodFactors
         :<|> getMethodMapping
         :<|> getFlowCFMapping
+        :<|> getCharacterization
         :<|> searchFlows
         :<|> searchActivitiesWithCount
         :<|> getClassifications
@@ -667,9 +669,9 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                                 }
                         liftIO $ ahAnalyze analyzer ctx
 
-    -- Flow hotspot: top elementary flows by LCIA contribution for a specific method
-    getFlowHotspot :: Text -> Text -> Text -> Text -> Maybe Int -> Handler FlowHotspotResult
-    getFlowHotspot dbName processIdText _collectionName methodIdText limitParam = do
+    -- Contributing flows: top elementary flows by LCIA contribution for a specific method
+    getContributingFlows :: Text -> Text -> Text -> Text -> Maybe Int -> Handler ContributingFlowsResult
+    getContributingFlows dbName processIdText _collectionName methodIdText limitParam = do
         (db, _) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
         case Service.resolveActivityAndProcessId db processIdText of
@@ -689,19 +691,23 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                         { fcoFlowName    = flowName f
                         , fcoContribution = c
                         , fcoSharePct    = if score /= 0 then c / score * 100 else 0
+                        , fcoFlowId      = UUID.toText (flowId f)
+                        , fcoCategory    = flowCategory f
+                        , fcoCompartment = flowSubcompartment f
+                        , fcoCfValue     = mcfValue cf
                         }
-                        | (_, f, c) <- take lim contribs
+                        | (cf, f, c) <- take lim contribs
                         ]
-                return FlowHotspotResult
-                    { fhrMethod     = methodName method
-                    , fhrUnit       = methodUnit method
-                    , fhrTotalScore = score
-                    , fhrTopFlows   = topFlows
+                return ContributingFlowsResult
+                    { cfrMethod     = methodName method
+                    , cfrUnit       = methodUnit method
+                    , cfrTotalScore = score
+                    , cfrTopFlows   = topFlows
                     }
 
-    -- Process hotspot: top upstream processes by LCIA contribution for a specific method
-    getProcessHotspot :: Text -> Text -> Text -> Text -> Maybe Int -> Handler ProcessHotspotResult
-    getProcessHotspot dbName processIdText _collectionName methodIdText limitParam = do
+    -- Contributing activities: top upstream activities by LCIA contribution for a specific method
+    getContributingActivities :: Text -> Text -> Text -> Text -> Maybe Int -> Handler ContributingActivitiesResult
+    getContributingActivities dbName processIdText _collectionName methodIdText limitParam = do
         (db, _) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
         case Service.resolveActivityAndProcessId db processIdText of
@@ -726,19 +732,19 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                             prodName = case mAct of
                                 Just act -> let (pn, _, _) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) act in pn
                                 Nothing  -> ""
-                        in ProcessContribution
-                            { pcProcessId    = processIdToText db pid
-                            , pcActivityName = actName
-                            , pcProductName  = prodName
-                            , pcLocation     = actLoc
-                            , pcContribution = c
-                            , pcSharePct     = if score /= 0 then c / score * 100 else 0
+                        in ActivityContribution
+                            { acProcessId    = processIdToText db pid
+                            , acActivityName = actName
+                            , acProductName  = prodName
+                            , acLocation     = actLoc
+                            , acContribution = c
+                            , acSharePct     = if score /= 0 then c / score * 100 else 0
                             }
-                return ProcessHotspotResult
-                    { phrMethod     = methodName method
-                    , phrUnit       = methodUnit method
-                    , phrTotalScore = score
-                    , phrProcesses  = map mkContrib (take lim sorted)
+                return ContributingActivitiesResult
+                    { carMethod     = methodName method
+                    , carUnit       = methodUnit method
+                    , carTotalScore = score
+                    , carActivities = map mkContrib (take lim sorted)
                     }
 
     -- Helper: compute LCIA result for a single method against an inventory
@@ -757,8 +763,12 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 { fcoFlowName = flowName f
                 , fcoContribution = c
                 , fcoSharePct = if score /= 0 then c / score * 100 else 0
+                , fcoFlowId      = UUID.toText (flowId f)
+                , fcoCategory    = flowCategory f
+                , fcoCompartment = flowSubcompartment f
+                , fcoCfValue     = mcfValue cf
                 }
-                | (_, f, c) <- topContribs
+                | (cf, f, c) <- topContribs
                 ]
         pure LCIAResult
             { lrMethodId        = methodId method
@@ -932,6 +942,47 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     strategyToText BySynonym = "synonym"
     strategyToText ByFuzzy = "fuzzy"
     strategyToText NoMatch = "none"
+
+    -- Characterization: matched CFs for a method, filterable by flow name
+    getCharacterization :: Text -> Text -> Maybe Text -> Maybe Int -> Handler CharacterizationResult
+    getCharacterization dbName methodIdText flowFilter limitParam = do
+        (db, _) <- requireDatabaseByName dbManager dbName
+        method <- loadMethodByUUID methodIdText
+        let mappers = prMappers (dmPlugins dbManager)
+            lim = fromMaybe 50 limitParam
+            queryLower = fmap T.toLower flowFilter
+        mappings <- liftIO $ mapMethodToFlows mappers db method
+        let matched = [ (cf, f, strat)
+                      | (cf, Just (f, strat)) <- mappings
+                      , matchesQuery queryLower (mcfFlowName cf) (flowName f)
+                      ]
+            sorted = sortOn (\(cf, _, _) -> negate (abs (mcfValue cf))) matched
+            top = take lim sorted
+            mkEntry (cf, f, strat) = CharacterizationEntry
+                { cheMethodFlowName = mcfFlowName cf
+                , cheCfValue        = mcfValue cf
+                , cheCfUnit         = mcfUnit cf
+                , cheDirection      = case mcfDirection cf of
+                    Input  -> "Input"
+                    Output -> "Output"
+                , cheDbFlowName     = flowName f
+                , cheFlowId         = UUID.toText (flowId f)
+                , cheFlowUnit       = getUnitNameForFlow (dbUnits db) f
+                , cheCategory       = flowCategory f
+                , cheCompartment    = flowSubcompartment f
+                , cheMatchStrategy  = strategyToText strat
+                }
+        return CharacterizationResult
+            { chrMethod  = methodName method
+            , chrUnit    = methodUnit method
+            , chrMatches = length matched
+            , chrShown   = length top
+            , chrFactors = map mkEntry top
+            }
+
+    matchesQuery :: Maybe Text -> Text -> Text -> Bool
+    matchesQuery Nothing _ _ = True
+    matchesQuery (Just q) cfName dbName = T.isInfixOf q (T.toLower cfName) || T.isInfixOf q (T.toLower dbName)
 
     -- Helper to load a method by UUID from the loaded collections
     loadMethodByUUID :: Text -> Handler Method

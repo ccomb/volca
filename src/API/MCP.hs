@@ -31,15 +31,15 @@ import qualified Database.Manager as DM
 
 import Matrix (computeInventoryMatrix, computeScalingVector, applyBiosphereMatrix, computeProcessLCIAContributions)
 import Method.Mapping (computeLCIAScore, mapMethodToFlows, computeMappingStats, MappingStats(..))
-import Method.Types (Method(..), MethodCF(..))
+import Method.Types (Method(..), MethodCF(..), FlowDirection(..))
 import Plugin.Types (PluginRegistry(..))
 import Plugin.Builtin (flowContribution)
 import SharedSolver (SharedSolver)
 import qualified Data.List as L
 import Data.Maybe (mapMaybe)
 import qualified Service
-import Types (Database(..), Activity(..), Indexes(..), activityName, activityLocation, flowName, flowId, processIdToText)
-import API.Types (InventoryExport(..), InventoryFlowDetail(..), ClassificationSystem(..))
+import Types (Database(..), Activity(..), Indexes(..), activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText)
+import API.Types (InventoryExport(..), InventoryFlowDetail(..), ClassificationSystem(..), ActivityInfo(..), ActivityForAPI(..), ExchangeWithUnit(..))
 import UnitConversion (defaultUnitConfig)
 import Network.Wai (requestHeaders)
 import Network.HTTP.Types.Header (hHost, hAccept)
@@ -187,7 +187,7 @@ handleInitialize req = return $ rpcResult (fromMaybe Null $ rpcId req) $ object
         ]
     , "instructions"    .= T.unlines
         [ "VoLCA is a Life Cycle Assessment engine."
-        , "Use search_activities to find processes, then get_activity, get_tree, get_inventory, or compute_lcia to analyze them."
+        , "Use search_activities to find processes, then get_activity, get_tree, get_inventory, or get_lcia to analyze them."
         , "All tools that operate on activities require a 'database' parameter (name of a loaded DB) and a 'process_id'."
         , "Preferred process_id format: activityUUID_productUUID. A bare activityUUID is also accepted when the activity has a unique reference product — no search_activities lookup is needed in that case."
         , "Use list_databases to see available databases, and list_methods for available LCIA methods."
@@ -228,11 +228,14 @@ toolDefinitions =
             ]
             [ ("limit", "integer", "Max results (default 20)")
             ])
-    , mkTool "get_activity" "Get detailed information about an activity: name, location, exchanges, reference product, metadata"
+    , mkTool "get_activity" "Get detailed information about an activity: name, location, exchanges, reference product, metadata. Use exchange_type to filter exchanges and reduce response size."
         (props
             [ ("database", "string", "Database name")
             , ("process_id", "string", "Process ID (activityUUID_productUUID format)")
-            ] [])
+            ]
+            [ ("exchange_type", "string", "Filter exchanges: \"biosphere\" (emissions/resources only), \"technosphere\" (inputs/outputs only), or \"all\" (default)")
+            , ("flow", "string", "Filter exchanges by flow name (case-insensitive substring)")
+            ])
     , mkTool "get_tree" "Get the supply chain tree of an activity, showing recursive inputs with loop detection"
         (props
             [ ("database", "string", "Database name")
@@ -259,7 +262,7 @@ toolDefinitions =
             [ ("flow", "string", "Filter flows by name (case-insensitive substring)")
             , ("limit", "integer", "Max flows to return, sorted by absolute quantity (default 50)")
             ])
-    , mkTool "compute_lcia" "Compute Life Cycle Impact Assessment (LCIA) score for an activity. Returns the score, functional unit, and top contributing elementary flows."
+    , mkTool "get_lcia" "Compute Life Cycle Impact Assessment (LCIA) score for an activity. Returns the score, functional unit, and top contributing elementary flows."
         (props
             [ ("database", "string", "Database name")
             , ("process_id", "string", "Process ID")
@@ -274,6 +277,14 @@ toolDefinitions =
             [ ("database", "string", "Database name")
             , ("method_id", "string", "Method UUID")
             ] [])
+    , mkTool "get_characterization" "Look up characterization factors for a method matched against database flows. Without 'flow' filter, returns top factors by absolute value. With 'flow', searches by name. Shows CF value, direction, matched database flow, and match strategy."
+        (props
+            [ ("database", "string", "Database name")
+            , ("method_id", "string", "Method UUID")
+            ]
+            [ ("flow", "string", "Filter by flow name (case-insensitive substring, matches both method CF name and database flow name)")
+            , ("limit", "integer", "Max results (default 20)")
+            ])
     , mkTool "get_contributing_flows" "Identify which elementary flows (emissions/resources) contribute most to a specific impact category. Answers 'which emissions drive my climate change score?'"
         (props
             [ ("database", "string", "Database name")
@@ -282,7 +293,7 @@ toolDefinitions =
             ]
             [ ("limit", "integer", "Max flows to return, sorted by contribution (default 20)")
             ])
-    , mkTool "get_contributing_processes" "Identify which upstream processes contribute most to a specific impact category. Answers 'which suppliers drive my climate change score?' Uses exact matrix-based computation, valid even for cyclic supply chains."
+    , mkTool "get_contributing_activities" "Identify which upstream activities contribute most to a specific impact category. Answers 'which suppliers drive my climate change score?' Uses exact matrix-based computation, valid even for cyclic supply chains."
         (props
             [ ("database", "string", "Database name")
             , ("process_id", "string", "Process ID")
@@ -370,11 +381,12 @@ callTool dbManager presets baseUrl rid name args = case name of
     "get_tree"                -> withDb dbManager rid args $ callGetTree rid args
     "get_supply_chain"        -> withDb dbManager rid args $ callGetSupplyChain rid args
     "get_inventory"           -> withDb dbManager rid args $ callGetInventory rid args
-    "compute_lcia"            -> callComputeLCIA dbManager baseUrl rid args
+    "get_lcia"                -> callGetLCIA dbManager baseUrl rid args
     "list_methods"            -> callListMethods dbManager rid
     "get_flow_mapping"        -> callGetFlowMapping dbManager rid args
+    "get_characterization"    -> callGetCharacterization dbManager rid args
     "get_contributing_flows"   -> callGetContributingFlows dbManager baseUrl rid args
-    "get_contributing_processes" -> callGetContributingProcesses dbManager baseUrl rid args
+    "get_contributing_activities" -> callGetContributingActivities dbManager baseUrl rid args
     "list_geographies"         -> callListGeographies dbManager rid args
     "list_classifications"     -> withDb dbManager rid args $ callListClassifications rid args
     "get_path_to"              -> withDb dbManager rid args $ callGetPathTo rid args
@@ -502,7 +514,25 @@ callGetActivity rid args (db, _) =
         Just pid ->
             case Service.getActivityInfo defaultUnitConfig db pid of
                 Left err  -> return $ toolError rid (T.pack $ show err)
-                Right val -> return $ toolSuccessJson rid val
+                Right val
+                    | noFilters -> return $ toolSuccessJson rid val
+                    | otherwise -> case fromJSON val of
+                        Error _    -> return $ toolSuccessJson rid val
+                        Success ai ->
+                            let filtered = ai { piActivity = (piActivity ai) { pfaExchanges = filter matchExchange (pfaExchanges (piActivity ai)) } }
+                            in return $ toolSuccessJson rid (toJSON filtered)
+  where
+    exchangeType = textArg "exchange_type" args
+    flowFilter   = textArg "flow" args
+    noFilters    = exchangeType `elem` [Nothing, Just "all"] && flowFilter == Nothing
+    matchExchange ewu = matchType ewu && matchFlow ewu
+    matchType ewu = case exchangeType of
+        Just "biosphere"    -> ewuFlowCategory ewu /= "technosphere"
+        Just "technosphere" -> ewuFlowCategory ewu == "technosphere"
+        _                   -> True
+    matchFlow ewu = case flowFilter of
+        Nothing -> True
+        Just q  -> T.isInfixOf (T.toLower q) (T.toLower (ewuFlowName ewu))
 
 callGetTree :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetTree rid args (db, _) =
@@ -595,15 +625,15 @@ callGetInventory rid args (db, solver) =
                             , "category" .= ifdCategory f
                             , "isEmission" .= ifdIsEmission f
                             ]
-                    in return $ toolSuccessJson rid $ object
-                        [ "statistics" .= toJSON (ieStatistics inv)
-                        , "total_flows" .= length flows
-                        , "shown_flows" .= length topN
-                        , "flows"       .= map slim topN
-                        ]
+                        in return $ toolSuccessJson rid $ object
+                            [ "statistics" .= toJSON (ieStatistics inv)
+                            , "total_flows" .= length flows
+                            , "shown_flows" .= length topN
+                            , "flows"       .= map slim topN
+                            ]
 
-callComputeLCIA :: DatabaseManager -> Text -> Value -> KeyMap Value -> IO Value
-callComputeLCIA dbManager baseUrl rid args = do
+callGetLCIA :: DatabaseManager -> Text -> Value -> KeyMap Value -> IO Value
+callGetLCIA dbManager baseUrl rid args = do
     case (textArg "database" args, textArg "process_id" args, textArg "method_id" args) of
         (Nothing, _, _) -> return $ toolError rid "Missing required parameter: database"
         (_, Nothing, _) -> return $ toolError rid "Missing required parameter: process_id"
@@ -650,8 +680,12 @@ callComputeLCIA dbManager baseUrl rid args = do
                                                     [ "flow_name"           .= flowName f
                                                     , "contribution"        .= c
                                                     , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
+                                                    , "flow_id"             .= UUID.toText (flowId f)
+                                                    , "category"            .= flowCategory f
+                                                    , "compartment"         .= flowSubcompartment f
+                                                    , "cf_value"            .= mcfValue cf
                                                     ]
-                                                    | (_, f, c) <- topFlows
+                                                    | (cf, f, c) <- topFlows
                                                     ]
                                                 ]
 
@@ -701,6 +735,55 @@ callGetFlowMapping dbManager rid args =
                                         , "coverage"  .= coverage
                                         ]
 
+callGetCharacterization :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callGetCharacterization dbManager rid args =
+    case (textArg "database" args, textArg "method_id" args) of
+        (Nothing, _) -> return $ toolError rid "Missing required parameter: database"
+        (_, Nothing) -> return $ toolError rid "Missing required parameter: method_id"
+        (Just dbName, Just methodIdText) -> do
+            mLoaded <- getDatabase dbManager dbName
+            case mLoaded of
+                Nothing -> return $ toolError rid ("Database not loaded: " <> dbName)
+                Just ld -> do
+                    eMethod <- resolveMethod dbManager methodIdText
+                    case eMethod of
+                        Left err -> return $ toolError rid err
+                        Right (_, method) -> do
+                            let db      = ldDatabase ld
+                                lim     = fromMaybe 20 (intArg "limit" args)
+                                flowQ   = textArg "flow" args
+                                queryLower = fmap T.toLower flowQ
+                                mappers = prMappers (dmPlugins dbManager)
+                            mappings <- mapMethodToFlows mappers db method
+                            let matched = [ (cf, f, strat)
+                                          | (cf, Just (f, strat)) <- mappings
+                                          , matchQuery queryLower (mcfFlowName cf) (flowName f)
+                                          ]
+                                sorted = L.sortOn (\(cf, _, _) -> negate (abs (mcfValue cf))) matched
+                                top = take lim sorted
+                                mkEntry (cf, f, strat) = object
+                                    [ "cf_flow_name"   .= mcfFlowName cf
+                                    , "cf_value"       .= mcfValue cf
+                                    , "cf_unit"        .= mcfUnit cf
+                                    , "direction"      .= (case mcfDirection cf of Input -> "Input" :: Text; Output -> "Output")
+                                    , "db_flow_name"   .= flowName f
+                                    , "flow_id"        .= UUID.toText (flowId f)
+                                    , "flow_unit"      .= getUnitNameForFlow (dbUnits db) f
+                                    , "category"       .= flowCategory f
+                                    , "compartment"    .= flowSubcompartment f
+                                    , "match_strategy" .= show strat
+                                    ]
+                            return $ toolSuccessJson rid $ object
+                                [ "method"  .= methodName method
+                                , "unit"    .= methodUnit method
+                                , "matches" .= length matched
+                                , "shown"   .= length top
+                                , "factors" .= map mkEntry top
+                                ]
+  where
+    matchQuery Nothing _ _ = True
+    matchQuery (Just q) cfName dbFlowName = T.isInfixOf q (T.toLower cfName) || T.isInfixOf q (T.toLower dbFlowName)
+
 -- | Helper: resolve method from UUID text, also returning its collection name
 resolveMethod :: DatabaseManager -> Text -> IO (Either Text (Text, Method))
 resolveMethod dbManager methodIdText =
@@ -733,7 +816,7 @@ callGetContributingFlows dbManager baseUrl rid args =
                                     let db      = ldDatabase ld
                                         lim     = fromMaybe 20 (intArg "limit" args)
                                         mappers = prMappers (dmPlugins dbManager)
-                                        webUrl  = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/flow-hotspot/" <> encodeSegment colName <> "/" <> methodIdText
+                                        webUrl  = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/contributing-flows/" <> encodeSegment colName <> "/" <> methodIdText
                                     unitCfg  <- DM.getMergedUnitConfig dbManager
                                     scalingVec <- computeScalingVector db processId
                                     let inventory = applyBiosphereMatrix db scalingVec
@@ -752,13 +835,17 @@ callGetContributingFlows dbManager baseUrl rid args =
                                             [ "flow_name"           .= flowName f
                                             , "contribution"        .= c
                                             , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
+                                            , "flow_id"             .= UUID.toText (flowId f)
+                                            , "category"            .= flowCategory f
+                                            , "compartment"         .= flowSubcompartment f
+                                            , "cf_value"            .= mcfValue cf
                                             ]
-                                            | (_, f, c) <- top
+                                            | (cf, f, c) <- top
                                             ]
                                         ]
 
-callGetContributingProcesses :: DatabaseManager -> Text -> Value -> KeyMap Value -> IO Value
-callGetContributingProcesses dbManager baseUrl rid args =
+callGetContributingActivities :: DatabaseManager -> Text -> Value -> KeyMap Value -> IO Value
+callGetContributingActivities dbManager baseUrl rid args =
     case (textArg "database" args, textArg "process_id" args, textArg "method_id" args) of
         (Nothing, _, _) -> return $ toolError rid "Missing required parameter: database"
         (_, Nothing, _) -> return $ toolError rid "Missing required parameter: process_id"
@@ -795,7 +882,7 @@ callGetContributingProcesses dbManager baseUrl rid args =
                                                     Just act -> let (pn, _, _) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) act in pn
                                                     Nothing  -> ""
                                                 pidText' = processIdToText db pid
-                                                procWebUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText' <> "/process-hotspot/" <> encodeSegment colName <> "/" <> methodIdText
+                                                procWebUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText' <> "/contributing-activities/" <> encodeSegment colName <> "/" <> methodIdText
                                             in object
                                                 [ "process_id"           .= pidText'
                                                 , "activity_name"        .= actName

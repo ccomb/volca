@@ -273,9 +273,13 @@ data MethodFactorAPI = MethodFactorAPI
 
 -- | A single flow's contribution to an LCIA score
 data FlowContributionEntry = FlowContributionEntry
-    { fcoFlowName    :: Text    -- Biosphere flow name (e.g. "Carbon dioxide, fossil")
-    , fcoContribution :: Double -- Contribution in impact unit
-    , fcoSharePct    :: Double  -- Percentage of total score (0-100)
+    { fcoFlowName    :: Text         -- Biosphere flow name (e.g. "Carbon dioxide, fossil")
+    , fcoContribution :: Double      -- Contribution in impact unit
+    , fcoSharePct    :: Double       -- Percentage of total score (0-100)
+    , fcoFlowId      :: Text         -- Flow UUID for disambiguation
+    , fcoCategory    :: Text         -- e.g. "air/urban air"
+    , fcoCompartment :: Maybe Text   -- Sub-compartment (e.g. "urban air")
+    , fcoCfValue     :: Double       -- Raw characterization factor value
     }
     deriving (Generic)
 
@@ -295,32 +299,32 @@ data LCIAResult = LCIAResult
     }
     deriving (Generic)
 
--- | Flow hotspot result: top elementary flows for a specific impact category
-data FlowHotspotResult = FlowHotspotResult
-    { fhrMethod     :: Text
-    , fhrUnit       :: Text
-    , fhrTotalScore :: Double
-    , fhrTopFlows   :: [FlowContributionEntry]
+-- | Contributing flows result: top elementary flows for a specific impact category
+data ContributingFlowsResult = ContributingFlowsResult
+    { cfrMethod     :: Text
+    , cfrUnit       :: Text
+    , cfrTotalScore :: Double
+    , cfrTopFlows   :: [FlowContributionEntry]
     }
     deriving (Generic)
 
--- | A single process contribution to an LCIA score
-data ProcessContribution = ProcessContribution
-    { pcProcessId    :: Text    -- "activityUUID_productUUID" — usable as API process_id
-    , pcActivityName :: Text    -- e.g. "electricity production, nuclear"
-    , pcProductName  :: Text    -- e.g. "electricity, medium voltage"
-    , pcLocation     :: Text    -- e.g. "FR"
-    , pcContribution :: Double  -- Contribution in impact unit
-    , pcSharePct     :: Double  -- Percentage of total score (0-100)
+-- | A single activity's contribution to an LCIA score
+data ActivityContribution = ActivityContribution
+    { acProcessId    :: Text    -- "activityUUID_productUUID" — usable as API process_id
+    , acActivityName :: Text    -- e.g. "electricity production, nuclear"
+    , acProductName  :: Text    -- e.g. "electricity, medium voltage"
+    , acLocation     :: Text    -- e.g. "FR"
+    , acContribution :: Double  -- Contribution in impact unit
+    , acSharePct     :: Double  -- Percentage of total score (0-100)
     }
     deriving (Generic)
 
--- | Process hotspot result: top upstream processes for a specific impact category
-data ProcessHotspotResult = ProcessHotspotResult
-    { phrMethod      :: Text
-    , phrUnit        :: Text
-    , phrTotalScore  :: Double
-    , phrProcesses   :: [ProcessContribution]
+-- | Contributing activities result: top upstream activities for a specific impact category
+data ContributingActivitiesResult = ContributingActivitiesResult
+    { carMethod      :: Text
+    , carUnit        :: Text
+    , carTotalScore  :: Double
+    , carActivities  :: [ActivityContribution]
     }
     deriving (Generic)
 
@@ -377,6 +381,31 @@ data FlowCFEntry = FlowCFEntry
     , fceCfValue :: Maybe Double     -- CF value (Nothing if no match)
     , fceCfFlowName :: Maybe Text    -- Method CF flow name
     , fceMatchStrategy :: Maybe Text -- "uuid" | "name" | "synonym"
+    }
+    deriving (Generic)
+
+-- | Characterization result: matched CFs for a method in a database
+data CharacterizationResult = CharacterizationResult
+    { chrMethod  :: Text
+    , chrUnit    :: Text
+    , chrMatches :: Int
+    , chrShown   :: Int
+    , chrFactors :: [CharacterizationEntry]
+    }
+    deriving (Generic)
+
+-- | A single matched characterization factor
+data CharacterizationEntry = CharacterizationEntry
+    { cheMethodFlowName :: Text        -- CF flow name from method
+    , cheCfValue        :: Double      -- Characterization factor
+    , cheCfUnit         :: Text        -- CF unit (e.g. "kg")
+    , cheDirection      :: Text        -- "Input" or "Output"
+    , cheDbFlowName     :: Text        -- Matched DB flow name
+    , cheFlowId         :: Text        -- DB flow UUID
+    , cheFlowUnit       :: Text        -- DB flow default unit (e.g. "m3", "kg")
+    , cheCategory       :: Text        -- Flow category
+    , cheCompartment    :: Maybe Text  -- Sub-compartment
+    , cheMatchStrategy  :: Text        -- "uuid", "cas", "name", "synonym", "fuzzy"
     }
     deriving (Generic)
 
@@ -635,13 +664,15 @@ instance ToJSON MethodFactorAPI
 instance ToJSON FlowContributionEntry
 instance ToJSON LCIAResult
 instance ToJSON LCIABatchResult
-instance ToJSON FlowHotspotResult
-instance ToJSON ProcessContribution
-instance ToJSON ProcessHotspotResult
+instance ToJSON ContributingFlowsResult
+instance ToJSON ActivityContribution
+instance ToJSON ContributingActivitiesResult
 instance ToJSON MappingStatus
 instance ToJSON UnmappedFlowAPI
 instance ToJSON FlowCFMapping
 instance ToJSON FlowCFEntry
+instance ToJSON CharacterizationResult
+instance ToJSON CharacterizationEntry
 instance ToJSON SupplyChainResponse
 instance ToJSON SupplyChainEntry
 instance ToJSON SupplyChainEdge
