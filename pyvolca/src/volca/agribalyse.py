@@ -214,8 +214,13 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
     act = client.get_activity(process_id)
     pattern = detect_pattern(act)
 
-    # Pattern A: descend into the WFLDB sub-process; aggregates run there.
+    # Pattern A: descend into the WFLDB sub-process; aggregates run there and
+    # the description (with allocation factors) lives there too. The WFLDB
+    # core may itself be flat (direct energy inputs) or layered (only
+    # sub-processes), so we re-detect once after descending.
     target_pid = process_id
+    target_description = act.description
+    target_pattern = pattern
     if pattern == "wrapper_wfldb":
         wfldb_e = next(
             (
@@ -226,9 +231,14 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
         )
         if wfldb_e and wfldb_e.target_process_id:
             target_pid = wfldb_e.target_process_id
+            target_act = client.get_activity(target_pid)
+            target_description = target_act.description
+            target_pattern = detect_pattern(target_act)
 
-    # Pattern C: walk the supply chain instead of level-0 direct exchanges.
-    if pattern == "layered":
+    # Layered targets (Pattern C, or a wrapper whose WFLDB core is itself
+    # layered like spray-dried milk powder) need a supply-chain walk because
+    # the energy lives one level deeper inside processing sub-processes.
+    if target_pattern == "layered":
         sc_scope, sc_depth = "supply_chain", 2
     else:
         sc_scope, sc_depth = "direct", None
@@ -275,7 +285,7 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
         wastewater_m3=agg_total(filter_name="Wastewater", filter_unit="m3"),
         biowaste_kg=agg_total(filter_name="Biowaste", filter_unit="kg"),
         co_products=co_products,
-        allocation=parse_allocation(act.description),
+        allocation=parse_allocation(target_description),
     )
 
 

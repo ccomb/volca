@@ -182,7 +182,7 @@ class TechnosphereExchange:
 
     @classmethod
     def from_json(cls, ewu: dict) -> "TechnosphereExchange":
-        inner = ewu["ewuExchange"]["TechnosphereExchange"]
+        inner = ewu["ewuExchange"]
         return cls(
             flow_name=ewu["ewuFlowName"],
             flow_category=ewu["ewuFlowCategory"],
@@ -210,7 +210,7 @@ class BiosphereExchange:
 
     @classmethod
     def from_json(cls, ewu: dict) -> "BiosphereExchange":
-        inner = ewu["ewuExchange"]["BiosphereExchange"]
+        inner = ewu["ewuExchange"]
         return cls(
             flow_name=ewu["ewuFlowName"],
             flow_category=ewu["ewuFlowCategory"],
@@ -224,13 +224,18 @@ Exchange = Union[TechnosphereExchange, BiosphereExchange]
 
 
 def parse_exchange(ewu: dict) -> Exchange:
-    """Parse an `ExchangeWithUnit` JSON dict (as returned by GET /activity)."""
-    inner = ewu["ewuExchange"]
-    if "TechnosphereExchange" in inner:
+    """Parse an `ExchangeWithUnit` JSON dict (as returned by GET /activity).
+
+    The inner `ewuExchange` object is tagged with a `"tag"` discriminator
+    (``"TechnosphereExchange"`` or ``"BiosphereExchange"``) and carries all
+    variant-specific fields flat at the same level.
+    """
+    tag = ewu["ewuExchange"].get("tag")
+    if tag == "TechnosphereExchange":
         return TechnosphereExchange.from_json(ewu)
-    if "BiosphereExchange" in inner:
+    if tag == "BiosphereExchange":
         return BiosphereExchange.from_json(ewu)
-    raise ValueError(f"Unknown exchange variant: {list(inner.keys())}")
+    raise ValueError(f"Unknown exchange variant tag: {tag!r}")
 
 
 def parse_exchange_detail(ed: dict) -> Exchange:
