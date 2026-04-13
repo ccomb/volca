@@ -22,6 +22,7 @@ library
                      , Config
                      , ConfigWriter
                      , Service
+                     , Service.Aggregate
                      , Tree
                      , Matrix
                      , Matrix.Export

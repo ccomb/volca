@@ -88,6 +88,8 @@ instance ToSchema MethodFactorAPI
 instance ToSchema SupplyChainResponse
 instance ToSchema SupplyChainEntry
 instance ToSchema SupplyChainEdge
+instance ToSchema Aggregation
+instance ToSchema AggregationGroup
 instance ToSchema SubstitutionRequest
 instance ToSchema Substitution
 instance ToSchema ExchangeDetail

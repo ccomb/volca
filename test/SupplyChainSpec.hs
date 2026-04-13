@@ -7,7 +7,7 @@ import TestHelpers
 import GoldenData
 import Types
 import API.Types (SupplyChainEntry(..), SupplyChainResponse(..), TreeExport(..), TreeMetadata(..), ExportNode(..), TreeEdge(..), FlowInfo(..), NodeType(..), EdgeType(..))
-import Service (buildSupplyChainFromScalingVector, filterTreeExport, bfsToPattern, getPathTo)
+import Service (ActivityFilter(..), buildSupplyChainFromScalingVector, filterTreeExport, bfsToPattern, getPathTo)
 import Matrix (computeScalingVector)
 import SharedSolver (createSharedSolver)
 import qualified Data.Map.Strict as M
@@ -19,6 +19,15 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Key (fromText)
 import Data.Text (Text, pack)
 
+-- | An ActivityFilter with every field unset. Tests set only the fields they need.
+emptyFilter :: ActivityFilter
+emptyFilter = ActivityFilter
+    { afName = Nothing, afLocation = Nothing, afProduct = Nothing
+    , afClassifications = [], afLimit = Nothing, afOffset = Nothing
+    , afMaxDepth = Nothing, afMinQuantity = Nothing
+    , afSort = Nothing, afOrder = Nothing
+    }
+
 spec :: Spec
 spec = do
     describe "sceQuantity uses rootRefAmount (not activity refAmount)" $ do
@@ -29,8 +38,7 @@ spec = do
             let rootProcessId = 0 :: ProcessId
             supplyVec <- computeScalingVector db rootProcessId
 
-            let response = buildSupplyChainFromScalingVector db rootProcessId supplyVec
-                    Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing False
+            let response = buildSupplyChainFromScalingVector db rootProcessId supplyVec emptyFilter False
                 entries = scrSupplyChain response
 
             -- With rootRefAmount = 1, sceQuantity must equal sceScalingFactor exactly
@@ -46,8 +54,7 @@ spec = do
             let rootProcessId = 0 :: ProcessId
             supplyVec <- computeScalingVector db rootProcessId
 
-            let response = buildSupplyChainFromScalingVector db rootProcessId supplyVec
-                    Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing False
+            let response = buildSupplyChainFromScalingVector db rootProcessId supplyVec emptyFilter False
                 entries = scrSupplyChain response
 
             -- All entries should have depth > 0 (root is excluded from supply chain)
@@ -61,13 +68,12 @@ spec = do
             supplyVec <- computeScalingVector db rootProcessId
 
             -- No depth filter: should get Y (depth 1) and Z (depth 2)
-            let noFilter = buildSupplyChainFromScalingVector db rootProcessId supplyVec
-                    Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing False
+            let noFilter = buildSupplyChainFromScalingVector db rootProcessId supplyVec emptyFilter False
             scrFilteredActivities noFilter `shouldSatisfy` (>= 2)
 
             -- Depth 1: should only get Y (direct supplier)
             let depth1 = buildSupplyChainFromScalingVector db rootProcessId supplyVec
-                    Nothing Nothing Nothing Nothing (Just 1) Nothing Nothing Nothing Nothing Nothing False
+                    emptyFilter { afMaxDepth = Just 1 } False
             scrFilteredActivities depth1 `shouldSatisfy` (< scrFilteredActivities noFilter)
 
     -- -----------------------------------------------------------------------

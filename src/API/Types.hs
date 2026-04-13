@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module API.Types where
@@ -208,7 +207,7 @@ data MethodSummary = MethodSummary
     deriving (Generic)
 
 -- | Method collection list response
-data MethodCollectionListResponse = MethodCollectionListResponse
+newtype MethodCollectionListResponse = MethodCollectionListResponse
     { mclMethods :: [MethodCollectionStatusAPI]
     }
     deriving (Generic)
@@ -227,7 +226,7 @@ data MethodCollectionStatusAPI = MethodCollectionStatusAPI
     deriving (Generic)
 
 -- | Reference data list response (flow synonyms, compartment mappings, units)
-data RefDataListResponse = RefDataListResponse
+newtype RefDataListResponse = RefDataListResponse
     { rdlItems :: [RefDataStatusAPI]
     }
     deriving (Generic)
@@ -410,7 +409,7 @@ data CharacterizationEntry = CharacterizationEntry
     deriving (Generic)
 
 -- | Database list response
-data DatabaseListResponse = DatabaseListResponse
+newtype DatabaseListResponse = DatabaseListResponse
     { dlrDatabases :: [DatabaseStatusAPI]  -- All available databases
     }
     deriving (Generic)
@@ -500,7 +499,7 @@ data SupplyChainEdge = SupplyChainEdge
 
 -- | Request body for POST endpoints that accept substitutions.
 -- Substitutions modify the scaling vector via Sherman-Morrison rank-1 updates.
-data SubstitutionRequest = SubstitutionRequest
+newtype SubstitutionRequest = SubstitutionRequest
     { srSubstitutions :: [Substitution]
     }
     deriving (Generic)
@@ -621,12 +620,37 @@ data ClassificationSystem = ClassificationSystem
     }
     deriving (Generic)
 
+-- | Result of an /activity/{pid}/aggregate call.
+--
+-- A SQL-group-by-style aggregation over exchanges, supply chain entries, or
+-- biosphere flows, depending on the requested scope.
+data Aggregation = Aggregation
+    { aggScope          :: Text                  -- echoed scope: "direct" | "supply_chain" | "biosphere"
+    , aggFilteredTotal  :: Double                -- total summed across all matching items (after filters)
+    , aggFilteredUnit   :: Maybe Text            -- Nothing when matched items have heterogeneous units
+    , aggFilteredCount  :: Int                   -- count of items matching the filters
+    , aggGroups         :: [AggregationGroup]    -- one entry per group_by bucket (empty when group_by omitted)
+    }
+    deriving (Generic)
+
+-- | One bucket in an aggregation result.
+data AggregationGroup = AggregationGroup
+    { aggGroupKey      :: Text
+    , aggGroupQuantity :: Double
+    , aggGroupUnit     :: Maybe Text       -- Nothing when group's items are heterogeneous
+    , aggGroupShare    :: Maybe Double     -- only set when aggregate=share
+    , aggGroupCount    :: Int
+    }
+    deriving (Generic)
+
 -- JSON instances
 instance ToJSON ConsumerResult
 instance FromJSON ConsumerResult
 instance ToJSON ClassificationEntryInfo
 instance ToJSON ClassificationPresetInfo
 instance ToJSON ClassificationSystem
+instance ToJSON Aggregation
+instance ToJSON AggregationGroup
 instance (ToJSON a) => ToJSON (SearchResults a)
 instance ToJSON ActivitySummary
 instance ToJSON FlowSearchResult

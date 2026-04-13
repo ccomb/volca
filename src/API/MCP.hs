@@ -14,7 +14,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -22,7 +22,7 @@ import qualified Data.UUID as UUID
 import Network.HTTP.Types (status200, status202, status405, hContentType)
 import Network.URI (escapeURIString, isUnreserved)
 import System.Random (randomIO)
-import Network.Wai (Application, responseLBS, strictRequestBody, requestMethod)
+import Network.Wai (Application, responseLBS, strictRequestBody, requestMethod, requestHeaders)
 import qualified Data.ByteString as BS
 
 import Config (DatabaseConfig(..), ClassificationPreset(..), ClassificationEntry(..))
@@ -36,12 +36,11 @@ import Plugin.Types (PluginRegistry(..))
 import Plugin.Builtin (flowContribution)
 import SharedSolver (SharedSolver)
 import qualified Data.List as L
-import Data.Maybe (mapMaybe)
 import qualified Service
-import Types (Database(..), Activity(..), Indexes(..), activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText)
+import Types (Database(..), Activity(..), Indexes(..), activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText, exchangeIsInput)
 import API.Types (InventoryExport(..), InventoryFlowDetail(..), ClassificationSystem(..), ActivityInfo(..), ActivityForAPI(..), ExchangeWithUnit(..))
+import qualified Service.Aggregate as Agg
 import UnitConversion (defaultUnitConfig)
-import Network.Wai (requestHeaders)
 import Network.HTTP.Types.Header (hHost, hAccept)
 import Numeric (showFFloat)
 
@@ -229,12 +228,13 @@ toolDefinitions =
             ]
             [ ("limit", "integer", "Max results (default 20)")
             ])
-    , mkTool "get_activity" "Get detailed information about an activity: name, location, exchanges, reference product, metadata. Use exchange_type to filter exchanges and reduce response size."
+    , mkTool "get_activity" "Get detailed information about an activity: name, location, exchanges, reference product, metadata. Use exchange_type / is_input / flow to filter exchanges and reduce response size."
         (props
             [ ("database", "string", "Database name")
             , ("process_id", "string", "Process ID (activityUUID_productUUID format)")
             ]
             [ ("exchange_type", "string", "Filter exchanges: \"biosphere\" (emissions/resources only), \"technosphere\" (inputs/outputs only), or \"all\" (default)")
+            , ("is_input", "boolean", "If true, return only inputs; if false, only outputs; omit for both. Combines with exchange_type.")
             , ("flow", "string", "Filter exchanges by flow name (case-insensitive substring)")
             ])
     , mkTool "get_tree" "Get the supply chain tree of an activity, showing recursive inputs with loop detection"
@@ -245,6 +245,23 @@ toolDefinitions =
             [ ("depth", "integer", "Max tree depth (default 2)")
             , ("name", "string", "Filter nodes by activity name; keeps matching nodes plus all their ancestors up to the root (case-insensitive substring)")
             ])
+    , mkTool "aggregate" "Aggregate exchanges, supply chain entries, or biosphere flows with SQL group-by-style filters. One primitive replaces ad-hoc decomposition tools — express any 'how much X is in Y' question as one call. Examples:\n  - Total electricity in direct inputs: scope=direct, is_input=true, filter_name=Electricity, filter_unit=kWh\n  - Mass breakdown of direct inputs: scope=direct, is_input=true, filter_unit=kg, group_by=name\n  - Total energy across the supply chain: scope=supply_chain, max_depth=2, filter_classification=[\"Category type=energy:exact\"]\n  - Largest pasture occupation flow: scope=biosphere, filter_name=Occupation, pasture, group_by=name\n\nThe filter_classification parameter accepts a list of strings in \"System=Value[:exact]\" form (default mode is 'contains')."
+        (props
+            [ ("database",   "string", "Database name")
+            , ("process_id", "string", "Process ID (activityUUID_productUUID format)")
+            , ("scope",      "string", "direct | supply_chain | biosphere")
+            ]
+            [ ("is_input",              "boolean", "Only for scope=direct — true=inputs only, false=outputs only")
+            , ("max_depth",             "integer", "Only for scope=supply_chain — max hops from the root activity")
+            , ("filter_name",           "string",  "Case-insensitive substring on flow/activity name")
+            , ("filter_name_not",       "string",  "Comma-separated substring exclude list")
+            , ("filter_unit",           "string",  "Exact unit name")
+            , ("filter_classification", "array",   "List of \"System=Value[:exact]\" strings; defaults to 'contains' mode")
+            , ("filter_target_name",    "string",  "Only for scope=direct technosphere — filter by upstream activity name")
+            , ("filter_is_reference",   "boolean", "Filter by reference-product flag (typically for outputs)")
+            , ("group_by",              "string",  "name | flow_id | name_prefix | unit | classification.<system> | location | target_name")
+            , ("aggregate",             "string",  "sum_quantity | count | share (default: sum_quantity)")
+            ])
     , mkTool "get_supply_chain" "Get a flat list of all upstream activities in the supply chain. The 'quantity' field is the cumulative scaled amount relative to the functional unit (scaling_factor × root reference product amount). To get the per-step yield ratio between two connected entries, divide the supplier's scaling_factor by the consumer's scaling_factor."
         (props
             [ ("database", "string", "Database name")
@@ -254,6 +271,10 @@ toolDefinitions =
             , ("location", "string", "Filter by location")
             , ("limit", "integer", "Max results (default 100)")
             , ("min_quantity", "number", "Min scaled quantity threshold")
+            , ("max_depth", "integer", "Max depth from root (1 = direct inputs only)")
+            , ("classification", "string", "Classification system name (e.g. 'Category', 'Category type')")
+            , ("classification_value", "string", "Value within the classification system")
+            , ("classification_match", "string", "Match mode: \"exact\" (case-insensitive equality) or \"contains\" (substring, default)")
             ])
     , mkTool "get_inventory" "Compute the Life Cycle Inventory (LCI) — biosphere flows (emissions and resource extractions) for an activity's full supply chain. Returns statistics and top flows by quantity."
         (props
@@ -382,6 +403,7 @@ callTool dbManager presets baseUrl rid name args = case name of
     "get_activity"            -> withDb dbManager rid args $ callGetActivity rid args
     "get_tree"                -> withDb dbManager rid args $ callGetTree rid args
     "get_supply_chain"        -> withDb dbManager rid args $ callGetSupplyChain rid args
+    "aggregate"               -> withDb dbManager rid args $ callAggregate rid args
     "get_inventory"           -> withDb dbManager rid args $ callGetInventory rid args
     "get_lcia"                -> callGetLCIA dbManager baseUrl rid args
     "list_methods"            -> callListMethods dbManager rid
@@ -426,6 +448,15 @@ boolArg :: Text -> KeyMap Value -> Maybe Bool
 boolArg key args = case KM.lookup (fromText key) args of
     Just (Bool b) -> Just b
     _             -> Nothing
+
+-- | Read an argument that may be either a JSON array of strings or a single string.
+textArrayArg :: Text -> KeyMap Value -> [Text]
+textArrayArg key args = case KM.lookup (fromText key) args of
+    Just (Array arr) -> [t | String t <- toList arr]
+    Just (String t)  -> [t]
+    _                -> []
+  where
+    toList = foldr (:) []
 
 -- ---------------------------------------------------------------------------
 -- Tool implementations
@@ -532,8 +563,11 @@ callGetActivity rid args (db, _) =
   where
     exchangeType = textArg "exchange_type" args
     flowFilter   = textArg "flow" args
-    noFilters    = exchangeType `elem` [Nothing, Just "all"] && flowFilter == Nothing
-    matchExchange ewu = matchType ewu && matchFlow ewu
+    isInputFilter = boolArg "is_input" args
+    noFilters    = exchangeType `elem` [Nothing, Just "all"]
+                 && isNothing flowFilter
+                 && isNothing isInputFilter
+    matchExchange ewu = matchType ewu && matchFlow ewu && matchIsInput ewu
     matchType ewu = case exchangeType of
         Just "biosphere"    -> ewuFlowCategory ewu /= "technosphere"
         Just "technosphere" -> ewuFlowCategory ewu == "technosphere"
@@ -541,6 +575,9 @@ callGetActivity rid args (db, _) =
     matchFlow ewu = case flowFilter of
         Nothing -> True
         Just q  -> T.isInfixOf (T.toLower q) (T.toLower (ewuFlowName ewu))
+    matchIsInput ewu = case isInputFilter of
+        Nothing -> True
+        Just want -> exchangeIsInput (ewuExchange ewu) == want
 
 callGetTree :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetTree rid args (db, _) =
@@ -558,14 +595,18 @@ callGetSupplyChain rid args (db, solver) =
     case textArg "process_id" args of
         Nothing -> return $ toolError rid "Missing required parameter: process_id"
         Just pid -> do
-            let af = Service.ActivityFilter
+            let isExact = textArg "classification_match" args `elem` [Just "equals", Just "exact"]
+                classFilters = case (textArg "classification" args, textArg "classification_value" args) of
+                    (Just sys, Just val) -> [(sys, val, isExact)]
+                    _                    -> []
+                af = Service.ActivityFilter
                     { Service.afName = textArg "name" args
                     , Service.afLocation = textArg "location" args
                     , Service.afProduct = Nothing
-                    , Service.afClassifications = []
+                    , Service.afClassifications = classFilters
                     , Service.afLimit = intArg "limit" args
                     , Service.afOffset = Nothing
-                    , Service.afMaxDepth = Nothing
+                    , Service.afMaxDepth = intArg "max_depth" args
                     , Service.afMinQuantity = doubleArg "min_quantity" args
                     , Service.afSort = Nothing
                     , Service.afOrder = Nothing }
@@ -573,6 +614,59 @@ callGetSupplyChain rid args (db, solver) =
             case result of
                 Left err  -> return $ toolError rid (T.pack $ show err)
                 Right val -> return $ toolSuccessJson rid (toJSON val)
+
+-- | Generic SQL-group-by aggregation. One small primitive for "how much X is
+-- in Y" questions — replaces ad-hoc decomposition tools.
+callAggregate :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callAggregate rid args (db, solver) =
+    case textArg "process_id" args of
+        Nothing -> return $ toolError rid "Missing required parameter: process_id"
+        Just pid -> case scopeFromArg of
+            Left err -> return $ toolError rid err
+            Right scope -> case aggFnFromArg of
+                Left err -> return $ toolError rid err
+                Right fn -> do
+                    let params = Agg.AggregateParams
+                            { Agg.apScope                 = scope
+                            , Agg.apIsInput               = boolArg "is_input" args
+                            , Agg.apMaxDepth              = intArg "max_depth" args
+                            , Agg.apFilterName            = textArg "filter_name" args
+                            , Agg.apFilterNameNot         =
+                                maybe [] (map T.strip . T.splitOn ",") (textArg "filter_name_not" args)
+                            , Agg.apFilterUnit            = textArg "filter_unit" args
+                            , Agg.apFilterClassifications =
+                                mapMaybe parseClassFilter (textArrayArg "filter_classification" args)
+                            , Agg.apFilterTargetName      = textArg "filter_target_name" args
+                            , Agg.apFilterIsReference     = boolArg "filter_is_reference" args
+                            , Agg.apGroupBy               = textArg "group_by" args
+                            , Agg.apAggregate             = fn
+                            }
+                    result <- Agg.aggregate db solver pid params
+                    case result of
+                        Left err  -> return $ toolError rid (T.pack $ show err)
+                        Right agg -> return $ toolSuccessJson rid (toJSON agg)
+  where
+    scopeFromArg = case textArg "scope" args of
+        Just "direct"       -> Right Agg.ScopeDirect
+        Just "supply_chain" -> Right Agg.ScopeSupplyChain
+        Just "biosphere"    -> Right Agg.ScopeBiosphere
+        Nothing             -> Left "Missing required parameter: scope (direct | supply_chain | biosphere)"
+        Just other          -> Left ("Invalid scope: " <> other)
+    aggFnFromArg = case textArg "aggregate" args of
+        Nothing             -> Right Agg.AggSum
+        Just "sum_quantity" -> Right Agg.AggSum
+        Just "count"        -> Right Agg.AggCount
+        Just "share"        -> Right Agg.AggShare
+        Just other          -> Left ("Invalid aggregate fn: " <> other)
+    parseClassFilter raw =
+        let (sys, rest) = T.breakOn "=" raw
+        in if T.null rest
+             then Nothing
+             else
+               let valAndMode = T.drop 1 rest
+                   (val, mode) = T.breakOn ":" valAndMode
+                   isExact = T.drop 1 mode == "exact"
+               in Just (T.strip sys, T.strip val, isExact)
 
 callGetPathTo :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetPathTo rid args (db, solver) =

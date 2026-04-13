@@ -23,11 +23,12 @@ import Database
 import qualified Service
 import Tree (buildLoopAwareTree)
 import Types
-import API.Types (ActivityInfo (..), ActivitySummary (..), BinaryContent(..), ClassificationSystem(..), ConsumerResult (..), ExchangeDetail (..), ClassificationEntryInfo(..), ClassificationPresetInfo(..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry(..), FlowDetail (..), ContributingFlowsResult(..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIARequest (..), LCIAResult (..), LCIABatchResult(..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), ActivityContribution(..), ContributingActivitiesResult(..), RefDataListResponse(..), SynonymGroupsResponse(..), SearchResults (..), SubstitutionRequest(..), SupplyChainResponse(..), TreeExport (..), UnmappedFlowAPI (..), CharacterizationResult(..), CharacterizationEntry(..), DatabaseListResponse(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
+import API.Types (ActivityInfo (..), ActivitySummary (..), Aggregation(..), BinaryContent(..), ClassificationSystem(..), ConsumerResult (..), ExchangeDetail (..), ClassificationEntryInfo(..), ClassificationPresetInfo(..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry(..), FlowDetail (..), ContributingFlowsResult(..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIARequest (..), LCIAResult (..), LCIABatchResult(..), MappingStatus (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), MethodCollectionListResponse(..), MethodCollectionStatusAPI(..), ActivityContribution(..), ContributingActivitiesResult(..), RefDataListResponse(..), SynonymGroupsResponse(..), SearchResults (..), SubstitutionRequest(..), SupplyChainResponse(..), TreeExport (..), UnmappedFlowAPI (..), CharacterizationResult(..), CharacterizationEntry(..), DatabaseListResponse(..), ActivateResponse(..), LoadDatabaseResponse(..), UploadRequest(..), UploadResponse(..))
+import qualified Service.Aggregate as Agg
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -58,6 +59,19 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> Get '[JSON] InventoryExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "graph" :> QueryParam "cutoff" Double :> Get '[JSON] GraphExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> Get '[JSON] SupplyChainResponse
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "aggregate"
+                        :> QueryParam "scope" Text
+                        :> QueryParam "is_input" Bool
+                        :> QueryParam "max_depth" Int
+                        :> QueryParam "filter_name" Text
+                        :> QueryParam "filter_name_not" Text
+                        :> QueryParam "filter_unit" Text
+                        :> QueryParams "filter_classification" Text
+                        :> QueryParam "filter_target_name" Text
+                        :> QueryParam "filter_is_reference" Bool
+                        :> QueryParam "group_by" Text
+                        :> QueryParam "aggregate" Text
+                        :> Get '[JSON] Aggregation
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "collection" Text :> Get '[JSON] LCIABatchResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "collection" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIABatchResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "lcia" :> Capture "collection" Text :> Capture "methodId" Text :> QueryParam "top-flows" Int :> Get '[JSON] LCIAResult
@@ -166,7 +180,7 @@ withValidatedFlow db uuid action = do
                         Just flow -> action flow
 
 -- | Login request body
-data LoginRequest = LoginRequest
+newtype LoginRequest = LoginRequest
     { lrCode :: Text
     } deriving (Generic)
 
@@ -187,6 +201,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
         :<|> getActivityInventory
         :<|> getActivityGraph
         :<|> getActivitySupplyChain
+        :<|> getActivityAggregate
         :<|> getActivityLCIABatch
         :<|> postActivityLCIABatch
         :<|> getActivityLCIA
@@ -430,6 +445,69 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Left (Service.MatrixError msg) -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
             Left _ -> throwError err500{errBody = "Internal server error"}
             Right supplyChain -> return supplyChain
+
+    -- Activity aggregate endpoint (generic SQL-group-by-style aggregation)
+    getActivityAggregate
+        :: Text -> Text
+        -> Maybe Text  -- scope
+        -> Maybe Bool  -- is_input
+        -> Maybe Int   -- max_depth
+        -> Maybe Text  -- filter_name
+        -> Maybe Text  -- filter_name_not
+        -> Maybe Text  -- filter_unit
+        -> [Text]      -- filter_classification (repeatable: "System=Value[:exact]")
+        -> Maybe Text  -- filter_target_name
+        -> Maybe Bool  -- filter_is_reference
+        -> Maybe Text  -- group_by
+        -> Maybe Text  -- aggregate fn
+        -> Handler Aggregation
+    getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam
+                        fnameParam fnameNotParam funitParam fclassParams ftargetParam
+                        freferenceParam groupByParam aggregateParam = do
+        (db, sharedSolver) <- requireDatabaseByName dbManager dbName
+        scope <- case scopeParam of
+            Just "direct"       -> return Agg.ScopeDirect
+            Just "supply_chain" -> return Agg.ScopeSupplyChain
+            Just "biosphere"    -> return Agg.ScopeBiosphere
+            _                   -> throwError err400{errBody = "scope must be one of: direct | supply_chain | biosphere"}
+        aggFn <- case aggregateParam of
+            Nothing               -> return Agg.AggSum
+            Just "sum_quantity"   -> return Agg.AggSum
+            Just "count"          -> return Agg.AggCount
+            Just "share"          -> return Agg.AggShare
+            Just other            -> throwError err400{errBody = "aggregate must be one of: sum_quantity | count | share (got " <> BSL.fromStrict (T.encodeUtf8 other) <> ")"}
+        let params = Agg.AggregateParams
+                { Agg.apScope                 = scope
+                , Agg.apIsInput               = isInputParam
+                , Agg.apMaxDepth              = maxDepthParam
+                , Agg.apFilterName            = fnameParam
+                , Agg.apFilterNameNot         = maybe [] (map T.strip . T.splitOn ",") fnameNotParam
+                , Agg.apFilterUnit            = funitParam
+                , Agg.apFilterClassifications = mapMaybe parseClassFilter fclassParams
+                , Agg.apFilterTargetName      = ftargetParam
+                , Agg.apFilterIsReference     = freferenceParam
+                , Agg.apGroupBy               = groupByParam
+                , Agg.apAggregate             = aggFn
+                }
+        result <- liftIO $ Agg.aggregate db sharedSolver processId params
+        case result of
+            Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
+            Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
+            Left (Service.MatrixError msg) -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
+            Left _ -> throwError err500{errBody = "Internal server error"}
+            Right agg -> return agg
+      where
+        -- Parse "System=Value[:exact]" into (system, value, isExact).
+        parseClassFilter :: Text -> Maybe (Text, Text, Bool)
+        parseClassFilter raw =
+            let (sys, rest) = T.breakOn "=" raw
+            in if T.null rest
+                 then Nothing
+                 else
+                   let valAndMode = T.drop 1 rest
+                       (val, mode) = T.breakOn ":" valAndMode
+                       isExact = T.drop 1 mode == "exact"
+                   in Just (T.strip sys, T.strip val, isExact)
 
     -- Activity LCIA endpoint (single method within a collection)
     getActivityLCIA :: Text -> Text -> Text -> Text -> Maybe Int -> Handler LCIAResult
@@ -919,7 +997,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 [(flowId f, (cf, strat)) | (cf, Just (f, strat)) <- mappings]
             -- Build entries for all biosphere flows
             entries = map (buildFlowEntry db reverseIndex) (V.toList (dbBiosphereFlows db))
-            matchedCount = length [() | e <- entries, fceCfValue e /= Nothing]
+            matchedCount = length [() | e <- entries, isJust (fceCfValue e)]
         return FlowCFMapping
             { fcmMethodName = methodName method
             , fcmMethodUnit = methodUnit method
@@ -1087,8 +1165,8 @@ paginateResults :: [a] -> Maybe Int -> Maybe Int -> IO (SearchResults a)
 paginateResults results limitParam offsetParam = do
     startTime <- getCurrentTime
     let totalCount = length results
-        limit = maybe totalCount id limitParam -- Default: return all results
-        offset = maybe 0 id offsetParam -- Default offset: 0
+        limit = fromMaybe totalCount limitParam -- Default: return all results
+        offset = fromMaybe 0 offsetParam -- Default offset: 0
         paginatedResults = take limit $ drop offset results
         hasMore = offset + length paginatedResults < totalCount
     endTime <- getCurrentTime

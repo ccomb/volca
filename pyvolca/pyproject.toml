@@ -19,7 +19,7 @@ dev = ["pytest"]
 Repository = "https://github.com/ccomb/volca/tree/main/pyvolca"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
