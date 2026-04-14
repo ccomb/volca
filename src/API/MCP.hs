@@ -39,7 +39,7 @@ import Plugin.Builtin (flowContribution)
 import SharedSolver (SharedSolver)
 import qualified Data.List as L
 import qualified Service
-import Types (Database(..), Activity(..), Indexes(..), activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText, exchangeIsInput)
+import Types (Database(..), Activity(..), Indexes(..), FlowType(..), activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText, exchangeIsInput)
 import API.Types (InventoryExport(..), InventoryFlowDetail(..), ClassificationSystem(..), ActivityInfo(..), ActivityForAPI(..), ExchangeWithUnit(..))
 import qualified Service.Aggregate as Agg
 import UnitConversion (defaultUnitConfig)
@@ -489,6 +489,10 @@ callAggregate rid args (db, solver) =
                             , Agg.apFilterClassifications =
                                 mapMaybe parseClassFilter (textArrayArg "filter_classification" args)
                             , Agg.apFilterTargetName      = textArg "filter_target_name" args
+                            , Agg.apFilterExchangeType    = case textArg "filter_exchange_type" args of
+                                Just "technosphere" -> Just Technosphere
+                                Just "biosphere"    -> Just Biosphere
+                                _                   -> Nothing
                             , Agg.apFilterIsReference     = boolArg "filter_is_reference" args
                             , Agg.apGroupBy               = textArg "group_by" args
                             , Agg.apAggregate             = fn

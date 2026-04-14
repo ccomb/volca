@@ -72,6 +72,7 @@ type LCAAPI =
                         :> QueryParam "preset" Text
                         :> QueryParams "filter_classification" Text
                         :> QueryParam "filter_target_name" Text
+                        :> QueryParam "filter_exchange_type" Text
                         :> QueryParam "filter_is_reference" Bool
                         :> QueryParam "group_by" Text
                         :> QueryParam "aggregate" Text
@@ -497,19 +498,31 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
         -> Maybe Text  -- preset
         -> [Text]      -- filter_classification (repeatable: "System=Value[:exact]")
         -> Maybe Text  -- filter_target_name
+        -> Maybe Text  -- filter_exchange_type ("technosphere" | "biosphere")
         -> Maybe Bool  -- filter_is_reference
         -> Maybe Text  -- group_by
         -> Maybe Text  -- aggregate fn
         -> Handler Aggregation
     getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam
                         fnameParam fnameNotParam funitParam presetParam fclassParams ftargetParam
-                        freferenceParam groupByParam aggregateParam = do
+                        fexchangeTypeParam freferenceParam groupByParam aggregateParam = do
         (db, sharedSolver) <- requireDatabaseByName dbManager dbName
         scope <- case scopeParam of
             Just "direct"       -> return Agg.ScopeDirect
             Just "supply_chain" -> return Agg.ScopeSupplyChain
             Just "biosphere"    -> return Agg.ScopeBiosphere
             _                   -> throwError err400{errBody = "scope must be one of: direct | supply_chain | biosphere"}
+        exchangeType <- case fexchangeTypeParam of
+            Nothing             -> return Nothing
+            Just "technosphere" -> return (Just Technosphere)
+            Just "biosphere"    -> return (Just Biosphere)
+            Just _              -> throwError err400{errBody = "filter_exchange_type must be one of: technosphere | biosphere"}
+        case (exchangeType, scope) of
+            (Just _, Agg.ScopeBiosphere) ->
+                throwError err400{errBody = "filter_exchange_type is redundant with scope=biosphere"}
+            (Just _, Agg.ScopeSupplyChain) ->
+                throwError err400{errBody = "filter_exchange_type is not supported with scope=supply_chain (all entries are technosphere)"}
+            _ -> return ()
         aggFn <- case aggregateParam of
             Nothing               -> return Agg.AggSum
             Just "sum_quantity"   -> return Agg.AggSum
@@ -527,6 +540,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 , Agg.apFilterUnit            = funitParam
                 , Agg.apFilterClassifications = presetFilters ++ explicitFilters
                 , Agg.apFilterTargetName      = ftargetParam
+                , Agg.apFilterExchangeType    = exchangeType
                 , Agg.apFilterIsReference     = freferenceParam
                 , Agg.apGroupBy               = groupByParam
                 , Agg.apAggregate             = aggFn

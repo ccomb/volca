@@ -53,7 +53,7 @@ type ProcessId = Int32
 
 -- | Flow type: Technosphere (exchange between activities) or Biosphere (exchange with the environment)
 data FlowType = Technosphere | Biosphere
-    deriving (Eq, Ord, Generic, NFData, Store)
+    deriving (Eq, Ord, Show, Generic, NFData, Store)
 
 -- | Unit representation (kg, MJ, m³, etc.)
 data Unit = Unit

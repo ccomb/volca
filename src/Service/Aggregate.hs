@@ -37,10 +37,12 @@ import Types
     ( Database(..)
     , Activity
     , Flow(..)
+    , FlowType(..)
     , exchangeIsInput
     , exchangeIsReference
     , exchangeFlowId
     , exchangeAmount
+    , isTechnosphereExchange
     )
 import Service
     ( ActivityFilter(..)
@@ -75,6 +77,7 @@ data AggregateParams = AggregateParams
     , apFilterUnit            :: Maybe Text        -- exact unit name
     , apFilterClassifications :: [ClassEntry]
     , apFilterTargetName      :: Maybe Text        -- only ScopeDirect technosphere
+    , apFilterExchangeType    :: Maybe FlowType     -- only ScopeDirect
     , apFilterIsReference     :: Maybe Bool
     , apGroupBy               :: Maybe Text
     , apAggregate             :: AggregateFn
@@ -91,6 +94,7 @@ emptyAggregateParams s = AggregateParams
     , apFilterUnit = Nothing
     , apFilterClassifications = []
     , apFilterTargetName = Nothing
+    , apFilterExchangeType = Nothing
     , apFilterIsReference = Nothing
     , apGroupBy = Nothing
     , apAggregate = AggSum
@@ -109,6 +113,7 @@ data AggRow = AggRow
     , rowIsReference     :: !(Maybe Bool)
     , rowTargetName      :: !(Maybe Text)         -- only direct technosphere
     , rowLocation        :: !(Maybe Text)         -- only supply_chain
+    , rowExchangeType    :: !(Maybe FlowType)     -- only direct / biosphere
     , rowClassifications :: !(M.Map Text Text)
     }
 
@@ -165,6 +170,7 @@ rowsFromDirect db act =
             , rowIsReference     = Just (exchangeIsReference ex)
             , rowTargetName      = fmap prsName target
             , rowLocation        = fmap prsLocation target
+            , rowExchangeType    = Just (if isTechnosphereExchange ex then Technosphere else Biosphere)
             , rowClassifications = M.empty  -- flow-level classifications not yet on Flow; use filter_name instead
             }
 
@@ -181,6 +187,7 @@ rowsFromSupplyChain response =
         , rowIsReference     = Nothing
         , rowTargetName      = Nothing
         , rowLocation        = Just (sceLocation e)
+        , rowExchangeType    = Nothing
         , rowClassifications = sceClassifications e
         }
 
@@ -197,6 +204,7 @@ rowsFromBiosphere export =
         , rowIsReference     = Nothing
         , rowTargetName      = Nothing
         , rowLocation        = Nothing
+        , rowExchangeType    = Just Biosphere
         , rowClassifications = M.empty
         }
 
@@ -212,6 +220,7 @@ filterRow p r =
     && nameNotOk
     && unitOk
     && targetOk
+    && exchangeTypeOk
     && classOk
   where
     checkMaybe getter rowGet = case getter p of
@@ -233,6 +242,11 @@ filterRow p r =
         Just q  -> case rowTargetName r of
             Just t  -> contains q t
             Nothing -> False
+    exchangeTypeOk = case apFilterExchangeType p of
+        Nothing -> True
+        Just want -> case rowExchangeType r of
+            Just actual -> actual == want
+            Nothing     -> True  -- row lacks the attribute → don't exclude
     classOk = all classMatches (apFilterClassifications p)
     classMatches (sys, val, isExact) = case M.lookup sys (rowClassifications r) of
         Nothing -> False
