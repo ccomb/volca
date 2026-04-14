@@ -486,11 +486,11 @@ class Client:
             offset=offset,
             exact=exact,
         )
-        return [Activity.from_json(a) for a in raw["srResults"]]
+        return [Activity.from_json(a) for a in raw["results"]]
 
     def search_flows(self, query: str | None = None, *, limit: int | None = None) -> list[dict]:
         raw = self._call("search_flows", q=query, limit=limit)
-        return raw["srResults"]
+        return raw["results"]
 
     def list_classifications(self) -> list[dict]:
         """List classification systems and their values for the current database."""
@@ -674,7 +674,7 @@ class Client:
             limit=limit,
             max_depth=max_depth,
         )
-        return [ConsumerResult.from_json(a) for a in raw["srResults"]]
+        return [ConsumerResult.from_json(a) for a in raw["results"]]
 
     def get_path_to(self, process_id: str, target: str) -> PathResult:
         """Find the shortest upstream path from process to first activity whose name matches target.
