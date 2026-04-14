@@ -44,6 +44,22 @@ data ActivityFilter = ActivityFilter
     , afOrder           :: Maybe Text
     }
 
+-- | Match an activity against classification filters.
+-- Semantics: OR within the same classification system, AND across different systems.
+-- This matches the documented behaviour in volca.toml classification-presets.
+matchClassifications :: Activity -> [(Text, Text, Bool)] -> Bool
+matchClassifications activity filters =
+    let groups = M.fromListWith (++) [(sys, [(val, isExact)]) | (sys, val, isExact) <- filters]
+        matchOne v (q, isExact) =
+            if isExact
+                then T.toLower q == T.toLower v
+                else T.isInfixOf (T.toLower q) (T.toLower v)
+        applyGroup acc (sys, pairs) =
+            acc && case M.lookup sys (activityClassification activity) of
+                Just v  -> any (matchOne v) pairs
+                Nothing -> False
+    in foldl applyGroup True (M.toList groups)
+
 -- | Domain service errors
 data ServiceError
     = InvalidUUID Text
@@ -1142,10 +1158,7 @@ buildSupplyChainFromScalingVector db processId supplyVec af includeEdges =
             let nameOk = maybe True (\pat -> textMatches pat (activityName activity)) (afName af)
                 locOk = maybe True (\pat -> textMatches pat (activityLocation activity)) (afLocation af)
                 productOk = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afProduct af)
-                classOk = all (\(sys, val, isExact) -> case M.lookup sys (activityClassification activity) of
-                    Just v  -> if isExact then T.toLower val == T.toLower v else textMatches val v
-                    Nothing -> False
-                    ) (afClassifications af)
+                classOk = matchClassifications activity (afClassifications af)
                 depth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
                 depthOk = maybe True (depth <=) (afMaxDepth af)
             in nameOk && locOk && productOk && classOk && depthOk
@@ -1349,17 +1362,7 @@ getConsumers db processIdText af = do
             Nothing  -> True
             Just pat -> T.toCaseFold pat `T.isInfixOf` T.toCaseFold prodName
 
-        -- OR within same system, AND across systems
-        classMatches activity =
-            let groups = M.fromListWith (++) [(sys, [(val, isExact)]) | (sys, val, isExact) <- afClassifications af]
-                matchOne v (q, isExact) = if isExact
-                    then T.toLower q == T.toLower v
-                    else T.isInfixOf (T.toLower q) (T.toLower v)
-                applyGroup acc (sys, pairs) =
-                    acc && case M.lookup sys (activityClassification activity) of
-                        Just v  -> any (matchOne v) pairs
-                        Nothing -> False
-            in foldl applyGroup True (M.toList groups)
+        classMatches activity = matchClassifications activity (afClassifications af)
 
         limit  = fromMaybe 1000 (afLimit af)
         offset = fromMaybe 0 (afOffset af)
