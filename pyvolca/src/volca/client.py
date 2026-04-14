@@ -446,7 +446,7 @@ class Client:
     # -- Database management --
 
     def list_databases(self) -> list[dict]:
-        return self._call("list_databases")["dlrDatabases"]
+        return self._call("list_databases")["databases"]
 
     def load_database(self, db_name: str) -> dict:
         # No operationId (infrastructure endpoint). Direct HTTP.
