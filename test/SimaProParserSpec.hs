@@ -362,6 +362,15 @@ spec = do
         it "rejects unknown variables" $ do
             evaluate M.empty "xyz" `shouldSatisfy` isLeft
 
+        -- Regression: Agribalyse Emmental defines the dry-matter param as "Dmper"
+        -- but references "DMper" in the allocation formula. SimaPro treats parameter
+        -- names case-insensitively; VoLCA must do the same or allocation → 0 and the
+        -- whole activity shows zero impacts.
+        it "looks up variables case-insensitively" $ do
+            let env = M.fromList [("Dmper", 5.0), ("Qper", 60530841.0)]
+            evaluate env "Qper*DMper" `shouldBe` Right (60530841.0 * 5.0)
+            evaluate env "qper*dmper" `shouldBe` Right (60530841.0 * 5.0)
+
         it "normalizes comma decimal separator" $ do
             normalizeExpr ',' "0,82" `shouldBe` "0.82"
             normalizeExpr ',' "Qb*0,5" `shouldBe` "Qb*0.5"

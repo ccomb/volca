@@ -21,9 +21,12 @@ type Parser = Parsec Void Text
 
 -- | Evaluate a SimaPro expression with variable substitution.
 -- All expressions must be pre-normalized via 'normalizeExpr' (decimal = '.', arg separator = ';').
+-- Variable lookup is case-insensitive to match SimaPro semantics: Agribalyse and other
+-- databases freely mix casing (e.g. param defined as @Dmper@, referenced as @DMper@).
 evaluate :: M.Map Text Double -> Text -> Either String Double
 evaluate env input =
-    case parse (sc *> pExpr env <* eof) "" (T.strip input) of
+    let envCI = M.mapKeys T.toLower env
+    in case parse (sc *> pExpr envCI <* eof) "" (T.strip input) of
         Left err -> Left (errorBundlePretty err)
         Right val -> Right val
 
@@ -82,10 +85,11 @@ pPrimary env = choice
 pNumber :: Parser Double
 pNumber = lexeme $ try L.float <|> (fromIntegral <$> (L.decimal :: Parser Integer))
 
+-- | Look up a variable in the pre-lowercased env. Case-insensitive by construction.
 pVariable :: M.Map Text Double -> Parser Double
 pVariable env = do
     name <- lexeme $ T.pack <$> ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_'))
-    case M.lookup name env of
+    case M.lookup (T.toLower name) env of
         Just val -> pure val
         Nothing -> fail $ "Unknown variable: " ++ T.unpack name
 
