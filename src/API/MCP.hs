@@ -31,12 +31,12 @@ import qualified Database.Manager as DM
 import qualified API.Resources as R
 import API.Resources (Resource, Param(..), ParamKind(..))
 
-import Matrix (computeInventoryMatrix, computeScalingVector, applyBiosphereMatrix, computeProcessLCIAContributions)
+import Matrix (applyBiosphereMatrix, computeProcessLCIAContributions)
 import Method.Mapping (computeLCIAScore, computeMappingStats, MappingStats(..))
 import Method.Types (Method(..), MethodCF(..), FlowDirection(..))
 import Plugin.Types ()
 import Plugin.Builtin (flowContribution)
-import SharedSolver (SharedSolver)
+import SharedSolver (SharedSolver, computeInventoryMatrixCached, computeScalingVectorCached)
 import qualified Data.List as L
 import qualified Service
 import Types (Database(..), Activity(..), Indexes(..), FlowType(..), activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText, exchangeIsInput)
@@ -625,7 +625,7 @@ callGetImpacts dbManager baseUrl rid args = do
                                     case Service.resolveActivityAndProcessId db pidText of
                                         Left err -> return $ toolError rid (T.pack $ show err)
                                         Right (processId, activity) -> do
-                                            inventory <- computeInventoryMatrix db processId
+                                            inventory <- computeInventoryMatrixCached db (ldSharedSolver ld) processId
                                             unitCfg <- DM.getMergedUnitConfig dbManager
                                             mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
                                             let stats = computeMappingStats mappings
@@ -785,7 +785,7 @@ callGetContributingFlows dbManager baseUrl rid args =
                                         lim     = fromMaybe 20 (intArg "limit" args)
                                         webUrl  = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/contributing-flows/" <> encodeSegment colName <> "/" <> methodIdText
                                     unitCfg  <- DM.getMergedUnitConfig dbManager
-                                    scalingVec <- computeScalingVector db processId
+                                    scalingVec <- computeScalingVectorCached db (ldSharedSolver ld) processId
                                     let inventory = applyBiosphereMatrix db scalingVec
                                     mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
                                     let score   = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
@@ -832,7 +832,7 @@ callGetContributingActivities dbManager baseUrl rid args =
                                     let db      = ldDatabase ld
                                         lim     = fromMaybe 10 (intArg "limit" args)
                                     unitCfg    <- DM.getMergedUnitConfig dbManager
-                                    scalingVec <- computeScalingVector db processId
+                                    scalingVec <- computeScalingVectorCached db (ldSharedSolver ld) processId
                                     let inventory = applyBiosphereMatrix db scalingVec
                                     mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
                                     let score        = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings

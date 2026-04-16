@@ -571,14 +571,14 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     -- Activity LCIA endpoint (single method within a collection)
     getActivityLCIA :: Text -> Text -> Text -> Text -> Maybe Int -> Handler LCIAResult
     getActivityLCIA dbName processIdText _collectionName methodIdText topFlowsParam = do
-        (db, _) <- requireDatabaseByName dbManager dbName
+        (db, sharedSolver) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
         case Service.resolveActivityAndProcessId db processIdText of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
             Right (actProcessId, activity) -> do
-                inventory <- liftIO $ Matrix.computeInventoryMatrix db actProcessId
+                inventory <- liftIO $ SharedSolver.computeInventoryMatrixCached db sharedSolver actProcessId
                 result <- liftIO $ computeCategoryResult dbName db activity (fromMaybe 5 topFlowsParam) inventory method
                 liftIO $ logLCIAResult result method
                 return result
@@ -599,7 +599,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     -- Batch LCIA endpoint (all methods in a collection)
     getActivityLCIABatch :: Text -> Text -> Text -> Handler LCIABatchResult
     getActivityLCIABatch dbName processIdText collectionName = do
-        (db, _) <- requireDatabaseByName dbManager dbName
+        (db, sharedSolver) <- requireDatabaseByName dbManager dbName
         -- Look up collection
         loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
         collection <- case M.lookup collectionName loadedCollections of
@@ -620,7 +620,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
             Right (actProcessId, activity) -> do
                 t0 <- liftIO getCurrentTime
-                inventory <- liftIO $ Matrix.computeInventoryMatrix db actProcessId
+                inventory <- liftIO $ SharedSolver.computeInventoryMatrixCached db sharedSolver actProcessId
                 t1 <- liftIO getCurrentTime
                 let !invSize = M.size inventory
                 liftIO $ reportProgress Info $ "[LCIA batch] " <> T.unpack collectionName
@@ -807,7 +807,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     -- Activity analysis endpoint (dispatches to registered analyzers)
     getActivityAnalyze :: Text -> Text -> Text -> Handler Value
     getActivityAnalyze dbName processIdText analyzerName = do
-        (db, _) <- requireDatabaseByName dbManager dbName
+        (db, sharedSolver) <- requireDatabaseByName dbManager dbName
         case M.lookup analyzerName (prAnalyzers (dmPlugins dbManager)) of
             Nothing -> throwError err404{errBody = "Analyzer not found: " <> BSL.fromStrict (T.encodeUtf8 analyzerName)}
             Just analyzer -> do
@@ -816,7 +816,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                     Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
                     Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
                     Right (actProcessId, _) -> do
-                        inventory <- liftIO $ Matrix.computeInventoryMatrix db actProcessId
+                        inventory <- liftIO $ SharedSolver.computeInventoryMatrixCached db sharedSolver actProcessId
                         loadedMethods <- liftIO $ DM.getLoadedMethods dbManager
                         let methods = map snd loadedMethods
                             ctx = AnalyzeContext
@@ -830,7 +830,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     -- Contributing flows: top elementary flows by LCIA contribution for a specific method
     getContributingFlows :: Text -> Text -> Text -> Text -> Maybe Int -> Handler ContributingFlowsResult
     getContributingFlows dbName processIdText _collectionName methodIdText limitParam = do
-        (db, _) <- requireDatabaseByName dbManager dbName
+        (db, sharedSolver) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
         case Service.resolveActivityAndProcessId db processIdText of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
@@ -839,7 +839,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Right (actProcessId, _) -> do
                 let lim = fromMaybe 20 limitParam
                 unitCfg <- liftIO $ getMergedUnitConfig dbManager
-                scalingVec <- liftIO $ Matrix.computeScalingVector db actProcessId
+                scalingVec <- liftIO $ SharedSolver.computeScalingVectorCached db sharedSolver actProcessId
                 let inventory = Matrix.applyBiosphereMatrix db scalingVec
                 mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName db method
                 let score = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
@@ -865,7 +865,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     -- Contributing activities: top upstream activities by LCIA contribution for a specific method
     getContributingActivities :: Text -> Text -> Text -> Text -> Maybe Int -> Handler ContributingActivitiesResult
     getContributingActivities dbName processIdText _collectionName methodIdText limitParam = do
-        (db, _) <- requireDatabaseByName dbManager dbName
+        (db, sharedSolver) <- requireDatabaseByName dbManager dbName
         method <- loadMethodByUUID methodIdText
         case Service.resolveActivityAndProcessId db processIdText of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
@@ -874,7 +874,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Right (actProcessId, _) -> do
                 let lim = fromMaybe 10 limitParam
                 unitCfg <- liftIO $ getMergedUnitConfig dbManager
-                scalingVec <- liftIO $ Matrix.computeScalingVector db actProcessId
+                scalingVec <- liftIO $ SharedSolver.computeScalingVectorCached db sharedSolver actProcessId
                 let inventory = Matrix.applyBiosphereMatrix db scalingVec
                 mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName db method
                 let score = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
@@ -1237,8 +1237,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             invalid   = [ pidText | (pidText, Left (Service.InvalidProcessId _)) <- resolved ]
             validPidNums = [ pidNum | (_, pidNum, _) <- valid ]
         t0 <- liftIO getCurrentTime
-        factorization <- liftIO $ SharedSolver.ensureFactorization sharedSolver
-        inventories <- liftIO $ Matrix.computeInventoryMatrixBatch db factorization validPidNums
+        inventories <- liftIO $ SharedSolver.computeInventoryMatrixBatchCached db sharedSolver validPidNums
         t1 <- liftIO getCurrentTime
         let mkEntry ((pidText, _pidNum, activity), inventory) = do
                 impacts <- buildLCIABatchResult dbName db activity collection inventory

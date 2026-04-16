@@ -20,7 +20,12 @@ module SharedSolver (
     solveWithSharedSolver,
     solveMultiWithSharedSolver,
     getFactorization,
-    ensureFactorization
+    ensureFactorization,
+
+    -- * Cached scaling / inventory
+    computeScalingVectorCached,
+    computeInventoryMatrixCached,
+    computeInventoryMatrixBatchCached
 ) where
 
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, readMVar, modifyMVar, modifyMVar_)
@@ -28,7 +33,17 @@ import Control.Exception (catch, SomeException)
 import Data.Text (Text)
 import Progress
 import Types
-import Matrix (Vector, solveSparseLinearSystem, solveSparseLinearSystemWithFactorization, solveSparseLinearSystemWithFactorizationMulti, precomputeMatrixFactorization)
+import Matrix
+    ( Vector
+    , Inventory
+    , applyBiosphereMatrix
+    , buildDemandVectorFromIndex
+    , computeInventoryMatrixBatch
+    , precomputeMatrixFactorization
+    , solveSparseLinearSystem
+    , solveSparseLinearSystemWithFactorization
+    , solveSparseLinearSystemWithFactorizationMulti
+    )
 
 -- | Shared solver with lazy factorization and thread synchronization.
 --   Factorization happens on first solve, not at startup.
@@ -104,3 +119,23 @@ solveMultiWithSharedSolver :: SharedSolver -> [Vector] -> IO [Vector]
 solveMultiWithSharedSolver solver demandVecs = do
     fact <- ensureFactorization solver
     solveSparseLinearSystemWithFactorizationMulti fact demandVecs
+
+-- | Compute the scaling vector for @pid@, routing through the shared solver's
+-- lazy factorization cache. Same shape as 'Matrix.computeScalingVector' but
+-- amortizes factorization across every call in a server's lifetime — the
+-- right default for endpoint handlers.
+computeScalingVectorCached :: Database -> SharedSolver -> ProcessId -> IO Vector
+computeScalingVectorCached db solver pid =
+    solveWithSharedSolver solver (buildDemandVectorFromIndex (dbActivityIndex db) pid)
+
+-- | Inventory for @pid@ using the shared-solver factorization cache.
+computeInventoryMatrixCached :: Database -> SharedSolver -> ProcessId -> IO Inventory
+computeInventoryMatrixCached db solver pid =
+    applyBiosphereMatrix db <$> computeScalingVectorCached db solver pid
+
+-- | Batch inventories for many pids using one MUMPS multi-RHS call against the cached factorization.
+computeInventoryMatrixBatchCached :: Database -> SharedSolver -> [ProcessId] -> IO [Inventory]
+computeInventoryMatrixBatchCached _  _      []   = pure []
+computeInventoryMatrixBatchCached db solver pids = do
+    fact <- ensureFactorization solver
+    computeInventoryMatrixBatch db fact pids

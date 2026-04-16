@@ -52,8 +52,8 @@ import Service
     , buildSupplyChainFromScalingVector
     , convertToInventoryExport
     )
-import Matrix (buildDemandVectorFromIndex, computeInventoryMatrix)
-import SharedSolver (SharedSolver, solveWithSharedSolver)
+import Matrix (buildDemandVectorFromIndex)
+import SharedSolver (SharedSolver, solveWithSharedSolver, computeInventoryMatrixCached)
 
 -- ---------------------------------------------------------------------------
 -- Parameters
@@ -141,7 +141,7 @@ aggregate db solver pidText params =
                         response = buildSupplyChainFromScalingVector db processId supplyVec af False
                     return $ Right $ reduce params (rowsFromSupplyChain response)
                 ScopeBiosphere -> do
-                    inventory <- computeInventoryMatrix db processId
+                    inventory <- computeInventoryMatrixCached db solver processId
                     let export = convertToInventoryExport db processId activity inventory
                     return $ Right $ reduce params (rowsFromBiosphere export)
   where
