@@ -71,17 +71,19 @@ type Vector = U.Vector Double
 -- | Final inventory vector mapping biosphere flow UUIDs to quantities.
 type Inventory = M.Map UUID Double
 
--- | Global cache for pre-factorized MUMPS solvers per database with thread synchronization
--- Maps database name to (MUMPS solver, activity count)
+-- | Global cache for pre-factorized MUMPS solvers per database.
+-- Each entry has its own MVar lock for concurrent forward/backward solves.
 {-# NOINLINE cachedSolver #-}
-cachedSolver :: MVar (M.Map Text (MUMPSSolver, Int))
+cachedSolver :: MVar (M.Map Text (MUMPSSolver, Int, MVar ()))
 cachedSolver = unsafePerformIO $ newMVar M.empty
 
--- Global mutex to serialize all solver operations (matrix assembly, solving, etc.)
--- MUMPS is not thread-safe for concurrent calls to the same instance
-{-# NOINLINE solverGlobalMutex #-}
-solverGlobalMutex :: MVar ()
-solverGlobalMutex = unsafePerformIO $ newMVar ()
+-- | Global mutex for MUMPS factorization/creation/destruction operations.
+-- MUMPS_SEQ has global Fortran state that is NOT thread-safe for concurrent
+-- create/factorize/destroy calls. Only mumpsSolve on an already-factorized
+-- instance is safe (per-database locks protect same-instance concurrent access).
+{-# NOINLINE mumpsFactorizationMutex #-}
+mumpsFactorizationMutex :: MVar ()
+mumpsFactorizationMutex = unsafePerformIO $ newMVar ()
 
 -- | Initialize solver for server lifetime. No-op for MUMPS (no global state needed).
 initializeSolverForServer :: IO ()
@@ -92,7 +94,7 @@ clearCachedSolver :: Text -> IO ()
 clearCachedSolver dbName =
     modifyMVar_ cachedSolver $ \cache ->
         case M.lookup dbName cache of
-            Just (solver, _) -> do
+            Just (solver, _, _) -> do
                 mumpsDestroy solver
                 return $ M.delete dbName cache
             Nothing -> return cache
@@ -132,16 +134,16 @@ solveSparseLinearSystemWithFactorization factorization demandVec = do
                 techTriples = U.toList $ U.filter (\(SparseTriple i j _) -> i /= j) $ U.map (\(SparseTriple i j val) -> SparseTriple i j (-val)) systemMatrix
             solveSparseLinearSystemMUMPS [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- techTriples] (fromIntegral n) demandVec
 
-        Just (_solver, n) -> do
+        Just (_solver, n, dbLock) -> do
             reportMatrixOperation $ "Using cached solver for database '" ++ T.unpack dbId ++ "' (" ++ show n ++ " activities) - ultra-fast solve"
 
             withProgressTiming Solver "MUMPS cached solve" $ do
                 result <- catch
-                    (withMVar solverGlobalMutex $ \_ -> do
+                    (withMVar dbLock $ \_ -> do
                         cachedSolvers' <- readMVar cachedSolver
                         case M.lookup dbId cachedSolvers' of
-                            Nothing -> error $ "Cached solver for database '" ++ T.unpack dbId ++ "' disappeared during solve"
-                            Just (mumpsSolver, _) -> do
+                            Nothing -> return Nothing
+                            Just (mumpsSolver, _, _) -> do
                                 let rhsVec = VS.fromList $ toList demandVec
                                 solutionVS <- mumpsSolve mumpsSolver rhsVec
                                 return $ Just (VS.convert solutionVS :: Vector))
@@ -167,30 +169,30 @@ This function:
 
 Performance: ~3s for 14,457 activities with 116K technosphere entries
 -}
+-- | Uses global mutex: MUMPS_SEQ create/factorize/destroy have global Fortran state.
 solveSparseLinearSystemMUMPS :: [(Int, Int, Double)] -> Int -> Vector -> IO Vector
-solveSparseLinearSystemMUMPS techTriples n demandVec =
-    withMVar solverGlobalMutex $ \_ -> do
-        let identityTriples = [(i, i, 1.0) | i <- [0 .. n - 1]]
-            systemTechTriples = [(i, j, -value) | (i, j, value) <- techTriples]
-            allTriples = aggregateMatrixEntries (identityTriples ++ systemTechTriples)
-            (rows, cols, vals) = unzip3 allTriples
-            nnz = length allTriples
+solveSparseLinearSystemMUMPS techTriples n demandVec = withMVar mumpsFactorizationMutex $ \_ -> do
+    let identityTriples = [(i, i, 1.0) | i <- [0 .. n - 1]]
+        systemTechTriples = [(i, j, -value) | (i, j, value) <- techTriples]
+        allTriples = aggregateMatrixEntries (identityTriples ++ systemTechTriples)
+        (rows, cols, vals) = unzip3 allTriples
+        nnz = length allTriples
 
-        reportMatrixOperation $ "Matrix assembly completed - starting MUMPS direct solve for " ++ show n ++ " activities"
+    reportMatrixOperation $ "Matrix assembly completed - starting MUMPS direct solve for " ++ show n ++ " activities"
 
-        withProgressTiming Solver "MUMPS solve" $ do
-            solver <- mumpsCreate n nnz rows cols vals
-            mumpsAnalyzeAndFactorize solver
-            let rhsVec = VS.fromList $ toList demandVec
-            solutionVS <- mumpsSolve solver rhsVec
-            mumpsDestroy solver
+    withProgressTiming Solver "MUMPS solve" $ do
+        solver <- mumpsCreate n nnz rows cols vals
+        mumpsAnalyzeAndFactorize solver
+        let rhsVec = VS.fromList $ toList demandVec
+        solutionVS <- mumpsSolve solver rhsVec
+        mumpsDestroy solver
 
-            let solutionVec = VS.convert solutionVS :: Vector
-            when (U.any (\x -> isInfinite x || isNaN x) solutionVec) $ do
-                reportMatrixOperation "ERROR: Solution contains infinity or NaN values"
-                reportMatrixOperation "Matrix is singular - likely missing reference flows or treatment activities"
+        let solutionVec = VS.convert solutionVS :: Vector
+        when (U.any (\x -> isInfinite x || isNaN x) solutionVec) $ do
+            reportMatrixOperation "ERROR: Solution contains infinity or NaN values"
+            reportMatrixOperation "Matrix is singular - likely missing reference flows or treatment activities"
 
-            return solutionVec
+        return solutionVec
 
 -- | Solve linear system (I - A) * x = b using MUMPS direct solver (wrapper)
 solveSparseLinearSystem :: [(Int, Int, Double)] -> Int -> Vector -> IO Vector
@@ -422,30 +424,30 @@ MatrixFactorization can be stored in the Database for fast concurrent solves.
 Performance: ~3s factorization time for full Ecoinvent, saves 2.9s per inventory request
 -}
 precomputeMatrixFactorization :: Text -> [(Int, Int, Double)] -> Int -> IO MatrixFactorization
-precomputeMatrixFactorization dbName techTriples n =
-    withMVar solverGlobalMutex $ \_ -> do
-        let identityTriples = [(i, i, 1.0) | i <- [0 .. n - 1]]
-            systemTechTriples = [(i, j, -value) | (i, j, value) <- techTriples]
-            systemMatrix = aggregateMatrixEntries (identityTriples ++ systemTechTriples)
-            (rows, cols, vals) = unzip3 systemMatrix
-            nnz = length systemMatrix
+precomputeMatrixFactorization dbName techTriples n = withMVar mumpsFactorizationMutex $ \_ -> do
+    let identityTriples = [(i, i, 1.0) | i <- [0 .. n - 1]]
+        systemTechTriples = [(i, j, -value) | (i, j, value) <- techTriples]
+        systemMatrix = aggregateMatrixEntries (identityTriples ++ systemTechTriples)
+        (rows, cols, vals) = unzip3 systemMatrix
+        nnz = length systemMatrix
 
-        reportMatrixOperation $ "Pre-computing factorization for database '" ++ T.unpack dbName ++ "' (" ++ show n ++ " activities, " ++ show nnz ++ " entries)"
+    reportMatrixOperation $ "Pre-computing factorization for database '" ++ T.unpack dbName ++ "' (" ++ show n ++ " activities, " ++ show nnz ++ " entries)"
 
-        solver <- mumpsCreate n nnz rows cols vals
-        mumpsAnalyzeAndFactorize solver
+    solver <- mumpsCreate n nnz rows cols vals
+    mumpsAnalyzeAndFactorize solver
 
-        modifyMVar_ cachedSolver $ \solvers -> return $ M.insert dbName (solver, n) solvers
+    dbLock <- newMVar ()
+    modifyMVar_ cachedSolver $ \solvers -> return $ M.insert dbName (solver, n, dbLock) solvers
 
-        reportMatrixOperation $ "MUMPS solver for database '" ++ T.unpack dbName ++ "' factorized and cached"
+    reportMatrixOperation $ "MUMPS solver for database '" ++ T.unpack dbName ++ "' factorized and cached"
 
-        let factorization = MatrixFactorization
-                { mfSystemMatrix = U.fromList [SparseTriple (fromIntegral i) (fromIntegral j) v | (i, j, v) <- systemMatrix]
-                , mfActivityCount = fromIntegral n
-                , mfDatabaseId = dbName
-                }
+    let factorization = MatrixFactorization
+            { mfSystemMatrix = U.fromList [SparseTriple (fromIntegral i) (fromIntegral j) v | (i, j, v) <- systemMatrix]
+            , mfActivityCount = fromIntegral n
+            , mfDatabaseId = dbName
+            }
 
-        return factorization
+    return factorization
 
 -- | Add a pre-computed matrix factorization to the database.
 addFactorizationToDatabase :: Database -> MatrixFactorization -> Database

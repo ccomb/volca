@@ -40,7 +40,9 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import GHC.Generics
 import Servant
+import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.STM (readTVarIO)
+import Control.Exception (evaluate)
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.List (find, intercalate, sortBy, sortOn)
@@ -630,7 +632,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 when (invSize > 0 && invSize <= 5) $
                     liftIO $ reportProgress Info $ "  Inventory UUIDs: "
                         <> intercalate ", " (map UUID.toString $ M.keys inventory)
-                rawResults <- liftIO $ mapM (computeCategoryResult dbName db activity 5 inventory) methods
+                rawResults <- liftIO $ mapConcurrently (computeCategoryResult dbName db activity 5 inventory) methods
                 -- Enrich with NW data
                 let results = map (enrichWithNW dcLookup mNW) rawResults
                     -- Compute formula-based scoring sets
@@ -677,7 +679,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Left err -> throwServiceError err
             Right scalingVec -> do
                 let inventory = Matrix.applyBiosphereMatrix db scalingVec
-                rawResults <- liftIO $ mapM (computeCategoryResult dbName db activity 5 inventory) methods
+                rawResults <- liftIO $ mapConcurrently (computeCategoryResult dbName db activity 5 inventory) methods
                 let results = map (enrichWithNW dcLookup mNW) rawResults
                     rawScoreMap = M.fromList
                         [(lrCategory r, lrScore r) | r <- rawResults]
@@ -905,9 +907,11 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     computeCategoryResult dbName db activity topFlows inventory method = do
         unitCfg <- getMergedUnitConfig dbManager
         mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
+        -- Force score evaluation here so mapConcurrently actually parallelizes the work
+        -- (without this, lazy thunks are created and forced later in the main thread)
         let stats = computeMappingStats mappings
-            score = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
-            (prodName, prodAmount, prodUnit) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) activity
+        !score <- evaluate $ computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
+        let (prodName, prodAmount, prodUnit) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) activity
             functionalUnit = T.pack (showFFloat (Just 2) prodAmount "") <> " " <> prodUnit <> " of " <> prodName
             contribs = sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
             topContribs = take topFlows contribs
