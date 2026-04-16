@@ -18,15 +18,17 @@ module SharedSolver (
 
     -- * Concurrent solving
     solveWithSharedSolver,
-    getFactorization
+    solveMultiWithSharedSolver,
+    getFactorization,
+    ensureFactorization
 ) where
 
-import Control.Concurrent.MVar (MVar, newMVar, withMVar, readMVar, modifyMVar)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar, readMVar, modifyMVar, modifyMVar_)
 import Control.Exception (catch, SomeException)
 import Data.Text (Text)
 import Progress
 import Types
-import Matrix (Vector, solveSparseLinearSystem, solveSparseLinearSystemWithFactorization, precomputeMatrixFactorization)
+import Matrix (Vector, solveSparseLinearSystem, solveSparseLinearSystemWithFactorization, solveSparseLinearSystemWithFactorizationMulti, precomputeMatrixFactorization)
 
 -- | Shared solver with lazy factorization and thread synchronization.
 --   Factorization happens on first solve, not at startup.
@@ -79,3 +81,26 @@ solveWithSharedSolver solver demandVector = do
 -- | Read the cached factorization without solving. Returns Nothing until the first solve.
 getFactorization :: SharedSolver -> IO (Maybe MatrixFactorization)
 getFactorization solver = readMVar (solverFactorizationVar solver)
+
+-- | Force the factorization if not yet computed, then return it.
+-- Safe to call from multiple threads: the solverLock serializes first-time factorization.
+ensureFactorization :: SharedSolver -> IO MatrixFactorization
+ensureFactorization solver = withMVar (solverLock solver) $ \_ -> do
+    maybeFact <- readMVar (solverFactorizationVar solver)
+    case maybeFact of
+        Just fact -> pure fact
+        Nothing -> do
+            reportProgress Info $ "Factorizing '" ++ show (solverDbName solver) ++ "' on first use"
+            fact <- precomputeMatrixFactorization
+                (solverDbName solver)
+                (solverTechTriples solver)
+                (solverActivityCount solver)
+            modifyMVar_ (solverFactorizationVar solver) $ \_ -> pure (Just fact)
+            pure fact
+
+-- | Solve with multiple RHS vectors in one MUMPS call, using the cached factorization.
+-- Forces factorization on first call. Subsequent calls reuse the cached LU.
+solveMultiWithSharedSolver :: SharedSolver -> [Vector] -> IO [Vector]
+solveMultiWithSharedSolver solver demandVecs = do
+    fact <- ensureFactorization solver
+    solveSparseLinearSystemWithFactorizationMulti fact demandVecs

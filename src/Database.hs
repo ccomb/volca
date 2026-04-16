@@ -266,7 +266,6 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
                 , dbCrossDBLinks = []
                 , dbDependsOn = []
                 , dbLinkingStats = emptyCrossDBLinkingStats
-                , dbCachedFactorization = Nothing
                 , dbSynonymDB = Nothing
                 , dbFlowsByName = M.empty
                 , dbFlowsByCAS = M.empty

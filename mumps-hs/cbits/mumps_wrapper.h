@@ -19,6 +19,11 @@ int mumps_factorize(MumpsSolver* s);
  * Returns 0 on success. Can be called repeatedly after factorize. */
 int mumps_solve(MumpsSolver* s, const double* rhs, double* sol);
 
+/* Solve with nrhs right-hand-sides packed column-major (length n*nrhs).
+ * Solution is written to sol (length n*nrhs, column-major).
+ * One MUMPS call amortizes triangular-solve setup across all RHS. */
+int mumps_solve_multi(MumpsSolver* s, int nrhs, const double* rhs, double* sol);
+
 /* Deallocate all MUMPS-internal and wrapper memory. */
 void mumps_destroy(MumpsSolver* s);
 

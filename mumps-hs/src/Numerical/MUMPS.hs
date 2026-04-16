@@ -16,6 +16,7 @@ module Numerical.MUMPS
     , mumpsAnalyzeAndFactorize
       -- * Solve
     , mumpsSolve
+    , mumpsSolveMulti
     ) where
 
 import Numerical.MUMPS.Types (MUMPSSolver, MUMPSError(..))

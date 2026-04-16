@@ -4,6 +4,7 @@ module Numerical.MUMPS.FFI
     , c_mumps_analyze
     , c_mumps_factorize
     , c_mumps_solve
+    , c_mumps_solve_multi
     , c_mumps_destroy
     , c_mumps_get_error
     ) where
@@ -25,6 +26,9 @@ foreign import ccall unsafe "mumps_factorize"
 
 foreign import ccall safe "mumps_solve"
     c_mumps_solve :: Ptr MumpsSolverC -> Ptr CDouble -> Ptr CDouble -> IO CInt
+
+foreign import ccall safe "mumps_solve_multi"
+    c_mumps_solve_multi :: Ptr MumpsSolverC -> CInt -> Ptr CDouble -> Ptr CDouble -> IO CInt
 
 foreign import ccall unsafe "mumps_destroy"
     c_mumps_destroy :: Ptr MumpsSolverC -> IO ()

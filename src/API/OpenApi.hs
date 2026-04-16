@@ -71,9 +71,11 @@ instance ToSchema FlowRole
 instance ToSchema GraphExport where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
 instance ToSchema GraphNode where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
 instance ToSchema GraphEdge where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
-instance ToSchema LCIARequest where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
 instance ToSchema LCIAResult where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
 instance ToSchema LCIABatchResult where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
+instance ToSchema BatchImpactsRequest where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
+instance ToSchema BatchImpactsEntry where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
+instance ToSchema BatchImpactsResponse where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
 instance ToSchema FlowContributionEntry where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
 instance ToSchema ContributingFlowsResult where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }
 instance ToSchema ActivityContribution where { declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions }

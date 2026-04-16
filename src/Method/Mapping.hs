@@ -13,7 +13,10 @@ module Method.Mapping
     , mapSingleFlow
     , buildMapContext
       -- * LCIA scoring
+    , MethodTables(..)
+    , buildMethodTables
     , computeLCIAScore
+    , computeLCIAScoreFromTables
       -- * Matching strategies
     , MatchStrategy(..)
     , strategyFromText
@@ -188,46 +191,38 @@ computeMappingStats mappings = MappingStats
   where
     count strategy = length $ filter ((== Just strategy) . fmap snd . snd) mappings
 
--- | Compute LCIA score from inventory and flow mappings.
--- Scores each inventory flow by finding its best matching CF:
---   1. UUID-matched flows use the exact CF from the mapping.
---   2. For other flows, tries exact (name, medium, subcompartment) match.
---   3. Falls back to (name, medium) for CF entries with unspecified subcompartment.
--- This implements SimaPro's fallback behavior: "Air;(unspecified)" CFs apply to
--- any air emission that lacks a more specific CF, without aggregating across media.
--- Unit conversion is applied when the inventory flow's unit differs from the CF's unit.
-computeLCIAScore :: UnitConfig -> UnitDB -> FlowDB -> Inventory -> [(MethodCF, Maybe (Flow, MatchStrategy))] -> Double
-computeLCIAScore unitConfig unitDB flowDB inventory mappings =
-    sum [ scoreFlow fid qty | (fid, qty) <- M.toList inventory, qty /= 0 ]
-  where
-    scoreFlow fid qty = case lookupCF fid of
-        Nothing -> 0
-        Just (cfVal, cfUnit) ->
-            let flowUnit = maybe "" unitName (M.lookup fid flowDB >>= \f -> M.lookup (flowUnitId f) unitDB)
-                converted = if flowUnit == cfUnit || T.null cfUnit then qty
-                            else fromMaybe qty (convertUnit unitConfig flowUnit cfUnit qty)
-            in converted * cfVal
+-- | Precomputed CF lookup tables for one (database, method) pair.
+-- Building these from raw mappings is O(n log n) over thousands of CFs, so they
+-- should be computed once per method and reused across inventories.
+data MethodTables = MethodTables
+    { mtUuidCF     :: !(M.Map UUID (Double, Text))
+    -- ^ UUID-matched CFs: exact flow id → (CF value, CF unit)
+    , mtExactCF    :: !(M.Map (Text, Text, Text) (Double, Text))
+    -- ^ (normalized name, medium, subcompartment) → (CF, unit)
+    , mtFallbackCF :: !(M.Map (Text, Text) (Double, Text))
+    -- ^ (normalized name, medium) → (CF, unit) for entries with unspecified subcompartment
+    }
 
-    lookupCF fid = case M.lookup fid uuidCF of
-        Just cfv -> Just cfv
-        Nothing  -> case M.lookup fid flowDB of
-            Nothing   -> Nothing
-            Just flow ->
-                let name    = normalizeName (flowName flow)
-                    baseMed = normalizeMedium . T.takeWhile (/= '/') . T.toLower $ flowCategory flow
-                    subcomp = T.toLower $ fromMaybe "" (flowSubcompartment flow)
-                    strip3 (v, u, _) = (v, u)
-                    exact   = strip3 <$> M.lookup (name, baseMed, subcomp) exactCF
-                in case exact of
-                    Just _  -> exact
-                    Nothing -> strip3 <$> M.lookup (name, baseMed) fallbackCF
-
-    -- UUID-matched CFs: exact flow_id → (CF_value, CF_unit)
-    uuidCF = M.fromList
+-- | Build 'MethodTables' from raw mappings. Run once per (db, method).
+buildMethodTables :: [(MethodCF, Maybe (Flow, MatchStrategy))] -> MethodTables
+buildMethodTables mappings = MethodTables
+    { mtUuidCF     = M.fromList
         [ (flowId flow, (mcfValue cf, mcfUnit cf))
         | (cf, Just (flow, ByUUID)) <- mappings ]
+    , mtExactCF    = stripStrategy $ M.fromListWith preferBetter
+        [ ((nameKey cf mflow, normalizeMedium medium, subcomp), (mcfValue cf, mcfUnit cf, matchStrategy mflow))
+        | (cf, mflow) <- mappings
+        , Just (Compartment medium subcomp _) <- [mcfCompartment cf]
+        , not (T.null subcomp) ]
+    , mtFallbackCF = stripStrategy $ M.fromListWith preferBetter
+        [ ((nameKey cf mflow, normalizeMedium medium), (mcfValue cf, mcfUnit cf, matchStrategy mflow))
+        | (cf, mflow) <- mappings
+        , Just (Compartment medium subcomp _) <- [mcfCompartment cf]
+        , T.null subcomp ]
+    }
+  where
+    stripStrategy = M.map (\(v, u, _) -> (v, u))
 
-    -- Prefer higher-priority match strategies; within same strategy, take max CF
     preferBetter (v1, u1, s1) (v2, u2, s2)
         | stratPriority s1 < stratPriority s2 = (v1, u1, s1)
         | stratPriority s1 > stratPriority s2 = (v2, u2, s2)
@@ -243,20 +238,6 @@ computeLCIAScore unitConfig unitDB flowDB inventory mappings =
         Just (_, s) -> s
         Nothing     -> NoMatch
 
-    -- Exact CFs for specific subcompartments: (name, medium, subcomp) → (CF, unit, strategy)
-    exactCF = M.fromListWith preferBetter
-        [ ((nameKey cf mflow, normalizeMedium medium, subcomp), (mcfValue cf, mcfUnit cf, matchStrategy mflow))
-        | (cf, mflow) <- mappings
-        , Just (Compartment medium subcomp _) <- [mcfCompartment cf]
-        , not (T.null subcomp) ]
-
-    -- Fallback CFs for unspecified subcompartment: (name, medium) → (CF, unit, strategy)
-    fallbackCF = M.fromListWith preferBetter
-        [ ((nameKey cf mflow, normalizeMedium medium), (mcfValue cf, mcfUnit cf, matchStrategy mflow))
-        | (cf, mflow) <- mappings
-        , Just (Compartment medium subcomp _) <- [mcfCompartment cf]
-        , T.null subcomp ]
-
     -- Use matched flow's name only for name/synonym matches
     nameKey cf mflow = normalizeName $ case mflow of
         Just (flow, ByName)    -> flowName flow
@@ -267,3 +248,40 @@ computeLCIAScore unitConfig unitDB flowDB inventory mappings =
     normalizeMedium m
         | m == "natural resource" = "resource"
         | otherwise               = m
+
+-- | Score an inventory against precomputed 'MethodTables'.
+-- Hot path: O(|inventory|) per call, no map construction.
+computeLCIAScoreFromTables :: UnitConfig -> UnitDB -> FlowDB -> Inventory -> MethodTables -> Double
+computeLCIAScoreFromTables unitConfig unitDB flowDB inventory tables =
+    sum [ scoreFlow fid qty | (fid, qty) <- M.toList inventory, qty /= 0 ]
+  where
+    scoreFlow fid qty = case lookupCF fid of
+        Nothing -> 0
+        Just (cfVal, cfUnit) ->
+            let flowUnit = maybe "" unitName (M.lookup fid flowDB >>= \f -> M.lookup (flowUnitId f) unitDB)
+                converted = if flowUnit == cfUnit || T.null cfUnit then qty
+                            else fromMaybe qty (convertUnit unitConfig flowUnit cfUnit qty)
+            in converted * cfVal
+
+    lookupCF fid = case M.lookup fid (mtUuidCF tables) of
+        Just cfv -> Just cfv
+        Nothing  -> case M.lookup fid flowDB of
+            Nothing   -> Nothing
+            Just flow ->
+                let name    = normalizeName (flowName flow)
+                    baseMed = normalizeMedium . T.takeWhile (/= '/') . T.toLower $ flowCategory flow
+                    subcomp = T.toLower $ fromMaybe "" (flowSubcompartment flow)
+                    exact   = M.lookup (name, baseMed, subcomp) (mtExactCF tables)
+                in case exact of
+                    Just _  -> exact
+                    Nothing -> M.lookup (name, baseMed) (mtFallbackCF tables)
+
+    normalizeMedium m
+        | m == "natural resource" = "resource"
+        | otherwise               = m
+
+-- | Back-compat wrapper: build tables on the fly. Prefer the cached path
+-- ('mapMethodToTablesCached' + 'computeLCIAScoreFromTables') in hot loops.
+computeLCIAScore :: UnitConfig -> UnitDB -> FlowDB -> Inventory -> [(MethodCF, Maybe (Flow, MatchStrategy))] -> Double
+computeLCIAScore unitConfig unitDB flowDB inventory mappings =
+    computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables mappings)

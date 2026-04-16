@@ -66,6 +66,7 @@ module Database.Manager
     , finalizeDatabase
       -- * Cached flow mapping
     , mapMethodToFlowsCached
+    , mapMethodToTablesCached
       -- * Internal (for Main.hs to load database)
     , loadDatabaseFromConfig
     ) where
@@ -107,7 +108,7 @@ import Database (buildDatabaseWithMatrices)
 import SynonymDB (SynonymDB(..), emptySynonymDB, buildFromCSV, buildFromPairs, loadFromCSVFileWithCache, mergeSynonymDBs, synonymCount)
 import Method.Types (CompartmentMap, buildCompartmentMapFromCSV, compartmentMapSize, Method(..), MethodCF, MethodCollection(..), ScoringSet(..)
     )
-import Method.Mapping (MatchStrategy, mapMethodToFlows)
+import Method.Mapping (MatchStrategy, mapMethodToFlows, MethodTables, buildMethodTables)
 import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), UUID, Flow(..), Unit(..), exchangeFlowId, exchangeIsReference, CrossDBLink(..), CrossDBLinkingStats(..), crossDBBySource, unresolvedCount, LinkBlocker(..), deduplicateFallbacks)
 import qualified Search.BM25 as BM25
 import qualified UnitConversion
@@ -348,6 +349,10 @@ data DatabaseManager = DatabaseManager
     , dmMethodMappingCache :: !(TVar (Map (Text, UUID) [(MethodCF, Maybe (Flow, MatchStrategy))]))
       -- ^ Cached flow mappings: (dbName, methodId) → mappings.
       -- Invalidated on database/method/synonym reload.
+    , dmMethodTablesCache :: !(TVar (Map (Text, UUID) MethodTables))
+      -- ^ Cached LCIA-score lookup tables built from mappings.
+      -- These depend only on (db, method), so building them once per pair
+      -- saves O(n log n) Map constructions on every LCIA call.
     }
 
 -- | Cached flow mapping: avoids re-matching method CFs to database flows on every LCIA call.
@@ -363,15 +368,30 @@ mapMethodToFlowsCached manager dbName db method = do
             atomically $ modifyTVar' (dmMethodMappingCache manager) (M.insert key result)
             return result
 
+-- | Cached prepared CF tables: built once per (db, method), reused across inventories.
+mapMethodToTablesCached :: DatabaseManager -> Text -> Database -> Method -> IO MethodTables
+mapMethodToTablesCached manager dbName db method = do
+    let key = (dbName, methodId method)
+    cache <- readTVarIO (dmMethodTablesCache manager)
+    case M.lookup key cache of
+        Just tables -> pure tables
+        Nothing -> do
+            mappings <- mapMethodToFlowsCached manager dbName db method
+            let !tables = buildMethodTables mappings
+            atomically $ modifyTVar' (dmMethodTablesCache manager) (M.insert key tables)
+            pure tables
+
 -- | Clear all cached flow mappings (call when databases, methods, or synonyms change)
 clearMethodMappingCache :: DatabaseManager -> IO ()
-clearMethodMappingCache manager =
-    atomically $ writeTVar (dmMethodMappingCache manager) M.empty
+clearMethodMappingCache manager = atomically $ do
+    writeTVar (dmMethodMappingCache manager) M.empty
+    writeTVar (dmMethodTablesCache manager)  M.empty
 
 -- | Clear cached flow mappings for a specific database
 clearMethodMappingCacheForDb :: DatabaseManager -> Text -> IO ()
-clearMethodMappingCacheForDb manager dbName =
-    atomically $ modifyTVar' (dmMethodMappingCache manager) (M.filterWithKey (\(dn, _) _ -> dn /= dbName))
+clearMethodMappingCacheForDb manager dbName = atomically $ do
+    modifyTVar' (dmMethodMappingCache manager) (M.filterWithKey (\(dn, _) _ -> dn /= dbName))
+    modifyTVar' (dmMethodTablesCache manager)  (M.filterWithKey (\(dn, _) _ -> dn /= dbName))
 
 -- | Initialize database manager from config
 -- Pre-loads databases with load=true at startup
@@ -429,6 +449,7 @@ initDatabaseManager config noCache configPath = do
         Just path -> parseGeographiesCSV (resolveRelative path)
 
     methodMappingCacheVar <- newTVarIO M.empty
+    methodTablesCacheVar  <- newTVarIO M.empty
 
     let manager = DatabaseManager
             { dmLoadedDbs = loadedDbsVar
@@ -448,6 +469,7 @@ initDatabaseManager config noCache configPath = do
             , dmPlugins = buildRegistry (cfgPlugins config)
             , dmGeographies = geographies
             , dmMethodMappingCache = methodMappingCacheVar
+            , dmMethodTablesCache  = methodTablesCacheVar
             }
 
     -- Auto-load active reference data (flow synonyms, compartment mappings, units)

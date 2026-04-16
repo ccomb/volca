@@ -381,7 +381,6 @@ data Database = Database
     -- Linking statistics (serialized to cache for setup page)
     , dbLinkingStats :: !CrossDBLinkingStats -- Cross-DB linking statistics (completeness, fallbacks, etc.)
     -- Runtime-only fields (not serialized to cache)
-    , dbCachedFactorization :: !(Maybe MatrixFactorization) -- Pre-computed (I - A) for fast solves
     , dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
     , dbFlowsByName :: !(M.Map Text [Flow]) -- Biosphere flow name index for LCIA matching
     , dbFlowsByCAS :: !(M.Map Text [Flow]) -- CAS → biosphere flows for LCIA matching
@@ -479,7 +478,6 @@ instance Store Database where
             , dbDependsOn = dependsOn
             , dbLinkingStats = linkingStats
             -- Runtime-only fields set to defaults
-            , dbCachedFactorization = Nothing
             , dbSynonymDB = Nothing
             , dbFlowsByName = M.empty
             , dbFlowsByCAS = M.empty

@@ -189,13 +189,6 @@ data FlowRole = InputFlow | OutputFlow | ReferenceProductFlow
 
 -- Synonym types removed - synonyms are now included directly in flow responses
 
--- | LCIA computation request
-data LCIARequest = LCIARequest
-    { lciaMethod :: Text -- Method file path or content
-    , lciaFormat :: Maybe Text -- Optional format specification
-    }
-    deriving (Show, Generic)
-
 -- | Method summary for listing methods
 data MethodSummary = MethodSummary
     { msmId :: UUID           -- Method UUID
@@ -325,6 +318,29 @@ data ContributingActivitiesResult = ContributingActivitiesResult
     , carUnit        :: Text
     , carTotalScore  :: Double
     , carActivities  :: [ActivityContribution]
+    }
+    deriving (Generic)
+
+-- | Batch impacts request: compute LCIA for every process in one call.
+newtype BatchImpactsRequest = BatchImpactsRequest
+    { birProcessIds :: [Text]
+    }
+    deriving (Generic)
+
+-- | One entry of a batch impacts response.
+data BatchImpactsEntry = BatchImpactsEntry
+    { bieProcessId    :: Text
+    , bieActivityName :: Text
+    , bieImpacts      :: LCIABatchResult
+    }
+    deriving (Generic)
+
+-- | Batch impacts response: one entry per successfully computed process,
+-- plus lists of process ids that could not be resolved.
+data BatchImpactsResponse = BatchImpactsResponse
+    { birResults  :: [BatchImpactsEntry]
+    , birNotFound :: [Text]
+    , birInvalid  :: [Text]
     }
     deriving (Generic)
 
@@ -695,6 +711,9 @@ instance ToJSON MethodFactorAPI where { toJSON = strippedToJSON; toEncoding = st
 instance ToJSON FlowContributionEntry where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
 instance ToJSON LCIAResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
 instance ToJSON LCIABatchResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
+instance ToJSON BatchImpactsEntry where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
+instance ToJSON BatchImpactsResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
+instance FromJSON BatchImpactsRequest where { parseJSON = strippedParseJSON }
 instance ToJSON ContributingFlowsResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
 instance ToJSON ActivityContribution where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
 instance ToJSON ContributingActivitiesResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
@@ -719,7 +738,6 @@ instance FromJSON ActivityMetadata where { parseJSON = strippedParseJSON }
 instance FromJSON ActivityLinks where { parseJSON = strippedParseJSON }
 instance FromJSON ActivityStats where { parseJSON = strippedParseJSON }
 instance FromJSON ExchangeWithUnit where { parseJSON = strippedParseJSON }
-instance FromJSON LCIARequest where { parseJSON = strippedParseJSON }
 instance ToJSON DatabaseListResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
 instance ToJSON DatabaseStatusAPI where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
 instance ToJSON ActivateResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }

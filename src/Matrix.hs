@@ -44,14 +44,15 @@ module Matrix (
     toList,
     initializeSolverForServer,
     precomputeMatrixFactorization,
-    addFactorizationToDatabase,
     solveSparseLinearSystemWithFactorization,
+    solveSparseLinearSystemWithFactorizationMulti,
+    computeInventoryMatrixBatch,
     clearCachedSolver,
 ) where
 
 import Progress
 import Types
-import Control.Exception (catch, SomeException)
+import Control.Exception (catch, evaluate, SomeException)
 import Control.Monad (forM_, when)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, readMVar, modifyMVar_)
 import Data.Int (Int32)
@@ -62,7 +63,8 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
-import Numerical.MUMPS (MUMPSSolver, mumpsCreate, mumpsAnalyzeAndFactorize, mumpsSolve, mumpsDestroy)
+import Control.Concurrent.Async (mapConcurrently)
+import Numerical.MUMPS (MUMPSSolver, mumpsCreate, mumpsAnalyzeAndFactorize, mumpsSolve, mumpsSolveMulti, mumpsDestroy)
 import System.IO.Unsafe (unsafePerformIO)  -- Used only for NOINLINE global singletons
 
 -- | Simple vector operations (replacing hmatrix dependency)
@@ -160,6 +162,84 @@ solveSparseLinearSystemWithFactorization factorization demandVec = do
                         solveSparseLinearSystemMUMPS [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- techTriples] (fromIntegral n) demandVec
 
 {- |
+Batch variant: solve (I - A) * xᵢ = dᵢ for every demand vector dᵢ in one MUMPS
+multi-RHS call per chunk, holding the per-database lock across the whole batch.
+
+Chunk size caps the n·k·8-byte scratch buffer: for Ecoinvent (n≈18k), K_MAX=64
+→ ~9 MB per call. Larger client batches are transparently split into chunks;
+the lock is held once for the whole batch so concurrent single-solve requests
+queue behind us (same semantics as a single solve of similar duration).
+
+Falls back to per-demand solves via 'solveSparseLinearSystemWithFactorization'
+if the cached solver is absent or the multi-solve raises an exception.
+-}
+solveSparseLinearSystemWithFactorizationMulti :: MatrixFactorization -> [Vector] -> IO [Vector]
+solveSparseLinearSystemWithFactorizationMulti _ [] = pure []
+solveSparseLinearSystemWithFactorizationMulti factorization demandVecs = do
+    let dbId = mfDatabaseId factorization
+        k    = length demandVecs
+    cachedSolvers <- readMVar cachedSolver
+    case M.lookup dbId cachedSolvers of
+        Nothing -> do
+            reportMatrixOperation $ "No cached factorization for '" ++ T.unpack dbId
+                ++ "' — batch falling back to per-demand solve"
+            mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs
+        Just (_solver, _, dbLock) -> do
+            reportMatrixOperation $ "Multi-RHS solve for '" ++ T.unpack dbId ++ "' (k=" ++ show k ++ ")"
+            catch
+                (withProgressTiming Solver "MUMPS multi-RHS solve" $
+                    withMVar dbLock $ \_ -> do
+                        cached' <- readMVar cachedSolver
+                        case M.lookup dbId cached' of
+                            Nothing -> mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs
+                            Just (solver, _, _) ->
+                                concat <$> mapM (solveChunk solver) (chunksOf multiRhsChunkSize demandVecs))
+                (\e -> do
+                    reportMatrixOperation $ "Multi-RHS solve failed (" ++ show (e :: SomeException)
+                        ++ ") — falling back to per-demand solve"
+                    mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs)
+  where
+    solveChunk :: MUMPSSolver -> [Vector] -> IO [Vector]
+    solveChunk solver chunk = do
+        let rhsList = map (VS.fromList . toList) chunk
+        solutions <- mumpsSolveMulti solver rhsList
+        pure $ map (VS.convert :: VS.Vector Double -> Vector) solutions
+
+-- | Cap MUMPS scratch allocation at n·K·8 bytes per call (~10 MB on Ecoinvent).
+multiRhsChunkSize :: Int
+multiRhsChunkSize = 64
+
+chunksOf :: Int -> [a] -> [[a]]
+chunksOf n xs
+    | n <= 0    = [xs]
+    | null xs   = []
+    | otherwise = let (h, t) = splitAt n xs in h : chunksOf n t
+
+{- |
+Compute biosphere inventories for k root processes with one multi-RHS solve.
+
+Equivalent to @mapM (computeInventoryMatrix db)@ but all k scaling vectors come
+from one MUMPS call against the cached factorization, and biosphere matrix
+application runs in parallel across the resulting scaling vectors.
+
+The caller must supply a 'MatrixFactorization' — typically obtained from
+'SharedSolver.ensureFactorization'. There is no lazy fallback: falling back
+would re-factorize per demand vector (~2 s each on Ecoinvent), defeating
+the point of batching.
+
+Precondition: every ProcessId must resolve against 'dbActivityIndex'. Callers
+should validate with 'Service.resolveActivityAndProcessId' first —
+'buildDemandVectorFromIndex' crashes on an out-of-range id.
+-}
+computeInventoryMatrixBatch :: Database -> MatrixFactorization -> [ProcessId] -> IO [Inventory]
+computeInventoryMatrixBatch _  _    []   = pure []
+computeInventoryMatrixBatch db fact pids = do
+    let activityIndex = dbActivityIndex db
+        demandVecs    = map (buildDemandVectorFromIndex activityIndex) pids
+    scalingVecs <- solveSparseLinearSystemWithFactorizationMulti fact demandVecs
+    mapConcurrently (\x -> evaluate $! applyBiosphereMatrix db x) scalingVecs
+
+{- |
 Solve the fundamental LCA equation (I - A) * x = b using MUMPS direct solver.
 
 This function:
@@ -226,9 +306,7 @@ computeScalingVector db rootProcessId = do
         techTriples = dbTechnosphereTriples db
         activityIndex = dbActivityIndex db
         demandVec = buildDemandVectorFromIndex activityIndex rootProcessId
-    case dbCachedFactorization db of
-        Just factorization -> solveSparseLinearSystemWithFactorization factorization demandVec
-        Nothing -> solveSparseLinearSystem [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples] (fromIntegral activityCount) demandVec
+    solveSparseLinearSystem [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples] (fromIntegral activityCount) demandVec
 
 {- |
 Apply the biosphere matrix to a scaling vector: g = B * x.
@@ -352,12 +430,10 @@ computeInventoryWithDependencies lookupDb db rootProcessId = do
         bioFlowIndex = M.fromList $ zip (V.toList $ dbBiosphereFlows db) [0..]
         demandVec = buildDemandVectorFromIndex activityIndex rootProcessId
 
-    localSupplyVec <- case dbCachedFactorization db of
-        Just factorization -> solveSparseLinearSystemWithFactorization factorization demandVec
-        Nothing -> solveSparseLinearSystem
-            [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
-            (fromIntegral activityCount)
-            demandVec
+    localSupplyVec <- solveSparseLinearSystem
+        [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
+        (fromIntegral activityCount)
+        demandVec
 
     let localInventoryVec = applySparseMatrix
             [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
@@ -448,7 +524,3 @@ precomputeMatrixFactorization dbName techTriples n = withMVar mumpsFactorization
             }
 
     return factorization
-
--- | Add a pre-computed matrix factorization to the database.
-addFactorizationToDatabase :: Database -> MatrixFactorization -> Database
-addFactorizationToDatabase db factorization = db { dbCachedFactorization = Just factorization }

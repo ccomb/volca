@@ -105,6 +105,37 @@ int mumps_solve(MumpsSolver* s, const double* rhs, double* sol)
     return 0;
 }
 
+int mumps_solve_multi(MumpsSolver* s, int nrhs, const double* rhs, double* sol)
+{
+    if (!s || nrhs < 1) return -1;
+
+    size_t bytes = (size_t)s->n * (size_t)nrhs * sizeof(double);
+    double* scratch = malloc(bytes);
+    if (!scratch) return -1;
+
+    memcpy(scratch, rhs, bytes);
+    s->id.rhs  = scratch;
+    s->id.nrhs = nrhs;
+    s->id.lrhs = s->n;
+
+    s->id.job = 3;  /* solve */
+    dmumps_c(&s->id);
+
+    int rc = s->id.infog[0];
+    if (rc >= 0) {
+        memcpy(sol, scratch, bytes);
+        rc = 0;
+    }
+
+    /* Restore scratch pointer so the single-RHS path's invariant still holds */
+    s->id.rhs  = s->rhs;
+    s->id.nrhs = 1;
+    s->id.lrhs = s->n;
+
+    free(scratch);
+    return rc;
+}
+
 void mumps_destroy(MumpsSolver* s)
 {
     if (!s) return;

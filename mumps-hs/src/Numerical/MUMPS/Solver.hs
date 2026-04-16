@@ -3,6 +3,7 @@ module Numerical.MUMPS.Solver
     , mumpsAnalyze
     , mumpsFactorize
     , mumpsSolve
+    , mumpsSolveMulti
     , mumpsDestroy
     , mumpsAnalyzeAndFactorize
     , withMUMPSSolver
@@ -59,6 +60,25 @@ mumpsSolve s rhs = do
             rc <- c_mumps_solve (solverPtr s) pRhs pSol
             checkError "solve" rc
             VS.generateM n $ \i -> realToFrac <$> peekElemOff pSol i
+
+-- | Solve A X = B for multiple RHS in one MUMPS call.
+-- Input is a list of k RHS vectors each of length n; output is the matching
+-- list of k solution vectors. Empty input returns empty output.
+-- One MUMPS triangular-solve call amortizes setup across all k vectors.
+mumpsSolveMulti :: MUMPSSolver -> [VS.Vector Double] -> IO [VS.Vector Double]
+mumpsSolveMulti _ [] = pure []
+mumpsSolveMulti s rhss = do
+    let n     = solverSize s
+        k     = length rhss
+        total = n * k
+        packed :: VS.Vector CDouble
+        packed = VS.concat (map (VS.map realToFrac) rhss)
+    VS.unsafeWith packed $ \pRhs ->
+        allocaArray total $ \pSol -> do
+            rc <- c_mumps_solve_multi (solverPtr s) (fromIntegral k) pRhs pSol
+            checkError "solveMulti" rc
+            flat <- VS.generateM total $ \i -> realToFrac <$> peekElemOff pSol i
+            pure [VS.slice (col * n) n flat | col <- [0 .. k - 1]]
 
 -- | Destroy the solver and release all memory.
 mumpsDestroy :: MUMPSSolver -> IO ()
