@@ -8,6 +8,7 @@ module Config
     , ServerConfig(..)
     , DatabaseConfig(..)
     , MethodConfig(..)
+    , ScoringSetConfig(..)
     , RefDataConfig(..)
     , HostingConfig(..)
     , ClassificationPreset(..)
@@ -105,6 +106,18 @@ data MethodConfig = MethodConfig
     , mcActive      :: !Bool
     , mcIsUploaded  :: !Bool           -- True for uploaded methods (vs. configured in TOML)
     , mcDescription :: !(Maybe Text)   -- Optional description
+    , mcFormat      :: !(Maybe Text)   -- Detected format ("SimaPro CSV", "ILCD", etc.)
+    , mcScoringSets :: ![ScoringSetConfig]  -- Formula-based scoring sets
+    } deriving (Show, Eq, Generic)
+
+-- | Configuration for a formula-based scoring set (parsed from TOML [[methods.scoring]])
+data ScoringSetConfig = ScoringSetConfig
+    { sscName          :: !Text                  -- Display name (e.g., "ECS")
+    , sscVariables     :: !(M.Map Text Text)     -- var → impact category name
+    , sscComputed      :: !(M.Map Text Text)     -- var → formula string
+    , sscNormalization :: !(M.Map Text Double)    -- var → normalization factor
+    , sscWeighting     :: !(M.Map Text Double)    -- var → weight
+    , sscScores        :: !(M.Map Text Text)      -- score name → formula
     } deriving (Show, Eq, Generic)
 
 -- | Reusable config for reference data (flow synonyms, compartment mappings, units).
@@ -185,7 +198,19 @@ instance DecodeTOML MethodConfig where
         mcActive <- fromMaybe True <$> getFieldOpt "active"
         let mcIsUploaded = False  -- Methods from TOML are not uploaded
         mcDescription <- getFieldOpt "description"
+        let mcFormat = Nothing  -- Detected later from file content
+        mcScoringSets <- fromMaybe [] <$> getFieldOpt "scoring"
         pure MethodConfig{..}
+
+instance DecodeTOML ScoringSetConfig where
+    tomlDecoder = do
+        sscName <- getField "name"
+        sscVariables <- fromMaybe M.empty <$> getFieldOpt "variables"
+        sscComputed <- fromMaybe M.empty <$> getFieldOpt "computed"
+        sscNormalization <- fromMaybe M.empty <$> getFieldOpt "normalization"
+        sscWeighting <- fromMaybe M.empty <$> getFieldOpt "weighting"
+        sscScores <- fromMaybe M.empty <$> getFieldOpt "scores"
+        pure ScoringSetConfig{..}
 
 instance DecodeTOML RefDataConfig where
     tomlDecoder = do

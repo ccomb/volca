@@ -28,7 +28,7 @@ module SimaPro.Parser
     ) where
 
 import Types
-import qualified SimaPro.Expr as Expr
+import qualified Expr
 import Control.Concurrent.Async (mapConcurrently)
 import Control.DeepSeq (NFData, force)
 import Control.Exception (evaluate)

@@ -11,7 +11,7 @@ import SimaPro.Parser
     , generateActivityUUID, generateFlowUUID, generateUnitUUID
     , ProductRow(..), TechExchangeRow(..), BioExchangeRow(..)
     )
-import SimaPro.Expr (evaluate, normalizeExpr)
+import Expr (evaluate, normalizeExpr)
 import Types (Activity(..), Exchange(..), Unit(..), Flow, UUID)
 import UnitConversion (defaultUnitConfig, isKnownUnit)
 import qualified Data.ByteString as BS

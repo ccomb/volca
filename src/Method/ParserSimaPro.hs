@@ -295,7 +295,7 @@ finalize st =
                 let !nw = NormWeightSet (psNWname st) (psNormMap st) (psWeightMap st)
                 in reverse (nw : psNWsets st)
             _ -> reverse (psNWsets st)
-    in MethodCollection methods (reverse (psDamageCats st)) nwSets
+    in MethodCollection methods (reverse (psDamageCats st)) nwSets []
 
 -- ============================================================================
 -- Helpers

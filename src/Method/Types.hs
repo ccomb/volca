@@ -18,6 +18,9 @@ module Method.Types
     , DamageCategory(..)
     , NormWeightSet(..)
     , emptyMethodCollection
+      -- * Scoring sets (formula-based N/W)
+    , ScoringSet(..)
+    , computeFormulaScores
       -- * Compartment Mapping
     , CompartmentMap
     , buildCompartmentMapFromCSV
@@ -31,7 +34,9 @@ module Method.Types
 import Data.Aeson (ToJSON, FromJSON)
 import qualified Data.ByteString.Lazy as BL
 import Data.Csv (HasHeader(..), decode)
+import Data.List (sortBy)
 import qualified Data.Map.Strict as M
+import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
@@ -39,6 +44,7 @@ import qualified Data.Vector as V
 import GHC.Generics (Generic)
 import Control.DeepSeq (NFData)
 import Data.Store (Store)
+import qualified Expr
 
 -- | Direction of a biosphere flow (input from or output to environment)
 data FlowDirection
@@ -104,11 +110,64 @@ data MethodCollection = MethodCollection
     { mcMethods          :: ![Method]
     , mcDamageCategories :: ![DamageCategory]
     , mcNormWeightSets   :: ![NormWeightSet]
+    , mcScoringSets      :: ![ScoringSet]
     } deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
 -- | Empty method collection (for wrapping plain method lists).
 emptyMethodCollection :: [Method] -> MethodCollection
-emptyMethodCollection ms = MethodCollection ms [] []
+emptyMethodCollection ms = MethodCollection ms [] [] []
+
+-- | Formula-based scoring set.
+-- Variables map short names to impact category names.
+-- Computed variables are formulas over other variables (evaluated via Expr).
+-- Normalization divides, weighting multiplies.
+-- Scores are named output formulas over the normalized/weighted environment.
+data ScoringSet = ScoringSet
+    { ssName          :: !Text                  -- ^ Display name (e.g., "ECS")
+    , ssVariables     :: !(M.Map Text Text)     -- ^ var → impact category name
+    , ssComputed      :: !(M.Map Text Text)     -- ^ var → formula (e.g., "2 * etfo + etfi")
+    , ssNormalization :: !(M.Map Text Double)    -- ^ var → normalization factor (divisor)
+    , ssWeighting     :: !(M.Map Text Double)    -- ^ var → weight (multiplier)
+    , ssScores        :: !(M.Map Text Text)      -- ^ score name → formula
+    } deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+
+-- | Evaluate all scores in a ScoringSet given raw LCIA results.
+-- Input: map from impact category name → raw score.
+-- Output: map from score name → computed value, or an error.
+computeFormulaScores :: ScoringSet -> M.Map Text Double -> Either String (M.Map Text Double)
+computeFormulaScores ss rawScores = do
+    -- 1. Resolve primitive variables: lookup raw score by category name
+    let primitiveEnv = M.mapMaybe (`M.lookup` rawScores) (ssVariables ss)
+    -- 2. Resolve computed variables in topological order
+    computedEnv <- resolveComputed primitiveEnv (ssComputed ss)
+    let rawEnv = M.union computedEnv primitiveEnv
+    -- 3. Apply normalization and weighting: nw(v) = raw(v) / norm(v) * weight(v)
+        nwEnv = M.mapWithKey (\v raw ->
+            let n = M.findWithDefault 1.0 v (ssNormalization ss)
+                w = M.findWithDefault 0.0 v (ssWeighting ss)
+            in raw / n * w) rawEnv
+    -- 4. Evaluate each score formula in the nw environment
+    M.traverseWithKey (\scoreName formula ->
+        case Expr.evaluate nwEnv formula of
+            Left err -> Left $ "Score '" <> T.unpack scoreName
+                            <> "': " <> err
+            Right val -> Right val
+        ) (ssScores ss)
+
+-- | Resolve computed variables by evaluating formulas.
+-- Uses topological sort to handle dependencies between computed variables.
+resolveComputed :: M.Map Text Double -> M.Map Text Text -> Either String (M.Map Text Double)
+resolveComputed env formulas = foldl step (Right env) sorted
+  where
+    -- Simple topological sort: evaluate in order of formula length as heuristic
+    -- (shorter formulas are less likely to depend on longer ones)
+    sorted = sortBy (comparing (T.length . snd)) (M.toList formulas)
+    step (Left err) _ = Left err
+    step (Right currentEnv) (varName, formula) =
+        case Expr.evaluate currentEnv formula of
+            Left err -> Left $ "Computed variable '" <> T.unpack varName
+                            <> "': " <> err
+            Right val -> Right $ M.insert varName val currentEnv
 
 -- | Compartment normalization map.
 -- Maps (lowercase source_medium, source_sub, source_qualifier) to target Compartment.

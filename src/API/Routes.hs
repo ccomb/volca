@@ -13,7 +13,7 @@ import Method.Mapping (computeLCIAScore, mapMethodToFlows, MatchStrategy(..), Ma
 import Plugin.Types (PluginRegistry(..), AnalyzeHandle(..), AnalyzeContext(..))
 import Plugin.Builtin (flowContribution)
 import qualified Data.Vector as V
-import Method.Types (Method(..), MethodCF(..), MethodCollection(..), DamageCategory(..), NormWeightSet(..), FlowDirection(..))
+import Method.Types (Method(..), MethodCF(..), MethodCollection(..), DamageCategory(..), NormWeightSet(..), FlowDirection(..), ScoringSet(..), computeFormulaScores)
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), DatabaseSetupInfo(..), getDatabase, MethodCollectionStatus(..), getMergedUnitConfig)
 import qualified Database.Manager as DM
 import API.DatabaseHandlers (simpleAction)
@@ -21,7 +21,7 @@ import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.OpenApi
 import Data.OpenApi (OpenApi, ToSchema)
 import Servant.OpenApi (toOpenApi)
-import Progress (getLogLines, reportProgress, ProgressLevel(Info))
+import Progress (getLogLines, reportProgress, ProgressLevel(Info, Warning))
 import Database
 import qualified Service
 import Tree (buildLoopAwareTree)
@@ -41,7 +41,7 @@ import qualified Data.UUID as UUID
 import GHC.Generics
 import Servant
 import Control.Concurrent.STM (readTVarIO)
-import Control.Monad (when)
+import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.List (find, intercalate, sortBy, sortOn)
 import Numeric (showFFloat)
@@ -636,6 +636,19 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                     singleScore = case mNW of
                         Just _ -> Just $ sum [s | r <- results, Just s <- [lrWeightedScore r]]
                         Nothing -> Nothing
+                    -- Compute formula-based scoring sets
+                    rawScoreMap = M.fromList
+                        [(lrCategory r, lrScore r) | r <- rawResults]
+                -- Compute each scoring set, logging errors
+                scoringResults <- liftIO $ do
+                    results <- forM (mcScoringSets collection) $ \ss -> do
+                        case computeFormulaScores ss rawScoreMap of
+                            Right scores -> return $ Just (ssName ss, scores)
+                            Left err -> do
+                                reportProgress Warning $ "  Scoring set '" <> T.unpack (ssName ss)
+                                    <> "' failed: " <> err
+                                return Nothing
+                    return $ M.fromList [(n, s) | Just (n, s) <- results]
                 t2 <- liftIO getCurrentTime
                 liftIO $ mapM_ (logBatchCategory invSize) results
                 liftIO $ reportProgress Info $ "  Total: "
@@ -645,12 +658,16 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                     Just ss -> liftIO $ reportProgress Info $ "  Single score: "
                         <> showFFloat (Just 6) ss "" <> " Pt"
                     Nothing -> return ()
+                forM_ (M.toList scoringResults) $ \(name, scores) ->
+                    liftIO $ reportProgress Info $ "  Scoring '" <> T.unpack name <> "': "
+                        <> intercalate ", " [T.unpack k <> "=" <> showFFloat (Just 6) v "" | (k, v) <- M.toList scores]
                 return LCIABatchResult
                     { lbrResults = results
                     , lbrSingleScore = singleScore
                     , lbrSingleScoreUnit = if null nwSets then Nothing else Just "Pt"
                     , lbrNormWeightSetName = nwName <$> mNW
                     , lbrAvailableNWsets = map nwName nwSets
+                    , lbrScoringResults = scoringResults
                     }
 
     -- POST: Batch LCIA with substitutions
@@ -658,7 +675,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     postActivityLCIABatch dbName processIdText collectionName subReq = do
         (db, sharedSolver) <- requireDatabaseByName dbManager dbName
         (processId, activity) <- resolveOrThrow db processIdText
-        (methods, damageCats, nwSets) <- loadCollection collectionName
+        (methods, damageCats, nwSets, scoringSets) <- loadCollection collectionName
         let dcLookup = M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
             mNW = case nwSets of { (nw:_) -> Just nw; [] -> Nothing }
         scalingResult <- liftIO $ Service.computeScalingVectorWithSubstitutions db sharedSolver processId (srSubstitutions subReq)
@@ -671,12 +688,20 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                     singleScore = case mNW of
                         Just _ -> Just $ sum [s | r <- results, Just s <- [lrWeightedScore r]]
                         Nothing -> Nothing
+                    rawScoreMap = M.fromList
+                        [(lrCategory r, lrScore r) | r <- rawResults]
+                    scoringResults = M.fromList
+                        [ (ssName ss, scores)
+                        | ss <- scoringSets
+                        , Right scores <- [computeFormulaScores ss rawScoreMap]
+                        ]
                 return LCIABatchResult
                     { lbrResults = results
                     , lbrSingleScore = singleScore
                     , lbrSingleScoreUnit = if null nwSets then Nothing else Just "Pt"
                     , lbrNormWeightSetName = nwName <$> mNW
                     , lbrAvailableNWsets = map nwName nwSets
+                    , lbrScoringResults = scoringResults
                     }
 
     -- POST: Inventory with substitutions
@@ -777,11 +802,11 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             <> " (" <> show (lrMappedFlows result) <> " CFs mapped)"
 
     -- Load a method collection by name
-    loadCollection :: Text -> Handler ([Method], [DamageCategory], [NormWeightSet])
+    loadCollection :: Text -> Handler ([Method], [DamageCategory], [NormWeightSet], [ScoringSet])
     loadCollection collectionName = do
         loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
         case M.lookup collectionName loadedCollections of
-            Just mc -> return (mcMethods mc, mcDamageCategories mc, mcNormWeightSets mc)
+            Just mc -> return (mcMethods mc, mcDamageCategories mc, mcNormWeightSets mc, mcScoringSets mc)
             Nothing -> throwError err404{errBody = "Collection not loaded: " <> BSL.fromStrict (T.encodeUtf8 collectionName)}
 
     -- Activity analysis endpoint (dispatches to registered analyzers)
@@ -1149,7 +1174,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 , mcaIsUploaded = mcsIsUploaded s
                 , mcaPath = mcsPath s
                 , mcaMethodCount = mcsMethodCount s
-                , mcaFormat = Just "ILCD"
+                , mcaFormat = Just (mcsFormat s)
                 }
             | s <- statuses
             ]

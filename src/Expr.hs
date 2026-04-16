@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Expression evaluator for SimaPro parameterized amounts.
+-- | Expression evaluator.
 -- Supports arithmetic (+, -, *, /, ^), variables, parentheses, and common functions.
-module SimaPro.Expr
+module Expr
     ( evaluate
     , normalizeExpr
     , isExpression

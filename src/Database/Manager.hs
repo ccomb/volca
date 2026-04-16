@@ -72,7 +72,7 @@ import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import qualified Control.Exception
 import Control.Monad (forM, forM_, unless, when)
-import Data.Maybe (catMaybes, isJust)
+import Data.Maybe (catMaybes, fromMaybe, isJust)
 import System.Mem (performGC)
 import Data.Bifunctor (first)
 import Data.Aeson (ToJSON(..), FromJSON(..), (.=), (.:), (.:?))
@@ -103,14 +103,14 @@ import SharedSolver (SharedSolver, createSharedSolver)
 import Progress (reportProgress, reportProgressWithTiming, reportError, ProgressLevel(..))
 import Database (buildDatabaseWithMatrices)
 import SynonymDB (SynonymDB(..), emptySynonymDB, buildFromCSV, buildFromPairs, loadFromCSVFileWithCache, mergeSynonymDBs, synonymCount)
-import Method.Types (CompartmentMap, buildCompartmentMapFromCSV, compartmentMapSize, Method(..), MethodCollection(..))
+import Method.Types (CompartmentMap, buildCompartmentMapFromCSV, compartmentMapSize, Method(..), MethodCollection(..), ScoringSet(..))
 import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), UUID, Flow(..), Unit(..), exchangeFlowId, exchangeIsReference, CrossDBLink(..), CrossDBLinkingStats(..), crossDBBySource, unresolvedCount, LinkBlocker(..), deduplicateFallbacks)
 import qualified UnitConversion
 import qualified Database.Loader as Loader
 -- CrossDBLinkingStats is now in Types, re-exported from Database.Loader
 import Database.CrossLinking (IndexedDatabase(..), buildIndexedDatabaseFromDB)
 import qualified Database.Upload as Upload
-import Database.Upload (findMethodDirectory)
+import Database.Upload (DatabaseFormat(..), findMethodDirectory)
 import qualified Database.UploadedDatabase as UploadedDB
 import qualified Data.Text.IO as TIO
 import qualified SimaPro.Parser as SimaPro
@@ -292,6 +292,7 @@ data MethodCollectionStatus = MethodCollectionStatus
     , mcsIsUploaded  :: !Bool            -- True if uploaded (vs. configured in TOML)
     , mcsPath        :: !Text            -- Path to method directory
     , mcsMethodCount :: !Int             -- Number of impact categories (0 if unloaded)
+    , mcsFormat      :: !Text            -- "SimaPro CSV", "ILCD", etc.
     } deriving (Show, Eq, Generic)
 
 instance ToJSON MethodCollectionStatus where
@@ -303,6 +304,7 @@ instance ToJSON MethodCollectionStatus where
         , "mcsIsUploaded" .= mcsIsUploaded
         , "mcsPath" .= mcsPath
         , "mcsMethodCount" .= mcsMethodCount
+        , "mcsFormat" .= mcsFormat
         ]
 
 instance FromJSON MethodCollectionStatus where
@@ -314,6 +316,7 @@ instance FromJSON MethodCollectionStatus where
         <*> v .: "mcsIsUploaded"
         <*> v .: "mcsPath"
         <*> v .: "mcsMethodCount"
+        <*> v .: "mcsFormat"
 
 -- | The database manager maintains state for multiple databases
 -- Databases with load=true are pre-loaded at startup for instant switching
@@ -450,7 +453,9 @@ initDatabaseManager config noCache configPath = do
     forM_ activeMethods $ \mc -> do
         result <- loadMethodCollectionFromConfig mc
         case result of
-            Right (collection, flowInfo) -> do
+            Right (collection0, flowInfo) -> do
+                let scoringSets = map configToScoringSet (Config.mcScoringSets mc)
+                    collection = collection0 { Method.Types.mcScoringSets = scoringSets }
                 atomically $ modifyTVar' loadedMethodsVar (M.insert (mcName mc) collection)
                 reportProgress Info $ "  [OK] Loaded method: " <> T.unpack (mcName mc)
                     <> " (" <> show (length (mcMethods collection)) <> " impact categories)"
@@ -549,6 +554,23 @@ uploadMetaToConfig slug dirPath meta = DatabaseConfig
 
 -- | Discover uploaded methods from uploads/methods/ directory
 -- Reads meta.toml from each subdirectory and converts to MethodConfig
+-- | Convert a ScoringSetConfig to a ScoringSet
+configToScoringSet :: ScoringSetConfig -> ScoringSet
+configToScoringSet ssc = ScoringSet
+    { ssName = sscName ssc
+    , ssVariables = sscVariables ssc
+    , ssComputed = sscComputed ssc
+    , ssNormalization = sscNormalization ssc
+    , ssWeighting = sscWeighting ssc
+    , ssScores = sscScores ssc
+    }
+
+-- | Convert a DatabaseFormat to display text for methods
+methodFormatText :: DatabaseFormat -> Text
+methodFormatText SimaProCSV = "SimaPro CSV"
+methodFormatText ILCDProcess = "ILCD"
+methodFormatText f = T.pack (show f)
+
 discoverUploadedMethodConfigs :: IO [MethodConfig]
 discoverUploadedMethodConfigs = do
     uploads <- UploadedDB.discoverUploadedMethods
@@ -562,6 +584,8 @@ discoverUploadedMethodConfigs = do
             , mcActive = False  -- Never auto-load uploaded methods
             , mcIsUploaded = True
             , mcDescription = UploadedDB.umDescription meta
+            , mcFormat = Just $ methodFormatText (UploadedDB.umFormat meta)
+            , mcScoringSets = []
             }
 
 -- | Get a database by name
@@ -1651,7 +1675,7 @@ loadMethodCollectionFromConfig mc = do
                         -- Merge NW data from all SimaPro CSV sources
                         allDamageCats = concatMap mcDamageCategories spCollections
                         allNWSets = concatMap mcNormWeightSets spCollections
-                        collection = MethodCollection allMethods allDamageCats allNWSets
+                        collection = MethodCollection allMethods allDamageCats allNWSets []
                         errs = xmlErrs ++ csvErrs
                     if null allMethods && not (null errs)
                         then return $ Left $ "All method files failed to parse: " <> T.pack (head errs)
@@ -1689,9 +1713,15 @@ listMethodCollections manager = do
                 , mcsIsUploaded = mcIsUploaded mc
                 , mcsPath = T.pack (mcPath mc)
                 , mcsMethodCount = maybe 0 (length . mcMethods) (M.lookup name loaded)
+                , mcsFormat = fromMaybe (detectFormatFromPath (mcPath mc)) (mcFormat mc)
                 }
            | (name, mc) <- M.toList available
            ]
+  where
+    detectFormatFromPath :: FilePath -> Text
+    detectFormatFromPath p
+        | T.isInfixOf ".csv" (T.toLower (T.pack p)) = "SimaPro CSV"
+        | otherwise = "ILCD"
 
 -- | Load a method collection on demand
 loadMethodCollection :: DatabaseManager -> Text -> IO (Either Text ())
@@ -1710,7 +1740,10 @@ loadMethodCollection manager name = do
                         Left err -> do
                             reportProgress Error $ "  [FAIL] " <> T.unpack name <> ": " <> T.unpack err
                             return $ Left err
-                        Right (collection, flowInfo) -> do
+                        Right (collection0, flowInfo) -> do
+                            -- Inject scoring sets from TOML config
+                            let scoringSets = map configToScoringSet (Config.mcScoringSets mc)
+                                collection = collection0 { Method.Types.mcScoringSets = scoringSets }
                             atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert name collection)
                             let methods = mcMethods collection
                                 totalCFs = sum $ map (length . methodFactors) methods

@@ -60,7 +60,7 @@ library
                      , EcoSpold.Parser2
                      , EcoSpold.Parser1
                      , SimaPro.Parser
-                     , SimaPro.Expr
+                     , Expr
                      , ILCD.Parser
                      , Plugin.Types
                      , Plugin.Builtin

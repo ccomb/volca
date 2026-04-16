@@ -335,6 +335,8 @@ data LCIABatchResult = LCIABatchResult
     , lbrSingleScoreUnit :: Maybe Text  -- "Pt"
     , lbrNormWeightSetName :: Maybe Text
     , lbrAvailableNWsets :: [Text]
+    , lbrScoringResults :: M.Map Text (M.Map Text Double)
+      -- ^ Scoring set name → (score name → value). All formula-based scoring sets computed at once.
     }
     deriving (Generic)
 

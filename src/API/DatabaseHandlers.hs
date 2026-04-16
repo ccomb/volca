@@ -357,6 +357,8 @@ uploadMethodHandler dbManager req = do
                             , mcActive = False
                             , mcIsUploaded = True
                             , mcDescription = urDescription req
+                            , mcFormat = Just $ formatToText $ urFormat uploadResult
+                            , mcScoringSets = []
                             }
                     liftIO $ addMethodCollection dbManager mc
 
