@@ -410,10 +410,16 @@ shermanMorrisonVariant db mFact x row oldSup newSup coeff = do
 {- |
 Accumulate cross-database supplier demands for a given root scaling vector.
 
-For every 'CrossDBLink' in the database whose consumer has non-zero scaling,
-add @coefficient * scale@ to the demand on the supplier @(actUUID, prodUUID)@.
-Results are grouped by the supplier's database name so the caller can solve
-each dependency database in one multi-RHS batch.
+For every 'CrossDBLink' whose consumer has non-zero scaling, add
+@coefficient / normFactor(consumer) * scale@ to the demand on the supplier
+@(actUUID, prodUUID)@. Results are grouped by the supplier's database name
+so the caller can solve each dependency database in one multi-RHS batch.
+
+The division by the consumer's normalization factor matches the convention
+of 'dbTechnosphereTriples' (entries are already divided by the producer's
+refAmount). 'cdlCoefficient' is the raw exchange amount per ref-unit of the
+consumer, while the scaling vector is in per-kg units — so we re-scale
+before accumulating.
 -}
 accumulateDepDemands :: Database -> Vector -> M.Map Text (M.Map (UUID, UUID) Double)
 accumulateDepDemands db scalingVec =
@@ -421,13 +427,15 @@ accumulateDepDemands db scalingVec =
   where
     actIdx     = dbActivityIndex db
     procLookup = dbProcessIdLookup db
+    normFactors = consumerNormFactors db
     step link acc =
         case M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) procLookup of
             Nothing -> acc
             Just consumerPid ->
                 let consumerIdx   = fromIntegral $ actIdx V.! fromIntegral consumerPid
                     consumerScale = scalingVec U.! consumerIdx
-                    demand        = cdlCoefficient link * consumerScale
+                    normFactor    = M.findWithDefault 1.0 consumerPid normFactors
+                    demand        = cdlCoefficient link * consumerScale / normFactor
                     supplierKey   = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
                 in if demand == 0
                      then acc
@@ -435,6 +443,44 @@ accumulateDepDemands db scalingVec =
                             (cdlSourceDatabase link)
                             (M.singleton supplierKey demand)
                             acc
+
+-- | Normalization factor (ref-product amount) for each consumer activity that
+-- appears in 'dbCrossDBLinks'. Mirrors the factor used in 'buildActivityTriplets'.
+consumerNormFactors :: Database -> M.Map ProcessId Double
+consumerNormFactors db =
+    M.fromList [ (pid, activityNormalizationFactor db pid) | pid <- consumers ]
+  where
+    procLookup = dbProcessIdLookup db
+    consumers  = [ pid
+                 | link <- dbCrossDBLinks db
+                 , Just pid <- [M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) procLookup]
+                 ]
+
+-- | Activity's reference-product amount used to normalize its matrix column.
+-- Net output = sum of reference outputs minus self-loop consumption; falls back
+-- to reference inputs (treatment) or 1.0. Duplicates the logic inlined in
+-- 'Database.buildActivityTriplets'.
+activityNormalizationFactor :: Database -> ProcessId -> Double
+activityNormalizationFactor db pid =
+    let act                  = dbActivities db V.! fromIntegral pid
+        (actUUID, prodUUID)  = dbProcessIdTable db V.! fromIntegral pid
+        isSelfLoop ex        = case exchangeActivityLinkId ex of
+                                  Just linkUUID -> linkUUID == actUUID && exchangeFlowId ex == prodUUID
+                                  Nothing       -> False
+        refOutputs           = sum [ exchangeAmount ex
+                                   | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex) ]
+        refInputs            = sum [ abs (exchangeAmount ex)
+                                   | ex <- exchanges act, exchangeIsReference ex, exchangeIsInput ex ]
+        internalConsumption  = sum [ exchangeAmount ex
+                                   | ex <- exchanges act
+                                   , isTechnosphereExchange ex, exchangeIsInput ex
+                                   , not (exchangeIsReference ex), isSelfLoop ex ]
+        netOutput            = if refOutputs > 1e-15
+                                 then refOutputs - internalConsumption
+                                 else 0.0
+    in if netOutput > 1e-15 then netOutput
+       else if refInputs > 1e-15 then refInputs
+       else 1.0
 
 {- |
 Convert a sparse supplier-demand map into a length-@n_dep@ demand vector for
