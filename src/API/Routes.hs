@@ -548,7 +548,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 , Agg.apGroupBy               = groupByParam
                 , Agg.apAggregate             = aggFn
                 }
-        result <- liftIO $ Agg.aggregate db sharedSolver processId params
+        result <- liftIO $ Agg.aggregate db sharedSolver (DM.mkDepSolverLookup dbManager) processId params
         case result of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
@@ -578,7 +578,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
             Right (actProcessId, activity) -> do
-                inventory <- liftIO $ SharedSolver.computeInventoryMatrixCached db sharedSolver actProcessId
+                inventory <- liftIO $ SharedSolver.computeInventoryMatrixWithDepsCached
+                    (DM.mkDepSolverLookup dbManager) db sharedSolver actProcessId
                 result <- liftIO $ computeCategoryResult dbName db activity (fromMaybe 5 topFlowsParam) inventory method
                 liftIO $ logLCIAResult result method
                 return result
@@ -620,7 +621,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
             Right (actProcessId, activity) -> do
                 t0 <- liftIO getCurrentTime
-                inventory <- liftIO $ SharedSolver.computeInventoryMatrixCached db sharedSolver actProcessId
+                inventory <- liftIO $ SharedSolver.computeInventoryMatrixWithDepsCached
+                    (DM.mkDepSolverLookup dbManager) db sharedSolver actProcessId
                 t1 <- liftIO getCurrentTime
                 let !invSize = M.size inventory
                 liftIO $ reportProgress Info $ "[LCIA batch] " <> T.unpack collectionName
@@ -816,7 +818,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                     Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
                     Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
                     Right (actProcessId, _) -> do
-                        inventory <- liftIO $ SharedSolver.computeInventoryMatrixCached db sharedSolver actProcessId
+                        inventory <- liftIO $ SharedSolver.computeInventoryMatrixWithDepsCached
+                            (DM.mkDepSolverLookup dbManager) db sharedSolver actProcessId
                         loadedMethods <- liftIO $ DM.getLoadedMethods dbManager
                         let methods = map snd loadedMethods
                             ctx = AnalyzeContext
@@ -1237,7 +1240,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             invalid   = [ pidText | (pidText, Left (Service.InvalidProcessId _)) <- resolved ]
             validPidNums = [ pidNum | (_, pidNum, _) <- valid ]
         t0 <- liftIO getCurrentTime
-        inventories <- liftIO $ SharedSolver.computeInventoryMatrixBatchCached db sharedSolver validPidNums
+        inventories <- liftIO $ SharedSolver.computeInventoryMatrixBatchWithDepsCached
+            (DM.mkDepSolverLookup dbManager) db sharedSolver validPidNums
         t1 <- liftIO getCurrentTime
         let mkEntry ((pidText, _pidNum, activity), inventory) = do
                 impacts <- buildLCIABatchResult dbName db activity collection inventory

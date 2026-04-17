@@ -53,7 +53,7 @@ import Service
     , convertToInventoryExport
     )
 import Matrix (buildDemandVectorFromIndex)
-import SharedSolver (SharedSolver, solveWithSharedSolver, computeInventoryMatrixCached)
+import SharedSolver (SharedSolver, DepSolverLookup, solveWithSharedSolver, computeInventoryMatrixWithDepsCached)
 
 -- ---------------------------------------------------------------------------
 -- Parameters
@@ -124,10 +124,11 @@ data AggRow = AggRow
 aggregate
     :: Database
     -> SharedSolver
+    -> DepSolverLookup     -- cross-DB lookup for ScopeBiosphere
     -> Text                -- processId text
     -> AggregateParams
     -> IO (Either ServiceError Aggregation)
-aggregate db solver pidText params =
+aggregate db solver depLookup pidText params =
     case resolveActivityAndProcessId db pidText of
         Left err -> return (Left err)
         Right (processId, activity) ->
@@ -141,7 +142,7 @@ aggregate db solver pidText params =
                         response = buildSupplyChainFromScalingVector db processId supplyVec af False
                     return $ Right $ reduce params (rowsFromSupplyChain response)
                 ScopeBiosphere -> do
-                    inventory <- computeInventoryMatrixCached db solver processId
+                    inventory <- computeInventoryMatrixWithDepsCached depLookup db solver processId
                     let export = convertToInventoryExport db processId activity inventory
                     return $ Right $ reduce params (rowsFromBiosphere export)
   where

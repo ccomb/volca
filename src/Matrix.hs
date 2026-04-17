@@ -34,7 +34,8 @@ module Matrix (
     computeScalingVector,
     applyBiosphereMatrix,
     computeInventoryMatrix,
-    computeInventoryWithDependencies,
+    accumulateDepDemands,
+    depDemandsToVector,
     computeProcessLCIAContributions,
     shermanMorrisonVariant,
     buildDemandVectorFromIndex,
@@ -407,73 +408,49 @@ shermanMorrisonVariant db mFact x row oldSup newSup coeff = do
             return $ Right $ U.imap (\i xi -> xi - scale * (z U.! i)) x
 
 {- |
-Compute inventory with cross-database dependencies.
+Accumulate cross-database supplier demands for a given root scaling vector.
 
-This function implements the block matrix back-substitution algorithm:
-1. Solve the local database system: (I - A_local) x s_local = f
-2. For each cross-database link, accumulate demand on the supplier
-3. Group demand by dependency database
-4. Recursively solve each dependency database
-5. Sum inventories from all databases
+For every 'CrossDBLink' in the database whose consumer has non-zero scaling,
+add @coefficient * scale@ to the demand on the supplier @(actUUID, prodUUID)@.
+Results are grouped by the supplier's database name so the caller can solve
+each dependency database in one multi-RHS batch.
 -}
-computeInventoryWithDependencies
-    :: (UUID -> UUID -> Maybe Database)  -- ^ Lookup dependency DB by supplier (actUUID, prodUUID)
-    -> Database                          -- ^ Current database
-    -> ProcessId                         -- ^ Root activity
-    -> IO Inventory
-computeInventoryWithDependencies lookupDb db rootProcessId = do
-    let activityCount = dbActivityCount db
-        bioFlowCount = dbBiosphereCount db
-        techTriples = dbTechnosphereTriples db
-        bioTriples = dbBiosphereTriples db
-        activityIndex = dbActivityIndex db
-        bioFlowIndex = M.fromList $ zip (V.toList $ dbBiosphereFlows db) [0..]
-        demandVec = buildDemandVectorFromIndex activityIndex rootProcessId
+accumulateDepDemands :: Database -> Vector -> M.Map Text (M.Map (UUID, UUID) Double)
+accumulateDepDemands db scalingVec =
+    foldr step M.empty (dbCrossDBLinks db)
+  where
+    actIdx     = dbActivityIndex db
+    procLookup = dbProcessIdLookup db
+    step link acc =
+        case M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) procLookup of
+            Nothing -> acc
+            Just consumerPid ->
+                let consumerIdx   = fromIntegral $ actIdx V.! fromIntegral consumerPid
+                    consumerScale = scalingVec U.! consumerIdx
+                    demand        = cdlCoefficient link * consumerScale
+                    supplierKey   = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
+                in if demand == 0
+                     then acc
+                     else M.insertWith (M.unionWith (+))
+                            (cdlSourceDatabase link)
+                            (M.singleton supplierKey demand)
+                            acc
 
-    localSupplyVec <- solveSparseLinearSystem
-        [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
-        (fromIntegral activityCount)
-        demandVec
-
-    let localInventoryVec = applySparseMatrix
-            [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
-            (fromIntegral bioFlowCount)
-            localSupplyVec
-        localInventory = M.fromList
-            [(uuid, localInventoryVec U.! idx) | (uuid, idx) <- M.toList bioFlowIndex, idx < U.length localInventoryVec]
-
-        crossLinks = dbCrossDBLinks db
-        processIdLookup = dbProcessIdLookup db
-
-        crossDBDemands :: M.Map (UUID, UUID) Double
-        crossDBDemands = foldr accumulateDemand M.empty crossLinks
-          where
-            accumulateDemand :: CrossDBLink -> M.Map (UUID, UUID) Double -> M.Map (UUID, UUID) Double
-            accumulateDemand link acc =
-                let consumerKey = (cdlConsumerActUUID link, cdlConsumerProdUUID link)
-                    supplierKey = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
-                in case M.lookup consumerKey processIdLookup of
-                    Nothing -> acc
-                    Just consumerPid ->
-                        let consumerIdx = fromIntegral $ activityIndex V.! fromIntegral consumerPid
-                            consumerScale = localSupplyVec U.! consumerIdx
-                            demand = cdlCoefficient link * consumerScale
-                        in M.insertWith (+) supplierKey demand acc
-
-    let processSupplier (supplierActUUID, supplierProdUUID) demand accIO = do
-            acc <- accIO
-            case lookupDb supplierActUUID supplierProdUUID of
-                Nothing -> return acc
-                Just depDb ->
-                    case M.lookup (supplierActUUID, supplierProdUUID) (dbProcessIdLookup depDb) of
-                        Nothing -> return acc
-                        Just supplierPid -> do
-                            depInventory <- computeInventoryWithDependencies lookupDb depDb supplierPid
-                            let scaledInventory = M.map (* demand) depInventory
-                            return $ M.unionWith (+) acc scaledInventory
-    crossDBInventory <- M.foldrWithKey processSupplier (return M.empty) crossDBDemands
-
-    return $ M.unionWith (+) localInventory crossDBInventory
+{- |
+Convert a sparse supplier-demand map into a length-@n_dep@ demand vector for
+the dependency database. Suppliers whose @(actUUID, prodUUID)@ does not resolve
+in the dep DB are silently dropped.
+-}
+depDemandsToVector :: Database -> M.Map (UUID, UUID) Double -> Vector
+depDemandsToVector depDb demands =
+    let actIdx     = dbActivityIndex depDb
+        procLookup = dbProcessIdLookup depDb
+        n          = fromIntegral (dbActivityCount depDb) :: Int
+        entries    = [ (fromIntegral (actIdx V.! fromIntegral pid), d)
+                     | (key, d) <- M.toList demands
+                     , Just pid <- [M.lookup key procLookup]
+                     ]
+    in U.accum (+) (U.replicate n 0.0) entries
 
 {- |
 Build the final demand vector f for LCA calculations.

@@ -167,6 +167,7 @@ test-suite lca-tests
                      , TreeSpec
                      , ServiceSpec
                      , CrossLinkingSpec
+                     , CrossDBInventorySpec
                      , SharedSolverSpec
                      , FlowResolverSpec
                      , PluginConfigSpec

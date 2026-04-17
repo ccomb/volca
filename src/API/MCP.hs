@@ -36,7 +36,7 @@ import Method.Mapping (computeLCIAScore, computeMappingStats, MappingStats(..))
 import Method.Types (Method(..), MethodCF(..), FlowDirection(..))
 import Plugin.Types ()
 import Plugin.Builtin (flowContribution)
-import SharedSolver (SharedSolver, computeInventoryMatrixCached, computeScalingVectorCached)
+import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
 import qualified Data.List as L
 import qualified Service
 import Types (Database(..), Activity(..), Indexes(..), FlowType(..), activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText, exchangeIsInput)
@@ -268,7 +268,7 @@ callTool dbManager presets baseUrl rid name args = case name of
     "search_flows"                -> withDb dbManager rid args $ callSearchFlows rid args
     "get_activity"                -> withDb dbManager rid args $ callGetActivity rid args
     "get_supply_chain"            -> withDb dbManager rid args $ callGetSupplyChain rid args
-    "aggregate"                   -> withDb dbManager rid args $ callAggregate rid args
+    "aggregate"                   -> withDb dbManager rid args $ callAggregate dbManager rid args
     "get_inventory"               -> withDb dbManager rid args $ callGetInventory rid args
     "get_impacts"                 -> callGetImpacts dbManager baseUrl rid args
     "list_methods"                -> callListMethods dbManager rid
@@ -471,8 +471,8 @@ callGetSupplyChain rid args (db, solver) =
 
 -- | Generic SQL-group-by aggregation. One small primitive for "how much X is
 -- in Y" questions — replaces ad-hoc decomposition tools.
-callAggregate :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callAggregate rid args (db, solver) =
+callAggregate :: DatabaseManager -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callAggregate dbManager rid args (db, solver) =
     case textArg "process_id" args of
         Nothing -> return $ toolError rid "Missing required parameter: process_id"
         Just pid -> case scopeFromArg of
@@ -499,7 +499,7 @@ callAggregate rid args (db, solver) =
                             , Agg.apGroupBy               = textArg "group_by" args
                             , Agg.apAggregate             = fn
                             }
-                    result <- Agg.aggregate db solver pid params
+                    result <- Agg.aggregate db solver (DM.mkDepSolverLookup dbManager) pid params
                     case result of
                         Left err  -> return $ toolError rid (T.pack $ show err)
                         Right agg -> return $ toolSuccessJson rid (toJSON agg)
@@ -625,7 +625,8 @@ callGetImpacts dbManager baseUrl rid args = do
                                     case Service.resolveActivityAndProcessId db pidText of
                                         Left err -> return $ toolError rid (T.pack $ show err)
                                         Right (processId, activity) -> do
-                                            inventory <- computeInventoryMatrixCached db (ldSharedSolver ld) processId
+                                            inventory <- computeInventoryMatrixWithDepsCached
+                                                (DM.mkDepSolverLookup dbManager) db (ldSharedSolver ld) processId
                                             unitCfg <- DM.getMergedUnitConfig dbManager
                                             mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
                                             let stats = computeMappingStats mappings

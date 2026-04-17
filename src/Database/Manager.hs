@@ -24,6 +24,7 @@ module Database.Manager
     , initDatabaseManager
       -- * Operations
     , getDatabase
+    , mkDepSolverLookup
     , listDatabases
       -- * Load/Unload
     , loadDatabase
@@ -102,6 +103,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Time (diffUTCTime, getCurrentTime)
 import Matrix (clearCachedSolver)
+import qualified SharedSolver
 import SharedSolver (SharedSolver, createSharedSolver)
 import Progress (reportProgress, reportProgressWithTiming, reportError, ProgressLevel(..))
 import Database (buildDatabaseWithMatrices)
@@ -650,6 +652,14 @@ getDatabase :: DatabaseManager -> Text -> IO (Maybe LoadedDatabase)
 getDatabase manager dbName = do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     return $ M.lookup dbName loadedDbs
+
+-- | Build a 'DepSolverLookup' backed by the manager's loaded-databases map.
+-- Passed to 'SharedSolver.computeInventoryMatrixBatchWithDepsCached' so it can
+-- recurse into cross-database suppliers.
+mkDepSolverLookup :: DatabaseManager -> SharedSolver.DepSolverLookup
+mkDepSolverLookup manager depDbName = do
+    m <- getDatabase manager depDbName
+    pure $ fmap (\ld -> (ldDatabase ld, ldSharedSolver ld)) m
 
 -- | List all databases with their status
 listDatabases :: DatabaseManager -> IO [DatabaseStatus]
