@@ -20,9 +20,12 @@ import TestHelpers
 import Types
 import Service
     ( ServiceError(..)
+    , ActivityFilter(..)
     , applySubstitutionsAt
+    , buildSupplyChainFromScalingVectorCrossDB
     , inventoryWithSubsAndDeps
     )
+import API.Types (SupplyChainResponse(..), SupplyChainEntry(..))
 import SharedSolver
     ( SharedSolver
     , createSharedSolver
@@ -221,6 +224,41 @@ spec = do
                     M.toList subInv `shouldBe` M.toList base
                 (Left e, _) -> expectationFailure ("baseline failed: " <> show e)
                 (_, Left e) -> expectationFailure ("identity path failed: " <> show e)
+
+    describe "buildSupplyChainFromScalingVectorCrossDB" $ do
+
+        it "expands cross-DB links into qualified dep-DB entries" $ do
+            -- Gap B prerequisite: the supply-chain endpoint must emit entries
+            -- for activities reached through a cross-DB link, tagged with
+            -- their own database name and a qualified processId.
+            rootRaw <- loadSampleDatabase "SAMPLE.min3"
+            dep     <- loadSampleDatabase "SAMPLE.min3"
+            let root = linkDatabases rootRaw dep "dep" 0.1
+            rootSolver <- mkSolverFromDb root "root"
+            depSolver  <- mkSolverFromDb dep  "dep"
+            let lookup_ = mkDepLookupFromMap (M.singleton "dep" (dep, depSolver))
+                pid = 0
+                demandVec = buildDemandVectorFromIndex (dbActivityIndex root) pid
+            scaling <- solveWithSharedSolver rootSolver demandVec
+            let af = ActivityFilter
+                    { afName = Nothing, afLocation = Nothing, afProduct = Nothing
+                    , afClassifications = [], afLimit = Nothing, afOffset = Nothing
+                    , afMaxDepth = Nothing, afMinQuantity = Nothing
+                    , afSort = Nothing, afOrder = Nothing
+                    }
+            eResp <- buildSupplyChainFromScalingVectorCrossDB
+                defaultUnitConfig lookup_ root "root" pid scaling [] af False
+            case eResp of
+                Left e -> expectationFailure ("supply-chain CrossDB failed: " <> show e)
+                Right resp -> do
+                    let depEntries = filter (\e -> sceDatabaseName e == "dep")
+                                            (scrSupplyChain resp)
+                        rootEntries = filter (\e -> sceDatabaseName e == "root")
+                                             (scrSupplyChain resp)
+                    length rootEntries `shouldSatisfy` (> 0)
+                    length depEntries `shouldSatisfy` (> 0)
+                    -- Dep entries must carry the "dep::" qualifier.
+                    mapM_ (\e -> sceProcessId e `shouldSatisfy` T.isPrefixOf "dep::") depEntries
 
 -- | Build a fresh 'SharedSolver' from a database's technosphere triples.
 mkSolver :: Database -> T.Text -> IO SharedSolver

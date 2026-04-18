@@ -5,6 +5,7 @@ module Service where
 
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Concurrent.Async (mapConcurrently)
+import Data.Either (lefts, rights)
 import qualified Progress
 import Matrix (Inventory, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, applySparseMatrix, buildDemandVectorFromIndex, computeInventoryMatrix, depDemandsToVector, shermanMorrisonVariant, toList)
 import qualified Matrix.Export as MatrixExport
@@ -1105,18 +1106,23 @@ getFlowActivities db flowIdText = do
 
 -- | Compute the supply chain for an activity using the scaling vector.
 -- Returns all upstream activities with their scaling factors and subgraph edges.
-getSupplyChain :: Database -> Text -> SharedSolver -> Text -> ActivityFilter -> Bool -> IO (Either ServiceError SupplyChainResponse)
-getSupplyChain db dbName sharedSolver processIdText af includeEdges = do
+getSupplyChain
+    :: UnitConfig
+    -> SharedSolver.DepSolverLookup
+    -> Database -> Text -> SharedSolver -> Text -> ActivityFilter -> Bool
+    -> IO (Either ServiceError SupplyChainResponse)
+getSupplyChain unitCfg depLookup db dbName sharedSolver processIdText af includeEdges =
     case resolveActivityAndProcessId db processIdText of
         Left err -> return $ Left err
-        Right (processId, _rootActivity) -> do
+        Right (processId, _rootActivity) ->
             case validateProcessIdInMatrixIndex db processId of
                 Left err -> return $ Left err
                 Right () -> do
                     let activityIndex = dbActivityIndex db
                         demandVec = buildDemandVectorFromIndex activityIndex processId
                     supplyVec <- solveWithSharedSolver sharedSolver demandVec
-                    return $ Right $ buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges
+                    buildSupplyChainFromScalingVectorCrossDB
+                        unitCfg depLookup db dbName processId supplyVec [] af includeEdges
 
 -- | Find the shortest supply chain path from a root process to the first upstream activity
 -- whose name contains the given substring (case-insensitive).
@@ -1300,6 +1306,109 @@ buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges 
         , scrSupplyChain = map mkEntry sorted
         , scrEdges = edges
         }
+
+-- | Cross-DB supply-chain expansion: starts with the root DB walk, then for
+-- every cross-DB link whose consumer carries non-zero scaling, solves the
+-- induced demand in the dep DB and walks its upstream too. Dep-DB entries
+-- get qualified process IDs (@"depName::actUUID_prodUUID"@) and are tagged
+-- with their own @sceDatabaseName@. Recursion is bounded by
+-- 'SharedSolver.maxDepsDepth' to match the LCIA path.
+--
+-- The root scaling vector must already reflect any substitutions; @extraLinks@
+-- carries virtual cross-DB links synthesised by the substitution classifier.
+buildSupplyChainFromScalingVectorCrossDB
+    :: UnitConfig
+    -> SharedSolver.DepSolverLookup
+    -> Database -> Text                 -- ^ root DB + name
+    -> ProcessId -> U.Vector Double     -- ^ root PID + its scaling
+    -> [CrossDBLink]                    -- ^ extra virtual links from subs
+    -> ActivityFilter
+    -> Bool                             -- ^ include edges
+    -> IO (Either ServiceError SupplyChainResponse)
+buildSupplyChainFromScalingVectorCrossDB unitCfg depLookup rootDb rootDbName rootPid rootScaling extraLinks af includeEdges = do
+    let rootResp = buildSupplyChainFromScalingVector rootDb rootDbName rootPid rootScaling af includeEdges
+    eDep <- walkDepLevels unitCfg depLookup rootDb rootDbName rootScaling extraLinks af includeEdges 1 S.empty
+    pure $ case eDep of
+        Left err -> Left err
+        Right (depEntries, depEdges) -> Right rootResp
+            { scrSupplyChain    = scrSupplyChain rootResp ++ depEntries
+            , scrEdges          = scrEdges rootResp ++ depEdges
+            , scrTotalActivities = scrTotalActivities rootResp + length depEntries
+            , scrFilteredActivities = scrFilteredActivities rootResp + length depEntries
+            }
+
+-- | Recursive helper: walk every dep DB reachable via cross-DB links from
+-- @consumerDb@'s current scaling, one level at a time, returning the
+-- aggregated entries + edges. @visited@ prevents infinite loops in
+-- pathological DAGs; the depth counter bounds us against the same constant
+-- the LCIA recursion uses.
+walkDepLevels
+    :: UnitConfig
+    -> SharedSolver.DepSolverLookup
+    -> Database -> Text                 -- ^ current consumer DB + name
+    -> U.Vector Double                  -- ^ current level's scaling
+    -> [CrossDBLink]                    -- ^ extra virtual links visible at this level
+    -> ActivityFilter
+    -> Bool
+    -> Int                              -- ^ current depth
+    -> S.Set Text                       -- ^ visited DB names (cycle guard)
+    -> IO (Either ServiceError ([SupplyChainEntry], [SupplyChainEdge]))
+walkDepLevels unitCfg depLookup consumerDb consumerDbName consumerScaling extras af includeEdges depth visited
+    | depth >= maxSubsDepth = pure (Right ([], []))
+    | otherwise = do
+        let demandsMap = accumulateDepDemandsWith consumerDb extras consumerScaling
+        results <- mapM (resolveOneDep unitCfg depLookup af includeEdges depth visited)
+                        (M.toList demandsMap)
+        pure $ case lefts results of
+            (err:_) -> Left err
+            []      -> Right (concatMap fst (rights results), concatMap snd (rights results))
+  where
+    _ = consumerDbName   -- retained for future error-message context
+
+-- | For a single dep DB at the current level: look up its solver, solve its
+-- induced demand, walk its supply chain, qualify PIDs, recurse.
+resolveOneDep
+    :: UnitConfig
+    -> SharedSolver.DepSolverLookup
+    -> ActivityFilter
+    -> Bool
+    -> Int                              -- ^ current depth (the one we're entering)
+    -> S.Set Text                       -- ^ visited
+    -> (Text, M.Map (UUID, UUID) (Double, Text))
+    -> IO (Either ServiceError ([SupplyChainEntry], [SupplyChainEdge]))
+resolveOneDep unitCfg depLookup af includeEdges depth visited (depDbName, demands)
+    | depDbName `S.member` visited = pure (Right ([], []))
+    | otherwise = do
+        mDep <- depLookup depDbName
+        case mDep of
+            Nothing -> pure (Right ([], []))   -- unloaded dep DB: silent skip (matches LCIA path)
+            Just (depDb, depSolver) -> case depDemandsToVector unitCfg depDbName depDb demands of
+                Left err -> pure (Left (MatrixError err))
+                Right demandVec -> do
+                    depScaling <- solveWithSharedSolver depSolver demandVec
+                    -- Local walk with processId = -1 (no root to exclude),
+                    -- then post-process to qualify PIDs and tag depth.
+                    let localResp = buildSupplyChainFromScalingVector depDb depDbName (-1) depScaling af includeEdges
+                        tagEntry e = e
+                            { sceProcessId    = depDbName <> "::" <> sceProcessId e
+                            , sceDatabaseName = depDbName
+                            , sceDepth        = sceDepth e + depth
+                            }
+                        tagEdge e = e
+                            { sceEdgeFrom   = depDbName <> "::" <> sceEdgeFrom e
+                            , sceEdgeFromDb = depDbName
+                            , sceEdgeTo     = depDbName <> "::" <> sceEdgeTo e
+                            , sceEdgeToDb   = depDbName
+                            }
+                        taggedEntries = map tagEntry (scrSupplyChain localResp)
+                        taggedEdges   = map tagEdge   (scrEdges      localResp)
+                    -- Recurse into this dep DB's own cross-DB links.
+                    eDeeper <- walkDepLevels unitCfg depLookup depDb depDbName depScaling []
+                                             af includeEdges (depth + 1) (S.insert depDbName visited)
+                    pure $ case eDeeper of
+                        Left err -> Left err
+                        Right (deeperEntries, deeperEdges) ->
+                            Right (taggedEntries ++ deeperEntries, taggedEdges ++ deeperEdges)
 
 -- | BFS from root on adjacency list, returns IntMap of node -> shortest depth
 bfsDepth :: Int -> IM.IntMap [Int] -> IM.IntMap Int

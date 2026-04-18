@@ -514,9 +514,8 @@ callGetSupplyChain dbManager rid args =
                 case parseSubstitutionsArg args of
                   Left err  -> return $ toolError rid err
                   Right []  -> do
-                      -- Baseline path: root-only scaling is sufficient because
-                      -- supply-chain navigation reads the root tech graph.
-                      result <- Service.getSupplyChain db dbName solver pid af False
+                      unitCfg <- DM.getMergedUnitConfig dbManager
+                      result <- Service.getSupplyChain unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver pid af False
                       case result of
                           Left err  -> return $ toolError rid (T.pack $ show err)
                           Right val -> return $ toolSuccessJson rid (toJSON val)
@@ -527,12 +526,13 @@ callGetSupplyChain dbManager rid args =
                               (DM.mkDepSolverLookup dbManager) db dbName solver processId subs
                           case eScaling of
                               Left err -> return $ toolError rid (T.pack (show err))
-                              Right (scalingVec, _virtualLinks) ->
-                                  -- Virtual cross-DB links affect dep-DB demand only;
-                                  -- supply chain navigates the root tech graph, which
-                                  -- the substituted scaling already reflects.
-                                  return $ toolSuccessJson rid $ toJSON $
-                                      Service.buildSupplyChainFromScalingVector db dbName processId scalingVec af False
+                              Right (scalingVec, virtualLinks) -> do
+                                  unitCfg <- DM.getMergedUnitConfig dbManager
+                                  eResp <- Service.buildSupplyChainFromScalingVectorCrossDB
+                                      unitCfg (DM.mkDepSolverLookup dbManager) db dbName processId scalingVec virtualLinks af False
+                                  case eResp of
+                                      Left e  -> return $ toolError rid (T.pack (show e))
+                                      Right v -> return $ toolSuccessJson rid (toJSON v)
 
 -- | Generic SQL-group-by aggregation. One small primitive for "how much X is
 -- in Y" questions — replaces ad-hoc decomposition tools.

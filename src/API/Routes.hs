@@ -558,7 +558,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 , Service.afClassifications = classFilters, Service.afLimit = limitParam, Service.afOffset = offsetParam
                 , Service.afMaxDepth = maxDepthParam, Service.afMinQuantity = minQuantity
                 , Service.afSort = sortParam, Service.afOrder = orderParam }
-        result <- liftIO $ Service.getSupplyChain db dbName sharedSolver processId af includeEdges
+        unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+        result <- liftIO $ Service.getSupplyChain unitCfg (DM.mkDepSolverLookup dbManager) db dbName sharedSolver processId af includeEdges
         case result of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
@@ -814,8 +815,11 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             (DM.mkDepSolverLookup dbManager) db dbName sharedSolver processId (srSubstitutions subReq)
         case scalingResult of
             Left err -> throwServiceError err
-            Right (scalingVec, _virtualLinks) ->
-                pure $ Service.buildSupplyChainFromScalingVector db dbName processId scalingVec af includeEdges
+            Right (scalingVec, virtualLinks) -> do
+                unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+                eResp <- liftIO $ Service.buildSupplyChainFromScalingVectorCrossDB
+                    unitCfg (DM.mkDepSolverLookup dbManager) db dbName processId scalingVec virtualLinks af includeEdges
+                either throwServiceError pure eResp
 
     -- Activity consumers endpoint (reverse supply chain)
     getActivityConsumers :: Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> [Text] -> [Text] -> [Text] -> Maybe Int -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Handler (SearchResults ConsumerResult)

@@ -51,7 +51,7 @@ import Service
     , ServiceError(..)
     , resolveActivityAndProcessId
     , getActivityExchangeDetails
-    , buildSupplyChainFromScalingVector
+    , buildSupplyChainFromScalingVectorCrossDB
     , convertToInventoryExport
     )
 import Matrix (buildDemandVectorFromIndex)
@@ -145,9 +145,10 @@ aggregate unitConfig flowDB unitDB db dbName solver depLookup pidText params =
                 ScopeSupplyChain -> do
                     let demandVec = buildDemandVectorFromIndex (dbActivityIndex db) processId
                     supplyVec <- solveWithSharedSolver solver demandVec
-                    let af = (emptyFilter (apMaxDepth params))
-                        response = buildSupplyChainFromScalingVector db dbName processId supplyVec af False
-                    return $ Right $ reduce params (rowsFromSupplyChain response)
+                    let af = emptyFilter (apMaxDepth params)
+                    eResp <- buildSupplyChainFromScalingVectorCrossDB
+                        unitConfig depLookup db dbName processId supplyVec [] af False
+                    return $ fmap (reduce params . rowsFromSupplyChain) eResp
                 ScopeBiosphere -> do
                     invE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db solver processId
                     case invE of
