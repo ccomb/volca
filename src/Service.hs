@@ -1386,22 +1386,8 @@ resolveOneDep unitCfg depLookup af includeEdges depth visited (depDbName, demand
                 Left err -> pure (Left (MatrixError err))
                 Right demandVec -> do
                     depScaling <- solveWithSharedSolver depSolver demandVec
-                    -- Local walk with processId = -1 (no root to exclude),
-                    -- then post-process to qualify PIDs and tag depth.
-                    let localResp = buildSupplyChainFromScalingVector depDb depDbName (-1) depScaling af includeEdges
-                        tagEntry e = e
-                            { sceProcessId    = depDbName <> "::" <> sceProcessId e
-                            , sceDatabaseName = depDbName
-                            , sceDepth        = sceDepth e + depth
-                            }
-                        tagEdge e = e
-                            { sceEdgeFrom   = depDbName <> "::" <> sceEdgeFrom e
-                            , sceEdgeFromDb = depDbName
-                            , sceEdgeTo     = depDbName <> "::" <> sceEdgeTo e
-                            , sceEdgeToDb   = depDbName
-                            }
-                        taggedEntries = map tagEntry (scrSupplyChain localResp)
-                        taggedEdges   = map tagEdge   (scrEdges      localResp)
+                    let (taggedEntries, taggedEdges) =
+                            depEntriesAndEdges depDb depDbName depScaling af includeEdges depth
                     -- Recurse into this dep DB's own cross-DB links.
                     eDeeper <- walkDepLevels unitCfg depLookup depDb depDbName depScaling []
                                              af includeEdges (depth + 1) (S.insert depDbName visited)
@@ -1409,6 +1395,54 @@ resolveOneDep unitCfg depLookup af includeEdges depth visited (depDbName, demand
                         Left err -> Left err
                         Right (deeperEntries, deeperEdges) ->
                             Right (taggedEntries ++ deeperEntries, taggedEdges ++ deeperEdges)
+
+-- | Walk a dep DB's scaling vector and produce entries + edges, qualified
+-- with @depDbName::@ and offset by @consumerDepth@. No "root PID" to
+-- exclude because every non-zero activity in the dep vector is an entry
+-- from the caller's point of view.
+depEntriesAndEdges
+    :: Database -> Text -> U.Vector Double
+    -> ActivityFilter -> Bool -> Int
+    -> ([SupplyChainEntry], [SupplyChainEdge])
+depEntriesAndEdges db dbName supplyVec af includeEdges consumerDepth =
+    let minQ    = fromMaybe 0 (afMinQuantity af)
+        limit   = fromMaybe 100 (afLimit af)
+        offset  = fromMaybe 0 (afOffset af)
+        n       = U.length supplyVec
+        activeIdxs =
+            [ fromIntegral i :: ProcessId
+            | i <- [0 .. n - 1]
+            , abs (supplyVec U.! i) > minQ ]
+        qualify pid = dbName <> "::" <> processIdToText db pid
+        mkEntry pid =
+            let scalingFactor = supplyVec U.! fromIntegral (dbActivityIndex db V.! fromIntegral pid)
+                activity      = dbActivities db V.! fromIntegral pid
+            in SupplyChainEntry
+                { sceProcessId       = qualify pid
+                , sceDatabaseName    = dbName
+                , sceName            = activityName activity
+                , sceLocation        = activityLocation activity
+                , sceQuantity        = scalingFactor
+                , sceUnit            = activityUnit activity
+                , sceScalingFactor   = scalingFactor
+                , sceClassifications = activityClassification activity
+                , sceDepth           = consumerDepth + 1
+                , sceUpstreamCount   = 0
+                }
+        entries = take limit . drop offset $ map mkEntry activeIdxs
+        activeSet = S.fromList activeIdxs
+        edges =
+            if includeEdges
+            then U.foldl' (\acc (SparseTriple row col val) ->
+                    if S.member (fromIntegral row) activeSet && S.member (fromIntegral col) activeSet
+                    then SupplyChainEdge
+                            (qualify (fromIntegral row)) dbName
+                            (qualify (fromIntegral col)) dbName
+                            val : acc
+                    else acc
+                ) [] (dbTechnosphereTriples db)
+            else []
+    in (entries, edges)
 
 -- | BFS from root on adjacency list, returns IntMap of node -> shortest depth
 bfsDepth :: Int -> IM.IntMap [Int] -> IM.IntMap Int
