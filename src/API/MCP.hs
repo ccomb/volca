@@ -40,7 +40,7 @@ import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached, crossDB
 import qualified Data.List as L
 import qualified Service
 import Types (Database(..), Activity(..), Indexes(..), FlowDB, FlowType(..), ProcessId, UnitDB, activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText, exchangeIsInput, unresolvedCount)
-import API.Types (InventoryExport(..), InventoryFlowDetail(..), ClassificationSystem(..), ActivityInfo(..), ActivityForAPI(..), ExchangeWithUnit(..))
+import API.Types (InventoryExport(..), InventoryFlowDetail(..), ClassificationSystem(..), ActivityInfo(..), ActivityForAPI(..), ExchangeWithUnit(..), Substitution(..))
 import qualified Service.Aggregate as Agg
 import UnitConversion (defaultUnitConfig)
 import Network.HTTP.Types.Header (hHost, hAccept)
@@ -237,8 +237,28 @@ paramsToSchema ps = object $
   where
     propEntry p = fromText (paramName p) .= object
         ( [ "type" .= paramType p, "description" .= paramDesc p ]
-       ++ [ "items" .= object ["type" .= ("string" :: Text)] | paramType p == "array" ]
+       ++ arrayItemsFor p
         )
+
+    -- Arrays in the 'Param' schema default to items of type string; the
+    -- exception is the shared @substitutions@ parameter, whose entries are
+    -- @{from, to, consumer}@ objects. We special-case the name rather than
+    -- extending the 'Param' record to avoid touching every call site.
+    arrayItemsFor p
+      | paramType p /= "array"         = []
+      | paramName p == "substitutions" = [ "items" .= substitutionItemSchema ]
+      | otherwise                      = [ "items" .= object ["type" .= ("string" :: Text)] ]
+
+    substitutionItemSchema = object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= object
+            [ "from"     .= stringField "Source supplier ProcessId (bare or dbName::pid)"
+            , "to"       .= stringField "Replacement supplier ProcessId (bare or dbName::pid)"
+            , "consumer" .= stringField "Consumer activity ProcessId (root DB only)"
+            ]
+        , "required" .= (["from", "to", "consumer"] :: [Text])
+        ]
+    stringField desc = object [ "type" .= ("string" :: Text), "description" .= (desc :: Text) ]
 
 -- ---------------------------------------------------------------------------
 -- tools/call dispatch
@@ -267,7 +287,7 @@ callTool dbManager presets baseUrl rid name args = case name of
     "search_activities"           -> withDb dbManager rid args $ callSearchActivities presets rid args
     "search_flows"                -> withDb dbManager rid args $ callSearchFlows rid args
     "get_activity"                -> withDb dbManager rid args $ callGetActivity rid args
-    "get_supply_chain"            -> withDb dbManager rid args $ callGetSupplyChain rid args
+    "get_supply_chain"            -> callGetSupplyChain dbManager rid args
     "aggregate"                   -> withDb dbManager rid args $ callAggregate dbManager rid args
     "get_inventory"               -> callGetInventory dbManager rid args
     "get_impacts"                 -> callGetImpacts dbManager baseUrl rid args
@@ -322,6 +342,26 @@ textArrayArg key args = case KM.lookup (fromText key) args of
     _                -> []
   where
     toList = foldr (:) []
+
+-- | Parse the optional 'substitutions' argument into '[Substitution]'.
+-- Ignores malformed entries silently at parse level — missing or wrong-shape
+-- subs become an empty list (the caller treats empty as \"no what-if\").
+-- Returns 'Nothing' if the JSON is malformed enough to suggest user intent
+-- that can't be satisfied (e.g. entry is a non-object), letting the caller
+-- surface a 422 rather than running a baseline computation silently.
+parseSubstitutionsArg :: KeyMap Value -> Either Text [Substitution]
+parseSubstitutionsArg args = case KM.lookup (fromText "substitutions") args of
+    Nothing         -> Right []
+    Just Null       -> Right []
+    Just (Array xs) -> traverse parseOne (foldr (:) [] xs)
+    Just _          -> Left "'substitutions' must be an array of {from, to, consumer} objects"
+  where
+    parseOne (Object o) = case (KM.lookup "from" o, KM.lookup "to" o, KM.lookup "consumer" o) of
+        (Just (String f), Just (String t), Just (String c)) ->
+            Right Substitution { subFrom = f, subTo = t, subConsumer = c }
+        _ ->
+            Left "each substitution must have string fields 'from', 'to', 'consumer'"
+    parseOne _ = Left "each substitution must be an object"
 
 -- ---------------------------------------------------------------------------
 -- Tool implementations
@@ -444,30 +484,55 @@ callGetActivity rid args (db, _) =
         Nothing -> True
         Just want -> exchangeIsInput (ewuExchange ewu) == want
 
-callGetSupplyChain :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callGetSupplyChain rid args (db, solver) =
-    case textArg "process_id" args of
-        Nothing -> return $ toolError rid "Missing required parameter: process_id"
-        Just pid -> do
-            let isExact = textArg "classification_match" args `elem` [Just "equals", Just "exact"]
-                classFilters = case (textArg "classification" args, textArg "classification_value" args) of
-                    (Just sys, Just val) -> [(sys, val, isExact)]
-                    _                    -> []
-                af = Service.ActivityFilter
-                    { Service.afName = textArg "name" args
-                    , Service.afLocation = textArg "location" args
-                    , Service.afProduct = Nothing
-                    , Service.afClassifications = classFilters
-                    , Service.afLimit = intArg "limit" args
-                    , Service.afOffset = Nothing
-                    , Service.afMaxDepth = intArg "max_depth" args
-                    , Service.afMinQuantity = doubleArg "min_quantity" args
-                    , Service.afSort = Nothing
-                    , Service.afOrder = Nothing }
-            result <- Service.getSupplyChain db solver pid af False
-            case result of
-                Left err  -> return $ toolError rid (T.pack $ show err)
-                Right val -> return $ toolSuccessJson rid (toJSON val)
+callGetSupplyChain :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callGetSupplyChain dbManager rid args =
+    case (textArg "database" args, textArg "process_id" args) of
+        (Nothing, _) -> return $ toolError rid "Missing required parameter: database"
+        (_, Nothing) -> return $ toolError rid "Missing required parameter: process_id"
+        (Just dbName, Just pid) -> do
+            mLoaded <- getDatabase dbManager dbName
+            case mLoaded of
+              Nothing -> return $ toolError rid ("Database not loaded: " <> dbName)
+              Just ld -> do
+                let db     = ldDatabase ld
+                    solver = ldSharedSolver ld
+                    isExact = textArg "classification_match" args `elem` [Just "equals", Just "exact"]
+                    classFilters = case (textArg "classification" args, textArg "classification_value" args) of
+                        (Just sys, Just val) -> [(sys, val, isExact)]
+                        _                    -> []
+                    af = Service.ActivityFilter
+                        { Service.afName = textArg "name" args
+                        , Service.afLocation = textArg "location" args
+                        , Service.afProduct = Nothing
+                        , Service.afClassifications = classFilters
+                        , Service.afLimit = intArg "limit" args
+                        , Service.afOffset = Nothing
+                        , Service.afMaxDepth = intArg "max_depth" args
+                        , Service.afMinQuantity = doubleArg "min_quantity" args
+                        , Service.afSort = Nothing
+                        , Service.afOrder = Nothing }
+                case parseSubstitutionsArg args of
+                  Left err  -> return $ toolError rid err
+                  Right []  -> do
+                      -- Baseline path: root-only scaling is sufficient because
+                      -- supply-chain navigation reads the root tech graph.
+                      result <- Service.getSupplyChain db solver pid af False
+                      case result of
+                          Left err  -> return $ toolError rid (T.pack $ show err)
+                          Right val -> return $ toolSuccessJson rid (toJSON val)
+                  Right subs -> case Service.resolveActivityAndProcessId db pid of
+                      Left err -> return $ toolError rid (T.pack $ show err)
+                      Right (processId, _) -> do
+                          eScaling <- Service.computeScalingVectorWithSubstitutionsCrossDB
+                              (DM.mkDepSolverLookup dbManager) db dbName solver processId subs
+                          case eScaling of
+                              Left err -> return $ toolError rid (T.pack (show err))
+                              Right (scalingVec, _virtualLinks) ->
+                                  -- Virtual cross-DB links affect dep-DB demand only;
+                                  -- supply chain navigates the root tech graph, which
+                                  -- the substituted scaling already reflects.
+                                  return $ toolSuccessJson rid $ toJSON $
+                                      Service.buildSupplyChainFromScalingVector db processId scalingVec af False
 
 -- | Generic SQL-group-by aggregation. One small primitive for "how much X is
 -- in Y" questions — replaces ad-hoc decomposition tools.
@@ -591,13 +656,26 @@ callGetInventory dbManager rid args =
                           "Database \"" <> dbName <> "\" has "
                           <> T.pack (show unresolved)
                           <> " unresolved cross-DB products. Load the missing dependency databases and re-link before computing inventory."
-                      else case Service.resolveActivityAndProcessId db pid of
-                        Left err -> return $ toolError rid (T.pack $ show err)
-                        Right (processId, activity) -> do
+                      else case (Service.resolveActivityAndProcessId db pid, parseSubstitutionsArg args) of
+                        (Left err, _) -> return $ toolError rid (T.pack $ show err)
+                        (_, Left err) -> return $ toolError rid err
+                        (Right (processId, activity), Right subs) -> do
                             unitCfg          <- DM.getMergedUnitConfig dbManager
                             (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
-                            invE <- computeInventoryMatrixWithDepsCached
-                                unitCfg (DM.mkDepSolverLookup dbManager) db solver processId
+                            -- Empty subs: same as GET path (plain cross-DB inventory).
+                            -- Non-empty subs: route through the substitution-aware
+                            -- pipeline so dep DBs re-solve against the substituted
+                            -- root scaling.
+                            invE <- if null subs
+                                      then computeInventoryMatrixWithDepsCached
+                                              unitCfg (DM.mkDepSolverLookup dbManager) db solver processId
+                                      else do
+                                          r <- Service.inventoryWithSubsAndDeps
+                                                   unitCfg (DM.mkDepSolverLookup dbManager)
+                                                   db dbName solver processId subs
+                                          pure $ case r of
+                                              Left e  -> Left (T.pack (show e))
+                                              Right i -> Right i
                             case invE of
                               Left err -> return $ toolError rid err
                               Right inventory -> do
@@ -646,9 +724,10 @@ callGetImpacts dbManager baseUrl rid args = do
                             case filter (\(_, m) -> methodId m == uuid) loadedMethods of
                                 [] -> return $ toolError rid "Method not found"
                                 ((colName, method):_) ->
-                                    case Service.resolveActivityAndProcessId db pidText of
-                                        Left err -> return $ toolError rid (T.pack $ show err)
-                                        Right (processId, activity) -> do
+                                    case (Service.resolveActivityAndProcessId db pidText, parseSubstitutionsArg args) of
+                                        (Left err, _) -> return $ toolError rid (T.pack $ show err)
+                                        (_, Left err) -> return $ toolError rid err
+                                        (Right (processId, activity), Right subs) -> do
                                             let unresolved = unresolvedCount (dbLinkingStats db)
                                             if unresolved > 0
                                               then return $ toolError rid $
@@ -658,8 +737,16 @@ callGetImpacts dbManager baseUrl rid args = do
                                               else do
                                                 unitCfg <- DM.getMergedUnitConfig dbManager
                                                 (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
-                                                invE <- computeInventoryMatrixWithDepsCached
-                                                    unitCfg (DM.mkDepSolverLookup dbManager) db (ldSharedSolver ld) processId
+                                                invE <- if null subs
+                                                          then computeInventoryMatrixWithDepsCached
+                                                                  unitCfg (DM.mkDepSolverLookup dbManager) db (ldSharedSolver ld) processId
+                                                          else do
+                                                              r <- Service.inventoryWithSubsAndDeps
+                                                                       unitCfg (DM.mkDepSolverLookup dbManager)
+                                                                       db dbName (ldSharedSolver ld) processId subs
+                                                              pure $ case r of
+                                                                  Left e  -> Left (T.pack (show e))
+                                                                  Right i -> Right i
                                                 case invE of
                                                  Left err -> return $ toolError rid err
                                                  Right inventory -> do

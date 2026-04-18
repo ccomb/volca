@@ -329,6 +329,17 @@ pMethodId = Param "method_id" "string" Required "Method UUID"
 pLimit :: Text -> Param
 pLimit = Param "limit" "integer" Optional
 
+-- | Optional what-if substitutions. When non-empty, upgrades the underlying
+-- request to the substitution-aware POST pipeline. Each entry is an object
+-- with 'from', 'to', 'consumer' fields (bare 'actUUID_productUUID' or
+-- qualified 'dbName::actUUID_productUUID' for cross-DB swaps).
+pSubstitutions :: Param
+pSubstitutions = Param "substitutions" "array" Optional
+    "Optional what-if supplier substitutions. Each entry: \
+    \{from: oldSupplierPID, to: newSupplierPID, consumer: consumerPID}. \
+    \PIDs can be bare (root DB) or qualified as dbName::pid (cross-DB). \
+    \When empty or absent, the call behaves as a plain GET."
+
 -- | Parameters accepted by a resource operation.
 params :: Resource -> [Param]
 params r = case r of
@@ -386,18 +397,21 @@ params r = case r of
         , Param "classification" "string" Optional "Classification system name (e.g. 'Category', 'Category type')"
         , Param "classification_value" "string" Optional "Value within the classification system"
         , Param "classification_match" "string" Optional "Match mode: \"exact\" (case-insensitive equality) or \"contains\" (substring, default)"
+        , pSubstitutions
         ]
     GetInventory ->
         [ pDatabase
         , pProcessId
         , Param "flow" "string" Optional "Filter flows by name (case-insensitive substring)"
         , pLimit "Max flows to return, sorted by absolute quantity (default 50)"
+        , pSubstitutions
         ]
     GetImpacts ->
         [ pDatabase
         , pProcessId
         , pMethodId
         , Param "top_flows" "integer" Optional "Number of top contributing flows to return (default 5)"
+        , pSubstitutions
         ]
     ListMethods -> []
     GetFlowMapping ->
