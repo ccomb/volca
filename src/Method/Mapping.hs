@@ -17,6 +17,7 @@ module Method.Mapping
     , buildMethodTables
     , computeLCIAScore
     , computeLCIAScoreFromTables
+    , inventoryContributions
       -- * Matching strategies
     , MatchStrategy(..)
     , strategyFromText
@@ -285,3 +286,54 @@ computeLCIAScoreFromTables unitConfig unitDB flowDB inventory tables =
 computeLCIAScore :: UnitConfig -> UnitDB -> FlowDB -> Inventory -> [(MethodCF, Maybe (Flow, MatchStrategy))] -> Double
 computeLCIAScore unitConfig unitDB flowDB inventory mappings =
     computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables mappings)
+
+-- | Per-flow contributions over an 'Inventory', keyed by flow UUID (possibly
+-- cross-DB-merged). Walks the inventory directly (not the mappings) so any
+-- flow with a matchable CF contributes — including flows from dep DBs that
+-- don't appear in the root-DB method mapping.
+--
+-- Returns @(contributions, unknownUuids)@:
+--   * @contributions@ — @[(flow, cfValue, contributionInMethodUnit)]@
+--     for every non-zero inventory entry whose UUID resolves in 'flowDB'
+--     AND whose (name, medium, subcompartment) matches a CF.
+--   * @unknownUuids@ — non-zero inventory UUIDs with no record in 'flowDB'.
+--     Callers should surface these (per the "no silent errors" rule): a
+--     missing record means the merged metadata is incomplete for this
+--     inventory and some flows are invisible to characterization.
+--
+-- Flows that resolve in 'flowDB' but have no matching CF are legitimately
+-- uncharacterized and silently omitted — that matches the behaviour of
+-- 'computeLCIAScoreFromTables' and is not a data-integrity concern.
+inventoryContributions
+    :: UnitConfig -> UnitDB -> FlowDB -> Inventory -> MethodTables
+    -> ( [(Flow, Double, Double)], [UUID] )
+inventoryContributions unitConfig unitDB flowDB inventory tables =
+    foldr step ([], []) (M.toList inventory)
+  where
+    step (fid, qty) (contribs, unknowns)
+        | qty == 0 = (contribs, unknowns)
+        | otherwise = case M.lookup fid flowDB of
+            Nothing   -> (contribs, fid : unknowns)  -- metadata missing — surface it
+            Just flow -> case lookupCF fid flow of
+                Nothing -> (contribs, unknowns)      -- no CF match — legitimately uncharacterized
+                Just (cfVal, cfUnit) ->
+                    let flowUnit  = maybe "" unitName (M.lookup (flowUnitId flow) unitDB)
+                        converted = if flowUnit == cfUnit || T.null cfUnit then qty
+                                    else fromMaybe qty (convertUnit unitConfig flowUnit cfUnit qty)
+                        contribution = converted * cfVal
+                    in ((flow, cfVal, contribution) : contribs, unknowns)
+
+    lookupCF fid flow = case M.lookup fid (mtUuidCF tables) of
+        Just cfv -> Just cfv
+        Nothing ->
+            let name    = normalizeName (flowName flow)
+                baseMed = normalizeMedium . T.takeWhile (/= '/') . T.toLower $ flowCategory flow
+                subcomp = T.toLower $ fromMaybe "" (flowSubcompartment flow)
+                exact   = M.lookup (name, baseMed, subcomp) (mtExactCF tables)
+            in case exact of
+                Just _  -> exact
+                Nothing -> M.lookup (name, baseMed) (mtFallbackCF tables)
+
+    normalizeMedium m
+        | m == "natural resource" = "resource"
+        | otherwise               = m

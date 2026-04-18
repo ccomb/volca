@@ -152,9 +152,14 @@ getActivityInfo unitCfg db queryText = do
      in Right $ toJSON activityInfo
 
 -- | Core inventory calculation logic using matrix-based LCA calculations
--- | Convert raw inventory to structured export format
-convertToInventoryExport :: Database -> ProcessId -> Activity -> Inventory -> InventoryExport
-convertToInventoryExport db processId rootActivity inventory =
+-- | Convert raw inventory to structured export format.
+--
+-- The 'FlowDB'/'UnitDB' arguments are independent of the root DB so that
+-- cross-DB-merged inventories (whose flow UUIDs can originate in any loaded
+-- dep DB) can be decoded against a merged metadata snapshot. For single-DB
+-- callers, pass @dbFlows db@ / @dbUnits db@ directly.
+convertToInventoryExport :: Database -> FlowDB -> UnitDB -> ProcessId -> Activity -> Inventory -> InventoryExport
+convertToInventoryExport db flowDB unitDB processId rootActivity inventory =
     let
         -- Filter out flows with zero quantities to reduce noise in the results
         inventoryList = M.toList inventory
@@ -163,8 +168,8 @@ convertToInventoryExport db processId rootActivity inventory =
             [ InventoryFlowDetail flow quantity uName isEmission category
             | (flowUUID, quantity) <- inventoryList
             , quantity /= 0  -- Exclude flows with zero quantities
-            , Just flow <- [M.lookup flowUUID (dbFlows db)]
-            , let !uName = getUnitNameForFlow (dbUnits db) flow
+            , Just flow <- [M.lookup flowUUID flowDB]
+            , let !uName = getUnitNameForFlow unitDB flow
                   !isEmission = not (isResourceExtraction flow quantity)
                   !category = flowCategory flow
             ]
@@ -181,7 +186,7 @@ convertToInventoryExport db processId rootActivity inventory =
                 M.toList $
                     M.fromListWith (+) [(ifdCategory f, 1) | f <- flowDetails]
 
-        !(prodName, prodAmount, prodUnit) = getReferenceProductInfo (dbFlows db) (dbUnits db) rootActivity
+        !(prodName, prodAmount, prodUnit) = getReferenceProductInfo flowDB unitDB rootActivity
 
         !metadata =
             InventoryMetadata
@@ -225,7 +230,7 @@ getActivityInventory db processIdText =
         Right (processId, activity) -> do
             -- Matrix computation (will not fail if validation passed)
             inventory <- computeInventoryMatrix db processId
-            let !inventoryExport = convertToInventoryExport db processId activity inventory
+            let !inventoryExport = convertToInventoryExport db (dbFlows db) (dbUnits db) processId activity inventory
             return $ Right $ toJSON inventoryExport
 
 -- | Shared solver-aware activity inventory export for concurrent processing
@@ -267,7 +272,7 @@ getActivityInventoryWithSharedSolver validators sharedSolver db processIdText = 
                                 then return $ Left $ MatrixError $
                                     T.intercalate "; " [viMessage i | i <- postIssues, viSeverity i == Error]
                                 else do
-                                    let inventoryExport = convertToInventoryExport db processId activity inventory
+                                    let inventoryExport = convertToInventoryExport db (dbFlows db) (dbUnits db) processId activity inventory
                                     return $ Right inventoryExport
 
 -- | Simple stats tracking for tree processing

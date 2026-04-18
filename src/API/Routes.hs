@@ -10,7 +10,7 @@ import qualified Matrix
 import Matrix (Inventory, computeProcessLCIAContributions)
 import SharedSolver (SharedSolver)
 import qualified SharedSolver
-import Method.Mapping (computeLCIAScore, computeLCIAScoreFromTables, MatchStrategy(..), MappingStats(..), computeMappingStats)
+import Method.Mapping (computeLCIAScore, computeLCIAScoreFromTables, inventoryContributions, MatchStrategy(..), MappingStats(..), computeMappingStats)
 import Plugin.Types (PluginRegistry(..), AnalyzeHandle(..), AnalyzeContext(..))
 import Plugin.Builtin (flowContribution)
 import qualified Data.Vector as V
@@ -44,7 +44,7 @@ import Servant
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Exception (evaluate)
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.List (find, intercalate, sortBy, sortOn)
 import Numeric (showFFloat)
@@ -587,7 +587,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 , Agg.apAggregate             = aggFn
                 }
         unitCfg <- liftIO $ getMergedUnitConfig dbManager
-        result <- liftIO $ Agg.aggregate unitCfg db sharedSolver (DM.mkDepSolverLookup dbManager) processId params
+        (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        result <- liftIO $ Agg.aggregate unitCfg mFlows mUnits db sharedSolver (DM.mkDepSolverLookup dbManager) processId params
         case result of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
@@ -748,7 +749,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Left err -> throwServiceError err
             Right scalingVec -> do
                 let inventory = Matrix.applyBiosphereMatrix db scalingVec
-                    inventoryExport = Service.convertToInventoryExport db processId activity inventory
+                    inventoryExport = Service.convertToInventoryExport db (dbFlows db) (dbUnits db) processId activity inventory
                 return inventoryExport
 
     -- POST: Supply chain with substitutions
@@ -878,10 +879,11 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Right (actProcessId, _) -> do
                 let lim = fromMaybe 20 limitParam
                 unitCfg <- liftIO $ getMergedUnitConfig dbManager
+                (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
                 scalingVec <- liftIO $ SharedSolver.computeScalingVectorCached db sharedSolver actProcessId
                 let inventory = Matrix.applyBiosphereMatrix db scalingVec
                 mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName db method
-                let score = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
+                let score = computeLCIAScore unitCfg mUnits mFlows inventory mappings
                     contribs = sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
                     topFlows = [ FlowContributionEntry
                         { fcoFlowName    = flowName f
@@ -913,10 +915,11 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Right (actProcessId, _) -> do
                 let lim = fromMaybe 10 limitParam
                 unitCfg <- liftIO $ getMergedUnitConfig dbManager
+                (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
                 scalingVec <- liftIO $ SharedSolver.computeScalingVectorCached db sharedSolver actProcessId
                 let inventory = Matrix.applyBiosphereMatrix db scalingVec
                 mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName db method
-                let score = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
+                let score = computeLCIAScore unitCfg mUnits mFlows inventory mappings
                     cfMap = M.fromList [(flowId f, mcfValue cf) | (cf, Just (f, _)) <- mappings]
                     contributions = computeProcessLCIAContributions db scalingVec cfMap
                     sorted = sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
@@ -946,15 +949,17 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     computeCategoryResult :: Text -> Database -> Activity -> Int -> Inventory -> Method -> IO LCIAResult
     computeCategoryResult dbName db activity topFlows inventory method = do
         unitCfg <- getMergedUnitConfig dbManager
+        (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
         mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
         tables   <- DM.mapMethodToTablesCached dbManager dbName db method
         -- Force score evaluation here so mapConcurrently actually parallelizes the work
         -- (without this, lazy thunks are created and forced later in the main thread)
         let stats = computeMappingStats mappings
-        !score <- evaluate $ computeLCIAScoreFromTables unitCfg (dbUnits db) (dbFlows db) inventory tables
-        let (prodName, prodAmount, prodUnit) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) activity
+        !score <- evaluate $ computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
+        let (prodName, prodAmount, prodUnit) = Service.getReferenceProductInfo mFlows mUnits activity
             functionalUnit = T.pack (showFFloat (Just 2) prodAmount "") <> " " <> prodUnit <> " of " <> prodName
-            contribs = sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
+            (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
+            contribs = sortOn (\(_,_,c) -> negate (abs c)) rawContribs
             topContribs = take topFlows contribs
             topContributors = [ FlowContributionEntry
                 { fcoFlowName = flowName f
@@ -963,10 +968,15 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 , fcoFlowId      = UUID.toText (flowId f)
                 , fcoCategory    = flowCategory f
                 , fcoCompartment = flowSubcompartment f
-                , fcoCfValue     = mcfValue cf
+                , fcoCfValue     = cfVal
                 }
-                | (cf, f, c) <- topContribs
+                | (f, cfVal, c) <- topContribs
                 ]
+        unless (null unknownUuids) $
+            reportProgress Warning $ "[LCIA " <> T.unpack (methodName method)
+                <> "] " <> show (length unknownUuids)
+                <> " inventory flow UUID(s) absent from merged FlowDB — characterization incomplete. Samples: "
+                <> show (take 3 unknownUuids)
         pure LCIAResult
             { lrMethodId        = methodId method
             , lrMethodName      = methodName method

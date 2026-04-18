@@ -23,10 +23,14 @@ import SharedSolver
     , computeInventoryMatrixBatchWithDepsCached
     )
 import UnitConversion (defaultUnitConfig)
+import qualified Method.Mapping as Mapping
+import Method.Mapping (MethodTables(..), inventoryContributions)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import qualified Data.UUID as UUID
+import Data.UUID (UUID)
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -124,6 +128,65 @@ spec = do
             res <- computeInventoryMatrixBatchWithDepsCached defaultUnitConfig noDeps db solver []
             res `shouldBe` Right []
 
+    describe "inventoryContributions (cross-DB characterization surface)" $ do
+
+        -- Synthetic data: simulate the shape of a cross-DB-merged Inventory
+        -- where some UUIDs come from a 'dep' DB and are absent from the root
+        -- 'flowDB' unless we pass a merged snapshot.
+        let uuidRoot = mkUuid 1
+            uuidDep  = mkUuid 2
+            uuidGone = mkUuid 3   -- in inventory but absent from any flowDB
+
+            unitKg   = Unit (mkUuid 10) "kg" "kg" ""
+            unitDB   = M.singleton (unitId unitKg) unitKg
+
+            flowRoot = Flow uuidRoot "Methane, biogenic" "air" (Just "low. pop.")
+                           (unitId unitKg) Biosphere M.empty Nothing Nothing
+            flowDep  = Flow uuidDep  "Carbon dioxide, fossil" "air" (Just "low. pop.")
+                           (unitId unitKg) Biosphere M.empty Nothing Nothing
+
+            rootOnlyFlowDB = M.singleton uuidRoot flowRoot
+            mergedFlowDB   = M.fromList [(uuidRoot, flowRoot), (uuidDep, flowDep)]
+
+            -- UUID-keyed method table entries for both flows
+            tables = MethodTables
+                { mtUuidCF     = M.fromList [(uuidRoot, (27.0, "kg CO2 eq"))
+                                            ,(uuidDep,  ( 1.0, "kg CO2 eq"))]
+                , mtExactCF    = M.empty
+                , mtFallbackCF = M.empty
+                }
+
+            inventory = M.fromList [(uuidRoot, 1.0), (uuidDep, 2.0), (uuidGone, 5.0)]
+
+        it "returns empty contributions and no unknowns for empty inventory" $ do
+            let (contribs, unknowns) = inventoryContributions defaultUnitConfig unitDB mergedFlowDB M.empty tables
+            length contribs `shouldBe` 0
+            unknowns `shouldBe` []
+
+        it "surfaces inventory UUIDs absent from the flowDB (no silent drop)" $ do
+            let (_, unknowns) = inventoryContributions defaultUnitConfig unitDB rootOnlyFlowDB inventory tables
+            -- Dep-DB UUID is present in inventory but absent from root-only flowDB; same for uuidGone.
+            S.fromList unknowns `shouldBe` S.fromList [uuidDep, uuidGone]
+
+        it "characterizes dep-DB flows when the merged flowDB is supplied" $ do
+            let (contribs, unknowns) = inventoryContributions defaultUnitConfig unitDB mergedFlowDB inventory tables
+                namesWithContrib = [ (flowName f, c) | (f, _, c) <- contribs ]
+            -- uuidGone remains unknown (it's in no flowDB at all); uuidRoot and
+            -- uuidDep should both produce contributions.
+            unknowns `shouldBe` [uuidGone]
+            lookup "Carbon dioxide, fossil" namesWithContrib `shouldBe` Just 2.0   -- 2.0 kg * CF 1.0
+            lookup "Methane, biogenic"      namesWithContrib `shouldBe` Just 27.0  -- 1.0 kg * CF 27.0
+
+        it "matches computeLCIAScoreFromTables when no UUIDs are unknown" $ do
+            let (contribs, _) = inventoryContributions defaultUnitConfig unitDB mergedFlowDB (M.delete uuidGone inventory) tables
+                sumContribs = sum [c | (_, _, c) <- contribs]
+                score       = Mapping.computeLCIAScoreFromTables defaultUnitConfig unitDB mergedFlowDB (M.delete uuidGone inventory) tables
+            abs (sumContribs - score) < 1e-9 `shouldBe` True
+
+
+-- | Build a deterministic test UUID from a small integer tag.
+mkUuid :: Int -> UUID
+mkUuid tag = UUID.fromWords64 0 (fromIntegral tag)
 
 -- | Pick the first activity that has a reference output exchange with a
 -- known unit, returning ((actUUID, prodUUID), matrixIndex, refUnit).

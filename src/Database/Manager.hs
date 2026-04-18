@@ -60,6 +60,7 @@ module Database.Manager
     , getMergedSynonymDB
     , getMergedCompartmentMap
     , getMergedUnitConfig
+    , getMergedFlowMetadata
       -- * Staged Database Operations
     , getStagedDatabase
     , getDatabaseSetupInfo
@@ -113,8 +114,14 @@ import SynonymDB (SynonymDB(..), emptySynonymDB, buildFromCSV, buildFromPairs, l
 import Method.Types (CompartmentMap, buildCompartmentMapFromCSV, compartmentMapSize, Method(..), MethodCF, MethodCollection(..), ScoringSet(..)
     )
 import Method.Mapping (MatchStrategy, mapMethodToFlows, MethodTables, buildMethodTables)
+<<<<<<< HEAD
 import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), UUID, Flow(..), Unit(..), exchangeFlowId, exchangeIsReference, CrossDBLink(..), CrossDBLinkingStats(..), crossDBBySource, unresolvedCount, LinkBlocker(..), deduplicateFallbacks)
 import qualified Search.BM25 as BM25
+||||||| parent of cd0b933 (fix: score cross-DB-merged inventory against merged flow metadata)
+import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), UUID, Flow(..), Unit(..), exchangeFlowId, exchangeIsReference, CrossDBLink(..), CrossDBLinkingStats(..), crossDBBySource, unresolvedCount, LinkBlocker(..), deduplicateFallbacks)
+=======
+import Types (Database(..), SparseTriple(..), SimpleDatabase(..), initializeRuntimeFields, toSimpleDatabase, Activity(..), UUID, Flow(..), Unit(..), FlowDB, UnitDB, exchangeFlowId, exchangeIsReference, CrossDBLink(..), CrossDBLinkingStats(..), crossDBBySource, unresolvedCount, LinkBlocker(..), deduplicateFallbacks)
+>>>>>>> cd0b933 (fix: score cross-DB-merged inventory against merged flow metadata)
 import qualified UnitConversion
 import qualified Database.Loader as Loader
 -- CrossDBLinkingStats is now in Types, re-exported from Database.Loader
@@ -2031,6 +2038,43 @@ getMergedUnitConfig manager = do
     loaded <- readTVarIO (dmLoadedUnitDefs manager)
     return $ if M.null loaded then UnitConversion.defaultUnitConfig
              else UnitConversion.mergeUnitConfigs (M.elems loaded)
+
+-- | Snapshot of flow + unit metadata across every currently-loaded DB.
+-- Used to characterize or display a cross-DB-merged 'Inventory', whose
+-- flow UUIDs can come from any loaded DB. Without the merge, root-DB-only
+-- metadata silently drops every dep-DB flow during LCIA characterization
+-- (CF lookup falls off the end of the fallback chain) and inventory export.
+--
+-- Detects UUID collisions with divergent metadata. 'M.unions' is first-wins;
+-- collisions should never happen (same UUID ⇒ same flow by construction),
+-- but if data drift produces them, surface via log rather than hide.
+getMergedFlowMetadata :: DatabaseManager -> IO (FlowDB, UnitDB)
+getMergedFlowMetadata manager = do
+    loaded <- readTVarIO (dmLoadedDbs manager)
+    let dbs      = map ldDatabase (M.elems loaded)
+        flowMaps = map dbFlows dbs
+        unitMaps = map dbUnits dbs
+        flowHits = collisions flowFingerprint flowMaps
+        unitHits = collisions unitFingerprint unitMaps
+    unless (null flowHits) $
+        reportProgress Warning $ "[merged FlowDB] " <> show (length flowHits)
+            <> " UUID collision(s) with divergent flow metadata; keeping first. Samples: "
+            <> show (take 3 flowHits)
+    unless (null unitHits) $
+        reportProgress Warning $ "[merged UnitDB] " <> show (length unitHits)
+            <> " UUID collision(s) with divergent unit metadata; keeping first. Samples: "
+            <> show (take 3 unitHits)
+    pure (M.unions flowMaps, M.unions unitMaps)
+  where
+    flowFingerprint f = (flowName f, flowCategory f, flowSubcompartment f)
+    unitFingerprint = unitName
+
+    collisions :: Ord fp => (v -> fp) -> [Map UUID v] -> [UUID]
+    collisions fp ms =
+        let step = M.foldlWithKey' (insertFp fp)
+            insertFp f acc k v = M.insertWith S.union k (S.singleton (f v)) acc
+            merged = foldl step (M.empty :: Map UUID (S.Set fp)) ms
+        in [ u | (u, fps) <- M.toList merged, S.size fps > 1 ]
 
 -- | Status of a reference data resource for API responses
 data RefDataStatus = RefDataStatus

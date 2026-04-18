@@ -32,7 +32,9 @@ import qualified API.Resources as R
 import API.Resources (Resource, Param(..), ParamKind(..))
 
 import Matrix (applyBiosphereMatrix, computeProcessLCIAContributions)
-import Method.Mapping (computeLCIAScore, computeMappingStats, MappingStats(..))
+import Method.Mapping (computeLCIAScore, computeLCIAScoreFromTables, inventoryContributions, computeMappingStats, MappingStats(..))
+import Progress (reportProgress, ProgressLevel(Warning))
+import Control.Monad (unless)
 import Method.Types (Method(..), MethodCF(..), FlowDirection(..))
 import Plugin.Types ()
 import Plugin.Builtin (flowContribution)
@@ -500,7 +502,8 @@ callAggregate dbManager rid args (db, solver) =
                             , Agg.apAggregate             = fn
                             }
                     unitCfg <- DM.getMergedUnitConfig dbManager
-                    result <- Agg.aggregate unitCfg db solver (DM.mkDepSolverLookup dbManager) pid params
+                    (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
+                    result <- Agg.aggregate unitCfg mFlows mUnits db solver (DM.mkDepSolverLookup dbManager) pid params
                     case result of
                         Left err  -> return $ toolError rid (T.pack $ show err)
                         Right agg -> return $ toolSuccessJson rid (toJSON agg)
@@ -634,20 +637,28 @@ callGetImpacts dbManager baseUrl rid args = do
                                                   <> " unresolved cross-DB products. Load the missing dependency databases and re-link before computing impacts."
                                               else do
                                                 unitCfg <- DM.getMergedUnitConfig dbManager
+                                                (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
                                                 invE <- computeInventoryMatrixWithDepsCached
                                                     unitCfg (DM.mkDepSolverLookup dbManager) db (ldSharedSolver ld) processId
                                                 case invE of
                                                  Left err -> return $ toolError rid err
                                                  Right inventory -> do
                                                     mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
+                                                    tables   <- DM.mapMethodToTablesCached dbManager dbName db method
                                                     let stats = computeMappingStats mappings
-                                                        score = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
-                                                        (prodName, prodAmount, prodUnit) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) activity
+                                                        score = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
+                                                        (prodName, prodAmount, prodUnit) = Service.getReferenceProductInfo mFlows mUnits activity
                                                         functionalUnit = T.pack (showFFloat (Just 2) prodAmount "") <> " " <> prodUnit <> " of " <> prodName
-                                                        contribs = L.sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
+                                                        (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
+                                                        contribs = L.sortOn (\(_,_,c) -> negate (abs c)) rawContribs
                                                         topFlows = take topN contribs
                                                         webUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/impacts/" <> encodeSegment colName <> "/" <> UUID.toText uuid
                                                         hasNeg = any (\(_, _, c) -> c < 0) contribs
+                                                    unless (null unknownUuids) $
+                                                        reportProgress Warning $ "[MCP get_impacts " <> T.unpack (methodName method)
+                                                            <> "] " <> show (length unknownUuids)
+                                                            <> " inventory flow UUID(s) absent from merged FlowDB — characterization incomplete. Samples: "
+                                                            <> show (take 3 unknownUuids)
                                                     return $ toolSuccessJson rid $ object
                                                         [ "method"                     .= methodName method
                                                         , "category"                   .= methodCategory method
@@ -664,10 +675,10 @@ callGetImpacts dbManager baseUrl rid args = do
                                                             , "flow_id"             .= UUID.toText (flowId f)
                                                             , "category"            .= flowCategory f
                                                             , "compartment"         .= flowSubcompartment f
-                                                            , "cf_value"            .= mcfValue cf
-                                                            , "flow_unit"           .= getUnitNameForFlow (dbUnits db) f
+                                                            , "cf_value"            .= cfVal
+                                                            , "flow_unit"           .= getUnitNameForFlow mUnits f
                                                             ]
-                                                            | (cf, f, c) <- topFlows
+                                                            | (f, cfVal, c) <- topFlows
                                                             ]
                                                         ]
 
@@ -797,10 +808,11 @@ callGetContributingFlows dbManager baseUrl rid args =
                                         lim     = fromMaybe 20 (intArg "limit" args)
                                         webUrl  = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText <> "/contributing-flows/" <> encodeSegment colName <> "/" <> methodIdText
                                     unitCfg  <- DM.getMergedUnitConfig dbManager
+                                    (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
                                     scalingVec <- computeScalingVectorCached db (ldSharedSolver ld) processId
                                     let inventory = applyBiosphereMatrix db scalingVec
                                     mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
-                                    let score   = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
+                                    let score   = computeLCIAScore unitCfg mUnits mFlows inventory mappings
                                         contribs = L.sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
                                         top      = take lim contribs
                                     let hasNeg = any (\(_, _, c) -> c < 0) contribs
@@ -844,10 +856,11 @@ callGetContributingActivities dbManager baseUrl rid args =
                                     let db      = ldDatabase ld
                                         lim     = fromMaybe 10 (intArg "limit" args)
                                     unitCfg    <- DM.getMergedUnitConfig dbManager
+                                    (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
                                     scalingVec <- computeScalingVectorCached db (ldSharedSolver ld) processId
                                     let inventory = applyBiosphereMatrix db scalingVec
                                     mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
-                                    let score        = computeLCIAScore unitCfg (dbUnits db) (dbFlows db) inventory mappings
+                                    let score        = computeLCIAScore unitCfg mUnits mFlows inventory mappings
                                         cfMap        = M.fromList [(flowId f, mcfValue cf) | (cf, Just (f, _)) <- mappings]
                                         contributions = computeProcessLCIAContributions db scalingVec cfMap
                                         sorted       = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)

@@ -37,7 +37,9 @@ import Types
     ( Database(..)
     , Activity
     , Flow(..)
+    , FlowDB
     , FlowType(..)
+    , UnitDB
     , exchangeIsInput
     , exchangeIsReference
     , exchangeFlowId
@@ -124,13 +126,15 @@ data AggRow = AggRow
 
 aggregate
     :: UnitConfig
+    -> FlowDB              -- merged (root + deps) for biosphere scope
+    -> UnitDB              -- merged (root + deps) for biosphere scope
     -> Database
     -> SharedSolver
     -> DepSolverLookup     -- cross-DB lookup for ScopeBiosphere
     -> Text                -- processId text
     -> AggregateParams
     -> IO (Either ServiceError Aggregation)
-aggregate unitConfig db solver depLookup pidText params =
+aggregate unitConfig flowDB unitDB db solver depLookup pidText params =
     case resolveActivityAndProcessId db pidText of
         Left err -> return (Left err)
         Right (processId, activity) ->
@@ -148,7 +152,7 @@ aggregate unitConfig db solver depLookup pidText params =
                     case invE of
                         Left err        -> return (Left (MatrixError err))
                         Right inventory ->
-                            let export = convertToInventoryExport db processId activity inventory
+                            let export = convertToInventoryExport db flowDB unitDB processId activity inventory
                             in return $ Right $ reduce params (rowsFromBiosphere export)
   where
     emptyFilter maxD = ActivityFilter
