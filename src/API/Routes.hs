@@ -10,9 +10,8 @@ import qualified Matrix
 import Matrix (Inventory, computeProcessLCIAContributions)
 import SharedSolver (SharedSolver)
 import qualified SharedSolver
-import Method.Mapping (computeLCIAScore, computeLCIAScoreFromTables, inventoryContributions, MatchStrategy(..), MappingStats(..), computeMappingStats)
+import Method.Mapping (computeLCIAScoreFromTables, inventoryContributions, MatchStrategy(..), MappingStats(..), computeMappingStats)
 import Plugin.Types (PluginRegistry(..), AnalyzeHandle(..), AnalyzeContext(..))
-import Plugin.Builtin (flowContribution)
 import qualified Data.Vector as V
 import Method.Types (Method(..), MethodCF(..), MethodCollection(..), DamageCategory(..), NormWeightSet(..), FlowDirection(..), ScoringSet(..), computeFormulaScores)
 import Database.Manager (DatabaseManager(..), LoadedDatabase(..), DatabaseSetupInfo(..), getDatabase, MethodCollectionStatus(..), getMergedUnitConfig)
@@ -480,17 +479,17 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                     let loopAwareTree = buildLoopAwareTree unitCfg db activityUuid maxTreeDepth
                     return $ Service.convertToTreeExport db processId maxTreeDepth loopAwareTree
 
-    -- Activity inventory calculation (full supply chain LCI)
+    -- Activity inventory calculation (full supply chain LCI).
+    -- Goes through the cross-DB back-substitution path so inventories from
+    -- dep DBs are merged into the returned flow map; metadata (flow names,
+    -- units) comes from the merged FlowDB/UnitDB snapshot.
     getActivityInventory :: Text -> Text -> Handler InventoryExport
-    getActivityInventory dbName processId = do
+    getActivityInventory dbName processIdText = do
         (db, sharedSolver) <- requireDatabaseByName dbManager dbName
-        let validators = prValidators (dmPlugins dbManager)
-        result <- liftIO $ Service.getActivityInventoryWithSharedSolver validators sharedSolver db processId
-        case result of
-            Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
-            Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
-            Left _ -> throwError err500{errBody = "Internal server error"}
-            Right inventoryExport -> return inventoryExport
+        (processId, activity) <- resolveOrThrow db processIdText
+        inventory <- inventoryWithDeps dbManager dbName db sharedSolver processId
+        (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        return $ Service.convertToInventoryExport db mFlows mUnits processId activity inventory
 
     -- Activity graph endpoint for network visualization
     getActivityGraph :: Text -> Text -> Maybe Double -> Handler GraphExport
@@ -880,11 +879,11 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 let lim = fromMaybe 20 limitParam
                 unitCfg <- liftIO $ getMergedUnitConfig dbManager
                 (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-                scalingVec <- liftIO $ SharedSolver.computeScalingVectorCached db sharedSolver actProcessId
-                let inventory = Matrix.applyBiosphereMatrix db scalingVec
-                mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName db method
-                let score = computeLCIAScore unitCfg mUnits mFlows inventory mappings
-                    contribs = sortOn (\(_,_,c) -> negate (abs c)) (mapMaybe (flowContribution inventory) mappings)
+                inventory <- inventoryWithDeps dbManager dbName db sharedSolver actProcessId
+                tables   <- liftIO $ DM.mapMethodToTablesCached dbManager dbName db method
+                let score = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
+                    (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
+                    contribs = sortOn (\(_,_,c) -> negate (abs c)) rawContribs
                     topFlows = [ FlowContributionEntry
                         { fcoFlowName    = flowName f
                         , fcoContribution = c
@@ -892,10 +891,15 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                         , fcoFlowId      = UUID.toText (flowId f)
                         , fcoCategory    = flowCategory f
                         , fcoCompartment = flowSubcompartment f
-                        , fcoCfValue     = mcfValue cf
+                        , fcoCfValue     = cfVal
                         }
-                        | (cf, f, c) <- take lim contribs
+                        | (f, cfVal, c) <- take lim contribs
                         ]
+                liftIO $ unless (null unknownUuids) $
+                    reportProgress Warning $ "[contributing-flows " <> T.unpack (methodName method)
+                        <> "] " <> show (length unknownUuids)
+                        <> " inventory flow UUID(s) absent from merged FlowDB. Samples: "
+                        <> show (take 3 unknownUuids)
                 return ContributingFlowsResult
                     { cfrMethod     = methodName method
                     , cfrUnit       = methodUnit method
@@ -916,10 +920,16 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 let lim = fromMaybe 10 limitParam
                 unitCfg <- liftIO $ getMergedUnitConfig dbManager
                 (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+                -- Score over cross-DB-merged inventory so the total matches the
+                -- /impacts endpoint. Per-activity contributions below are still
+                -- root-DB-scoped because computeProcessLCIAContributions uses
+                -- the root technosphere/biosphere matrix shape. A future plan
+                -- will extend contributions across dep DBs.
+                inventory <- inventoryWithDeps dbManager dbName db sharedSolver actProcessId
                 scalingVec <- liftIO $ SharedSolver.computeScalingVectorCached db sharedSolver actProcessId
-                let inventory = Matrix.applyBiosphereMatrix db scalingVec
+                tables   <- liftIO $ DM.mapMethodToTablesCached dbManager dbName db method
                 mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName db method
-                let score = computeLCIAScore unitCfg mUnits mFlows inventory mappings
+                let score = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
                     cfMap = M.fromList [(flowId f, mcfValue cf) | (cf, Just (f, _)) <- mappings]
                     contributions = computeProcessLCIAContributions db scalingVec cfMap
                     sorted = sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
@@ -928,7 +938,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                             actName = maybe "" activityName mAct
                             actLoc  = maybe "" activityLocation mAct
                             prodName = case mAct of
-                                Just act -> let (pn, _, _) = Service.getReferenceProductInfo (dbFlows db) (dbUnits db) act in pn
+                                Just act -> let (pn, _, _) = Service.getReferenceProductInfo mFlows mUnits act in pn
                                 Nothing  -> ""
                         in ActivityContribution
                             { acProcessId    = processIdToText db pid
