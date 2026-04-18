@@ -11,7 +11,12 @@
 module NestedSubstitutionSpec (spec) where
 
 import Test.Hspec
-import TestHelpers (loadSampleDatabase)
+import TestHelpers
+    ( loadSampleDatabase
+    , linkDatabases
+    , mkDepLookupFromMap
+    , mkSolverFromDb
+    )
 import Types
 import Service
     ( ServiceError(..)
@@ -133,6 +138,90 @@ spec = do
                 Left other -> expectationFailure ("wrong error: " <> show other)
                 Right _    -> expectationFailure "expected Left for unloaded consumer DB"
 
+    describe "inventoryWithSubsAndDeps with a real dep DB (Phase A.6)" $ do
+
+
+
+        it "dep-level Case A substitution actually fires and changes the inventory" $ do
+            -- Regression gate for 'subs cascade past depth 0'. Requires an
+            -- actually-linked dep DB so the recursion enters 'resolveDepWithSubs'.
+            -- Before the Phase-A refactor, resolveDep passed [] into the recursion
+            -- and this case would have been a no-op versus the baseline.
+            rootRaw <- loadSampleDatabase "SAMPLE.min3"
+            dep     <- loadSampleDatabase "SAMPLE.min3"  -- reused as independent DB under a different name
+            let root = linkDatabases rootRaw dep "dep" 0.1
+            rootSolver <- mkSolverFromDb root "root"
+            depSolver  <- mkSolverFromDb dep  "dep"
+            let lookup_ = mkDepLookupFromMap (M.singleton "dep" (dep, depSolver))
+                (consumerPid, fromPid, toPid) = pickDepSubPids dep
+                mkDepSub f t =
+                    Substitution
+                        { subFrom     = "dep::" <> processIdToText dep f
+                        , subTo       = "dep::" <> processIdToText dep t
+                        , subConsumer = "dep::" <> processIdToText dep consumerPid
+                        }
+            eBase <- inventoryWithSubsAndDeps defaultUnitConfig lookup_ root "root" rootSolver 0 []
+            eSub  <- inventoryWithSubsAndDeps defaultUnitConfig lookup_ root "root" rootSolver 0 [mkDepSub fromPid toPid]
+            case (eBase, eSub) of
+                (Right base, Right subInv) ->
+                    M.toList subInv `shouldNotBe` M.toList base
+                (Left e, _) -> expectationFailure ("baseline failed: " <> show e)
+                (_, Left e) -> expectationFailure ("dep-sub path failed: " <> show e)
+
+        it "depth-2 chain: root + dep subs both apply" $ do
+            -- Two subs in a single call, one at each level. Chain result must
+            -- differ from baseline; sanity-check it also differs from the
+            -- isolated root-only and dep-only results whenever those are
+            -- themselves non-trivial.
+            rootRaw <- loadSampleDatabase "SAMPLE.min3"
+            dep     <- loadSampleDatabase "SAMPLE.min3"  -- reused as independent DB under a different name
+            let root = linkDatabases rootRaw dep "dep" 0.1
+            rootSolver <- mkSolverFromDb root "root"
+            depSolver  <- mkSolverFromDb dep  "dep"
+            let lookup_   = mkDepLookupFromMap (M.singleton "dep" (dep, depSolver))
+                (rootCons, rootFrom, rootTo) = pickRootSubPids root
+                (depCons, depFrom, depTo)    = pickDepSubPids dep
+                rootSub   = Substitution
+                    { subFrom     = processIdToText root rootFrom
+                    , subTo       = processIdToText root rootTo
+                    , subConsumer = processIdToText root rootCons
+                    }
+                depSub    = Substitution
+                    { subFrom     = "dep::" <> processIdToText dep depFrom
+                    , subTo       = "dep::" <> processIdToText dep depTo
+                    , subConsumer = "dep::" <> processIdToText dep depCons
+                    }
+            eBase   <- inventoryWithSubsAndDeps defaultUnitConfig lookup_ root "root" rootSolver 0 []
+            eChain  <- inventoryWithSubsAndDeps defaultUnitConfig lookup_ root "root" rootSolver 0 [rootSub, depSub]
+            case (eBase, eChain) of
+                (Right base, Right c) ->
+                    M.toList c `shouldNotBe` M.toList base
+                _ -> expectationFailure "chain or baseline path failed"
+
+        it "identity dep-sub (from == to) matches baseline (no-op invariant)" $ do
+            -- Mass-balance sanity: a Case-A substitution where supplier and
+            -- replacement are the same activity must wash out. If it doesn't,
+            -- the Sherman-Morrison coefficient accounting is broken.
+            rootRaw <- loadSampleDatabase "SAMPLE.min3"
+            dep     <- loadSampleDatabase "SAMPLE.min3"  -- reused as independent DB under a different name
+            let root = linkDatabases rootRaw dep "dep" 0.1
+            rootSolver <- mkSolverFromDb root "root"
+            depSolver  <- mkSolverFromDb dep  "dep"
+            let lookup_ = mkDepLookupFromMap (M.singleton "dep" (dep, depSolver))
+                (consumerPid, fromPid, _) = pickDepSubPids dep
+                identitySub = Substitution
+                    { subFrom     = "dep::" <> processIdToText dep fromPid
+                    , subTo       = "dep::" <> processIdToText dep fromPid
+                    , subConsumer = "dep::" <> processIdToText dep consumerPid
+                    }
+            eBase <- inventoryWithSubsAndDeps defaultUnitConfig lookup_ root "root" rootSolver 0 []
+            eSub  <- inventoryWithSubsAndDeps defaultUnitConfig lookup_ root "root" rootSolver 0 [identitySub]
+            case (eBase, eSub) of
+                (Right base, Right subInv) ->
+                    M.toList subInv `shouldBe` M.toList base
+                (Left e, _) -> expectationFailure ("baseline failed: " <> show e)
+                (_, Left e) -> expectationFailure ("identity path failed: " <> show e)
+
 -- | Build a fresh 'SharedSolver' from a database's technosphere triples.
 mkSolver :: Database -> T.Text -> IO SharedSolver
 mkSolver db name =
@@ -140,3 +229,27 @@ mkSolver db name =
                | SparseTriple i j v <- U.toList (dbTechnosphereTriples db) ]
         n    = fromIntegral (dbActivityCount db)
     in createSharedSolver name tech n
+
+-- | Pick a valid (consumer, supplier, alternate supplier) triple for a
+-- dep-level Case-A substitution. Finds the first off-diagonal technosphere
+-- entry (consumer != supplier) and a third distinct activity to act as the
+-- replacement. Tests fail loudly (via undefined-less error-out) if the
+-- sample DB doesn't have one — but SAMPLE.min3 / SAMPLE.min4 both do.
+pickDepSubPids :: Database -> (ProcessId, ProcessId, ProcessId)
+pickDepSubPids = pickSubPids
+
+pickRootSubPids :: Database -> (ProcessId, ProcessId, ProcessId)
+pickRootSubPids = pickSubPids
+
+pickSubPids :: Database -> (ProcessId, ProcessId, ProcessId)
+pickSubPids db =
+    let triples = U.toList (dbTechnosphereTriples db)
+        n       = fromIntegral (dbActivityCount db)
+        pairs   = [ (fromIntegral j, fromIntegral i)   -- (consumer, supplier): A[supplier, consumer]
+                  | SparseTriple i j _ <- triples
+                  , i /= j ]
+    in case pairs of
+        ((cons, supp):_) ->
+            let alt = head [ p | p <- [0..n-1], p /= cons, p /= supp ]
+            in (cons, supp, alt)
+        [] -> error "pickSubPids: database has no off-diagonal technosphere entries"

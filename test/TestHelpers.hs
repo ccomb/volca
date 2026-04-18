@@ -7,6 +7,9 @@ module TestHelpers (
     assertVectorNear,
     findFlowByName,
     findActivityByUUID,
+    mkDepLookupFromMap,
+    linkDatabases,
+    mkSolverFromDb,
 ) where
 
 import Types
@@ -14,12 +17,14 @@ import Database (buildDatabaseWithMatrices)
 import UnitConversion (defaultUnitConfig)
 import Control.Monad (zipWithM_)
 import qualified Data.Map as M
+import qualified Data.Map.Strict as MS
 import qualified Data.Vector as V
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Loader (loadDatabase)
 import Test.Hspec
 import qualified Data.Vector.Unboxed as U
+import qualified SharedSolver as SS
 
 -- | Load a SAMPLE database for testing
 loadSampleDatabase :: String -> IO Database
@@ -65,3 +70,47 @@ findActivityByUUID db uuid =
      in case matchingIndices of
             (idx:_) -> Just $ dbActivities db V.! idx
             [] -> Nothing
+
+-- | Turn a map of loaded (Database, SharedSolver) pairs into the lookup
+-- that the cross-DB solver expects. Replaces the 'noDeps _ = pure Nothing'
+-- stub sprinkled across the test suite.
+mkDepLookupFromMap :: MS.Map Text (Database, SS.SharedSolver) -> SS.DepSolverLookup
+mkDepLookupFromMap m name = pure (MS.lookup name m)
+
+-- | Build a fresh 'SharedSolver' from a database's technosphere triples.
+-- Lifted from the ad-hoc @mkSolver@ bodies in 'CrossDBSubstitutionSpec' and
+-- 'NestedSubstitutionSpec'.
+mkSolverFromDb :: Database -> Text -> IO SS.SharedSolver
+mkSolverFromDb db name =
+    let tech = [ (fromIntegral i, fromIntegral j, v)
+               | SparseTriple i j v <- U.toList (dbTechnosphereTriples db) ]
+        n    = fromIntegral (dbActivityCount db)
+    in SS.createSharedSolver name tech n
+
+-- | Inject a single synthetic cross-DB link from the first activity of
+-- @consumerDb@ to the first activity of @supplierDb@. Required for tests
+-- that need to observe the dep-level substitution recursion without
+-- depending on external fixture data. The coefficient is picked arbitrarily
+-- small (0.1) so the induced dep demand is strictly positive but does not
+-- dominate; unit is inherited from the first activity's refUnit.
+linkDatabases
+    :: Database      -- ^ consumer DB (gets the link attached)
+    -> Database      -- ^ supplier DB
+    -> Text          -- ^ supplier DB name (stored in cdlSourceDatabase)
+    -> Double        -- ^ coefficient
+    -> Database      -- ^ consumer DB with the new link in dbCrossDBLinks
+linkDatabases consumerDb supplierDb supplierName coeff =
+    let (consumerAct, consumerProd) = dbProcessIdTable consumerDb V.! 0
+        (supplierAct, supplierProd) = dbProcessIdTable supplierDb V.! 0
+        link = CrossDBLink
+            { cdlConsumerActUUID  = consumerAct
+            , cdlConsumerProdUUID = consumerProd
+            , cdlSupplierActUUID  = supplierAct
+            , cdlSupplierProdUUID = supplierProd
+            , cdlCoefficient      = coeff
+            , cdlExchangeUnit     = "kg"
+            , cdlFlowName         = "synthetic-test-link"
+            , cdlLocation         = "GLO"
+            , cdlSourceDatabase   = supplierName
+            }
+    in consumerDb { dbCrossDBLinks = link : dbCrossDBLinks consumerDb }
