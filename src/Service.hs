@@ -1181,47 +1181,57 @@ getPathTo db solver pidText target = do
                                         , "total_ratio" .= totalRatio
                                         ]
 
--- | Pure function: build a SupplyChainResponse from a scaling vector.
--- Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
--- Entries are tagged with @sceDatabaseName = dbName@; callers that want to
--- expand cross-DB links should use 'buildSupplyChainFromScalingVectorCrossDB'.
-buildSupplyChainFromScalingVector
-    :: Database -> Text -> ProcessId -> U.Vector Double
+-- | Collect filtered supply-chain entries + edges from a single DB's scaling
+-- vector. Applies @minQuantity@, name/location/product/class/maxDepth filters,
+-- BFS depth assignment, and upstream-count accumulation — but deliberately
+-- does NOT sort, limit, or offset. Callers merge collections from multiple
+-- databases and then apply sorting/pagination once on the combined list.
+--
+-- Entry @sceProcessId@ is qualified with @dbName::@ iff @qualifyPids@ is True
+-- (used for dep-DB entries in cross-DB expansion; root entries stay bare for
+-- backward compatibility with callers that navigate on bare root PIDs).
+collectSupplyChainEntries
+    :: Database
+    -> Text                -- ^ DB name
+    -> Maybe ProcessId     -- ^ root PID to exclude (Nothing at dep levels)
+    -> U.Vector Double     -- ^ scaling vector
     -> ActivityFilter
-    -> Bool  -- ^ include edges (expensive: extra pass over technosphere triples)
-    -> SupplyChainResponse
-buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges =
+    -> Bool                -- ^ include edges
+    -> Bool                -- ^ qualify processIds with @dbName::@
+    -> Double              -- ^ multiplier for sceQuantity (rootRefAmount at root, 1.0 at dep)
+    -> Int                 -- ^ depth offset added to per-DB BFS depth
+    -> (Int, [SupplyChainEntry], [SupplyChainEdge])
+    -- ^ (unfiltered non-zero count, filtered entries, edges)
+collectSupplyChainEntries db dbName mRootPid supplyVec af includeEdges qualifyPids quantityMult depthOffset =
     let minQ = fromMaybe 0 (afMinQuantity af)
-        limit = fromMaybe 100 (afLimit af)
-        offset = fromMaybe 0 (afOffset af)
-        rootActivity = dbActivities db V.! fromIntegral processId
-        rootRefAmount = getReferenceProductAmount rootActivity
-        n = U.length supplyVec
+        n    = U.length supplyVec
 
-        -- Collect active entries directly from the unboxed vector (no toList)
         allEntries =
             [ (fromIntegral i :: ProcessId, supplyVec U.! i)
             | i <- [0 .. n - 1]
             , let v = supplyVec U.! i
             , abs v > minQ
-            , fromIntegral i /= processId
+            , maybe True ((/=) (fromIntegral i)) mRootPid
             ]
 
-        -- Single pass over technosphere triples: build adjacency + consumer counts
-        activeSet = IS.fromList (fromIntegral processId : [fromIntegral pid | (pid, _) <- allEntries])
+        -- One pass: adjacency (for BFS + edges) + consumer counts.
+        rootIdx = maybe (-1) fromIntegral mRootPid :: Int
+        activeSet = IS.fromList (rootIdx : [fromIntegral pid | (pid, _) <- allEntries])
         (!adjacency, !consumerCounts) = U.foldl' accumulate (IM.empty, IM.empty) (dbTechnosphereTriples db)
           where
             accumulate (!adj, !counts) (SparseTriple row col _val) =
-                let r = fromIntegral row
-                    c = fromIntegral col
+                let r    = fromIntegral row
+                    c    = fromIntegral col
                     adj' = IM.insertWith (++) c [r] adj
                     counts' = if IS.member r activeSet && IS.member c activeSet
                               then IM.insertWith (+) r (1 :: Int) counts
                               else counts
                 in (adj', counts')
 
-        -- BFS from root, returning IntMap ProcessId -> depth
-        depthMap = bfsDepth (fromIntegral processId) adjacency
+        -- BFS from root (or from every entry at dep level when mRootPid = Nothing).
+        depthMap = case mRootPid of
+            Just rp -> bfsDepth (fromIntegral rp) adjacency
+            Nothing -> bfsDepthMulti [ fromIntegral pid | (pid, _) <- allEntries ] adjacency
 
         textMatches pat txt = T.toCaseFold pat `T.isInfixOf` T.toCaseFold txt
 
@@ -1234,48 +1244,84 @@ buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges 
             ]
 
         matchesFilters activity pid =
-            let nameOk = maybe True (\pat -> textMatches pat (activityName activity)) (afName af)
-                locOk = maybe True (\pat -> textMatches pat (activityLocation activity)) (afLocation af)
-                productOk = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afProduct af)
-                classOk = matchClassifications activity (afClassifications af)
-                depth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
-                depthOk = maybe True (depth <=) (afMaxDepth af)
+            let nameOk     = maybe True (\pat -> textMatches pat (activityName activity)) (afName af)
+                locOk      = maybe True (\pat -> textMatches pat (activityLocation activity)) (afLocation af)
+                productOk  = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afProduct af)
+                classOk    = matchClassifications activity (afClassifications af)
+                localDepth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
+                depthOk    = maybe True (localDepth <=) (afMaxDepth af)
             in nameOk && locOk && productOk && classOk && depthOk
 
-        filtered =
-            [ (pid, val, activity)
-            | (pid, val) <- allEntries
-            , let activity = dbActivities db V.! fromIntegral pid
-            , matchesFilters activity pid
-            ]
+        qualify pid
+            | qualifyPids = dbName <> "::" <> processIdToText db pid
+            | otherwise   = processIdToText db pid
 
-        -- Server-side sorting: sort field + order (asc/desc)
-        isDesc = afOrder af == Just "desc"
-        comparator = case afSort af of
-            Just "name"      -> \(_, _, a) (_, _, b) -> compare (activityName a) (activityName b)
-            Just "location"  -> \(_, _, a) (_, _, b) -> compare (activityLocation a) (activityLocation b)
-            Just "unit"      -> \(_, _, a) (_, _, b) -> compare (activityUnit a) (activityUnit b)
-            Just "depth"     -> \(p1, _, _) (p2, _, _) -> compare (IM.findWithDefault (-1) (fromIntegral p1) depthMap) (IM.findWithDefault (-1) (fromIntegral p2) depthMap)
-            Just "consumers" -> \(p1, _, _) (p2, _, _) -> compare (IM.findWithDefault 0 (fromIntegral p1) consumerCounts) (IM.findWithDefault 0 (fromIntegral p2) consumerCounts)
-            Just "amount"    -> \(_, a, _) (_, b, _) -> compare (abs a) (abs b)
-            _                -> \(_, a, _) (_, b, _) -> compare (abs b) (abs a)  -- default: amount desc
-        appliedComparator = if isDesc then \a b -> comparator b a else comparator
-        sorted = take limit . drop offset $ L.sortBy appliedComparator filtered
-
-        mkEntry (pid, scalingFactor, activity) =
-            SupplyChainEntry
-                { sceProcessId = processIdToText db pid
-                , sceDatabaseName = dbName
-                , sceName = activityName activity
-                , sceLocation = activityLocation activity
-                , sceQuantity = scalingFactor * rootRefAmount
-                , sceUnit = activityUnit activity
-                , sceScalingFactor = scalingFactor
+        mkEntry (pid, scalingFactor) =
+            let activity = dbActivities db V.! fromIntegral pid
+            in SupplyChainEntry
+                { sceProcessId       = qualify pid
+                , sceDatabaseName    = dbName
+                , sceName            = activityName activity
+                , sceLocation        = activityLocation activity
+                , sceQuantity        = scalingFactor * quantityMult
+                , sceUnit            = activityUnit activity
+                , sceScalingFactor   = scalingFactor
                 , sceClassifications = activityClassification activity
-                , sceDepth = IM.findWithDefault (-1) (fromIntegral pid) depthMap
-                , sceUpstreamCount = IM.findWithDefault 0 (fromIntegral pid) consumerCounts
+                , sceDepth           = depthOffset + IM.findWithDefault (-1) (fromIntegral pid) depthMap
+                , sceUpstreamCount   = IM.findWithDefault 0 (fromIntegral pid) consumerCounts
                 }
 
+        filteredEntries =
+            [ mkEntry (pid, val)
+            | (pid, val) <- allEntries
+            , matchesFilters (dbActivities db V.! fromIntegral pid) pid
+            ]
+
+        allIdxSet = S.fromList (maybe [] ((:[]) . fromIntegral) mRootPid ++ map (fromIntegral . fst) allEntries)
+        edges = if not includeEdges then [] else
+            U.foldl' (\acc (SparseTriple row col val) ->
+                    if S.member (fromIntegral row :: Int) allIdxSet && S.member (fromIntegral col :: Int) allIdxSet
+                    then SupplyChainEdge
+                            (qualify (fromIntegral row)) dbName
+                            (qualify (fromIntegral col)) dbName
+                            val : acc
+                    else acc
+                 ) [] (dbTechnosphereTriples db)
+    in (length allEntries, filteredEntries, edges)
+
+-- | Sort, offset, and limit a list of supply-chain entries using the active
+-- filter's @afSort@ / @afOrder@ / @afLimit@ / @afOffset@. All comparison
+-- fields (@sceDepth@, @sceUpstreamCount@, @sceQuantity@…) live on the entry
+-- itself, so this works uniformly for single- and cross-DB lists.
+sortAndPaginate :: ActivityFilter -> [SupplyChainEntry] -> [SupplyChainEntry]
+sortAndPaginate af entries =
+    let limit  = fromMaybe 100 (afLimit af)
+        offset = fromMaybe 0   (afOffset af)
+        isDesc = afOrder af == Just "desc"
+        comparator = case afSort af of
+            Just "name"      -> \a b -> compare (sceName a) (sceName b)
+            Just "location"  -> \a b -> compare (sceLocation a) (sceLocation b)
+            Just "unit"      -> \a b -> compare (sceUnit a) (sceUnit b)
+            Just "depth"     -> \a b -> compare (sceDepth a) (sceDepth b)
+            Just "consumers" -> \a b -> compare (sceUpstreamCount a) (sceUpstreamCount b)
+            Just "amount"    -> \a b -> compare (abs (sceQuantity a)) (abs (sceQuantity b))
+            _                -> \a b -> compare (abs (sceQuantity b)) (abs (sceQuantity a))
+        applied = if isDesc then flip comparator else comparator
+    in take limit . drop offset $ L.sortBy applied entries
+
+-- | Pure function: build a SupplyChainResponse from a scaling vector.
+-- Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
+buildSupplyChainFromScalingVector
+    :: Database -> Text -> ProcessId -> U.Vector Double
+    -> ActivityFilter
+    -> Bool  -- ^ include edges (expensive: extra pass over technosphere triples)
+    -> SupplyChainResponse
+buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges =
+    let rootActivity  = dbActivities db V.! fromIntegral processId
+        rootRefAmount = getReferenceProductAmount rootActivity
+        (totalActs, entries, edges) =
+            collectSupplyChainEntries db dbName (Just processId) supplyVec af includeEdges
+                                      False rootRefAmount 0
         rootSummary = ActivitySummary
             { prsProcessId = processIdToText db processId
             , prsName = activityName rootActivity
@@ -1285,25 +1331,11 @@ buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges 
             , prsProductAmount = rootRefAmount
             , prsProductUnit = activityUnit rootActivity
             }
-
-        -- Edges: only computed when requested (graph views), skipped for supply chain table
-        allIndices = S.fromList (processId : map fst allEntries)
-        edges = if includeEdges
-            then U.foldl' (\acc (SparseTriple row col val) ->
-                    if S.member (fromIntegral row) allIndices && S.member (fromIntegral col) allIndices
-                    then SupplyChainEdge
-                            (processIdToText db (fromIntegral row)) dbName
-                            (processIdToText db (fromIntegral col)) dbName
-                            val : acc
-                    else acc
-                 ) [] (dbTechnosphereTriples db)
-            else []
-
     in SupplyChainResponse
         { scrRoot = rootSummary
-        , scrTotalActivities = length allEntries
-        , scrFilteredActivities = length filtered
-        , scrSupplyChain = map mkEntry sorted
+        , scrTotalActivities = totalActs
+        , scrFilteredActivities = length entries
+        , scrSupplyChain = sortAndPaginate af entries
         , scrEdges = edges
         }
 
@@ -1326,47 +1358,66 @@ buildSupplyChainFromScalingVectorCrossDB
     -> Bool                             -- ^ include edges
     -> IO (Either ServiceError SupplyChainResponse)
 buildSupplyChainFromScalingVectorCrossDB unitCfg depLookup rootDb rootDbName rootPid rootScaling extraLinks af includeEdges = do
-    let rootResp = buildSupplyChainFromScalingVector rootDb rootDbName rootPid rootScaling af includeEdges
-    eDep <- walkDepLevels unitCfg depLookup rootDb rootDbName rootScaling extraLinks af includeEdges 1 S.empty
+    let rootActivity  = dbActivities rootDb V.! fromIntegral rootPid
+        rootRefAmount = getReferenceProductAmount rootActivity
+        (rootTotal, rootEntries, rootEdges) =
+            collectSupplyChainEntries rootDb rootDbName (Just rootPid) rootScaling af includeEdges
+                                      False rootRefAmount 0
+        rootSummary = ActivitySummary
+            { prsProcessId = processIdToText rootDb rootPid
+            , prsName = activityName rootActivity
+            , prsLocation = activityLocation rootActivity
+            , prsProduct = fromMaybe (activityName rootActivity)
+                (getReferenceProductName (dbFlows rootDb) rootActivity)
+            , prsProductAmount = rootRefAmount
+            , prsProductUnit = activityUnit rootActivity
+            }
+    eDep <- walkDepLevels unitCfg depLookup rootDb rootScaling extraLinks af includeEdges 1 S.empty
     pure $ case eDep of
         Left err -> Left err
-        Right (depEntries, depEdges) -> Right rootResp
-            { scrSupplyChain    = scrSupplyChain rootResp ++ depEntries
-            , scrEdges          = scrEdges rootResp ++ depEdges
-            , scrTotalActivities = scrTotalActivities rootResp + length depEntries
-            , scrFilteredActivities = scrFilteredActivities rootResp + length depEntries
-            }
+        Right (depTotal, depEntries, depEdges) ->
+            let combinedEntries = rootEntries ++ depEntries
+                combinedEdges   = rootEdges   ++ depEdges
+            in Right SupplyChainResponse
+                { scrRoot = rootSummary
+                , scrTotalActivities    = rootTotal + depTotal
+                , scrFilteredActivities = length combinedEntries
+                , scrSupplyChain        = sortAndPaginate af combinedEntries
+                , scrEdges              = combinedEdges
+                }
 
--- | Recursive helper: walk every dep DB reachable via cross-DB links from
--- @consumerDb@'s current scaling, one level at a time, returning the
--- aggregated entries + edges. @visited@ prevents infinite loops in
--- pathological DAGs; the depth counter bounds us against the same constant
--- the LCIA recursion uses.
+-- | Recursive helper: for every cross-DB link emerging from @consumerScaling@,
+-- solve the induced dep demand and collect entries\/edges from the dep DB
+-- (filtered by the same 'ActivityFilter' as the root). Returns
+-- @(total_active_count, filtered_entries, edges)@ summed across all reached
+-- dep DBs at this depth and deeper. No pagination here — that's applied once
+-- at the top level on the merged list.
 walkDepLevels
     :: UnitConfig
     -> SharedSolver.DepSolverLookup
-    -> Database -> Text                 -- ^ current consumer DB + name
+    -> Database                         -- ^ current consumer DB
     -> U.Vector Double                  -- ^ current level's scaling
     -> [CrossDBLink]                    -- ^ extra virtual links visible at this level
     -> ActivityFilter
     -> Bool
     -> Int                              -- ^ current depth
     -> S.Set Text                       -- ^ visited DB names (cycle guard)
-    -> IO (Either ServiceError ([SupplyChainEntry], [SupplyChainEdge]))
-walkDepLevels unitCfg depLookup consumerDb consumerDbName consumerScaling extras af includeEdges depth visited
-    | depth >= maxSubsDepth = pure (Right ([], []))
+    -> IO (Either ServiceError (Int, [SupplyChainEntry], [SupplyChainEdge]))
+walkDepLevels unitCfg depLookup consumerDb consumerScaling extras af includeEdges depth visited
+    | depth >= maxSubsDepth = pure (Right (0, [], []))
     | otherwise = do
         let demandsMap = accumulateDepDemandsWith consumerDb extras consumerScaling
         results <- mapM (resolveOneDep unitCfg depLookup af includeEdges depth visited)
                         (M.toList demandsMap)
         pure $ case lefts results of
             (err:_) -> Left err
-            []      -> Right (concatMap fst (rights results), concatMap snd (rights results))
+            []      -> Right (foldr merge3 (0, [], []) (rights results))
   where
-    _ = consumerDbName   -- retained for future error-message context
+    merge3 (t1, es1, ed1) (t2, es2, ed2) = (t1 + t2, es1 ++ es2, ed1 ++ ed2)
 
--- | For a single dep DB at the current level: look up its solver, solve its
--- induced demand, walk its supply chain, qualify PIDs, recurse.
+-- | For a single dep DB: solve its induced demand, collect filtered entries
+-- using the shared 'collectSupplyChainEntries' helper (so it gets the same
+-- minQuantity/maxDepth pruning as the root walk), then recurse.
 resolveOneDep
     :: UnitConfig
     -> SharedSolver.DepSolverLookup
@@ -1375,74 +1426,45 @@ resolveOneDep
     -> Int                              -- ^ current depth (the one we're entering)
     -> S.Set Text                       -- ^ visited
     -> (Text, M.Map (UUID, UUID) (Double, Text))
-    -> IO (Either ServiceError ([SupplyChainEntry], [SupplyChainEdge]))
+    -> IO (Either ServiceError (Int, [SupplyChainEntry], [SupplyChainEdge]))
 resolveOneDep unitCfg depLookup af includeEdges depth visited (depDbName, demands)
-    | depDbName `S.member` visited = pure (Right ([], []))
+    | depDbName `S.member` visited = pure (Right (0, [], []))
     | otherwise = do
         mDep <- depLookup depDbName
         case mDep of
-            Nothing -> pure (Right ([], []))   -- unloaded dep DB: silent skip (matches LCIA path)
+            Nothing -> pure (Right (0, [], []))   -- unloaded dep DB: silent skip (matches LCIA path)
             Just (depDb, depSolver) -> case depDemandsToVector unitCfg depDbName depDb demands of
                 Left err -> pure (Left (MatrixError err))
                 Right demandVec -> do
                     depScaling <- solveWithSharedSolver depSolver demandVec
-                    let (taggedEntries, taggedEdges) =
-                            depEntriesAndEdges depDb depDbName depScaling af includeEdges depth
-                    -- Recurse into this dep DB's own cross-DB links.
-                    eDeeper <- walkDepLevels unitCfg depLookup depDb depDbName depScaling []
+                    let (localTotal, localEntries, localEdges) =
+                            collectSupplyChainEntries depDb depDbName Nothing depScaling af includeEdges
+                                                      True 1.0 depth
+                    eDeeper <- walkDepLevels unitCfg depLookup depDb depScaling []
                                              af includeEdges (depth + 1) (S.insert depDbName visited)
                     pure $ case eDeeper of
                         Left err -> Left err
-                        Right (deeperEntries, deeperEdges) ->
-                            Right (taggedEntries ++ deeperEntries, taggedEdges ++ deeperEdges)
+                        Right (deeperTotal, deeperEntries, deeperEdges) ->
+                            Right ( localTotal + deeperTotal
+                                  , localEntries ++ deeperEntries
+                                  , localEdges   ++ deeperEdges )
 
--- | Walk a dep DB's scaling vector and produce entries + edges, qualified
--- with @depDbName::@ and offset by @consumerDepth@. No "root PID" to
--- exclude because every non-zero activity in the dep vector is an entry
--- from the caller's point of view.
-depEntriesAndEdges
-    :: Database -> Text -> U.Vector Double
-    -> ActivityFilter -> Bool -> Int
-    -> ([SupplyChainEntry], [SupplyChainEdge])
-depEntriesAndEdges db dbName supplyVec af includeEdges consumerDepth =
-    let minQ    = fromMaybe 0 (afMinQuantity af)
-        limit   = fromMaybe 100 (afLimit af)
-        offset  = fromMaybe 0 (afOffset af)
-        n       = U.length supplyVec
-        activeIdxs =
-            [ fromIntegral i :: ProcessId
-            | i <- [0 .. n - 1]
-            , abs (supplyVec U.! i) > minQ ]
-        qualify pid = dbName <> "::" <> processIdToText db pid
-        mkEntry pid =
-            let scalingFactor = supplyVec U.! fromIntegral (dbActivityIndex db V.! fromIntegral pid)
-                activity      = dbActivities db V.! fromIntegral pid
-            in SupplyChainEntry
-                { sceProcessId       = qualify pid
-                , sceDatabaseName    = dbName
-                , sceName            = activityName activity
-                , sceLocation        = activityLocation activity
-                , sceQuantity        = scalingFactor
-                , sceUnit            = activityUnit activity
-                , sceScalingFactor   = scalingFactor
-                , sceClassifications = activityClassification activity
-                , sceDepth           = consumerDepth + 1
-                , sceUpstreamCount   = 0
-                }
-        entries = take limit . drop offset $ map mkEntry activeIdxs
-        activeSet = S.fromList activeIdxs
-        edges =
-            if includeEdges
-            then U.foldl' (\acc (SparseTriple row col val) ->
-                    if S.member (fromIntegral row) activeSet && S.member (fromIntegral col) activeSet
-                    then SupplyChainEdge
-                            (qualify (fromIntegral row)) dbName
-                            (qualify (fromIntegral col)) dbName
-                            val : acc
-                    else acc
-                ) [] (dbTechnosphereTriples db)
-            else []
-    in (entries, edges)
+-- | BFS from a set of starting nodes (all at depth 0), returning node ->
+-- shortest distance. Used at dep levels where every entry activity that
+-- received direct cross-DB demand is a potential starting point.
+bfsDepthMulti :: [Int] -> IM.IntMap [Int] -> IM.IntMap Int
+bfsDepthMulti roots adj =
+    go (foldr (flip (|>)) Empty roots) (IM.fromList [(r, 0) | r <- roots])
+  where
+    go Empty visited = visited
+    go (node :<| queue) visited =
+        let depth = visited IM.! node
+            neighbors = IM.findWithDefault [] node adj
+            (queue', visited') = L.foldl' (\(q, v) n ->
+                if IM.member n v then (q, v)
+                else (q |> n, IM.insert n (depth + 1) v)
+                ) (queue, visited) neighbors
+        in go queue' visited'
 
 -- | BFS from root on adjacency list, returns IntMap of node -> shortest depth
 bfsDepth :: Int -> IM.IntMap [Int] -> IM.IntMap Int
