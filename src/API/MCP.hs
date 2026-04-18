@@ -516,7 +516,7 @@ callGetSupplyChain dbManager rid args =
                   Right []  -> do
                       -- Baseline path: root-only scaling is sufficient because
                       -- supply-chain navigation reads the root tech graph.
-                      result <- Service.getSupplyChain db solver pid af False
+                      result <- Service.getSupplyChain db dbName solver pid af False
                       case result of
                           Left err  -> return $ toolError rid (T.pack $ show err)
                           Right val -> return $ toolSuccessJson rid (toJSON val)
@@ -532,12 +532,13 @@ callGetSupplyChain dbManager rid args =
                                   -- supply chain navigates the root tech graph, which
                                   -- the substituted scaling already reflects.
                                   return $ toolSuccessJson rid $ toJSON $
-                                      Service.buildSupplyChainFromScalingVector db processId scalingVec af False
+                                      Service.buildSupplyChainFromScalingVector db dbName processId scalingVec af False
 
 -- | Generic SQL-group-by aggregation. One small primitive for "how much X is
 -- in Y" questions — replaces ad-hoc decomposition tools.
 callAggregate :: DatabaseManager -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callAggregate dbManager rid args (db, solver) =
+    let dbName = fromMaybe "" (textArg "database" args) in   -- already validated by withDb
     case textArg "process_id" args of
         Nothing -> return $ toolError rid "Missing required parameter: process_id"
         Just pid -> case scopeFromArg of
@@ -566,7 +567,7 @@ callAggregate dbManager rid args (db, solver) =
                             }
                     unitCfg <- DM.getMergedUnitConfig dbManager
                     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
-                    result <- Agg.aggregate unitCfg mFlows mUnits db solver (DM.mkDepSolverLookup dbManager) pid params
+                    result <- Agg.aggregate unitCfg mFlows mUnits db dbName solver (DM.mkDepSolverLookup dbManager) pid params
                     case result of
                         Left err  -> return $ toolError rid (T.pack $ show err)
                         Right agg -> return $ toolSuccessJson rid (toJSON agg)

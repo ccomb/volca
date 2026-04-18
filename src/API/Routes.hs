@@ -558,7 +558,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 , Service.afClassifications = classFilters, Service.afLimit = limitParam, Service.afOffset = offsetParam
                 , Service.afMaxDepth = maxDepthParam, Service.afMinQuantity = minQuantity
                 , Service.afSort = sortParam, Service.afOrder = orderParam }
-        result <- liftIO $ Service.getSupplyChain db sharedSolver processId af includeEdges
+        result <- liftIO $ Service.getSupplyChain db dbName sharedSolver processId af includeEdges
         case result of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
@@ -627,7 +627,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 }
         unitCfg <- liftIO $ getMergedUnitConfig dbManager
         (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-        result <- liftIO $ Agg.aggregate unitCfg mFlows mUnits db sharedSolver (DM.mkDepSolverLookup dbManager) processId params
+        result <- liftIO $ Agg.aggregate unitCfg mFlows mUnits db dbName sharedSolver (DM.mkDepSolverLookup dbManager) processId params
         case result of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
@@ -815,7 +815,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
         case scalingResult of
             Left err -> throwServiceError err
             Right (scalingVec, _virtualLinks) ->
-                pure $ Service.buildSupplyChainFromScalingVector db processId scalingVec af includeEdges
+                pure $ Service.buildSupplyChainFromScalingVector db dbName processId scalingVec af includeEdges
 
     -- Activity consumers endpoint (reverse supply chain)
     getActivityConsumers :: Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> [Text] -> [Text] -> [Text] -> Maybe Int -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Handler (SearchResults ConsumerResult)

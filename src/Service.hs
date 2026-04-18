@@ -1105,8 +1105,8 @@ getFlowActivities db flowIdText = do
 
 -- | Compute the supply chain for an activity using the scaling vector.
 -- Returns all upstream activities with their scaling factors and subgraph edges.
-getSupplyChain :: Database -> SharedSolver -> Text -> ActivityFilter -> Bool -> IO (Either ServiceError SupplyChainResponse)
-getSupplyChain db sharedSolver processIdText af includeEdges = do
+getSupplyChain :: Database -> Text -> SharedSolver -> Text -> ActivityFilter -> Bool -> IO (Either ServiceError SupplyChainResponse)
+getSupplyChain db dbName sharedSolver processIdText af includeEdges = do
     case resolveActivityAndProcessId db processIdText of
         Left err -> return $ Left err
         Right (processId, _rootActivity) -> do
@@ -1116,7 +1116,7 @@ getSupplyChain db sharedSolver processIdText af includeEdges = do
                     let activityIndex = dbActivityIndex db
                         demandVec = buildDemandVectorFromIndex activityIndex processId
                     supplyVec <- solveWithSharedSolver sharedSolver demandVec
-                    return $ Right $ buildSupplyChainFromScalingVector db processId supplyVec af includeEdges
+                    return $ Right $ buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges
 
 -- | Find the shortest supply chain path from a root process to the first upstream activity
 -- whose name contains the given substring (case-insensitive).
@@ -1177,12 +1177,14 @@ getPathTo db solver pidText target = do
 
 -- | Pure function: build a SupplyChainResponse from a scaling vector.
 -- Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
+-- Entries are tagged with @sceDatabaseName = dbName@; callers that want to
+-- expand cross-DB links should use 'buildSupplyChainFromScalingVectorCrossDB'.
 buildSupplyChainFromScalingVector
-    :: Database -> ProcessId -> U.Vector Double
+    :: Database -> Text -> ProcessId -> U.Vector Double
     -> ActivityFilter
     -> Bool  -- ^ include edges (expensive: extra pass over technosphere triples)
     -> SupplyChainResponse
-buildSupplyChainFromScalingVector db processId supplyVec af includeEdges =
+buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges =
     let minQ = fromMaybe 0 (afMinQuantity af)
         limit = fromMaybe 100 (afLimit af)
         offset = fromMaybe 0 (afOffset af)
@@ -1257,6 +1259,7 @@ buildSupplyChainFromScalingVector db processId supplyVec af includeEdges =
         mkEntry (pid, scalingFactor, activity) =
             SupplyChainEntry
                 { sceProcessId = processIdToText db pid
+                , sceDatabaseName = dbName
                 , sceName = activityName activity
                 , sceLocation = activityLocation activity
                 , sceQuantity = scalingFactor * rootRefAmount
@@ -1282,7 +1285,10 @@ buildSupplyChainFromScalingVector db processId supplyVec af includeEdges =
         edges = if includeEdges
             then U.foldl' (\acc (SparseTriple row col val) ->
                     if S.member (fromIntegral row) allIndices && S.member (fromIntegral col) allIndices
-                    then SupplyChainEdge (processIdToText db (fromIntegral row)) (processIdToText db (fromIntegral col)) val : acc
+                    then SupplyChainEdge
+                            (processIdToText db (fromIntegral row)) dbName
+                            (processIdToText db (fromIntegral col)) dbName
+                            val : acc
                     else acc
                  ) [] (dbTechnosphereTriples db)
             else []

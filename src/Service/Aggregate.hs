@@ -129,12 +129,13 @@ aggregate
     -> FlowDB              -- merged (root + deps) for biosphere scope
     -> UnitDB              -- merged (root + deps) for biosphere scope
     -> Database
+    -> Text                -- root DB name (for tagging supply-chain entries)
     -> SharedSolver
     -> DepSolverLookup     -- cross-DB lookup for ScopeBiosphere
     -> Text                -- processId text
     -> AggregateParams
     -> IO (Either ServiceError Aggregation)
-aggregate unitConfig flowDB unitDB db solver depLookup pidText params =
+aggregate unitConfig flowDB unitDB db dbName solver depLookup pidText params =
     case resolveActivityAndProcessId db pidText of
         Left err -> return (Left err)
         Right (processId, activity) ->
@@ -145,7 +146,7 @@ aggregate unitConfig flowDB unitDB db solver depLookup pidText params =
                     let demandVec = buildDemandVectorFromIndex (dbActivityIndex db) processId
                     supplyVec <- solveWithSharedSolver solver demandVec
                     let af = (emptyFilter (apMaxDepth params))
-                        response = buildSupplyChainFromScalingVector db processId supplyVec af False
+                        response = buildSupplyChainFromScalingVector db dbName processId supplyVec af False
                     return $ Right $ reduce params (rowsFromSupplyChain response)
                 ScopeBiosphere -> do
                     invE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db solver processId

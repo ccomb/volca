@@ -508,9 +508,13 @@ data SupplyChainResponse = SupplyChainResponse
     }
     deriving (Generic)
 
--- | A single entry in the supply chain
+-- | A single entry in the supply chain. @sceProcessId@ is bare for entries
+-- from the root DB and qualified (@"dbName::pid"@) for entries reached via
+-- a cross-DB link. @sceDatabaseName@ carries the same information in a
+-- dedicated field so the UI can render a Database column without parsing.
 data SupplyChainEntry = SupplyChainEntry
     { sceProcessId :: Text
+    , sceDatabaseName :: Text      -- database the entry lives in
     , sceName :: Text
     , sceLocation :: Text
     , sceQuantity :: Double       -- scalingFactor × root reference product amount (physical amount per functional unit)
@@ -525,7 +529,9 @@ data SupplyChainEntry = SupplyChainEntry
 -- | An edge in the upstream supply chain subgraph
 data SupplyChainEdge = SupplyChainEdge
     { sceEdgeFrom   :: Text    -- supplier processId
+    , sceEdgeFromDb :: Text    -- supplier database name
     , sceEdgeTo     :: Text    -- consumer processId
+    , sceEdgeToDb   :: Text    -- consumer database name
     , sceEdgeAmount :: Double  -- technosphere coefficient
     }
     deriving (Generic)
@@ -542,12 +548,13 @@ newtype SubstitutionRequest = SubstitutionRequest
 -- Each field is a 'ProcessId' text, either in the bare form
 -- @"actUUID_prodUUID"@ (resolved in the URL's database, i.e. the root DB)
 -- or in the cross-DB qualified form @"dbName::actUUID_prodUUID"@ (resolved
--- against the named dep DB). See 'parseSubRef'. @subConsumer@ must live in
--- the root DB — a qualified consumer is rejected at the handler level.
+-- against the named dep DB). See 'parseSubRef'. @subConsumer@ may live in
+-- the root DB (bare) or in any loaded and reachable dep DB (qualified);
+-- the per-level applicator will dispatch to the right database.
 data Substitution = Substitution
     { subFrom     :: Text  -- Original supplier ProcessId (bare or dbName::pid)
     , subTo       :: Text  -- Replacement supplier ProcessId (bare or dbName::pid)
-    , subConsumer :: Text  -- Consumer activity ProcessId (root DB only)
+    , subConsumer :: Text  -- Consumer activity ProcessId (bare or dbName::pid)
     }
     deriving (Generic)
 
