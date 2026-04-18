@@ -1,11 +1,14 @@
 -- | Typo- and stem-tolerant query expansion for BM25.
 --
 -- Pipeline per query token:
---   1. If the token is already in the BM25 vocabulary, pass through at weight 1.0.
---   2. Otherwise try edit-distance candidates (weight 0.5) — handles typos.
+--   1. If the token is already in the BM25 vocabulary, include it at weight 1.0.
+--   2. Also try edit-distance candidates (weight 0.5) — handles typos and
+--      orthographic variants (e.g. trellis ↔ treillis) even when the exact
+--      token is in the vocabulary. Exact still ranks first thanks to the
+--      2× IDF gap.
 --   3. If edit distance finds nothing, try prefix-coverage (weight 0.7) —
 --      handles stems like "electr" → "electricity".
---   4. Still nothing: the token is dropped.
+--   4. If nothing matches at any stage, the token is dropped.
 --
 -- The trigram index on BM25Index acts as a cheap prefilter so we only compute
 -- edit distance against plausible candidates, not the whole vocabulary.
@@ -63,12 +66,13 @@ expandTokens idx = concat . expandTokensGrouped idx
 expandTokensGrouped :: BM25Index -> [Text] -> [[(Text, Double)]]
 expandTokensGrouped idx = map expand
   where
-    expand t
-      | t `M.member` bm25Postings idx = [(t, 1.0)]
-      | otherwise =
-          case editCandidates idx t of
-              edits@(_:_) -> [(c, fuzzyWeight)  | c <- take topN edits]
-              []          -> [(c, prefixWeight) | c <- take topN (prefixCandidates idx t)]
+    expand t =
+        let inVocab = t `M.member` bm25Postings idx
+            exact   = [(t, 1.0) | inVocab]
+            variants = case editCandidates idx t of
+                edits@(_ : _) -> [(c, fuzzyWeight)  | c <- take topN edits,                      c /= t]
+                []            -> [(c, prefixWeight) | c <- take topN (prefixCandidates idx t),   c /= t]
+        in exact ++ variants
 
 -- | Candidate tokens within the permitted edit distance of the query.
 -- Uses the trigram index as a prefilter: only tokens sharing at least

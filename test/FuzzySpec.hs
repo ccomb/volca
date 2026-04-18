@@ -83,3 +83,14 @@ spec = describe "Search.Fuzzy" $ do
         let idx = indexOfNames ["yaourt nature", "viande de porc"]
         expandTokens idx ["viande", "yaourtt"]
             `shouldBe` [("viande", 1.0), ("yaourt", 0.5)]
+
+    it "returns exact + close variants when both are in vocabulary (trellis/treillis)" $ do
+        -- Real Agribalyse case: two activities use the English and French
+        -- spellings. A search for either must surface both; exact ranks first
+        -- via the 1.0 vs 0.5 weight gap.
+        let idx = indexOfNames
+                [ "trellis system wooden poles"
+                , "treillis system wooden poles"
+                ]
+        expandTokens idx ["trellis"]  `shouldBe` [("trellis", 1.0),  ("treillis", 0.5)]
+        expandTokens idx ["treillis"] `shouldBe` [("treillis", 1.0), ("trellis",  0.5)]
