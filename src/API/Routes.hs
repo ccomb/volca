@@ -7,7 +7,7 @@
 module API.Routes where
 
 import qualified Matrix
-import Matrix (Inventory, computeProcessLCIAContributions)
+import Matrix (Inventory)
 import SharedSolver (SharedSolver)
 import qualified SharedSolver
 import Method.Mapping (computeLCIAScoreFromTables, inventoryContributions, MatchStrategy(..), MappingStats(..), computeMappingStats)
@@ -201,6 +201,47 @@ inventoriesWithDeps dbManager dbName db solver pids = do
     case res of
         Right invs -> pure invs
         Left err   -> throwError err422{errBody = BSL.fromStrict $ T.encodeUtf8 err}
+
+-- | Build an 'ActivityContribution' row from a cross-DB contribution key
+-- @(depDbName, pid)@. For dep-DB rows the process ID is qualified as
+-- @"dbName::actUUID_prodUUID"@ — same convention as
+-- 'Service.hs' (activity-detail endpoint) so the UI's existing
+-- cross-DB navigation handles it. Root-DB rows keep the bare @pid@ form.
+mkCrossDBContrib
+    :: DatabaseManager
+    -> Text          -- ^ root DB name
+    -> FlowDB        -- ^ merged flowDB
+    -> UnitDB        -- ^ merged unitDB
+    -> Double        -- ^ total score (for share %)
+    -> ((Text, ProcessId), Double)
+    -> IO ActivityContribution
+mkCrossDBContrib dbManager rootDbName flowDB unitDB score ((depDbName, pid), c) = do
+    mLd <- DM.getDatabase dbManager depDbName
+    pure $ case mLd of
+        Just ld ->
+            let d       = ldDatabase ld
+                mAct    = Service.findActivityByProcessId d pid
+                pidText = if depDbName == rootDbName
+                            then processIdToText d pid
+                            else depDbName <> "::" <> processIdToText d pid
+                (prodName, _, _) = maybe ("", 0, "") (Service.getReferenceProductInfo flowDB unitDB) mAct
+            in ActivityContribution
+                { acProcessId    = pidText
+                , acActivityName = maybe "" activityName mAct
+                , acProductName  = prodName
+                , acLocation     = maybe "" activityLocation mAct
+                , acContribution = c
+                , acSharePct     = if score /= 0 then c / score * 100 else 0
+                }
+        Nothing ->
+            ActivityContribution
+                { acProcessId    = depDbName <> "::<unloaded>"
+                , acActivityName = ""
+                , acProductName  = ""
+                , acLocation     = ""
+                , acContribution = c
+                , acSharePct     = if score /= 0 then c / score * 100 else 0
+                }
 
 
 -- | Helper function to validate ProcessId and lookup activity
@@ -918,42 +959,28 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
             Right (actProcessId, _) -> do
                 let lim = fromMaybe 10 limitParam
+                requireFullyLinked dbName db
                 unitCfg <- liftIO $ getMergedUnitConfig dbManager
                 (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-                -- Score over cross-DB-merged inventory so the total matches the
-                -- /impacts endpoint. Per-activity contributions below are still
-                -- root-DB-scoped because computeProcessLCIAContributions uses
-                -- the root technosphere/biosphere matrix shape. A future plan
-                -- will extend contributions across dep DBs.
-                inventory <- inventoryWithDeps dbManager dbName db sharedSolver actProcessId
-                scalingVec <- liftIO $ SharedSolver.computeScalingVectorCached db sharedSolver actProcessId
                 tables   <- liftIO $ DM.mapMethodToTablesCached dbManager dbName db method
-                mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName db method
-                let score = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
-                    cfMap = M.fromList [(flowId f, mcfValue cf) | (cf, Just (f, _)) <- mappings]
-                    contributions = computeProcessLCIAContributions db scalingVec cfMap
-                    sorted = sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
-                    mkContrib (pid, c) =
-                        let mAct    = Service.findActivityByProcessId db pid
-                            actName = maybe "" activityName mAct
-                            actLoc  = maybe "" activityLocation mAct
-                            prodName = case mAct of
-                                Just act -> let (pn, _, _) = Service.getReferenceProductInfo mFlows mUnits act in pn
-                                Nothing  -> ""
-                        in ActivityContribution
-                            { acProcessId    = processIdToText db pid
-                            , acActivityName = actName
-                            , acProductName  = prodName
-                            , acLocation     = actLoc
-                            , acContribution = c
-                            , acSharePct     = if score /= 0 then c / score * 100 else 0
+                -- Skip separate inventory compute: contributions sum equals the
+                -- score (same B·scaling·CF sum, just grouped per activity).
+                eContribs <- liftIO $ SharedSolver.crossDBProcessContributions
+                    unitCfg mUnits mFlows (DM.mkDepSolverLookup dbManager)
+                    db dbName sharedSolver actProcessId tables
+                case eContribs of
+                    Left err -> throwError err422 { errBody = BSL.fromStrict $ T.encodeUtf8 err }
+                    Right contributions -> do
+                        let score  = sum (M.elems contributions)
+                            sorted = sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
+                            top    = take lim sorted
+                        rows <- liftIO $ mapM (mkCrossDBContrib dbManager dbName mFlows mUnits score) top
+                        return ContributingActivitiesResult
+                            { carMethod     = methodName method
+                            , carUnit       = methodUnit method
+                            , carTotalScore = score
+                            , carActivities = rows
                             }
-                return ContributingActivitiesResult
-                    { carMethod     = methodName method
-                    , carUnit       = methodUnit method
-                    , carTotalScore = score
-                    , carActivities = map mkContrib (take lim sorted)
-                    }
 
     -- Helper: compute LCIA result for a single method against an inventory
     computeCategoryResult :: Text -> Database -> Activity -> Int -> Inventory -> Method -> IO LCIAResult

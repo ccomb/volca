@@ -30,7 +30,8 @@ module SharedSolver (
     -- * Cross-database back-substitution
     DepSolverLookup,
     computeInventoryMatrixWithDepsCached,
-    computeInventoryMatrixBatchWithDepsCached
+    computeInventoryMatrixBatchWithDepsCached,
+    crossDBProcessContributions
 ) where
 
 import Control.Concurrent.Async (mapConcurrently)
@@ -43,6 +44,7 @@ import Data.Text (Text)
 import Progress
 import Types
 import UnitConversion (UnitConfig)
+import Method.Mapping (MethodTables, processContributionsFromTables)
 import Matrix
     ( Vector
     , Inventory
@@ -251,3 +253,67 @@ resolveDep unitConfig depLookup perRootDepDemands depth k depDbName = do
             in case depVecsE of
                 Left err           -> pure (Left err)
                 Right depDemandVecs -> goWithDeps unitConfig depLookup depDb depSolver depDemandVecs (depth + 1)
+
+-- | Cross-DB per-activity LCIA contributions. Walks the same dep graph as
+-- 'goWithDeps' but attributes contributions per @(dbName, localPid)@ instead
+-- of summing a biosphere inventory. At each DB visited we solve its scaling
+-- vector, run 'processContributionsFromTables' against the merged flow/unit
+-- metadata + 'MethodTables', then propagate dep demands via
+-- 'accumulateDepDemands' / 'depDemandsToVector' exactly as the inventory
+-- path does. Result keys are qualified by DB so the same local ProcessId in
+-- different DBs never collides; the caller formats them into "dbName::pid"
+-- for the wire when the DB differs from the root.
+crossDBProcessContributions
+    :: UnitConfig
+    -> UnitDB
+    -> FlowDB
+    -> DepSolverLookup
+    -> Database                  -- ^ root DB
+    -> Text                      -- ^ root DB name
+    -> SharedSolver              -- ^ root solver
+    -> ProcessId                 -- ^ root functional unit
+    -> MethodTables
+    -> IO (Either Text (M.Map (Text, ProcessId) Double))
+crossDBProcessContributions unitConfig unitDB flowDB depLookup rootDb rootName rootSolver rootPid tables =
+    go rootDb rootName rootSolver
+       [buildDemandVectorFromIndex (dbActivityIndex rootDb) rootPid]
+       0
+  where
+    go :: Database -> Text -> SharedSolver -> [Vector] -> Int
+       -> IO (Either Text (M.Map (Text, ProcessId) Double))
+    go db dbName solver demands depth = do
+        scalings <- solveMultiWithSharedSolver solver demands
+        -- attribute each root demand's contributions to this DB's activities;
+        -- sum across demands (we currently only call with K=1, but keep the
+        -- shape aligned with goWithDeps for future batching).
+        let localByRoot = map (\s -> processContributionsFromTables unitConfig unitDB flowDB db s tables) scalings
+            localTagged = M.mapKeys ((,) dbName) (foldr (M.unionWith (+)) M.empty localByRoot)
+        if depth >= maxDepsDepth
+            then pure (Right localTagged)
+            else do
+                let perRootDepDemands = map (accumulateDepDemands db) scalings
+                    allDepDbs         = S.toList $ S.unions $ map M.keysSet perRootDepDemands
+                if null allDepDbs
+                    then pure (Right localTagged)
+                    else do
+                        depResults <- mapConcurrently (resolveDepContribs perRootDepDemands depth) allDepDbs
+                        pure $ case sequence depResults of
+                            Left err      -> Left err
+                            Right depMaps ->
+                                Right $ foldr (M.unionWith (+)) localTagged depMaps
+
+    resolveDepContribs
+        :: [M.Map Text (M.Map (UUID, UUID) (Double, Text))]
+        -> Int
+        -> Text
+        -> IO (Either Text (M.Map (Text, ProcessId) Double))
+    resolveDepContribs perRootDepDemands depth depDbName = do
+        depM <- depLookup depDbName
+        case depM of
+            Nothing             -> pure (Right M.empty)  -- dep DB not loaded; root-level gate should have caught this
+            Just (depDb, depSolver) ->
+                let demandsPerRoot = map (M.findWithDefault M.empty depDbName) perRootDepDemands
+                    depVecsE       = traverse (depDemandsToVector unitConfig depDbName depDb) demandsPerRoot
+                in case depVecsE of
+                    Left err           -> pure (Left err)
+                    Right depDemandVecs -> go depDb depDbName depSolver depDemandVecs (depth + 1)

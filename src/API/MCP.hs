@@ -31,16 +31,15 @@ import qualified Database.Manager as DM
 import qualified API.Resources as R
 import API.Resources (Resource, Param(..), ParamKind(..))
 
-import Matrix (computeProcessLCIAContributions)
 import Method.Mapping (computeLCIAScoreFromTables, inventoryContributions, computeMappingStats, MappingStats(..))
 import Progress (reportProgress, ProgressLevel(Warning))
 import Control.Monad (unless)
 import Method.Types (Method(..), MethodCF(..), FlowDirection(..))
 import Plugin.Types ()
-import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
+import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached, crossDBProcessContributions)
 import qualified Data.List as L
 import qualified Service
-import Types (Database(..), Activity(..), Indexes(..), FlowType(..), activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText, exchangeIsInput, unresolvedCount)
+import Types (Database(..), Activity(..), Indexes(..), FlowDB, FlowType(..), ProcessId, UnitDB, activityName, activityLocation, flowName, flowId, flowCategory, flowSubcompartment, getUnitNameForFlow, processIdToText, exchangeIsInput, unresolvedCount)
 import API.Types (InventoryExport(..), InventoryFlowDetail(..), ClassificationSystem(..), ActivityInfo(..), ActivityForAPI(..), ExchangeWithUnit(..))
 import qualified Service.Aggregate as Agg
 import UnitConversion (defaultUnitConfig)
@@ -796,6 +795,45 @@ callGetCharacterization dbManager rid args =
     matchQuery Nothing _ _ = True
     matchQuery (Just q) cfName dbFlowName = T.isInfixOf q (T.toLower cfName) || T.isInfixOf q (T.toLower dbFlowName)
 
+-- | Build the MCP JSON object for a cross-DB activity contribution. Dep-DB
+-- process IDs are qualified as @"dbName::actUUID_prodUUID"@ — same convention
+-- as the activity-detail endpoint, so the @web_url@ round-trips.
+mkMcpCrossDBEntry
+    :: DatabaseManager
+    -> Text      -- ^ root DB name
+    -> Text      -- ^ base URL
+    -> Text      -- ^ method collection name
+    -> Text      -- ^ method UUID text
+    -> FlowDB
+    -> UnitDB
+    -> Double    -- ^ total score (for share %)
+    -> ((Text, ProcessId), Double)
+    -> IO Value
+mkMcpCrossDBEntry dbManager rootDbName baseUrl colName methodIdText flowDB unitDB score ((depDbName, pid), c) = do
+    mLd <- getDatabase dbManager depDbName
+    let (actName, actLoc, prodName, pidText) = case mLd of
+            Just ld ->
+                let d    = ldDatabase ld
+                    mAct = Service.findActivityByProcessId d pid
+                    txt  = if depDbName == rootDbName
+                              then processIdToText d pid
+                              else depDbName <> "::" <> processIdToText d pid
+                    (pn, _, _) = maybe ("", 0, "") (Service.getReferenceProductInfo flowDB unitDB) mAct
+                in  (maybe "" activityName mAct, maybe "" activityLocation mAct, pn, txt)
+            Nothing ->
+                ("", "", "", depDbName <> "::<unloaded>")
+        procWebUrl = baseUrl <> "/db/" <> rootDbName <> "/activity/" <> pidText
+                  <> "/contributing-activities/" <> encodeSegment colName <> "/" <> methodIdText
+    pure $ object
+        [ "process_id"           .= pidText
+        , "activity_name"        .= actName
+        , "product_name"         .= prodName
+        , "location"             .= actLoc
+        , "contribution"         .= c
+        , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
+        , "web_url"              .= procWebUrl
+        ]
+
 -- | Helper: resolve method from UUID text, also returning its collection name
 resolveMethod :: DatabaseManager -> Text -> IO (Either Text (Text, Method))
 resolveMethod dbManager methodIdText =
@@ -894,9 +932,6 @@ callGetContributingActivities dbManager baseUrl rid args =
                                         lim     = fromMaybe 10 (intArg "limit" args)
                                     unitCfg    <- DM.getMergedUnitConfig dbManager
                                     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
-                                    -- Score over cross-DB-merged inventory so total matches /impacts.
-                                    -- Per-activity contributions (computeProcessLCIAContributions)
-                                    -- remain root-DB-scoped; dep-DB activities are a future plan.
                                     let unresolved = unresolvedCount (dbLinkingStats db)
                                     if unresolved > 0
                                       then return $ toolError rid $
@@ -904,44 +939,25 @@ callGetContributingActivities dbManager baseUrl rid args =
                                           <> T.pack (show unresolved)
                                           <> " unresolved cross-DB products. Load the missing dependency databases and re-link before computing contributions."
                                       else do
-                                        invE <- computeInventoryMatrixWithDepsCached
-                                            unitCfg (DM.mkDepSolverLookup dbManager) db (ldSharedSolver ld) processId
-                                        case invE of
+                                        tables <- DM.mapMethodToTablesCached dbManager dbName db method
+                                        -- Skip separate inventory compute: contributions sum equals the score.
+                                        eContribs <- crossDBProcessContributions
+                                            unitCfg mUnits mFlows (DM.mkDepSolverLookup dbManager)
+                                            db dbName (ldSharedSolver ld) processId tables
+                                        case eContribs of
                                           Left err -> return $ toolError rid err
-                                          Right inventory -> do
-                                            scalingVec <- computeScalingVectorCached db (ldSharedSolver ld) processId
-                                            tables   <- DM.mapMethodToTablesCached dbManager dbName db method
-                                            mappings <- DM.mapMethodToFlowsCached dbManager dbName db method
-                                            let score         = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
-                                                cfMap         = M.fromList [(flowId f, mcfValue cf) | (cf, Just (f, _)) <- mappings]
-                                                contributions = computeProcessLCIAContributions db scalingVec cfMap
-                                                sorted        = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
-                                                top           = take lim sorted
-                                                hasNeg        = any (\(_, c) -> c < 0) top
-                                                mkEntry (pid, c) =
-                                                    let mAct    = Service.findActivityByProcessId db pid
-                                                        actName = maybe "" activityName mAct
-                                                        actLoc  = maybe "" activityLocation mAct
-                                                        prodName = case mAct of
-                                                            Just act -> let (pn, _, _) = Service.getReferenceProductInfo mFlows mUnits act in pn
-                                                            Nothing  -> ""
-                                                        pidText' = processIdToText db pid
-                                                        procWebUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> pidText' <> "/contributing-activities/" <> encodeSegment colName <> "/" <> methodIdText
-                                                    in object
-                                                        [ "process_id"           .= pidText'
-                                                        , "activity_name"        .= actName
-                                                        , "product_name"         .= prodName
-                                                        , "location"             .= actLoc
-                                                        , "contribution"         .= c
-                                                        , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
-                                                        , "web_url"              .= procWebUrl
-                                                        ]
+                                          Right contributions -> do
+                                            let score  = sum (M.elems contributions)
+                                                sorted = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
+                                                top    = take lim sorted
+                                                hasNeg = any (\(_, c) -> c < 0) top
+                                            rows <- mapM (mkMcpCrossDBEntry dbManager dbName baseUrl colName methodIdText mFlows mUnits score) top
                                             return $ toolSuccessJson rid $ object
                                                 [ "method"                     .= methodName method
                                                 , "unit"                       .= methodUnit method
                                                 , "total_score"                .= score
                                                 , "has_negative_contributions" .= hasNeg
-                                                , "processes"                  .= map mkEntry top
+                                                , "processes"                  .= rows
                                                 ]
 
 callListGeographies :: DatabaseManager -> Value -> KeyMap Value -> IO Value

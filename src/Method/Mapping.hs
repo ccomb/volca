@@ -18,6 +18,7 @@ module Method.Mapping
     , computeLCIAScore
     , computeLCIAScoreFromTables
     , inventoryContributions
+    , processContributionsFromTables
       -- * Matching strategies
     , MatchStrategy(..)
     , strategyFromText
@@ -38,9 +39,13 @@ import Data.Maybe (isNothing, fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as U
+import qualified Data.Vector.Unboxed.Mutable as MU
 
+import qualified Matrix
 import Matrix (Inventory)
-import Types (Database(..), Flow(..), FlowDB, Unit(..), UnitDB)
+import Types (Database(..), Flow(..), FlowDB, ProcessId, SparseTriple(..), Unit(..), UnitDB)
 import Method.Types
 import UnitConversion (UnitConfig, convertUnit)
 import Plugin.Types (MapperHandle(..), MapContext(..), MapQuery(..), MapResult(..))
@@ -322,6 +327,82 @@ inventoryContributions unitConfig unitDB flowDB inventory tables =
                                     else fromMaybe qty (convertUnit unitConfig flowUnit cfUnit qty)
                         contribution = converted * cfVal
                     in ((flow, cfVal, contribution) : contribs, unknowns)
+
+    lookupCF fid flow = case M.lookup fid (mtUuidCF tables) of
+        Just cfv -> Just cfv
+        Nothing ->
+            let name    = normalizeName (flowName flow)
+                baseMed = normalizeMedium . T.takeWhile (/= '/') . T.toLower $ flowCategory flow
+                subcomp = T.toLower $ fromMaybe "" (flowSubcompartment flow)
+                exact   = M.lookup (name, baseMed, subcomp) (mtExactCF tables)
+            in case exact of
+                Just _  -> exact
+                Nothing -> M.lookup (name, baseMed) (mtFallbackCF tables)
+
+    normalizeMedium m
+        | m == "natural resource" = "resource"
+        | otherwise               = m
+
+-- | Per-process LCIA contributions for one DB + one method, driven by
+-- 'MethodTables' + a merged 'FlowDB'. Mirrors
+-- 'Matrix.computeProcessLCIAContributions' but lets dep-DB flows land a CF
+-- via (name, medium, subcompartment) fallback — same lookup path as
+-- 'inventoryContributions' — so this helper can be called per-DB while
+-- walking a cross-DB dependency graph and still characterize every flow.
+--
+-- Iterates @dbBiosphereTriples db@; for each @(flowRow, colIdx, bioVal)@ it
+-- attributes @bioVal * scaling[col] * CF@ (in the method's unit, after
+-- flow-unit → CF-unit conversion) to the process owning @colIdx@.
+processContributionsFromTables
+    :: UnitConfig -> UnitDB -> FlowDB
+    -> Database
+    -> Matrix.Vector
+    -> MethodTables
+    -> M.Map ProcessId Double
+processContributionsFromTables unitConfig unitDB flowDB db scalingVec tables =
+    U.foldl' step M.empty (dbBiosphereTriples db)
+  where
+    actIdx     = dbActivityIndex db
+    bioFlows   = dbBiosphereFlows db
+    nFlows     = V.length bioFlows
+    nActs      = V.length actIdx
+
+    -- Precompute the effective CF (CF value × flow→CF unit conversion factor)
+    -- per biosphere-matrix row so the triple loop becomes pure arithmetic.
+    -- O(|bioFlows|) once, vs O(|triples| × map-lookups) before.
+    effectiveCF :: U.Vector Double
+    effectiveCF = U.generate nFlows $ \i ->
+        let flowUUID = bioFlows V.! i
+        in case M.lookup flowUUID flowDB of
+            Nothing   -> 0
+            Just flow -> case lookupCF flowUUID flow of
+                Nothing -> 0
+                Just (cfVal, cfUnit) ->
+                    let flowUnit = maybe "" unitName (M.lookup (flowUnitId flow) unitDB)
+                        factor = if flowUnit == cfUnit || T.null cfUnit then 1.0
+                                 else fromMaybe 1.0 (convertUnit unitConfig flowUnit cfUnit 1.0)
+                    in factor * cfVal
+
+    -- Invert dbActivityIndex (pid -> col) into (col -> pid) as an unboxed
+    -- vector for O(1) per-triple lookup. Assumes matrix cols are dense in
+    -- [0..nActs-1], which matches the existing index construction.
+    colToProc :: U.Vector Int
+    colToProc = U.create $ do
+        mv <- MU.replicate nActs (-1 :: Int)
+        V.imapM_ (\pid col -> MU.write mv (fromIntegral col) pid) actIdx
+        pure mv
+
+    step acc (SparseTriple flowRow colIdx bioVal) =
+        let cf = effectiveCF U.! fromIntegral flowRow
+        in if cf == 0
+              then acc
+              else let colI = fromIntegral colIdx :: Int
+                       pid  = colToProc U.! colI
+                   in if pid < 0
+                          then acc
+                          else let scale = scalingVec U.! colI
+                                   pid'  = fromIntegral pid :: ProcessId
+                               in M.insertWith (+) pid' (bioVal * scale * cf) acc
 
     lookupCF fid flow = case M.lookup fid (mtUuidCF tables) of
         Just cfv -> Just cfv
