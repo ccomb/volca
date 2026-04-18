@@ -13,9 +13,11 @@ module Search.BM25
     ) where
 
 import Data.Foldable (foldl')
+import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Unboxed.Mutable as VUM
@@ -24,7 +26,7 @@ import Control.Monad (forM_)
 
 import Search.Normalize (tokenize)
 import Search.BM25.Types (BM25Index(..))
-import Types (Activity, Database(..), Flow, activityName, activityLocation, exchanges, exchangeIsReference, exchangeIsInput, exchangeFlowId, flowName)
+import Types (Activity, Database(..), Flow, activityName, exchanges, exchangeIsReference, exchangeIsInput, exchangeFlowId, flowName)
 import Data.UUID (UUID)
 
 -- | Populate the BM25 index field on a Database. Called after
@@ -40,7 +42,9 @@ b :: Double
 b = 0.75
 
 -- | Build the BM25 index for a vector of activities.
--- Document text per activity = activity name + location + reference product name.
+-- Document text per activity = activity name + reference product name.
+-- Location is intentionally excluded: it's a structured filter (geoParam),
+-- not a ranking signal.
 buildIndex :: V.Vector Activity -> Map UUID Flow -> BM25Index
 buildIndex activities flowDb =
     let n = V.length activities
@@ -68,18 +72,49 @@ buildIndex activities flowDb =
             prepend new old = new ++ old
 
         toVector = VU.fromList . reverse
+        postings = M.map toVector postingsMap
+
+        -- Vocabulary: ordered vector of distinct tokens. Token IDs = positions.
+        vocabulary :: V.Vector Text
+        vocabulary = V.fromList (M.keys postings)
+
+        -- Trigram inverted index: 3-char substring → sorted vector of token IDs.
+        trigramPairs :: [(Text, Int32)]
+        trigramPairs =
+            [ (tg, tid)
+            | (tid, tok) <- zip [0 ..] (V.toList vocabulary)
+            , tg <- tokenTrigrams tok
+            ]
+
+        trigramMap :: Map Text [Int32]
+        trigramMap = foldl' (\m (tg, tid) -> M.insertWith (++) tg [tid] m) M.empty trigramPairs
+
+        trigrams :: Map Text (VU.Vector Int32)
+        trigrams = M.map (VU.fromList . reverse) trigramMap
     in BM25Index
-        { bm25Postings   = M.map toVector postingsMap
+        { bm25Postings   = postings
         , bm25DocLengths = docLengths
         , bm25AvgDL      = avgDL
         , bm25DocCount   = n
+        , bm25Vocabulary = vocabulary
+        , bm25Trigrams   = trigrams
         }
 
--- | Extract searchable tokens for one activity: name + location + reference product name(s).
+-- | Extract the set of 3-char substrings of a token. Empty for tokens < 3 chars.
+tokenTrigrams :: Text -> [Text]
+tokenTrigrams t
+    | T.length t < 3 = []
+    | otherwise =
+        let go s
+              | T.length s < 3 = []
+              | otherwise      = T.take 3 s : go (T.drop 1 s)
+            raw = go t
+        in M.keys (M.fromList [(tg, ()) | tg <- raw])  -- dedupe
+
+-- | Extract searchable tokens for one activity: name + reference product name(s).
 documentTokens :: Map UUID Flow -> Activity -> [Text]
 documentTokens flowDb a =
     tokenize (activityName a)
-    ++ tokenize (activityLocation a)
     ++ concatMap productTokens (exchanges a)
   where
     productTokens ex
@@ -93,22 +128,24 @@ documentTokens flowDb a =
 termFreqs :: [Text] -> Map Text Int
 termFreqs = foldl' (\m t -> M.insertWith (+) t 1 m) M.empty
 
--- | Score all documents against a list of (already-normalized) query terms.
+-- | Score all documents against a weighted list of query terms. Each term's
+-- IDF contribution is multiplied by the supplied weight. Terms appearing more
+-- than once keep the maximum weight (exact > fuzzy).
 -- Returns a dense vector of scores indexed by docId. Documents not matching
 -- any query term score 0.
-score :: BM25Index -> [Text] -> VU.Vector Double
-score idx queryTerms = runST $ do
+score :: BM25Index -> [(Text, Double)] -> VU.Vector Double
+score idx weightedTerms = runST $ do
     acc <- VUM.replicate (bm25DocCount idx) 0.0
-    let uniqueTerms = M.keys (termFreqs queryTerms)  -- dedupe, IDF per distinct term
-        n = fromIntegral (bm25DocCount idx) :: Double
+    let termWeights = M.fromListWith max weightedTerms
+        nDocs = fromIntegral (bm25DocCount idx) :: Double
         avgdl = bm25AvgDL idx
         dlFor i = fromIntegral (bm25DocLengths idx VU.! i) :: Double
-    forM_ uniqueTerms $ \t ->
+    forM_ (M.toList termWeights) $ \(t, w) ->
         case M.lookup t (bm25Postings idx) of
             Nothing -> pure ()
             Just postings -> do
                 let df = fromIntegral (VU.length postings) :: Double
-                    idf = log ((n - df + 0.5) / (df + 0.5) + 1)
+                    idf = w * log ((nDocs - df + 0.5) / (df + 0.5) + 1)
                 VU.forM_ postings $ \(docId, tf) -> do
                     let tfd = fromIntegral tf :: Double
                         dl = dlFor docId

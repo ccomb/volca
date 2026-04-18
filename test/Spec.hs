@@ -34,6 +34,7 @@ import qualified EcoSpold1Spec
 import qualified MCPSchemaSpec
 import qualified NormalizeSpec
 import qualified BM25Spec
+import qualified FuzzySpec
 import qualified NestedSubstitutionSpec
 
 main :: IO ()
@@ -68,4 +69,5 @@ main = hspec $ do
         describe "MCP Tool Schemas" MCPSchemaSpec.spec
         describe "Search.Normalize" NormalizeSpec.spec
         describe "Search.BM25" BM25Spec.spec
+        describe "Search.Fuzzy" FuzzySpec.spec
         describe "Nested Substitutions" NestedSubstitutionSpec.spec

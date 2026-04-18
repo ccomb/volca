@@ -11,8 +11,9 @@ import Matrix (Inventory, accumulateDepDemandsWith, activityNormalizationFactor,
 import qualified Matrix.Export as MatrixExport
 import SharedSolver (SharedSolver, solveWithSharedSolver, getFactorization)
 import qualified SharedSolver
-import Database (findActivitiesByFields, findFlowsBySynonym)
+import Database (findActivitiesByFields, findFlowsBySynonym, applyStructuredFilters)
 import qualified Search.BM25 as BM25
+import qualified Search.Fuzzy as Fuzzy
 import qualified Search.Normalize as Normalize
 import Tree (buildLoopAwareTree)
 import Types
@@ -744,37 +745,54 @@ searchFlows db (Just query) langParam limitParam offsetParam sortParam orderPara
     let searchTimeMs = realToFrac (diffUTCTime endTime startTime) * 1000 :: Double
     return $ Right $ toJSON $ SearchResults flowResults total offset limit hasMore searchTimeMs
 
--- | Sort (processId, activity) pairs by BM25 score descending, using the
--- activity-name query. Docs with score 0 fall to the end in arbitrary order.
-bm25Order :: Database -> Maybe Text -> [(ProcessId, Activity)] -> [(ProcessId, Activity)]
-bm25Order db mQuery results =
-    case (mQuery, dbBM25Index db) of
-        (Just q, Just idx) ->
-            let scores = BM25.score idx (Normalize.tokenize q)
-                scoreOf (pid, _) = scores U.! fromIntegral pid
-            in L.sortOn (negate . scoreOf) results
-        _ -> results
+-- | Retrieve activities by BM25 score. Returns pairs already ordered by score
+-- descending; only documents with score > 0 are included.
+-- Returns Nothing when the query tokenizes to nothing (e.g. pure punctuation),
+-- signalling the caller to fall back to the non-BM25 path.
+bm25Retrieve :: Database -> Text -> Maybe [(ProcessId, Activity)]
+bm25Retrieve db queryText = do
+    idx <- dbBM25Index db
+    let tokens   = Normalize.tokenize queryText
+        weighted = Fuzzy.expandTokens idx tokens
+    case weighted of
+        [] -> Nothing
+        _  ->
+            let actVec = dbActivities db
+                scores = BM25.score idx weighted
+                scored =
+                    [ (fromIntegral i, scores U.! i, actVec V.! i)
+                    | i <- [0 .. V.length actVec - 1]
+                    , scores U.! i > 0
+                    ]
+                sorted = L.sortOn (\(_, s, _) -> negate s) scored
+            in Just [(pid, a) | (pid, _, a) <- sorted]
 
 -- | Search activities (returns same format as API)
 searchActivities :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> [(Text, Text, Bool)] -> Bool -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> IO (Either ServiceError Value)
 searchActivities db nameParam geoParam productParam classFilters exactMatch limitParam offsetParam sortParam orderParam = do
     startTime <- getCurrentTime
-    let rawResults = findActivitiesByFields db nameParam geoParam productParam classFilters exactMatch
-        isDesc = orderParam == Just "desc"
+    let isDesc = orderParam == Just "desc"
         explicitSort = sortParam == Just "name" || sortParam == Just "location"
-        -- BM25 ranking applies only when the user provided a name query, didn't
-        -- request exact matching, and didn't explicitly pick a column to sort by.
-        useBM25 = not exactMatch
-            && not explicitSort
-            && case (nameParam, dbBM25Index db) of
-                 (Just n, Just _) -> not (T.null (T.strip n))
-                 _                -> False
+        -- BM25 retrieval applies only when the user provided a non-empty name
+        -- query, didn't request exact matching, and didn't pick a sort column.
+        bm25Retrieved = case nameParam of
+            Just q
+                | not exactMatch
+                , not explicitSort
+                , not (T.null (T.strip q)) ->
+                    bm25Retrieve db q
+            _ -> Nothing
         actCmp = case sortParam of
             Just "location" -> \(_, a) (_, b) -> compare (activityLocation a) (activityLocation b)
             _               -> \(_, a) (_, b) -> compare (activityName a) (activityName b)
-        allResults
-            | useBM25   = bm25Order db nameParam rawResults
-            | otherwise = L.sortBy (if isDesc then flip actCmp else actCmp) rawResults
+        allResults = case bm25Retrieved of
+            Just ranked ->
+                -- BM25 path: ranked candidates → structured filters → preserve score order.
+                applyStructuredFilters db geoParam productParam classFilters False ranked
+            Nothing ->
+                -- Non-BM25 path: AND-of-tokens name filter + lex sort.
+                let rawResults = findActivitiesByFields db nameParam geoParam productParam classFilters exactMatch
+                in L.sortBy (if isDesc then flip actCmp else actCmp) rawResults
         offset = maybe 0 (max 0) offsetParam
         limit = fromMaybe 20 limitParam
         total = length allResults

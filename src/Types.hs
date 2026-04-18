@@ -384,8 +384,6 @@ data Database = Database
     , dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
     , dbFlowsByName :: !(M.Map Text [Flow]) -- Biosphere flow name index for LCIA matching
     , dbFlowsByCAS :: !(M.Map Text [Flow]) -- CAS → biosphere flows for LCIA matching
-    -- Search index: word token → ProcessId set (built at runtime for fast activity search)
-    , dbSearchIndex :: !(M.Map Text IS.IntSet)
     -- Product name search index: word token → ProcessId set (built at runtime)
     , dbProductSearchIndex :: !(M.Map Text IS.IntSet)
     -- BM25 ranking index (built at runtime, not serialized)
@@ -481,7 +479,6 @@ instance Store Database where
             , dbSynonymDB = Nothing
             , dbFlowsByName = M.empty
             , dbFlowsByCAS = M.empty
-            , dbSearchIndex = M.empty
             , dbProductSearchIndex = M.empty
             , dbBM25Index = Nothing
             }
@@ -591,22 +588,8 @@ addFlowNameIndexToDatabase db =
     let bioUUIDs = S.fromList (V.toList (dbBiosphereFlows db))
     in db { dbFlowsByName = buildFlowNameIndex (dbFlows db) bioUUIDs
           , dbFlowsByCAS  = buildFlowCASIndex (dbFlows db) bioUUIDs
-          , dbSearchIndex = buildSearchIndex (dbActivities db)
           , dbProductSearchIndex = buildProductSearchIndex (dbActivities db) (dbFlows db)
           }
-
--- | Build word-token search index: lowercased word → IntSet of ProcessIds
--- Tokenizes activity names and locations so search can intersect word sets
--- instead of scanning all activities.
-buildSearchIndex :: V.Vector Activity -> M.Map Text IS.IntSet
-buildSearchIndex =
-    V.ifoldl' addActivity M.empty
-  where
-    addActivity !acc i a =
-        let pid = fromIntegral i
-            words_ = T.words (T.toLower (activityName a))
-                  ++ T.words (T.toLower (activityLocation a))
-        in foldl' (\m w -> MS.insertWith IS.union w (IS.singleton pid) m) acc words_
 
 -- | Build word-token product search index: lowercased word → IntSet of ProcessIds
 -- Tokenizes reference product flow names so product search can use index intersection.

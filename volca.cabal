@@ -69,6 +69,7 @@ library
                      , Search.Normalize
                      , Search.BM25
                      , Search.BM25.Types
+                     , Search.Fuzzy
                      , Version
   build-depends:       base >=4.14 && <5
                      , optparse-applicative
@@ -179,6 +180,7 @@ test-suite lca-tests
                      , MCPSchemaSpec
                      , NormalizeSpec
                      , BM25Spec
+                     , FuzzySpec
                      , NestedSubstitutionSpec
   build-depends:       base >=4.14 && <5
                      , volca

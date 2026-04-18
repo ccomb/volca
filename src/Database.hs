@@ -7,6 +7,9 @@ module Database where
 import Progress
 import Types
 import UnitConversion (UnitConfig, convertUnit, normalizeUnit)
+import qualified Search.BM25.Types as BM25T
+import qualified Search.Fuzzy as Fuzzy
+import qualified Search.Normalize as Normalize
 import Data.Int (Int32)
 import qualified Data.IntSet as IS
 import Data.Either (lefts, rights)
@@ -269,7 +272,6 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
                 , dbSynonymDB = Nothing
                 , dbFlowsByName = M.empty
                 , dbFlowsByCAS = M.empty
-                , dbSearchIndex = M.empty
                 , dbProductSearchIndex = M.empty
                 , dbBM25Index = Nothing
                 }
@@ -350,63 +352,83 @@ buildProductIndex activities processIdTable flowDb =
         , piByLocation = M.fromListWith (++) [(loc, [pid]) | (pid, _, _, loc) <- entries, not (T.null loc)]
         }
 
--- | Search activities by multiple fields (name, geography, product, classification)
--- Multi-word search: each word must match either name OR location (AND logic)
--- Returns (ProcessId, Activity) pairs so callers don't need to re-scan for ProcessId.
--- Uses word-token index when available for O(matches) instead of O(total) name search.
-findActivitiesByFields :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> [(Text, Text, Bool)] -> Bool -> [(ProcessId, Activity)]
-findActivitiesByFields db nameParam geoParam productParam classFilters exactMatch =
+-- | Multi-word AND match: all words must appear in at least one of the given text fields (substring).
+allWordsMatch :: Text -> (Activity -> [Text]) -> Activity -> Bool
+allWordsMatch query getFields a =
+    let searchWords = filter (not . T.null) $ T.words (T.toLower query)
+        fields = map T.toLower (getFields a)
+     in all (\w -> any (T.isInfixOf w) fields) searchWords
+
+-- | Resolve a set of indices to (ProcessId, Activity) pairs against the activity vector.
+resolveActivityIds :: V.Vector Activity -> IS.IntSet -> [(ProcessId, Activity)]
+resolveActivityIds actVec ids =
+    [ (fromIntegral i, actVec V.! i) | i <- IS.toList ids, i < V.length actVec ]
+
+-- | Name-only candidate lookup. Does NOT touch geo/product/classification.
+-- Non-exact path routes through the BM25 vocabulary + fuzzy expansion so
+-- typos and stems still retrieve activities. Exact path is a linear scan
+-- for case-insensitive full-name equality.
+findActivityNameCandidates :: Database -> Maybe Text -> Bool -> [(ProcessId, Activity)]
+findActivityNameCandidates db Nothing _ = allActivities (dbActivities db)
+findActivityNameCandidates db (Just name) True = exactNameMatches (dbActivities db) name
+findActivityNameCandidates db (Just name) False =
+    case dbBM25Index db of
+        Just idx -> resolveActivityIds (dbActivities db) (bm25DocsMatchingName idx name)
+        Nothing  -> fullScanNameMatches (dbActivities db) name
+
+allActivities :: V.Vector Activity -> [(ProcessId, Activity)]
+allActivities actVec =
+    [(fromIntegral i, a) | (i, a) <- zip [(0 :: Int) ..] (V.toList actVec)]
+
+exactNameMatches :: V.Vector Activity -> Text -> [(ProcessId, Activity)]
+exactNameMatches actVec name =
+    [pair | pair@(_, a) <- allActivities actVec, T.toCaseFold (activityName a) == nameFold]
+  where
+    nameFold = T.toCaseFold name
+
+fullScanNameMatches :: V.Vector Activity -> Text -> [(ProcessId, Activity)]
+fullScanNameMatches actVec name =
+    [pair | pair@(_, a) <- allActivities actVec, allWordsMatch name (\a' -> [activityName a']) a]
+
+-- | Docs whose BM25 postings cover every query token (AND), allowing any
+-- fuzzy expansion of a token to satisfy that token (OR within a token).
+bm25DocsMatchingName :: BM25T.BM25Index -> Text -> IS.IntSet
+bm25DocsMatchingName idx name =
+    intersectAll (map docsForGroup groups)
+  where
+    groups                = Fuzzy.expandTokensGrouped idx (Normalize.tokenize name)
+    docsForGroup g        = IS.unions [docsForToken t | (t, _) <- g]
+    docsForToken t        = case M.lookup t (BM25T.bm25Postings idx) of
+        Nothing       -> IS.empty
+        Just postings -> IS.fromList [docId | (docId, _) <- VU.toList postings]
+    intersectAll []       = IS.empty
+    intersectAll (x : xs) = foldl IS.intersection x xs
+
+-- | Apply geo, product, and classification filters to a pre-built candidate list.
+-- Does NOT touch the name query — callers (BM25 retrieval or name-candidate lookup)
+-- produce the initial list.
+applyStructuredFilters
+    :: Database
+    -> Maybe Text                 -- ^ geo
+    -> Maybe Text                 -- ^ product
+    -> [(Text, Text, Bool)]       -- ^ classification filters
+    -> Bool                       -- ^ exactMatch (affects geo equality)
+    -> [(ProcessId, Activity)]
+    -> [(ProcessId, Activity)]
+applyStructuredFilters db geoParam productParam classFilters exactMatch candidates =
     let actVec = dbActivities db
-        idx = dbSearchIndex db
+        pidx   = dbProductSearchIndex db
 
-        -- Resolve a set of ProcessIds to (ProcessId, Activity) pairs
-        resolveIds :: IS.IntSet -> [(ProcessId, Activity)]
-        resolveIds ids = [ (fromIntegral i, actVec V.! i) | i <- IS.toList ids, i < V.length actVec ]
-
-        -- Multi-word AND match: all words must appear in at least one of the given text fields
-        allWordsMatch :: Text -> (Activity -> [Text]) -> Activity -> Bool
-        allWordsMatch query getFields a =
-            let searchWords = filter (not . T.null) $ T.words (T.toLower query)
-                fields = map T.toLower (getFields a)
-             in all (\w -> any (T.isInfixOf w) fields) searchWords
-
-        -- Filter by name
-        nameFiltered = case nameParam of
-            Nothing -> [(fromIntegral i, a) | (i, a) <- zip [(0::Int)..] (V.toList actVec)]
-            Just name
-                | exactMatch ->
-                    -- Exact: case-insensitive equality on activity name only
-                    let nameFold = T.toCaseFold name
-                     in [(fromIntegral i, a) | (i, a) <- zip [(0::Int)..] (V.toList actVec)
-                        , T.toCaseFold (activityName a) == nameFold]
-                | M.null idx ->
-                    -- Fallback: no search index (shouldn't happen in normal operation)
-                    [(fromIntegral i, a) | (i, a) <- zip [(0::Int)..] (V.toList actVec)
-                    , allWordsMatch name (\a' -> [activityName a', activityLocation a']) a]
-                | otherwise ->
-                    let searchWords = filter (not . T.null) $ T.words (T.toLower name)
-                        -- For each word, find candidate ProcessIds from the index
-                        -- A word like "elec" may not match a token exactly, so we need prefix/infix matching on index keys
-                        wordCandidates w = IS.unions [ ids | (key, ids) <- M.toList idx, T.isInfixOf w key ]
-                        -- Intersect candidates for all words (AND logic)
-                        candidates = case map wordCandidates searchWords of
-                            [] -> IS.fromList [0 .. V.length actVec - 1]
-                            (first:rest) -> foldl IS.intersection first rest
-                     in filter (\(_, a') -> allWordsMatch name (\a'' -> [activityName a'', activityLocation a'']) a') (resolveIds candidates)
-
-        -- Filter by geography
+        -- geography
         geoFiltered = case geoParam of
-            Nothing -> nameFiltered
+            Nothing -> candidates
             Just geo
                 | exactMatch ->
                     let geoFold = T.toCaseFold geo
-                     in [(pid, a) | (pid, a) <- nameFiltered, T.toCaseFold (activityLocation a) == geoFold]
+                     in [(pid, a) | (pid, a) <- candidates, T.toCaseFold (activityLocation a) == geoFold]
                 | otherwise ->
                     let geoLower = T.toLower geo
-                     in [(pid, a) | (pid, a) <- nameFiltered, T.isInfixOf geoLower (T.toLower (activityLocation a))]
-
-        -- Filter by product if provided (multi-word AND match on reference product name)
-        pidx = dbProductSearchIndex db
+                     in [(pid, a) | (pid, a) <- candidates, T.isInfixOf geoLower (T.toLower (activityLocation a))]
 
         getProductNames a' =
             [ flowName flow
@@ -416,7 +438,6 @@ findActivitiesByFields db nameParam geoParam productParam classFilters exactMatc
             , Just flow <- [M.lookup (exchangeFlowId ex) (dbFlows db)]
             ]
 
-        -- Filter by product using index when available
         productFiltered = case productParam of
             Nothing -> geoFiltered
             Just prod
@@ -425,15 +446,20 @@ findActivitiesByFields db nameParam geoParam productParam classFilters exactMatc
                 | otherwise ->
                     let searchWords = filter (not . T.null) $ T.words (T.toLower prod)
                         wordCandidates w = IS.unions [ ids | (key, ids) <- M.toList pidx, T.isInfixOf w key ]
-                        candidates = case map wordCandidates searchWords of
-                            [] -> IS.fromList (map (fromIntegral . fst) geoFiltered)
+                        candidateSet = case map wordCandidates searchWords of
+                            []          -> IS.fromList (map (fromIntegral . fst) geoFiltered)
                             (first:rest) -> foldl IS.intersection first rest
-                        geoSet = IS.fromList (map (fromIntegral . fst) geoFiltered)
-                        filtered = IS.intersection candidates geoSet
-                     in filter (\(_, a') -> allWordsMatch prod getProductNames a') (resolveIds filtered)
+                        geoSet  = IS.fromList (map (fromIntegral . fst) geoFiltered)
+                        hitSet  = IS.intersection candidateSet geoSet
+                        hitPairs = resolveActivityIds actVec hitSet
+                        hitPids = IS.fromList (map (fromIntegral . fst) hitPairs)
+                    -- Preserve the original order of geoFiltered (BM25 score order when BM25-driven).
+                    in [ (pid, a)
+                       | (pid, a) <- geoFiltered
+                       , IS.member (fromIntegral pid) hitPids
+                       , allWordsMatch prod getProductNames a
+                       ]
 
-        -- Filter by classification: group by system (OR within same system, AND across systems)
-        -- Each entry is (system, value, isExact); isExact=True uses equality, False uses substring
         classFiltered =
             let groups = M.fromListWith (++) [(sys, [(val, isExact)]) | (sys, val, isExact) <- classFilters]
                 matchOne v (q, isExact) = if isExact
@@ -446,7 +472,15 @@ findActivitiesByFields db nameParam geoParam productParam classFilters exactMatc
                         Nothing -> False
                     ]
             in foldl applyGroup productFiltered (M.toList groups)
-     in classFiltered
+    in classFiltered
+
+-- | Search activities by multiple fields (name, geography, product, classification).
+-- Non-BM25 path: name filter is substring AND-of-tokens on activity name only.
+-- Returns (ProcessId, Activity) pairs so callers don't need to re-scan for ProcessId.
+findActivitiesByFields :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> [(Text, Text, Bool)] -> Bool -> [(ProcessId, Activity)]
+findActivitiesByFields db nameParam geoParam productParam classFilters exactMatch =
+    applyStructuredFilters db geoParam productParam classFilters exactMatch
+        (findActivityNameCandidates db nameParam exactMatch)
 
 -- | Search flows by synonym
 findFlowsBySynonym :: Database -> Text -> [Flow]

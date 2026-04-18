@@ -15,6 +15,10 @@ import Types
 import Search.BM25 (buildIndex, score)
 import Search.Normalize (tokenize)
 
+-- | Convenience wrapper: tokenize and tag every term with weight 1.0 (exact).
+weighted :: Text -> [(Text, Double)]
+weighted q = [(t, 1.0) | t <- tokenize q]
+
 -- Minimal factory helpers ---------------------------------------------------
 
 mkActivity :: Text -> Text -> [Exchange] -> Activity
@@ -69,7 +73,7 @@ spec = describe "Search.BM25" $ do
               , mkActivity "Lait demi-écrémé"                "FR" []
               ]
             idx = buildIndex acts M.empty
-            scores = score idx (tokenize "steak hache")
+            scores = score idx (weighted "steak hache")
         head (ranking scores) `shouldBe` 1
 
     it "returns empty results for no query terms" $ do
@@ -80,7 +84,7 @@ spec = describe "Search.BM25" $ do
     it "returns zero scores when no term matches" $ do
         let acts = V.fromList [mkActivity "Electricity" "FR" []]
             idx = buildIndex acts M.empty
-        ranking (score idx (tokenize "steak")) `shouldBe` []
+        ranking (score idx (weighted "steak")) `shouldBe` []
 
     it "matches reference product names too" $ do
         let flows = M.fromList [(f1, mkFlow f1 "Lait, demi-écrémé")]
@@ -89,7 +93,7 @@ spec = describe "Search.BM25" $ do
               , mkActivity "Electricity, grid"         "FR" []
               ]
             idx = buildIndex acts flows
-            scores = score idx (tokenize "lait")
+            scores = score idx (weighted "lait")
         head (ranking scores) `shouldBe` 0
 
     it "is accent- and case-insensitive" $ do
@@ -98,9 +102,9 @@ spec = describe "Search.BM25" $ do
               , mkActivity "Electricity"       "FR" []
               ]
             idx = buildIndex acts M.empty
-        head (ranking (score idx (tokenize "HACHE")))  `shouldBe` 0
-        head (ranking (score idx (tokenize "Haché")))  `shouldBe` 0
-        head (ranking (score idx (tokenize "hache")))  `shouldBe` 0
+        head (ranking (score idx (weighted "HACHE")))  `shouldBe` 0
+        head (ranking (score idx (weighted "Haché")))  `shouldBe` 0
+        head (ranking (score idx (weighted "hache")))  `shouldBe` 0
 
     it "prefers shorter documents with the same term (BM25 length normalization)" $ do
         let short = "Bovine steak"
@@ -110,5 +114,32 @@ spec = describe "Search.BM25" $ do
               , mkActivity short   "FR" []
               ]
             idx = buildIndex acts M.empty
-            scores = score idx (tokenize "bovine steak")
+            scores = score idx (weighted "bovine steak")
         head (ranking scores) `shouldBe` 1
+
+    it "retrieves docs matching any query term (not AND-of-tokens)" $ do
+        -- Query 'steak viande'. Doc 0 has only 'steak', doc 1 has only 'viande'.
+        -- An AND filter would exclude both; BM25 must retrieve both.
+        let acts = V.fromList
+              [ mkActivity "Steak haché grillé" "FR" []
+              , mkActivity "Viande de porc"     "FR" []
+              , mkActivity "Electricity, grid"  "FR" []
+              ]
+            idx = buildIndex acts M.empty
+            scores = score idx (weighted "steak viande")
+            retrieved = ranking scores
+        length retrieved `shouldBe` 2
+        retrieved `shouldContain` [0]
+        retrieved `shouldContain` [1]
+
+    it "does not index location — query 'FR' does not match FR-located activity" $ do
+        -- Location is a structured filter (geoParam), not a ranking signal.
+        -- An activity whose name doesn't contain 'FR' must not score on 'FR'
+        -- even if its location is 'FR'.
+        let acts = V.fromList
+              [ mkActivity "Lait demi-écrémé"  "FR" []
+              , mkActivity "Electricity grid"  "FR" []
+              ]
+            idx = buildIndex acts M.empty
+            scores = score idx (weighted "FR")
+        ranking scores `shouldBe` []
