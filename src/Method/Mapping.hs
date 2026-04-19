@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -313,9 +314,15 @@ inventoryContributions
     :: UnitConfig -> UnitDB -> FlowDB -> Inventory -> MethodTables
     -> ( [(Flow, Double, Double)], [UUID] )
 inventoryContributions unitConfig unitDB flowDB inventory tables =
-    foldr step ([], []) (M.toList inventory)
+    M.foldlWithKey' step ([], []) inventory
   where
-    step (fid, qty) (contribs, unknowns)
+    -- Strict fold over the inventory Map: the old 'foldr' over 'M.toList'
+    -- built a thunk chain the size of the inventory on every call, and
+    -- characterization runs this 27-wide over K-activity batches — the
+    -- dominant garbage source. Strict pair + accumulator prevents the leak.
+    -- Result list order is reversed vs. the old version, but every caller
+    -- already 'sortOn's by |contribution|.
+    step (!contribs, !unknowns) fid qty
         | qty == 0 = (contribs, unknowns)
         | otherwise = case M.lookup fid flowDB of
             Nothing   -> (contribs, fid : unknowns)  -- metadata missing — surface it
@@ -325,7 +332,7 @@ inventoryContributions unitConfig unitDB flowDB inventory tables =
                     let flowUnit  = maybe "" unitName (M.lookup (flowUnitId flow) unitDB)
                         converted = if flowUnit == cfUnit || T.null cfUnit then qty
                                     else fromMaybe qty (convertUnit unitConfig flowUnit cfUnit qty)
-                        contribution = converted * cfVal
+                        !contribution = converted * cfVal
                     in ((flow, cfVal, contribution) : contribs, unknowns)
 
     lookupCF fid flow = case M.lookup fid (mtUuidCF tables) of

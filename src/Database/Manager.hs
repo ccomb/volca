@@ -358,6 +358,13 @@ data DatabaseManager = DatabaseManager
       -- ^ Cached LCIA-score lookup tables built from mappings.
       -- These depend only on (db, method), so building them once per pair
       -- saves O(n log n) Map constructions on every LCIA call.
+    , dmMergedFlowMetadataCache :: !(TVar (Maybe (FlowDB, UnitDB)))
+      -- ^ Memoized 'M.unions' of every loaded DB's flows/units.
+      -- Invalidated on any 'dmLoadedDbs' mutation; collision detection
+      -- runs once per rebuild rather than per hot-path call.
+    , dmMergedUnitConfigCache   :: !(TVar (Maybe UnitConversion.UnitConfig))
+      -- ^ Memoized merge of every loaded unit-definition set.
+      -- Invalidated on 'dmLoadedUnitDefs' mutation.
     }
 
 -- | Cached flow mapping: avoids re-matching method CFs to database flows on every LCIA call.
@@ -386,17 +393,24 @@ mapMethodToTablesCached manager dbName db method = do
             atomically $ modifyTVar' (dmMethodTablesCache manager) (M.insert key tables)
             pure tables
 
--- | Clear all cached flow mappings (call when databases, methods, or synonyms change)
+-- | Clear all cached flow mappings (call when databases, methods, or synonyms change).
+-- Also drops the merged flow/unit snapshots — both caches depend on the loaded-DB set.
 clearMethodMappingCache :: DatabaseManager -> IO ()
 clearMethodMappingCache manager = atomically $ do
-    writeTVar (dmMethodMappingCache manager) M.empty
-    writeTVar (dmMethodTablesCache manager)  M.empty
+    writeTVar (dmMethodMappingCache manager)       M.empty
+    writeTVar (dmMethodTablesCache manager)        M.empty
+    writeTVar (dmMergedFlowMetadataCache manager)  Nothing
+    writeTVar (dmMergedUnitConfigCache manager)    Nothing
 
--- | Clear cached flow mappings for a specific database
+-- | Clear cached flow mappings for a specific database.
+-- The merged flow/unit snapshots span every loaded DB, so a single-DB mutation
+-- still invalidates them fully.
 clearMethodMappingCacheForDb :: DatabaseManager -> Text -> IO ()
 clearMethodMappingCacheForDb manager dbName = atomically $ do
     modifyTVar' (dmMethodMappingCache manager) (M.filterWithKey (\(dn, _) _ -> dn /= dbName))
     modifyTVar' (dmMethodTablesCache manager)  (M.filterWithKey (\(dn, _) _ -> dn /= dbName))
+    writeTVar   (dmMergedFlowMetadataCache manager) Nothing
+    writeTVar   (dmMergedUnitConfigCache manager)   Nothing
 
 -- | Initialize database manager from config
 -- Pre-loads databases with load=true at startup
@@ -455,6 +469,8 @@ initDatabaseManager config noCache configPath = do
 
     methodMappingCacheVar <- newTVarIO M.empty
     methodTablesCacheVar  <- newTVarIO M.empty
+    mergedFlowMetadataCacheVar <- newTVarIO Nothing
+    mergedUnitConfigCacheVar   <- newTVarIO Nothing
 
     let manager = DatabaseManager
             { dmLoadedDbs = loadedDbsVar
@@ -475,6 +491,8 @@ initDatabaseManager config noCache configPath = do
             , dmGeographies = geographies
             , dmMethodMappingCache = methodMappingCacheVar
             , dmMethodTablesCache  = methodTablesCacheVar
+            , dmMergedFlowMetadataCache = mergedFlowMetadataCacheVar
+            , dmMergedUnitConfigCache   = mergedUnitConfigCacheVar
             }
 
     -- Auto-load active reference data (flow synonyms, compartment mappings, units)
@@ -2027,11 +2045,18 @@ getMergedCompartmentMap manager = do
     return $ M.unions (M.elems loaded)
 
 -- | Get the merged UnitConfig from all loaded unit definitions.
+-- Memoized: pure over the loaded-unit-def set, invalidated on mutation.
 getMergedUnitConfig :: DatabaseManager -> IO UnitConversion.UnitConfig
 getMergedUnitConfig manager = do
-    loaded <- readTVarIO (dmLoadedUnitDefs manager)
-    return $ if M.null loaded then UnitConversion.defaultUnitConfig
-             else UnitConversion.mergeUnitConfigs (M.elems loaded)
+    cached <- readTVarIO (dmMergedUnitConfigCache manager)
+    case cached of
+        Just cfg -> pure cfg
+        Nothing  -> do
+            loaded <- readTVarIO (dmLoadedUnitDefs manager)
+            let !cfg = if M.null loaded then UnitConversion.defaultUnitConfig
+                       else UnitConversion.mergeUnitConfigs (M.elems loaded)
+            atomically $ writeTVar (dmMergedUnitConfigCache manager) (Just cfg)
+            pure cfg
 
 -- | Snapshot of flow + unit metadata across every currently-loaded DB.
 -- Used to characterize or display a cross-DB-merged 'Inventory', whose
@@ -2039,26 +2064,39 @@ getMergedUnitConfig manager = do
 -- metadata silently drops every dep-DB flow during LCIA characterization
 -- (CF lookup falls off the end of the fallback chain) and inventory export.
 --
+-- Memoized on 'dmMergedFlowMetadataCache': the merged Maps are pure over
+-- the loaded-DB set, so the expensive 'M.unions' + UUID collision scan
+-- runs once per DB-set mutation instead of per LCIA call (previously the
+-- dominant source of garbage in 27-wide 'mapConcurrently' characterization).
+--
 -- Detects UUID collisions with divergent metadata. 'M.unions' is first-wins;
 -- collisions should never happen (same UUID ⇒ same flow by construction),
 -- but if data drift produces them, surface via log rather than hide.
 getMergedFlowMetadata :: DatabaseManager -> IO (FlowDB, UnitDB)
 getMergedFlowMetadata manager = do
-    loaded <- readTVarIO (dmLoadedDbs manager)
-    let dbs      = map ldDatabase (M.elems loaded)
-        flowMaps = map dbFlows dbs
-        unitMaps = map dbUnits dbs
-        flowHits = collisions flowFingerprint flowMaps
-        unitHits = collisions unitFingerprint unitMaps
-    unless (null flowHits) $
-        reportProgress Warning $ "[merged FlowDB] " <> show (length flowHits)
-            <> " UUID collision(s) with divergent flow metadata; keeping first. Samples: "
-            <> show (take 3 flowHits)
-    unless (null unitHits) $
-        reportProgress Warning $ "[merged UnitDB] " <> show (length unitHits)
-            <> " UUID collision(s) with divergent unit metadata; keeping first. Samples: "
-            <> show (take 3 unitHits)
-    pure (M.unions flowMaps, M.unions unitMaps)
+    cached <- readTVarIO (dmMergedFlowMetadataCache manager)
+    case cached of
+        Just snap -> pure snap
+        Nothing   -> do
+            loaded <- readTVarIO (dmLoadedDbs manager)
+            let dbs      = map ldDatabase (M.elems loaded)
+                flowMaps = map dbFlows dbs
+                unitMaps = map dbUnits dbs
+                !mergedFlows = M.unions flowMaps
+                !mergedUnits = M.unions unitMaps
+                flowHits = collisions flowFingerprint flowMaps
+                unitHits = collisions unitFingerprint unitMaps
+            unless (null flowHits) $
+                reportProgress Warning $ "[merged FlowDB] " <> show (length flowHits)
+                    <> " UUID collision(s) with divergent flow metadata; keeping first. Samples: "
+                    <> show (take 3 flowHits)
+            unless (null unitHits) $
+                reportProgress Warning $ "[merged UnitDB] " <> show (length unitHits)
+                    <> " UUID collision(s) with divergent unit metadata; keeping first. Samples: "
+                    <> show (take 3 unitHits)
+            let !snap = (mergedFlows, mergedUnits)
+            atomically $ writeTVar (dmMergedFlowMetadataCache manager) (Just snap)
+            pure snap
   where
     flowFingerprint f = (flowName f, flowCategory f, flowSubcompartment f)
     unitFingerprint = unitName
@@ -2158,7 +2196,9 @@ loadRefDataG ops manager name = do
                     Right csvData -> case rdoParse ops csvData of
                         Left err -> return $ Left err
                         Right val -> do
-                            atomically $ modifyTVar' (rdoLoadedVar ops manager) (M.insert name val)
+                            atomically $ do
+                                modifyTVar' (rdoLoadedVar ops manager) (M.insert name val)
+                                invalidateMergedRefCaches manager
                             reportProgress Info $ "Loaded " <> rdoLabel ops <> ": " <> T.unpack name
                             return $ Right ()
 
@@ -2166,10 +2206,21 @@ unloadRefDataG :: RefDataOps a -> DatabaseManager -> Text -> IO (Either Text ())
 unloadRefDataG ops manager name = do
     loaded <- readTVarIO (rdoLoadedVar ops manager)
     if M.member name loaded then do
-        atomically $ modifyTVar' (rdoLoadedVar ops manager) (M.delete name)
+        atomically $ do
+            modifyTVar' (rdoLoadedVar ops manager) (M.delete name)
+            invalidateMergedRefCaches manager
         reportProgress Info $ "Unloaded " <> rdoLabel ops <> ": " <> T.unpack name
         return $ Right ()
     else return $ Left $ T.pack (rdoLabel ops) <> " not loaded: " <> name
+
+-- | Drop the merged-ref-data caches. Conservatively clears both — the
+-- flow-metadata and unit-config snapshots are cheap to rebuild lazily, and
+-- ref-data changes (units, flow synonyms, compartment maps) are rare enough
+-- that per-kind dispatch adds no observable value.
+invalidateMergedRefCaches :: DatabaseManager -> STM ()
+invalidateMergedRefCaches manager = do
+    writeTVar (dmMergedFlowMetadataCache manager) Nothing
+    writeTVar (dmMergedUnitConfigCache manager)   Nothing
 
 addRefDataG :: RefDataOps a -> DatabaseManager -> RefDataConfig -> IO ()
 addRefDataG ops manager rd =
