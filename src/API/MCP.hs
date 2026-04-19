@@ -424,19 +424,20 @@ callSearchActivities presets rid args (db, _) = do
             (Just sys, Just val) -> [(sys, val, isExact)]
             _                   -> []
         classFilters = presetFilters ++ explicitFilters
-    let af = Service.ActivityFilter
-             { Service.afName            = name
-             , Service.afLocation        = geo
-             , Service.afProduct         = product'
-             , Service.afClassifications = classFilters
-             , Service.afLimit           = limit <|> Just 20
-             , Service.afOffset          = Nothing
-             , Service.afMaxDepth        = Nothing
-             , Service.afMinQuantity     = Nothing
-             , Service.afSort            = Nothing
-             , Service.afOrder           = Nothing
+    let sf = Service.SearchFilter
+             { Service.sfCore = Service.ActivityFilterCore
+                 { Service.afcName            = name
+                 , Service.afcLocation        = geo
+                 , Service.afcProduct         = product'
+                 , Service.afcClassifications = classFilters
+                 , Service.afcLimit           = limit <|> Just 20
+                 , Service.afcOffset          = Nothing
+                 , Service.afcSort            = Nothing
+                 , Service.afcOrder           = Nothing
+                 }
+             , Service.sfExactMatch = exact
              }
-    result <- Service.searchActivities db af exact
+    result <- Service.searchActivities db sf
     case result of
         Left err  -> return $ toolError rid (T.pack $ show err)
         Right val -> return $ toolSuccessJson rid val
@@ -463,21 +464,23 @@ callListClassifications rid args (db, _) =
                     in object ["name" .= csName s, "activityCount" .= csActivityCount s, "values" .= vals]
 
 callSearchFlows :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callSearchFlows rid args (db, _) = do
-    let query = textArg "query" args
-        limit = intArg "limit" args
-    let ff = Service.FlowFilter
-             { Service.ffQuery  = query
-             , Service.ffLang   = Nothing
-             , Service.ffLimit  = limit <|> Just 20
-             , Service.ffOffset = Nothing
-             , Service.ffSort   = Nothing
-             , Service.ffOrder  = Nothing
-             }
-    result <- Service.searchFlows db ff
-    case result of
-        Left err  -> return $ toolError rid (T.pack $ show err)
-        Right val -> return $ toolSuccessJson rid val
+callSearchFlows rid args (db, _) =
+    case textArg "query" args of
+        Nothing -> return $ toolSuccessJson rid Service.emptyFlowSearchResults
+        Just query -> do
+            let limit = intArg "limit" args
+                ff = Service.FlowFilter
+                     { Service.ffQuery  = query
+                     , Service.ffLang   = Nothing
+                     , Service.ffLimit  = limit <|> Just 20
+                     , Service.ffOffset = Nothing
+                     , Service.ffSort   = Nothing
+                     , Service.ffOrder  = Nothing
+                     }
+            result <- Service.searchFlows db ff
+            case result of
+                Left err  -> return $ toolError rid (T.pack $ show err)
+                Right val -> return $ toolSuccessJson rid val
   where
     Nothing <|> b = b
     a       <|> _ = a
@@ -530,22 +533,25 @@ callGetSupplyChain dbManager rid args =
                     classFilters = case (textArg "classification" args, textArg "classification_value" args) of
                         (Just sys, Just val) -> [(sys, val, isExact)]
                         _                    -> []
-                    af = Service.ActivityFilter
-                        { Service.afName = textArg "name" args
-                        , Service.afLocation = textArg "location" args
-                        , Service.afProduct = Nothing
-                        , Service.afClassifications = classFilters
-                        , Service.afLimit = intArg "limit" args
-                        , Service.afOffset = Nothing
-                        , Service.afMaxDepth = intArg "max_depth" args
-                        , Service.afMinQuantity = doubleArg "min_quantity" args
-                        , Service.afSort = Nothing
-                        , Service.afOrder = Nothing }
+                    scf = Service.SupplyChainFilter
+                        { Service.scfCore = Service.ActivityFilterCore
+                            { Service.afcName = textArg "name" args
+                            , Service.afcLocation = textArg "location" args
+                            , Service.afcProduct = Nothing
+                            , Service.afcClassifications = classFilters
+                            , Service.afcLimit = intArg "limit" args
+                            , Service.afcOffset = Nothing
+                            , Service.afcSort = Nothing
+                            , Service.afcOrder = Nothing
+                            }
+                        , Service.scfMaxDepth = intArg "max_depth" args
+                        , Service.scfMinQuantity = doubleArg "min_quantity" args
+                        }
                 case parseSubstitutionsArg args of
                   Left err  -> return $ toolError rid err
                   Right []  -> do
                       unitCfg <- DM.getMergedUnitConfig dbManager
-                      result <- Service.getSupplyChain unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver pid af False
+                      result <- Service.getSupplyChain unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver pid scf False
                       case result of
                           Left err  -> return $ toolError rid (T.pack $ show err)
                           Right val -> return $ toolSuccessJson rid (toJSON val)
@@ -559,7 +565,7 @@ callGetSupplyChain dbManager rid args =
                               Right (scalingVec, virtualLinks) -> do
                                   unitCfg <- DM.getMergedUnitConfig dbManager
                                   eResp <- Service.buildSupplyChainFromScalingVectorCrossDB
-                                      unitCfg (DM.mkDepSolverLookup dbManager) db dbName processId scalingVec virtualLinks af False
+                                      unitCfg (DM.mkDepSolverLookup dbManager) db dbName processId scalingVec virtualLinks scf False
                                   case eResp of
                                       Left e  -> return $ toolError rid (T.pack (show e))
                                       Right v -> return $ toolSuccessJson rid (toJSON v)
@@ -650,18 +656,20 @@ callGetConsumers presets rid args (db, _) =
                     (Just sys, Just val) -> [(sys, val, isExact)]
                     _                   -> []
                 classFilters = presetFilters ++ explicitFilters
-                af = Service.ActivityFilter
-                    { Service.afName = textArg "name" args
-                    , Service.afLocation = textArg "location" args
-                    , Service.afProduct = textArg "product" args
-                    , Service.afClassifications = classFilters
-                    , Service.afLimit = intArg "limit" args
-                    , Service.afOffset = Nothing
-                    , Service.afMaxDepth = intArg "max_depth" args
-                    , Service.afMinQuantity = Nothing
-                    , Service.afSort = Nothing
-                    , Service.afOrder = Nothing }
-            in case Service.getConsumers db pid af of
+                cnf = Service.ConsumerFilter
+                    { Service.cnfCore = Service.ActivityFilterCore
+                        { Service.afcName = textArg "name" args
+                        , Service.afcLocation = textArg "location" args
+                        , Service.afcProduct = textArg "product" args
+                        , Service.afcClassifications = classFilters
+                        , Service.afcLimit = intArg "limit" args
+                        , Service.afcOffset = Nothing
+                        , Service.afcSort = Nothing
+                        , Service.afcOrder = Nothing
+                        }
+                    , Service.cnfMaxDepth = intArg "max_depth" args
+                    }
+            in case Service.getConsumers db pid cnf of
                 Left err      -> return $ toolError rid (T.pack $ show err)
                 Right results -> return $ toolSuccessJson rid (toJSON results)
 
@@ -728,27 +736,28 @@ callGetImpacts dbManager baseUrl rid args =
             db     = ldDatabase ld
             method = lrMethod req
             dbName = lrDbName req
+            ra     = lrResolved req
         ExceptT $ pure $ ensureLinked dbName "computing impacts" db
         subs <- ExceptT $ pure $ parseSubstitutionsArg args
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
         (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
         inventory <- ExceptT $
             if null subs
-              then computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db (ldSharedSolver ld) (lrProcessId req)
-              else fmap (either (Left . T.pack . show) Right) $
+              then computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db (ldSharedSolver ld) (raPid ra)
+              else either (Left . T.pack . show) Right <$>
                      Service.inventoryWithSubsAndDeps unitCfg (DM.mkDepSolverLookup dbManager)
-                         db dbName (ldSharedSolver ld) (lrProcessId req) subs
+                         db dbName (ldSharedSolver ld) (raPid ra) subs
         mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName db method
         tables   <- liftIO $ DM.mapMethodToTablesCached dbManager dbName db method
         let topN                           = fromMaybe 5 (intArg "top_flows" args)
             stats                          = computeMappingStats mappings
             score                          = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
-            (prodName, prodAmount, prodUnit) = Service.getReferenceProductInfo mFlows mUnits (lrActivity req)
+            (prodName, prodAmount, prodUnit) = Service.getReferenceProductInfo mFlows mUnits (raActivity ra)
             functionalUnit                 = T.pack (showFFloat (Just 2) prodAmount "") <> " " <> prodUnit <> " of " <> prodName
             (rawContribs, unknownUuids)    = inventoryContributions unitCfg mUnits mFlows inventory tables
             contribs                       = L.sortOn (\(_,_,c) -> negate (abs c)) rawContribs
             topFlows                       = take topN contribs
-            webUrl                         = baseUrl <> "/db/" <> dbName <> "/activity/" <> lrProcessIdText req <> "/impacts/" <> encodeSegment (lrCollection req) <> "/" <> lrMethodIdText req
+            webUrl                         = baseUrl <> "/db/" <> dbName <> "/activity/" <> raText ra <> "/impacts/" <> encodeSegment (lrCollection req) <> "/" <> lrMethodIdText req
             hasNeg                         = any (\(_, _, c) -> c < 0) contribs
         liftIO $ unless (null unknownUuids) $
             reportProgress Warning $ "[MCP get_impacts " <> T.unpack (methodName method)
@@ -919,19 +928,26 @@ resolveMethod dbManager methodIdText =
                 []          -> return $ Left "Method not found"
                 ((col, m):_) -> return $ Right (col, m)
 
+-- | Raw text + its parsed 'ProcessId' + the looked-up 'Activity'. Bundled so
+-- the three entities (which must always agree) cannot drift apart: the only
+-- way to build a 'ResolvedActivity' is through 'resolveActivityAndProcessId'.
+data ResolvedActivity = ResolvedActivity
+    { raText     :: !Text
+    , raPid      :: !ProcessId
+    , raActivity :: !Activity
+    }
+
 -- | Bundle of entities resolved at the start of every LCA handler (impacts,
 -- contributing flows, contributing activities, inventory). Populated once by
 -- 'loadLcaRequest' so the handler body stays flat instead of unwrapping four
 -- layers of 'case'.
 data LcaRequest = LcaRequest
-    { lrDbName        :: !Text
-    , lrLoaded        :: !LoadedDatabase
-    , lrProcessIdText :: !Text
-    , lrProcessId     :: !ProcessId
-    , lrActivity      :: !Activity
-    , lrMethodIdText  :: !Text
-    , lrCollection    :: !Text
-    , lrMethod        :: !Method
+    { lrDbName       :: !Text
+    , lrLoaded       :: !LoadedDatabase
+    , lrResolved     :: !ResolvedActivity
+    , lrMethodIdText :: !Text
+    , lrCollection   :: !Text
+    , lrMethod       :: !Method
     }
 
 -- | Resolve every entity an LCA handler needs from raw JSON-RPC args.
@@ -952,14 +968,12 @@ loadLcaRequest dbManager args = do
         Left err -> throwE (T.pack (show err))
         Right v  -> pure v
     pure LcaRequest
-        { lrDbName        = dbName
-        , lrLoaded        = ld
-        , lrProcessIdText = pidText
-        , lrProcessId     = pid
-        , lrActivity      = act
-        , lrMethodIdText  = methodIdText
-        , lrCollection    = col
-        , lrMethod        = method
+        { lrDbName       = dbName
+        , lrLoaded       = ld
+        , lrResolved     = ResolvedActivity pidText pid act
+        , lrMethodIdText = methodIdText
+        , lrCollection   = col
+        , lrMethod       = method
         }
 
 -- | Bail if the database has unresolved cross-DB links. 'op' names the
@@ -980,13 +994,14 @@ callGetContributingFlows dbManager baseUrl rid args =
             db     = ldDatabase ld
             method = lrMethod req
             dbName = lrDbName req
+            ra     = lrResolved req
             lim    = fromMaybe 20 (intArg "limit" args)
-            webUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> lrProcessIdText req <> "/contributing-flows/" <> encodeSegment (lrCollection req) <> "/" <> lrMethodIdText req
+            webUrl = baseUrl <> "/db/" <> dbName <> "/activity/" <> raText ra <> "/contributing-flows/" <> encodeSegment (lrCollection req) <> "/" <> lrMethodIdText req
         ExceptT $ pure $ ensureLinked dbName "computing contributions" db
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
         (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
         inventory <- ExceptT $ computeInventoryMatrixWithDepsCached
-                        unitCfg (DM.mkDepSolverLookup dbManager) db (ldSharedSolver ld) (lrProcessId req)
+                        unitCfg (DM.mkDepSolverLookup dbManager) db (ldSharedSolver ld) (raPid ra)
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName db method
         let score                       = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
             (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
@@ -1025,6 +1040,7 @@ callGetContributingActivities dbManager baseUrl rid args =
             db     = ldDatabase ld
             method = lrMethod req
             dbName = lrDbName req
+            ra     = lrResolved req
             lim    = fromMaybe 10 (intArg "limit" args)
         ExceptT $ pure $ ensureLinked dbName "computing contributions" db
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
@@ -1033,7 +1049,7 @@ callGetContributingActivities dbManager baseUrl rid args =
         -- Skip separate inventory compute: contributions sum equals the score.
         contributions <- ExceptT $ crossDBProcessContributions
                              unitCfg mUnits mFlows (DM.mkDepSolverLookup dbManager)
-                             db dbName (ldSharedSolver ld) (lrProcessId req) tables
+                             db dbName (ldSharedSolver ld) (raPid ra) tables
         let score  = sum (M.elems contributions)
             sorted = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
             top    = take lim sorted

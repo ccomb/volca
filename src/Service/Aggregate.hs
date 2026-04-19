@@ -47,7 +47,8 @@ import Types
     , isTechnosphereExchange
     )
 import Service
-    ( ActivityFilter(..)
+    ( ActivityFilterCore(..)
+    , SupplyChainFilter(..)
     , ServiceError(..)
     , resolveActivityAndProcessId
     , getActivityExchangeDetails
@@ -157,11 +158,14 @@ aggregate unitConfig flowDB unitDB db dbName solver depLookup pidText params =
                             let export = convertToInventoryExport db flowDB unitDB processId activity inventory
                             in return $ Right $ reduce params (rowsFromBiosphere export)
   where
-    emptyFilter maxD = ActivityFilter
-        { afName = Nothing, afLocation = Nothing, afProduct = Nothing
-        , afClassifications = [], afLimit = Just maxBound, afOffset = Nothing
-        , afMaxDepth = maxD, afMinQuantity = Nothing
-        , afSort = Nothing, afOrder = Nothing
+    emptyFilter maxD = SupplyChainFilter
+        { scfCore = ActivityFilterCore
+            { afcName = Nothing, afcLocation = Nothing, afcProduct = Nothing
+            , afcClassifications = [], afcLimit = Just maxBound, afcOffset = Nothing
+            , afcSort = Nothing, afcOrder = Nothing
+            }
+        , scfMaxDepth = maxD
+        , scfMinQuantity = Nothing
         }
 
 -- ---------------------------------------------------------------------------

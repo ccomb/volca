@@ -7,7 +7,16 @@ import TestHelpers
 import GoldenData
 import Types
 import API.Types (ConsumerResult(..), SearchResults(..), SupplyChainEntry(..), SupplyChainResponse(..), TreeExport(..), TreeMetadata(..), ExportNode(..), TreeEdge(..), FlowInfo(..), NodeType(..), EdgeType(..))
-import Service (ActivityFilter(..), buildSupplyChainFromScalingVector, filterTreeExport, bfsToPattern, getConsumers, getPathTo)
+import Service
+    ( ActivityFilterCore(..)
+    , SupplyChainFilter(..)
+    , ConsumerFilter(..)
+    , buildSupplyChainFromScalingVector
+    , filterTreeExport
+    , bfsToPattern
+    , getConsumers
+    , getPathTo
+    )
 import Matrix (computeScalingVector)
 import qualified Search.BM25 as BM25
 import SharedSolver (createSharedSolver)
@@ -20,14 +29,27 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Key (fromText)
 import Data.Text (Text, pack)
 
--- | An ActivityFilter with every field unset. Tests set only the fields they need.
-emptyFilter :: ActivityFilter
-emptyFilter = ActivityFilter
-    { afName = Nothing, afLocation = Nothing, afProduct = Nothing
-    , afClassifications = [], afLimit = Nothing, afOffset = Nothing
-    , afMaxDepth = Nothing, afMinQuantity = Nothing
-    , afSort = Nothing, afOrder = Nothing
+-- | Empty 'ActivityFilterCore'; tests tweak only the fields they need.
+emptyCore :: ActivityFilterCore
+emptyCore = ActivityFilterCore
+    { afcName = Nothing, afcLocation = Nothing, afcProduct = Nothing
+    , afcClassifications = [], afcLimit = Nothing, afcOffset = Nothing
+    , afcSort = Nothing, afcOrder = Nothing
     }
+
+emptySupply :: SupplyChainFilter
+emptySupply = SupplyChainFilter emptyCore Nothing Nothing
+
+emptyConsumer :: ConsumerFilter
+emptyConsumer = ConsumerFilter emptyCore Nothing
+
+-- | Update the shared core inside a 'SupplyChainFilter'.
+mapSupplyCore :: (ActivityFilterCore -> ActivityFilterCore) -> SupplyChainFilter -> SupplyChainFilter
+mapSupplyCore f sf = sf { scfCore = f (scfCore sf) }
+
+-- | Update the shared core inside a 'ConsumerFilter'.
+mapConsumerCore :: (ActivityFilterCore -> ActivityFilterCore) -> ConsumerFilter -> ConsumerFilter
+mapConsumerCore f cf = cf { cnfCore = f (cnfCore cf) }
 
 spec :: Spec
 spec = do
@@ -39,7 +61,7 @@ spec = do
             let rootProcessId = 0 :: ProcessId
             supplyVec <- computeScalingVector db rootProcessId
 
-            let response = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec emptyFilter False
+            let response = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec emptySupply False
                 entries = scrSupplyChain response
 
             -- With rootRefAmount = 1, sceQuantity must equal sceScalingFactor exactly
@@ -55,7 +77,7 @@ spec = do
             let rootProcessId = 0 :: ProcessId
             supplyVec <- computeScalingVector db rootProcessId
 
-            let response = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec emptyFilter False
+            let response = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec emptySupply False
                 entries = scrSupplyChain response
 
             -- All entries should have depth > 0 (root is excluded from supply chain)
@@ -69,12 +91,12 @@ spec = do
             supplyVec <- computeScalingVector db rootProcessId
 
             -- No depth filter: should get Y (depth 1) and Z (depth 2)
-            let noFilter = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec emptyFilter False
+            let noFilter = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec emptySupply False
             scrFilteredActivities noFilter `shouldSatisfy` (>= 2)
 
             -- Depth 1: should only get Y (direct supplier)
             let depth1 = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec
-                    emptyFilter { afMaxDepth = Just 1 } False
+                    emptySupply { scfMaxDepth = Just 1 } False
             scrFilteredActivities depth1 `shouldSatisfy` (< scrFilteredActivities noFilter)
 
     -- -----------------------------------------------------------------------
@@ -88,7 +110,7 @@ spec = do
         let loadWithIndex = fmap BM25.addBM25Index (loadSampleDatabase "SAMPLE.min3")
             buildWithName db pid vec nameQ =
                 buildSupplyChainFromScalingVector db "test-db" pid vec
-                    emptyFilter { afName = nameQ } False
+                    (mapSupplyCore (\c -> c { afcName = nameQ }) emptySupply) False
 
         it "narrows to single entry when token matches only one activity" $ do
             db <- loadWithIndex
@@ -135,7 +157,7 @@ spec = do
             let rootPid = 0 :: ProcessId
             supplyVec <- computeScalingVector db rootPid
             let resp = buildSupplyChainFromScalingVector db "test-db" rootPid supplyVec
-                    emptyFilter { afName = Just "produc", afSort = Just "depth" } False
+                    (mapSupplyCore (\c -> c { afcName = Just "produc", afcSort = Just "depth" }) emptySupply) False
             map sceDepth (scrSupplyChain resp) `shouldBe` [1, 2]
 
     describe "Fuzzy name filter on consumers" $ do
@@ -145,7 +167,7 @@ spec = do
             db <- loadWithIndex
             -- Consumers of Z (pid 2) are Y (pid 1, direct) and X (pid 0, transitive).
             let pidZ = processIdToText db 2
-            case getConsumers db pidZ emptyFilter { afName = Just "X" } of
+            case getConsumers db pidZ (mapConsumerCore (\c -> c { afcName = Just "X" }) emptyConsumer) of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right sr -> do
                     map crName (srResults sr) `shouldBe` ["production of product X"]
@@ -154,14 +176,14 @@ spec = do
         it "accepts typos in the name filter" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db pidZ emptyFilter { afName = Just "prodcution" } of
+            case getConsumers db pidZ (mapConsumerCore (\c -> c { afcName = Just "prodcution" }) emptyConsumer) of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right sr -> length (srResults sr) `shouldSatisfy` (>= 1)
 
         it "returns all consumers when name filter is absent" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db pidZ emptyFilter of
+            case getConsumers db pidZ emptyConsumer of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right sr -> length (srResults sr) `shouldBe` 2
 

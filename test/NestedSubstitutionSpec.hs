@@ -20,7 +20,8 @@ import TestHelpers
 import Types
 import Service
     ( ServiceError(..)
-    , ActivityFilter(..)
+    , ActivityFilterCore(..)
+    , SupplyChainFilter(..)
     , applySubstitutionsAt
     , buildSupplyChainFromScalingVectorCrossDB
     , inventoryWithSubsAndDeps
@@ -240,14 +241,17 @@ spec = do
                 pid = 0
                 demandVec = buildDemandVectorFromIndex (dbActivityIndex root) pid
             scaling <- solveWithSharedSolver rootSolver demandVec
-            let af = ActivityFilter
-                    { afName = Nothing, afLocation = Nothing, afProduct = Nothing
-                    , afClassifications = [], afLimit = Nothing, afOffset = Nothing
-                    , afMaxDepth = Nothing, afMinQuantity = Nothing
-                    , afSort = Nothing, afOrder = Nothing
+            let scf = SupplyChainFilter
+                    { scfCore = ActivityFilterCore
+                        { afcName = Nothing, afcLocation = Nothing, afcProduct = Nothing
+                        , afcClassifications = [], afcLimit = Nothing, afcOffset = Nothing
+                        , afcSort = Nothing, afcOrder = Nothing
+                        }
+                    , scfMaxDepth = Nothing
+                    , scfMinQuantity = Nothing
                     }
             eResp <- buildSupplyChainFromScalingVectorCrossDB
-                defaultUnitConfig lookup_ root "root" pid scaling [] af False
+                defaultUnitConfig lookup_ root "root" pid scaling [] scf False
             case eResp of
                 Left e -> expectationFailure ("supply-chain CrossDB failed: " <> show e)
                 Right resp -> do

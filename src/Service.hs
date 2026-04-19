@@ -36,30 +36,59 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 
--- | Shared filter parameters for activity search / supply-chain / consumers endpoints
-data ActivityFilter = ActivityFilter
-    { afName            :: Maybe Text
-    , afLocation        :: Maybe Text
-    , afProduct         :: Maybe Text
-    , afClassifications :: [(Text, Text, Bool)]  -- (system, value, isExact)
-    , afLimit           :: Maybe Int
-    , afOffset          :: Maybe Int
-    , afMaxDepth        :: Maybe Int
-    , afMinQuantity     :: Maybe Double  -- supply chain only, ignored by consumers
-    , afSort            :: Maybe Text
-    , afOrder           :: Maybe Text
+-- | Fields shared by every activity-oriented endpoint (search, supply chain,
+-- consumers). Split out from the endpoint-specific filters so each filter
+-- type carries exactly the knobs it can act on — no more "ignored in this
+-- mode" comments.
+data ActivityFilterCore = ActivityFilterCore
+    { afcName            :: Maybe Text
+    , afcLocation        :: Maybe Text
+    , afcProduct         :: Maybe Text
+    , afcClassifications :: [(Text, Text, Bool)]  -- (system, value, isExact)
+    , afcLimit           :: Maybe Int
+    , afcOffset          :: Maybe Int
+    , afcSort            :: Maybe Text
+    , afcOrder           :: Maybe Text
     }
 
--- | Filter parameters for flow search. Mirrors the ActivityFilter shape for the
--- flow endpoints so callers don't juggle positional Maybe arguments.
+-- | Filter for activity search (/activities). Carries the shared core plus
+-- the search-only 'sfExactMatch' toggle that switches between token-contains
+-- and exact-equality name matching.
+data SearchFilter = SearchFilter
+    { sfCore       :: !ActivityFilterCore
+    , sfExactMatch :: !Bool
+    }
+
+-- | Filter for supply-chain walks. Adds the depth cap and the magnitude
+-- cut-off that only make sense downstream from a root activity.
+data SupplyChainFilter = SupplyChainFilter
+    { scfCore        :: !ActivityFilterCore
+    , scfMaxDepth    :: !(Maybe Int)
+    , scfMinQuantity :: !(Maybe Double)
+    }
+
+-- | Filter for reverse-walk (/consumers). Adds a depth cap but no
+-- 'minQuantity' — scaling factors are meaningless in the reverse direction.
+data ConsumerFilter = ConsumerFilter
+    { cnfCore     :: !ActivityFilterCore
+    , cnfMaxDepth :: !(Maybe Int)
+    }
+
+-- | Filter for flow search. 'ffQuery' is required; callers that have no
+-- query at all should short-circuit and return 'emptyFlowSearchResults'
+-- before building this record.
 data FlowFilter = FlowFilter
-    { ffQuery  :: Maybe Text
+    { ffQuery  :: Text
     , ffLang   :: Maybe Text
     , ffLimit  :: Maybe Int
     , ffOffset :: Maybe Int
     , ffSort   :: Maybe Text
     , ffOrder  :: Maybe Text
     }
+
+-- | Empty flow-search response used by callers that have no query to run.
+emptyFlowSearchResults :: Value
+emptyFlowSearchResults = toJSON (SearchResults ([] :: [FlowSearchResult]) 0 0 50 False 0.0)
 
 -- | Match an activity against classification filters.
 -- Semantics: OR within the same classification system, AND across different systems.
@@ -730,11 +759,10 @@ getActivityFlowSummaries db activity =
         | exchangeIsInput ex = InputFlow
         | otherwise = OutputFlow
 
--- | Search flows (returns same format as API)
+-- | Search flows (returns same format as API). The query is required by the
+-- type; callers with no query return 'emptyFlowSearchResults' directly.
 searchFlows :: Database -> FlowFilter -> IO (Either ServiceError Value)
-searchFlows _ FlowFilter{ffQuery = Nothing} =
-    return $ Right $ toJSON $ SearchResults ([] :: [FlowSearchResult]) 0 0 50 False 0.0
-searchFlows db FlowFilter{ffQuery = Just query, ffLimit = limitParam, ffOffset = offsetParam, ffSort = sortParam, ffOrder = orderParam} = do
+searchFlows db FlowFilter{ffQuery = query, ffLimit = limitParam, ffOffset = offsetParam, ffSort = sortParam, ffOrder = orderParam} = do
     startTime <- getCurrentTime
     let limit = maybe 50 (min 1000) limitParam
         offset = maybe 0 (max 0) offsetParam
@@ -785,27 +813,27 @@ bm25MatchingPids :: Database -> Text -> Maybe IS.IntSet
 bm25MatchingPids db =
     fmap (IS.fromList . map (fromIntegral . fst)) . bm25Retrieve db
 
--- | BM25/fuzzy membership set for the optional @name@ filter carried on an
--- 'ActivityFilter'. Blank/absent queries and DBs without a BM25 index both
--- collapse to @Nothing@ (⇒ predicate accepts every pid), so call sites stay
--- a one-liner.
+-- | BM25/fuzzy membership set for the optional @name@ filter carried on any
+-- activity-oriented filter. Blank/absent queries and DBs without a BM25 index
+-- both collapse to @Nothing@ (⇒ predicate accepts every pid), so call sites
+-- stay a one-liner.
 nameFilterSet :: Database -> Maybe Text -> Maybe IS.IntSet
 nameFilterSet db mq = do
     q <- mq
     if T.null (T.strip q) then Nothing else bm25MatchingPids db q
 
--- | Search activities (returns same format as API). 'exactMatch' is the search-only
--- flag that toggles token-containment vs. exact-equality name matching.
-searchActivities :: Database -> ActivityFilter -> Bool -> IO (Either ServiceError Value)
-searchActivities db af exactMatch = do
-    let nameParam     = afName af
-        geoParam      = afLocation af
-        productParam  = afProduct af
-        classFilters  = afClassifications af
-        limitParam    = afLimit af
-        offsetParam   = afOffset af
-        sortParam     = afSort af
-        orderParam    = afOrder af
+-- | Search activities (returns same format as API). The exact-match toggle is
+-- carried on 'SearchFilter' itself, so there is no separate positional flag.
+searchActivities :: Database -> SearchFilter -> IO (Either ServiceError Value)
+searchActivities db (SearchFilter core exactMatch) = do
+    let nameParam     = afcName core
+        geoParam      = afcLocation core
+        productParam  = afcProduct core
+        classFilters  = afcClassifications core
+        limitParam    = afcLimit core
+        offsetParam   = afcOffset core
+        sortParam     = afcSort core
+        orderParam    = afcOrder core
     startTime <- getCurrentTime
     let isDesc = orderParam == Just "desc"
         explicitSort = sortParam == Just "name" || sortParam == Just "location"
@@ -1163,7 +1191,7 @@ getFlowActivities db flowIdText = do
 getSupplyChain
     :: UnitConfig
     -> SharedSolver.DepSolverLookup
-    -> Database -> Text -> SharedSolver -> Text -> ActivityFilter -> Bool
+    -> Database -> Text -> SharedSolver -> Text -> SupplyChainFilter -> Bool
     -> IO (Either ServiceError SupplyChainResponse)
 getSupplyChain unitCfg depLookup db dbName sharedSolver processIdText af includeEdges =
     case resolveActivityAndProcessId db processIdText of
@@ -1247,15 +1275,16 @@ collectSupplyChainEntries
     -> Text                -- ^ DB name
     -> Maybe ProcessId     -- ^ root PID to exclude (Nothing at dep levels)
     -> U.Vector Double     -- ^ scaling vector
-    -> ActivityFilter
+    -> SupplyChainFilter
     -> Bool                -- ^ include edges
     -> Bool                -- ^ qualify processIds with @dbName::@
     -> Double              -- ^ multiplier for sceQuantity (rootRefAmount at root, 1.0 at dep)
     -> Int                 -- ^ depth offset added to per-DB BFS depth
     -> (Int, [SupplyChainEntry], [SupplyChainEdge])
     -- ^ (unfiltered non-zero count, filtered entries, edges)
-collectSupplyChainEntries db dbName mRootPid supplyVec af includeEdges qualifyPids quantityMult depthOffset =
-    let minQ = fromMaybe 0 (afMinQuantity af)
+collectSupplyChainEntries db dbName mRootPid supplyVec scf includeEdges qualifyPids quantityMult depthOffset =
+    let core = scfCore scf
+        minQ = fromMaybe 0 (scfMinQuantity scf)
         n    = U.length supplyVec
 
         allEntries =
@@ -1287,11 +1316,11 @@ collectSupplyChainEntries db dbName mRootPid supplyVec af includeEdges qualifyPi
 
         textMatches = Normalize.caseInsensitiveInfixOf
 
-        -- BM25/fuzzy membership set for afName, computed once per request so
+        -- BM25/fuzzy membership set for afcName, computed once per request so
         -- /supply-chain matches whatever /activities already found for the
         -- same query. Nothing ⇒ no effective filter (absent, blank, or DB
         -- without a BM25 index — only bare test fixtures hit that last case).
-        mNameSet = nameFilterSet db (afName af)
+        mNameSet = nameFilterSet db (afcName core)
         nameMatchesPid pid = maybe True (IS.member (fromIntegral pid)) mNameSet
 
         getProductNames activity =
@@ -1304,11 +1333,11 @@ collectSupplyChainEntries db dbName mRootPid supplyVec af includeEdges qualifyPi
 
         matchesFilters activity pid =
             let nameOk     = nameMatchesPid pid
-                locOk      = maybe True (\pat -> textMatches pat (activityLocation activity)) (afLocation af)
-                productOk  = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afProduct af)
-                classOk    = matchClassifications activity (afClassifications af)
+                locOk      = maybe True (\pat -> textMatches pat (activityLocation activity)) (afcLocation core)
+                productOk  = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afcProduct core)
+                classOk    = matchClassifications activity (afcClassifications core)
                 localDepth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
-                depthOk    = maybe True (localDepth <=) (afMaxDepth af)
+                depthOk    = maybe True (localDepth <=) (scfMaxDepth scf)
             in nameOk && locOk && productOk && classOk && depthOk
 
         qualify pid
@@ -1348,16 +1377,16 @@ collectSupplyChainEntries db dbName mRootPid supplyVec af includeEdges qualifyPi
                  ) [] (dbTechnosphereTriples db)
     in (length allEntries, filteredEntries, edges)
 
--- | Sort, offset, and limit a list of supply-chain entries using the active
--- filter's @afSort@ / @afOrder@ / @afLimit@ / @afOffset@. All comparison
--- fields (@sceDepth@, @sceUpstreamCount@, @sceQuantity@…) live on the entry
--- itself, so this works uniformly for single- and cross-DB lists.
-sortAndPaginate :: ActivityFilter -> [SupplyChainEntry] -> [SupplyChainEntry]
-sortAndPaginate af entries =
-    let limit  = fromMaybe 100 (afLimit af)
-        offset = fromMaybe 0   (afOffset af)
-        isDesc = afOrder af == Just "desc"
-        comparator = case afSort af of
+-- | Sort, offset, and limit a list of supply-chain entries using the shared
+-- filter core's @afcSort@ / @afcOrder@ / @afcLimit@ / @afcOffset@. All
+-- comparison fields (@sceDepth@, @sceUpstreamCount@, @sceQuantity@…) live on
+-- the entry itself, so this works uniformly for single- and cross-DB lists.
+sortAndPaginate :: ActivityFilterCore -> [SupplyChainEntry] -> [SupplyChainEntry]
+sortAndPaginate core entries =
+    let limit  = fromMaybe 100 (afcLimit core)
+        offset = fromMaybe 0   (afcOffset core)
+        isDesc = afcOrder core == Just "desc"
+        comparator = case afcSort core of
             Just "name"      -> \a b -> compare (sceName a) (sceName b)
             Just "location"  -> \a b -> compare (sceLocation a) (sceLocation b)
             Just "unit"      -> \a b -> compare (sceUnit a) (sceUnit b)
@@ -1372,14 +1401,14 @@ sortAndPaginate af entries =
 -- Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
 buildSupplyChainFromScalingVector
     :: Database -> Text -> ProcessId -> U.Vector Double
-    -> ActivityFilter
+    -> SupplyChainFilter
     -> Bool  -- ^ include edges (expensive: extra pass over technosphere triples)
     -> SupplyChainResponse
-buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges =
+buildSupplyChainFromScalingVector db dbName processId supplyVec scf includeEdges =
     let rootActivity  = dbActivities db V.! fromIntegral processId
         rootRefAmount = getReferenceProductAmount rootActivity
         (totalActs, entries, edges) =
-            collectSupplyChainEntries db dbName (Just processId) supplyVec af includeEdges
+            collectSupplyChainEntries db dbName (Just processId) supplyVec scf includeEdges
                                       False rootRefAmount 0
         rootSummary = ActivitySummary
             { prsProcessId = processIdToText db processId
@@ -1394,7 +1423,7 @@ buildSupplyChainFromScalingVector db dbName processId supplyVec af includeEdges 
         { scrRoot = rootSummary
         , scrTotalActivities = totalActs
         , scrFilteredActivities = length entries
-        , scrSupplyChain = sortAndPaginate af entries
+        , scrSupplyChain = sortAndPaginate (scfCore scf) entries
         , scrEdges = edges
         }
 
@@ -1413,14 +1442,14 @@ buildSupplyChainFromScalingVectorCrossDB
     -> Database -> Text                 -- ^ root DB + name
     -> ProcessId -> U.Vector Double     -- ^ root PID + its scaling
     -> [CrossDBLink]                    -- ^ extra virtual links from subs
-    -> ActivityFilter
+    -> SupplyChainFilter
     -> Bool                             -- ^ include edges
     -> IO (Either ServiceError SupplyChainResponse)
-buildSupplyChainFromScalingVectorCrossDB unitCfg depLookup rootDb rootDbName rootPid rootScaling extraLinks af includeEdges = do
+buildSupplyChainFromScalingVectorCrossDB unitCfg depLookup rootDb rootDbName rootPid rootScaling extraLinks scf includeEdges = do
     let rootActivity  = dbActivities rootDb V.! fromIntegral rootPid
         rootRefAmount = getReferenceProductAmount rootActivity
         (rootTotal, rootEntries, rootEdges) =
-            collectSupplyChainEntries rootDb rootDbName (Just rootPid) rootScaling af includeEdges
+            collectSupplyChainEntries rootDb rootDbName (Just rootPid) rootScaling scf includeEdges
                                       False rootRefAmount 0
         rootSummary = ActivitySummary
             { prsProcessId = processIdToText rootDb rootPid
@@ -1431,7 +1460,7 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg depLookup rootDb rootDbName roo
             , prsProductAmount = rootRefAmount
             , prsProductUnit = activityUnit rootActivity
             }
-    eDep <- walkDepLevels unitCfg depLookup rootDb rootScaling extraLinks af includeEdges 1 S.empty
+    eDep <- walkDepLevels unitCfg depLookup rootDb rootScaling extraLinks scf includeEdges 1 S.empty
     pure $ case eDep of
         Left err -> Left err
         Right (depTotal, depEntries, depEdges) ->
@@ -1441,13 +1470,13 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg depLookup rootDb rootDbName roo
                 { scrRoot = rootSummary
                 , scrTotalActivities    = rootTotal + depTotal
                 , scrFilteredActivities = length combinedEntries
-                , scrSupplyChain        = sortAndPaginate af combinedEntries
+                , scrSupplyChain        = sortAndPaginate (scfCore scf) combinedEntries
                 , scrEdges              = combinedEdges
                 }
 
 -- | Recursive helper: for every cross-DB link emerging from @consumerScaling@,
 -- solve the induced dep demand and collect entries\/edges from the dep DB
--- (filtered by the same 'ActivityFilter' as the root). Returns
+-- (filtered by the same 'SupplyChainFilter' as the root). Returns
 -- @(total_active_count, filtered_entries, edges)@ summed across all reached
 -- dep DBs at this depth and deeper. No pagination here — that's applied once
 -- at the top level on the merged list.
@@ -1457,16 +1486,16 @@ walkDepLevels
     -> Database                         -- ^ current consumer DB
     -> U.Vector Double                  -- ^ current level's scaling
     -> [CrossDBLink]                    -- ^ extra virtual links visible at this level
-    -> ActivityFilter
+    -> SupplyChainFilter
     -> Bool
     -> Int                              -- ^ current depth
     -> S.Set Text                       -- ^ visited DB names (cycle guard)
     -> IO (Either ServiceError (Int, [SupplyChainEntry], [SupplyChainEdge]))
-walkDepLevels unitCfg depLookup consumerDb consumerScaling extras af includeEdges depth visited
+walkDepLevels unitCfg depLookup consumerDb consumerScaling extras scf includeEdges depth visited
     | depth >= maxSubsDepth = pure (Right (0, [], []))
     | otherwise = do
         let demandsMap = accumulateDepDemandsWith consumerDb extras consumerScaling
-        results <- mapM (resolveOneDep unitCfg depLookup af includeEdges depth visited)
+        results <- mapM (resolveOneDep unitCfg depLookup scf includeEdges depth visited)
                         (M.toList demandsMap)
         pure $ case lefts results of
             (err:_) -> Left err
@@ -1480,13 +1509,13 @@ walkDepLevels unitCfg depLookup consumerDb consumerScaling extras af includeEdge
 resolveOneDep
     :: UnitConfig
     -> SharedSolver.DepSolverLookup
-    -> ActivityFilter
+    -> SupplyChainFilter
     -> Bool
     -> Int                              -- ^ current depth (the one we're entering)
     -> S.Set Text                       -- ^ visited
     -> (Text, M.Map (UUID, UUID) (Double, Text))
     -> IO (Either ServiceError (Int, [SupplyChainEntry], [SupplyChainEdge]))
-resolveOneDep unitCfg depLookup af includeEdges depth visited (depDbName, demands)
+resolveOneDep unitCfg depLookup scf includeEdges depth visited (depDbName, demands)
     | depDbName `S.member` visited = pure (Right (0, [], []))
     | otherwise = do
         mDep <- depLookup depDbName
@@ -1497,10 +1526,10 @@ resolveOneDep unitCfg depLookup af includeEdges depth visited (depDbName, demand
                 Right demandVec -> do
                     depScaling <- solveWithSharedSolver depSolver demandVec
                     let (localTotal, localEntries, localEdges) =
-                            collectSupplyChainEntries depDb depDbName Nothing depScaling af includeEdges
+                            collectSupplyChainEntries depDb depDbName Nothing depScaling scf includeEdges
                                                       True 1.0 depth
                     eDeeper <- walkDepLevels unitCfg depLookup depDb depScaling []
-                                             af includeEdges (depth + 1) (S.insert depDbName visited)
+                                             scf includeEdges (depth + 1) (S.insert depDbName visited)
                     pure $ case eDeeper of
                         Left err -> Left err
                         Right (deeperTotal, deeperEntries, deeperEdges) ->
@@ -2013,10 +2042,11 @@ findTechCoefficient db consumer supplier =
 
 -- | Find all activities that transitively depend on a given supplier.
 -- BFS through the technosphere matrix tracking depth; optional max-depth cap.
-getConsumers :: Database -> Text -> ActivityFilter -> Either ServiceError (SearchResults ConsumerResult)
-getConsumers db processIdText af = do
+getConsumers :: Database -> Text -> ConsumerFilter -> Either ServiceError (SearchResults ConsumerResult)
+getConsumers db processIdText cnf = do
     (processId, _) <- resolveActivityAndProcessId db processIdText
-    let -- Build adjacency list: supplier → [direct consumers]
+    let core = cnfCore cnf
+        -- Build adjacency list: supplier → [direct consumers]
         adj = M.fromListWith (++)
             [ (fromIntegral row :: ProcessId, [fromIntegral col :: ProcessId])
             | SparseTriple row col _ <- U.toList (dbTechnosphereTriples db)
@@ -2033,28 +2063,28 @@ getConsumers db processIdText af = do
                            ]
                 -- deduplicate: keep minimum depth for nodes seen in this wave
                 nextDeduped  = M.toList $ M.fromListWith min next
-                nextFiltered = filter (\(_, d) -> maybe True (d <=) (afMaxDepth af)) nextDeduped
+                nextFiltered = filter (\(_, d) -> maybe True (d <=) (cnfMaxDepth cnf)) nextDeduped
                 depthMap'    = L.foldl' (\m (c, d) -> M.insert c d m) depthMap nextFiltered
             in bfs depthMap' nextFiltered
 
         allConsumers = M.delete processId $
                            bfs (M.singleton processId 0) [(processId, 0)]
 
-        mNameSet = nameFilterSet db (afName af)
+        mNameSet = nameFilterSet db (afcName core)
         nameMatches pid = maybe True (IS.member (fromIntegral pid)) mNameSet
 
-        locationMatches activity = case afLocation af of
+        locationMatches activity = case afcLocation core of
             Nothing  -> True
             Just pat -> Normalize.caseInsensitiveInfixOf pat (activityLocation activity)
 
-        productMatches prodName = case afProduct af of
+        productMatches prodName = case afcProduct core of
             Nothing  -> True
             Just pat -> Normalize.caseInsensitiveInfixOf pat prodName
 
-        classMatches activity = matchClassifications activity (afClassifications af)
+        classMatches activity = matchClassifications activity (afcClassifications core)
 
-        limit  = fromMaybe 1000 (afLimit af)
-        offset = fromMaybe 0 (afOffset af)
+        limit  = fromMaybe 1000 (afcLimit core)
+        offset = fromMaybe 0 (afcOffset core)
 
         rawResults =
             [ ConsumerResult
@@ -2073,8 +2103,8 @@ getConsumers db processIdText af = do
             , productMatches prodName
             ]
 
-        isDesc = afOrder af == Just "desc"
-        crCmp  = case afSort af of
+        isDesc = afcOrder core == Just "desc"
+        crCmp  = case afcSort core of
             Just "name"     -> \a b -> compare (crName a)          (crName b)
             Just "location" -> \a b -> compare (crLocation a)      (crLocation b)
             Just "amount"   -> \a b -> compare (crProductAmount a) (crProductAmount b)

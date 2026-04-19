@@ -7,6 +7,7 @@ import UnitConversion (UnitConfig, convertExchangeAmount)
 import Control.Monad.Trans.State.Strict (State, evalState, get, modify)
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Numeric.Natural (Natural)
 
 isTechnosphereInput :: FlowDB -> Exchange -> Bool
 isTechnosphereInput _ ex =
@@ -29,21 +30,21 @@ getConvertedExchangeAmount unitCfg db exchange targetActivityUUID =
        then originalAmount
        else convertExchangeAmount unitCfg exchangeUnitName targetReferenceUnit originalAmount
 
--- | Read-only context threaded through tree construction. Replaces the
--- previous three anonymous 'Int' parameters (depth / maxDepth / budget) by
--- naming the only one that is truly configurable (maxDepth); depth is local
--- to the recursion and the node budget now lives in a 'State'.
+-- | Read-only context threaded through tree construction. @tcMaxDepth@ is a
+-- 'Natural' so negative depths are unrepresentable; the public entrypoint
+-- clamps its 'Int' argument at the boundary.
 data TreeConfig = TreeConfig
     { tcUnitConfig :: !UnitConfig
     , tcDatabase   :: !Database
-    , tcMaxDepth   :: !Int
+    , tcMaxDepth   :: !Natural
     }
 
 -- | Build loop-aware tree for SVG export with maximum depth and a fixed
--- per-tree node budget (300) to keep export latency bounded.
+-- per-tree node budget (300) to keep export latency bounded. Negative
+-- @maxDepth@ arguments are clamped to 0.
 buildLoopAwareTree :: UnitConfig -> Database -> UUID -> Int -> LoopAwareTree
 buildLoopAwareTree unitCfg db rootUUID maxDepth =
-    let cfg      = TreeConfig unitCfg db maxDepth
+    let cfg      = TreeConfig unitCfg db (fromIntegral (max 0 maxDepth))
         maxNodes = 300
     in evalState (buildNode cfg rootUUID S.empty 0) maxNodes
 
@@ -60,7 +61,7 @@ buildNode cfg activityUUID visited depth = do
       then pure (TreeLoop activityUUID name depth)
       else do
         modify (subtract 1)
-        if depth >= tcMaxDepth cfg || activityUUID `S.member` visited
+        if fromIntegral depth >= tcMaxDepth cfg || activityUUID `S.member` visited
           then pure (TreeLoop activityUUID name depth)
           else case mActivity of
             Nothing -> pure (TreeLoop activityUUID "Missing Activity" depth)

@@ -261,38 +261,42 @@ executeFlowActivitiesCommand registry fmt database flowId =
 -- | Execute search activities command
 executeSearchActivitiesCommand :: PluginRegistry -> OutputFormat -> Database -> SearchActivitiesOptions -> IO ()
 executeSearchActivitiesCommand registry fmt database opts = do
-  let af = Service.ActivityFilter
-         { Service.afName            = searchName opts
-         , Service.afLocation        = searchGeo opts
-         , Service.afProduct         = searchProduct opts
-         , Service.afClassifications = []
-         , Service.afLimit           = searchLimit opts
-         , Service.afOffset          = searchOffset opts
-         , Service.afMaxDepth        = Nothing
-         , Service.afMinQuantity     = Nothing
-         , Service.afSort            = Nothing
-         , Service.afOrder           = Nothing
+  let sf = Service.SearchFilter
+         { Service.sfCore = Service.ActivityFilterCore
+             { Service.afcName            = searchName opts
+             , Service.afcLocation        = searchGeo opts
+             , Service.afcProduct         = searchProduct opts
+             , Service.afcClassifications = []
+             , Service.afcLimit           = searchLimit opts
+             , Service.afcOffset          = searchOffset opts
+             , Service.afcSort            = Nothing
+             , Service.afcOrder           = Nothing
+             }
+         , Service.sfExactMatch = False
          }
-  searchResult <- Service.searchActivities database af False
+  searchResult <- Service.searchActivities database sf
   case searchResult of
     Left err -> reportServiceError err
     Right result -> outputResult registry fmt result
 
 -- | Execute search flows command
 executeSearchFlowsCommand :: PluginRegistry -> OutputFormat -> Database -> SearchFlowsOptions -> IO ()
-executeSearchFlowsCommand registry fmt database opts = do
-  let ff = Service.FlowFilter
-         { Service.ffQuery  = searchQuery opts
-         , Service.ffLang   = searchLang opts
-         , Service.ffLimit  = searchFlowsLimit opts
-         , Service.ffOffset = searchFlowsOffset opts
-         , Service.ffSort   = Nothing
-         , Service.ffOrder  = Nothing
-         }
-  searchResult <- Service.searchFlows database ff
-  case searchResult of
-    Left err -> reportServiceError err
-    Right result -> outputResult registry fmt result
+executeSearchFlowsCommand registry fmt database opts =
+  case searchQuery opts of
+    Nothing    -> outputResult registry fmt Service.emptyFlowSearchResults
+    Just query -> do
+      let ff = Service.FlowFilter
+             { Service.ffQuery  = query
+             , Service.ffLang   = searchLang opts
+             , Service.ffLimit  = searchFlowsLimit opts
+             , Service.ffOffset = searchFlowsOffset opts
+             , Service.ffSort   = Nothing
+             , Service.ffOrder  = Nothing
+             }
+      searchResult <- Service.searchFlows database ff
+      case searchResult of
+        Left err -> reportServiceError err
+        Right result -> outputResult registry fmt result
 
 -- | Impacts (LCIA) is now handled via HTTP client (see CLI.Client)
 executeImpactsCommand :: PluginRegistry -> OutputFormat -> Database -> T.Text -> LCIAOptions -> IO ()

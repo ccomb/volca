@@ -553,13 +553,15 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             explicitFilters = zipWith3 (\s v m -> (s, v, m == "exact")) classSystems classValues
                                (classModes ++ repeat "contains")
             classFilters = presetFilters ++ explicitFilters
-            af = Service.ActivityFilter
-                { Service.afName = nameFilter, Service.afLocation = locationFilter, Service.afProduct = productFilter
-                , Service.afClassifications = classFilters, Service.afLimit = limitParam, Service.afOffset = offsetParam
-                , Service.afMaxDepth = maxDepthParam, Service.afMinQuantity = minQuantity
-                , Service.afSort = sortParam, Service.afOrder = orderParam }
+            scf = Service.SupplyChainFilter
+                { Service.scfCore = Service.ActivityFilterCore
+                    { Service.afcName = nameFilter, Service.afcLocation = locationFilter, Service.afcProduct = productFilter
+                    , Service.afcClassifications = classFilters, Service.afcLimit = limitParam, Service.afcOffset = offsetParam
+                    , Service.afcSort = sortParam, Service.afcOrder = orderParam }
+                , Service.scfMaxDepth = maxDepthParam, Service.scfMinQuantity = minQuantity
+                }
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-        result <- liftIO $ Service.getSupplyChain unitCfg (DM.mkDepSolverLookup dbManager) db dbName sharedSolver processId af includeEdges
+        result <- liftIO $ Service.getSupplyChain unitCfg (DM.mkDepSolverLookup dbManager) db dbName sharedSolver processId scf includeEdges
         case result of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
@@ -801,11 +803,13 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             explicitFilters = zipWith3 (\s v m -> (s, v, m == "exact")) classSystems classValues
                                (classModes ++ repeat "contains")
             classFilters = presetFilters ++ explicitFilters
-            af = Service.ActivityFilter
-                { Service.afName = nameFilter, Service.afLocation = locationFilter, Service.afProduct = productFilter
-                , Service.afClassifications = classFilters, Service.afLimit = limitParam, Service.afOffset = offsetParam
-                , Service.afMaxDepth = maxDepthParam, Service.afMinQuantity = minQuantityParam
-                , Service.afSort = sortParam, Service.afOrder = orderParam }
+            scf = Service.SupplyChainFilter
+                { Service.scfCore = Service.ActivityFilterCore
+                    { Service.afcName = nameFilter, Service.afcLocation = locationFilter, Service.afcProduct = productFilter
+                    , Service.afcClassifications = classFilters, Service.afcLimit = limitParam, Service.afcOffset = offsetParam
+                    , Service.afcSort = sortParam, Service.afcOrder = orderParam }
+                , Service.scfMaxDepth = maxDepthParam, Service.scfMinQuantity = minQuantityParam
+                }
         (processId, _) <- resolveOrThrow db processIdText
         -- Use the cross-DB-aware substitution resolver so qualified PIDs in
         -- subFrom/subTo are accepted; the virtual cross-DB links it returns
@@ -818,7 +822,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             Right (scalingVec, virtualLinks) -> do
                 unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
                 eResp <- liftIO $ Service.buildSupplyChainFromScalingVectorCrossDB
-                    unitCfg (DM.mkDepSolverLookup dbManager) db dbName processId scalingVec virtualLinks af includeEdges
+                    unitCfg (DM.mkDepSolverLookup dbManager) db dbName processId scalingVec virtualLinks scf includeEdges
                 either throwServiceError pure eResp
 
     -- Activity consumers endpoint (reverse supply chain)
@@ -829,12 +833,14 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             explicitFilters = zipWith3 (\s v m -> (s, v, m == "exact")) classSystems classValues
                                (classModes ++ repeat "contains")
             classFilters = presetFilters ++ explicitFilters
-            af = Service.ActivityFilter
-                { Service.afName = nameFilter, Service.afLocation = locationFilter, Service.afProduct = productFilter
-                , Service.afClassifications = classFilters, Service.afLimit = limitParam, Service.afOffset = offsetParam
-                , Service.afMaxDepth = maxDepthParam, Service.afMinQuantity = Nothing
-                , Service.afSort = sortParam, Service.afOrder = orderParam }
-        case Service.getConsumers db processIdText af of
+            cnf = Service.ConsumerFilter
+                { Service.cnfCore = Service.ActivityFilterCore
+                    { Service.afcName = nameFilter, Service.afcLocation = locationFilter, Service.afcProduct = productFilter
+                    , Service.afcClassifications = classFilters, Service.afcLimit = limitParam, Service.afcOffset = offsetParam
+                    , Service.afcSort = sortParam, Service.afcOrder = orderParam }
+                , Service.cnfMaxDepth = maxDepthParam
+                }
+        case Service.getConsumers db processIdText cnf of
             Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
             Left (Service.InvalidProcessId msg) -> throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
@@ -1293,15 +1299,18 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
     searchFlows :: Text -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Handler (SearchResults FlowSearchResult)
     searchFlows dbName queryParam langParam limitParam offsetParam sortParam orderParam = do
         (db, _) <- requireDatabaseByName dbManager dbName
-        let ff = Service.FlowFilter
-                 { Service.ffQuery  = queryParam
-                 , Service.ffLang   = langParam
-                 , Service.ffLimit  = limitParam
-                 , Service.ffOffset = offsetParam
-                 , Service.ffSort   = sortParam
-                 , Service.ffOrder  = orderParam
-                 }
-        searchFlowsInternal db ff
+        case queryParam of
+            Nothing -> return (SearchResults [] 0 0 50 False 0.0)
+            Just query -> do
+                let ff = Service.FlowFilter
+                         { Service.ffQuery  = query
+                         , Service.ffLang   = langParam
+                         , Service.ffLimit  = limitParam
+                         , Service.ffOffset = offsetParam
+                         , Service.ffSort   = sortParam
+                         , Service.ffOrder  = orderParam
+                         }
+                searchFlowsInternal db ff
 
     -- Search activities by specific fields with pagination and count
     searchActivitiesWithCount :: Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Bool -> Maybe Text -> [Text] -> [Text] -> [Text] -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Handler (SearchResults ActivitySummary)
@@ -1313,19 +1322,20 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             explicitFilters = zipWith3 (\s v m -> (s, v, m == "exact")) classSystems classValues
                                (classModes ++ repeat "contains")
             classFilters = presetFilters ++ explicitFilters
-        let af = Service.ActivityFilter
-                 { Service.afName            = nameParam
-                 , Service.afLocation        = geoParam
-                 , Service.afProduct         = productParam
-                 , Service.afClassifications = classFilters
-                 , Service.afLimit           = limitParam
-                 , Service.afOffset          = offsetParam
-                 , Service.afMaxDepth        = Nothing
-                 , Service.afMinQuantity     = Nothing
-                 , Service.afSort            = sortParam
-                 , Service.afOrder           = orderParam
+        let sf = Service.SearchFilter
+                 { Service.sfCore = Service.ActivityFilterCore
+                     { Service.afcName            = nameParam
+                     , Service.afcLocation        = geoParam
+                     , Service.afcProduct         = productParam
+                     , Service.afcClassifications = classFilters
+                     , Service.afcLimit           = limitParam
+                     , Service.afcOffset          = offsetParam
+                     , Service.afcSort            = sortParam
+                     , Service.afcOrder           = orderParam
+                     }
+                 , Service.sfExactMatch = exactMatch
                  }
-        result <- liftIO $ Service.searchActivities db af exactMatch
+        result <- liftIO $ Service.searchActivities db sf
         case result of
             Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
             Right jsonValue -> case fromJSON jsonValue of
@@ -1429,10 +1439,11 @@ paginateResults results limitParam offsetParam = do
     let searchTimeMs = realToFrac (diffUTCTime endTime startTime) * 1000 :: Double
     return $ SearchResults paginatedResults totalCount offset limit hasMore searchTimeMs
 
--- | Internal helper for flow search with optional language filtering
+-- | Internal helper for flow search with optional language filtering.
+-- The 'ffQuery' is always present (callers short-circuit on the no-query
+-- case); language filtering is not yet implemented.
 searchFlowsInternal :: Database -> Service.FlowFilter -> Handler (SearchResults FlowSearchResult)
-searchFlowsInternal _ Service.FlowFilter{Service.ffQuery = Nothing} = return $ SearchResults [] 0 0 50 False 0.0
-searchFlowsInternal db Service.FlowFilter{Service.ffQuery = Just query, Service.ffLimit = limitParam, Service.ffOffset = offsetParam, Service.ffSort = sortParam, Service.ffOrder = orderParam} = do
+searchFlowsInternal db Service.FlowFilter{Service.ffQuery = query, Service.ffLimit = limitParam, Service.ffOffset = offsetParam, Service.ffSort = sortParam, Service.ffOrder = orderParam} = do
     -- Language filtering not yet implemented, search all synonyms
     let flows = findFlowsBySynonym db query
         allResults = [FlowSearchResult (flowId flow) (flowName flow) (flowCategory flow) (getUnitNameForFlow (dbUnits db) flow) (M.map S.toList (flowSynonyms flow)) | flow <- flows]
