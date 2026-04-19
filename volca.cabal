@@ -183,6 +183,8 @@ test-suite lca-tests
                      , BM25Spec
                      , FuzzySpec
                      , NestedSubstitutionSpec
+                     , SubstitutionSpec
+                     , CrossDBSubstitutionSpec
   build-depends:       base >=4.14 && <5
                      , volca
                      , hspec
