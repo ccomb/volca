@@ -23,6 +23,7 @@ module Method.Types (
 
     -- * Scoring sets (formula-based N/W)
     ScoringSet (..),
+    ScoringEvaluation (..),
     computeFormulaScores,
 
     -- * Compartment Mapping
@@ -42,6 +43,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Csv (HasHeader (..), decode)
 import Data.List (sortBy)
 import qualified Data.Map.Strict as M
+import qualified Data.Maybe
 import Data.Ord (comparing)
 import Data.Store (Store)
 import Data.Text (Text)
@@ -175,14 +177,30 @@ data ScoringSet = ScoringSet
     -- ^ var → weight (multiplier)
     , ssScores :: !(M.Map Text Text)
     -- ^ score name → formula
+    , ssDisplayMultiplier :: !(Maybe Double)
+    {- ^ Multiplier applied to nwEnv values and final scores for display
+    (e.g., 1e6 to convert "Pts" into "µPts"). Nothing ≡ 1.0.
+    -}
+    }
+    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+
+{- | Result of evaluating a ScoringSet against raw LCIA results.
+Both maps carry the same numeric scale — the display multiplier has been applied.
+-}
+data ScoringEvaluation = ScoringEvaluation
+    { seNwEnv :: !(M.Map Text Double)
+    -- ^ var → normalized-weighted value (× displayMultiplier)
+    , seScores :: !(M.Map Text Double)
+    -- ^ score name → formula output (× displayMultiplier)
     }
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
 {- | Evaluate all scores in a ScoringSet given raw LCIA results.
 Input: map from impact category name → raw score.
-Output: map from score name → computed value, or an error.
+Output: normalized-weighted per-variable map plus per-score-formula output, or an error.
+Both output maps are pre-multiplied by `ssDisplayMultiplier` (default 1.0).
 -}
-computeFormulaScores :: ScoringSet -> M.Map Text Double -> Either String (M.Map Text Double)
+computeFormulaScores :: ScoringSet -> M.Map Text Double -> Either String ScoringEvaluation
 computeFormulaScores ss rawScores = do
     -- 1. Resolve primitive variables: lookup raw score by category name
     let primitiveEnv = M.mapMaybe (`M.lookup` rawScores) (ssVariables ss)
@@ -198,19 +216,26 @@ computeFormulaScores ss rawScores = do
                      in raw / n * w
                 )
                 rawEnv
+        mul = Data.Maybe.fromMaybe 1.0 (ssDisplayMultiplier ss)
     -- 4. Evaluate each score formula in the nw environment
-    M.traverseWithKey
-        ( \scoreName formula ->
-            case Expr.evaluate nwEnv formula of
-                Left err ->
-                    Left $
-                        "Score '"
-                            <> T.unpack scoreName
-                            <> "': "
-                            <> err
-                Right val -> Right val
-        )
-        (ssScores ss)
+    scores <-
+        M.traverseWithKey
+            ( \scoreName formula ->
+                case Expr.evaluate nwEnv formula of
+                    Left err ->
+                        Left $
+                            "Score '"
+                                <> T.unpack scoreName
+                                <> "': "
+                                <> err
+                    Right val -> Right val
+            )
+            (ssScores ss)
+    pure
+        ScoringEvaluation
+            { seNwEnv = M.map (* mul) nwEnv
+            , seScores = M.map (* mul) scores
+            }
 
 {- | Resolve computed variables by evaluating formulas.
 Uses topological sort to handle dependencies between computed variables.

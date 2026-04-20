@@ -756,6 +756,7 @@ configToScoringSet ssc =
         , ssNormalization = sscNormalization ssc
         , ssWeighting = sscWeighting ssc
         , ssScores = sscScores ssc
+        , ssDisplayMultiplier = sscDisplayMultiplier ssc
         }
 
 -- | Convert a DatabaseFormat to display text for methods

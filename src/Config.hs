@@ -130,6 +130,7 @@ data ScoringSetConfig = ScoringSetConfig
     , sscNormalization :: !(M.Map Text Double) -- var → normalization factor
     , sscWeighting :: !(M.Map Text Double) -- var → weight
     , sscScores :: !(M.Map Text Text) -- score name → formula
+    , sscDisplayMultiplier :: !(Maybe Double) -- optional display multiplier (e.g., 1e6)
     }
     deriving (Show, Eq, Generic)
 
@@ -228,6 +229,7 @@ instance DecodeTOML ScoringSetConfig where
         sscNormalization <- fromMaybe M.empty <$> getFieldOpt "normalization"
         sscWeighting <- fromMaybe M.empty <$> getFieldOpt "weighting"
         sscScores <- fromMaybe M.empty <$> getFieldOpt "scores"
+        sscDisplayMultiplier <- getFieldOpt "displayMultiplier"
         pure ScoringSetConfig{..}
 
 instance DecodeTOML RefDataConfig where

@@ -346,6 +346,16 @@ data BatchImpactsResponse = BatchImpactsResponse
     }
     deriving (Generic)
 
+{- | A single scoring-set indicator: the per-variable normalized-weighted value
+plus the impact category it came from. Value is pre-multiplied by the
+scoring set's display multiplier, expressed in the set's display unit.
+-}
+data ScoringIndicator = ScoringIndicator
+    { siCategory :: Text
+    , siValue :: Double
+    }
+    deriving (Generic)
+
 -- | Batch LCIA result with optional single score
 data LCIABatchResult = LCIABatchResult
     { lbrResults :: [LCIAResult]
@@ -357,6 +367,8 @@ data LCIABatchResult = LCIABatchResult
     -- ^ Scoring set name → (score name → value). All formula-based scoring sets computed at once.
     , lbrScoringUnits :: M.Map Text Text
     -- ^ Scoring set name → display unit (e.g., "Pts", "µPts PEF")
+    , lbrScoringIndicators :: M.Map Text (M.Map Text ScoringIndicator)
+    -- ^ Scoring set name → (variable name → indicator). One row per scoring variable.
     }
     deriving (Generic)
 
@@ -754,6 +766,7 @@ instance ToJSON MethodDetail where toJSON = strippedToJSON; toEncoding = strippe
 instance ToJSON MethodFactorAPI where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON FlowContributionEntry where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON LCIAResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ScoringIndicator where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON LCIABatchResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON BatchImpactsEntry where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON BatchImpactsResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding

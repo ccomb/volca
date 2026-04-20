@@ -74,6 +74,7 @@ instance ToSchema GraphExport where declareNamedSchema = genericDeclareNamedSche
 instance ToSchema GraphNode where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema GraphEdge where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema LCIAResult where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
+instance ToSchema ScoringIndicator where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema LCIABatchResult where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema BatchImpactsRequest where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema BatchImpactsEntry where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions

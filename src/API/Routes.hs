@@ -9,7 +9,7 @@ module API.Routes where
 import API.DatabaseHandlers (simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityContribution (..), ActivityInfo (..), ActivitySummary (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), ConsumerResult (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), DatabaseListResponse (..), ExchangeDetail (..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionListResponse (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), RefDataListResponse (..), RelinkResponse (..), SearchResults (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadRequest (..), UploadResponse (..))
+import API.Types (ActivateResponse (..), ActivityContribution (..), ActivityInfo (..), ActivitySummary (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), ConsumerResult (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), DatabaseListResponse (..), ExchangeDetail (..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GraphExport (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionListResponse (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), RefDataListResponse (..), RelinkResponse (..), ScoringIndicator (..), SearchResults (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadRequest (..), UploadResponse (..))
 import qualified Config
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.STM (readTVarIO)
@@ -36,7 +36,7 @@ import GHC.Generics
 import qualified GHC.Stats
 import Matrix (Inventory)
 import Method.Mapping (MappingStats (..), MatchStrategy (..), computeLCIAScoreFromTables, computeMappingStats, inventoryContributions)
-import Method.Types (DamageCategory (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), NormWeightSet (..), ScoringSet (..), computeFormulaScores)
+import Method.Types (DamageCategory (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), NormWeightSet (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
 import Numeric (showFFloat)
 import Plugin.Types (AnalyzeContext (..), AnalyzeHandle (..), PluginRegistry (..))
 import Progress (ProgressLevel (Info, Warning), getLogLines, reportProgress)
@@ -819,18 +819,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                         M.fromList
                             [(lrCategory r, lrScore r) | r <- rawResults]
                 -- Compute each scoring set, logging errors
-                scoringResults <- liftIO $ do
-                    ssResults <- forM (mcScoringSets collection) $ \ss -> do
-                        case computeFormulaScores ss rawScoreMap of
-                            Right scores -> return $ Just (ssName ss, scores)
-                            Left err -> do
-                                reportProgress Warning $
-                                    "  Scoring set '"
-                                        <> T.unpack (ssName ss)
-                                        <> "' failed: "
-                                        <> err
-                                return Nothing
-                    return $ M.fromList [(n, s) | Just (n, s) <- ssResults]
+                (scoringResults, scoringIndicators) <-
+                    liftIO $ computeAllScoringSets (mcScoringSets collection) rawScoreMap
                 t2 <- liftIO getCurrentTime
                 liftIO $ mapM_ (logBatchCategory invSize) results
                 liftIO $
@@ -856,6 +846,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                         , lbrAvailableNWsets = map nwName nwSets
                         , lbrScoringResults = scoringResults
                         , lbrScoringUnits = M.fromList [(ssName ss, ssUnit ss) | ss <- mcScoringSets collection]
+                        , lbrScoringIndicators = scoringIndicators
                         }
 
     -- POST: Batch LCIA with substitutions
@@ -884,12 +875,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
             rawScoreMap =
                 M.fromList
                     [(lrCategory r, lrScore r) | r <- rawResults]
-            scoringResults =
-                M.fromList
-                    [ (ssName ss, scores)
-                    | ss <- scoringSets
-                    , Right scores <- [computeFormulaScores ss rawScoreMap]
-                    ]
+        (scoringResults, scoringIndicators) <-
+            liftIO $ computeAllScoringSets scoringSets rawScoreMap
         return
             LCIABatchResult
                 { lbrResults = results
@@ -899,6 +886,7 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 , lbrAvailableNWsets = map nwName nwSets
                 , lbrScoringResults = scoringResults
                 , lbrScoringUnits = M.fromList [(ssName ss, ssUnit ss) | ss <- scoringSets]
+                , lbrScoringIndicators = scoringIndicators
                 }
 
     -- POST: Inventory with substitutions
@@ -1655,18 +1643,8 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
         rawResults <- mapConcurrently (computeCategoryResult dbName db activity 5 inventory) methods
         let results = map (enrichWithNW dcLookup mNW) rawResults
             rawScoreMap = M.fromList [(lrCategory r, lrScore r) | r <- rawResults]
-        scoringResults <- do
-            ssResults <- forM (mcScoringSets collection) $ \ss ->
-                case computeFormulaScores ss rawScoreMap of
-                    Right scores -> pure $ Just (ssName ss, scores)
-                    Left err -> do
-                        reportProgress Warning $
-                            "  Scoring set '"
-                                <> T.unpack (ssName ss)
-                                <> "' failed: "
-                                <> err
-                        pure Nothing
-            pure $ M.fromList [(n, s) | Just (n, s) <- ssResults]
+        (scoringResults, scoringIndicators) <-
+            computeAllScoringSets (mcScoringSets collection) rawScoreMap
         pure
             LCIABatchResult
                 { lbrResults = results
@@ -1676,7 +1654,43 @@ lcaServer dbManager maxTreeDepth password hostingConfig classificationPresets =
                 , lbrAvailableNWsets = map nwName nwSets
                 , lbrScoringResults = scoringResults
                 , lbrScoringUnits = M.fromList [(ssName ss, ssUnit ss) | ss <- mcScoringSets collection]
+                , lbrScoringIndicators = scoringIndicators
                 }
+
+{- | Evaluate every scoring set against the raw impact score map.
+Returns (setName → scoreName → value, setName → varName → ScoringIndicator).
+Scoring sets that fail to evaluate are logged as warnings and omitted.
+Values are pre-multiplied by each set's displayMultiplier (default 1.0).
+-}
+computeAllScoringSets ::
+    [ScoringSet] ->
+    M.Map Text Double ->
+    IO (M.Map Text (M.Map Text Double), M.Map Text (M.Map Text ScoringIndicator))
+computeAllScoringSets scoringSets rawScoreMap = do
+    evaluations <- forM scoringSets $ \ss ->
+        case computeFormulaScores ss rawScoreMap of
+            Right eval -> pure $ Just (ss, eval)
+            Left err -> do
+                reportProgress Warning $
+                    "  Scoring set '"
+                        <> T.unpack (ssName ss)
+                        <> "' failed: "
+                        <> err
+                pure Nothing
+    let ok = [(ss, e) | Just (ss, e) <- evaluations]
+        scores = M.fromList [(ssName ss, seScores e) | (ss, e) <- ok]
+        indicators = M.fromList [(ssName ss, toIndicators ss e) | (ss, e) <- ok]
+    pure (scores, indicators)
+  where
+    toIndicators ss e =
+        M.mapWithKey
+            ( \var val ->
+                ScoringIndicator
+                    { siCategory = M.findWithDefault var var (ssVariables ss)
+                    , siValue = val
+                    }
+            )
+            (seNwEnv e)
 
 -- | Helper function to apply pagination to search results
 paginateResults :: [a] -> Maybe Int -> Maybe Int -> IO (SearchResults a)
