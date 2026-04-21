@@ -2,36 +2,36 @@
 
 module UploadedDatabaseSpec (spec) where
 
-import Test.Hspec
-import System.IO.Temp (withSystemTempDirectory)
 import Data.Text (Text)
 import qualified Data.Text as T
+import System.IO.Temp (withSystemTempDirectory)
+import Test.Hspec
 
+import Database.Upload (DatabaseFormat (..))
 import Database.UploadedDatabase
-import Database.Upload (DatabaseFormat(..))
 
 -- | Minimal UploadMeta without description
 baseMeta :: UploadMeta
-baseMeta = UploadMeta
-    { umVersion     = 1
-    , umDisplayName = "My Database"
-    , umDescription = Nothing
-    , umFormat      = EcoSpold2
-    , umDataPath    = "data"
-    }
+baseMeta =
+    UploadMeta
+        { umVersion = 1
+        , umDisplayName = "My Database"
+        , umDescription = Nothing
+        , umFormat = EcoSpold2
+        , umDataPath = "data"
+        }
 
 spec :: Spec
 spec = do
-
     -- -----------------------------------------------------------------------
     -- parseFormat
     -- -----------------------------------------------------------------------
     describe "parseFormat" $ do
-        it "parses ecospold2"  $ parseFormat "ecospold2" `shouldBe` Just EcoSpold2
-        it "parses ecospold1"  $ parseFormat "ecospold1" `shouldBe` Just EcoSpold1
-        it "parses simapro"    $ parseFormat "simapro"   `shouldBe` Just SimaProCSV
-        it "parses ilcd"       $ parseFormat "ilcd"      `shouldBe` Just ILCDProcess
-        it "parses unknown"    $ parseFormat "other"     `shouldBe` Just UnknownFormat
+        it "parses ecospold2" $ parseFormat "ecospold2" `shouldBe` Just EcoSpold2
+        it "parses ecospold1" $ parseFormat "ecospold1" `shouldBe` Just EcoSpold1
+        it "parses simapro" $ parseFormat "simapro" `shouldBe` Just SimaProCSV
+        it "parses ilcd" $ parseFormat "ilcd" `shouldBe` Just ILCDProcess
+        it "parses unknown" $ parseFormat "other" `shouldBe` Just UnknownFormat
 
     -- -----------------------------------------------------------------------
     -- isUploadedPath
@@ -66,16 +66,16 @@ spec = do
             formatMetaToml baseMeta `shouldSatisfy` (not . ("description" `T.isInfixOf`))
 
         it "includes description when Just" $
-            let meta = baseMeta { umDescription = Just "My description" }
-            in formatMetaToml meta `shouldSatisfy` ("My description" `T.isInfixOf`)
+            let meta = baseMeta{umDescription = Just "My description"}
+             in formatMetaToml meta `shouldSatisfy` ("My description" `T.isInfixOf`)
 
         it "formats simapro as 'simapro'" $
-            let meta = baseMeta { umFormat = SimaProCSV }
-            in formatMetaToml meta `shouldSatisfy` ("simapro" `T.isInfixOf`)
+            let meta = baseMeta{umFormat = SimaProCSV}
+             in formatMetaToml meta `shouldSatisfy` ("simapro" `T.isInfixOf`)
 
         it "formats ilcd as 'ilcd'" $
-            let meta = baseMeta { umFormat = ILCDProcess }
-            in formatMetaToml meta `shouldSatisfy` ("ilcd" `T.isInfixOf`)
+            let meta = baseMeta{umFormat = ILCDProcess}
+             in formatMetaToml meta `shouldSatisfy` ("ilcd" `T.isInfixOf`)
 
     -- -----------------------------------------------------------------------
     -- parseMetaToml
@@ -83,10 +83,15 @@ spec = do
     describe "parseMetaToml" $ do
         it "parses minimal meta without description" $ do
             let toml = "version = 1\ndisplayName = \"My DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\n"
-            parseMetaToml toml `shouldBe` Just UploadMeta
-                { umVersion = 1, umDisplayName = "My DB"
-                , umDescription = Nothing, umFormat = EcoSpold2
-                , umDataPath = "data" }
+            parseMetaToml toml
+                `shouldBe` Just
+                    UploadMeta
+                        { umVersion = 1
+                        , umDisplayName = "My DB"
+                        , umDescription = Nothing
+                        , umFormat = EcoSpold2
+                        , umDataPath = "data"
+                        }
 
         it "parses meta with description" $ do
             let toml = "version = 1\ndisplayName = \"DB\"\ndescription = \"Desc\"\nformat = \"simapro\"\ndataPath = \"d\"\n"
@@ -107,17 +112,19 @@ spec = do
             parseMetaToml (formatMetaToml baseMeta) `shouldBe` Just baseMeta
 
         it "round-trips a meta with description" $ do
-            let meta = baseMeta { umDescription = Just "A nice database" }
+            let meta = baseMeta{umDescription = Just "A nice database"}
             parseMetaToml (formatMetaToml meta) `shouldBe` Just meta
 
         it "round-trips all database formats" $
-            mapM_ (\fmt -> do
-                let meta = baseMeta { umFormat = fmt }
-                fmap umFormat (parseMetaToml (formatMetaToml meta)) `shouldBe` Just fmt
-                ) [EcoSpold2, EcoSpold1, SimaProCSV, ILCDProcess, UnknownFormat]
+            mapM_
+                ( \fmt -> do
+                    let meta = baseMeta{umFormat = fmt}
+                    fmap umFormat (parseMetaToml (formatMetaToml meta)) `shouldBe` Just fmt
+                )
+                [EcoSpold2, EcoSpold1, SimaProCSV, ILCDProcess, UnknownFormat]
 
         it "round-trips a path with spaces" $ do
-            let meta = baseMeta { umDataPath = "my data/sub dir" }
+            let meta = baseMeta{umDataPath = "my data/sub dir"}
             fmap umDataPath (parseMetaToml (formatMetaToml meta)) `shouldBe` Just "my data/sub dir"
 
     -- -----------------------------------------------------------------------
@@ -137,8 +144,7 @@ spec = do
 
         it "round-trips with description" $
             withSystemTempDirectory "volca-test" $ \dir -> do
-                let meta = baseMeta { umDescription = Just "test" }
+                let meta = baseMeta{umDescription = Just "test"}
                 writeUploadMeta dir meta
                 result <- readUploadMeta dir
                 result `shouldBe` Just meta
-

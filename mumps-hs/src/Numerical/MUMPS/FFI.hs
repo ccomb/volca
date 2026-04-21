@@ -1,15 +1,15 @@
-module Numerical.MUMPS.FFI
-    ( MumpsSolverC
-    , c_mumps_create
-    , c_mumps_analyze
-    , c_mumps_factorize
-    , c_mumps_solve
-    , c_mumps_solve_multi
-    , c_mumps_destroy
-    , c_mumps_get_error
-    ) where
+module Numerical.MUMPS.FFI (
+    MumpsSolverC,
+    c_mumps_create,
+    c_mumps_analyze,
+    c_mumps_factorize,
+    c_mumps_solve,
+    c_mumps_solve_multi,
+    c_mumps_destroy,
+    c_mumps_get_error,
+) where
 
-import Foreign.C.Types (CInt(..), CDouble(..))
+import Foreign.C.Types (CDouble (..), CInt (..))
 import Foreign.Ptr (Ptr)
 
 -- | Opaque C struct — never allocated from Haskell

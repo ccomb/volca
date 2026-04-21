@@ -2,21 +2,19 @@
 
 module CrossLinkingSpec (spec) where
 
-import Test.Hspec
-import Database.CrossLinking
-import SynonymDB (emptySynonymDB, buildFromPairs)
-import UnitConversion (defaultUnitConfig)
-import Database.Loader (loadDatabase)
 import qualified Data.Map.Strict as M
+import Database.CrossLinking
+import Database.Loader (loadDatabase)
+import SynonymDB (buildFromPairs, emptySynonymDB)
+import Test.Hspec
+import UnitConversion (defaultUnitConfig)
 
 spec :: Spec
 spec = do
-
     -- -----------------------------------------------------------------------
     -- normalizeText
     -- -----------------------------------------------------------------------
     describe "normalizeText" $ do
-
         it "lowercases and strips whitespace" $
             normalizeText "  Wheat Production  " `shouldBe` "wheat production"
 
@@ -51,7 +49,6 @@ spec = do
     -- stripTrailingDBTag
     -- -----------------------------------------------------------------------
     describe "stripTrailingDBTag" $ do
-
         it "strips '(WFLDB)' suffix" $
             stripTrailingDBTag "wheat (WFLDB)" `shouldBe` Just "wheat"
 
@@ -71,7 +68,6 @@ spec = do
     -- stripTrailingLocationSuffix
     -- -----------------------------------------------------------------------
     describe "stripTrailingLocationSuffix" $ do
-
         it "strips '/CA U' suffix" $
             stripTrailingLocationSuffix "wheat (WFLDB)/CA U" `shouldBe` Just "wheat (WFLDB)"
 
@@ -88,7 +84,6 @@ spec = do
     -- extractProductPrefixes
     -- -----------------------------------------------------------------------
     describe "extractProductPrefixes" $ do
-
         it "splits on '//' separator" $
             extractProductPrefixes "wheat//[GLO] wheat production" `shouldContain` ["wheat"]
 
@@ -105,7 +100,6 @@ spec = do
     -- extractBracketedLocation
     -- -----------------------------------------------------------------------
     describe "extractBracketedLocation" $ do
-
         it "extracts from curly braces {FR}" $
             extractBracketedLocation "electricity {FR}" `shouldBe` "FR"
 
@@ -122,7 +116,6 @@ spec = do
     -- isSubregionOf
     -- -----------------------------------------------------------------------
     describe "isSubregionOf" $ do
-
         it "FR is a subregion of RER" $
             isSubregionOf locationHierarchy "FR" "RER" `shouldBe` True
 
@@ -139,7 +132,6 @@ spec = do
     -- matchLocation
     -- -----------------------------------------------------------------------
     describe "matchLocation" $ do
-
         it "exact match scores 30" $
             matchLocation locationHierarchy "FR" "FR" `shouldBe` 30
 
@@ -165,7 +157,6 @@ spec = do
     -- matchProductName
     -- -----------------------------------------------------------------------
     describe "matchProductName" $ do
-
         it "exact match (case-insensitive) scores 50" $
             matchProductName emptySynonymDB "Wheat" "wheat" `shouldBe` 50
 
@@ -196,7 +187,6 @@ spec = do
     -- isSubregionOf — additional location pairs
     -- -----------------------------------------------------------------------
     describe "isSubregionOf (additional)" $ do
-
         it "US is a subregion of North America" $
             isSubregionOf locationHierarchy "US" "North America" `shouldBe` True
 
@@ -216,7 +206,6 @@ spec = do
     -- matchLocation — additional scoring cases
     -- -----------------------------------------------------------------------
     describe "matchLocation (additional)" $ do
-
         it "US consumer, NAFTA supplier scores 20 (widening)" $
             matchLocation locationHierarchy "US" "NAFTA" `shouldBe` 20
 
@@ -230,57 +219,60 @@ spec = do
     -- findSupplierInIndexedDBs — integration using SAMPLE.min3
     -- -----------------------------------------------------------------------
     describe "findSupplierInIndexedDBs (SAMPLE.min3)" $ do
-
         it "finds 'product Y' by name and GLO location" $ do
             idb <- loadMin3IndexedDB
-            let ctx = LinkingContext
-                        { lcIndexedDatabases  = [idb]
-                        , lcSynonymDB         = emptySynonymDB
-                        , lcUnitConfig        = defaultUnitConfig
-                        , lcThreshold         = defaultLinkingThreshold
+            let ctx =
+                    LinkingContext
+                        { lcIndexedDatabases = [idb]
+                        , lcSynonymDB = emptySynonymDB
+                        , lcUnitConfig = defaultUnitConfig
+                        , lcThreshold = defaultLinkingThreshold
                         , lcLocationHierarchy = locationHierarchy
                         }
             case findSupplierInIndexedDBs ctx "product Y" "GLO" "kg" of
                 CrossDBLinked _ _ _ score _ _ _ -> score `shouldSatisfy` (>= defaultLinkingThreshold)
-                CrossDBNotLinked reason          -> expectationFailure $ "Expected link but got: " ++ show reason
+                CrossDBNotLinked reason -> expectationFailure $ "Expected link but got: " ++ show reason
 
         it "returns NoNameMatch for an unknown product" $ do
             idb <- loadMin3IndexedDB
-            let ctx = LinkingContext
-                        { lcIndexedDatabases  = [idb]
-                        , lcSynonymDB         = emptySynonymDB
-                        , lcUnitConfig        = defaultUnitConfig
-                        , lcThreshold         = defaultLinkingThreshold
+            let ctx =
+                    LinkingContext
+                        { lcIndexedDatabases = [idb]
+                        , lcSynonymDB = emptySynonymDB
+                        , lcUnitConfig = defaultUnitConfig
+                        , lcThreshold = defaultLinkingThreshold
                         , lcLocationHierarchy = locationHierarchy
                         }
             case findSupplierInIndexedDBs ctx "no such product" "GLO" "kg" of
                 CrossDBNotLinked _ -> return ()
-                CrossDBLinked {}   -> expectationFailure "Expected CrossDBNotLinked"
+                CrossDBLinked{} -> expectationFailure "Expected CrossDBNotLinked"
 
         it "returns UnitIncompatible when product found but unit doesn't match" $ do
             idb <- loadMin3IndexedDB
-            let ctx = LinkingContext
-                        { lcIndexedDatabases  = [idb]
-                        , lcSynonymDB         = emptySynonymDB
-                        , lcUnitConfig        = defaultUnitConfig
-                        , lcThreshold         = defaultLinkingThreshold
+            let ctx =
+                    LinkingContext
+                        { lcIndexedDatabases = [idb]
+                        , lcSynonymDB = emptySynonymDB
+                        , lcUnitConfig = defaultUnitConfig
+                        , lcThreshold = defaultLinkingThreshold
                         , lcLocationHierarchy = locationHierarchy
                         }
             -- "product Y" exists in kg; asking for m3 should fail unit check
             case findSupplierInIndexedDBs ctx "product Y" "GLO" "m3" of
                 CrossDBNotLinked (UnitIncompatible _ _) -> return ()
                 CrossDBNotLinked reason -> expectationFailure $ "Expected UnitIncompatible but got: " ++ show reason
-                CrossDBLinked {} -> expectationFailure "Expected CrossDBNotLinked for unit mismatch"
+                CrossDBLinked{} -> expectationFailure "Expected CrossDBNotLinked for unit mismatch"
 
         it "finds via synonym when synDB has the pair" $ do
             idb <- loadMin3IndexedDB
             -- "product Y" is the canonical name; "producto Y" (alias) can be found via synonym
             let synDB = buildFromPairs [("product y", "producto y")]
-                ctx = LinkingContext
-                        { lcIndexedDatabases  = [idb]
-                        , lcSynonymDB         = synDB
-                        , lcUnitConfig        = defaultUnitConfig
-                        , lcThreshold         = defaultLinkingThreshold
+                ctx =
+                    LinkingContext
+                        { lcIndexedDatabases = [idb]
+                        , lcSynonymDB = synDB
+                        , lcUnitConfig = defaultUnitConfig
+                        , lcThreshold = defaultLinkingThreshold
                         , lcLocationHierarchy = locationHierarchy
                         }
             -- Synonym lookup: "producto y" → group containing "product y" → supplier
@@ -290,11 +282,12 @@ spec = do
 
         it "uses empty location from compound name when location arg is empty" $ do
             idb <- loadMin3IndexedDB
-            let ctx = LinkingContext
-                        { lcIndexedDatabases  = [idb]
-                        , lcSynonymDB         = emptySynonymDB
-                        , lcUnitConfig        = defaultUnitConfig
-                        , lcThreshold         = defaultLinkingThreshold
+            let ctx =
+                    LinkingContext
+                        { lcIndexedDatabases = [idb]
+                        , lcSynonymDB = emptySynonymDB
+                        , lcUnitConfig = defaultUnitConfig
+                        , lcThreshold = defaultLinkingThreshold
                         , lcLocationHierarchy = locationHierarchy
                         }
             -- "product Y {GLO}" compound name with empty location arg

@@ -2,11 +2,11 @@
 
 module UnitConversionSpec (spec) where
 
-import Test.Hspec
-import UnitConversion
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import Test.Hspec
+import UnitConversion
 
 -- Helper for testing Left results
 isLeft :: Either a b -> Bool

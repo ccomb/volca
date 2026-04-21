@@ -2,13 +2,13 @@
 
 module ParserSpec (spec) where
 
-import Test.Hspec
-import TestHelpers
-import GoldenData
-import Types
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import GoldenData
+import Test.Hspec
+import TestHelpers
+import Types
 
 spec :: Spec
 spec = do
@@ -100,16 +100,22 @@ spec = do
         it "parses ISIC classification system and value" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let activities = V.toList $ dbActivities db
-                isicValues = [v | a <- activities
-                                , Just v <- [M.lookup "ISIC rev.4 ecoinvent" (activityClassification a)]]
+                isicValues =
+                    [ v
+                    | a <- activities
+                    , Just v <- [M.lookup "ISIC rev.4 ecoinvent" (activityClassification a)]
+                    ]
             isicValues `shouldContain` ["2394:Manufacture of cement"]
             isicValues `shouldContain` ["0810:Quarrying of stone, sand and clay"]
 
         it "parses CPC classification" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let activities = V.toList $ dbActivities db
-                cpcValues = [v | a <- activities
-                               , Just v <- [M.lookup "CPC" (activityClassification a)]]
+                cpcValues =
+                    [ v
+                    | a <- activities
+                    , Just v <- [M.lookup "CPC" (activityClassification a)]
+                    ]
             cpcValues `shouldBe` ["3744:Cement"]
 
     describe "EcoSpold1 Parser - Classifications" $ do

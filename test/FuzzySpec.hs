@@ -2,28 +2,29 @@
 
 module FuzzySpec (spec) where
 
-import Test.Hspec
-import Data.Text (Text)
 import qualified Data.Map.Strict as M
+import Data.Text (Text)
 import qualified Data.Vector as V
+import Test.Hspec
 
-import Types
 import Search.BM25 (buildIndex)
 import Search.BM25.Types (BM25Index)
 import Search.Fuzzy (expandTokens)
+import Types
 
 mkActivity :: Text -> [Exchange] -> Activity
-mkActivity name xs = Activity
-    { activityName = name
-    , activityDescription = []
-    , activitySynonyms = M.empty
-    , activityClassification = M.empty
-    , activityLocation = "FR"
-    , activityUnit = "kg"
-    , exchanges = xs
-    , activityParams = M.empty
-    , activityParamExprs = M.empty
-    }
+mkActivity name xs =
+    Activity
+        { activityName = name
+        , activityDescription = []
+        , activitySynonyms = M.empty
+        , activityClassification = M.empty
+        , activityLocation = "FR"
+        , activityUnit = "kg"
+        , exchanges = xs
+        , activityParams = M.empty
+        , activityParamExprs = M.empty
+        }
 
 -- Index-builder helper: create a BM25 index over a list of activity names.
 indexOfNames :: [Text] -> BM25Index
@@ -32,7 +33,6 @@ indexOfNames names =
 
 spec :: Spec
 spec = describe "Search.Fuzzy" $ do
-
     it "passes exact-vocabulary token through at weight 1.0" $ do
         let idx = indexOfNames ["yaourt nature"]
         expandTokens idx ["yaourt"] `shouldBe` [("yaourt", 1.0)]
@@ -71,9 +71,11 @@ spec = describe "Search.Fuzzy" $ do
     it "applies length ratio guard on prefix matches" $ do
         -- "elect" (5 chars) should not match a 25-char token
         -- (ratio > 3 — 25/5 = 5). Only the shorter candidate passes.
-        let idx = indexOfNames [ "electroencephalography used in diagnosis"
-                               , "election local"
-                               ]
+        let idx =
+                indexOfNames
+                    [ "electroencephalography used in diagnosis"
+                    , "election local"
+                    ]
         -- "elect" (len 5): max candidate length = 15.
         -- "electroencephalography" (len 22) is blocked by ratio guard.
         -- "election" (len 8) passes.
@@ -88,9 +90,10 @@ spec = describe "Search.Fuzzy" $ do
         -- Real Agribalyse case: two activities use the English and French
         -- spellings. A search for either must surface both; exact ranks first
         -- via the 1.0 vs 0.5 weight gap.
-        let idx = indexOfNames
-                [ "trellis system wooden poles"
-                , "treillis system wooden poles"
-                ]
-        expandTokens idx ["trellis"]  `shouldBe` [("trellis", 1.0),  ("treillis", 0.5)]
-        expandTokens idx ["treillis"] `shouldBe` [("treillis", 1.0), ("trellis",  0.5)]
+        let idx =
+                indexOfNames
+                    [ "trellis system wooden poles"
+                    , "treillis system wooden poles"
+                    ]
+        expandTokens idx ["trellis"] `shouldBe` [("trellis", 1.0), ("treillis", 0.5)]
+        expandTokens idx ["treillis"] `shouldBe` [("treillis", 1.0), ("trellis", 0.5)]

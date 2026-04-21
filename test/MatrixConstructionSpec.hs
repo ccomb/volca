@@ -2,13 +2,13 @@
 
 module MatrixConstructionSpec (spec) where
 
-import Test.Hspec
-import TestHelpers
-import GoldenData
-import Types
+import qualified Data.Map as M
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
-import qualified Data.Map as M
+import GoldenData
+import Test.Hspec
+import TestHelpers
+import Types
 
 spec :: Spec
 spec = do

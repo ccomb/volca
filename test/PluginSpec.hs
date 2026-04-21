@@ -2,16 +2,16 @@
 
 module PluginSpec (spec) where
 
-import Test.Hspec
 import qualified Data.Map.Strict as M
 import Data.UUID (nil)
+import Test.Hspec
 
-import Plugin.Types
+import Method.Types (FlowDirection (..), MethodCF (..))
 import Plugin.Builtin
-import Plugin.Config (buildRegistry, PluginConfig(..), PluginType(..))
-import Method.Types (MethodCF(..), FlowDirection(..))
-import Types (Database)
+import Plugin.Config (PluginConfig (..), PluginType (..), buildRegistry)
+import Plugin.Types
 import SynonymDB (emptySynonymDB)
+import Types (Database)
 
 -- | A minimal MapContext for testing
 emptyMapCtx :: MapContext
@@ -19,15 +19,16 @@ emptyMapCtx = MapContext M.empty M.empty M.empty emptySynonymDB M.empty
 
 -- | A test CF with a known UUID
 testCF :: MethodCF
-testCF = MethodCF
-    { mcfFlowRef    = nil
-    , mcfFlowName   = "carbon dioxide"
-    , mcfDirection  = Output
-    , mcfValue      = 1.0
-    , mcfCAS        = Just "124-38-9"
-    , mcfCompartment = Nothing
-    , mcfUnit       = "kg"
-    }
+testCF =
+    MethodCF
+        { mcfFlowRef = nil
+        , mcfFlowName = "carbon dioxide"
+        , mcfDirection = Output
+        , mcfValue = 1.0
+        , mcfCAS = Just "124-38-9"
+        , mcfCompartment = Nothing
+        , mcfUnit = "kg"
+        }
 
 spec :: Spec
 spec = do
@@ -69,38 +70,42 @@ spec = do
             length (prMappers reg) `shouldBe` 4
             M.size (prReporters reg) `shouldBe` 4
             M.size (prExporters reg) `shouldBe` 2
-            M.size (prAnalyzers reg) `shouldBe` 2  -- lcia + hotspot
-            length (prSearchers reg) `shouldBe` 2  -- name + cas
-            length (prImporters reg) `shouldBe` 4  -- ecospold2, ecospold1, simapro, ilcd
+            M.size (prAnalyzers reg) `shouldBe` 2 -- lcia + hotspot
+            length (prSearchers reg) `shouldBe` 2 -- name + cas
+            length (prImporters reg) `shouldBe` 4 -- ecospold2, ecospold1, simapro, ilcd
             length (prValidators reg) `shouldBe` 0
             length (prTransforms reg) `shouldBe` 0
 
         it "disable plugin removes it by name" $ do
-            let configs = [PluginConfig
-                    { pcName = "uuid-mapper"
-                    , pcType = PTMapper
-                    , pcPath = Nothing
-                    , pcEnabled = False
-                    , pcPriority = Nothing
-                    , pcFormatId = Nothing
-                    , pcPhase = Nothing
-                    , pcMimeType = Nothing
-                    }]
+            let configs =
+                    [ PluginConfig
+                        { pcName = "uuid-mapper"
+                        , pcType = PTMapper
+                        , pcPath = Nothing
+                        , pcEnabled = False
+                        , pcPriority = Nothing
+                        , pcFormatId = Nothing
+                        , pcPhase = Nothing
+                        , pcMimeType = Nothing
+                        }
+                    ]
                 reg = buildRegistry configs
             length (prMappers reg) `shouldBe` 3
             map mhName (prMappers reg) `shouldNotContain` ["uuid-mapper"]
 
         it "priority override re-orders mappers" $ do
-            let configs = [PluginConfig
-                    { pcName = "synonym-mapper"
-                    , pcType = PTMapper
-                    , pcPath = Nothing
-                    , pcEnabled = True
-                    , pcPriority = Just (-1)  -- Move to front
-                    , pcFormatId = Nothing
-                    , pcPhase = Nothing
-                    , pcMimeType = Nothing
-                    }]
+            let configs =
+                    [ PluginConfig
+                        { pcName = "synonym-mapper"
+                        , pcType = PTMapper
+                        , pcPath = Nothing
+                        , pcEnabled = True
+                        , pcPriority = Just (-1) -- Move to front
+                        , pcFormatId = Nothing
+                        , pcPhase = Nothing
+                        , pcMimeType = Nothing
+                        }
+                    ]
                 reg = buildRegistry configs
             mhName (head (prMappers reg)) `shouldBe` "synonym-mapper"
 
@@ -136,8 +141,8 @@ spec = do
                 query = SearchQuery "test" M.empty 50
                 db = error "unused" :: Database
             results <- searchWithPlugins [s1, s2] db query
-            length results `shouldBe` 1  -- Deduplicated by UUID
-            srScore (head results) `shouldBe` 0.9  -- Higher score kept
+            length results `shouldBe` 1 -- Deduplicated by UUID
+            srScore (head results) `shouldBe` 0.9 -- Higher score kept
 
 -- Re-export validation functions from Service for testing
 runPreComputeValidation :: [ValidateHandle] -> Database -> IO [ValidationIssue]

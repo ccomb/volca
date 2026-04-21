@@ -53,12 +53,10 @@ module Matrix (
     clearCachedSolver,
 ) where
 
-import Progress
-import Types
-import qualified UnitConversion
-import Control.Exception (catch, evaluate, SomeException)
+import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar, withMVar)
+import Control.Exception (SomeException, catch, evaluate)
 import Control.Monad (forM_, when)
-import Control.Concurrent.MVar (MVar, newMVar, withMVar, readMVar, modifyMVar_)
 import Data.Int (Int32)
 import qualified Data.Map as M
 import Data.Text (Text)
@@ -67,9 +65,11 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
-import Control.Concurrent.Async (mapConcurrently)
-import Numerical.MUMPS (MUMPSSolver, mumpsCreate, mumpsAnalyzeAndFactorize, mumpsSolve, mumpsSolveMulti, mumpsDestroy)
-import System.IO.Unsafe (unsafePerformIO)  -- Used only for NOINLINE global singletons
+import Numerical.MUMPS (MUMPSSolver, mumpsAnalyzeAndFactorize, mumpsCreate, mumpsDestroy, mumpsSolve, mumpsSolveMulti)
+import Progress
+import System.IO.Unsafe (unsafePerformIO) -- Used only for NOINLINE global singletons
+import Types
+import qualified UnitConversion
 
 -- | Simple vector operations (replacing hmatrix dependency)
 type Vector = U.Vector Double
@@ -77,16 +77,18 @@ type Vector = U.Vector Double
 -- | Final inventory vector mapping biosphere flow UUIDs to quantities.
 type Inventory = M.Map UUID Double
 
--- | Global cache for pre-factorized MUMPS solvers per database.
--- Each entry has its own MVar lock for concurrent forward/backward solves.
+{- | Global cache for pre-factorized MUMPS solvers per database.
+Each entry has its own MVar lock for concurrent forward/backward solves.
+-}
 {-# NOINLINE cachedSolver #-}
 cachedSolver :: MVar (M.Map Text (MUMPSSolver, Int, MVar ()))
 cachedSolver = unsafePerformIO $ newMVar M.empty
 
--- | Global mutex for MUMPS factorization/creation/destruction operations.
--- MUMPS_SEQ has global Fortran state that is NOT thread-safe for concurrent
--- create/factorize/destroy calls. Only mumpsSolve on an already-factorized
--- instance is safe (per-database locks protect same-instance concurrent access).
+{- | Global mutex for MUMPS factorization/creation/destruction operations.
+MUMPS_SEQ has global Fortran state that is NOT thread-safe for concurrent
+create/factorize/destroy calls. Only mumpsSolve on an already-factorized
+instance is safe (per-database locks protect same-instance concurrent access).
+-}
 {-# NOINLINE mumpsFactorizationMutex #-}
 mumpsFactorizationMutex :: MVar ()
 mumpsFactorizationMutex = unsafePerformIO $ newMVar ()
@@ -139,24 +141,26 @@ solveSparseLinearSystemWithFactorization factorization demandVec = do
                 n = mfActivityCount factorization
                 techTriples = U.toList $ U.filter (\(SparseTriple i j _) -> i /= j) $ U.map (\(SparseTriple i j val) -> SparseTriple i j (-val)) systemMatrix
             solveSparseLinearSystemMUMPS [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- techTriples] (fromIntegral n) demandVec
-
         Just (_solver, n, dbLock) -> do
             reportMatrixOperation $ "Using cached solver for database '" ++ T.unpack dbId ++ "' (" ++ show n ++ " activities) - ultra-fast solve"
 
             withProgressTiming Solver "MUMPS cached solve" $ do
-                result <- catch
-                    (withMVar dbLock $ \_ -> do
-                        cachedSolvers' <- readMVar cachedSolver
-                        case M.lookup dbId cachedSolvers' of
-                            Nothing -> return Nothing
-                            Just (mumpsSolver, _, _) -> do
-                                let rhsVec = VS.fromList $ toList demandVec
-                                solutionVS <- mumpsSolve mumpsSolver rhsVec
-                                return $ Just (VS.convert solutionVS :: Vector))
-                    (\e -> do
-                        reportMatrixOperation $ "MUMPS cached solver failed: " ++ show (e :: SomeException)
-                        reportMatrixOperation "Falling back to fresh solver for this request"
-                        return Nothing)
+                result <-
+                    catch
+                        ( withMVar dbLock $ \_ -> do
+                            cachedSolvers' <- readMVar cachedSolver
+                            case M.lookup dbId cachedSolvers' of
+                                Nothing -> return Nothing
+                                Just (mumpsSolver, _, _) -> do
+                                    let rhsVec = VS.fromList $ toList demandVec
+                                    solutionVS <- mumpsSolve mumpsSolver rhsVec
+                                    return $ Just (VS.convert solutionVS :: Vector)
+                        )
+                        ( \e -> do
+                            reportMatrixOperation $ "MUMPS cached solver failed: " ++ show (e :: SomeException)
+                            reportMatrixOperation "Falling back to fresh solver for this request"
+                            return Nothing
+                        )
 
                 case result of
                     Just vec -> return vec
@@ -181,27 +185,33 @@ solveSparseLinearSystemWithFactorizationMulti :: MatrixFactorization -> [Vector]
 solveSparseLinearSystemWithFactorizationMulti _ [] = pure []
 solveSparseLinearSystemWithFactorizationMulti factorization demandVecs = do
     let dbId = mfDatabaseId factorization
-        k    = length demandVecs
+        k = length demandVecs
     cachedSolvers <- readMVar cachedSolver
     case M.lookup dbId cachedSolvers of
         Nothing -> do
-            reportMatrixOperation $ "No cached factorization for '" ++ T.unpack dbId
-                ++ "' — batch falling back to per-demand solve"
+            reportMatrixOperation $
+                "No cached factorization for '"
+                    ++ T.unpack dbId
+                    ++ "' — batch falling back to per-demand solve"
             mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs
         Just (_solver, _, dbLock) -> do
             reportMatrixOperation $ "Multi-RHS solve for '" ++ T.unpack dbId ++ "' (k=" ++ show k ++ ")"
             catch
-                (withProgressTiming Solver "MUMPS multi-RHS solve" $
+                ( withProgressTiming Solver "MUMPS multi-RHS solve" $
                     withMVar dbLock $ \_ -> do
                         cached' <- readMVar cachedSolver
                         case M.lookup dbId cached' of
                             Nothing -> mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs
                             Just (solver, _, _) ->
-                                concat <$> mapM (solveChunk solver) (chunksOf multiRhsChunkSize demandVecs))
-                (\e -> do
-                    reportMatrixOperation $ "Multi-RHS solve failed (" ++ show (e :: SomeException)
-                        ++ ") — falling back to per-demand solve"
-                    mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs)
+                                concat <$> mapM (solveChunk solver) (chunksOf multiRhsChunkSize demandVecs)
+                )
+                ( \e -> do
+                    reportMatrixOperation $
+                        "Multi-RHS solve failed ("
+                            ++ show (e :: SomeException)
+                            ++ ") — falling back to per-demand solve"
+                    mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs
+                )
   where
     solveChunk :: MUMPSSolver -> [Vector] -> IO [Vector]
     solveChunk solver chunk = do
@@ -215,8 +225,8 @@ multiRhsChunkSize = 64
 
 chunksOf :: Int -> [a] -> [[a]]
 chunksOf n xs
-    | n <= 0    = [xs]
-    | null xs   = []
+    | n <= 0 = [xs]
+    | null xs = []
     | otherwise = let (h, t) = splitAt n xs in h : chunksOf n t
 
 {- |
@@ -236,10 +246,10 @@ should validate with 'Service.resolveActivityAndProcessId' first —
 'buildDemandVectorFromIndex' crashes on an out-of-range id.
 -}
 computeInventoryMatrixBatch :: Database -> MatrixFactorization -> [ProcessId] -> IO [Inventory]
-computeInventoryMatrixBatch _  _    []   = pure []
+computeInventoryMatrixBatch _ _ [] = pure []
 computeInventoryMatrixBatch db fact pids = do
     let activityIndex = dbActivityIndex db
-        demandVecs    = map (buildDemandVectorFromIndex activityIndex) pids
+        demandVecs = map (buildDemandVectorFromIndex activityIndex) pids
     scalingVecs <- solveSparseLinearSystemWithFactorizationMulti fact demandVecs
     mapConcurrently (\x -> evaluate $! applyBiosphereMatrix db x) scalingVecs
 
@@ -253,6 +263,7 @@ This function:
 
 Performance: ~3s for 14,457 activities with 116K technosphere entries
 -}
+
 -- | Uses global mutex: MUMPS_SEQ create/factorize/destroy have global Fortran state.
 solveSparseLinearSystemMUMPS :: [(Int, Int, Double)] -> Int -> Vector -> IO Vector
 solveSparseLinearSystemMUMPS techTriples n demandVec = withMVar mumpsFactorizationMutex $ \_ -> do
@@ -322,11 +333,13 @@ applyBiosphereMatrix :: Database -> Vector -> Inventory
 applyBiosphereMatrix db supplyVec =
     let bioFlowCount = dbBiosphereCount db
         bioTriples = dbBiosphereTriples db
-        bioFlowIndex = M.fromList $ zip (V.toList $ dbBiosphereFlows db) [0..]
+        bioFlowIndex = M.fromList $ zip (V.toList $ dbBiosphereFlows db) [0 ..]
         inventoryVec = applySparseMatrix [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples] (fromIntegral bioFlowCount) supplyVec
-    in M.fromList [(uuid, inventoryVec U.! idx)
-                  | (uuid, idx) <- M.toList bioFlowIndex
-                  , idx < U.length inventoryVec]
+     in M.fromList
+            [ (uuid, inventoryVec U.! idx)
+            | (uuid, idx) <- M.toList bioFlowIndex
+            , idx < U.length inventoryVec
+            ]
 
 computeInventoryMatrix :: Database -> ProcessId -> IO Inventory
 computeInventoryMatrix db rootProcessId =
@@ -338,32 +351,36 @@ contribution[p] = Σ_f  B[f,p] * s[p] * CF[f]   (in the method's impact unit)
 
 Exact for cyclic systems because it uses the full matrix-solved scaling vector.
 -}
-computeProcessLCIAContributions
-    :: Database
-    -> Vector               -- ^ Scaling vector (from computeScalingVector)
-    -> M.Map UUID Double    -- ^ CF map: flowUUID → CF value (single impact category)
-    -> M.Map ProcessId Double  -- ^ ProcessId → LCIA contribution in impact unit
+computeProcessLCIAContributions ::
+    Database ->
+    -- | Scaling vector (from computeScalingVector)
+    Vector ->
+    -- | CF map: flowUUID → CF value (single impact category)
+    M.Map UUID Double ->
+    -- | ProcessId → LCIA contribution in impact unit
+    M.Map ProcessId Double
 computeProcessLCIAContributions db scalingVec cfMap =
-    let actIdx      = dbActivityIndex db
-        bioTriples  = dbBiosphereTriples db
-        bioFlows    = dbBiosphereFlows db
+    let actIdx = dbActivityIndex db
+        bioTriples = dbBiosphereTriples db
+        bioFlows = dbBiosphereFlows db
         -- Build inverse map: matrix column index → ProcessId
         colToProcess :: M.Map Int ProcessId
-        colToProcess = M.fromList
-            [ (fromIntegral (actIdx V.! pid), fromIntegral pid)
-            | pid <- [0 .. V.length actIdx - 1]
-            ]
+        colToProcess =
+            M.fromList
+                [ (fromIntegral (actIdx V.! pid), fromIntegral pid)
+                | pid <- [0 .. V.length actIdx - 1]
+                ]
         step acc (SparseTriple flowRow colIdx bioVal) =
             let flowUUID = bioFlows V.! fromIntegral flowRow
-            in case M.lookup flowUUID cfMap of
-                Nothing    -> acc
-                Just cfVal ->
-                    case M.lookup (fromIntegral colIdx :: Int) colToProcess of
-                        Nothing  -> acc
-                        Just pid ->
-                            let s = scalingVec U.! fromIntegral colIdx
-                            in M.insertWith (+) pid (bioVal * s * cfVal) acc
-    in U.foldl' step M.empty bioTriples
+             in case M.lookup flowUUID cfMap of
+                    Nothing -> acc
+                    Just cfVal ->
+                        case M.lookup (fromIntegral colIdx :: Int) colToProcess of
+                            Nothing -> acc
+                            Just pid ->
+                                let s = scalingVec U.! fromIntegral colIdx
+                                 in M.insertWith (+) pid (bioVal * s * cfVal) acc
+     in U.foldl' step M.empty bioTriples
 
 {- |
 Sherman-Morrison rank-1 update for ingredient substitution (~4ms per variant).
@@ -389,26 +406,32 @@ asymmetric cross-DB cases work with the same code path:
 
 Returns Left if the update is singular (|1 + v^T*z| < epsilon).
 -}
-shermanMorrisonVariant
-    :: Database
-    -> Maybe MatrixFactorization  -- ^ Cached factorization from SharedSolver (Nothing = full re-solve)
-    -> Vector              -- ^ Original scaling vector x
-    -> Int                 -- ^ Activity being modified (row = consumer index)
-    -> [(Int, Double)]     -- ^ Non-zero entries of the perturbation vector u
-    -> IO (Either T.Text Vector)  -- ^ Variant scaling vector x'
+shermanMorrisonVariant ::
+    Database ->
+    -- | Cached factorization from SharedSolver (Nothing = full re-solve)
+    Maybe MatrixFactorization ->
+    -- | Original scaling vector x
+    Vector ->
+    -- | Activity being modified (row = consumer index)
+    Int ->
+    -- | Non-zero entries of the perturbation vector u
+    [(Int, Double)] ->
+    -- | Variant scaling vector x'
+    IO (Either T.Text Vector)
 shermanMorrisonVariant db mFact x row perturb
-    | null perturb = pure (Right x)     -- no root-matrix change (cross-DB-only sub)
-    | otherwise    = do
+    | null perturb = pure (Right x) -- no root-matrix change (cross-DB-only sub)
+    | otherwise = do
         let n = U.length x
             u = U.accum (+) (U.replicate n 0.0) perturb
         z <- case mFact of
-            Just f  -> solveSparseLinearSystemWithFactorization f u
+            Just f -> solveSparseLinearSystemWithFactorization f u
             Nothing -> do
                 let techTriples = dbTechnosphereTriples db
                     activityCount = dbActivityCount db
                 solveSparseLinearSystem
                     [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
-                    (fromIntegral activityCount) u
+                    (fromIntegral activityCount)
+                    u
         let vtx = x U.! row
             vtz = z U.! row
             denom = 1.0 + vtz
@@ -432,47 +455,50 @@ refAmount). 'cdlCoefficient' is the raw exchange amount per ref-unit of the
 consumer, while the scaling vector is in per-kg units — so we re-scale
 before accumulating.
 -}
-accumulateDepDemands
-    :: Database
-    -> Vector
-    -> M.Map Text (M.Map (UUID, UUID) (Double, Text))
+accumulateDepDemands ::
+    Database ->
+    Vector ->
+    M.Map Text (M.Map (UUID, UUID) (Double, Text))
 accumulateDepDemands db = accumulateDepDemandsWith db []
 
--- | Same as 'accumulateDepDemands' but folds over an additional list of
--- synthesized 'CrossDBLink' records (e.g. virtual links emitted by a
--- what-if substitution that re-routes a consumer to a dep-DB supplier).
--- Negative 'cdlCoefficient' is allowed: it cancels a static link at the
--- same supplier key because the inner 'M.unionWith mergeEntry' sums
--- amounts. A 0-net entry remains in the map and becomes a zero in
--- 'depDemandsToVector' — silently dropped is never correct (it would
--- hide a bug); a zero is.
-accumulateDepDemandsWith
-    :: Database
-    -> [CrossDBLink]
-    -> Vector
-    -> M.Map Text (M.Map (UUID, UUID) (Double, Text))
+{- | Same as 'accumulateDepDemands' but folds over an additional list of
+synthesized 'CrossDBLink' records (e.g. virtual links emitted by a
+what-if substitution that re-routes a consumer to a dep-DB supplier).
+Negative 'cdlCoefficient' is allowed: it cancels a static link at the
+same supplier key because the inner 'M.unionWith mergeEntry' sums
+amounts. A 0-net entry remains in the map and becomes a zero in
+'depDemandsToVector' — silently dropped is never correct (it would
+hide a bug); a zero is.
+-}
+accumulateDepDemandsWith ::
+    Database ->
+    [CrossDBLink] ->
+    Vector ->
+    M.Map Text (M.Map (UUID, UUID) (Double, Text))
 accumulateDepDemandsWith db extraLinks scalingVec =
     foldr step M.empty (dbCrossDBLinks db ++ extraLinks)
   where
-    actIdx     = dbActivityIndex db
+    actIdx = dbActivityIndex db
     procLookup = dbProcessIdLookup db
     normFactors = consumerNormFactors db
     step link acc =
         case M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) procLookup of
             Nothing -> acc
             Just consumerPid ->
-                let consumerIdx   = fromIntegral $ actIdx V.! fromIntegral consumerPid
+                let consumerIdx = fromIntegral $ actIdx V.! fromIntegral consumerPid
                     consumerScale = scalingVec U.! consumerIdx
-                    normFactor    = M.findWithDefault 1.0 consumerPid normFactors
-                    demand        = cdlCoefficient link * consumerScale / normFactor
-                    supplierKey   = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
-                    entry         = (demand, cdlExchangeUnit link)
-                in if demand == 0
-                     then acc
-                     else M.insertWith (M.unionWith mergeEntry)
-                            (cdlSourceDatabase link)
-                            (M.singleton supplierKey entry)
-                            acc
+                    normFactor = M.findWithDefault 1.0 consumerPid normFactors
+                    demand = cdlCoefficient link * consumerScale / normFactor
+                    supplierKey = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
+                    entry = (demand, cdlExchangeUnit link)
+                 in if demand == 0
+                        then acc
+                        else
+                            M.insertWith
+                                (M.unionWith mergeEntry)
+                                (cdlSourceDatabase link)
+                                (M.singleton supplierKey entry)
+                                acc
     -- Two links hitting the same supplier should share the same exchange unit
     -- (it's the supplier's product, and the consumer-side exchange is written
     -- in that product's unit). Keep the first; conversion will catch any
@@ -480,25 +506,29 @@ accumulateDepDemandsWith db extraLinks scalingVec =
     -- supplierRefUnit per entry.
     mergeEntry (a, u) (b, _) = (a + b, u)
 
--- | Normalization factor (ref-product amount) for each consumer activity that
--- appears in 'dbCrossDBLinks'. Mirrors the factor used in 'buildActivityTriplets'.
+{- | Normalization factor (ref-product amount) for each consumer activity that
+appears in 'dbCrossDBLinks'. Mirrors the factor used in 'buildActivityTriplets'.
+-}
 consumerNormFactors :: Database -> M.Map ProcessId Double
 consumerNormFactors db =
-    M.fromList [ (pid, activityNormalizationFactor db pid) | pid <- consumers ]
+    M.fromList [(pid, activityNormalizationFactor db pid) | pid <- consumers]
   where
     procLookup = dbProcessIdLookup db
-    consumers  = [ pid
-                 | link <- dbCrossDBLinks db
-                 , Just pid <- [M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) procLookup]
-                 ]
+    consumers =
+        [ pid
+        | link <- dbCrossDBLinks db
+        , Just pid <- [M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) procLookup]
+        ]
 
--- | Activity's reference-product amount used to normalize its matrix column.
--- Thin wrapper around 'activityNormFactor' that resolves the activity and
--- its (actUUID, prodUUID) key from the database by 'ProcessId'.
+{- | Activity's reference-product amount used to normalize its matrix column.
+Thin wrapper around 'activityNormFactor' that resolves the activity and
+its (actUUID, prodUUID) key from the database by 'ProcessId'.
+-}
 activityNormalizationFactor :: Database -> ProcessId -> Double
 activityNormalizationFactor db pid =
-    activityNormFactor (dbActivities db V.! fromIntegral pid)
-                       (dbProcessIdTable db V.! fromIntegral pid)
+    activityNormFactor
+        (dbActivities db V.! fromIntegral pid)
+        (dbProcessIdTable db V.! fromIntegral pid)
 
 {- |
 Convert a sparse supplier-demand map into a length-@n_dep@ demand vector for
@@ -514,45 +544,52 @@ silently dropped (they've already been accepted as cross-DB links; a missing
 ProcessId here means the dep DB was loaded but doesn't have that exact
 supplier, which is recorded at link time).
 -}
-depDemandsToVector
-    :: UnitConversion.UnitConfig
-    -> Text                     -- ^ dep DB name, for error messages
-    -> Database
-    -> M.Map (UUID, UUID) (Double, Text)
-    -> Either Text Vector
+depDemandsToVector ::
+    UnitConversion.UnitConfig ->
+    -- | dep DB name, for error messages
+    Text ->
+    Database ->
+    M.Map (UUID, UUID) (Double, Text) ->
+    Either Text Vector
 depDemandsToVector unitConfig depDbName depDb demands = do
     converted <- traverse convertEntry (M.toList demands)
-    let n       = fromIntegral (dbActivityCount depDb) :: Int
+    let n = fromIntegral (dbActivityCount depDb) :: Int
         entries = [e | Just e <- converted]
     Right $ U.accum (+) (U.replicate n 0.0) entries
   where
-    actIdx     = dbActivityIndex depDb
+    actIdx = dbActivityIndex depDb
     procLookup = dbProcessIdLookup depDb
     activities = dbActivities depDb
-    unitsDB    = dbUnits depDb
+    unitsDB = dbUnits depDb
     convertEntry ((actUUID, prodUUID), (amt, exchangeUnit)) =
         case M.lookup (actUUID, prodUUID) procLookup of
-            Nothing  -> Right Nothing  -- supplier absent in dep DB; drop
+            Nothing -> Right Nothing -- supplier absent in dep DB; drop
             Just pid ->
-                let act          = activities V.! fromIntegral pid
-                    refExs       = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
+                let act = activities V.! fromIntegral pid
+                    refExs = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
                     supplierUnit = case refExs of
-                        (ex:_) -> getUnitNameForExchange unitsDB ex
-                        []     -> ""
+                        (ex : _) -> getUnitNameForExchange unitsDB ex
+                        [] -> ""
                     needsConversion =
                         UnitConversion.normalizeUnit exchangeUnit /= UnitConversion.normalizeUnit supplierUnit
-                        && not (T.null exchangeUnit) && not (T.null supplierUnit)
-                    idx          = fromIntegral (actIdx V.! fromIntegral pid) :: Int
-                in if not needsConversion
-                       then Right (Just (idx, amt))
-                       else case UnitConversion.convertUnit unitConfig exchangeUnit supplierUnit amt of
-                                Just v  -> Right (Just (idx, v))
-                                Nothing -> Left $
-                                    "Unknown unit conversion: \"" <> exchangeUnit
-                                    <> "\" \8594 \"" <> supplierUnit
-                                    <> "\" for supplier " <> activityName act
-                                    <> " in database " <> depDbName
-                                    <> " \8212 add these units to [[units]] CSV"
+                            && not (T.null exchangeUnit)
+                            && not (T.null supplierUnit)
+                    idx = fromIntegral (actIdx V.! fromIntegral pid) :: Int
+                 in if not needsConversion
+                        then Right (Just (idx, amt))
+                        else case UnitConversion.convertUnit unitConfig exchangeUnit supplierUnit amt of
+                            Just v -> Right (Just (idx, v))
+                            Nothing ->
+                                Left $
+                                    "Unknown unit conversion: \""
+                                        <> exchangeUnit
+                                        <> "\" \8594 \""
+                                        <> supplierUnit
+                                        <> "\" for supplier "
+                                        <> activityName act
+                                        <> " in database "
+                                        <> depDbName
+                                        <> " \8212 add these units to [[units]] CSV"
 
 {- |
 Build the final demand vector f for LCA calculations.
@@ -564,9 +601,10 @@ The demand vector represents external demand for products from each activity:
 buildDemandVectorFromIndex :: V.Vector Int32 -> ProcessId -> Vector
 buildDemandVectorFromIndex activityIndex rootProcessId =
     let n = V.length activityIndex
-        rootIndex = if fromIntegral rootProcessId >= (0 :: Int) && fromIntegral rootProcessId < n
-                    then fromIntegral $ activityIndex V.! fromIntegral rootProcessId
-                    else error $ "FATAL: ProcessId not found in activity index: " ++ show rootProcessId
+        rootIndex =
+            if fromIntegral rootProcessId >= (0 :: Int) && fromIntegral rootProcessId < n
+                then fromIntegral $ activityIndex V.! fromIntegral rootProcessId
+                else error $ "FATAL: ProcessId not found in activity index: " ++ show rootProcessId
      in fromList [if i == rootIndex then 1.0 else 0.0 | i <- [0 .. n - 1 :: Int]]
 
 {- |
@@ -596,10 +634,11 @@ precomputeMatrixFactorization dbName techTriples n = withMVar mumpsFactorization
 
     reportMatrixOperation $ "MUMPS solver for database '" ++ T.unpack dbName ++ "' factorized and cached"
 
-    let factorization = MatrixFactorization
-            { mfSystemMatrix = U.fromList [SparseTriple (fromIntegral i) (fromIntegral j) v | (i, j, v) <- systemMatrix]
-            , mfActivityCount = fromIntegral n
-            , mfDatabaseId = dbName
-            }
+    let factorization =
+            MatrixFactorization
+                { mfSystemMatrix = U.fromList [SparseTriple (fromIntegral i) (fromIntegral j) v | (i, j, v) <- systemMatrix]
+                , mfActivityCount = fromIntegral n
+                , mfDatabaseId = dbName
+                }
 
     return factorization

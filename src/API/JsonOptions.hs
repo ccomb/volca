@@ -1,31 +1,33 @@
 {-# LANGUAGE FlexibleContexts #-}
-module API.JsonOptions
-    ( stripLowerPrefix
-    , strippedToJSON
-    , strippedToEncoding
-    , strippedParseJSON
-    , strippedSchemaOptions
-    ) where
 
-import Data.Aeson
-    ( Encoding
-    , Options
-    , Value
-    , defaultOptions
-    , fieldLabelModifier
-    , genericParseJSON
-    , genericToEncoding
-    , genericToJSON
-    )
+module API.JsonOptions (
+    stripLowerPrefix,
+    strippedToJSON,
+    strippedToEncoding,
+    strippedParseJSON,
+    strippedSchemaOptions,
+) where
+
+import Data.Aeson (
+    Encoding,
+    Options,
+    Value,
+    defaultOptions,
+    fieldLabelModifier,
+    genericParseJSON,
+    genericToEncoding,
+    genericToJSON,
+ )
 import Data.Aeson.Types (GFromJSON, GToEncoding, GToJSON', Parser, Zero)
 import Data.Char (isLower, toLower)
 import Data.OpenApi.Schema (SchemaOptions, fromAesonOptions)
 import GHC.Generics (Generic, Rep)
 
 stripLowerPrefix :: Options
-stripLowerPrefix = defaultOptions
-    { fieldLabelModifier = lowerFirst . dropWhile isLower
-    }
+stripLowerPrefix =
+    defaultOptions
+        { fieldLabelModifier = lowerFirst . dropWhile isLower
+        }
   where
     lowerFirst "" = ""
     lowerFirst (c : cs) = toLower c : cs

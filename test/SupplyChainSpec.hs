@@ -2,40 +2,46 @@
 
 module SupplyChainSpec (spec) where
 
-import Test.Hspec
-import TestHelpers
+import API.Types (ConsumerResult (..), EdgeType (..), ExportNode (..), FlowInfo (..), NodeType (..), SearchResults (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
+import Data.Aeson (Value (..))
+import Data.Aeson.Key (fromText)
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.IntMap.Strict as IM
+import qualified Data.Map.Strict as M
+import Data.Text (Text, pack)
+import Data.UUID (nil)
+import qualified Data.Vector.Unboxed as U
 import GoldenData
-import Types
-import API.Types (ConsumerResult(..), SearchResults(..), SupplyChainEntry(..), SupplyChainResponse(..), TreeExport(..), TreeMetadata(..), ExportNode(..), TreeEdge(..), FlowInfo(..), NodeType(..), EdgeType(..))
-import Service
-    ( ActivityFilterCore(..)
-    , SupplyChainFilter(..)
-    , ConsumerFilter(..)
-    , buildSupplyChainFromScalingVector
-    , filterTreeExport
-    , bfsToPattern
-    , getConsumers
-    , getPathTo
-    )
 import Matrix (computeScalingVector)
 import qualified Search.BM25 as BM25
+import Service (
+    ActivityFilterCore (..),
+    ConsumerFilter (..),
+    SupplyChainFilter (..),
+    bfsToPattern,
+    buildSupplyChainFromScalingVector,
+    filterTreeExport,
+    getConsumers,
+    getPathTo,
+ )
 import SharedSolver (createSharedSolver)
-import qualified Data.Map.Strict as M
-import qualified Data.IntMap.Strict as IM
-import qualified Data.Vector.Unboxed as U
-import Data.UUID (nil)
-import Data.Aeson (Value(..))
-import qualified Data.Aeson.KeyMap as KM
-import Data.Aeson.Key (fromText)
-import Data.Text (Text, pack)
+import Test.Hspec
+import TestHelpers
+import Types
 
 -- | Empty 'ActivityFilterCore'; tests tweak only the fields they need.
 emptyCore :: ActivityFilterCore
-emptyCore = ActivityFilterCore
-    { afcName = Nothing, afcLocation = Nothing, afcProduct = Nothing
-    , afcClassifications = [], afcLimit = Nothing, afcOffset = Nothing
-    , afcSort = Nothing, afcOrder = Nothing
-    }
+emptyCore =
+    ActivityFilterCore
+        { afcName = Nothing
+        , afcLocation = Nothing
+        , afcProduct = Nothing
+        , afcClassifications = []
+        , afcLimit = Nothing
+        , afcOffset = Nothing
+        , afcSort = Nothing
+        , afcOrder = Nothing
+        }
 
 emptySupply :: SupplyChainFilter
 emptySupply = SupplyChainFilter emptyCore Nothing Nothing
@@ -45,11 +51,11 @@ emptyConsumer = ConsumerFilter emptyCore Nothing
 
 -- | Update the shared core inside a 'SupplyChainFilter'.
 mapSupplyCore :: (ActivityFilterCore -> ActivityFilterCore) -> SupplyChainFilter -> SupplyChainFilter
-mapSupplyCore f sf = sf { scfCore = f (scfCore sf) }
+mapSupplyCore f sf = sf{scfCore = f (scfCore sf)}
 
 -- | Update the shared core inside a 'ConsumerFilter'.
 mapConsumerCore :: (ActivityFilterCore -> ActivityFilterCore) -> ConsumerFilter -> ConsumerFilter
-mapConsumerCore f cf = cf { cnfCore = f (cnfCore cf) }
+mapConsumerCore f cf = cf{cnfCore = f (cnfCore cf)}
 
 spec :: Spec
 spec = do
@@ -65,10 +71,12 @@ spec = do
                 entries = scrSupplyChain response
 
             -- With rootRefAmount = 1, sceQuantity must equal sceScalingFactor exactly
-            mapM_ (\entry ->
-                withinTolerance defaultTolerance (sceScalingFactor entry) (sceQuantity entry)
-                    `shouldBe` True
-                ) entries
+            mapM_
+                ( \entry ->
+                    withinTolerance defaultTolerance (sceScalingFactor entry) (sceQuantity entry)
+                        `shouldBe` True
+                )
+                entries
 
     describe "sceDepth (BFS from root)" $ do
         it "assigns positive depth to non-root entries" $ do
@@ -95,8 +103,14 @@ spec = do
             scrFilteredActivities noFilter `shouldSatisfy` (>= 2)
 
             -- Depth 1: should only get Y (direct supplier)
-            let depth1 = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec
-                    emptySupply { scfMaxDepth = Just 1 } False
+            let depth1 =
+                    buildSupplyChainFromScalingVector
+                        db
+                        "test-db"
+                        rootProcessId
+                        supplyVec
+                        emptySupply{scfMaxDepth = Just 1}
+                        False
             scrFilteredActivities depth1 `shouldSatisfy` (< scrFilteredActivities noFilter)
 
     -- -----------------------------------------------------------------------
@@ -109,8 +123,13 @@ spec = do
     describe "Fuzzy name filter on supply-chain" $ do
         let loadWithIndex = fmap BM25.addBM25Index (loadSampleDatabase "SAMPLE.min3")
             buildWithName db pid vec nameQ =
-                buildSupplyChainFromScalingVector db "test-db" pid vec
-                    (mapSupplyCore (\c -> c { afcName = nameQ }) emptySupply) False
+                buildSupplyChainFromScalingVector
+                    db
+                    "test-db"
+                    pid
+                    vec
+                    (mapSupplyCore (\c -> c{afcName = nameQ}) emptySupply)
+                    False
 
         it "narrows to single entry when token matches only one activity" $ do
             db <- loadWithIndex
@@ -148,7 +167,7 @@ spec = do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
             supplyVec <- computeScalingVector db rootPid
-            let nNone  = scrFilteredActivities (buildWithName db rootPid supplyVec Nothing)
+            let nNone = scrFilteredActivities (buildWithName db rootPid supplyVec Nothing)
                 nBlank = scrFilteredActivities (buildWithName db rootPid supplyVec (Just "   "))
             nBlank `shouldBe` nNone
 
@@ -156,8 +175,14 @@ spec = do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
             supplyVec <- computeScalingVector db rootPid
-            let resp = buildSupplyChainFromScalingVector db "test-db" rootPid supplyVec
-                    (mapSupplyCore (\c -> c { afcName = Just "produc", afcSort = Just "depth" }) emptySupply) False
+            let resp =
+                    buildSupplyChainFromScalingVector
+                        db
+                        "test-db"
+                        rootPid
+                        supplyVec
+                        (mapSupplyCore (\c -> c{afcName = Just "produc", afcSort = Just "depth"}) emptySupply)
+                        False
             map sceDepth (scrSupplyChain resp) `shouldBe` [1, 2]
 
     describe "Fuzzy name filter on consumers" $ do
@@ -167,7 +192,7 @@ spec = do
             db <- loadWithIndex
             -- Consumers of Z (pid 2) are Y (pid 1, direct) and X (pid 0, transitive).
             let pidZ = processIdToText db 2
-            case getConsumers db pidZ (mapConsumerCore (\c -> c { afcName = Just "X" }) emptyConsumer) of
+            case getConsumers db pidZ (mapConsumerCore (\c -> c{afcName = Just "X"}) emptyConsumer) of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right sr -> do
                     map crName (srResults sr) `shouldBe` ["production of product X"]
@@ -176,7 +201,7 @@ spec = do
         it "accepts typos in the name filter" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db pidZ (mapConsumerCore (\c -> c { afcName = Just "prodcution" }) emptyConsumer) of
+            case getConsumers db pidZ (mapConsumerCore (\c -> c{afcName = Just "prodcution"}) emptyConsumer) of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right sr -> length (srResults sr) `shouldSatisfy` (>= 1)
 
@@ -191,25 +216,48 @@ spec = do
     -- filterTreeExport
     -- -----------------------------------------------------------------------
     describe "filterTreeExport" $ do
-        let dummyFlow = FlowInfo { fiId = nil, fiName = "", fiCategory = "" }
-            dummyEdge f t = TreeEdge { teFrom = f, teTo = t, teFlow = dummyFlow
-                                     , teQuantity = 1.0, teUnit = "kg"
-                                     , teEdgeType = TechnosphereEdge }
-            makeNode nid name parent = ExportNode
-                { enId = nid, enName = name, enDescription = [], enLocation = ""
-                , enUnit = "", enNodeType = ActivityNode, enDepth = 0
-                , enLoopTarget = Nothing, enParentId = parent
-                , enChildrenCount = 0, enCompartment = Nothing }
-            rootNode   = makeNode "r" "root activity"   Nothing
-            midNode    = makeNode "m" "middle activity" (Just "r")
-            leafNode   = makeNode "l" "leaf activity"   (Just "m")
-            meta = TreeMetadata { tmRootId = "r", tmMaxDepth = 3, tmTotalNodes = 3
-                                , tmLoopNodes = 0, tmLeafNodes = 1, tmExpandableNodes = 0 }
-            tree = TreeExport
-                { teTree = meta
-                , teNodes = M.fromList [("r", rootNode), ("m", midNode), ("l", leafNode)]
-                , teEdges = [dummyEdge "r" "m", dummyEdge "m" "l"]
-                }
+        let dummyFlow = FlowInfo{fiId = nil, fiName = "", fiCategory = ""}
+            dummyEdge f t =
+                TreeEdge
+                    { teFrom = f
+                    , teTo = t
+                    , teFlow = dummyFlow
+                    , teQuantity = 1.0
+                    , teUnit = "kg"
+                    , teEdgeType = TechnosphereEdge
+                    }
+            makeNode nid name parent =
+                ExportNode
+                    { enId = nid
+                    , enName = name
+                    , enDescription = []
+                    , enLocation = ""
+                    , enUnit = ""
+                    , enNodeType = ActivityNode
+                    , enDepth = 0
+                    , enLoopTarget = Nothing
+                    , enParentId = parent
+                    , enChildrenCount = 0
+                    , enCompartment = Nothing
+                    }
+            rootNode = makeNode "r" "root activity" Nothing
+            midNode = makeNode "m" "middle activity" (Just "r")
+            leafNode = makeNode "l" "leaf activity" (Just "m")
+            meta =
+                TreeMetadata
+                    { tmRootId = "r"
+                    , tmMaxDepth = 3
+                    , tmTotalNodes = 3
+                    , tmLoopNodes = 0
+                    , tmLeafNodes = 1
+                    , tmExpandableNodes = 0
+                    }
+            tree =
+                TreeExport
+                    { teTree = meta
+                    , teNodes = M.fromList [("r", rootNode), ("m", midNode), ("l", leafNode)]
+                    , teEdges = [dummyEdge "r" "m", dummyEdge "m" "l"]
+                    }
 
         it "filter matching leaf keeps leaf + all ancestors" $ do
             let result = filterTreeExport "leaf" tree
@@ -262,9 +310,11 @@ spec = do
     describe "getPathTo" $ do
         it "finds path from X to Z and computes correct total_ratio" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            let techTriples = [(fromIntegral i, fromIntegral j, v)
-                              | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
-                actCount    = fromIntegral (dbActivityCount db)
+            let techTriples =
+                    [ (fromIntegral i, fromIntegral j, v)
+                    | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
+                    ]
+                actCount = fromIntegral (dbActivityCount db)
             solver <- createSharedSolver "test" techTriples actCount
             let rootPid = processIdToText db 0
             result <- getPathTo db solver rootPid "product Z"
@@ -274,18 +324,20 @@ spec = do
                     getIntField "path_length" val `shouldBe` Just 3
                     case getDoubleField "total_ratio" val of
                         Nothing -> expectationFailure "missing total_ratio"
-                        Just r  -> withinTolerance 1e-9 0.24 r `shouldBe` True
+                        Just r -> withinTolerance 1e-9 0.24 r `shouldBe` True
 
         it "returns Left when target is not in supply chain" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            let techTriples = [(fromIntegral i, fromIntegral j, v)
-                              | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
-                actCount    = fromIntegral (dbActivityCount db)
+            let techTriples =
+                    [ (fromIntegral i, fromIntegral j, v)
+                    | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
+                    ]
+                actCount = fromIntegral (dbActivityCount db)
             solver <- createSharedSolver "test" techTriples actCount
             let rootPid = processIdToText db 0
             result <- getPathTo db solver rootPid "no such activity"
             case result of
-                Left  _ -> return ()
+                Left _ -> return ()
                 Right _ -> expectationFailure "Expected Left but got Right"
 
 -- ---------------------------------------------------------------------------
@@ -295,13 +347,13 @@ spec = do
 getIntField :: String -> Value -> Maybe Int
 getIntField k (Object o) = case KM.lookup (fromText (toText k)) o of
     Just (Number n) -> Just (round n)
-    _               -> Nothing
+    _ -> Nothing
 getIntField _ _ = Nothing
 
 getDoubleField :: String -> Value -> Maybe Double
 getDoubleField k (Object o) = case KM.lookup (fromText (toText k)) o of
     Just (Number n) -> Just (realToFrac n)
-    _               -> Nothing
+    _ -> Nothing
 getDoubleField _ _ = Nothing
 
 toText :: String -> Text

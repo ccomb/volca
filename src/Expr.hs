@@ -1,12 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Expression evaluator.
--- Supports arithmetic (+, -, *, /, ^), variables, parentheses, and common functions.
-module Expr
-    ( evaluate
-    , normalizeExpr
-    , isExpression
-    ) where
+{- | Expression evaluator.
+Supports arithmetic (+, -, *, /, ^), variables, parentheses, and common functions.
+-}
+module Expr (
+    evaluate,
+    normalizeExpr,
+    isExpression,
+) where
 
 import Data.Either (isRight)
 import qualified Data.Map.Strict as M
@@ -19,22 +20,23 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = Parsec Void Text
 
--- | Evaluate a SimaPro expression with variable substitution.
--- All expressions must be pre-normalized via 'normalizeExpr' (decimal = '.', arg separator = ';').
--- Variable lookup is case-insensitive to match SimaPro semantics: Agribalyse and other
--- databases freely mix casing (e.g. param defined as @Dmper@, referenced as @DMper@).
+{- | Evaluate a SimaPro expression with variable substitution.
+All expressions must be pre-normalized via 'normalizeExpr' (decimal = '.', arg separator = ';').
+Variable lookup is case-insensitive to match SimaPro semantics: Agribalyse and other
+databases freely mix casing (e.g. param defined as @Dmper@, referenced as @DMper@).
+-}
 evaluate :: M.Map Text Double -> Text -> Either String Double
 evaluate env input =
     let envCI = M.mapKeys T.toLower env
-    in case parse (sc *> pExpr envCI <* eof) "" (T.strip input) of
-        Left err -> Left (errorBundlePretty err)
-        Right val -> Right val
+     in case parse (sc *> pExpr envCI <* eof) "" (T.strip input) of
+            Left err -> Left (errorBundlePretty err)
+            Right val -> Right val
 
 -- | Normalize expression text so decimal is always '.' and function arg separator is always ';'.
 normalizeExpr :: Char -> Text -> Text
 normalizeExpr '.' = T.map (\c -> if c == ',' then ';' else c)
 normalizeExpr ',' = T.map (\c -> if c == ',' then '.' else c)
-normalizeExpr _   = id
+normalizeExpr _ = id
 
 -- Whitespace consumer
 sc :: Parser ()
@@ -53,21 +55,24 @@ pExpr = pAddSub
 pAddSub :: M.Map Text Double -> Parser Double
 pAddSub env = pMulDiv env >>= go
   where
-    go acc = (symbol "+" *> pMulDiv env >>= go . (acc +))
-         <|> (symbol "-" *> pMulDiv env >>= go . (acc -))
-         <|> pure acc
+    go acc =
+        (symbol "+" *> pMulDiv env >>= go . (acc +))
+            <|> (symbol "-" *> pMulDiv env >>= go . (acc -))
+            <|> pure acc
 
 pMulDiv :: M.Map Text Double -> Parser Double
 pMulDiv env = pUnary env >>= go
   where
-    go acc = (symbol "*" *> pUnary env >>= go . (acc *))
-         <|> (symbol "/" *> pUnary env >>= go . (acc /))
-         <|> pure acc
+    go acc =
+        (symbol "*" *> pUnary env >>= go . (acc *))
+            <|> (symbol "/" *> pUnary env >>= go . (acc /))
+            <|> pure acc
 
 pUnary :: M.Map Text Double -> Parser Double
-pUnary env = (symbol "-" *> (negate <$> pUnary env))
-         <|> (symbol "+" *> pUnary env)
-         <|> pPower env
+pUnary env =
+    (symbol "-" *> (negate <$> pUnary env))
+        <|> (symbol "+" *> pUnary env)
+        <|> pPower env
 
 pPower :: M.Map Text Double -> Parser Double
 pPower env = do
@@ -75,12 +80,13 @@ pPower env = do
     (symbol "^" *> ((base **) <$> pPower env)) <|> pure base
 
 pPrimary :: M.Map Text Double -> Parser Double
-pPrimary env = choice
-    [ between (symbol "(") (symbol ")") (pExpr env)
-    , pFunc env
-    , pNumber
-    , pVariable env
-    ]
+pPrimary env =
+    choice
+        [ between (symbol "(") (symbol ")") (pExpr env)
+        , pFunc env
+        , pNumber
+        , pVariable env
+        ]
 
 pNumber :: Parser Double
 pNumber = lexeme $ try L.float <|> (fromIntegral <$> (L.decimal :: Parser Integer))
@@ -94,11 +100,16 @@ pVariable env = do
         Nothing -> fail $ "Unknown variable: " ++ T.unpack name
 
 pFunc :: M.Map Text Double -> Parser Double
-pFunc env = choice
-    [ pFunc1 "abs" abs env, pFunc1 "sqrt" sqrt env
-    , pFunc1 "log" log env, pFunc1 "exp" exp env, pFunc1 "ln" log env
-    , pFunc2 "min" min env, pFunc2 "max" max env
-    ]
+pFunc env =
+    choice
+        [ pFunc1 "abs" abs env
+        , pFunc1 "sqrt" sqrt env
+        , pFunc1 "log" log env
+        , pFunc1 "exp" exp env
+        , pFunc1 "ln" log env
+        , pFunc2 "min" min env
+        , pFunc2 "max" max env
+        ]
 
 pFunc1 :: Text -> (Double -> Double) -> M.Map Text Double -> Parser Double
 pFunc1 name f env = try $ lexeme (string name) *> between (symbol "(") (symbol ")") (f <$> pExpr env)
@@ -113,9 +124,10 @@ pFunc2 name f env = try $ do
     _ <- symbol ")"
     pure (f x y)
 
--- | Check if text is syntactically a valid expression (number, variable, or formula).
--- Does NOT evaluate — accepts any variable name without needing an environment.
--- Used to detect allocation fields vs waste type descriptions in SimaPro CSV.
+{- | Check if text is syntactically a valid expression (number, variable, or formula).
+Does NOT evaluate — accepts any variable name without needing an environment.
+Used to detect allocation fields vs waste type descriptions in SimaPro CSV.
+-}
 isExpression :: Char -> Text -> Bool
 isExpression decimalSep input =
     isRight $ parse (sc *> pSynExpr <* eof) "" (T.strip (normalizeExpr decimalSep input))
@@ -126,11 +138,13 @@ pSynExpr = pSynAddSub
 
 pSynAddSub :: Parser ()
 pSynAddSub = pSynMulDiv >> go
-  where go = (symbol "+" *> pSynMulDiv >> go) <|> (symbol "-" *> pSynMulDiv >> go) <|> pure ()
+  where
+    go = (symbol "+" *> pSynMulDiv >> go) <|> (symbol "-" *> pSynMulDiv >> go) <|> pure ()
 
 pSynMulDiv :: Parser ()
 pSynMulDiv = pSynUnary >> go
-  where go = (symbol "*" *> pSynUnary >> go) <|> (symbol "/" *> pSynUnary >> go) <|> pure ()
+  where
+    go = (symbol "*" *> pSynUnary >> go) <|> (symbol "/" *> pSynUnary >> go) <|> pure ()
 
 pSynUnary :: Parser ()
 pSynUnary = (symbol "-" *> pSynUnary) <|> (symbol "+" *> pSynUnary) <|> pSynPower
@@ -139,21 +153,28 @@ pSynPower :: Parser ()
 pSynPower = pSynPrimary >> ((symbol "^" *> pSynPower) <|> pure ())
 
 pSynPrimary :: Parser ()
-pSynPrimary = choice
-    [ between (symbol "(") (symbol ")") pSynExpr
-    , pSynFunc
-    , () <$ pNumber
-    , pSynIdent
-    ]
+pSynPrimary =
+    choice
+        [ between (symbol "(") (symbol ")") pSynExpr
+        , pSynFunc
+        , () <$ pNumber
+        , pSynIdent
+        ]
 
 pSynIdent :: Parser ()
 pSynIdent = () <$ lexeme ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_'))
 
 pSynFunc :: Parser ()
-pSynFunc = choice
-    [ pSynFunc1 "abs", pSynFunc1 "sqrt", pSynFunc1 "log", pSynFunc1 "exp", pSynFunc1 "ln"
-    , pSynFunc2 "min", pSynFunc2 "max"
-    ]
+pSynFunc =
+    choice
+        [ pSynFunc1 "abs"
+        , pSynFunc1 "sqrt"
+        , pSynFunc1 "log"
+        , pSynFunc1 "exp"
+        , pSynFunc1 "ln"
+        , pSynFunc2 "min"
+        , pSynFunc2 "max"
+        ]
 
 pSynFunc1 :: Text -> Parser ()
 pSynFunc1 name = try $ lexeme (string name) *> between (symbol "(") (symbol ")") pSynExpr

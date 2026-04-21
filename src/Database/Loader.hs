@@ -27,60 +27,66 @@ Cache performance (Ecoinvent 3.8 with 18K activities):
 
 The cache keeps day-to-day execution fast while preserving reproducibility.
 -}
-module Database.Loader
-    ( -- * Main Loading Functions
-      loadDatabase
-    , loadDatabaseWithLocationAliases
-    , loadDatabaseWithCrossDBLinking
-      -- * Cache Operations
-    , loadCachedDatabaseWithMatrices
-    , saveCachedDatabaseWithMatrices
-    , loadDatabaseFromCacheFile
-    , generateMatrixCacheFilename
-      -- * Cross-Database Linking
-    , fixActivityLinksWithCrossDB
-    , findAllCrossDBLinks
-    , CrossDBLinkingStats(..)
-    , emptyCrossDBLinkingStats
-    , crossDBLinksCount
-    , unresolvedCount
-    , crossDBBySource
-    , collectUnlinkedProductNames
-      -- * Database Analysis
-    , countTotalTechInputs
-    , countUnlinkedExchanges
-      -- * Internal Linking
-    , fixSimaProActivityLinks
-      -- * Reporting
-    , reportCrossDBLinkingStats
-      -- * Internal (exposed for testing)
-    , normalizeText
-    , mergeFlows
-    , generateActivityUUIDFromActivity
-    , getReferenceProductUUID
-    , UnlinkedSummary(..)
-    , emptyUnlinkedSummary
-    , mergeUnlinkedSummaries
-    , buildSupplierIndex
-    , buildSupplierIndexByName
-    , fixExchangeLinkByName
-    ) where
+module Database.Loader (
+    -- * Main Loading Functions
+    loadDatabase,
+    loadDatabaseWithLocationAliases,
+    loadDatabaseWithCrossDBLinking,
+
+    -- * Cache Operations
+    loadCachedDatabaseWithMatrices,
+    saveCachedDatabaseWithMatrices,
+    loadDatabaseFromCacheFile,
+    generateMatrixCacheFilename,
+
+    -- * Cross-Database Linking
+    fixActivityLinksWithCrossDB,
+    findAllCrossDBLinks,
+    CrossDBLinkingStats (..),
+    emptyCrossDBLinkingStats,
+    crossDBLinksCount,
+    unresolvedCount,
+    crossDBBySource,
+    collectUnlinkedProductNames,
+
+    -- * Database Analysis
+    countTotalTechInputs,
+    countUnlinkedExchanges,
+
+    -- * Internal Linking
+    fixSimaProActivityLinks,
+
+    -- * Reporting
+    reportCrossDBLinkingStats,
+
+    -- * Internal (exposed for testing)
+    normalizeText,
+    mergeFlows,
+    generateActivityUUIDFromActivity,
+    getReferenceProductUUID,
+    UnlinkedSummary (..),
+    emptyUnlinkedSummary,
+    mergeUnlinkedSummaries,
+    buildSupplierIndex,
+    buildSupplierIndexByName,
+    fixExchangeLinkByName,
+) where
 
 import qualified Codec.Compression.Zstd as Zstd
 import Control.Concurrent.Async
 import Control.DeepSeq (force)
 import Control.Exception (SomeException, catch, evaluate)
 import Control.Monad
-import Data.Either (partitionEithers)
-import Data.Store (decodeEx, encode)
 import Data.Bits (xor)
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
-import Data.List (sortBy, sortOn, group, sort, unzip7)
-import Data.Ord (Down(..))
+import Data.Either (partitionEithers)
+import Data.List (group, sort, sortBy, sortOn, unzip7)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
+import Data.Ord (Down (..))
 import qualified Data.Set as S
+import Data.Store (decodeEx, encode)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
@@ -89,42 +95,43 @@ import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word64)
+import Database.CrossLinking (
+    CrossDBLinkResult (..),
+    IndexedDatabase (..),
+    LinkWarning (..),
+    LinkingContext (..),
+    defaultLinkingThreshold,
+    extractProductPrefixes,
+    findSupplierAcrossDatabases,
+    locationHierarchy,
+    normalizeUnicode,
+ )
+import Database.UploadedDatabase (getDataDir)
 import EcoSpold.Common (distributeFiles)
-import EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile)
 import EcoSpold.Parser1 (streamParseActivityAndFlowsFromFile1, streamParseAllDatasetsFromFile1)
-import Database.CrossLinking
-    ( LinkingContext(..)
-    , CrossDBLinkResult(..)
-    , LinkWarning(..)
-    , IndexedDatabase(..)
-    , findSupplierAcrossDatabases
-    , defaultLinkingThreshold
-    , extractProductPrefixes
-    , normalizeUnicode
-    , locationHierarchy
-    )
+import EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile)
 import GHC.Conc (getNumCapabilities)
 import GHC.Fingerprint (Fingerprint (..))
-import Progress
-import Types
-import SynonymDB (SynonymDB)
-import qualified UnitConversion as UC
-import qualified SimaPro.Parser as SimaPro
 import qualified ILCD.Parser as ILCD
+import Progress
+import qualified SimaPro.Parser as SimaPro
+import SynonymDB (SynonymDB)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, listDirectory, removeFile)
-import Database.UploadedDatabase (getDataDir)
 import System.FilePath (takeBaseName, takeExtension, (</>))
 import Text.Printf (printf)
+import Types
+import qualified UnitConversion as UC
 
 -- | Magic bytes to identify VoLCA cache files
 cacheMagic :: BS.ByteString
 cacheMagic = "VOLCACHE"
 
--- | Merge two Flow records with the same UUID, combining their synonyms.
--- When multiple .spold files reference the same biosphere flow, each may carry
--- different synonyms. M.fromListWith mergeFlows ensures no synonym is lost.
+{- | Merge two Flow records with the same UUID, combining their synonyms.
+When multiple .spold files reference the same biosphere flow, each may carry
+different synonyms. M.fromListWith mergeFlows ensures no synonym is lost.
+-}
 mergeFlows :: Flow -> Flow -> Flow
-mergeFlows a b = a { flowSynonyms = M.unionWith S.union (flowSynonyms a) (flowSynonyms b) }
+mergeFlows a b = a{flowSynonyms = M.unionWith S.union (flowSynonyms a) (flowSynonyms b)}
 
 {- |
 Schema signature automatically derived from the Database type structure.
@@ -190,15 +197,17 @@ type DatasetNumberIndex = M.Map Int (UUID.UUID, UUID.UUID)
 data UnlinkedExchange = UnlinkedExchange
     { ueFlowName :: !T.Text
     , ueLocation :: !T.Text
-    } deriving (Eq, Ord, Show)
+    }
+    deriving (Eq, Ord, Show)
 
 -- | Summary of unlinked exchanges grouped by consumer activity
 data UnlinkedSummary = UnlinkedSummary
-    { usActivities :: !(M.Map T.Text [UnlinkedExchange])  -- consumer name → list of unlinked exchanges
+    { usActivities :: !(M.Map T.Text [UnlinkedExchange]) -- consumer name → list of unlinked exchanges
     , usTotalLinks :: !Int
     , usFoundLinks :: !Int
     , usMissingLinks :: !Int
-    } deriving (Show)
+    }
+    deriving (Show)
 
 -- | Empty unlinked summary
 emptyUnlinkedSummary :: UnlinkedSummary
@@ -206,17 +215,18 @@ emptyUnlinkedSummary = UnlinkedSummary M.empty 0 0 0
 
 -- | Merge two unlinked summaries
 mergeUnlinkedSummaries :: UnlinkedSummary -> UnlinkedSummary -> UnlinkedSummary
-mergeUnlinkedSummaries s1 s2 = UnlinkedSummary
-    { usActivities = M.unionWith (++) (usActivities s1) (usActivities s2)
-    , usTotalLinks = usTotalLinks s1 + usTotalLinks s2
-    , usFoundLinks = usFoundLinks s1 + usFoundLinks s2
-    , usMissingLinks = usMissingLinks s1 + usMissingLinks s2
-    }
+mergeUnlinkedSummaries s1 s2 =
+    UnlinkedSummary
+        { usActivities = M.unionWith (++) (usActivities s1) (usActivities s2)
+        , usTotalLinks = usTotalLinks s1 + usTotalLinks s2
+        , usFoundLinks = usFoundLinks s1 + usFoundLinks s2
+        , usMissingLinks = usMissingLinks s1 + usMissingLinks s2
+        }
 
 -- | Report grouped summary of unlinked exchanges
 reportUnlinkedSummary :: UnlinkedSummary -> IO ()
 reportUnlinkedSummary summary
-    | M.null (usActivities summary) = return ()  -- Nothing to report
+    | M.null (usActivities summary) = return () -- Nothing to report
     | otherwise = do
         let activities = usActivities summary
             activityCount = M.size activities
@@ -229,7 +239,7 @@ reportUnlinkedSummary summary
 
         -- Report top activities with their missing suppliers
         forM_ sortedActivities $ \(actName, unlinkedExchanges) -> do
-            let uniqueExchanges = nub unlinkedExchanges  -- Remove duplicates
+            let uniqueExchanges = nub unlinkedExchanges -- Remove duplicates
                 flowCount = length uniqueExchanges
                 topFlows = take 3 uniqueExchanges
                 remainingFlows = flowCount - length topFlows
@@ -240,10 +250,12 @@ reportUnlinkedSummary summary
                     then reportProgress Warning $ printf "      * %s" (T.unpack (ueFlowName ue))
                     else reportProgress Warning $ printf "      * %s [%s]" (T.unpack (ueFlowName ue)) (T.unpack (ueLocation ue))
             when (remainingFlows > 0) $
-                reportProgress Warning $ printf "      ... and %d more" remainingFlows
+                reportProgress Warning $
+                    printf "      ... and %d more" remainingFlows
 
         when (remainingCount > 0) $
-            reportProgress Warning $ printf "  ... and %d more activities" remainingCount
+            reportProgress Warning $
+                printf "  ... and %d more activities" remainingCount
   where
     sortOn' f = sortBy (\a b -> compare (f a) (f b))
     nub = map head . group . sort
@@ -279,13 +291,14 @@ buildSupplierIndexByName activities flowDb =
             , Just flow <- [M.lookup (exchangeFlowId ex) flowDb]
             ]
         exactIndex = M.fromList [(normalizeText name, val) | (name, val) <- entries]
-        prefixIndex = M.fromList
-            [ (normalizeText p, val)
-            | (name, val) <- entries
-            , p <- extractProductPrefixes name
-            , normalizeText p /= normalizeText name
-            ]
-    in M.union exactIndex prefixIndex
+        prefixIndex =
+            M.fromList
+                [ (normalizeText p, val)
+                | (name, val) <- entries
+                , p <- extractProductPrefixes name
+                , normalizeText p /= normalizeText name
+                ]
+     in M.union exactIndex prefixIndex
 
 {- | Build name-only supplier index with location for EcoSpold1 linking
 Used when exchange has no location attribute to find the activity's actual location
@@ -321,13 +334,14 @@ fixEcoSpold1ActivityLinks locationAliases dsIndex supplierLinks db = do
             (M.size dsIndex)
 
     -- Count and report statistics
-    let ctx = ExchangeLinkContext
+    let ctx =
+            ExchangeLinkContext
                 { elcLocationAliases = locationAliases
-                , elcSupplierIndex   = supplierIndex
-                , elcNameIndex       = nameIndex
-                , elcDatasetIndex    = dsIndex
-                , elcSupplierLinks   = supplierLinks
-                , elcFlowDB          = sdbFlows db
+                , elcSupplierIndex = supplierIndex
+                , elcNameIndex = nameIndex
+                , elcDatasetIndex = dsIndex
+                , elcSupplierLinks = supplierLinks
+                , elcFlowDB = sdbFlows db
                 }
         (fixedActivities, summary) = fixAllActivities ctx (sdbActivities db)
 
@@ -344,18 +358,19 @@ fixEcoSpold1ActivityLinks locationAliases dsIndex supplierLinks db = do
 
     return $ db{sdbActivities = fixedActivities}
 
--- | Bundle of lookup tables threaded through EcoSpold1 activity-link resolution.
--- Previously these six fields were passed as positional parameters through
--- 'fixAllActivities' -> 'fixActivityExchanges' -> 'fixExchangeLink', each call
--- re-forwarding the same values. The record collapses the cascade to a single
--- argument and makes the dependencies explicit.
+{- | Bundle of lookup tables threaded through EcoSpold1 activity-link resolution.
+Previously these six fields were passed as positional parameters through
+'fixAllActivities' -> 'fixActivityExchanges' -> 'fixExchangeLink', each call
+re-forwarding the same values. The record collapses the cascade to a single
+argument and makes the dependencies explicit.
+-}
 data ExchangeLinkContext = ExchangeLinkContext
     { elcLocationAliases :: !(M.Map T.Text T.Text)
-    , elcSupplierIndex   :: !SupplierIndex
-    , elcNameIndex       :: !SupplierByNameWithLocation
-    , elcDatasetIndex    :: !DatasetNumberIndex
-    , elcSupplierLinks   :: !(M.Map UUID.UUID Int)
-    , elcFlowDB          :: !FlowDB
+    , elcSupplierIndex :: !SupplierIndex
+    , elcNameIndex :: !SupplierByNameWithLocation
+    , elcDatasetIndex :: !DatasetNumberIndex
+    , elcSupplierLinks :: !(M.Map UUID.UUID Int)
+    , elcFlowDB :: !FlowDB
     }
 
 -- | Fix all activities and return statistics with unlinked summary
@@ -385,34 +400,34 @@ fixExchangeLink ExchangeLinkContext{..} consumerName ex@(TechnosphereExchange fi
         let linked actUUID prodUUID = (TechnosphereExchange prodUUID amt uid isInp isRef actUUID procLink loc, UnlinkedSummary M.empty 1 1 0)
             unlinked flow lookupLoc =
                 let ue = UnlinkedExchange (flowName flow) lookupLoc
-                in (ex, UnlinkedSummary (M.singleton consumerName [ue]) 1 0 1)
-        in case M.lookup fid elcFlowDB of
-            Just flow ->
-                -- Tier 1: dataset-number lookup with name validation
-                case M.lookup fid elcSupplierLinks >>= \dsNum -> M.lookup dsNum elcDatasetIndex of
-                    Just (actUUID, prodUUID)
-                        | Just supplierFlow <- M.lookup prodUUID elcFlowDB
-                        , normalizeText (flowName supplierFlow) == normalizeText (flowName flow)
-                        -> linked actUUID prodUUID
-                    _ ->
-                        -- Tier 2: name + location lookup
-                        let normalizedLoc = fromMaybe loc (M.lookup loc elcLocationAliases)
-                            lookupLoc
-                                | T.null normalizedLoc =
-                                    case M.lookup (normalizeText (flowName flow)) elcNameIndex of
-                                        Just (_, _, actLoc) -> actLoc
-                                        Nothing -> normalizedLoc
-                                | otherwise = normalizedLoc
-                            key = (normalizeText (flowName flow), lookupLoc)
-                        in case M.lookup key elcSupplierIndex of
-                            Just (actUUID, prodUUID) -> linked actUUID prodUUID
-                            Nothing ->
-                                -- Tier 3: name-only fallback (safe for EcoSpold1 where names include {LOCATION})
-                                case M.lookup (normalizeText (flowName flow)) elcNameIndex of
-                                    Just (actUUID, prodUUID, _) -> linked actUUID prodUUID
-                                    Nothing -> unlinked flow lookupLoc
-            Nothing ->
-                (ex, UnlinkedSummary M.empty 1 0 1)
+                 in (ex, UnlinkedSummary (M.singleton consumerName [ue]) 1 0 1)
+         in case M.lookup fid elcFlowDB of
+                Just flow ->
+                    -- Tier 1: dataset-number lookup with name validation
+                    case M.lookup fid elcSupplierLinks >>= \dsNum -> M.lookup dsNum elcDatasetIndex of
+                        Just (actUUID, prodUUID)
+                            | Just supplierFlow <- M.lookup prodUUID elcFlowDB
+                            , normalizeText (flowName supplierFlow) == normalizeText (flowName flow) ->
+                                linked actUUID prodUUID
+                        _ ->
+                            -- Tier 2: name + location lookup
+                            let normalizedLoc = fromMaybe loc (M.lookup loc elcLocationAliases)
+                                lookupLoc
+                                    | T.null normalizedLoc =
+                                        case M.lookup (normalizeText (flowName flow)) elcNameIndex of
+                                            Just (_, _, actLoc) -> actLoc
+                                            Nothing -> normalizedLoc
+                                    | otherwise = normalizedLoc
+                                key = (normalizeText (flowName flow), lookupLoc)
+                             in case M.lookup key elcSupplierIndex of
+                                    Just (actUUID, prodUUID) -> linked actUUID prodUUID
+                                    Nothing ->
+                                        -- Tier 3: name-only fallback (safe for EcoSpold1 where names include {LOCATION})
+                                        case M.lookup (normalizeText (flowName flow)) elcNameIndex of
+                                            Just (actUUID, prodUUID, _) -> linked actUUID prodUUID
+                                            Nothing -> unlinked flow lookupLoc
+                Nothing ->
+                    (ex, UnlinkedSummary M.empty 1 0 1)
     | otherwise = (ex, emptyUnlinkedSummary)
 fixExchangeLink _ _ ex = (ex, emptyUnlinkedSummary)
 
@@ -449,14 +464,15 @@ loadDatabaseWithLocationAliases locationAliases path = do
         then case map toLower (takeExtension path) of
             ".csv" -> loadSimaProCSV path
             ".xml" -> loadSingleEcoSpold1File locationAliases path
-            _      -> return $ Left $ T.pack $ "Unsupported file type: " ++ path
-        else if isDir
-            then do
-                hasProcesses <- doesDirectoryExist (path </> "processes")
-                if hasProcesses
-                    then ILCD.parseILCDDirectory path
-                    else loadEcoSpoldDirectory locationAliases path
-            else return $ Left $ T.pack $ "Path does not exist: " ++ path
+            _ -> return $ Left $ T.pack $ "Unsupported file type: " ++ path
+        else
+            if isDir
+                then do
+                    hasProcesses <- doesDirectoryExist (path </> "processes")
+                    if hasProcesses
+                        then ILCD.parseILCDDirectory path
+                        else loadEcoSpoldDirectory locationAliases path
+                else return $ Left $ T.pack $ "Path does not exist: " ++ path
 
 -- | Load SimaPro CSV file
 loadSimaProCSV :: FilePath -> IO (Either T.Text SimpleDatabase)
@@ -538,17 +554,17 @@ fixExchangeLinkByName idx flowDb consumerName ex@(TechnosphereExchange fid amt u
                             -- Fallback: try splitting compound name at separators
                             let prefixes = extractProductPrefixes (flowName flow)
                                 tryPrefix [] = Nothing
-                                tryPrefix (p:ps) = case M.lookup (normalizeText p) idx of
+                                tryPrefix (p : ps) = case M.lookup (normalizeText p) idx of
                                     Just result -> Just result
-                                    Nothing     -> tryPrefix ps
-                            in case tryPrefix prefixes of
-                                Just (actUUID, prodUUID) ->
-                                    (TechnosphereExchange prodUUID amt uid isInp isRef actUUID procLink loc, UnlinkedSummary M.empty 1 1 0)
-                                Nothing ->
-                                    -- Supplier not found - collect unlinked exchange info
-                                    let unlinked = UnlinkedExchange (flowName flow) loc
-                                        unlinkedMap = M.singleton consumerName [unlinked]
-                                     in (ex, UnlinkedSummary unlinkedMap 1 0 1)
+                                    Nothing -> tryPrefix ps
+                             in case tryPrefix prefixes of
+                                    Just (actUUID, prodUUID) ->
+                                        (TechnosphereExchange prodUUID amt uid isInp isRef actUUID procLink loc, UnlinkedSummary M.empty 1 1 0)
+                                    Nothing ->
+                                        -- Supplier not found - collect unlinked exchange info
+                                        let unlinked = UnlinkedExchange (flowName flow) loc
+                                            unlinkedMap = M.singleton consumerName [unlinked]
+                                         in (ex, UnlinkedSummary unlinkedMap 1 0 1)
             Nothing ->
                 -- Flow not in database - shouldn't happen but be safe
                 (ex, UnlinkedSummary M.empty 1 0 1)
@@ -579,7 +595,7 @@ loadEcoSpoldDirectory locationAliases dir = do
             loadWithWorkerParallelism xs False
         (xs, _) -> do
             reportProgress Info $ "Found " ++ show (length xs) ++ " EcoSpold2 (.spold) files for processing"
-            loadWithWorkerParallelism xs False  -- Prefer EcoSpold2 if both present
+            loadWithWorkerParallelism xs False -- Prefer EcoSpold2 if both present
   where
     -- Worker-based parallelism: divide files among N workers, all process in parallel
     loadWithWorkerParallelism :: [FilePath] -> Bool -> IO (Either T.Text SimpleDatabase)
@@ -601,7 +617,7 @@ loadEcoSpoldDirectory locationAliases dir = do
         -- Check for errors from any worker
         let errors = [e | Left e <- results]
         case errors of
-            (firstErr:_) -> return $ Left firstErr
+            (firstErr : _) -> return $ Left firstErr
             [] -> do
                 let successResults = [r | Right r <- results]
                 let (procMaps, flowMaps, unitMaps, rawFlowCounts, rawUnitCounts, dsIndexes, supplierLinksLists) = unzip7 successResults
@@ -654,7 +670,7 @@ loadEcoSpoldDirectory locationAliases dir = do
         let parseFile =
                 if isEcoSpold1
                     then streamParseActivityAndFlowsFromFile1
-                    else \f -> fmap (fmap (\(a,fs,us) -> (a,fs,us,0,M.empty))) (streamParseActivityAndFlowsFromFile f)
+                    else \f -> fmap (fmap (\(a, fs, us) -> (a, fs, us, 0, M.empty))) (streamParseActivityAndFlowsFromFile f)
         workerResults <- mapM parseFile workerFiles
         -- Pair each result with its file path, then partition
         let paired = zipWith (\f r -> fmap (\v -> (f, v)) r) workerFiles workerResults
@@ -662,11 +678,11 @@ loadEcoSpoldDirectory locationAliases dir = do
         forM_ errs $ \e ->
             reportProgress Warning e
         let (okFiles, okResults) = unzip oks
-        let procs     = [a  | (a,_,_,_,_) <- okResults]
-            flowLists = [fs | (_,fs,_,_,_) <- okResults]
-            unitLists = [us | (_,_,us,_,_) <- okResults]
-            dsNums    = [n  | (_,_,_,n,_) <- okResults]
-            supplierLinksList = [sl | (_,_,_,_,sl) <- okResults]
+        let procs = [a | (a, _, _, _, _) <- okResults]
+            flowLists = [fs | (_, fs, _, _, _) <- okResults]
+            unitLists = [us | (_, _, us, _, _) <- okResults]
+            dsNums = [n | (_, _, _, n, _) <- okResults]
+            supplierLinksList = [sl | (_, _, _, _, sl) <- okResults]
         let !allFlows = concat flowLists
         let !allUnits = concat unitLists
 
@@ -677,14 +693,15 @@ loadEcoSpoldDirectory locationAliases dir = do
 
         -- Check for any filename parsing errors
         case [e | Left e <- procEntries] of
-            (firstErr:_) -> return $ Left firstErr
+            (firstErr : _) -> return $ Left firstErr
             [] -> do
                 let !procMap = M.fromList [e | Right e <- procEntries]
                 let !flowMap = M.fromListWith mergeFlows [(flowId f, f) | f <- allFlows]
                 let !unitMap = M.fromList [(unitId u, u) | u <- allUnits]
                 -- Build dataset number index: dsNum → (actUUID, prodUUID)
-                let !dsIndex = M.fromList
-                        [ (n, key) | (n, Right (key, _)) <- zip dsNums procEntries, n /= 0 ]
+                let !dsIndex =
+                        M.fromList
+                            [(n, key) | (n, Right (key, _)) <- zip dsNums procEntries, n /= 0]
                 let !allSupplierLinks = M.unions supplierLinksList
 
                 workerEndTime <- getCurrentTime
@@ -709,19 +726,20 @@ loadEcoSpoldDirectory locationAliases dir = do
         -- EcoSpold1: Generate activity UUID from name and location
         let actUUID = generateActivityUUIDFromActivity activity
             prodUUID = getReferenceProductUUID activity
-        in Right ((actUUID, prodUUID), activity)
+         in Right ((actUUID, prodUUID), activity)
     buildProcEntry False filepath activity =
         -- EcoSpold2: Parse UUIDs from filename
         let filename = T.pack $ takeBaseName filepath
-        in case T.splitOn "_" filename of
-            [actUUIDText, prodUUIDText] ->
-                let actUUID = parseUUID actUUIDText
-                    prodUUID = parseUUID prodUUIDText
-                in Right ((actUUID, prodUUID), activity)
-            _ -> Left $ T.pack $ "Invalid filename format (expected activityUUID_productUUID.spold): " ++ filepath
+         in case T.splitOn "_" filename of
+                [actUUIDText, prodUUIDText] ->
+                    let actUUID = parseUUID actUUIDText
+                        prodUUID = parseUUID prodUUIDText
+                     in Right ((actUUID, prodUUID), activity)
+                _ -> Left $ T.pack $ "Invalid filename format (expected activityUUID_productUUID.spold): " ++ filepath
 
--- | Load a single EcoSpold1 file containing multiple datasets
--- This handles files where <ecoSpold> contains multiple <dataset> elements
+{- | Load a single EcoSpold1 file containing multiple datasets
+This handles files where <ecoSpold> contains multiple <dataset> elements
+-}
 loadSingleEcoSpold1File :: M.Map T.Text T.Text -> FilePath -> IO (Either T.Text SimpleDatabase)
 loadSingleEcoSpold1File locationAliases filepath = do
     reportProgress Info "Parsing multi-dataset EcoSpold1 file..."
@@ -734,8 +752,9 @@ loadSingleEcoSpold1File locationAliases filepath = do
         !flowMap = M.fromListWith mergeFlows [(flowId f, f) | (_, flows, _, _, _) <- results, f <- flows]
         !unitMap = M.fromList [(unitId u, u) | (_, _, units, _, _) <- results, u <- units]
         -- Build dataset number index: dsNum → (actUUID, prodUUID)
-        !dsIndex = M.fromList
-            [ (dsNum, key) | ((_, _, _, dsNum, _), (key, _)) <- zip results expanded, dsNum /= 0 ]
+        !dsIndex =
+            M.fromList
+                [(dsNum, key) | ((_, _, _, dsNum, _), (key, _)) <- zip results expanded, dsNum /= 0]
         -- Merge supplier links from all datasets
         !supplierLinks = M.unions [sl | (_, _, _, _, sl) <- results]
         simpleDb = SimpleDatabase procMap flowMap unitMap
@@ -754,7 +773,7 @@ loadSingleEcoSpold1File locationAliases filepath = do
     buildProcEntryFromResult (activity, _, _, _, _) =
         let actUUID = generateActivityUUIDFromActivity activity
             prodUUID = getReferenceProductUUID activity
-        in ((actUUID, prodUUID), activity)
+         in ((actUUID, prodUUID), activity)
 
 {- |
 Generate filename for matrix cache.
@@ -827,7 +846,7 @@ loadCachedDatabaseWithMatrices dbName dataDir = do
             -- is corrupted/incompatible and should be rebuilt from source.
             result <- loadCompressedCacheFile zstdFile
             case result of
-                Just _  -> return result
+                Just _ -> return result
                 Nothing -> do
                     reportCacheOperation $ "Deleting corrupted cache file: " ++ zstdFile
                     removeFile zstdFile
@@ -987,9 +1006,10 @@ saveCachedDatabaseWithMatrices dbName dataDir db = do
 -- Cross-Database Linking
 --------------------------------------------------------------------------------
 
--- | CrossDBLinkingStats, emptyCrossDBLinkingStats, mergeCrossDBStats,
---   crossDBLinksCount, unresolvedCount, crossDBBySource
---   are now defined in Types and re-exported from this module.
+{- | CrossDBLinkingStats, emptyCrossDBLinkingStats, mergeCrossDBStats,
+  crossDBLinksCount, unresolvedCount, crossDBBySource
+  are now defined in Types and re-exported from this module.
+-}
 
 {- | Load EcoSpold files with cross-database linking support.
 
@@ -1003,44 +1023,58 @@ The loading sequence:
 4. For remaining unlinked exchanges, search OTHER databases
 5. Report linking summary with cross-DB statistics
 -}
-loadDatabaseWithCrossDBLinking
-    :: M.Map T.Text T.Text       -- ^ Location aliases (wrongLocation → correctLocation)
-    -> [IndexedDatabase]         -- ^ Pre-built indexes from other databases
-    -> SynonymDB                  -- ^ Synonym database for name matching
-    -> UC.UnitConfig              -- ^ Unit configuration for compatibility checking
-    -> M.Map T.Text [T.Text]      -- ^ Location hierarchy (empty = use built-in)
-    -> FilePath                   -- ^ Path to load from
-    -> IO (Either T.Text (SimpleDatabase, CrossDBLinkingStats))
+loadDatabaseWithCrossDBLinking ::
+    -- | Location aliases (wrongLocation → correctLocation)
+    M.Map T.Text T.Text ->
+    -- | Pre-built indexes from other databases
+    [IndexedDatabase] ->
+    -- | Synonym database for name matching
+    SynonymDB ->
+    -- | Unit configuration for compatibility checking
+    UC.UnitConfig ->
+    -- | Location hierarchy (empty = use built-in)
+    M.Map T.Text [T.Text] ->
+    -- | Path to load from
+    FilePath ->
+    IO (Either T.Text (SimpleDatabase, CrossDBLinkingStats))
 loadDatabaseWithCrossDBLinking locationAliases otherIndexes synonymDB unitConfig locationHier path = do
     result <- loadDatabaseWithLocationAliases locationAliases path
     case result of
         Left err -> return $ Left err
         Right simpleDb -> do
             -- Detect unknown units from the database's unit definitions
-            let !unknownUnits = S.fromList
-                    [ unitName u
-                    | u <- M.elems (sdbUnits simpleDb)
-                    , not (UC.isKnownUnit unitConfig (unitName u))
-                    , not (T.null (unitName u))
-                    ]
+            let !unknownUnits =
+                    S.fromList
+                        [ unitName u
+                        | u <- M.elems (sdbUnits simpleDb)
+                        , not (UC.isKnownUnit unitConfig (unitName u))
+                        , not (T.null (unitName u))
+                        ]
             unless (S.null unknownUnits) $
-                reportProgress Warning $ printf "%d unknown unit(s): %s — add to the [[units]] CSV file"
-                    (S.size unknownUnits)
-                    (T.unpack $ T.intercalate ", " $ map (\u -> "\"" <> u <> "\"") $ S.toList unknownUnits)
+                reportProgress Warning $
+                    printf
+                        "%d unknown unit(s): %s — add to the [[units]] CSV file"
+                        (S.size unknownUnits)
+                        (T.unpack $ T.intercalate ", " $ map (\u -> "\"" <> u <> "\"") $ S.toList unknownUnits)
 
             -- If there are other databases to search, perform cross-DB linking
             let !totalInputs = countTotalTechInputs simpleDb
             if null otherIndexes
                 then do
                     -- No cross-DB linking needed
-                    let !stats = emptyCrossDBLinkingStats { cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs }
+                    let !stats = emptyCrossDBLinkingStats{cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs}
                     reportCrossDBLinkingStats (M.size (sdbActivities simpleDb)) stats
                     return $ Right (simpleDb, stats)
                 else do
                     -- Perform cross-database linking using pre-built indexes
-                    (linkedDb, stats) <- fixActivityLinksWithCrossDB
-                        otherIndexes synonymDB unitConfig locationHier simpleDb
-                    return $ Right (linkedDb, stats { cdlUnknownUnits = unknownUnits })
+                    (linkedDb, stats) <-
+                        fixActivityLinksWithCrossDB
+                            otherIndexes
+                            synonymDB
+                            unitConfig
+                            locationHier
+                            simpleDb
+                    return $ Right (linkedDb, stats{cdlUnknownUnits = unknownUnits})
 
 {- | Fix activity links using cross-database lookup.
 
@@ -1057,13 +1091,18 @@ in chained inventory solving. The exchanges are NOT modified - they
 remain "unlinked" from the perspective of the internal matrix, but the
 CrossDBLinks provide the information needed to resolve them at solve time.
 -}
-fixActivityLinksWithCrossDB
-    :: [IndexedDatabase]            -- ^ Pre-built indexes from other databases
-    -> SynonymDB                    -- ^ Synonym database
-    -> UC.UnitConfig                -- ^ Unit configuration
-    -> M.Map T.Text [T.Text]        -- ^ Location hierarchy (code → parent codes)
-    -> SimpleDatabase               -- ^ Database to fix
-    -> IO (SimpleDatabase, CrossDBLinkingStats)
+fixActivityLinksWithCrossDB ::
+    -- | Pre-built indexes from other databases
+    [IndexedDatabase] ->
+    -- | Synonym database
+    SynonymDB ->
+    -- | Unit configuration
+    UC.UnitConfig ->
+    -- | Location hierarchy (code → parent codes)
+    M.Map T.Text [T.Text] ->
+    -- | Database to fix
+    SimpleDatabase ->
+    IO (SimpleDatabase, CrossDBLinkingStats)
 fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig locationHier db = do
     -- Count unlinked exchanges before
     let unlinkedBefore = countUnlinkedExchanges db
@@ -1073,35 +1112,43 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig locationHier db = do
     if unlinkedBefore == 0
         then do
             reportProgress Info "No unlinked exchanges to resolve via cross-DB linking"
-            return (db, emptyCrossDBLinkingStats { cdlTotalInputs = totalInputs })
+            return (db, emptyCrossDBLinkingStats{cdlTotalInputs = totalInputs})
         else do
             reportProgress Info $
-                printf "Cross-database linking: %d unlinked exchanges, searching %d database(s)..."
-                    unlinkedBefore (length indexedDbs)
+                printf
+                    "Cross-database linking: %d unlinked exchanges, searching %d database(s)..."
+                    unlinkedBefore
+                    (length indexedDbs)
 
             -- Report index stats
             forM_ indexedDbs $ \idb ->
                 reportProgress Info $
-                    printf "  - %s: %d products indexed"
+                    printf
+                        "  - %s: %d products indexed"
                         (T.unpack (idbName idb))
                         (M.size (idbByProductName idb))
 
             -- Build the linking context with pre-built indexes
-            let linkingCtx = LinkingContext
-                    { lcIndexedDatabases  = indexedDbs
-                    , lcSynonymDB         = synonymDB
-                    , lcUnitConfig        = unitConfig
-                    , lcThreshold         = defaultLinkingThreshold
-                    , lcLocationHierarchy = if M.null locationHier then locationHierarchy else locationHier
-                    }
+            let linkingCtx =
+                    LinkingContext
+                        { lcIndexedDatabases = indexedDbs
+                        , lcSynonymDB = synonymDB
+                        , lcUnitConfig = unitConfig
+                        , lcThreshold = defaultLinkingThreshold
+                        , lcLocationHierarchy = if M.null locationHier then locationHierarchy else locationHier
+                        }
 
             -- Process all activities to find cross-DB links
             reportProgress Info "Finding cross-database suppliers..."
-            let stats = findAllCrossDBLinks
-                    linkingCtx (sdbFlows db) (sdbUnits db) (sdbActivities db)
+            let stats =
+                    findAllCrossDBLinks
+                        linkingCtx
+                        (sdbFlows db)
+                        (sdbUnits db)
+                        (sdbActivities db)
 
             -- Report statistics
-            let !stats' = stats { cdlTotalInputs = totalInputs }
+            let !stats' = stats{cdlTotalInputs = totalInputs}
             reportCrossDBLinkingStats (M.size (sdbActivities db)) stats'
 
             -- Return the original database unchanged, along with the cross-DB links
@@ -1111,7 +1158,8 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig locationHier db = do
 -- | Collect unlinked product names from a database (for databases without cross-DB linking)
 collectUnlinkedProductNames :: SimpleDatabase -> M.Map T.Text Int
 collectUnlinkedProductNames db =
-    M.fromListWith (+)
+    M.fromListWith
+        (+)
         [ (flowName flow, 1)
         | act <- M.elems (sdbActivities db)
         , TechnosphereExchange fid _ _ True _ linkId _ _ <- exchanges act
@@ -1122,7 +1170,8 @@ collectUnlinkedProductNames db =
 -- | Count unlinked technosphere exchanges in a database
 countUnlinkedExchanges :: SimpleDatabase -> Int
 countUnlinkedExchanges db =
-    sum [ 1
+    sum
+        [ 1
         | act <- M.elems (sdbActivities db)
         , ex <- exchanges act
         , isUnlinkedTechInput ex
@@ -1136,7 +1185,8 @@ countUnlinkedExchanges db =
 -- | Count total technosphere input exchanges in a database
 countTotalTechInputs :: SimpleDatabase -> Int
 countTotalTechInputs db =
-    sum [ 1
+    sum
+        [ 1
         | act <- M.elems (sdbActivities db)
         , ex <- exchanges act
         , isTechInput ex
@@ -1146,48 +1196,54 @@ countTotalTechInputs db =
     isTechInput (TechnosphereExchange _ _ _ isInp _ _ _ _) = isInp
     isTechInput _ = False
 
--- | Find all cross-database links without modifying activities
--- Returns statistics including the CrossDBLinks for chained solving
-findAllCrossDBLinks
-    :: LinkingContext
-    -> FlowDB
-    -> UnitDB
-    -> ActivityMap
-    -> CrossDBLinkingStats
+{- | Find all cross-database links without modifying activities
+Returns statistics including the CrossDBLinks for chained solving
+-}
+findAllCrossDBLinks ::
+    LinkingContext ->
+    FlowDB ->
+    UnitDB ->
+    ActivityMap ->
+    CrossDBLinkingStats
 findAllCrossDBLinks ctx flowDb unitDb activities =
     let results = M.mapWithKey (findActivityCrossDBLinks ctx flowDb unitDb) activities
-    in foldr mergeCrossDBStats emptyCrossDBLinkingStats (M.elems results)
+     in foldr mergeCrossDBStats emptyCrossDBLinkingStats (M.elems results)
 
 -- | Find cross-database links for one activity's exchanges
-findActivityCrossDBLinks
-    :: LinkingContext
-    -> FlowDB
-    -> UnitDB
-    -> (UUID.UUID, UUID.UUID)    -- ^ Consumer activity key (actUUID, prodUUID)
-    -> Activity
-    -> CrossDBLinkingStats
+findActivityCrossDBLinks ::
+    LinkingContext ->
+    FlowDB ->
+    UnitDB ->
+    -- | Consumer activity key (actUUID, prodUUID)
+    (UUID.UUID, UUID.UUID) ->
+    Activity ->
+    CrossDBLinkingStats
 findActivityCrossDBLinks ctx flowDb unitDb (consumerActUUID, consumerProdUUID) act =
     let stats = map (findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID) (exchanges act)
-    in foldr mergeCrossDBStats emptyCrossDBLinkingStats stats
+     in foldr mergeCrossDBStats emptyCrossDBLinkingStats stats
 
--- | Find cross-database link for a single exchange
---
--- Only attempts cross-DB linking if:
--- 1. Exchange is a technosphere input
--- 2. Exchange is currently unlinked (activityLinkId is nil)
---
--- When a link is found, a CrossDBLink is created and returned in stats.
--- The exchange itself is NOT modified.
-findExchangeCrossDBLink
-    :: LinkingContext
-    -> FlowDB
-    -> UnitDB
-    -> UUID.UUID                 -- ^ Consumer activity UUID
-    -> UUID.UUID                 -- ^ Consumer product UUID
-    -> Exchange
-    -> CrossDBLinkingStats
+{- | Find cross-database link for a single exchange
+
+Only attempts cross-DB linking if:
+1. Exchange is a technosphere input
+2. Exchange is currently unlinked (activityLinkId is nil)
+
+When a link is found, a CrossDBLink is created and returned in stats.
+The exchange itself is NOT modified.
+-}
+findExchangeCrossDBLink ::
+    LinkingContext ->
+    FlowDB ->
+    UnitDB ->
+    -- | Consumer activity UUID
+    UUID.UUID ->
+    -- | Consumer product UUID
+    UUID.UUID ->
+    Exchange ->
+    CrossDBLinkingStats
 findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID (TechnosphereExchange fid amt _uid isInp _isRef linkId _procLink loc)
-    | isInp && linkId == UUID.nil = -- Unlinked technosphere input
+    | isInp && linkId == UUID.nil -- Unlinked technosphere input
+        =
         case M.lookup fid flowDb of
             Nothing ->
                 -- Flow not found in FlowDB - can't name it
@@ -1195,27 +1251,28 @@ findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID (Tech
             Just flow ->
                 -- Get unit name from UnitDB
                 let flowUnitName = case M.lookup (flowUnitId flow) unitDb of
-                        Just u  -> unitName u
-                        Nothing -> ""  -- Unknown unit
-                in case findSupplierAcrossDatabases ctx (flowName flow) loc flowUnitName of
-                    CrossDBLinked supplierActUUID supplierProdUUID dbName _score prodName supplierLoc warnings ->
-                        -- Successfully found cross-DB supplier
-                        let !crossLink = CrossDBLink
-                                { cdlConsumerActUUID = consumerActUUID
-                                , cdlConsumerProdUUID = consumerProdUUID
-                                , cdlSupplierActUUID = supplierActUUID
-                                , cdlSupplierProdUUID = supplierProdUUID
-                                , cdlCoefficient = amt
-                                , cdlExchangeUnit = flowUnitName
-                                , cdlFlowName = prodName
-                                , cdlLocation = supplierLoc
-                                , cdlSourceDatabase = dbName
-                                }
-                            fallbacks = [ (prodName, req, act) | UpperLocationUsed req act <- warnings ]
-                        in CrossDBLinkingStats [crossLink] M.empty S.empty fallbacks 0
-                    CrossDBNotLinked blocker ->
-                        -- Record as unresolved with the blocker reason
-                        CrossDBLinkingStats [] (M.singleton (flowName flow) (1, blocker)) S.empty [] 0
+                        Just u -> unitName u
+                        Nothing -> "" -- Unknown unit
+                 in case findSupplierAcrossDatabases ctx (flowName flow) loc flowUnitName of
+                        CrossDBLinked supplierActUUID supplierProdUUID dbName _score prodName supplierLoc warnings ->
+                            -- Successfully found cross-DB supplier
+                            let !crossLink =
+                                    CrossDBLink
+                                        { cdlConsumerActUUID = consumerActUUID
+                                        , cdlConsumerProdUUID = consumerProdUUID
+                                        , cdlSupplierActUUID = supplierActUUID
+                                        , cdlSupplierProdUUID = supplierProdUUID
+                                        , cdlCoefficient = amt
+                                        , cdlExchangeUnit = flowUnitName
+                                        , cdlFlowName = prodName
+                                        , cdlLocation = supplierLoc
+                                        , cdlSourceDatabase = dbName
+                                        }
+                                fallbacks = [(prodName, req, act) | UpperLocationUsed req act <- warnings]
+                             in CrossDBLinkingStats [crossLink] M.empty S.empty fallbacks 0
+                        CrossDBNotLinked blocker ->
+                            -- Record as unresolved with the blocker reason
+                            CrossDBLinkingStats [] (M.singleton (flowName flow) (1, blocker)) S.empty [] 0
     | otherwise =
         emptyCrossDBLinkingStats
 findExchangeCrossDBLink _ _ _ _ _ _ = emptyCrossDBLinkingStats
@@ -1234,8 +1291,12 @@ reportCrossDBLinkingStats nActivities stats = do
         then do
             let !completeness = 100.0 * fromIntegral nResolved / fromIntegral nInputs :: Double
             reportProgress Info $
-                printf "Supply chain: %.1f%% complete (%d/%d inputs resolved), %d activities"
-                    completeness nResolved nInputs nActivities
+                printf
+                    "Supply chain: %.1f%% complete (%d/%d inputs resolved), %d activities"
+                    completeness
+                    nResolved
+                    nInputs
+                    nActivities
             reportProgress Info $
                 printf "  Internal: %d, Cross-DB: %d, Unresolved: %d" nInternal nCrossDB nUnresolved
         else

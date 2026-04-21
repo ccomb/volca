@@ -3,27 +3,27 @@
 
 module MethodSpec (spec) where
 
-import Test.Hspec
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
+import Test.Hspec
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import Method.Mapping (computeLCIAScore, MatchStrategy(..))
-import UnitConversion (defaultUnitConfig)
+import Method.FlowResolver (ILCDFlowInfo (..), parseCompartment, parseFlowXML)
+import Method.Mapping (MatchStrategy (..), computeLCIAScore)
 import Method.Parser
-import Method.FlowResolver (ILCDFlowInfo(..), parseFlowXML, parseCompartment)
-import Method.Types (Compartment(..))
 import Method.ParserCSV (parseMethodCSVBytes)
-import Method.ParserSimaPro (parseSimaProMethodCSVBytes, isSimaProMethodCSV)
 import Method.ParserNW (parseNormWeightCSVBytes)
+import Method.ParserSimaPro (isSimaProMethodCSV, parseSimaProMethodCSVBytes)
 import Method.Types
+import Method.Types (Compartment (..))
 import SynonymDB
-import Types (Flow(..), FlowType(..))
+import Types (Flow (..), FlowType (..))
+import UnitConversion (defaultUnitConfig)
 
 spec :: Spec
 spec = do
@@ -57,7 +57,7 @@ spec = do
             it "returns Left for invalid CSV (wrong number of columns)" $ do
                 let csv = "name1,name2\ncarbon dioxide,co2,extra\n"
                 case buildFromCSV csv of
-                    Left _  -> return ()
+                    Left _ -> return ()
                     Right _ -> expectationFailure "Expected Left for malformed CSV"
 
             it "builds a synonym DB from CSV pairs" $ do
@@ -119,8 +119,8 @@ spec = do
 
             it "prevents overly generic terms (>50 direct synonyms) from dominating" $ do
                 -- "generic" paired with 51 substances; each substance should still be findable
-                let pairs = map ("generic",) (map (T.pack . show) [1..51 :: Int])
-                    db    = buildFromPairs pairs
+                let pairs = map ("generic",) (map (T.pack . show) [1 .. 51 :: Int])
+                    db = buildFromPairs pairs
                 lookupSynonymGroup db "1" `shouldNotBe` Nothing
 
         describe "mergeSynonymDBs" $ do
@@ -132,15 +132,15 @@ spec = do
                 synonymCount (mergeSynonymDBs [db]) `shouldBe` synonymCount db
 
             it "merged DB contains entries from both sources" $ do
-                let db1    = buildFromPairs [("CO2", "Carbon dioxide")]
-                    db2    = buildFromPairs [("N2O", "Nitrous oxide")]
+                let db1 = buildFromPairs [("CO2", "Carbon dioxide")]
+                    db2 = buildFromPairs [("N2O", "Nitrous oxide")]
                     merged = mergeSynonymDBs [db1, db2]
                 lookupSynonymGroup merged "co2" `shouldNotBe` Nothing
                 lookupSynonymGroup merged "n2o" `shouldNotBe` Nothing
 
             it "entries from db1 and db2 are in different groups after merge" $ do
-                let db1    = buildFromPairs [("CO2", "Carbon dioxide")]
-                    db2    = buildFromPairs [("N2O", "Nitrous oxide")]
+                let db1 = buildFromPairs [("CO2", "Carbon dioxide")]
+                    db2 = buildFromPairs [("N2O", "Nitrous oxide")]
                     merged = mergeSynonymDBs [db1, db2]
                 lookupSynonymGroup merged "co2" `shouldNotBe` lookupSynonymGroup merged "n2o"
 
@@ -249,54 +249,60 @@ spec = do
         it "returns Nothing for invalid XML" $
             case parseFlowXML "<not-xml" of
                 Nothing -> return ()
-                Just _  -> expectationFailure "Expected Nothing for invalid XML"
+                Just _ -> expectationFailure "Expected Nothing for invalid XML"
 
         it "returns Nothing when baseName is missing" $ do
-            let xml = TE.encodeUtf8 $ T.unlines
-                    [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                    , "<flowDataSet>"
-                    , "  <flowInformation>"
-                    , "    <dataSetInformation>"
-                    , "      <UUID>aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</UUID>"
-                    , "    </dataSetInformation>"
-                    , "  </flowInformation>"
-                    , "</flowDataSet>"
-                    ]
+            let xml =
+                    TE.encodeUtf8 $
+                        T.unlines
+                            [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                            , "<flowDataSet>"
+                            , "  <flowInformation>"
+                            , "    <dataSetInformation>"
+                            , "      <UUID>aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</UUID>"
+                            , "    </dataSetInformation>"
+                            , "  </flowInformation>"
+                            , "</flowDataSet>"
+                            ]
             case parseFlowXML xml of
                 Nothing -> return ()
-                Just _  -> expectationFailure "Expected Nothing when baseName missing"
+                Just _ -> expectationFailure "Expected Nothing when baseName missing"
 
         it "returns Nothing when UUID is invalid" $ do
-            let xml = TE.encodeUtf8 $ T.unlines
-                    [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                    , "<flowDataSet>"
-                    , "  <flowInformation>"
-                    , "    <dataSetInformation>"
-                    , "      <UUID>not-a-uuid</UUID>"
-                    , "      <baseName>Carbon dioxide</baseName>"
-                    , "    </dataSetInformation>"
-                    , "  </flowInformation>"
-                    , "</flowDataSet>"
-                    ]
+            let xml =
+                    TE.encodeUtf8 $
+                        T.unlines
+                            [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                            , "<flowDataSet>"
+                            , "  <flowInformation>"
+                            , "    <dataSetInformation>"
+                            , "      <UUID>not-a-uuid</UUID>"
+                            , "      <baseName>Carbon dioxide</baseName>"
+                            , "    </dataSetInformation>"
+                            , "  </flowInformation>"
+                            , "</flowDataSet>"
+                            ]
             case parseFlowXML xml of
                 Nothing -> return ()
-                Just _  -> expectationFailure "Expected Nothing for invalid UUID"
+                Just _ -> expectationFailure "Expected Nothing for invalid UUID"
 
         it "parses baseName and UUID from ILCD flow XML" $ do
-            let xml = TE.encodeUtf8 $ T.unlines
-                    [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                    , "<flowDataSet>"
-                    , "  <flowInformation>"
-                    , "    <dataSetInformation>"
-                    , "      <UUID>aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</UUID>"
-                    , "      <name>"
-                    , "        <baseName>Carbon dioxide</baseName>"
-                    , "      </name>"
-                    , "      <CASNumber>124-38-9</CASNumber>"
-                    , "    </dataSetInformation>"
-                    , "  </flowInformation>"
-                    , "</flowDataSet>"
-                    ]
+            let xml =
+                    TE.encodeUtf8 $
+                        T.unlines
+                            [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                            , "<flowDataSet>"
+                            , "  <flowInformation>"
+                            , "    <dataSetInformation>"
+                            , "      <UUID>aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</UUID>"
+                            , "      <name>"
+                            , "        <baseName>Carbon dioxide</baseName>"
+                            , "      </name>"
+                            , "      <CASNumber>124-38-9</CASNumber>"
+                            , "    </dataSetInformation>"
+                            , "  </flowInformation>"
+                            , "</flowDataSet>"
+                            ]
             case parseFlowXML xml of
                 Nothing -> expectationFailure "Expected Just result"
                 Just (uuid, info) -> do
@@ -307,32 +313,34 @@ spec = do
     describe "Method Parser" $ do
         describe "parseMethodBytes" $ do
             it "parses a minimal valid method XML" $ do
-                let xml = TE.encodeUtf8 $ T.unlines
-                        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                        , "<LCIAMethodDataSet>"
-                        , "  <LCIAMethodInformation>"
-                        , "    <dataSetInformation>"
-                        , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
-                        , "      <name>Test Method</name>"
-                        , "      <impactCategory>Climate change</impactCategory>"
-                        , "    </dataSetInformation>"
-                        , "    <quantitativeReference>"
-                        , "      <referenceQuantity>"
-                        , "        <shortDescription>kg CO2 eq</shortDescription>"
-                        , "      </referenceQuantity>"
-                        , "    </quantitativeReference>"
-                        , "  </LCIAMethodInformation>"
-                        , "  <characterisationFactors>"
-                        , "    <factor>"
-                        , "      <referenceToFlowDataSet refObjectId=\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\">"
-                        , "        <shortDescription>Carbon dioxide (Mass, kg)</shortDescription>"
-                        , "      </referenceToFlowDataSet>"
-                        , "      <exchangeDirection>Output</exchangeDirection>"
-                        , "      <meanValue>1.0</meanValue>"
-                        , "    </factor>"
-                        , "  </characterisationFactors>"
-                        , "</LCIAMethodDataSet>"
-                        ]
+                let xml =
+                        TE.encodeUtf8 $
+                            T.unlines
+                                [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                                , "<LCIAMethodDataSet>"
+                                , "  <LCIAMethodInformation>"
+                                , "    <dataSetInformation>"
+                                , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
+                                , "      <name>Test Method</name>"
+                                , "      <impactCategory>Climate change</impactCategory>"
+                                , "    </dataSetInformation>"
+                                , "    <quantitativeReference>"
+                                , "      <referenceQuantity>"
+                                , "        <shortDescription>kg CO2 eq</shortDescription>"
+                                , "      </referenceQuantity>"
+                                , "    </quantitativeReference>"
+                                , "  </LCIAMethodInformation>"
+                                , "  <characterisationFactors>"
+                                , "    <factor>"
+                                , "      <referenceToFlowDataSet refObjectId=\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\">"
+                                , "        <shortDescription>Carbon dioxide (Mass, kg)</shortDescription>"
+                                , "      </referenceToFlowDataSet>"
+                                , "      <exchangeDirection>Output</exchangeDirection>"
+                                , "      <meanValue>1.0</meanValue>"
+                                , "    </factor>"
+                                , "  </characterisationFactors>"
+                                , "</LCIAMethodDataSet>"
+                                ]
                 case parseMethodBytes xml of
                     Left err -> expectationFailure $ "Parse failed: " ++ err
                     Right method -> do
@@ -342,31 +350,33 @@ spec = do
                         length (methodFactors method) `shouldBe` 1
 
             it "extracts characterization factor values correctly" $ do
-                let xml = TE.encodeUtf8 $ T.unlines
-                        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                        , "<LCIAMethodDataSet>"
-                        , "  <LCIAMethodInformation>"
-                        , "    <dataSetInformation>"
-                        , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
-                        , "      <name>Test</name>"
-                        , "    </dataSetInformation>"
-                        , "    <quantitativeReference>"
-                        , "      <referenceQuantity>"
-                        , "        <shortDescription>kg</shortDescription>"
-                        , "      </referenceQuantity>"
-                        , "    </quantitativeReference>"
-                        , "  </LCIAMethodInformation>"
-                        , "  <characterisationFactors>"
-                        , "    <factor>"
-                        , "      <referenceToFlowDataSet refObjectId=\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\">"
-                        , "        <shortDescription>Methane (Mass)</shortDescription>"
-                        , "      </referenceToFlowDataSet>"
-                        , "      <exchangeDirection>Output</exchangeDirection>"
-                        , "      <meanValue>28.5</meanValue>"
-                        , "    </factor>"
-                        , "  </characterisationFactors>"
-                        , "</LCIAMethodDataSet>"
-                        ]
+                let xml =
+                        TE.encodeUtf8 $
+                            T.unlines
+                                [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                                , "<LCIAMethodDataSet>"
+                                , "  <LCIAMethodInformation>"
+                                , "    <dataSetInformation>"
+                                , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
+                                , "      <name>Test</name>"
+                                , "    </dataSetInformation>"
+                                , "    <quantitativeReference>"
+                                , "      <referenceQuantity>"
+                                , "        <shortDescription>kg</shortDescription>"
+                                , "      </referenceQuantity>"
+                                , "    </quantitativeReference>"
+                                , "  </LCIAMethodInformation>"
+                                , "  <characterisationFactors>"
+                                , "    <factor>"
+                                , "      <referenceToFlowDataSet refObjectId=\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\">"
+                                , "        <shortDescription>Methane (Mass)</shortDescription>"
+                                , "      </referenceToFlowDataSet>"
+                                , "      <exchangeDirection>Output</exchangeDirection>"
+                                , "      <meanValue>28.5</meanValue>"
+                                , "    </factor>"
+                                , "  </characterisationFactors>"
+                                , "</LCIAMethodDataSet>"
+                                ]
                 case parseMethodBytes xml of
                     Left err -> expectationFailure $ "Parse failed: " ++ err
                     Right method -> do
@@ -376,31 +386,33 @@ spec = do
                         mcfDirection cf `shouldBe` Output
 
             it "parses Input direction correctly" $ do
-                let xml = TE.encodeUtf8 $ T.unlines
-                        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                        , "<LCIAMethodDataSet>"
-                        , "  <LCIAMethodInformation>"
-                        , "    <dataSetInformation>"
-                        , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
-                        , "      <name>Test</name>"
-                        , "    </dataSetInformation>"
-                        , "    <quantitativeReference>"
-                        , "      <referenceQuantity>"
-                        , "        <shortDescription>MJ</shortDescription>"
-                        , "      </referenceQuantity>"
-                        , "    </quantitativeReference>"
-                        , "  </LCIAMethodInformation>"
-                        , "  <characterisationFactors>"
-                        , "    <factor>"
-                        , "      <referenceToFlowDataSet refObjectId=\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\">"
-                        , "        <shortDescription>Crude oil (Mass)</shortDescription>"
-                        , "      </referenceToFlowDataSet>"
-                        , "      <exchangeDirection>Input</exchangeDirection>"
-                        , "      <meanValue>42.0</meanValue>"
-                        , "    </factor>"
-                        , "  </characterisationFactors>"
-                        , "</LCIAMethodDataSet>"
-                        ]
+                let xml =
+                        TE.encodeUtf8 $
+                            T.unlines
+                                [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                                , "<LCIAMethodDataSet>"
+                                , "  <LCIAMethodInformation>"
+                                , "    <dataSetInformation>"
+                                , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
+                                , "      <name>Test</name>"
+                                , "    </dataSetInformation>"
+                                , "    <quantitativeReference>"
+                                , "      <referenceQuantity>"
+                                , "        <shortDescription>MJ</shortDescription>"
+                                , "      </referenceQuantity>"
+                                , "    </quantitativeReference>"
+                                , "  </LCIAMethodInformation>"
+                                , "  <characterisationFactors>"
+                                , "    <factor>"
+                                , "      <referenceToFlowDataSet refObjectId=\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\">"
+                                , "        <shortDescription>Crude oil (Mass)</shortDescription>"
+                                , "      </referenceToFlowDataSet>"
+                                , "      <exchangeDirection>Input</exchangeDirection>"
+                                , "      <meanValue>42.0</meanValue>"
+                                , "    </factor>"
+                                , "  </characterisationFactors>"
+                                , "</LCIAMethodDataSet>"
+                                ]
                 case parseMethodBytes xml of
                     Left err -> expectationFailure $ "Parse failed: " ++ err
                     Right method -> do
@@ -408,57 +420,65 @@ spec = do
                         mcfDirection cf `shouldBe` Input
 
             it "fails on missing UUID" $ do
-                let xml = TE.encodeUtf8 $ T.unlines
-                        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                        , "<LCIAMethodDataSet>"
-                        , "  <LCIAMethodInformation>"
-                        , "    <dataSetInformation>"
-                        , "      <name>Test</name>"
-                        , "    </dataSetInformation>"
-                        , "  </LCIAMethodInformation>"
-                        , "</LCIAMethodDataSet>"
-                        ]
+                let xml =
+                        TE.encodeUtf8 $
+                            T.unlines
+                                [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                                , "<LCIAMethodDataSet>"
+                                , "  <LCIAMethodInformation>"
+                                , "    <dataSetInformation>"
+                                , "      <name>Test</name>"
+                                , "    </dataSetInformation>"
+                                , "  </LCIAMethodInformation>"
+                                , "</LCIAMethodDataSet>"
+                                ]
                 parseMethodBytes xml `shouldSatisfy` isLeft
 
             it "fails on missing name" $ do
-                let xml = TE.encodeUtf8 $ T.unlines
-                        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                        , "<LCIAMethodDataSet>"
-                        , "  <LCIAMethodInformation>"
-                        , "    <dataSetInformation>"
-                        , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
-                        , "    </dataSetInformation>"
-                        , "  </LCIAMethodInformation>"
-                        , "</LCIAMethodDataSet>"
-                        ]
+                let xml =
+                        TE.encodeUtf8 $
+                            T.unlines
+                                [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                                , "<LCIAMethodDataSet>"
+                                , "  <LCIAMethodInformation>"
+                                , "    <dataSetInformation>"
+                                , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
+                                , "    </dataSetInformation>"
+                                , "  </LCIAMethodInformation>"
+                                , "</LCIAMethodDataSet>"
+                                ]
                 parseMethodBytes xml `shouldSatisfy` isLeft
 
             it "fails on invalid UUID string" $ do
-                let xml = TE.encodeUtf8 $ T.unlines
-                        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                        , "<LCIAMethodDataSet>"
-                        , "  <LCIAMethodInformation>"
-                        , "    <dataSetInformation>"
-                        , "      <UUID>not-a-uuid</UUID>"
-                        , "      <name>Test</name>"
-                        , "    </dataSetInformation>"
-                        , "  </LCIAMethodInformation>"
-                        , "</LCIAMethodDataSet>"
-                        ]
+                let xml =
+                        TE.encodeUtf8 $
+                            T.unlines
+                                [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                                , "<LCIAMethodDataSet>"
+                                , "  <LCIAMethodInformation>"
+                                , "    <dataSetInformation>"
+                                , "      <UUID>not-a-uuid</UUID>"
+                                , "      <name>Test</name>"
+                                , "    </dataSetInformation>"
+                                , "  </LCIAMethodInformation>"
+                                , "</LCIAMethodDataSet>"
+                                ]
                 parseMethodBytes xml `shouldSatisfy` isLeft
 
             it "returns Nothing for description and methodology when absent" $ do
-                let xml = TE.encodeUtf8 $ T.unlines
-                        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                        , "<LCIAMethodDataSet>"
-                        , "  <LCIAMethodInformation>"
-                        , "    <dataSetInformation>"
-                        , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
-                        , "      <name>Minimal</name>"
-                        , "    </dataSetInformation>"
-                        , "  </LCIAMethodInformation>"
-                        , "</LCIAMethodDataSet>"
-                        ]
+                let xml =
+                        TE.encodeUtf8 $
+                            T.unlines
+                                [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                                , "<LCIAMethodDataSet>"
+                                , "  <LCIAMethodInformation>"
+                                , "    <dataSetInformation>"
+                                , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
+                                , "      <name>Minimal</name>"
+                                , "    </dataSetInformation>"
+                                , "  </LCIAMethodInformation>"
+                                , "</LCIAMethodDataSet>"
+                                ]
                 case parseMethodBytes xml of
                     Left err -> expectationFailure $ "Parse failed: " ++ err
                     Right method -> do
@@ -467,19 +487,57 @@ spec = do
 
             it "resolves flow UUID from uri attribute when refObjectId absent" $ do
                 let uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                    xml = TE.encodeUtf8 $ T.unlines
+                    xml =
+                        TE.encodeUtf8 $
+                            T.unlines
+                                [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                                , "<LCIAMethodDataSet>"
+                                , "  <LCIAMethodInformation>"
+                                , "    <dataSetInformation>"
+                                , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
+                                , "      <name>URI UUID Test</name>"
+                                , "    </dataSetInformation>"
+                                , "  </LCIAMethodInformation>"
+                                , "  <characterisationFactors>"
+                                , "    <factor>"
+                                , "      <referenceToFlowDataSet uri=\"../flows/" <> uuid <> ".xml\">"
+                                , "        <shortDescription>CO2</shortDescription>"
+                                , "      </referenceToFlowDataSet>"
+                                , "      <exchangeDirection>Output</exchangeDirection>"
+                                , "      <meanValue>1.0</meanValue>"
+                                , "    </factor>"
+                                , "  </characterisationFactors>"
+                                , "</LCIAMethodDataSet>"
+                                ]
+                case parseMethodBytes xml of
+                    Left err -> expectationFailure $ "Parse failed: " ++ err
+                    Right method -> case methodFactors method of
+                        [cf] -> show (mcfFlowRef cf) `shouldBe` T.unpack uuid
+                        _ -> expectationFailure "expected one factor"
+
+            it "returns Left for invalid XML" $ do
+                let xml = TE.encodeUtf8 "<not-valid-xml"
+                parseMethodBytes xml `shouldSatisfy` isLeft
+
+    describe "parseMethodBytesWithFlows" $ do
+        let minimalXML =
+                TE.encodeUtf8 $
+                    T.unlines
                         [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                         , "<LCIAMethodDataSet>"
                         , "  <LCIAMethodInformation>"
                         , "    <dataSetInformation>"
                         , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
-                        , "      <name>URI UUID Test</name>"
+                        , "      <name>Test Method</name>"
                         , "    </dataSetInformation>"
+                        , "    <quantitativeReference>"
+                        , "      <referenceQuantity><shortDescription>kg CO2 eq</shortDescription></referenceQuantity>"
+                        , "    </quantitativeReference>"
                         , "  </LCIAMethodInformation>"
                         , "  <characterisationFactors>"
                         , "    <factor>"
-                        , "      <referenceToFlowDataSet uri=\"../flows/" <> uuid <> ".xml\">"
-                        , "        <shortDescription>CO2</shortDescription>"
+                        , "      <referenceToFlowDataSet refObjectId=\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\">"
+                        , "        <shortDescription>carbon dioxide (Mass, kg, Emissions to air)</shortDescription>"
                         , "      </referenceToFlowDataSet>"
                         , "      <exchangeDirection>Output</exchangeDirection>"
                         , "      <meanValue>1.0</meanValue>"
@@ -487,49 +545,16 @@ spec = do
                         , "  </characterisationFactors>"
                         , "</LCIAMethodDataSet>"
                         ]
-                case parseMethodBytes xml of
-                    Left err -> expectationFailure $ "Parse failed: " ++ err
-                    Right method -> case methodFactors method of
-                        [cf] -> show (mcfFlowRef cf) `shouldBe` T.unpack uuid
-                        _    -> expectationFailure "expected one factor"
-
-            it "returns Left for invalid XML" $ do
-                let xml = TE.encodeUtf8 "<not-valid-xml"
-                parseMethodBytes xml `shouldSatisfy` isLeft
-
-    describe "parseMethodBytesWithFlows" $ do
-        let minimalXML = TE.encodeUtf8 $ T.unlines
-                [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                , "<LCIAMethodDataSet>"
-                , "  <LCIAMethodInformation>"
-                , "    <dataSetInformation>"
-                , "      <UUID>12345678-1234-1234-1234-123456789012</UUID>"
-                , "      <name>Test Method</name>"
-                , "    </dataSetInformation>"
-                , "    <quantitativeReference>"
-                , "      <referenceQuantity><shortDescription>kg CO2 eq</shortDescription></referenceQuantity>"
-                , "    </quantitativeReference>"
-                , "  </LCIAMethodInformation>"
-                , "  <characterisationFactors>"
-                , "    <factor>"
-                , "      <referenceToFlowDataSet refObjectId=\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\">"
-                , "        <shortDescription>carbon dioxide (Mass, kg, Emissions to air)</shortDescription>"
-                , "      </referenceToFlowDataSet>"
-                , "      <exchangeDirection>Output</exchangeDirection>"
-                , "      <meanValue>1.0</meanValue>"
-                , "    </factor>"
-                , "  </characterisationFactors>"
-                , "</LCIAMethodDataSet>"
-                ]
             flowUUID = read "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" :: UUID.UUID
-            flowInfo = ILCDFlowInfo
-                { ilcdBaseName        = "Carbon dioxide"
-                , ilcdCompartment     = Just (Compartment "air" "unspecified" "")
-                , ilcdCAS             = Just "124-38-9"
-                , ilcdSynonyms        = []
-                , ilcdFlowType        = "Elementary flow"
-                , ilcdFlowPropertyRef = Nothing
-                }
+            flowInfo =
+                ILCDFlowInfo
+                    { ilcdBaseName = "Carbon dioxide"
+                    , ilcdCompartment = Just (Compartment "air" "unspecified" "")
+                    , ilcdCAS = Just "124-38-9"
+                    , ilcdSynonyms = []
+                    , ilcdFlowType = "Elementary flow"
+                    , ilcdFlowPropertyRef = Nothing
+                    }
 
         it "enriches CF flow name from ILCDFlowInfo" $ do
             let result = parseMethodBytesWithFlows (M.singleton flowUUID flowInfo) minimalXML
@@ -537,7 +562,7 @@ spec = do
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right method -> case methodFactors method of
                     [cf] -> mcfFlowName cf `shouldBe` "Carbon dioxide"
-                    _    -> expectationFailure "expected one factor"
+                    _ -> expectationFailure "expected one factor"
 
         it "enriches CF CAS number from ILCDFlowInfo" $ do
             let result = parseMethodBytesWithFlows (M.singleton flowUUID flowInfo) minimalXML
@@ -545,7 +570,7 @@ spec = do
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right method -> case methodFactors method of
                     [cf] -> mcfCAS cf `shouldBe` Just "124-38-9"
-                    _    -> expectationFailure "expected one factor"
+                    _ -> expectationFailure "expected one factor"
 
         it "prefers ILCDFlowInfo compartment over extracted fallback" $ do
             let result = parseMethodBytesWithFlows (M.singleton flowUUID flowInfo) minimalXML
@@ -553,7 +578,7 @@ spec = do
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right method -> case methodFactors method of
                     [cf] -> mcfCompartment cf `shouldBe` Just (Compartment "air" "unspecified" "")
-                    _    -> expectationFailure "expected one factor"
+                    _ -> expectationFailure "expected one factor"
 
         it "falls back to shortDescription data when UUID not in flow map" $ do
             let result = parseMethodBytesWithFlows M.empty minimalXML
@@ -562,31 +587,32 @@ spec = do
                 Right method -> case methodFactors method of
                     [cf] -> do
                         mcfFlowName cf `shouldBe` "carbon dioxide"
-                        mcfCAS cf      `shouldBe` Nothing
+                        mcfCAS cf `shouldBe` Nothing
                     _ -> expectationFailure "expected one factor"
 
     describe "CSV Method Parser" $ do
-
         it "parses inline CSV with water/soil/empty compartments" $ do
             -- Exercises parseCSVCompartment water, soil, empty, and unrecognized paths
-            let csv = BC.unlines
-                    [ ";;Method A;Method B;Method C;Method D"
-                    , ";;kg eq;kg eq;kg eq;kg eq"
-                    , "substance;compartment;;;;"
-                    , "CO2;air;1.0;;;"
-                    , "Nitrate;water;;2.0;;"
-                    , "Lead;soil;;;3.0;"
-                    , "Crude oil;resources;;;;4.0"
-                    ]
+            let csv =
+                    BC.unlines
+                        [ ";;Method A;Method B;Method C;Method D"
+                        , ";;kg eq;kg eq;kg eq;kg eq"
+                        , "substance;compartment;;;;"
+                        , "CO2;air;1.0;;;"
+                        , "Nitrate;water;;2.0;;"
+                        , "Lead;soil;;;3.0;"
+                        , "Crude oil;resources;;;;4.0"
+                        ]
             case parseMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right methods -> length methods `shouldBe` 4
 
         it "returns Left when fewer than 3 header rows" $ do
-            let csv = BC.unlines
-                    [ ";;Method A"
-                    , "substance;compartment;"
-                    ]
+            let csv =
+                    BC.unlines
+                        [ ";;Method A"
+                        , "substance;compartment;"
+                        ]
             parseMethodCSVBytes csv `shouldSatisfy` isLeft
 
         it "parses 2-row header: category defaults to name" $ do
@@ -612,7 +638,7 @@ spec = do
                     methodMethodology gwp `shouldBe` Just "Test Method"
 
         it "parses 2-row header with Windows CRLF line endings" $ do
-            let lf   = BS.readFile "test/data/method.csv"
+            let lf = BS.readFile "test/data/method.csv"
                 crlf = fmap toCRLF lf
             csv <- crlf
             case parseMethodCSVBytes csv of
@@ -661,9 +687,10 @@ spec = do
                     ch4CF = MethodCF ch4Uuid "Methane" Output 28.0 Nothing Nothing "kg"
                     co2Flow = mkTestFlow co2Uuid "Carbon dioxide"
                     ch4Flow = mkTestFlow ch4Uuid "Methane"
-                    mappings = [ (co2CF, Just (co2Flow, ByUUID))
-                               , (ch4CF, Just (ch4Flow, ByUUID))
-                               ]
+                    mappings =
+                        [ (co2CF, Just (co2Flow, ByUUID))
+                        , (ch4CF, Just (ch4Flow, ByUUID))
+                        ]
                 -- Score = 10*1 + 2*28 = 10 + 56 = 66
                 computeLCIAScore defaultUnitConfig M.empty M.empty inventory mappings `shouldBe` 66.0
 
@@ -674,9 +701,10 @@ spec = do
                     co2CF = MethodCF co2Uuid "Carbon dioxide" Output 1.0 Nothing Nothing "kg"
                     ch4CF = MethodCF ch4Uuid "Methane" Output 28.0 Nothing Nothing "kg"
                     co2Flow = mkTestFlow co2Uuid "Carbon dioxide"
-                    mappings = [ (co2CF, Just (co2Flow, ByUUID))
-                               , (ch4CF, Nothing)  -- CH4 not mapped
-                               ]
+                    mappings =
+                        [ (co2CF, Just (co2Flow, ByUUID))
+                        , (ch4CF, Nothing) -- CH4 not mapped
+                        ]
                 -- Score = 10*1 = 10 (CH4 ignored because not mapped)
                 computeLCIAScore defaultUnitConfig M.empty M.empty inventory mappings `shouldBe` 10.0
 
@@ -688,7 +716,7 @@ spec = do
                     -- Method has N2O that's not in inventory
                     n2oCF = MethodCF n2oUuid "Dinitrogen monoxide" Output 265.0 Nothing Nothing "kg"
                     n2oFlow = mkTestFlow n2oUuid "Dinitrogen monoxide"
-                    mappings = [ (n2oCF, Just (n2oFlow, ByName)) ]
+                    mappings = [(n2oCF, Just (n2oFlow, ByName))]
                 -- Score = 0 (N2O not in inventory)
                 computeLCIAScore defaultUnitConfig M.empty M.empty inventory mappings `shouldBe` 0.0
 
@@ -698,7 +726,7 @@ spec = do
                     inventory = M.fromList [(oilUuid, -5.0)]
                     oilCF = MethodCF oilUuid "Crude oil" Input 42.0 Nothing Nothing "MJ"
                     oilFlow = mkTestFlow oilUuid "Crude oil"
-                    mappings = [ (oilCF, Just (oilFlow, ByUUID)) ]
+                    mappings = [(oilCF, Just (oilFlow, ByUUID))]
                 -- Score = -5 * 42 = -210 (negative = resource depletion)
                 computeLCIAScore defaultUnitConfig M.empty M.empty inventory mappings `shouldBe` (-210.0)
 
@@ -787,13 +815,11 @@ spec = do
 
         it "produces deterministic UUIDs" $ do
             csv <- BS.readFile "test/data/simapro_method.csv"
-            case parseSimaProMethodCSVBytes csv of
+            case traverse parseSimaProMethodCSVBytes [csv, csv] of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
-                Right coll1 ->
-                    case parseSimaProMethodCSVBytes csv of
-                        Left err -> expectationFailure $ "Parse failed: " ++ err
-                        Right coll2 ->
-                            map methodId (mcMethods coll1) `shouldBe` map methodId (mcMethods coll2)
+                Right [coll1, coll2] ->
+                    map methodId (mcMethods coll1) `shouldBe` map methodId (mcMethods coll2)
+                Right _ -> expectationFailure "unreachable"
 
         it "parses 3 damage categories" $ do
             csv <- BS.readFile "test/data/simapro_method.csv"
@@ -889,14 +915,15 @@ withBOM = BS.append "\xEF\xBB\xBF"
 
 -- Helper to create a test Flow
 mkTestFlow :: UUID.UUID -> T.Text -> Flow
-mkTestFlow uuid name = Flow
-    { flowId = uuid
-    , flowName = name
-    , flowUnitId = UUID.nil
-    , flowType = Biosphere
-    , flowCategory = "air"
-    , flowSubcompartment = Nothing
-    , flowCAS = Nothing
-    , flowSubstanceId = Nothing
-    , flowSynonyms = M.empty
-    }
+mkTestFlow uuid name =
+    Flow
+        { flowId = uuid
+        , flowName = name
+        , flowUnitId = UUID.nil
+        , flowType = Biosphere
+        , flowCategory = "air"
+        , flowSubcompartment = Nothing
+        , flowCAS = Nothing
+        , flowSubstanceId = Nothing
+        , flowSynonyms = M.empty
+        }

@@ -8,10 +8,11 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Options.Applicative
 import qualified Options.Applicative as OA
-import Version (version, gitHash, gitTag, buildTarget)
+import Version (buildTarget, gitHash, gitTag, version)
 
--- | Main CLI parser combining global options and optional command
--- If no command is given, just load database and exit (useful for cache generation)
+{- | Main CLI parser combining global options and optional command
+If no command is given, just load database and exit (useful for cache generation)
+-}
 cliParser :: Parser CLIConfig
 cliParser = CLIConfig <$> globalOptionsParser <*> optional commandParser
 
@@ -119,53 +120,65 @@ commandParser =
             <> OA.command "stop" (info (pure Stop <**> helper) (progDesc "Stop running server (uses --config or --url to find it)"))
             <> OA.command "repl" (info (pure Repl <**> helper) (progDesc "Interactive REPL over HTTP (connects to running server)"))
         )
-    <|> subparser
-        ( OA.command "dump-openapi" (info (pure DumpOpenApi) (progDesc "Dump OpenAPI spec as JSON to stdout"))
-            <> OA.command "dump-mcp-tools" (info (pure DumpMcpTools) (progDesc "Dump MCP tool definitions as JSON to stdout"))
-            <> internal
-        )
+        <|> subparser
+            ( OA.command "dump-openapi" (info (pure DumpOpenApi) (progDesc "Dump OpenAPI spec as JSON to stdout"))
+                <> OA.command "dump-mcp-tools" (info (pure DumpMcpTools) (progDesc "Dump MCP tool definitions as JSON to stdout"))
+                <> internal
+            )
 
 -- | Database command parser with optional subcommand (defaults to list)
 databaseParser :: Parser Command
-databaseParser = Database . maybe DbList id <$> optional
-    (subparser
-        ( OA.command "list" (info (pure DbList) (progDesc "List databases"))
-            <> OA.command "upload" (info (DbUpload <$> uploadArgsParser) (progDesc "Upload a database from a local file"))
-            <> OA.command "delete" (info (DbDelete <$> deleteNameParser) (progDesc "Delete a database"))
-        ))
+databaseParser =
+    Database . maybe DbList id
+        <$> optional
+            ( subparser
+                ( OA.command "list" (info (pure DbList) (progDesc "List databases"))
+                    <> OA.command "upload" (info (DbUpload <$> uploadArgsParser) (progDesc "Upload a database from a local file"))
+                    <> OA.command "delete" (info (DbDelete <$> deleteNameParser) (progDesc "Delete a database"))
+                )
+            )
 
 -- | Method command parser with optional subcommand (defaults to list)
 methodParser :: Parser Command
-methodParser = Method . maybe McList id <$> optional
-    (subparser
-        ( OA.command "list" (info (pure McList) (progDesc "List method collections"))
-            <> OA.command "upload" (info (McUpload <$> uploadArgsParser) (progDesc "Upload a method collection from a local file"))
-            <> OA.command "delete" (info (McDelete <$> deleteNameParser) (progDesc "Delete a method collection"))
-        ))
+methodParser =
+    Method . maybe McList id
+        <$> optional
+            ( subparser
+                ( OA.command "list" (info (pure McList) (progDesc "List method collections"))
+                    <> OA.command "upload" (info (McUpload <$> uploadArgsParser) (progDesc "Upload a method collection from a local file"))
+                    <> OA.command "delete" (info (McDelete <$> deleteNameParser) (progDesc "Delete a method collection"))
+                )
+            )
 
 -- | Plugin command parser with optional subcommand (defaults to list)
 pluginParser :: Parser Command
-pluginParser = Plugin . maybe PluginList id <$> optional
-    (subparser
-        ( OA.command "list" (info (pure PluginList) (progDesc "List registered plugins"))
-        ))
+pluginParser =
+    Plugin . maybe PluginList id
+        <$> optional
+            ( subparser
+                (OA.command "list" (info (pure PluginList) (progDesc "List registered plugins")))
+            )
 
 -- | Shared upload arguments parser (positional FILE, --name, --description)
 uploadArgsParser :: Parser UploadArgs
 uploadArgsParser = do
     uaFile <- argument str (metavar "FILE" <> help "Archive or data file to upload (ZIP, 7z, tar.gz, tar.xz, XML, CSV)")
-    uaName <- T.pack <$> strOption
-        ( long "name"
-            <> short 'n'
-            <> metavar "NAME"
-            <> help "Display name (required)"
-        )
-    uaDescription <- optional $
-        T.pack <$> strOption
-            ( long "description"
-                <> metavar "TEXT"
-                <> help "Optional description"
-            )
+    uaName <-
+        T.pack
+            <$> strOption
+                ( long "name"
+                    <> short 'n'
+                    <> metavar "NAME"
+                    <> help "Display name (required)"
+                )
+    uaDescription <-
+        optional $
+            T.pack
+                <$> strOption
+                    ( long "description"
+                        <> metavar "TEXT"
+                        <> help "Optional description"
+                    )
     pure UploadArgs{..}
 
 -- | Delete name parser (positional NAME)
@@ -252,8 +265,7 @@ flowParser = do
 flowSubCommandParser :: Parser FlowSubCommand
 flowSubCommandParser =
     subparser
-        ( OA.command "activities" (info (pure FlowActivities) (progDesc "List activities using this flow"))
-        )
+        (OA.command "activities" (info (pure FlowActivities) (progDesc "List activities using this flow")))
 
 -- | Search activities parser (now top-level)
 searchActivitiesParser :: Parser Command
@@ -353,12 +365,13 @@ impactsParser = do
 lciaOptionsParser :: Parser LCIAOptions
 lciaOptionsParser = do
     lciaMethodId <-
-        T.pack <$> strOption
-            ( long "method"
-                <> short 'm'
-                <> metavar "METHOD_UUID"
-                <> help "Method UUID (method must be loaded on the server)"
-            )
+        T.pack
+            <$> strOption
+                ( long "method"
+                    <> short 'm'
+                    <> metavar "METHOD_UUID"
+                    <> help "Method UUID (method must be loaded on the server)"
+                )
 
     lciaOutput <-
         optional $
@@ -413,29 +426,35 @@ exportMatricesParser = do
     outputDir <- argument str (metavar "OUTPUT_DIR" <> help "Output directory for matrix export")
     pure $ ExportMatrices outputDir
 
--- | Flow mapping command parser (renamed from 'mapping' to disambiguate
--- from compartment-mapping and similar resources).
+{- | Flow mapping command parser (renamed from 'mapping' to disambiguate
+from compartment-mapping and similar resources).
+-}
 flowMappingParser :: Parser Command
 flowMappingParser = do
     methodId <- argument textReader (metavar "METHOD_UUID" <> help "UUID of the characterization method")
-    showMatched <- switch
-        ( long "matched"
-            <> help "List mapped CFs with their match strategy and DB flow"
-        )
-    showUnmatched <- switch
-        ( long "unmatched"
-            <> help "List method CFs that found no matching DB flow"
-        )
-    showUncharacterized <- switch
-        ( long "uncharacterized"
-            <> help "List DB biosphere flows that no CF matched"
-        )
-    pure $ FlowMapping MappingOptions
-        { mappingMethodId = methodId
-        , mappingShowMatched = showMatched
-        , mappingShowUnmatched = showUnmatched
-        , mappingShowUncharacterized = showUncharacterized
-        }
+    showMatched <-
+        switch
+            ( long "matched"
+                <> help "List mapped CFs with their match strategy and DB flow"
+            )
+    showUnmatched <-
+        switch
+            ( long "unmatched"
+                <> help "List method CFs that found no matching DB flow"
+            )
+    showUncharacterized <-
+        switch
+            ( long "uncharacterized"
+                <> help "List DB biosphere flows that no CF matched"
+            )
+    pure $
+        FlowMapping
+            MappingOptions
+                { mappingMethodId = methodId
+                , mappingShowMatched = showMatched
+                , mappingShowUnmatched = showUnmatched
+                , mappingShowUncharacterized = showUncharacterized
+                }
 
 -- | Text reader for UUID arguments
 textReader :: ReadM Text
@@ -443,13 +462,20 @@ textReader = T.pack <$> str
 
 -- | Parser info for the complete CLI
 versionOption :: Parser (a -> a)
-versionOption = infoOption versionString
-    (long "version" <> help "Show version information")
+versionOption =
+    infoOption
+        versionString
+        (long "version" <> help "Show version information")
   where
-    versionString = "volca " <> version
-        <> " (" <> gitHash
-        <> (if null gitTag then "" else ", " <> gitTag)
-        <> ", " <> buildTarget <> ")"
+    versionString =
+        "volca "
+            <> version
+            <> " ("
+            <> gitHash
+            <> (if null gitTag then "" else ", " <> gitTag)
+            <> ", "
+            <> buildTarget
+            <> ")"
 
 cliParserInfo :: ParserInfo CLIConfig
 cliParserInfo =

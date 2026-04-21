@@ -1,20 +1,22 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Matrix.Export
-    ( -- * Universal matrix format
-      exportUniversalMatrixFormat
-      -- * Debug export
-    , exportMatrixDebugCSVs
-    , extractMatrixDebugInfo
-    , MatrixDebugInfo(..)
-      -- * Utilities
-    , escapeCsvField
-    ) where
+module Matrix.Export (
+    -- * Universal matrix format
+    exportUniversalMatrixFormat,
+
+    -- * Debug export
+    exportMatrixDebugCSVs,
+    extractMatrixDebugInfo,
+    MatrixDebugInfo (..),
+
+    -- * Utilities
+    escapeCsvField,
+) where
 
 import Matrix (applySparseMatrix, buildDemandVectorFromIndex, solveSparseLinearSystem, toList)
+import Progress (ProgressLevel (..), reportProgress)
 import Types
-import Progress (reportProgress, ProgressLevel(..))
 
 import Data.Int (Int32)
 import qualified Data.List as L
@@ -25,9 +27,10 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 
--- | Placeholder for the 5 uncertainty columns (type, variance, min, mostLikely, max).
--- VoLCA does not model uncertainty; these are left empty for format compatibility
--- with tools expecting the Ecoinvent universal matrix exchange format.
+{- | Placeholder for the 5 uncertainty columns (type, variance, min, mostLikely, max).
+VoLCA does not model uncertainty; these are left empty for format compatibility
+with tools expecting the Ecoinvent universal matrix exchange format.
+-}
 emptyCsvUncertainty :: Text
 emptyCsvUncertainty = ";;;;;"
 
@@ -84,7 +87,8 @@ extractMatrixDebugInfo database targetUUID flowFilter = do
                         ]
                     matchingFlowIndicesInt32 = map fromIntegral matchingFlowIndices :: [Int32]
                  in U.filter (\(SparseTriple row _ _) -> row `elem` matchingFlowIndicesInt32) bioTriples
-    return MatrixDebugInfo
+    return
+        MatrixDebugInfo
             { mdActivities = activities
             , mdFlows = flows
             , mdTechTriples = techTriples
@@ -102,7 +106,7 @@ extractMatrixDebugInfo database targetUUID flowFilter = do
 -- | Export matrix debug CSVs
 exportMatrixDebugCSVs :: FilePath -> MatrixDebugInfo -> IO ()
 exportMatrixDebugCSVs basePath debugInfo = do
-    let supplyChainPath    = basePath ++ "_supply_chain.csv"
+    let supplyChainPath = basePath ++ "_supply_chain.csv"
         biosphereMatrixPath = basePath ++ "_biosphere_matrix.csv"
     exportSupplyChainData supplyChainPath debugInfo
     exportBiosphereMatrixData biosphereMatrixPath debugInfo
@@ -179,8 +183,9 @@ exportBiosphereMatrixData filePath debugInfo = do
             getFlowUnit rowIdx = fmap (getUnitNameForFlow (dbUnits database)) (getFlow rowIdx)
             getActivityProcessId :: Int -> Maybe ProcessId
             getActivityProcessId colIdx =
-                L.find (\pid -> fromIntegral (activityIndex V.! fromEnum pid) == colIdx)
-                       [toEnum 0 .. toEnum (V.length activities - 1)]
+                L.find
+                    (\pid -> fromIntegral (activityIndex V.! fromEnum pid) == colIdx)
+                    [toEnum 0 .. toEnum (V.length activities - 1)]
             lookupActivity :: Int -> Maybe Activity
             lookupActivity colIdx = do
                 processId <- getActivityProcessId colIdx
@@ -224,20 +229,28 @@ exportIEIndex filePath db = do
         processIdTable = dbProcessIdTable db
         flows = dbFlows db
 
-        rows = V.toList $ V.imap (\idx (_actUuid, prodUuid) ->
-                let activity = activities V.! idx
-                    refProduct = case [ex | ex <- exchanges activity, exchangeIsReference ex] of
-                        (ex:_) -> case M.lookup (exchangeFlowId ex) flows of
-                            Just flow -> flowName flow
-                            Nothing -> T.pack (show prodUuid)
-                        [] -> T.pack (show prodUuid)
-                    unit = activityUnit activity
-                in escapeCsvField (activityName activity) <> ";" <>
-                   escapeCsvField (activityLocation activity) <> ";" <>
-                   escapeCsvField refProduct <> ";" <>
-                   escapeCsvField unit <> ";" <>
-                   T.pack (show idx)
-            ) processIdTable
+        rows =
+            V.toList $
+                V.imap
+                    ( \idx (_actUuid, prodUuid) ->
+                        let activity = activities V.! idx
+                            refProduct = case [ex | ex <- exchanges activity, exchangeIsReference ex] of
+                                (ex : _) -> case M.lookup (exchangeFlowId ex) flows of
+                                    Just flow -> flowName flow
+                                    Nothing -> T.pack (show prodUuid)
+                                [] -> T.pack (show prodUuid)
+                            unit = activityUnit activity
+                         in escapeCsvField (activityName activity)
+                                <> ";"
+                                <> escapeCsvField (activityLocation activity)
+                                <> ";"
+                                <> escapeCsvField refProduct
+                                <> ";"
+                                <> escapeCsvField unit
+                                <> ";"
+                                <> T.pack (show idx)
+                    )
+                    processIdTable
 
         header = "activityName;geography;product;unitName;index"
         content = T.unlines (header : rows)
@@ -251,23 +264,31 @@ exportEEIndex filePath db = do
     let bioFlowUUIDs = dbBiosphereFlows db
         flows = dbFlows db
 
-        rows = zipWith (\flowUuid idx ->
-                case M.lookup flowUuid flows of
-                    Just flow ->
-                        let category = flowCategory flow
-                            (compartment, subcompartment) = case T.splitOn "/" category of
-                                [] -> ("unspecified", "")
-                                [c] -> (T.strip c, "")
-                                (c:s:_) -> (T.strip c, T.strip s)
-                            unit = getUnitNameForFlow (dbUnits db) flow
-                        in escapeCsvField (flowName flow) <> ";" <>
-                           escapeCsvField compartment <> ";" <>
-                           escapeCsvField subcompartment <> ";" <>
-                           escapeCsvField unit <> ";" <>
-                           T.pack (show idx)
-                    Nothing ->
-                        escapeCsvField (T.pack (show flowUuid)) <> ";unknown;;;" <> T.pack (show idx)
-            ) (V.toList bioFlowUUIDs) ([0..] :: [Int])
+        rows =
+            zipWith
+                ( \flowUuid idx ->
+                    case M.lookup flowUuid flows of
+                        Just flow ->
+                            let category = flowCategory flow
+                                (compartment, subcompartment) = case T.splitOn "/" category of
+                                    [] -> ("unspecified", "")
+                                    [c] -> (T.strip c, "")
+                                    (c : s : _) -> (T.strip c, T.strip s)
+                                unit = getUnitNameForFlow (dbUnits db) flow
+                             in escapeCsvField (flowName flow)
+                                    <> ";"
+                                    <> escapeCsvField compartment
+                                    <> ";"
+                                    <> escapeCsvField subcompartment
+                                    <> ";"
+                                    <> escapeCsvField unit
+                                    <> ";"
+                                    <> T.pack (show idx)
+                        Nothing ->
+                            escapeCsvField (T.pack (show flowUuid)) <> ";unknown;;;" <> T.pack (show idx)
+                )
+                (V.toList bioFlowUUIDs)
+                ([0 ..] :: [Int])
 
         header = "name;compartment;subcompartment;unitName;index"
         content = T.unlines (header : rows)
@@ -287,36 +308,54 @@ exportAMatrix filePath db = do
         -- in the (I-A) convention. Production activities use 1.0.
         diagValue i =
             let act = activities V.! i
-            in if any (\ex -> exchangeIsReference ex && exchangeAmount ex < 0) (exchanges act)
-               then "-1.0" else "1.0"
+             in if any (\ex -> exchangeIsReference ex && exchangeAmount ex < 0) (exchanges act)
+                    then "-1.0"
+                    else "1.0"
 
-        diagonalEntries = [T.pack (show i ++ ";" ++ show i ++ ";" ++ diagValue i) <> emptyCsvUncertainty
-                          | i <- [0..fromIntegral activityCount - 1 :: Int]]
+        diagonalEntries =
+            [ T.pack (show i ++ ";" ++ show i ++ ";" ++ diagValue i) <> emptyCsvUncertainty
+            | i <- [0 .. fromIntegral activityCount - 1 :: Int]
+            ]
 
-        offDiagonalRows = U.foldr (\(SparseTriple row col value) acc ->
-                let rowStr = T.pack (show row ++ ";" ++ show col ++ ";" ++ show (-value))
-                             <> emptyCsvUncertainty
-                in rowStr : acc
-            ) [] techTriples
+        offDiagonalRows =
+            U.foldr
+                ( \(SparseTriple row col value) acc ->
+                    let rowStr =
+                            T.pack (show row ++ ";" ++ show col ++ ";" ++ show (-value))
+                                <> emptyCsvUncertainty
+                     in rowStr : acc
+                )
+                []
+                techTriples
 
         header = "row;column;coefficient;uncertainty type;varianceWithPedigreeUncertainty;minValue;mostLikelyValue;maxValue"
         allRows = diagonalEntries ++ offDiagonalRows
         content = T.unlines (header : allRows)
 
     TIO.writeFile filePath content
-    reportProgress Info $ "A_public: " ++ show (length diagonalEntries) ++ " diagonal + " ++
-                          show (U.length techTriples) ++ " off-diagonal entries → " ++ filePath
+    reportProgress Info $
+        "A_public: "
+            ++ show (length diagonalEntries)
+            ++ " diagonal + "
+            ++ show (U.length techTriples)
+            ++ " off-diagonal entries → "
+            ++ filePath
 
 -- | Export B_public.csv (Biosphere Matrix)
 exportBMatrix :: FilePath -> Database -> IO ()
 exportBMatrix filePath db = do
     let bioTriples = dbBiosphereTriples db
 
-        rows = U.foldr (\(SparseTriple row col value) acc ->
-                let rowStr = T.pack (show row ++ ";" ++ show col ++ ";" ++ show value)
-                             <> emptyCsvUncertainty
-                in rowStr : acc
-            ) [] bioTriples
+        rows =
+            U.foldr
+                ( \(SparseTriple row col value) acc ->
+                    let rowStr =
+                            T.pack (show row ++ ";" ++ show col ++ ";" ++ show value)
+                                <> emptyCsvUncertainty
+                     in rowStr : acc
+                )
+                []
+                bioTriples
 
         header = "row;column;coefficient;uncertainty type;varianceWithPedigreeUncertainty;minValue;mostLikelyValue;maxValue"
         content = T.unlines (header : rows)

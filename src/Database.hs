@@ -4,15 +4,9 @@
 
 module Database where
 
-import Progress
-import Types
-import UnitConversion (UnitConfig, convertUnit, normalizeUnit)
-import qualified Search.BM25.Types as BM25T
-import qualified Search.Fuzzy as Fuzzy
-import qualified Search.Normalize as Normalize
+import Data.Either (lefts, rights)
 import Data.Int (Int32)
 import qualified Data.IntSet as IS
-import Data.Either (lefts, rights)
 import Data.List (sort)
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -21,6 +15,12 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
+import Progress
+import qualified Search.BM25.Types as BM25T
+import qualified Search.Fuzzy as Fuzzy
+import qualified Search.Normalize as Normalize
+import Types
+import UnitConversion (UnitConfig, convertUnit, normalizeUnit)
 
 {- | Build complete database with pre-computed sparse matrices
 
@@ -75,12 +75,15 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
 
         -- Build supplier reference unit lookup: ProcessId -> unit name of reference product
         -- Used to convert exchange amounts to the supplier's unit for correct A-matrix coefficients
-        supplierRefUnits = V.map (\act ->
-            let refExs = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
-            in case refExs of
-                (ex:_) -> getUnitNameForExchange unitDB ex
-                [] -> ""
-            ) dbActivities
+        supplierRefUnits =
+            V.map
+                ( \act ->
+                    let refExs = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
+                     in case refExs of
+                            (ex : _) -> getUnitNameForExchange unitDB ex
+                            [] -> ""
+                )
+                dbActivities
 
     -- Build activity index for matrix construction
     reportMatrixOperation "Building activity indexes"
@@ -93,7 +96,7 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
     reportMatrixOperation "Building technosphere matrix triplets"
     let buildTechTriple normalizationFactor j consumerActivity _consumerPid ex
             | not (isTechnosphereExchange ex) = Right ([], [])
-            | exchangeIsReference ex = Right ([], [])  -- reference product is on the diagonal
+            | exchangeIsReference ex = Right ([], []) -- reference product is on the diagonal
             | otherwise =
                 let producerResult = case exchangeProcessLinkId ex of
                         Just pid -> (Just pid, [])
@@ -103,15 +106,26 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
                                     Just pid -> (Just pid, [])
                                     Nothing ->
                                         -- Only warn if exchange has non-zero amount (zero-amount are placeholders)
-                                        let warning = [ "Missing activity-product pair referenced by exchange:\n"
-                                                        ++ "  Activity UUID: " ++ T.unpack (UUID.toText actUUID) ++ "\n"
-                                                        ++ "  Product UUID: " ++ T.unpack (UUID.toText (exchangeFlowId ex)) ++ "\n"
-                                                        ++ "  Consumer: " ++ T.unpack (activityName consumerActivity) ++ "\n"
-                                                        ++ "  Expected file: " ++ T.unpack (UUID.toText actUUID) ++ "_" ++ T.unpack (UUID.toText (exchangeFlowId ex)) ++ ".spold\n"
-                                                        ++ "  This exchange will be skipped."
-                                                      | abs (exchangeAmount ex) > 1e-15
-                                                      ]
-                                        in (Nothing, warning)
+                                        let warning =
+                                                [ "Missing activity-product pair referenced by exchange:\n"
+                                                    ++ "  Activity UUID: "
+                                                    ++ T.unpack (UUID.toText actUUID)
+                                                    ++ "\n"
+                                                    ++ "  Product UUID: "
+                                                    ++ T.unpack (UUID.toText (exchangeFlowId ex))
+                                                    ++ "\n"
+                                                    ++ "  Consumer: "
+                                                    ++ T.unpack (activityName consumerActivity)
+                                                    ++ "\n"
+                                                    ++ "  Expected file: "
+                                                    ++ T.unpack (UUID.toText actUUID)
+                                                    ++ "_"
+                                                    ++ T.unpack (UUID.toText (exchangeFlowId ex))
+                                                    ++ ".spold\n"
+                                                    ++ "  This exchange will be skipped."
+                                                | abs (exchangeAmount ex) > 1e-15
+                                                ]
+                                         in (Nothing, warning)
                             Nothing -> (Nothing, [])
                     (producerPid, warnings) = producerResult
                     producerIdx =
@@ -124,23 +138,31 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
                             let rawValue = exchangeAmount ex
                                 exchangeUnit = getUnitNameForExchange unitDB ex
                                 supplierUnit = supplierRefUnits V.! fromIntegral idx
-                                needsConversion = normalizeUnit exchangeUnit /= normalizeUnit supplierUnit
-                                                  && not (T.null exchangeUnit) && not (T.null supplierUnit)
-                            in case (needsConversion, convertUnit unitConfig exchangeUnit supplierUnit rawValue) of
-                                (True, Nothing) -> Left $
-                                    "Unknown unit conversion: \"" <> exchangeUnit <> "\" \8594 \"" <> supplierUnit
-                                    <> "\" in " <> activityName consumerActivity
-                                    <> " \8212 add these units to [[units]] CSV"
-                                _ ->
-                                    let convertedValue = case (needsConversion, convertUnit unitConfig exchangeUnit supplierUnit rawValue) of
-                                            (True, Just v) -> v
-                                            _              -> rawValue
-                                        denom = if normalizationFactor > 1e-15
-                                                then normalizationFactor
-                                                else 1.0
-                                        sign = if exchangeIsInput ex then 1 else -1
-                                        value = sign * convertedValue / denom
-                                     in Right ([SparseTriple idx j value | abs value > 1e-15, idx /= j], warnings)
+                                needsConversion =
+                                    normalizeUnit exchangeUnit /= normalizeUnit supplierUnit
+                                        && not (T.null exchangeUnit)
+                                        && not (T.null supplierUnit)
+                             in case (needsConversion, convertUnit unitConfig exchangeUnit supplierUnit rawValue) of
+                                    (True, Nothing) ->
+                                        Left $
+                                            "Unknown unit conversion: \""
+                                                <> exchangeUnit
+                                                <> "\" \8594 \""
+                                                <> supplierUnit
+                                                <> "\" in "
+                                                <> activityName consumerActivity
+                                                <> " \8212 add these units to [[units]] CSV"
+                                    _ ->
+                                        let convertedValue = case (needsConversion, convertUnit unitConfig exchangeUnit supplierUnit rawValue) of
+                                                (True, Just v) -> v
+                                                _ -> rawValue
+                                            denom =
+                                                if normalizationFactor > 1e-15
+                                                    then normalizationFactor
+                                                    else 1.0
+                                            sign = if exchangeIsInput ex then 1 else -1
+                                            value = sign * convertedValue / denom
+                                         in Right ([SparseTriple idx j value | abs value > 1e-15, idx /= j], warnings)
                         Nothing -> Right ([], warnings)
 
         buildActivityTriplets (j, consumerPid) =
@@ -149,16 +171,16 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
                 normalizationFactor = activityNormFactor consumerActivity consumerKey
                 buildNormalizedTechTriple = buildTechTriple normalizationFactor j consumerActivity consumerPid
                 results = map buildNormalizedTechTriple (exchanges consumerActivity)
-                -- Short-circuit on first Left (unit conversion error)
-             in case lefts results of
-                    (err:_) -> Left err
-                    []      -> let rs = rights results in Right (concatMap fst rs, concatMap snd rs)
+             in -- Short-circuit on first Left (unit conversion error)
+                case lefts results of
+                    (err : _) -> Left err
+                    [] -> let rs = rights results in Right (concatMap fst rs, concatMap snd rs)
 
     -- Collect results, failing on first unit conversion error
     let activityRange = [(fromIntegral j, j) | j <- [0 .. fromIntegral activityCount - 1 :: ProcessId]]
         activityResults = map buildActivityTriplets activityRange
     case lefts activityResults of
-        (err:_) -> return $ Left err
+        (err : _) -> return $ Left err
         [] -> do
             let allResults = rights activityResults
                 !techTriples = VU.fromList $ concatMap fst allResults
@@ -172,8 +194,11 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
             -- Build biosphere sparse triplets
             reportMatrixOperation "Building biosphere matrix triplets"
             let bioFlowUUIDs =
-                    V.fromList $ sort $ S.toList $ S.fromList
-                        [ exchangeFlowId ex | pid <- [0 .. fromIntegral activityCount - 1 :: Int], let act = dbActivities V.! pid, ex <- exchanges act, isBiosphereExchange ex ]
+                    V.fromList $
+                        sort $
+                            S.toList $
+                                S.fromList
+                                    [exchangeFlowId ex | pid <- [0 .. fromIntegral activityCount - 1 :: Int], let act = dbActivities V.! pid, ex <- exchanges act, isBiosphereExchange ex]
                 bioFlowCount = fromIntegral $ V.length bioFlowUUIDs :: Int32
                 bioFlowIndex = M.fromList $ zip (V.toList bioFlowUUIDs) [0 ..]
 
@@ -194,7 +219,6 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
                                 activityKey = dbProcessIdTable V.! fromIntegral pid
                                 normalizationFactor = activityNormFactor activity activityKey
                              in concatMap (buildBioTriple normalizationFactor j activity) (exchanges activity)
-
                      in VU.fromList $ concatMap buildActivityBioTriplets activityRange
 
             reportMatrixOperation ("Biosphere matrix: " ++ show (VU.length bioTriples) ++ " non-zero entries")
@@ -205,31 +229,33 @@ buildDatabaseWithMatrices unitConfig activityMap flowDB unitDB = do
             let !productIndex = buildProductIndex dbActivities dbProcessIdTable flowDB
             reportMatrixOperation ("Product index: " ++ show (M.size (piByUUID productIndex)) ++ " products indexed")
 
-            return $ Right Database
-                { dbProcessIdTable = dbProcessIdTable
-                , dbProcessIdLookup = dbProcessIdLookup
-                , dbActivityUUIDIndex = dbActivityUUIDIndex
-                , dbActivityProductsIndex = dbActivityProductsIndex
-                , dbProductIndex = productIndex
-                , dbActivities = dbActivities
-                , dbFlows = flowDB
-                , dbUnits = unitDB
-                , dbIndexes = indexes
-                , dbTechnosphereTriples = techTriples
-                , dbBiosphereTriples = bioTriples
-                , dbActivityIndex = V.generate (fromIntegral activityCount) fromIntegral
-                , dbBiosphereFlows = bioFlowUUIDs
-                , dbActivityCount = activityCount
-                , dbBiosphereCount = bioFlowCount
-                , dbCrossDBLinks = []
-                , dbDependsOn = []
-                , dbLinkingStats = emptyCrossDBLinkingStats
-                , dbSynonymDB = Nothing
-                , dbFlowsByName = M.empty
-                , dbFlowsByCAS = M.empty
-                , dbProductSearchIndex = M.empty
-                , dbBM25Index = Nothing
-                }
+            return $
+                Right
+                    Database
+                        { dbProcessIdTable = dbProcessIdTable
+                        , dbProcessIdLookup = dbProcessIdLookup
+                        , dbActivityUUIDIndex = dbActivityUUIDIndex
+                        , dbActivityProductsIndex = dbActivityProductsIndex
+                        , dbProductIndex = productIndex
+                        , dbActivities = dbActivities
+                        , dbFlows = flowDB
+                        , dbUnits = unitDB
+                        , dbIndexes = indexes
+                        , dbTechnosphereTriples = techTriples
+                        , dbBiosphereTriples = bioTriples
+                        , dbActivityIndex = V.generate (fromIntegral activityCount) fromIntegral
+                        , dbBiosphereFlows = bioFlowUUIDs
+                        , dbActivityCount = activityCount
+                        , dbBiosphereCount = bioFlowCount
+                        , dbCrossDBLinks = []
+                        , dbDependsOn = []
+                        , dbLinkingStats = emptyCrossDBLinkingStats
+                        , dbSynonymDB = Nothing
+                        , dbFlowsByName = M.empty
+                        , dbFlowsByCAS = M.empty
+                        , dbProductSearchIndex = M.empty
+                        , dbBM25Index = Nothing
+                        }
 
 -- | Build indexes with ProcessIds
 buildIndexesWithProcessIds :: V.Vector Activity -> V.Vector (UUID, UUID) -> FlowDB -> Indexes
@@ -272,12 +298,12 @@ buildIndexesWithProcessIds activityVec processIdTable flowDB =
             M.fromListWith
                 (++)
                 [(flowType flow, [flowId]) | (flowId, flow) <- M.toList flowDB]
-
+     in
         -- Memory optimization: Removed exchange indexes (exchangeIdx, procExchangeIdx, refProdIdx,
         -- inputIdx, outputIdx) that duplicated 600K Exchange records across 5 maps.
         -- Exchanges can be accessed directly from Activity.exchanges when needed.
         -- This saves ~3-4GB of RAM on Ecoinvent 3.12.
-     in
+
         Indexes
             { idxByName = nameIdx
             , idxByLocation = locationIdx
@@ -287,25 +313,28 @@ buildIndexesWithProcessIds activityVec processIdTable flowDB =
             , idxFlowByType = flowTypeIdx
             }
 
--- | Build ProductIndex for product-based lookups
--- Used for: (1) SimaPro upstream link resolution, (2) future product search
--- Maps product flow UUIDs and names to the activities that produce them
+{- | Build ProductIndex for product-based lookups
+Used for: (1) SimaPro upstream link resolution, (2) future product search
+Maps product flow UUIDs and names to the activities that produce them
+-}
 buildProductIndex :: V.Vector Activity -> V.Vector (UUID, UUID) -> FlowDB -> ProductIndex
 buildProductIndex activities processIdTable flowDb =
-    let -- Build list of (ProcessId, productUUID, productName, location) for each activity
+    let
+        -- Build list of (ProcessId, productUUID, productName, location) for each activity
         entries =
             [ (pid, prodUUID, prodName, actLoc)
-            | (pid, (_, prodUUID)) <- zip [0..] (V.toList processIdTable)
+            | (pid, (_, prodUUID)) <- zip [0 ..] (V.toList processIdTable)
             , let act = activities V.! fromIntegral pid
             , let actLoc = activityLocation act
             , Just flow <- [M.lookup prodUUID flowDb]
             , let prodName = T.toLower (flowName flow)
             ]
-    in ProductIndex
-        { piByUUID = M.fromList [(prodUUID, pid) | (pid, prodUUID, _, _) <- entries]
-        , piByName = M.fromListWith (++) [(name, [pid]) | (pid, _, name, _) <- entries]
-        , piByLocation = M.fromListWith (++) [(loc, [pid]) | (pid, _, _, loc) <- entries, not (T.null loc)]
-        }
+     in
+        ProductIndex
+            { piByUUID = M.fromList [(prodUUID, pid) | (pid, prodUUID, _, _) <- entries]
+            , piByName = M.fromListWith (++) [(name, [pid]) | (pid, _, name, _) <- entries]
+            , piByLocation = M.fromListWith (++) [(loc, [pid]) | (pid, _, _, loc) <- entries, not (T.null loc)]
+            }
 
 -- | Multi-word AND match: all words must appear in at least one of the given text fields (substring).
 allWordsMatch :: Text -> (Activity -> [Text]) -> Activity -> Bool
@@ -317,19 +346,20 @@ allWordsMatch query getFields a =
 -- | Resolve a set of indices to (ProcessId, Activity) pairs against the activity vector.
 resolveActivityIds :: V.Vector Activity -> IS.IntSet -> [(ProcessId, Activity)]
 resolveActivityIds actVec ids =
-    [ (fromIntegral i, actVec V.! i) | i <- IS.toList ids, i < V.length actVec ]
+    [(fromIntegral i, actVec V.! i) | i <- IS.toList ids, i < V.length actVec]
 
--- | Name-only candidate lookup. Does NOT touch geo/product/classification.
--- Non-exact path routes through the BM25 vocabulary + fuzzy expansion so
--- typos and stems still retrieve activities. Exact path is a linear scan
--- for case-insensitive full-name equality.
+{- | Name-only candidate lookup. Does NOT touch geo/product/classification.
+Non-exact path routes through the BM25 vocabulary + fuzzy expansion so
+typos and stems still retrieve activities. Exact path is a linear scan
+for case-insensitive full-name equality.
+-}
 findActivityNameCandidates :: Database -> Maybe Text -> Bool -> [(ProcessId, Activity)]
 findActivityNameCandidates db Nothing _ = allActivities (dbActivities db)
 findActivityNameCandidates db (Just name) True = exactNameMatches (dbActivities db) name
 findActivityNameCandidates db (Just name) False =
     case dbBM25Index db of
         Just idx -> resolveActivityIds (dbActivities db) (bm25DocsMatchingName idx name)
-        Nothing  -> fullScanNameMatches (dbActivities db) name
+        Nothing -> fullScanNameMatches (dbActivities db) name
 
 allActivities :: V.Vector Activity -> [(ProcessId, Activity)]
 allActivities actVec =
@@ -345,34 +375,40 @@ fullScanNameMatches :: V.Vector Activity -> Text -> [(ProcessId, Activity)]
 fullScanNameMatches actVec name =
     [pair | pair@(_, a) <- allActivities actVec, allWordsMatch name (\a' -> [activityName a']) a]
 
--- | Docs whose BM25 postings cover every query token (AND), allowing any
--- fuzzy expansion of a token to satisfy that token (OR within a token).
+{- | Docs whose BM25 postings cover every query token (AND), allowing any
+fuzzy expansion of a token to satisfy that token (OR within a token).
+-}
 bm25DocsMatchingName :: BM25T.BM25Index -> Text -> IS.IntSet
 bm25DocsMatchingName idx name =
     intersectAll (map docsForGroup groups)
   where
-    groups                = Fuzzy.expandTokensGrouped idx (Normalize.tokenize name)
-    docsForGroup g        = IS.unions [docsForToken t | (t, _) <- g]
-    docsForToken t        = case M.lookup t (BM25T.bm25Postings idx) of
-        Nothing       -> IS.empty
+    groups = Fuzzy.expandTokensGrouped idx (Normalize.tokenize name)
+    docsForGroup g = IS.unions [docsForToken t | (t, _) <- g]
+    docsForToken t = case M.lookup t (BM25T.bm25Postings idx) of
+        Nothing -> IS.empty
         Just postings -> IS.fromList [docId | (docId, _) <- VU.toList postings]
-    intersectAll []       = IS.empty
+    intersectAll [] = IS.empty
     intersectAll (x : xs) = foldl IS.intersection x xs
 
--- | Apply geo, product, and classification filters to a pre-built candidate list.
--- Does NOT touch the name query — callers (BM25 retrieval or name-candidate lookup)
--- produce the initial list.
-applyStructuredFilters
-    :: Database
-    -> Maybe Text                 -- ^ geo
-    -> Maybe Text                 -- ^ product
-    -> [(Text, Text, Bool)]       -- ^ classification filters
-    -> Bool                       -- ^ exactMatch (affects geo equality)
-    -> [(ProcessId, Activity)]
-    -> [(ProcessId, Activity)]
+{- | Apply geo, product, and classification filters to a pre-built candidate list.
+Does NOT touch the name query — callers (BM25 retrieval or name-candidate lookup)
+produce the initial list.
+-}
+applyStructuredFilters ::
+    Database ->
+    -- | geo
+    Maybe Text ->
+    -- | product
+    Maybe Text ->
+    -- | classification filters
+    [(Text, Text, Bool)] ->
+    -- | exactMatch (affects geo equality)
+    Bool ->
+    [(ProcessId, Activity)] ->
+    [(ProcessId, Activity)]
 applyStructuredFilters db geoParam productParam classFilters exactMatch candidates =
     let actVec = dbActivities db
-        pidx   = dbProductSearchIndex db
+        pidx = dbProductSearchIndex db
 
         -- geography
         geoFiltered = case geoParam of
@@ -400,41 +436,49 @@ applyStructuredFilters db geoParam productParam classFilters exactMatch candidat
                     [(pid, a) | (pid, a) <- geoFiltered, allWordsMatch prod getProductNames a]
                 | otherwise ->
                     let searchWords = filter (not . T.null) $ T.words (T.toLower prod)
-                        wordCandidates w = IS.unions [ ids | (key, ids) <- M.toList pidx, T.isInfixOf w key ]
+                        wordCandidates w = IS.unions [ids | (key, ids) <- M.toList pidx, T.isInfixOf w key]
                         candidateSet = case map wordCandidates searchWords of
-                            []          -> IS.fromList (map (fromIntegral . fst) geoFiltered)
-                            (first:rest) -> foldl IS.intersection first rest
-                        geoSet  = IS.fromList (map (fromIntegral . fst) geoFiltered)
-                        hitSet  = IS.intersection candidateSet geoSet
+                            [] -> IS.fromList (map (fromIntegral . fst) geoFiltered)
+                            (first : rest) -> foldl IS.intersection first rest
+                        geoSet = IS.fromList (map (fromIntegral . fst) geoFiltered)
+                        hitSet = IS.intersection candidateSet geoSet
                         hitPairs = resolveActivityIds actVec hitSet
                         hitPids = IS.fromList (map (fromIntegral . fst) hitPairs)
-                    -- Preserve the original order of geoFiltered (BM25 score order when BM25-driven).
-                    in [ (pid, a)
-                       | (pid, a) <- geoFiltered
-                       , IS.member (fromIntegral pid) hitPids
-                       , allWordsMatch prod getProductNames a
-                       ]
+                     in -- Preserve the original order of geoFiltered (BM25 score order when BM25-driven).
+                        [ (pid, a)
+                        | (pid, a) <- geoFiltered
+                        , IS.member (fromIntegral pid) hitPids
+                        , allWordsMatch prod getProductNames a
+                        ]
 
         classFiltered =
             let groups = M.fromListWith (++) [(sys, [(val, isExact)]) | (sys, val, isExact) <- classFilters]
-                matchOne v (q, isExact) = if isExact
-                    then T.toLower q == T.toLower v
-                    else T.isInfixOf (T.toLower q) (T.toLower v)
+                matchOne v (q, isExact) =
+                    if isExact
+                        then T.toLower q == T.toLower v
+                        else T.isInfixOf (T.toLower q) (T.toLower v)
                 applyGroup acc (sys, pairs) =
-                    [ (pid, a) | (pid, a) <- acc
+                    [ (pid, a)
+                    | (pid, a) <- acc
                     , case M.lookup sys (activityClassification a) of
-                        Just v  -> any (matchOne v) pairs
+                        Just v -> any (matchOne v) pairs
                         Nothing -> False
                     ]
-            in foldl applyGroup productFiltered (M.toList groups)
-    in classFiltered
+             in foldl applyGroup productFiltered (M.toList groups)
+     in classFiltered
 
--- | Search activities by multiple fields (name, geography, product, classification).
--- Non-BM25 path: name filter is substring AND-of-tokens on activity name only.
--- Returns (ProcessId, Activity) pairs so callers don't need to re-scan for ProcessId.
+{- | Search activities by multiple fields (name, geography, product, classification).
+Non-BM25 path: name filter is substring AND-of-tokens on activity name only.
+Returns (ProcessId, Activity) pairs so callers don't need to re-scan for ProcessId.
+-}
 findActivitiesByFields :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> [(Text, Text, Bool)] -> Bool -> [(ProcessId, Activity)]
 findActivitiesByFields db nameParam geoParam productParam classFilters exactMatch =
-    applyStructuredFilters db geoParam productParam classFilters exactMatch
+    applyStructuredFilters
+        db
+        geoParam
+        productParam
+        classFilters
+        exactMatch
         (findActivityNameCandidates db nameParam exactMatch)
 
 -- | Search flows by synonym
@@ -442,8 +486,10 @@ findFlowsBySynonym :: Database -> Text -> [Flow]
 findFlowsBySynonym db query =
     let queryLower = T.toLower query
         flows = M.elems (dbFlows db)
-     in [ f | f <- flows, T.isInfixOf queryLower (T.toLower (flowName f))
-                            || any
-                                (any (T.isInfixOf queryLower . T.toLower) . S.toList)
-                                (M.elems (flowSynonyms f))
+     in [ f
+        | f <- flows
+        , T.isInfixOf queryLower (T.toLower (flowName f))
+            || any
+                (any (T.isInfixOf queryLower . T.toLower) . S.toList)
+                (M.elems (flowSynonyms f))
         ]

@@ -5,37 +5,38 @@ module Main (main) where
 import Test.Hspec
 
 -- Import test modules (will be created)
-import qualified MatrixConstructionSpec
+
+import qualified BM25Spec
+import qualified CrossDBInventorySpec
+import qualified CrossDBSubstitutionSpec
+import qualified CrossLinkingSpec
+import qualified EcoSpold1Spec
+import qualified FlowResolverSpec
+import qualified FuzzySpec
+import qualified HotspotSpec
+import qualified ILCDParserSpec
 import qualified InventorySpec
-import qualified ParserSpec
+import qualified LoaderSpec
+import qualified MCPSchemaSpec
+import qualified MappingSpec
+import qualified MatrixConstructionSpec
 import qualified MatrixExportSpec
 import qualified MethodSpec
-import qualified UnitConversionSpec
-import qualified SimaProParserSpec
-import qualified PluginSpec
-import qualified ServerSpec
-import qualified ILCDParserSpec
-import qualified SupplyChainSpec
-import qualified HotspotSpec
-import qualified TreeSpec
-import qualified ServiceSpec
-import qualified CrossLinkingSpec
-import qualified CrossDBInventorySpec
-import qualified SubstitutionSpec
-import qualified CrossDBSubstitutionSpec
-import qualified SharedSolverSpec
-import qualified FlowResolverSpec
-import qualified PluginConfigSpec
-import qualified LoaderSpec
-import qualified MappingSpec
-import qualified UploadedDatabaseSpec
-import qualified ProgressSpec
-import qualified EcoSpold1Spec
-import qualified MCPSchemaSpec
-import qualified NormalizeSpec
-import qualified BM25Spec
-import qualified FuzzySpec
 import qualified NestedSubstitutionSpec
+import qualified NormalizeSpec
+import qualified ParserSpec
+import qualified PluginConfigSpec
+import qualified PluginSpec
+import qualified ProgressSpec
+import qualified ServerSpec
+import qualified ServiceSpec
+import qualified SharedSolverSpec
+import qualified SimaProParserSpec
+import qualified SubstitutionSpec
+import qualified SupplyChainSpec
+import qualified TreeSpec
+import qualified UnitConversionSpec
+import qualified UploadedDatabaseSpec
 
 main :: IO ()
 main = hspec $ do

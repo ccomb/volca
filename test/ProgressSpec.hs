@@ -2,14 +2,21 @@
 
 module ProgressSpec (spec) where
 
+import Progress (
+    ProgressLevel (..),
+    formatBytes,
+    formatDuration,
+    getLogLines,
+    reportCacheOperation,
+    reportError,
+    reportMatrixOperation,
+    reportProgress,
+    reportSolverOperation,
+ )
 import Test.Hspec
-import Progress (formatDuration, formatBytes, getLogLines, reportProgress, reportError,
-                 reportCacheOperation, reportMatrixOperation, reportSolverOperation,
-                 ProgressLevel(..))
 
 spec :: Spec
 spec = do
-
     describe "formatDuration" $ do
         it "formats sub-millisecond durations with 2 decimal places" $
             formatDuration 0.0005 `shouldBe` "0.50ms"
@@ -99,8 +106,8 @@ concatLines = concatMap (\l -> l ++ "\n")
 isInfixOf :: String -> String -> Bool
 isInfixOf needle haystack = any (needle `isPrefixOf'`) (tails' haystack)
   where
-    isPrefixOf' [] _       = True
-    isPrefixOf' _ []       = False
-    isPrefixOf' (x:xs) (y:ys) = x == y && isPrefixOf' xs ys
-    tails' []     = [[]]
-    tails' s@(_:rest) = s : tails' rest
+    isPrefixOf' [] _ = True
+    isPrefixOf' _ [] = False
+    isPrefixOf' (x : xs) (y : ys) = x == y && isPrefixOf' xs ys
+    tails' [] = [[]]
+    tails' s@(_ : rest) = s : tails' rest

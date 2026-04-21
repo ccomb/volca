@@ -2,13 +2,13 @@
 
 module HotspotSpec (spec) where
 
-import Test.Hspec
-import TestHelpers
-import GoldenData
-import Types
-import Matrix (computeScalingVector, computeProcessLCIAContributions)
 import qualified Data.Map.Strict as M
 import qualified Data.Vector as V
+import GoldenData
+import Matrix (computeProcessLCIAContributions, computeScalingVector)
+import Test.Hspec
+import TestHelpers
+import Types
 
 spec :: Spec
 spec = do
@@ -17,7 +17,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             let co2Flow = findFlowByName db "carbon dioxide"
             case co2Flow of
-                Nothing  -> expectationFailure "CO2 flow not found in SAMPLE.min3"
+                Nothing -> expectationFailure "CO2 flow not found in SAMPLE.min3"
                 Just co2 -> do
                     scalingVec <- computeScalingVector db 0
                     let cfMap = M.singleton (flowId co2) 1.0
@@ -30,7 +30,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             let co2Flow = findFlowByName db "carbon dioxide"
             case co2Flow of
-                Nothing  -> expectationFailure "CO2 flow not found in SAMPLE.min3"
+                Nothing -> expectationFailure "CO2 flow not found in SAMPLE.min3"
                 Just co2 -> do
                     scalingVec <- computeScalingVector db 0
                     let cfMap = M.singleton (flowId co2) 1.0
@@ -44,16 +44,17 @@ spec = do
             let co2Flow = findFlowByName db "carbon dioxide"
             let zUUID = read sampleMin3ActivityZ :: UUID
             case co2Flow of
-                Nothing  -> expectationFailure "CO2 flow not found in SAMPLE.min3"
+                Nothing -> expectationFailure "CO2 flow not found in SAMPLE.min3"
                 Just co2 -> do
                     scalingVec <- computeScalingVector db 0
                     let cfMap = M.singleton (flowId co2) 1.0
-                    let nonZero = M.filter (\v -> abs v > 1e-15)
-                            $ computeProcessLCIAContributions db scalingVec cfMap
+                    let nonZero =
+                            M.filter (\v -> abs v > 1e-15) $
+                                computeProcessLCIAContributions db scalingVec cfMap
                     case M.keys nonZero of
                         [pid] ->
                             let (actUUID, _) = dbProcessIdTable db V.! fromIntegral pid
-                            in actUUID `shouldBe` zUUID
+                             in actUUID `shouldBe` zUUID
                         _ -> expectationFailure "Expected exactly one contributing process"
 
         it "zero contribution for a flow not in the database" $ do

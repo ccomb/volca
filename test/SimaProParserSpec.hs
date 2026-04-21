@@ -3,69 +3,79 @@
 
 module SimaProParserSpec (spec) where
 
-import Test.Hspec
-import SimaPro.Parser
-    ( parseSimaProCSV, defaultConfig
-    , splitCSV, parseAmount
-    , parseProductRow, parseTechRow, parseBioRow
-    , generateActivityUUID, generateFlowUUID, generateUnitUUID
-    , ProductRow(..), TechExchangeRow(..), BioExchangeRow(..)
-    )
-import Expr (evaluate, normalizeExpr)
-import Types (Activity(..), Exchange(..), Unit(..), Flow, UUID)
-import UnitConversion (defaultUnitConfig, isKnownUnit)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
-import System.IO.Temp (withSystemTempFile)
+import Expr (evaluate, normalizeExpr)
+import SimaPro.Parser (
+    BioExchangeRow (..),
+    ProductRow (..),
+    TechExchangeRow (..),
+    defaultConfig,
+    generateActivityUUID,
+    generateFlowUUID,
+    generateUnitUUID,
+    parseAmount,
+    parseBioRow,
+    parseProductRow,
+    parseSimaProCSV,
+    parseTechRow,
+    splitCSV,
+ )
 import System.IO (hClose)
+import System.IO.Temp (withSystemTempFile)
+import Test.Hspec
+import Types (Activity (..), Exchange (..), Flow, UUID, Unit (..))
+import UnitConversion (defaultUnitConfig, isKnownUnit)
 
 -- | Test CSV content with a quoted product name containing the delimiter (;)
 testCSV :: BS.ByteString
-testCSV = BS.intercalate "\r\n"
-    [ "{SimaPro 9.6.0.1}"
-    , "{CSV separator: semicolon}"
-    , "{Decimal separator: .}"
-    , ""
-    , "Process"
-    , ""
-    , "Category type"
-    , "material"
-    , ""
-    , "Process name"
-    , "Steel Production"
-    , ""
-    , "Type"
-    , "Unit process"
-    , ""
-    , "Geography"
-    , "GLO"
-    , ""
-    , "Products"
-    , "Steel;kg;1.0;100;not defined;material;"
-    , ""
-    , "End"
-    , ""
-    , "Process"
-    , ""
-    , "Category type"
-    , "material"
-    , ""
-    , "Process name"
-    , "Irradiated Food"
-    , ""
-    , "Type"
-    , "Unit process"
-    , ""
-    , "Geography"
-    , "GLO"
-    , ""
-    , "Products"
-    , "\"Food product (irradiated ; with treatment)\";foo_unit;2.0;100;not defined;material;"
-    , ""
-    , "End"
-    ]
+testCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Steel Production"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Geography"
+        , "GLO"
+        , ""
+        , "Products"
+        , "Steel;kg;1.0;100;not defined;material;"
+        , ""
+        , "End"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Irradiated Food"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Geography"
+        , "GLO"
+        , ""
+        , "Products"
+        , "\"Food product (irradiated ; with treatment)\";foo_unit;2.0;100;not defined;material;"
+        , ""
+        , "End"
+        ]
 
 -- | Parse the test CSV via a temp file
 parseTestCSV :: IO ([Activity], M.Map UUID Flow, M.Map UUID Unit)
@@ -76,78 +86,83 @@ parseTestCSV = withSystemTempFile "test.csv" $ \path handle -> do
 
 -- | Test CSV with waste treatment process and waste-to-treatment demand
 wasteTestCSV :: BS.ByteString
-wasteTestCSV = BS.intercalate "\r\n"
-    [ "{SimaPro 9.6.0.1}"
-    , "{CSV separator: semicolon}"
-    , "{Decimal separator: .}"
-    , ""
-    -- Producer with a Waste to treatment section
-    , "Process"
-    , ""
-    , "Category type"
-    , "material"
-    , ""
-    , "Process name"
-    , "Widget production"
-    , ""
-    , "Type"
-    , "Unit process"
-    , ""
-    , "Products"
-    , "Widget;kg;1.0;100;not defined;material;"
-    , ""
-    , "Waste to treatment"
-    , "Municipal waste;kg;0.5;Undefined;;;;;;"
-    , ""
-    , "End"
-    , ""
-    -- Waste treatment process (no Products section, only Waste treatment)
-    , "Process"
-    , ""
-    , "Category type"
-    , "waste treatment"
-    , ""
-    , "Process name"
-    , "Incineration process"
-    , ""
-    , "Type"
-    , "Unit process"
-    , ""
-    , "Waste treatment"
-    , "Municipal waste incineration;kg;1.0;100;All waste types;waste treatment;"
-    , ""
-    , "End"
-    ]
+wasteTestCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , -- Producer with a Waste to treatment section
+          "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Widget production"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Products"
+        , "Widget;kg;1.0;100;not defined;material;"
+        , ""
+        , "Waste to treatment"
+        , "Municipal waste;kg;0.5;Undefined;;;;;;"
+        , ""
+        , "End"
+        , ""
+        , -- Waste treatment process (no Products section, only Waste treatment)
+          "Process"
+        , ""
+        , "Category type"
+        , "waste treatment"
+        , ""
+        , "Process name"
+        , "Incineration process"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Waste treatment"
+        , "Municipal waste incineration;kg;1.0;100;All waste types;waste treatment;"
+        , ""
+        , "End"
+        ]
 
--- | Test CSV with waste treatment product row without allocation field (6 fields).
--- SimaPro CSV has two product row formats:
---   7 fields: name;unit;amount;allocation;waste_type;category;comment
---   6 fields: name;unit;amount;waste_type;category;comment  (no allocation)
--- The 6-field variant is found in some waste treatment processes (e.g. Agribalyse).
--- Without proper detection, field 3 (waste_type) is misread as allocation, and the
--- comment (often containing \x7f-separated EcoSpold metadata) ends up as category.
+{- | Test CSV with waste treatment product row without allocation field (6 fields).
+SimaPro CSV has two product row formats:
+  7 fields: name;unit;amount;allocation;waste_type;category;comment
+  6 fields: name;unit;amount;waste_type;category;comment  (no allocation)
+The 6-field variant is found in some waste treatment processes (e.g. Agribalyse).
+Without proper detection, field 3 (waste_type) is misread as allocation, and the
+comment (often containing \x7f-separated EcoSpold metadata) ends up as category.
+-}
 wasteNoAllocCSV :: BS.ByteString
-wasteNoAllocCSV = BS.intercalate "\r\n"
-    [ "{SimaPro 9.6.0.1}"
-    , "{CSV separator: semicolon}"
-    , "{Decimal separator: .}"
-    , ""
-    , "Process"
-    , ""
-    , "Category type"
-    , "waste treatment"
-    , ""
-    , "Process name"
-    , "treatment of non-sulfidic overburden"
-    , ""
-    , "Type"
-    , "Unit process"
-    , ""
-    , "Waste treatment"
-    , "Non-sulfidic overburden {GLO}| treatment of | Cut-off, S;kg;1;All waste types;Others\\Copied from Ecoinvent cut-off S;EcoSpold01Location=GLO\x7fProperties\x7fDry mass: 1 kg"
-    , ""
-    , "End"
-    ]
+wasteNoAllocCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "waste treatment"
+        , ""
+        , "Process name"
+        , "treatment of non-sulfidic overburden"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Waste treatment"
+        , "Non-sulfidic overburden {GLO}| treatment of | Cut-off, S;kg;1;All waste types;Others\\Copied from Ecoinvent cut-off S;EcoSpold01Location=GLO\x7fProperties\x7fDry mass: 1 kg"
+        , ""
+        , "End"
+        ]
 
 -- | Parse the 6-field waste treatment CSV via a temp file
 parseWasteNoAllocCSV :: IO ([Activity], M.Map UUID Flow, M.Map UUID Unit)
@@ -169,42 +184,44 @@ parseWasteCSV = withSystemTempFile "waste-test.csv" $ \path handle -> do
 
 -- | Test CSV with parameterized amounts (models butter-like process)
 paramTestCSV :: BS.ByteString
-paramTestCSV = BS.intercalate "\r\n"
-    [ "{SimaPro 9.6.0.1}"
-    , "{CSV separator: semicolon}"
-    , "{Decimal separator: ,}"
-    , ""
-    , "Process"
-    , ""
-    , "Category type"
-    , "material"
-    , ""
-    , "Process name"
-    , "Butter at dairy"
-    , ""
-    , "Type"
-    , "Unit process"
-    , ""
-    , "Input parameters"
-    , "Qb;1;Undefined;0;0;No;"
-    , "DMb;0,82;Undefined;0;0;No;"
-    , "Qm;20,53;Undefined;0;0;No;"
-    , "DMm;0,118;Undefined;0;0;No;"
-    , ""
-    , "Calculated parameters"
-    , "allocButter;(Qb*DMb/(Qb*DMb+Qm*DMm))*100;"
-    , ""
-    , "Products"
-    , "Butter {FR} U;kg;Qb;allocButter;not defined;material;"
-    , ""
-    , "Materials/fuels"
-    , "Cow milk {FR} U;kg;Qm;Undefined;;;;;;"
-    , ""
-    , "Emissions to air"
-    , "Carbon dioxide, fossil;high. pop.;kg;0,5;Undefined;;;;;;"
-    , ""
-    , "End"
-    ]
+paramTestCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: ,}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Butter at dairy"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Input parameters"
+        , "Qb;1;Undefined;0;0;No;"
+        , "DMb;0,82;Undefined;0;0;No;"
+        , "Qm;20,53;Undefined;0;0;No;"
+        , "DMm;0,118;Undefined;0;0;No;"
+        , ""
+        , "Calculated parameters"
+        , "allocButter;(Qb*DMb/(Qb*DMb+Qm*DMm))*100;"
+        , ""
+        , "Products"
+        , "Butter {FR} U;kg;Qb;allocButter;not defined;material;"
+        , ""
+        , "Materials/fuels"
+        , "Cow milk {FR} U;kg;Qm;Undefined;;;;;;"
+        , ""
+        , "Emissions to air"
+        , "Carbon dioxide, fossil;high. pop.;kg;0,5;Undefined;;;;;;"
+        , ""
+        , "End"
+        ]
 
 parseParamCSV :: IO ([Activity], M.Map UUID Flow, M.Map UUID Unit)
 parseParamCSV = withSystemTempFile "param-test.csv" $ \path handle -> do
@@ -214,35 +231,37 @@ parseParamCSV = withSystemTempFile "param-test.csv" $ \path handle -> do
 
 -- | Test CSV with database-level parameters
 dbParamTestCSV :: BS.ByteString
-dbParamTestCSV = BS.intercalate "\r\n"
-    [ "{SimaPro 9.6.0.1}"
-    , "{CSV separator: semicolon}"
-    , "{Decimal separator: .}"
-    , ""
-    , "Database Input parameters"
-    , "lbtokg;0.453592;Undefined;0;0;No;"
-    , ""
-    , "Database Calculated parameters"
-    , ""
-    , "Process"
-    , ""
-    , "Category type"
-    , "material"
-    , ""
-    , "Process name"
-    , "Import product"
-    , ""
-    , "Type"
-    , "Unit process"
-    , ""
-    , "Products"
-    , "Import product;kg;1;100;not defined;material;"
-    , ""
-    , "Materials/fuels"
-    , "Raw material;lb;lbtokg;Undefined;;;;;;"
-    , ""
-    , "End"
-    ]
+dbParamTestCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Database Input parameters"
+        , "lbtokg;0.453592;Undefined;0;0;No;"
+        , ""
+        , "Database Calculated parameters"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Import product"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Products"
+        , "Import product;kg;1;100;not defined;material;"
+        , ""
+        , "Materials/fuels"
+        , "Raw material;lb;lbtokg;Undefined;;;;;;"
+        , ""
+        , "End"
+        ]
 
 parseDbParamCSV :: IO ([Activity], M.Map UUID Flow, M.Map UUID Unit)
 parseDbParamCSV = withSystemTempFile "dbparam-test.csv" $ \path handle -> do
@@ -252,39 +271,41 @@ parseDbParamCSV = withSystemTempFile "dbparam-test.csv" $ \path handle -> do
 
 -- | Test CSV with yield chain formula (most common pattern in Agribalyse)
 yieldChainTestCSV :: BS.ByteString
-yieldChainTestCSV = BS.intercalate "\r\n"
-    [ "{SimaPro 9.6.0.1}"
-    , "{CSV separator: semicolon}"
-    , "{Decimal separator: .}"
-    , ""
-    , "Process"
-    , ""
-    , "Category type"
-    , "material"
-    , ""
-    , "Process name"
-    , "Processed food"
-    , ""
-    , "Type"
-    , "Unit process"
-    , ""
-    , "Input parameters"
-    , "weight_g;250;Undefined;0;0;No;"
-    , "yield1;0.95;Undefined;0;0;No;"
-    , "yield2;0.90;Undefined;0;0;No;"
-    , ""
-    , "Calculated parameters"
-    , "weight_kg;weight_g/1000;"
-    , "corrected;weight_kg/yield1/yield2;"
-    , ""
-    , "Products"
-    , "Processed food;kg;1;100;not defined;material;"
-    , ""
-    , "Materials/fuels"
-    , "Raw ingredient;kg;corrected;Undefined;;;;;;"
-    , ""
-    , "End"
-    ]
+yieldChainTestCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Processed food"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Input parameters"
+        , "weight_g;250;Undefined;0;0;No;"
+        , "yield1;0.95;Undefined;0;0;No;"
+        , "yield2;0.90;Undefined;0;0;No;"
+        , ""
+        , "Calculated parameters"
+        , "weight_kg;weight_g/1000;"
+        , "corrected;weight_kg/yield1/yield2;"
+        , ""
+        , "Products"
+        , "Processed food;kg;1;100;not defined;material;"
+        , ""
+        , "Materials/fuels"
+        , "Raw ingredient;kg;corrected;Undefined;;;;;;"
+        , ""
+        , "End"
+        ]
 
 parseYieldChainCSV :: IO ([Activity], M.Map UUID Flow, M.Map UUID Unit)
 parseYieldChainCSV = withSystemTempFile "yield-test.csv" $ \path handle -> do
@@ -294,25 +315,34 @@ parseYieldChainCSV = withSystemTempFile "yield-test.csv" $ \path handle -> do
 
 -- Helper: find technosphere input by name
 findInput :: Activity -> T.Text -> Maybe Exchange
-findInput act query = case [e | e@TechnosphereExchange{} <- exchanges act
-                              , techIsInput e, not (techIsReference e)] of
+findInput act query = case [ e
+                           | e@TechnosphereExchange{} <- exchanges act
+                           , techIsInput e
+                           , not (techIsReference e)
+                           ] of
     exs -> case filter (matchesName query) exs of
-        (e:_) -> Just e
-        _     -> Nothing
+        (e : _) -> Just e
+        _ -> Nothing
   where
-    matchesName _ _ = True  -- We check by position since we can't easily get flow names here
+    matchesName _ _ = True -- We check by position since we can't easily get flow names here
 
 -- Helper: get all tech input amounts
 techInputAmounts :: Activity -> [Double]
-techInputAmounts act = [techAmount e | e@TechnosphereExchange{} <- exchanges act
-                                     , techIsInput e, not (techIsReference e)]
+techInputAmounts act =
+    [ techAmount e
+    | e@TechnosphereExchange{} <- exchanges act
+    , techIsInput e
+    , not (techIsReference e)
+    ]
 
 -- Helper: get reference product amount
 refProductAmount :: Activity -> Maybe Double
-refProductAmount act = case [techAmount e | e@TechnosphereExchange{} <- exchanges act
-                                          , techIsReference e] of
-    (a:_) -> Just a
-    _     -> Nothing
+refProductAmount act = case [ techAmount e
+                            | e@TechnosphereExchange{} <- exchanges act
+                            , techIsReference e
+                            ] of
+    (a : _) -> Just a
+    _ -> Nothing
 
 spec :: Spec
 spec = do
@@ -342,14 +372,14 @@ spec = do
             let result = evaluate env "(Qb*DMb/(Qb*DMb+Qm*DMm))*100"
             case result of
                 Right v -> v `shouldSatisfy` (\x -> abs (x - 25.29) < 0.1)
-                Left e  -> expectationFailure $ "Evaluation failed: " ++ e
+                Left e -> expectationFailure $ "Evaluation failed: " ++ e
 
         it "evaluates yield correction chains" $ do
             let env = M.fromList [("weight_kg", 0.25), ("yield1", 0.95), ("yield2", 0.90)]
             let result = evaluate env "weight_kg/yield1/yield2"
             case result of
                 Right v -> v `shouldSatisfy` (\x -> abs (x - 0.2924) < 0.001)
-                Left e  -> expectationFailure $ "Evaluation failed: " ++ e
+                Left e -> expectationFailure $ "Evaluation failed: " ++ e
 
         it "evaluates power operator" $ do
             evaluate M.empty "2^3" `shouldBe` Right 8.0
@@ -388,8 +418,11 @@ spec = do
         it "reports unknown units correctly" $ do
             (_, _, unitDB) <- parseTestCSV
             let cfg = defaultUnitConfig
-                unknowns = [unitName u | u <- M.elems unitDB
-                           , not (isKnownUnit cfg (unitName u))]
+                unknowns =
+                    [ unitName u
+                    | u <- M.elems unitDB
+                    , not (isKnownUnit cfg (unitName u))
+                    ]
             unknowns `shouldContain` ["foo_unit"]
             unknowns `shouldNotContain` ["kg"]
 
@@ -431,9 +464,12 @@ spec = do
         it "marks Waste to treatment exchanges as inputs" $ do
             (activities, _, _) <- parseWasteCSV
             let producer = head [a | a <- activities, activityName a == "Widget"]
-                wasteExchanges = [e | e@TechnosphereExchange{} <- exchanges producer
-                                    , not (techIsReference e)
-                                    , techIsInput e]
+                wasteExchanges =
+                    [ e
+                    | e@TechnosphereExchange{} <- exchanges producer
+                    , not (techIsReference e)
+                    , techIsInput e
+                    ]
             length wasteExchanges `shouldSatisfy` (>= 1)
 
     describe "SimaPro parameterized amounts" $ do
@@ -459,7 +495,6 @@ spec = do
             -- The product exchange should have the resolved allocation
             -- (we check that the activity was created = params didn't break parsing)
             length (exchanges butter) `shouldSatisfy` (>= 3) -- product + milk + CO2
-
         it "stores resolved parameter values in activity" $ do
             (activities, _, _) <- parseParamCSV
             let butter = head activities
@@ -476,8 +511,12 @@ spec = do
         it "does not drop exchanges with parameterized amounts" $ do
             (activities, _, _) <- parseParamCSV
             let butter = head activities
-                techInputs = [e | e@TechnosphereExchange{} <- exchanges butter
-                                , techIsInput e, not (techIsReference e)]
+                techInputs =
+                    [ e
+                    | e@TechnosphereExchange{} <- exchanges butter
+                    , techIsInput e
+                    , not (techIsReference e)
+                    ]
             -- Cow milk should NOT be dropped (was the original bug)
             length techInputs `shouldBe` 1
 
@@ -541,18 +580,33 @@ spec = do
     describe "parseProductRow" $ do
         it "parses 7-field product row" $
             parseProductRow defaultConfig "Steel;kg;1.0;100;not defined;material;comment"
-                `shouldBe` Just ProductRow
-                    { prName = "Steel", prUnit = "kg", prAmount = 1.0, prAmountRaw = "1.0"
-                    , prAllocation = 100.0, prAllocRaw = "100", prWasteType = "not defined"
-                    , prCategory = "material", prComment = "comment" }
+                `shouldBe` Just
+                    ProductRow
+                        { prName = "Steel"
+                        , prUnit = "kg"
+                        , prAmount = 1.0
+                        , prAmountRaw = "1.0"
+                        , prAllocation = 100.0
+                        , prAllocRaw = "100"
+                        , prWasteType = "not defined"
+                        , prCategory = "material"
+                        , prComment = "comment"
+                        }
 
         it "parses 6-field row (no allocation — waste treatment)" $
             parseProductRow defaultConfig "Waste flow;kg;1.0;All waste types;waste treatment;comment"
-                `shouldBe` Just ProductRow
-                    { prName = "Waste flow", prUnit = "kg", prAmount = 1.0, prAmountRaw = "1.0"
-                    , prAllocation = 100.0, prAllocRaw = "100"
-                    , prWasteType = "All waste types", prCategory = "waste treatment"
-                    , prComment = "comment" }
+                `shouldBe` Just
+                    ProductRow
+                        { prName = "Waste flow"
+                        , prUnit = "kg"
+                        , prAmount = 1.0
+                        , prAmountRaw = "1.0"
+                        , prAllocation = 100.0
+                        , prAllocRaw = "100"
+                        , prWasteType = "All waste types"
+                        , prCategory = "waste treatment"
+                        , prComment = "comment"
+                        }
 
         it "returns Nothing for too-short row" $
             parseProductRow defaultConfig "name;kg" `shouldBe` Nothing
@@ -561,13 +615,13 @@ spec = do
         it "parses full tech exchange row" $
             parseTechRow defaultConfig "Coal;kg;5.0;Undefined;;;;;;"
                 `shouldSatisfy` \case
-                    Just r  -> terName r == "Coal" && terUnit r == "kg" && terAmount r == 5.0
+                    Just r -> terName r == "Coal" && terUnit r == "kg" && terAmount r == 5.0
                     Nothing -> False
 
         it "parses minimal tech row (name;unit;amount)" $
             parseTechRow defaultConfig "Oil;MJ;2.5"
                 `shouldSatisfy` \case
-                    Just r  -> terName r == "Oil" && terAmount r == 2.5
+                    Just r -> terName r == "Oil" && terAmount r == 2.5
                     Nothing -> False
 
         it "returns Nothing for too-short row" $
@@ -577,13 +631,13 @@ spec = do
         it "parses full bio exchange row" $
             parseBioRow defaultConfig "Carbon dioxide;air;kg;1.0;Undefined;;;;;;"
                 `shouldSatisfy` \case
-                    Just r  -> berName r == "Carbon dioxide" && berCompartment r == "air" && berAmount r == 1.0
+                    Just r -> berName r == "Carbon dioxide" && berCompartment r == "air" && berAmount r == 1.0
                     Nothing -> False
 
         it "parses minimal bio row (name;comp;unit;amount)" $
             parseBioRow defaultConfig "Methane;air;kg;0.5"
                 `shouldSatisfy` \case
-                    Just r  -> berName r == "Methane" && berUnit r == "kg"
+                    Just r -> berName r == "Methane" && berUnit r == "kg"
                     Nothing -> False
 
         it "returns Nothing for too-short row" $
@@ -612,43 +666,48 @@ spec = do
 
     describe "SimaPro uncovered sections" $ do
         it "parses Electricity/heat exchanges" $ do
-            (activities, _, _) <- parseSectionCSV
-                [ "Electricity/heat"
-                , "Electricity, medium voltage;kWh;0.3;Undefined;;;;;;"
-                ]
+            (activities, _, _) <-
+                parseSectionCSV
+                    [ "Electricity/heat"
+                    , "Electricity, medium voltage;kWh;0.3;Undefined;;;;;;"
+                    ]
             let act = head activities
                 techIn = [e | e@TechnosphereExchange{} <- exchanges act, techIsInput e, not (techIsReference e)]
             length techIn `shouldBe` 1
 
         it "parses Resources (biosphere inputs)" $ do
-            (activities, _, _) <- parseSectionCSV
-                [ "Resources"
-                , "Water, river;in water;m3;0.1;Undefined;;;;;;"
-                ]
+            (activities, _, _) <-
+                parseSectionCSV
+                    [ "Resources"
+                    , "Water, river;in water;m3;0.1;Undefined;;;;;;"
+                    ]
             let bio = [e | e@BiosphereExchange{} <- exchanges (head activities)]
             length bio `shouldBe` 1
 
         it "parses Emissions to water" $ do
-            (activities, _, _) <- parseSectionCSV
-                [ "Emissions to water"
-                , "Phosphate;river;kg;0.01;Undefined;;;;;;"
-                ]
+            (activities, _, _) <-
+                parseSectionCSV
+                    [ "Emissions to water"
+                    , "Phosphate;river;kg;0.01;Undefined;;;;;;"
+                    ]
             let bio = [e | e@BiosphereExchange{} <- exchanges (head activities)]
             length bio `shouldBe` 1
 
         it "parses Emissions to soil" $ do
-            (activities, _, _) <- parseSectionCSV
-                [ "Emissions to soil"
-                , "Zinc;agricultural;kg;0.001;Undefined;;;;;;"
-                ]
+            (activities, _, _) <-
+                parseSectionCSV
+                    [ "Emissions to soil"
+                    , "Zinc;agricultural;kg;0.001;Undefined;;;;;;"
+                    ]
             let bio = [e | e@BiosphereExchange{} <- exchanges (head activities)]
             length bio `shouldBe` 1
 
         it "parses Final waste flows" $ do
-            (activities, _, _) <- parseSectionCSV
-                [ "Final waste flows"
-                , "Inert waste, for final disposal;kg;0.5;Undefined;;;;;;"
-                ]
+            (activities, _, _) <-
+                parseSectionCSV
+                    [ "Final waste flows"
+                    , "Inert waste, for final disposal;kg;0.5;Undefined;;;;;;"
+                    ]
             let bio = [e | e@BiosphereExchange{} <- exchanges (head activities)]
             length bio `shouldBe` 1
 
@@ -679,56 +738,60 @@ parseSectionCSV sectionLines =
 parseNamedCSV :: BS.ByteString -> [BS.ByteString] -> IO ([Activity], M.Map UUID Flow, M.Map UUID Unit)
 parseNamedCSV procName sectionLines =
     withSystemTempFile "section-test.csv" $ \path handle -> do
-        let content = BS.intercalate "\r\n" $
-                [ "{SimaPro 9.6.0.1}"
-                , "{CSV separator: semicolon}"
-                , "{Decimal separator: .}"
-                , ""
-                , "Process"
-                , ""
-                , "Category type"
-                , "material"
-                , ""
-                , "Process name"
-                , procName
-                , ""
-                , "Type"
-                , "Unit process"
-                , ""
-                , "Products"
-                , "Reference product;kg;1.0;100;not defined;material;"
-                , ""
-                ] ++ sectionLines ++
-                [ ""
-                , "End"
-                ]
+        let content =
+                BS.intercalate "\r\n" $
+                    [ "{SimaPro 9.6.0.1}"
+                    , "{CSV separator: semicolon}"
+                    , "{Decimal separator: .}"
+                    , ""
+                    , "Process"
+                    , ""
+                    , "Category type"
+                    , "material"
+                    , ""
+                    , "Process name"
+                    , procName
+                    , ""
+                    , "Type"
+                    , "Unit process"
+                    , ""
+                    , "Products"
+                    , "Reference product;kg;1.0;100;not defined;material;"
+                    , ""
+                    ]
+                        ++ sectionLines
+                        ++ [ ""
+                           , "End"
+                           ]
         BS.hPut handle content
         hClose handle
         parseSimaProCSV path
 
 -- | CSV with comma as separator
 commaCSV :: BS.ByteString
-commaCSV = BS.intercalate "\r\n"
-    [ "{SimaPro 9.6.0.1}"
-    , "{CSV separator: Comma}"
-    , "{Decimal separator: .}"
-    , ""
-    , "Process"
-    , ""
-    , "Category type"
-    , "material"
-    , ""
-    , "Process name"
-    , "Comma Product"
-    , ""
-    , "Type"
-    , "Unit process"
-    , ""
-    , "Products"
-    , "Comma Product,kg,1.0,100,not defined,material,"
-    , ""
-    , "End"
-    ]
+commaCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: Comma}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Comma Product"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Products"
+        , "Comma Product,kg,1.0,100,not defined,material,"
+        , ""
+        , "End"
+        ]
 
 parseCommaCSV :: IO ([Activity], M.Map UUID Flow, M.Map UUID Unit)
 parseCommaCSV = withSystemTempFile "comma-test.csv" $ \path handle -> do
@@ -738,4 +801,4 @@ parseCommaCSV = withSystemTempFile "comma-test.csv" $ \path handle -> do
 
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True
-isLeft _        = False
+isLeft _ = False

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-{-|
+{- |
 Module      : Progress
 Description : Unified progress reporting system for the LCA engine
 
@@ -16,7 +16,6 @@ Key features:
 - Stderr-based output that doesn't interfere with JSON responses
 - In-memory log buffer accessible via API
 -}
-
 module Progress (
     -- * Progress reporting functions
     reportProgress,
@@ -40,41 +39,51 @@ module Progress (
     waitForNewLines,
 
     -- * Types
-    ProgressLevel(..)
+    ProgressLevel (..),
 ) where
 
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Concurrent.STM (TVar, newTVarIO, readTVar, readTVarIO, atomically, modifyTVar', retry)
-import Control.Exception (catch, try, SomeException)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, retry)
+import Control.Exception (SomeException, catch, try)
 import Control.Monad (when)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Time (diffUTCTime, getCurrentTime)
-import GHC.Stats (getRTSStats, RTSStats(..))
-import System.Directory (getFileSize, doesFileExist)
-import System.IO (stderr, hPutStrLn, hFlush)
+import GHC.Stats (RTSStats (..), getRTSStats)
+import System.Directory (doesFileExist, getFileSize)
+import System.IO (hFlush, hPutStrLn, stderr)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Printf (printf)
 
 -- | Progress reporting levels
 data ProgressLevel
-    = Info      -- ^ General information
-    | Warning   -- ^ Warning messages
-    | Cache     -- ^ Cache operations
-    | Matrix    -- ^ Matrix construction operations
-    | Solver    -- ^ Matrix solver operations
-    | Error     -- ^ Error messages
+    = -- | General information
+      Info
+    | -- | Warning messages
+      Warning
+    | -- | Cache operations
+      Cache
+    | -- | Matrix construction operations
+      Matrix
+    | -- | Matrix solver operations
+      Solver
+    | -- | Error messages
+      Error
     deriving (Eq, Show)
 
 -- | In-memory log buffer state
 data LogBuffer = LogBuffer
-    { lbLines   :: !(Seq String)  -- ^ Buffered log lines
-    , lbOffset  :: !Int           -- ^ Absolute index of first line in buffer
-    , lbMaxSize :: !Int           -- ^ Maximum number of lines to keep
+    { lbLines :: !(Seq String)
+    -- ^ Buffered log lines
+    , lbOffset :: !Int
+    -- ^ Absolute index of first line in buffer
+    , lbMaxSize :: !Int
+    -- ^ Maximum number of lines to keep
     }
 
--- | Global mutex to serialize all progress output operations
--- This prevents concurrent stderr output from corrupting the console and causing crashes
+{- | Global mutex to serialize all progress output operations
+This prevents concurrent stderr output from corrupting the console and causing crashes
+-}
 {-# NOINLINE progressOutputMutex #-}
 progressOutputMutex :: MVar ()
 progressOutputMutex = unsafePerformIO $ newMVar ()
@@ -82,11 +91,14 @@ progressOutputMutex = unsafePerformIO $ newMVar ()
 -- | Global in-memory log buffer (TVar for STM-based blocking reads)
 {-# NOINLINE logBufferRef #-}
 logBufferRef :: TVar LogBuffer
-logBufferRef = unsafePerformIO $ newTVarIO LogBuffer
-    { lbLines = Seq.empty
-    , lbOffset = 0
-    , lbMaxSize = 1000
-    }
+logBufferRef =
+    unsafePerformIO $
+        newTVarIO
+            LogBuffer
+                { lbLines = Seq.empty
+                , lbOffset = 0
+                , lbMaxSize = 1000
+                }
 
 -- | Append a line to the global log buffer
 appendLogLine :: String -> IO ()
@@ -94,15 +106,18 @@ appendLogLine line = atomically $ modifyTVar' logBufferRef $ \buf ->
     let newLines = lbLines buf Seq.|> line
         len = Seq.length newLines
         maxSz = lbMaxSize buf
-    in if len > maxSz
-        then let drop' = len - maxSz
-             in buf { lbLines = Seq.drop drop' newLines
-                    , lbOffset = lbOffset buf + drop'
-                    }
-        else buf { lbLines = newLines }
+     in if len > maxSz
+            then
+                let drop' = len - maxSz
+                 in buf
+                        { lbLines = Seq.drop drop' newLines
+                        , lbOffset = lbOffset buf + drop'
+                        }
+            else buf{lbLines = newLines}
 
--- | Get log lines since a given absolute index.
--- Returns (nextIndex, newLines).
+{- | Get log lines since a given absolute index.
+Returns (nextIndex, newLines).
+-}
 getLogLines :: Int -> IO (Int, [String])
 getLogLines since = do
     buf <- readTVarIO logBufferRef
@@ -110,8 +125,9 @@ getLogLines since = do
         startInSeq = max 0 (since - lbOffset buf)
     return (nextIndex, foldr (:) [] (Seq.drop startInSeq (lbLines buf)))
 
--- | Block until new lines appear after the given index.
--- Returns (nextIndex, newLines). Uses STM retry for efficient blocking.
+{- | Block until new lines appear after the given index.
+Returns (nextIndex, newLines). Uses STM retry for efficient blocking.
+-}
 waitForNewLines :: Int -> IO (Int, [String])
 waitForNewLines since = atomically $ do
     buf <- readTVar logBufferRef
@@ -126,20 +142,21 @@ waitForNewLines since = atomically $ do
 reportProgress :: ProgressLevel -> String -> IO ()
 reportProgress level message = do
     let prefix = case level of
-            Info    -> ""
+            Info -> ""
             Warning -> "[WARN] "
-            Cache   -> "[CACHE] "
-            Matrix  -> "[MATRIX] "
-            Solver  -> "[SOLVER] "
-            Error   -> "[ERROR] "
+            Cache -> "[CACHE] "
+            Matrix -> "[MATRIX] "
+            Solver -> "[SOLVER] "
+            Error -> "[ERROR] "
         formatted = prefix ++ message
     -- Append to in-memory buffer
     appendLogLine formatted
     -- Serialize all output to prevent thread-unsafe stderr corruption
     -- Catch encoding errors (safety net for Windows code page issues)
     withMVar progressOutputMutex $ \_ ->
-        catch (hPutStrLn stderr formatted >> hFlush stderr)
-              (\(_ :: SomeException) -> return ())
+        catch
+            (hPutStrLn stderr formatted >> hFlush stderr)
+            (\(_ :: SomeException) -> return ())
 
 -- | Report progress with timing information
 reportProgressWithTiming :: ProgressLevel -> String -> Double -> IO ()
@@ -178,9 +195,9 @@ withProgressTiming level operationName action = do
 formatDuration :: Double -> String
 formatDuration duration
     | duration < 0.001 = printf "%.2fms" (duration * 1000)
-    | duration < 1.0   = printf "%.0fms" (duration * 1000)
-    | duration < 60.0  = printf "%.2fs" duration
-    | otherwise        = printf "%.1fmin" (duration / 60)
+    | duration < 1.0 = printf "%.0fms" (duration * 1000)
+    | duration < 60.0 = printf "%.2fs" duration
+    | otherwise = printf "%.1fmin" (duration / 60)
 
 -- | Report current memory usage (if RTS stats are enabled)
 reportMemoryUsage :: String -> IO ()

@@ -3,16 +3,16 @@
 
 module ServerSpec (spec) where
 
-import Test.Hspec
 import Control.Concurrent (threadDelay)
-import Control.Exception (try, SomeException, bracket)
-import System.Directory (getTemporaryDirectory, removeFile, doesFileExist)
-import System.FilePath ((</>))
-import System.IO (openFile, IOMode(..), hClose)
-import System.Process (createProcess, proc, CreateProcess(..), StdStream(..), ProcessHandle, waitForProcess, getProcessExitCode, interruptProcessGroupOf)
-import Network.HTTP.Client (newManager, defaultManagerSettings, parseRequest, httpLbs, method, responseStatus, requestHeaders, Manager)
+import Control.Exception (SomeException, bracket, try)
+import Network.HTTP.Client (Manager, defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestHeaders, responseStatus)
 import Network.HTTP.Types (statusCode)
-import System.Exit (ExitCode(..))
+import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
+import System.Exit (ExitCode (..))
+import System.FilePath ((</>))
+import System.IO (IOMode (..), hClose, openFile)
+import System.Process (CreateProcess (..), ProcessHandle, StdStream (..), createProcess, getProcessExitCode, interruptProcessGroupOf, proc, waitForProcess)
+import Test.Hspec
 
 -- | Find the volca executable in the build directory
 findVolcaExe :: IO FilePath
@@ -20,8 +20,9 @@ findVolcaExe = do
     -- The executable is at a known location relative to the project root
     let exe = "dist-newstyle/build/x86_64-linux/ghc-9.6.7/volca-0.6.0/x/volca/opt/build/volca/volca"
     exists <- doesFileExist exe
-    if exists then return exe
-    else error $ "volca executable not found at " ++ exe ++ ". Run 'cabal build' first."
+    if exists
+        then return exe
+        else error $ "volca executable not found at " ++ exe ++ ". Run 'cabal build' first."
 
 -- | Port for test server (high port to avoid conflicts)
 testPort :: Int
@@ -46,11 +47,13 @@ withServer cfgPath action = do
     let logFile = tmpDir </> "volca-test-server.log"
     logHandle <- openFile logFile AppendMode
     let args = ["--config", cfgPath, "server", "--port", show testPort]
-    (_, _, _, ph) <- createProcess (proc exe args)
-        { std_out = UseHandle logHandle
-        , std_err = UseHandle logHandle
-        , create_group = True
-        }
+    (_, _, _, ph) <-
+        createProcess
+            (proc exe args)
+                { std_out = UseHandle logHandle
+                , std_err = UseHandle logHandle
+                , create_group = True
+                }
     -- Wait for server to be ready (poll)
     ready <- waitForReady mgr 30
     if ready
@@ -66,14 +69,14 @@ withServer cfgPath action = do
                 interruptProcessGroupOf ph
                 _ <- waitForProcess ph
                 pure ()
-            Just _  -> pure ()
+            Just _ -> pure ()
         hClose logHandle
 
 -- | Poll until server responds or timeout
 waitForReady :: Manager -> Int -> IO Bool
 waitForReady _ 0 = return False
 waitForReady mgr remaining = do
-    threadDelay 200000  -- 200ms
+    threadDelay 200000 -- 200ms
     alive <- isAlive mgr
     if alive then return True else waitForReady mgr (remaining - 1)
 
@@ -92,7 +95,7 @@ isAlive mgr = do
 postEndpoint :: Manager -> String -> IO Int
 postEndpoint mgr path = do
     req0 <- parseRequest $ "http://127.0.0.1:" ++ show testPort ++ path
-    let req = req0 { method = "POST", requestHeaders = [("Content-Type", "application/json")] }
+    let req = req0{method = "POST", requestHeaders = [("Content-Type", "application/json")]}
     resp <- httpLbs req mgr
     return $ statusCode (responseStatus resp)
 
@@ -108,7 +111,7 @@ spec = do
                     code <- postEndpoint mgr "/api/v1/shutdown"
                     code `shouldBe` 200
                     -- Wait for server to die
-                    threadDelay 1000000  -- 1s
+                    threadDelay 1000000 -- 1s
                     isAlive mgr `shouldReturn` False
                     -- Process should have exited
                     mCode <- getProcessExitCode ph
@@ -126,7 +129,7 @@ spec = do
                     -- Still alive immediately
                     isAlive mgr `shouldReturn` True
                     -- Wait for timeout + buffer
-                    threadDelay 3500000  -- 3.5s
+                    threadDelay 3500000 -- 3.5s
                     -- Should be dead
                     isAlive mgr `shouldReturn` False
                     mCode <- getProcessExitCode ph
@@ -139,6 +142,6 @@ spec = do
                     _ <- postEndpoint mgr "/api/v1/idle-timeout/2"
                     _ <- postEndpoint mgr "/api/v1/idle-timeout/0"
                     -- Wait longer than the timeout
-                    threadDelay 3500000  -- 3.5s
+                    threadDelay 3500000 -- 3.5s
                     -- Server should still be alive
                     isAlive mgr `shouldReturn` True

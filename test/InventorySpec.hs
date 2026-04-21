@@ -2,13 +2,13 @@
 
 module InventorySpec (spec) where
 
+import qualified Data.Map as M
+import qualified Data.Vector.Unboxed as U
+import GoldenData
+import Matrix (computeInventoryMatrix, computeInventoryMatrixBatch, precomputeMatrixFactorization)
 import Test.Hspec
 import TestHelpers
-import GoldenData
 import Types
-import Matrix (computeInventoryMatrix, computeInventoryMatrixBatch, precomputeMatrixFactorization)
-import qualified Data.Vector.Unboxed as U
-import qualified Data.Map as M
 
 spec :: Spec
 spec = do
@@ -37,7 +37,6 @@ spec = do
 
                     withinTolerance defaultTolerance sampleMin3ExpectedZinc zincAmount
                         `shouldBe` True
-
                 _ -> expectationFailure "Could not find CO2 or Zinc flows in database"
 
         it "computes finite values (no +inf/-inf)" $ do
@@ -97,42 +96,54 @@ spec = do
 
     describe "Batch Inventory (MUMPS multi-RHS)" $ do
         let makeFact db name = do
-                let n        = fromIntegral (dbActivityCount db)
-                    asTuples = [ (fromIntegral i, fromIntegral j, v)
-                               | SparseTriple i j v <- U.toList (dbTechnosphereTriples db) ]
+                let n = fromIntegral (dbActivityCount db)
+                    asTuples =
+                        [ (fromIntegral i, fromIntegral j, v)
+                        | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
+                        ]
                 fact <- precomputeMatrixFactorization name asTuples n
-                pure fact { mfDatabaseId = name }
+                pure fact{mfDatabaseId = name}
 
         it "empty batch returns empty list" $ do
-            db   <- loadSampleDatabase "SAMPLE.min3"
+            db <- loadSampleDatabase "SAMPLE.min3"
             fact <- makeFact db "SAMPLE.min3.empty"
             result <- computeInventoryMatrixBatch db fact []
             result `shouldBe` []
 
         it "singleton batch matches single-solve inventory" $ do
-            db   <- loadSampleDatabase "SAMPLE.min3"
+            db <- loadSampleDatabase "SAMPLE.min3"
             fact <- makeFact db "SAMPLE.min3.single"
-            single    <- computeInventoryMatrix db 0
+            single <- computeInventoryMatrix db 0
             [batched] <- computeInventoryMatrixBatch db fact [0]
             M.keys single `shouldBe` M.keys batched
-            mapM_ (\k -> withinTolerance 1e-10
-                            (M.findWithDefault 0 k single)
-                            (M.findWithDefault 0 k batched)
-                        `shouldBe` True)
-                  (M.keys single)
+            mapM_
+                ( \k ->
+                    withinTolerance
+                        1e-10
+                        (M.findWithDefault 0 k single)
+                        (M.findWithDefault 0 k batched)
+                        `shouldBe` True
+                )
+                (M.keys single)
 
         it "k=3 batch matches per-process single solves" $ do
-            db   <- loadSampleDatabase "SAMPLE.min3"
+            db <- loadSampleDatabase "SAMPLE.min3"
             fact <- makeFact db "SAMPLE.min3.k3"
             let pids = [0, 1, 2]
             singles <- mapM (computeInventoryMatrix db) pids
             batched <- computeInventoryMatrixBatch db fact pids
             length batched `shouldBe` length singles
-            mapM_ (\(s, b) -> do
+            mapM_
+                ( \(s, b) -> do
                     M.keys s `shouldBe` M.keys b
-                    mapM_ (\k -> withinTolerance 1e-10
-                                    (M.findWithDefault 0 k s)
-                                    (M.findWithDefault 0 k b)
-                                `shouldBe` True)
-                          (M.keys s))
-                  (zip singles batched)
+                    mapM_
+                        ( \k ->
+                            withinTolerance
+                                1e-10
+                                (M.findWithDefault 0 k s)
+                                (M.findWithDefault 0 k b)
+                                `shouldBe` True
+                        )
+                        (M.keys s)
+                )
+                (zip singles batched)

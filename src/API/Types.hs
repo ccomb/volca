@@ -4,7 +4,6 @@
 
 module API.Types where
 
-import Types (Exchange, Flow, UUID, Unit)
 import API.JsonOptions (strippedParseJSON, strippedToEncoding, strippedToJSON)
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BSL
@@ -13,7 +12,8 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics
-import Servant.API.ContentTypes (MimeRender(..), OctetStream)
+import Servant.API.ContentTypes (MimeRender (..), OctetStream)
+import Types (Exchange, Flow, UUID, Unit)
 
 -- | Search response combining results and count
 data SearchResults a = SearchResults
@@ -28,24 +28,24 @@ data SearchResults a = SearchResults
 
 -- | Minimal activity information for navigation
 data ActivitySummary = ActivitySummary
-    { prsProcessId :: Text  -- ProcessId format: activity_uuid_product_uuid
+    { prsProcessId :: Text -- ProcessId format: activity_uuid_product_uuid
     , prsName :: Text
     , prsLocation :: Text
-    , prsProduct :: Text  -- Reference product name
-    , prsProductAmount :: Double  -- Reference product amount
-    , prsProductUnit :: Text  -- Reference product unit name
+    , prsProduct :: Text -- Reference product name
+    , prsProductAmount :: Double -- Reference product amount
+    , prsProductUnit :: Text -- Reference product unit name
     }
     deriving (Generic)
 
 -- | Consumer result — ActivitySummary enriched with BFS depth from the queried supplier
 data ConsumerResult = ConsumerResult
-    { crProcessId     :: Text
-    , crName          :: Text
-    , crLocation      :: Text
-    , crProduct       :: Text
+    { crProcessId :: Text
+    , crName :: Text
+    , crLocation :: Text
+    , crProduct :: Text
     , crProductAmount :: Double
-    , crProductUnit   :: Text
-    , crDepth         :: Int   -- hops from the queried supplier (1 = direct consumer)
+    , crProductUnit :: Text
+    , crDepth :: Int -- hops from the queried supplier (1 = direct consumer)
     }
     deriving (Generic)
 
@@ -55,7 +55,7 @@ data FlowSearchResult = FlowSearchResult
     , fsrName :: Text
     , fsrCategory :: Text
     , fsrUnitName :: Text
-    , fsrSynonyms :: M.Map Text [Text]  -- Synonyms by language (converted from Set to List for JSON)
+    , fsrSynonyms :: M.Map Text [Text] -- Synonyms by language (converted from Set to List for JSON)
     }
     deriving (Generic)
 
@@ -95,13 +95,13 @@ data InventoryStatistics = InventoryStatistics
 -- | Tree export data structures for visualization
 data TreeExport = TreeExport
     { teTree :: TreeMetadata
-    , teNodes :: M.Map Text ExportNode  -- Changed to Text (ProcessId format)
+    , teNodes :: M.Map Text ExportNode -- Changed to Text (ProcessId format)
     , teEdges :: [TreeEdge]
     }
     deriving (Generic)
 
 data TreeMetadata = TreeMetadata
-    { tmRootId :: Text  -- Changed to Text (ProcessId format)
+    { tmRootId :: Text -- Changed to Text (ProcessId format)
     , tmMaxDepth :: Int
     , tmTotalNodes :: Int
     , tmLoopNodes :: Int
@@ -111,14 +111,14 @@ data TreeMetadata = TreeMetadata
     deriving (Generic)
 
 data ExportNode = ExportNode
-    { enId :: Text  -- Changed to Text (ProcessId format)
+    { enId :: Text -- Changed to Text (ProcessId format)
     , enName :: Text
     , enDescription :: [Text]
     , enLocation :: Text
     , enUnit :: Text
     , enNodeType :: NodeType
     , enDepth :: Int
-    , enLoopTarget :: Maybe Text  -- Changed to Text (ProcessId format)
+    , enLoopTarget :: Maybe Text -- Changed to Text (ProcessId format)
     , enParentId :: Maybe Text -- Changed to Text (ProcessId format) -- For navigation back up
     , enChildrenCount :: Int -- Number of potential children for expandability
     , enCompartment :: Maybe Text -- Biosphere compartment (air/water/soil), only for BiosphereNodes
@@ -132,8 +132,8 @@ data EdgeType = TechnosphereEdge | BiosphereEmissionEdge | BiosphereResourceEdge
     deriving (Eq, Show, Generic)
 
 data TreeEdge = TreeEdge
-    { teFrom :: Text  -- Changed to Text (ProcessId format)
-    , teTo :: Text    -- Changed to Text (ProcessId format)
+    { teFrom :: Text -- Changed to Text (ProcessId format)
+    , teTo :: Text -- Changed to Text (ProcessId format)
     , teFlow :: FlowInfo
     , teQuantity :: Double
     , teUnit :: Text
@@ -192,12 +192,12 @@ data FlowRole = InputFlow | OutputFlow | ReferenceProductFlow
 
 -- | Method summary for listing methods
 data MethodSummary = MethodSummary
-    { msmId :: UUID           -- Method UUID
-    , msmName :: Text         -- Method name
-    , msmCategory :: Text     -- Impact category
-    , msmUnit :: Text         -- Reference unit (e.g., "kg CO2 eq")
-    , msmFactorCount :: Int   -- Number of characterization factors
-    , msmCollection :: Text   -- Parent collection name (e.g., "ef-31")
+    { msmId :: UUID -- Method UUID
+    , msmName :: Text -- Method name
+    , msmCategory :: Text -- Impact category
+    , msmUnit :: Text -- Reference unit (e.g., "kg CO2 eq")
+    , msmFactorCount :: Int -- Number of characterization factors
+    , msmCollection :: Text -- Parent collection name (e.g., "ef-31")
     }
     deriving (Generic)
 
@@ -209,14 +209,14 @@ newtype MethodCollectionListResponse = MethodCollectionListResponse
 
 -- | Method collection status for API responses
 data MethodCollectionStatusAPI = MethodCollectionStatusAPI
-    { mcaName :: Text              -- Internal identifier
-    , mcaDisplayName :: Text       -- Human-readable name
+    { mcaName :: Text -- Internal identifier
+    , mcaDisplayName :: Text -- Human-readable name
     , mcaDescription :: Maybe Text -- Optional description
-    , mcaStatus :: Text            -- "loaded" | "unloaded"
-    , mcaIsUploaded :: Bool        -- True if uploaded
-    , mcaPath :: Text              -- Data path
-    , mcaMethodCount :: Int        -- Number of impact categories (0 if unloaded)
-    , mcaFormat :: Maybe Text      -- Format (e.g. "ILCD")
+    , mcaStatus :: Text -- "loaded" | "unloaded"
+    , mcaIsUploaded :: Bool -- True if uploaded
+    , mcaPath :: Text -- Data path
+    , mcaMethodCount :: Int -- Number of impact categories (0 if unloaded)
+    , mcaFormat :: Maybe Text -- Format (e.g. "ILCD")
     }
     deriving (Generic)
 
@@ -228,13 +228,13 @@ newtype RefDataListResponse = RefDataListResponse
 
 -- | Reference data status for API responses
 data RefDataStatusAPI = RefDataStatusAPI
-    { rdaName        :: Text
+    { rdaName :: Text
     , rdaDisplayName :: Text
     , rdaDescription :: Maybe Text
-    , rdaStatus      :: Text  -- "loaded" | "unloaded"
-    , rdaIsUploaded  :: Bool
-    , rdaIsAuto      :: Bool
-    , rdaEntryCount  :: Int
+    , rdaStatus :: Text -- "loaded" | "unloaded"
+    , rdaIsUploaded :: Bool
+    , rdaIsAuto :: Bool
+    , rdaEntryCount :: Int
     }
     deriving (Generic)
 
@@ -258,67 +258,67 @@ data MethodDetail = MethodDetail
 
 -- | Characterization factor for API response
 data MethodFactorAPI = MethodFactorAPI
-    { mfaFlowRef :: UUID        -- ILCD flow UUID
-    , mfaFlowName :: Text       -- Flow name
-    , mfaDirection :: Text      -- "Input" or "Output"
-    , mfaValue :: Double        -- CF value
+    { mfaFlowRef :: UUID -- ILCD flow UUID
+    , mfaFlowName :: Text -- Flow name
+    , mfaDirection :: Text -- "Input" or "Output"
+    , mfaValue :: Double -- CF value
     }
     deriving (Generic)
 
 -- | A single flow's contribution to an LCIA score
 data FlowContributionEntry = FlowContributionEntry
-    { fcoFlowName    :: Text         -- Biosphere flow name (e.g. "Carbon dioxide, fossil")
-    , fcoContribution :: Double      -- Contribution in impact unit
-    , fcoSharePct    :: Double       -- Percentage of total score (0-100)
-    , fcoFlowId      :: Text         -- Flow UUID for disambiguation
-    , fcoCategory    :: Text         -- e.g. "air/urban air"
-    , fcoCompartment :: Maybe Text   -- Sub-compartment (e.g. "urban air")
-    , fcoCfValue     :: Double       -- Raw characterization factor value
+    { fcoFlowName :: Text -- Biosphere flow name (e.g. "Carbon dioxide, fossil")
+    , fcoContribution :: Double -- Contribution in impact unit
+    , fcoSharePct :: Double -- Percentage of total score (0-100)
+    , fcoFlowId :: Text -- Flow UUID for disambiguation
+    , fcoCategory :: Text -- e.g. "air/urban air"
+    , fcoCompartment :: Maybe Text -- Sub-compartment (e.g. "urban air")
+    , fcoCfValue :: Double -- Raw characterization factor value
     }
     deriving (Generic)
 
 -- | LCIA result for a single impact category
 data LCIAResult = LCIAResult
-    { lrMethodId        :: UUID        -- Method UUID
-    , lrMethodName      :: Text        -- Method name
-    , lrCategory        :: Text        -- Impact category
-    , lrDamageCategory  :: Text        -- Parent damage category (may == category)
-    , lrScore           :: Double      -- Total impact score (raw)
-    , lrUnit            :: Text        -- Unit (e.g., "kg CO2 eq")
-    , lrNormalizedScore :: Maybe Double  -- score * normalization factor
-    , lrWeightedScore   :: Maybe Double  -- normalized * weight (in Pt)
-    , lrMappedFlows     :: Int         -- Number of flows successfully mapped
-    , lrFunctionalUnit  :: Text        -- e.g. "1.0 kg of Butter, unsalted"
-    , lrTopContributors :: [FlowContributionEntry]  -- Top contributing elementary flows
+    { lrMethodId :: UUID -- Method UUID
+    , lrMethodName :: Text -- Method name
+    , lrCategory :: Text -- Impact category
+    , lrDamageCategory :: Text -- Parent damage category (may == category)
+    , lrScore :: Double -- Total impact score (raw)
+    , lrUnit :: Text -- Unit (e.g., "kg CO2 eq")
+    , lrNormalizedScore :: Maybe Double -- score * normalization factor
+    , lrWeightedScore :: Maybe Double -- normalized * weight (in Pt)
+    , lrMappedFlows :: Int -- Number of flows successfully mapped
+    , lrFunctionalUnit :: Text -- e.g. "1.0 kg of Butter, unsalted"
+    , lrTopContributors :: [FlowContributionEntry] -- Top contributing elementary flows
     }
     deriving (Generic)
 
 -- | Contributing flows result: top elementary flows for a specific impact category
 data ContributingFlowsResult = ContributingFlowsResult
-    { cfrMethod     :: Text
-    , cfrUnit       :: Text
+    { cfrMethod :: Text
+    , cfrUnit :: Text
     , cfrTotalScore :: Double
-    , cfrTopFlows   :: [FlowContributionEntry]
+    , cfrTopFlows :: [FlowContributionEntry]
     }
     deriving (Generic)
 
 -- | A single activity's contribution to an LCIA score
 data ActivityContribution = ActivityContribution
-    { acProcessId    :: Text    -- "activityUUID_productUUID" — usable as API process_id
-    , acActivityName :: Text    -- e.g. "electricity production, nuclear"
-    , acProductName  :: Text    -- e.g. "electricity, medium voltage"
-    , acLocation     :: Text    -- e.g. "FR"
-    , acContribution :: Double  -- Contribution in impact unit
-    , acSharePct     :: Double  -- Percentage of total score (0-100)
+    { acProcessId :: Text -- "activityUUID_productUUID" — usable as API process_id
+    , acActivityName :: Text -- e.g. "electricity production, nuclear"
+    , acProductName :: Text -- e.g. "electricity, medium voltage"
+    , acLocation :: Text -- e.g. "FR"
+    , acContribution :: Double -- Contribution in impact unit
+    , acSharePct :: Double -- Percentage of total score (0-100)
     }
     deriving (Generic)
 
 -- | Contributing activities result: top upstream activities for a specific impact category
 data ContributingActivitiesResult = ContributingActivitiesResult
-    { carMethod      :: Text
-    , carUnit        :: Text
-    , carTotalScore  :: Double
-    , carActivities  :: [ActivityContribution]
+    { carMethod :: Text
+    , carUnit :: Text
+    , carTotalScore :: Double
+    , carActivities :: [ActivityContribution]
     }
     deriving (Generic)
 
@@ -330,57 +330,70 @@ newtype BatchImpactsRequest = BatchImpactsRequest
 
 -- | One entry of a batch impacts response.
 data BatchImpactsEntry = BatchImpactsEntry
-    { bieProcessId    :: Text
+    { bieProcessId :: Text
     , bieActivityName :: Text
-    , bieImpacts      :: LCIABatchResult
+    , bieImpacts :: LCIABatchResult
     }
     deriving (Generic)
 
--- | Batch impacts response: one entry per successfully computed process,
--- plus lists of process ids that could not be resolved.
+{- | Batch impacts response: one entry per successfully computed process,
+plus lists of process ids that could not be resolved.
+-}
 data BatchImpactsResponse = BatchImpactsResponse
-    { birResults  :: [BatchImpactsEntry]
+    { birResults :: [BatchImpactsEntry]
     , birNotFound :: [Text]
-    , birInvalid  :: [Text]
+    , birInvalid :: [Text]
+    }
+    deriving (Generic)
+
+{- | A single scoring-set indicator: the per-variable normalized-weighted value
+plus the impact category it came from. Value is pre-multiplied by the
+scoring set's display multiplier, expressed in the set's display unit.
+-}
+data ScoringIndicator = ScoringIndicator
+    { siCategory :: Text
+    , siValue :: Double
     }
     deriving (Generic)
 
 -- | Batch LCIA result with optional single score
 data LCIABatchResult = LCIABatchResult
     { lbrResults :: [LCIAResult]
-    , lbrSingleScore :: Maybe Double    -- sum of weighted scores (Pt)
-    , lbrSingleScoreUnit :: Maybe Text  -- "Pt"
+    , lbrSingleScore :: Maybe Double -- sum of weighted scores (Pt)
+    , lbrSingleScoreUnit :: Maybe Text -- "Pt"
     , lbrNormWeightSetName :: Maybe Text
     , lbrAvailableNWsets :: [Text]
     , lbrScoringResults :: M.Map Text (M.Map Text Double)
-      -- ^ Scoring set name → (score name → value). All formula-based scoring sets computed at once.
+    -- ^ Scoring set name → (score name → value). All formula-based scoring sets computed at once.
     , lbrScoringUnits :: M.Map Text Text
-      -- ^ Scoring set name → display unit (e.g., "Pts", "µPts PEF")
+    -- ^ Scoring set name → display unit (e.g., "Pts", "µPts PEF")
+    , lbrScoringIndicators :: M.Map Text (M.Map Text ScoringIndicator)
+    -- ^ Scoring set name → (variable name → indicator). One row per scoring variable.
     }
     deriving (Generic)
 
 -- | Flow mapping status for a method
 data MappingStatus = MappingStatus
-    { mstMethodId :: UUID       -- Method UUID
-    , mstMethodName :: Text     -- Method name
-    , mstTotalFactors :: Int    -- Total CFs in method
-    , mstMappedByUUID :: Int    -- Matched by exact UUID
-    , mstMappedByCAS :: Int     -- Matched by CAS number
-    , mstMappedByName :: Int    -- Matched by normalized name
+    { mstMethodId :: UUID -- Method UUID
+    , mstMethodName :: Text -- Method name
+    , mstTotalFactors :: Int -- Total CFs in method
+    , mstMappedByUUID :: Int -- Matched by exact UUID
+    , mstMappedByCAS :: Int -- Matched by CAS number
+    , mstMappedByName :: Int -- Matched by normalized name
     , mstMappedBySynonym :: Int -- Matched via synonym group
-    , mstUnmapped :: Int        -- Not matched
-    , mstCoverage :: Double     -- Percentage of mapped flows (0-100)
-    , mstDbBiosphereCount :: Int      -- Total biosphere flows in the DB
-    , mstUniqueDbFlowsMatched :: Int  -- Unique DB flows hit by this method's CFs
+    , mstUnmapped :: Int -- Not matched
+    , mstCoverage :: Double -- Percentage of mapped flows (0-100)
+    , mstDbBiosphereCount :: Int -- Total biosphere flows in the DB
+    , mstUniqueDbFlowsMatched :: Int -- Unique DB flows hit by this method's CFs
     , mstUnmappedFlows :: [UnmappedFlowAPI] -- Details of unmapped flows
     }
     deriving (Generic)
 
 -- | Details about an unmapped flow
 data UnmappedFlowAPI = UnmappedFlowAPI
-    { ufaFlowRef :: UUID        -- Flow UUID in method
-    , ufaFlowName :: Text       -- Flow name in method
-    , ufaDirection :: Text      -- "Input" or "Output"
+    { ufaFlowRef :: UUID -- Flow UUID in method
+    , ufaFlowName :: Text -- Flow name in method
+    , ufaDirection :: Text -- "Input" or "Output"
     }
     deriving (Generic)
 
@@ -388,8 +401,8 @@ data UnmappedFlowAPI = UnmappedFlowAPI
 data FlowCFMapping = FlowCFMapping
     { fcmMethodName :: Text
     , fcmMethodUnit :: Text
-    , fcmTotalFlows :: Int          -- Total biosphere flows in DB
-    , fcmMatchedFlows :: Int        -- How many have a CF
+    , fcmTotalFlows :: Int -- Total biosphere flows in DB
+    , fcmMatchedFlows :: Int -- How many have a CF
     , fcmFlows :: [FlowCFEntry]
     }
     deriving (Generic)
@@ -399,93 +412,94 @@ data FlowCFEntry = FlowCFEntry
     { fceFlowId :: UUID
     , fceFlowName :: Text
     , fceFlowCategory :: Text
-    , fceCfValue :: Maybe Double     -- CF value (Nothing if no match)
-    , fceCfFlowName :: Maybe Text    -- Method CF flow name
+    , fceCfValue :: Maybe Double -- CF value (Nothing if no match)
+    , fceCfFlowName :: Maybe Text -- Method CF flow name
     , fceMatchStrategy :: Maybe Text -- "uuid" | "name" | "synonym"
     }
     deriving (Generic)
 
 -- | Characterization result: matched CFs for a method in a database
 data CharacterizationResult = CharacterizationResult
-    { chrMethod  :: Text
-    , chrUnit    :: Text
+    { chrMethod :: Text
+    , chrUnit :: Text
     , chrMatches :: Int
-    , chrShown   :: Int
+    , chrShown :: Int
     , chrFactors :: [CharacterizationEntry]
     }
     deriving (Generic)
 
 -- | A single matched characterization factor
 data CharacterizationEntry = CharacterizationEntry
-    { cheMethodFlowName :: Text        -- CF flow name from method
-    , cheCfValue        :: Double      -- Characterization factor
-    , cheCfUnit         :: Text        -- CF unit (e.g. "kg")
-    , cheDirection      :: Text        -- "Input" or "Output"
-    , cheDbFlowName     :: Text        -- Matched DB flow name
-    , cheFlowId         :: Text        -- DB flow UUID
-    , cheFlowUnit       :: Text        -- DB flow default unit (e.g. "m3", "kg")
-    , cheCategory       :: Text        -- Flow category
-    , cheCompartment    :: Maybe Text  -- Sub-compartment
-    , cheMatchStrategy  :: Text        -- "uuid", "cas", "name", "synonym", "fuzzy"
+    { cheMethodFlowName :: Text -- CF flow name from method
+    , cheCfValue :: Double -- Characterization factor
+    , cheCfUnit :: Text -- CF unit (e.g. "kg")
+    , cheDirection :: Text -- "Input" or "Output"
+    , cheDbFlowName :: Text -- Matched DB flow name
+    , cheFlowId :: Text -- DB flow UUID
+    , cheFlowUnit :: Text -- DB flow default unit (e.g. "m3", "kg")
+    , cheCategory :: Text -- Flow category
+    , cheCompartment :: Maybe Text -- Sub-compartment
+    , cheMatchStrategy :: Text -- "uuid", "cas", "name", "synonym", "fuzzy"
     }
     deriving (Generic)
 
 -- | Database list response
 newtype DatabaseListResponse = DatabaseListResponse
-    { dlrDatabases :: [DatabaseStatusAPI]  -- All available databases
+    { dlrDatabases :: [DatabaseStatusAPI] -- All available databases
     }
     deriving (Generic)
 
 -- | Database status for API responses
 data DatabaseStatusAPI = DatabaseStatusAPI
-    { dsaName          :: Text           -- Internal identifier (slug)
-    , dsaDisplayName   :: Text           -- Human-readable name for UI
-    , dsaDescription   :: Maybe Text
-    , dsaLoadAtStartup :: Bool           -- Configured to load at startup
-    , dsaStatus        :: Text           -- "unloaded" | "partially_linked" | "loaded"
-    , dsaIsUploaded    :: Bool           -- True if path starts with "uploads/"
-    , dsaPath          :: Text           -- Data path
-    , dsaFormat        :: Maybe Text     -- Database format (EcoSpold 2, EcoSpold 1, SimaPro CSV)
-    , dsaActivityCount :: Int            -- Number of activities (0 if unloaded)
+    { dsaName :: Text -- Internal identifier (slug)
+    , dsaDisplayName :: Text -- Human-readable name for UI
+    , dsaDescription :: Maybe Text
+    , dsaLoadAtStartup :: Bool -- Configured to load at startup
+    , dsaStatus :: Text -- "unloaded" | "partially_linked" | "loaded"
+    , dsaIsUploaded :: Bool -- True if path starts with "uploads/"
+    , dsaPath :: Text -- Data path
+    , dsaFormat :: Maybe Text -- Database format (EcoSpold 2, EcoSpold 1, SimaPro CSV)
+    , dsaActivityCount :: Int -- Number of activities (0 if unloaded)
     }
     deriving (Generic)
 
 -- | Response for database activation
 data ActivateResponse = ActivateResponse
-    { arSuccess  :: Bool
-    , arMessage  :: Text
+    { arSuccess :: Bool
+    , arMessage :: Text
     , arDatabase :: Maybe DatabaseStatusAPI
     }
     deriving (Generic)
 
--- | Response for the re-link endpoint: fresh cross-DB link stats after a
--- second-pass linking against the currently-loaded databases.
+{- | Response for the re-link endpoint: fresh cross-DB link stats after a
+second-pass linking against the currently-loaded databases.
+-}
 data RelinkResponse = RelinkResponse
-    { rrDbName           :: Text
+    { rrDbName :: Text
     , rrUnresolvedBefore :: Int
-    , rrUnresolvedAfter  :: Int
-    , rrCrossDBLinks     :: Int
-    , rrDependsOn        :: [Text]
+    , rrUnresolvedAfter :: Int
+    , rrCrossDBLinks :: Int
+    , rrDependsOn :: [Text]
     }
     deriving (Generic)
 
 -- | Result of auto-loading a single dependency
 data DepLoadResult
-    = DepLoaded    { dlrName :: Text }
-    | DepLoadFailed { dlfName :: Text, dlfError :: Text }
+    = DepLoaded {dlrName :: Text}
+    | DepLoadFailed {dlfName :: Text, dlfError :: Text}
     deriving (Generic)
 
 -- | Response for the load database endpoint
 data LoadDatabaseResponse
-    = LoadFailed    { ldrError :: Text }
-    | LoadSucceeded { ldrDatabase :: DatabaseStatusAPI, ldrDeps :: [DepLoadResult] }
+    = LoadFailed {ldrError :: Text}
+    | LoadSucceeded {ldrDatabase :: DatabaseStatusAPI, ldrDeps :: [DepLoadResult]}
     deriving (Generic)
 
 -- | Request for database upload (base64-encoded ZIP)
 data UploadRequest = UploadRequest
-    { urName        :: Text        -- Display name for the database
-    , urDescription :: Maybe Text  -- Optional description
-    , urFileData    :: Text        -- Base64-encoded ZIP file content
+    { urName :: Text -- Display name for the database
+    , urDescription :: Maybe Text -- Optional description
+    , urFileData :: Text -- Base64-encoded ZIP file content
     }
     deriving (Generic)
 
@@ -493,8 +507,8 @@ data UploadRequest = UploadRequest
 data UploadResponse = UploadResponse
     { uprSuccess :: Bool
     , uprMessage :: Text
-    , uprSlug    :: Maybe Text    -- Generated slug (if successful)
-    , uprFormat  :: Maybe Text    -- Detected format (if successful)
+    , uprSlug :: Maybe Text -- Generated slug (if successful)
+    , uprFormat :: Maybe Text -- Detected format (if successful)
     }
     deriving (Generic)
 
@@ -508,65 +522,69 @@ data SupplyChainResponse = SupplyChainResponse
     }
     deriving (Generic)
 
--- | A single entry in the supply chain. @sceProcessId@ is bare for entries
--- from the root DB and qualified (@"dbName::pid"@) for entries reached via
--- a cross-DB link. @sceDatabaseName@ carries the same information in a
--- dedicated field so the UI can render a Database column without parsing.
+{- | A single entry in the supply chain. @sceProcessId@ is bare for entries
+from the root DB and qualified (@"dbName::pid"@) for entries reached via
+a cross-DB link. @sceDatabaseName@ carries the same information in a
+dedicated field so the UI can render a Database column without parsing.
+-}
 data SupplyChainEntry = SupplyChainEntry
     { sceProcessId :: Text
-    , sceDatabaseName :: Text      -- database the entry lives in
+    , sceDatabaseName :: Text -- database the entry lives in
     , sceName :: Text
     , sceLocation :: Text
-    , sceQuantity :: Double       -- scalingFactor × root reference product amount (physical amount per functional unit)
+    , sceQuantity :: Double -- scalingFactor × root reference product amount (physical amount per functional unit)
     , sceUnit :: Text
-    , sceScalingFactor :: Double   -- raw value from scaling vector
-    , sceClassifications :: M.Map Text Text  -- Classifications (ISIC, CPC, Category, etc.)
-    , sceDepth :: Int              -- shortest path distance from root (BFS)
-    , sceUpstreamCount :: Int      -- number of unique upstream activities reachable from this one
+    , sceScalingFactor :: Double -- raw value from scaling vector
+    , sceClassifications :: M.Map Text Text -- Classifications (ISIC, CPC, Category, etc.)
+    , sceDepth :: Int -- shortest path distance from root (BFS)
+    , sceUpstreamCount :: Int -- number of unique upstream activities reachable from this one
     }
     deriving (Generic)
 
 -- | An edge in the upstream supply chain subgraph
 data SupplyChainEdge = SupplyChainEdge
-    { sceEdgeFrom   :: Text    -- supplier processId
-    , sceEdgeFromDb :: Text    -- supplier database name
-    , sceEdgeTo     :: Text    -- consumer processId
-    , sceEdgeToDb   :: Text    -- consumer database name
-    , sceEdgeAmount :: Double  -- technosphere coefficient
+    { sceEdgeFrom :: Text -- supplier processId
+    , sceEdgeFromDb :: Text -- supplier database name
+    , sceEdgeTo :: Text -- consumer processId
+    , sceEdgeToDb :: Text -- consumer database name
+    , sceEdgeAmount :: Double -- technosphere coefficient
     }
     deriving (Generic)
 
--- | Request body for POST endpoints that accept substitutions.
--- Substitutions modify the scaling vector via Sherman-Morrison rank-1 updates.
+{- | Request body for POST endpoints that accept substitutions.
+Substitutions modify the scaling vector via Sherman-Morrison rank-1 updates.
+-}
 newtype SubstitutionRequest = SubstitutionRequest
     { srSubstitutions :: [Substitution]
     }
     deriving (Generic)
 
--- | A single supplier substitution.
---
--- Each field is a 'ProcessId' text, either in the bare form
--- @"actUUID_prodUUID"@ (resolved in the URL's database, i.e. the root DB)
--- or in the cross-DB qualified form @"dbName::actUUID_prodUUID"@ (resolved
--- against the named dep DB). See 'parseSubRef'. @subConsumer@ may live in
--- the root DB (bare) or in any loaded and reachable dep DB (qualified);
--- the per-level applicator will dispatch to the right database.
+{- | A single supplier substitution.
+
+Each field is a 'ProcessId' text, either in the bare form
+@"actUUID_prodUUID"@ (resolved in the URL's database, i.e. the root DB)
+or in the cross-DB qualified form @"dbName::actUUID_prodUUID"@ (resolved
+against the named dep DB). See 'parseSubRef'. @subConsumer@ may live in
+the root DB (bare) or in any loaded and reachable dep DB (qualified);
+the per-level applicator will dispatch to the right database.
+-}
 data Substitution = Substitution
-    { subFrom     :: Text  -- Original supplier ProcessId (bare or dbName::pid)
-    , subTo       :: Text  -- Replacement supplier ProcessId (bare or dbName::pid)
-    , subConsumer :: Text  -- Consumer activity ProcessId (bare or dbName::pid)
+    { subFrom :: Text -- Original supplier ProcessId (bare or dbName::pid)
+    , subTo :: Text -- Replacement supplier ProcessId (bare or dbName::pid)
+    , subConsumer :: Text -- Consumer activity ProcessId (bare or dbName::pid)
     }
     deriving (Generic)
 
--- | Parse a substitution reference into @(targetDB, bare pid)@. A bare
--- @"actUUID_prodUUID"@ resolves in the caller-supplied root DB; a qualified
--- @"dbName::actUUID_prodUUID"@ resolves in @dbName@. The @::@ separator is
--- unambiguous because UUIDs contain no colons.
+{- | Parse a substitution reference into @(targetDB, bare pid)@. A bare
+@"actUUID_prodUUID"@ resolves in the caller-supplied root DB; a qualified
+@"dbName::actUUID_prodUUID"@ resolves in @dbName@. The @::@ separator is
+unambiguous because UUIDs contain no colons.
+-}
 parseSubRef :: Text -> Text -> (Text, Text)
 parseSubRef rootDb raw = case T.breakOn (T.pack "::") raw of
     (pid, rest)
-      | T.null rest -> (rootDb, pid)
-      | otherwise   -> (pid, T.drop 2 rest)
+        | T.null rest -> (rootDb, pid)
+        | otherwise -> (pid, T.drop 2 rest)
 
 -- | Exchange with unit and flow information for API responses
 data ExchangeWithUnit = ExchangeWithUnit
@@ -582,7 +600,7 @@ data ExchangeWithUnit = ExchangeWithUnit
 
 -- | Activity information optimized for API responses
 data ActivityForAPI = ActivityForAPI
-    { pfaProcessId :: Text  -- ProcessId format: "activityUUID_productUUID"
+    { pfaProcessId :: Text -- ProcessId format: "activityUUID_productUUID"
     , pfaName :: Text
     , pfaDescription :: [Text] -- Description par paragraphes
     , pfaSynonyms :: M.Map Text (S.Set Text) -- Synonymes par langue
@@ -656,147 +674,151 @@ data ExchangeDetail = ExchangeDetail
 -- | A single filter entry returned in a preset
 data ClassificationEntryInfo = ClassificationEntryInfo
     { ceiSystem :: !Text
-    , ceiValue  :: !Text
-    , ceiMode   :: !Text   -- "exact" or "contains"
-    } deriving (Show, Eq, Generic)
+    , ceiValue :: !Text
+    , ceiMode :: !Text -- "exact" or "contains"
+    }
+    deriving (Show, Eq, Generic)
 
 -- | A named filter preset (from TOML config)
 data ClassificationPresetInfo = ClassificationPresetInfo
-    { cpiName        :: !Text
-    , cpiLabel       :: !Text
+    { cpiName :: !Text
+    , cpiLabel :: !Text
     , cpiDescription :: !(Maybe Text)
-    , cpiFilters     :: ![ClassificationEntryInfo]
-    } deriving (Show, Eq, Generic)
+    , cpiFilters :: ![ClassificationEntryInfo]
+    }
+    deriving (Show, Eq, Generic)
 
 -- | Classification system with its values for browsing/filtering
 data ClassificationSystem = ClassificationSystem
-    { csName :: Text           -- e.g. "ISIC rev.4 ecoinvent", "CPC", "HS2017"
-    , csValues :: [Text]       -- Distinct values, sorted
-    , csActivityCount :: Int   -- How many activities have this system
+    { csName :: Text -- e.g. "ISIC rev.4 ecoinvent", "CPC", "HS2017"
+    , csValues :: [Text] -- Distinct values, sorted
+    , csActivityCount :: Int -- How many activities have this system
     }
     deriving (Generic)
 
--- | Result of an /activity/{pid}/aggregate call.
---
--- A SQL-group-by-style aggregation over exchanges, supply chain entries, or
--- biosphere flows, depending on the requested scope.
+{- | Result of an /activity/{pid}/aggregate call.
+
+A SQL-group-by-style aggregation over exchanges, supply chain entries, or
+biosphere flows, depending on the requested scope.
+-}
 data Aggregation = Aggregation
-    { aggScope          :: Text                  -- echoed scope: "direct" | "supply_chain" | "biosphere"
-    , aggFilteredTotal  :: Double                -- total summed across all matching items (after filters)
-    , aggFilteredUnit   :: Maybe Text            -- Nothing when matched items have heterogeneous units
-    , aggFilteredCount  :: Int                   -- count of items matching the filters
-    , aggGroups         :: [AggregationGroup]    -- one entry per group_by bucket (empty when group_by omitted)
+    { aggScope :: Text -- echoed scope: "direct" | "supply_chain" | "biosphere"
+    , aggFilteredTotal :: Double -- total summed across all matching items (after filters)
+    , aggFilteredUnit :: Maybe Text -- Nothing when matched items have heterogeneous units
+    , aggFilteredCount :: Int -- count of items matching the filters
+    , aggGroups :: [AggregationGroup] -- one entry per group_by bucket (empty when group_by omitted)
     }
     deriving (Generic)
 
 -- | One bucket in an aggregation result.
 data AggregationGroup = AggregationGroup
-    { aggKey      :: Text
+    { aggKey :: Text
     , aggQuantity :: Double
-    , aggUnit     :: Maybe Text       -- Nothing when group's items are heterogeneous
-    , aggShare    :: Maybe Double     -- only set when aggregate=share
-    , aggCount    :: Int
+    , aggUnit :: Maybe Text -- Nothing when group's items are heterogeneous
+    , aggShare :: Maybe Double -- only set when aggregate=share
+    , aggCount :: Int
     }
     deriving (Generic)
 
 -- JSON instances. All record types use API.JsonOptions.stripLowerPrefix
 -- via the strippedToJSON/strippedToEncoding/strippedParseJSON helpers.
 -- Sum-only types (NodeType, EdgeType, FlowRole) keep default derivation.
-instance ToJSON ConsumerResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance FromJSON ConsumerResult where { parseJSON = strippedParseJSON }
-instance ToJSON ClassificationEntryInfo where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ClassificationPresetInfo where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ClassificationSystem where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON Aggregation where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON AggregationGroup where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance (ToJSON a) => ToJSON (SearchResults a) where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ActivitySummary where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON FlowSearchResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON InventoryMetadata where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON InventoryStatistics where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON TreeExport where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON TreeMetadata where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ExportNode where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
+instance ToJSON ConsumerResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance FromJSON ConsumerResult where parseJSON = strippedParseJSON
+instance ToJSON ClassificationEntryInfo where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ClassificationPresetInfo where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ClassificationSystem where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON Aggregation where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON AggregationGroup where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance (ToJSON a) => ToJSON (SearchResults a) where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ActivitySummary where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON FlowSearchResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON InventoryMetadata where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON InventoryStatistics where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON TreeExport where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON TreeMetadata where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ExportNode where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON NodeType
 instance ToJSON EdgeType
-instance ToJSON TreeEdge where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON FlowInfo where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
+instance ToJSON TreeEdge where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON FlowInfo where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON FlowRole
-instance ToJSON ExchangeWithUnit where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ActivityForAPI where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ActivityInfo where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ActivityMetadata where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ActivityLinks where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ActivityStats where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON InventoryFlowDetail where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON Flow where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON FlowSummary where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON InventoryExport where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ExchangeDetail where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON Unit where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON FlowDetail where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON GraphExport where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON GraphNode where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON GraphEdge where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON MethodSummary where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON MethodCollectionListResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON MethodCollectionStatusAPI where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON MethodDetail where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON MethodFactorAPI where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON FlowContributionEntry where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON LCIAResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON LCIABatchResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON BatchImpactsEntry where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON BatchImpactsResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance FromJSON BatchImpactsRequest where { parseJSON = strippedParseJSON }
-instance ToJSON ContributingFlowsResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ActivityContribution where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ContributingActivitiesResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON MappingStatus where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON UnmappedFlowAPI where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON FlowCFMapping where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON FlowCFEntry where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON CharacterizationResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON CharacterizationEntry where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON SupplyChainResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON SupplyChainEntry where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON SupplyChainEdge where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance FromJSON SubstitutionRequest where { parseJSON = strippedParseJSON }
-instance FromJSON Substitution where { parseJSON = strippedParseJSON }
+instance ToJSON ExchangeWithUnit where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ActivityForAPI where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ActivityInfo where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ActivityMetadata where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ActivityLinks where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ActivityStats where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON InventoryFlowDetail where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON Flow where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON FlowSummary where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON InventoryExport where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ExchangeDetail where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON Unit where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON FlowDetail where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON GraphExport where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON GraphNode where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON GraphEdge where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON MethodSummary where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON MethodCollectionListResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON MethodCollectionStatusAPI where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON MethodDetail where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON MethodFactorAPI where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON FlowContributionEntry where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON LCIAResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ScoringIndicator where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON LCIABatchResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON BatchImpactsEntry where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON BatchImpactsResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance FromJSON BatchImpactsRequest where parseJSON = strippedParseJSON
+instance ToJSON ContributingFlowsResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ActivityContribution where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ContributingActivitiesResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON MappingStatus where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON UnmappedFlowAPI where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON FlowCFMapping where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON FlowCFEntry where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON CharacterizationResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON CharacterizationEntry where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON SupplyChainResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON SupplyChainEntry where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON SupplyChainEdge where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance FromJSON SubstitutionRequest where parseJSON = strippedParseJSON
+instance FromJSON Substitution where parseJSON = strippedParseJSON
 
 -- FromJSON instances needed for API conversion
-instance (FromJSON a) => FromJSON (SearchResults a) where { parseJSON = strippedParseJSON }
-instance FromJSON ActivitySummary where { parseJSON = strippedParseJSON }
-instance FromJSON ActivityInfo where { parseJSON = strippedParseJSON }
-instance FromJSON ActivityForAPI where { parseJSON = strippedParseJSON }
-instance FromJSON ActivityMetadata where { parseJSON = strippedParseJSON }
-instance FromJSON ActivityLinks where { parseJSON = strippedParseJSON }
-instance FromJSON ActivityStats where { parseJSON = strippedParseJSON }
-instance FromJSON ExchangeWithUnit where { parseJSON = strippedParseJSON }
-instance ToJSON DatabaseListResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON DatabaseStatusAPI where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON ActivateResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON RelinkResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON DepLoadResult where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON LoadDatabaseResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON UploadRequest where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON UploadResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance FromJSON DatabaseListResponse where { parseJSON = strippedParseJSON }
-instance FromJSON DatabaseStatusAPI where { parseJSON = strippedParseJSON }
-instance FromJSON ActivateResponse where { parseJSON = strippedParseJSON }
-instance FromJSON RelinkResponse where { parseJSON = strippedParseJSON }
-instance FromJSON DepLoadResult where { parseJSON = strippedParseJSON }
-instance FromJSON LoadDatabaseResponse where { parseJSON = strippedParseJSON }
-instance FromJSON UploadRequest where { parseJSON = strippedParseJSON }
-instance FromJSON UploadResponse where { parseJSON = strippedParseJSON }
-instance FromJSON MethodCollectionListResponse where { parseJSON = strippedParseJSON }
-instance FromJSON MethodCollectionStatusAPI where { parseJSON = strippedParseJSON }
-instance ToJSON RefDataListResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON RefDataStatusAPI where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance ToJSON SynonymGroupsResponse where { toJSON = strippedToJSON; toEncoding = strippedToEncoding }
-instance FromJSON RefDataListResponse where { parseJSON = strippedParseJSON }
-instance FromJSON RefDataStatusAPI where { parseJSON = strippedParseJSON }
-instance FromJSON SynonymGroupsResponse where { parseJSON = strippedParseJSON }
+instance (FromJSON a) => FromJSON (SearchResults a) where parseJSON = strippedParseJSON
+instance FromJSON ActivitySummary where parseJSON = strippedParseJSON
+instance FromJSON ActivityInfo where parseJSON = strippedParseJSON
+instance FromJSON ActivityForAPI where parseJSON = strippedParseJSON
+instance FromJSON ActivityMetadata where parseJSON = strippedParseJSON
+instance FromJSON ActivityLinks where parseJSON = strippedParseJSON
+instance FromJSON ActivityStats where parseJSON = strippedParseJSON
+instance FromJSON ExchangeWithUnit where parseJSON = strippedParseJSON
+instance ToJSON DatabaseListResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON DatabaseStatusAPI where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON ActivateResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON RelinkResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON DepLoadResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON LoadDatabaseResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON UploadRequest where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON UploadResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance FromJSON DatabaseListResponse where parseJSON = strippedParseJSON
+instance FromJSON DatabaseStatusAPI where parseJSON = strippedParseJSON
+instance FromJSON ActivateResponse where parseJSON = strippedParseJSON
+instance FromJSON RelinkResponse where parseJSON = strippedParseJSON
+instance FromJSON DepLoadResult where parseJSON = strippedParseJSON
+instance FromJSON LoadDatabaseResponse where parseJSON = strippedParseJSON
+instance FromJSON UploadRequest where parseJSON = strippedParseJSON
+instance FromJSON UploadResponse where parseJSON = strippedParseJSON
+instance FromJSON MethodCollectionListResponse where parseJSON = strippedParseJSON
+instance FromJSON MethodCollectionStatusAPI where parseJSON = strippedParseJSON
+instance ToJSON RefDataListResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON RefDataStatusAPI where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance ToJSON SynonymGroupsResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance FromJSON RefDataListResponse where parseJSON = strippedParseJSON
+instance FromJSON RefDataStatusAPI where parseJSON = strippedParseJSON
+instance FromJSON SynonymGroupsResponse where parseJSON = strippedParseJSON
 
 -- openapi3 cannot derive ToSchema for BSL.ByteString directly
 newtype BinaryContent = BinaryContent BSL.ByteString

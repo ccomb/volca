@@ -2,21 +2,19 @@
 
 module FlowResolverSpec (spec) where
 
-import Test.Hspec
 import Data.ByteString (ByteString)
-import Method.FlowResolver (parseFlowXML, ILCDFlowInfo(..))
-import EcoSpold.Parser2 (normalizeCAS)
-import Method.Types (Compartment(..))
 import qualified Data.UUID as UUID
+import EcoSpold.Parser2 (normalizeCAS)
+import Method.FlowResolver (ILCDFlowInfo (..), parseFlowXML)
+import Method.Types (Compartment (..))
+import Test.Hspec
 
 spec :: Spec
 spec = do
-
     -- -----------------------------------------------------------------------
     -- normalizeCAS (pure, from EcoSpold.Parser2)
     -- -----------------------------------------------------------------------
     describe "normalizeCAS" $ do
-
         it "strips leading zeros from first segment" $
             normalizeCAS "001309-36-0" `shouldBe` "1309-36-0"
 
@@ -36,7 +34,6 @@ spec = do
     -- parseFlowXML — well-formed elementary flow
     -- -----------------------------------------------------------------------
     describe "parseFlowXML" $ do
-
         it "extracts UUID and baseName from minimal flow XML" $ do
             let result = parseFlowXML minimalFlowXML
             case result of
@@ -67,12 +64,12 @@ spec = do
         it "returns Nothing for XML with no UUID" $
             case parseFlowXML xmlNoUUID of
                 Nothing -> return ()
-                Just _  -> expectationFailure "Expected Nothing for missing UUID"
+                Just _ -> expectationFailure "Expected Nothing for missing UUID"
 
         it "returns Nothing for XML with no baseName" $
             case parseFlowXML xmlNoBaseName of
                 Nothing -> return ()
-                Just _  -> expectationFailure "Expected Nothing for missing baseName"
+                Just _ -> expectationFailure "Expected Nothing for missing baseName"
 
         it "records flowType when present" $ do
             case parseFlowXML flowWithType of
@@ -85,7 +82,7 @@ spec = do
 
 testUUID :: UUID.UUID
 testUUID = case UUID.fromString "12345678-1234-1234-1234-123456789abc" of
-    Just u  -> u
+    Just u -> u
     Nothing -> error "test UUID invalid"
 
 -- ---------------------------------------------------------------------------

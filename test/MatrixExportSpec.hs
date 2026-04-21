@@ -2,18 +2,22 @@
 
 module MatrixExportSpec (spec) where
 
-import Test.Hspec
-import TestHelpers
-import GoldenData
-import Types
-import Service (exportUniversalMatrixFormat)
-import Matrix.Export ( escapeCsvField, extractMatrixDebugInfo, exportMatrixDebugCSVs
-                     , MatrixDebugInfo(..) )
-import System.IO.Temp (withSystemTempDirectory)
-import System.FilePath ((</>))
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
+import GoldenData
+import Matrix.Export (
+    MatrixDebugInfo (..),
+    escapeCsvField,
+    exportMatrixDebugCSVs,
+    extractMatrixDebugInfo,
+ )
+import Service (exportUniversalMatrixFormat)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import Test.Hspec
+import TestHelpers
+import Types
 
 spec :: Spec
 spec = do
@@ -42,7 +46,7 @@ spec = do
                 length diagonalLines `shouldSatisfy` (>= 1)
 
                 -- Check off-diagonal entries (should be NEGATIVE for (I-A) format)
-                let offDiagonalLines = tail lines  -- Skip header
+                let offDiagonalLines = tail lines -- Skip header
                 let offDiagonalEntries = filter (\l -> not (T.isInfixOf ";1.0;" l)) offDiagonalLines
 
                 -- For SAMPLE.min3: Expected -0.6 and -0.4
@@ -80,8 +84,7 @@ spec = do
 
                 -- Check header and 3 activities
                 let lines = T.lines indexContent
-                length lines `shouldBe` 4  -- header + 3 activities
-
+                length lines `shouldBe` 4 -- header + 3 activities
         it "exports ee_index.csv with biosphere flow information" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
 
@@ -94,8 +97,7 @@ spec = do
 
                 -- Check header and 2 flows (CO2, Zinc)
                 let lines = T.lines indexContent
-                length lines `shouldBe` 3  -- header + 2 flows
-
+                length lines `shouldBe` 3 -- header + 2 flows
     describe "Export CSV Format Validation" $ do
         it "uses semicolon as delimiter" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
@@ -122,7 +124,7 @@ spec = do
 
                 -- Format: row;column;coefficient;uncertainty type;varianceWithPedigreeUncertainty;minValue;mostLikelyValue;maxValue
                 -- Should have 8 fields
-                let dataLines = tail $ T.lines aMatrixContent  -- Skip header
+                let dataLines = tail $ T.lines aMatrixContent -- Skip header
                 let firstDataLine = head dataLines
                 let fields = T.splitOn ";" firstDataLine
                 length fields `shouldBe` 8
@@ -131,7 +133,6 @@ spec = do
     -- escapeCsvField (pure)
     -- -------------------------------------------------------------------
     describe "escapeCsvField" $ do
-
         it "passes through plain text unchanged" $
             escapeCsvField "hello world" `shouldBe` "hello world"
 
@@ -157,14 +158,13 @@ spec = do
     -- extractMatrixDebugInfo + exportMatrixDebugCSVs
     -- -------------------------------------------------------------------
     describe "extractMatrixDebugInfo" $ do
-
         it "returns supply, demand, and inventory vectors of correct length" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let targetUUID = read "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" :: UUID.UUID
             info <- extractMatrixDebugInfo db targetUUID Nothing
             let n = fromIntegral (dbActivityCount db)
-            length (mdSupplyVector info)    `shouldBe` n
-            length (mdDemandVector info)    `shouldBe` n
+            length (mdSupplyVector info) `shouldBe` n
+            length (mdDemandVector info) `shouldBe` n
 
         it "demand vector has exactly one non-zero entry" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
@@ -181,15 +181,14 @@ spec = do
         it "flow filter restricts biosphere triples" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let targetUUID = read "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" :: UUID.UUID
-            infoAll    <- extractMatrixDebugInfo db targetUUID Nothing
+            infoAll <- extractMatrixDebugInfo db targetUUID Nothing
             infoFiltered <- extractMatrixDebugInfo db targetUUID (Just "carbon")
             -- Filtered should have ≤ triples than unfiltered
-            let nAll      = length (mdInventoryVector infoAll)
+            let nAll = length (mdInventoryVector infoAll)
                 nFiltered = length (mdInventoryVector infoFiltered)
             nFiltered `shouldSatisfy` (<= nAll)
 
     describe "exportMatrixDebugCSVs" $ do
-
         it "creates supply chain and biosphere CSV files" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let targetUUID = read "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" :: UUID.UUID
@@ -198,9 +197,9 @@ spec = do
                 let base = tmpDir </> "debug"
                 exportMatrixDebugCSVs base info
                 supplyContent <- TIO.readFile (base ++ "_supply_chain.csv")
-                bioContent    <- TIO.readFile (base ++ "_biosphere_matrix.csv")
+                bioContent <- TIO.readFile (base ++ "_biosphere_matrix.csv")
                 T.isInfixOf "activity_id" supplyContent `shouldBe` True
-                T.isInfixOf "flow_id"     bioContent    `shouldBe` True
+                T.isInfixOf "flow_id" bioContent `shouldBe` True
 
         it "supply chain CSV has one row per activity" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
