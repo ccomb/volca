@@ -49,6 +49,7 @@ from .types import (
     AggregateResult,
     ClassificationFilter,
     ConsumerResult,
+    ConsumersResponse,
     Exchange,
     PathResult,
     SupplyChain,
@@ -649,7 +650,8 @@ class Client:
         classification_filters: list[ClassificationFilter] | None = None,
         limit: int | None = None,
         max_depth: int | None = None,
-    ) -> list[ConsumerResult]:
+        include_edges: bool = False,
+    ) -> ConsumersResponse:
         """Find all activities that transitively consume this supplier.
 
         Args:
@@ -657,6 +659,14 @@ class Client:
             classification_filters: ClassificationFilter entries restricting
                 the results. Multiple filters are AND-combined by the server.
                 Mode is ``"exact"`` or ``"contains"``.
+            include_edges: When True, the response carries every technosphere
+                edge whose endpoints are both reachable from the supplier.
+                Callers can walk these to reconstruct supplier→consumer paths
+                without a second ``get_path_to`` round-trip.
+
+        Returns a :class:`ConsumersResponse` whose ``consumers`` attribute is
+        the paginated consumer list and whose ``edges`` attribute carries the
+        traversal subgraph (empty by default).
         """
         classifications = [f.system for f in classification_filters or []]
         classification_values = [f.value for f in classification_filters or []]
@@ -673,8 +683,9 @@ class Client:
             classification_mode=classification_modes or None,
             limit=limit,
             max_depth=max_depth,
+            include_edges=include_edges,
         )
-        return [ConsumerResult.from_json(a) for a in raw["results"]]
+        return ConsumersResponse.from_json(raw)
 
     def get_path_to(self, process_id: str, target: str) -> PathResult:
         """Find the shortest upstream path from process to first activity whose name matches target.

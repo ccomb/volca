@@ -153,6 +153,35 @@ class SupplyChain:
         )
 
 
+@dataclass
+class ConsumersResponse:
+    """Reverse supply chain (/consumers) — paginated consumer list plus
+    optional edge set. Mirrors :class:`SupplyChain` so callers have a
+    uniform {entries, edges} shape in both traversal directions.
+    ``edges`` is populated only when ``include_edges=True``.
+    """
+    consumers: list[ConsumerResult]
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+    search_time_ms: float
+    edges: list[SupplyChainEdge] = field(default_factory=list)
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ConsumersResponse":
+        results = d["results"]
+        return cls(
+            consumers=[ConsumerResult.from_json(c) for c in results["results"]],
+            total=results["total"],
+            offset=results["offset"],
+            limit=results["limit"],
+            has_more=results["hasMore"],
+            search_time_ms=results.get("searchTimeMs", 0.0),
+            edges=[SupplyChainEdge.from_json(e) for e in d.get("edges", [])],
+        )
+
+
 # ---------------------------------------------------------------------------
 # Exchanges (typed)
 # ---------------------------------------------------------------------------

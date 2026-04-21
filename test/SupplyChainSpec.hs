@@ -2,7 +2,7 @@
 
 module SupplyChainSpec (spec) where
 
-import API.Types (ConsumerResult (..), EdgeType (..), ExportNode (..), FlowInfo (..), NodeType (..), SearchResults (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
+import API.Types (ConsumerResult (..), ConsumersResponse (..), EdgeType (..), ExportNode (..), FlowInfo (..), NodeType (..), SearchResults (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
 import Data.Aeson (Value (..))
 import Data.Aeson.Key (fromText)
 import qualified Data.Aeson.KeyMap as KM
@@ -47,7 +47,7 @@ emptySupply :: SupplyChainFilter
 emptySupply = SupplyChainFilter emptyCore Nothing Nothing
 
 emptyConsumer :: ConsumerFilter
-emptyConsumer = ConsumerFilter emptyCore Nothing
+emptyConsumer = ConsumerFilter emptyCore Nothing False
 
 -- | Update the shared core inside a 'SupplyChainFilter'.
 mapSupplyCore :: (ActivityFilterCore -> ActivityFilterCore) -> SupplyChainFilter -> SupplyChainFilter
@@ -192,25 +192,25 @@ spec = do
             db <- loadWithIndex
             -- Consumers of Z (pid 2) are Y (pid 1, direct) and X (pid 0, transitive).
             let pidZ = processIdToText db 2
-            case getConsumers db pidZ (mapConsumerCore (\c -> c{afcName = Just "X"}) emptyConsumer) of
+            case getConsumers db "test-db" pidZ (mapConsumerCore (\c -> c{afcName = Just "X"}) emptyConsumer) of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
-                Right sr -> do
-                    map crName (srResults sr) `shouldBe` ["production of product X"]
-                    srTotal sr `shouldBe` 1
+                Right cr -> do
+                    map crName (srResults (crrResults cr)) `shouldBe` ["production of product X"]
+                    srTotal (crrResults cr) `shouldBe` 1
 
         it "accepts typos in the name filter" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db pidZ (mapConsumerCore (\c -> c{afcName = Just "prodcution"}) emptyConsumer) of
+            case getConsumers db "test-db" pidZ (mapConsumerCore (\c -> c{afcName = Just "prodcution"}) emptyConsumer) of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
-                Right sr -> length (srResults sr) `shouldSatisfy` (>= 1)
+                Right cr -> length (srResults (crrResults cr)) `shouldSatisfy` (>= 1)
 
         it "returns all consumers when name filter is absent" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db pidZ emptyConsumer of
+            case getConsumers db "test-db" pidZ emptyConsumer of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
-                Right sr -> length (srResults sr) `shouldBe` 2
+                Right cr -> length (srResults (crrResults cr)) `shouldBe` 2
 
     describe "Classifications on consumers" $ do
         let loadWithIndex = fmap BM25.addBM25Index (loadSampleDatabase "SAMPLE.min3")
@@ -218,9 +218,32 @@ spec = do
         it "populates crClassifications from the consumer's activityClassification" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db pidZ emptyConsumer of
+            case getConsumers db "test-db" pidZ emptyConsumer of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
-                Right sr -> all (not . M.null . crClassifications) (srResults sr) `shouldBe` True
+                Right cr -> all (not . M.null . crClassifications) (srResults (crrResults cr)) `shouldBe` True
+
+    describe "Edges on consumers (include-edges)" $ do
+        let loadWithIndex = fmap BM25.addBM25Index (loadSampleDatabase "SAMPLE.min3")
+
+        it "returns empty edges by default" $ do
+            db <- loadWithIndex
+            let pidZ = processIdToText db 2
+            case getConsumers db "test-db" pidZ emptyConsumer of
+                Left err -> expectationFailure $ "getConsumers failed: " ++ show err
+                Right cr -> length (crrEdges cr) `shouldBe` 0
+
+        it "emits technosphere edges whose endpoints are both reachable from the supplier" $ do
+            db <- loadWithIndex
+            let pidZ = processIdToText db 2
+                cnf = emptyConsumer{cnfIncludeEdges = True}
+            case getConsumers db "test-db" pidZ cnf of
+                Left err -> expectationFailure $ "getConsumers failed: " ++ show err
+                Right cr -> do
+                    -- SAMPLE.min3 wiring: X(0) -> Y(1) -> Z(2). Querying Z reaches
+                    -- {Z, Y, X}; edges in that subgraph are Y->Z and X->Y.
+                    length (crrEdges cr) `shouldBe` 2
+                    all ((== "test-db") . sceEdgeFromDb) (crrEdges cr) `shouldBe` True
+                    all ((== "test-db") . sceEdgeToDb) (crrEdges cr) `shouldBe` True
 
     -- -----------------------------------------------------------------------
     -- filterTreeExport

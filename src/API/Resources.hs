@@ -476,4 +476,5 @@ params r = case r of
         , Param "classification_value" "string" Optional "Classification value substring to match"
         , pLimit "Max results (default 1000)"
         , Param "max_depth" "integer" Optional "Max hops from supplier (1 = direct consumers only)"
+        , Param "include_edges" "boolean" Optional "When true, the response carries every technosphere edge whose endpoints are both reachable from the supplier. Lets callers reconstruct supplier→consumer paths without a second get_path_to call."
         ]

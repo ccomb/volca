@@ -56,6 +56,7 @@ instance ToSchema ClassificationSystem where declareNamedSchema = genericDeclare
 instance (ToSchema a) => ToSchema (SearchResults a) where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema ActivitySummary where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema ConsumerResult where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
+instance ToSchema ConsumersResponse where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema FlowSearchResult where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema InventoryExport where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 instance ToSchema InventoryMetadata where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions

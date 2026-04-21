@@ -3,7 +3,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ClassificationSystem (..), ConsumerResult (..), EdgeType (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), NodeType (..), SearchResults (..), Substitution (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), parseSubRef)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), EdgeType (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), NodeType (..), SearchResults (..), Substitution (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), parseSubRef)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Concurrent.Async (mapConcurrently)
 import Data.Aeson (Value, object, toJSON, (.=))
@@ -76,6 +76,7 @@ data SupplyChainFilter = SupplyChainFilter
 data ConsumerFilter = ConsumerFilter
     { cnfCore :: !ActivityFilterCore
     , cnfMaxDepth :: !(Maybe Int)
+    , cnfIncludeEdges :: !Bool -- when True, emit every technosphere edge inside the reachable consumer subgraph
     }
 
 {- | Filter for flow search. 'ffQuery' is required; callers that have no
@@ -2318,9 +2319,12 @@ findTechCoefficient db consumer supplier =
 
 {- | Find all activities that transitively depend on a given supplier.
 BFS through the technosphere matrix tracking depth; optional max-depth cap.
+When cnfIncludeEdges is set, every technosphere coefficient whose endpoints
+are both reachable from the supplier is emitted alongside the paginated
+result list, mirroring SupplyChainResponse.scrEdges.
 -}
-getConsumers :: Database -> Text -> ConsumerFilter -> Either ServiceError (SearchResults ConsumerResult)
-getConsumers db processIdText cnf = do
+getConsumers :: Database -> Text -> Text -> ConsumerFilter -> Either ServiceError ConsumersResponse
+getConsumers db dbName processIdText cnf = do
     (processId, _) <- resolveActivityAndProcessId db processIdText
     let core = cnfCore cnf
         -- Build adjacency list: supplier → [direct consumers]
@@ -2401,7 +2405,29 @@ getConsumers db processIdText cnf = do
         page = take limit $ drop offset allResults
         hasMore = offset + limit < total
 
-    Right $ SearchResults page total offset limit hasMore 0.0
+        -- Every (supplier, consumer) technosphere coefficient whose endpoints
+        -- are both reachable from the queried supplier. Populated only when
+        -- the caller opts in via cnfIncludeEdges; keeps the default payload
+        -- identical to the pre-edges wire shape.
+        visitedSet = M.insert processId 0 allConsumers
+        edges =
+            if cnfIncludeEdges cnf
+                then
+                    [ SupplyChainEdge
+                        { sceEdgeFrom = processIdToText db (fromIntegral row :: ProcessId)
+                        , sceEdgeFromDb = dbName
+                        , sceEdgeTo = processIdToText db (fromIntegral col :: ProcessId)
+                        , sceEdgeToDb = dbName
+                        , sceEdgeAmount = val
+                        }
+                    | SparseTriple row col val <- U.toList (dbTechnosphereTriples db)
+                    , row /= col
+                    , M.member (fromIntegral row :: ProcessId) visitedSet
+                    , M.member (fromIntegral col :: ProcessId) visitedSet
+                    ]
+                else []
+
+    Right $ ConsumersResponse (SearchResults page total offset limit hasMore 0.0) edges
 
 -- | Compute LCIA scores (placeholder)
 computeLCIA :: Database -> Text -> FilePath -> Either ServiceError Value

@@ -93,9 +93,9 @@ def main():
     applicable = []  # (consumer_activity, source, target)
 
     for src, tgt in sub_pairs:
-        consumers = client.get_consumers(src.process_id, limit=10000)
-        print(f"  {src.name[:50]}: {len(consumers)} downstream consumers")
-        for consumer in consumers:
+        resp = client.get_consumers(src.process_id, limit=10000)
+        print(f"  {src.name[:50]}: {len(resp.consumers)} downstream consumers")
+        for consumer in resp.consumers:
             applicable.append((consumer, src, tgt))
 
     print(f"  Total: {len(applicable)} product-substitution pairs")

@@ -50,6 +50,17 @@ data ConsumerResult = ConsumerResult
     }
     deriving (Generic)
 
+{- | Wrapper for /consumers responses. Mirrors 'SupplyChainResponse' so clients
+have a uniform {entries, edges} shape in both traversal directions. Edges
+are only populated when include-edges=true; callers can walk them to
+reconstruct supplier-to-consumer paths without a second /path-to round trip.
+-}
+data ConsumersResponse = ConsumersResponse
+    { crrResults :: !(SearchResults ConsumerResult)
+    , crrEdges :: ![SupplyChainEdge]
+    }
+    deriving (Generic)
+
 -- | Enhanced flow information for search results (now includes synonyms)
 data FlowSearchResult = FlowSearchResult
     { fsrId :: UUID
@@ -727,6 +738,8 @@ data AggregationGroup = AggregationGroup
 -- Sum-only types (NodeType, EdgeType, FlowRole) keep default derivation.
 instance ToJSON ConsumerResult where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance FromJSON ConsumerResult where parseJSON = strippedParseJSON
+instance ToJSON ConsumersResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance FromJSON ConsumersResponse where parseJSON = strippedParseJSON
 instance ToJSON ClassificationEntryInfo where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON ClassificationPresetInfo where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON ClassificationSystem where toJSON = strippedToJSON; toEncoding = strippedToEncoding
@@ -785,6 +798,7 @@ instance ToJSON CharacterizationEntry where toJSON = strippedToJSON; toEncoding 
 instance ToJSON SupplyChainResponse where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON SupplyChainEntry where toJSON = strippedToJSON; toEncoding = strippedToEncoding
 instance ToJSON SupplyChainEdge where toJSON = strippedToJSON; toEncoding = strippedToEncoding
+instance FromJSON SupplyChainEdge where parseJSON = strippedParseJSON
 instance FromJSON SubstitutionRequest where parseJSON = strippedParseJSON
 instance FromJSON Substitution where parseJSON = strippedParseJSON
 

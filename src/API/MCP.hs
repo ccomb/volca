@@ -729,6 +729,7 @@ callGetConsumers presets rid args (db, _) =
         Nothing -> return $ toolError rid "Missing required parameter: process_id"
         Just pid ->
             let isExact = textArg "classification_match" args `elem` [Just "equals", Just "exact"]
+                dbName = fromMaybe "" (textArg "database" args) -- validated by withDb
                 presetFilters = case textArg "preset" args of
                     Just pn -> case L.find (\p -> cpName p == pn) presets of
                         Just p -> [(ceSystem e, ceValue e, ceMode e == "exact") | e <- cpFilters p]
@@ -752,8 +753,9 @@ callGetConsumers presets rid args (db, _) =
                                 , Service.afcOrder = Nothing
                                 }
                         , Service.cnfMaxDepth = intArg "max_depth" args
+                        , Service.cnfIncludeEdges = fromMaybe False (boolArg "include_edges" args)
                         }
-             in case Service.getConsumers db pid cnf of
+             in case Service.getConsumers db dbName pid cnf of
                     Left err -> return $ toolError rid (T.pack $ show err)
                     Right results -> return $ toolSuccessJson rid (toJSON results)
 
