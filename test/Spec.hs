@@ -10,6 +10,7 @@ import qualified BM25Spec
 import qualified CrossDBInventorySpec
 import qualified CrossDBSubstitutionSpec
 import qualified CrossLinkingSpec
+import qualified DatabaseStatusSpec
 import qualified EcoSpold1Spec
 import qualified FlowResolverSpec
 import qualified FuzzySpec
@@ -72,3 +73,4 @@ main = hspec $ do
         describe "Search.BM25" BM25Spec.spec
         describe "Search.Fuzzy" FuzzySpec.spec
         describe "Nested Substitutions" NestedSubstitutionSpec.spec
+        describe "Database Status (depends_on)" DatabaseStatusSpec.spec

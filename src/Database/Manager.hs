@@ -321,6 +321,7 @@ data DatabaseStatus = DatabaseStatus
     , dsPath :: !Text -- Data path
     , dsFormat :: !(Maybe Upload.DatabaseFormat) -- Detected format
     , dsActivityCount :: !Int -- Number of activities (0 if unloaded)
+    , dsDependsOn :: ![Text] -- Names of databases this one depends on (for cross-DB linking)
     }
     deriving (Show, Eq, Generic)
 
@@ -336,6 +337,7 @@ instance ToJSON DatabaseStatus where
             , "dsPath" .= dsPath
             , "dsFormat" .= dsFormat
             , "dsActivityCount" .= dsActivityCount
+            , "dsDependsOn" .= dsDependsOn
             ]
 
 instance FromJSON DatabaseStatus where
@@ -350,6 +352,7 @@ instance FromJSON DatabaseStatus where
             <*> v .: "dsPath"
             <*> v .:? "dsFormat"
             <*> v .: "dsActivityCount"
+            <*> v .:? "dsDependsOn" A..!= []
 
 -- | Status of a method collection (e.g., EF-3.1) for API responses
 data MethodCollectionStatus = MethodCollectionStatus
@@ -823,6 +826,7 @@ listDatabases manager = do
                 , dsPath = T.pack (dcPath config)
                 , dsFormat = dcFormat config
                 , dsActivityCount = actCount
+                , dsDependsOn = dcDepends config
                 }
 
 -- | Check if a file path is a cache file

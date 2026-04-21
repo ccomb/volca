@@ -252,6 +252,7 @@ convertDbStatus ds =
         , dsaPath = dsPath ds
         , dsaFormat = formatDisplayText <$> dsFormat ds
         , dsaActivityCount = dsActivityCount ds
+        , dsaDependsOn = dsDependsOn ds
         }
   where
     statusToText Unloaded = "unloaded"
@@ -277,6 +278,7 @@ makeStatusFromLoadedDb loaded =
             , dsaPath = T.pack (dcPath config)
             , dsaFormat = formatDisplayText <$> dcFormat config
             , dsaActivityCount = V.length (dbActivities db)
+            , dsaDependsOn = dcDepends config
             }
 
 -- uploadFormatToMeta removed - types are now unified (UploadedDB re-exports from Upload)

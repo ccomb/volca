@@ -460,6 +460,7 @@ data DatabaseStatusAPI = DatabaseStatusAPI
     , dsaPath :: Text -- Data path
     , dsaFormat :: Maybe Text -- Database format (EcoSpold 2, EcoSpold 1, SimaPro CSV)
     , dsaActivityCount :: Int -- Number of activities (0 if unloaded)
+    , dsaDependsOn :: [Text] -- Names of databases this one depends on (for cross-DB linking)
     }
     deriving (Generic)
 
