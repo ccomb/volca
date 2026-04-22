@@ -30,6 +30,40 @@ class FromJson:
 
 
 @dataclass
+class DatabaseInfo(FromJson):
+    """One entry of :meth:`Client.list_databases`.
+
+    ``depends_on`` names the databases this one links against for cross-DB
+    flow resolution — mirrors the ``dependsOn`` list surfaced by the relink
+    endpoint. Derived from the engine's declared topology, not runtime state.
+    """
+
+    name: str
+    display_name: str
+    status: str  # "unloaded" | "partially_linked" | "loaded"
+    path: str
+    load_at_startup: bool = False
+    is_uploaded: bool = False
+    activity_count: int = 0
+    description: str | None = None
+    format: str | None = None
+    depends_on: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ScoringIndicator(FromJson):
+    """One per-variable entry inside ``LCIABatchResult.scoringIndicators``.
+
+    ``value`` is pre-multiplied by the scoring set's ``displayMultiplier``
+    (configured in the scoring TOML) and expressed in the set's display unit.
+    ``category`` names the impact category the variable was resolved from.
+    """
+
+    category: str
+    value: float
+
+
+@dataclass
 class ClassificationFilter:
     """Filter a supply-chain/consumers query by a classification (system, value, mode).
 

@@ -9,7 +9,9 @@ from .types import (
     AggregateResult,
     BiosphereExchange,
     ClassificationFilter,
+    DatabaseInfo,
     Exchange,
+    ScoringIndicator,
     TechnosphereExchange,
 )
 
@@ -22,7 +24,9 @@ __all__ = [
     "BiosphereExchange",
     "Client",
     "ClassificationFilter",
+    "DatabaseInfo",
     "Exchange",
+    "ScoringIndicator",
     "Server",
     "TechnosphereExchange",
     "VoLCAError",

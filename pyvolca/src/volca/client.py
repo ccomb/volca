@@ -50,6 +50,7 @@ from .types import (
     ClassificationFilter,
     ConsumerResult,
     ConsumersResponse,
+    DatabaseInfo,
     Exchange,
     PathResult,
     SupplyChain,
@@ -446,8 +447,15 @@ class Client:
 
     # -- Database management --
 
-    def list_databases(self) -> list[dict]:
-        return self._call("list_databases")["databases"]
+    def list_databases(self) -> list[DatabaseInfo]:
+        """List every database declared in the engine config.
+
+        The typed entries carry ``depends_on``, so callers can derive
+        cross-DB dependency sets from declared topology rather than
+        hardcoding allowlists.
+        """
+        raw = self._call("list_databases")["databases"]
+        return [DatabaseInfo.from_json(d) for d in raw]
 
     def load_database(self, db_name: str) -> dict:
         # No operationId (infrastructure endpoint). Direct HTTP.

@@ -71,9 +71,26 @@ class TestResolveWireName:
 class TestDispatcher:
     def test_list_databases_has_no_path_params(self, mocked_client, make_response):
         client, session = mocked_client
-        session.get.return_value = make_response({"dlrDatabases": [{"name": "test"}]})
+        session.get.return_value = make_response({
+            "databases": [{
+                "name": "test",
+                "displayName": "Test DB",
+                "status": "loaded",
+                "path": "data/test",
+                "loadAtStartup": True,
+                "isUploaded": False,
+                "activityCount": 42,
+                "description": None,
+                "format": "EcoSpold 2",
+                "dependsOn": ["ecoinvent-3.9"],
+            }],
+        })
         result = client.list_databases()
-        assert result == [{"name": "test"}]
+        assert len(result) == 1
+        assert result[0].name == "test"
+        assert result[0].display_name == "Test DB"
+        assert result[0].depends_on == ["ecoinvent-3.9"]
+        assert result[0].activity_count == 42
         session.get.assert_called_once()
         called_url = session.get.call_args[0][0]
         assert called_url == "http://test.local/api/v1/db"
