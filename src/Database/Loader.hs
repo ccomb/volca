@@ -106,7 +106,6 @@ import Database.CrossLinking (
     locationHierarchy,
     normalizeUnicode,
  )
-import Database.UploadedDatabase (getDataDir)
 import EcoSpold.Common (distributeFiles)
 import EcoSpold.Parser1 (streamParseActivityAndFlowsFromFile1, streamParseAllDatasetsFromFile1)
 import EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile)
@@ -117,7 +116,7 @@ import Progress
 import qualified SimaPro.Parser as SimaPro
 import SynonymDB (SynonymDB)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, listDirectory, removeFile)
-import System.FilePath (takeBaseName, takeExtension, (</>))
+import System.FilePath (takeBaseName, takeDirectory, takeExtension, (</>))
 import Text.Printf (printf)
 import Types
 import qualified UnitConversion as UC
@@ -800,18 +799,19 @@ Generate filename for matrix cache.
 Matrix caches store pre-computed sparse matrices (technosphere A,
 biosphere B) enabling direct LCA solving without matrix construction.
 
-Cache location depends on database source:
-- Uploaded databases (path starts with "uploads/"): cache in the upload directory
-- Configured databases: cache in "cache/" subdirectory
+The cache lives next to the configured source path
+(@takeDirectory sourcePath@). For uploaded databases this is the
+upload directory; for preloaded/host-mounted databases it is the
+mount directory. Either way the cache persists across restarts as
+long as the source location does.
 
 Cache invalidation is handled by a schema signature stored inside
 the cache file, not by the filename.
 -}
 generateMatrixCacheFilename :: T.Text -> FilePath -> IO FilePath
-generateMatrixCacheFilename dbName _dataPath = do
+generateMatrixCacheFilename dbName sourcePath = do
     let cacheFilename = "volca.cache." ++ T.unpack dbName ++ ".bin"
-    base <- getDataDir
-    let cacheDir = base </> "cache"
+        cacheDir = takeDirectory sourcePath
     createDirectoryIfMissing True cacheDir
     return $ cacheDir </> cacheFilename
 

@@ -227,6 +227,7 @@ uploadDatabaseHandler dbManager req = do
                                 , dcLocationAliases = M.empty
                                 , dcFormat = Just (urFormat uploadResult)
                                 , dcIsUploaded = True -- Freshly uploaded database
+                                , dcDeletable = True
                                 }
 
                     -- Add to manager

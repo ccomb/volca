@@ -106,6 +106,7 @@ data DatabaseConfig = DatabaseConfig
     , dcLocationAliases :: !(Map Text Text) -- Wrong location → correct location (e.g., "ENTSO" → "ENTSO-E")
     , dcFormat :: !(Maybe DatabaseFormat) -- Detected format (EcoSpold2, EcoSpold1, SimaProCSV)
     , dcIsUploaded :: !Bool -- True for uploaded databases (vs. configured in TOML)
+    , dcDeletable :: !Bool -- May the UI delete this entry? Defaults to dcIsUploaded.
     }
     deriving (Show, Eq, Generic)
 
@@ -207,6 +208,7 @@ instance DecodeTOML DatabaseConfig where
         dcLocationAliases <- fromMaybe M.empty <$> getFieldOpt "locationAliases"
         let dcFormat = Nothing -- Format is detected at runtime, not stored in config
         let dcIsUploaded = False -- Databases from TOML are not uploaded
+        dcDeletable <- fromMaybe dcIsUploaded <$> getFieldOpt "deletable"
         pure DatabaseConfig{..}
 
 instance DecodeTOML MethodConfig where

@@ -105,7 +105,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import GHC.Generics (Generic)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
-import System.FilePath (dropExtension, isAbsolute, normalise, takeDirectory, takeExtension, (</>))
+import System.FilePath (isAbsolute, normalise, takeDirectory, takeExtension, (</>))
 import System.Mem (performGC)
 
 import Config
@@ -743,6 +743,7 @@ uploadMetaToConfig slug dirPath meta =
         , dcLocationAliases = M.empty
         , dcFormat = Just (UploadedDB.umFormat meta)
         , dcIsUploaded = True -- Discovered from uploads/ directory
+        , dcDeletable = True
         }
 
 {- | Discover uploaded methods from uploads/methods/ directory
@@ -829,13 +830,6 @@ listDatabases manager = do
                 , dsDependsOn = dcDepends config
                 }
 
--- | Check if a file path is a cache file
-isCacheFile :: FilePath -> Bool
-isCacheFile path =
-    let ext = takeExtension path
-        ext2 = takeExtension (dropExtension path)
-     in ext == ".bin" || (ext == ".zst" && ext2 == ".bin")
-
 {- | Load a database from its configuration (without cross-DB linking)
 This is the original function, kept for backward compatibility
 -}
@@ -907,50 +901,41 @@ loadDatabaseFromConfigWithCrossDBAndTransforms ::
     M.Map T.Text [T.Text] -> -- Location hierarchy (empty = use built-in)
     IO (Either Text LoadedDatabase)
 loadDatabaseFromConfigWithCrossDBAndTransforms transforms dbConfig synonymDB unitConfig noCache otherIndexes locationHier = do
-    path <- resolveDataPath (dcPath dbConfig)
-    let locationAliases = dcLocationAliases dbConfig
+    let sourcePath = dcPath dbConfig
+        locationAliases = dcLocationAliases dbConfig
+    reportProgress Info $ "Loading database from: " <> sourcePath
+    dbResult <- loadDatabaseRawWithCrossDB (dcName dbConfig) locationAliases sourcePath noCache synonymDB unitConfig otherIndexes locationHier
 
-    -- Check if path exists
-    isFile <- doesFileExist path
-    isDir <- doesDirectoryExist path
+    case dbResult of
+        Left err -> return $ Left err
+        Right dbRaw -> do
+            -- Apply transform plugins (sorted by priority) before runtime init
+            transformed <- applyTransforms transforms (toSimpleDatabase dbRaw)
+            dbRebuiltResult <-
+                if null transforms
+                    then pure (Right dbRaw)
+                    else buildDatabaseWithMatrices unitConfig (sdbActivities transformed) (sdbFlows transformed) (sdbUnits transformed)
 
-    if not isFile && not isDir
-        then return $ Left $ "Path does not exist: " <> T.pack path
-        else do
-            -- Load raw database with cross-DB linking
-            reportProgress Info $ "Loading database from: " <> path
-            dbResult <- loadDatabaseRawWithCrossDB (dcName dbConfig) locationAliases path noCache synonymDB unitConfig otherIndexes locationHier
-
-            case dbResult of
+            case dbRebuiltResult of
                 Left err -> return $ Left err
-                Right dbRaw -> do
-                    -- Apply transform plugins (sorted by priority) before runtime init
-                    transformed <- applyTransforms transforms (toSimpleDatabase dbRaw)
-                    dbRebuiltResult <-
-                        if null transforms
-                            then pure (Right dbRaw)
-                            else buildDatabaseWithMatrices unitConfig (sdbActivities transformed) (sdbFlows transformed) (sdbUnits transformed)
+                Right dbRebuilt -> do
+                    -- Initialize runtime fields (synonym DB and flow name index)
+                    let database = BM25.addBM25Index (initializeRuntimeFields dbRebuilt synonymDB)
 
-                    case dbRebuiltResult of
-                        Left err -> return $ Left err
-                        Right dbRebuilt -> do
-                            -- Initialize runtime fields (synonym DB and flow name index)
-                            let database = BM25.addBM25Index (initializeRuntimeFields dbRebuilt synonymDB)
+                    -- Create shared solver with lazy factorization (deferred to first query)
+                    let techTriples = dbTechnosphereTriples database
+                        activityCount = dbActivityCount database
+                        techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
+                        activityCountInt = fromIntegral activityCount
+                    sharedSolver <- createSharedSolver (dcName dbConfig) techTriplesInt activityCountInt
 
-                            -- Create shared solver with lazy factorization (deferred to first query)
-                            let techTriples = dbTechnosphereTriples database
-                                activityCount = dbActivityCount database
-                                techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
-                                activityCountInt = fromIntegral activityCount
-                            sharedSolver <- createSharedSolver (dcName dbConfig) techTriplesInt activityCountInt
-
-                            return $
-                                Right
-                                    LoadedDatabase
-                                        { ldDatabase = database
-                                        , ldSharedSolver = sharedSolver
-                                        , ldConfig = dbConfig
-                                        }
+                    return $
+                        Right
+                            LoadedDatabase
+                                { ldDatabase = database
+                                , ldSharedSolver = sharedSolver
+                                , ldConfig = dbConfig
+                                }
 
 -- | Apply transform plugins sequentially (sorted by priority)
 applyTransforms :: [TransformHandle] -> SimpleDatabase -> IO SimpleDatabase
@@ -1021,13 +1006,19 @@ buildActivityMap activities =
         , let productUUID = exchangeFlowId refExchange
         ]
 
--- | Load raw database from path with cross-database linking support
+{- | Load raw database from a configured source path, with cross-database linking.
+
+The cache lives next to @sourcePath@ (see 'Loader.generateMatrixCacheFilename').
+We probe it first using the unresolved @sourcePath@, so a deployment that ships
+only the cache (no source archive on disk) still loads. On cache miss/stale we
+'resolveDataPath' and parse, saving a fresh cache on success.
+-}
 loadDatabaseRawWithCrossDB ::
     -- | Database name
     T.Text ->
     -- | Location aliases
     M.Map T.Text T.Text ->
-    -- | Path to load from
+    -- | Source path (unresolved; cache is co-located with it)
     FilePath ->
     -- | noCache flag
     Bool ->
@@ -1040,120 +1031,102 @@ loadDatabaseRawWithCrossDB ::
     -- | Location hierarchy (empty = use built-in)
     M.Map T.Text [T.Text] ->
     IO (Either Text Database)
-loadDatabaseRawWithCrossDB dbName locationAliases path noCache synonymDB unitConfig otherIndexes locationHier = do
-    isFile <- doesFileExist path
-    if isFile && isCacheFile path
-        then do
-            -- Direct cache file - no cross-DB linking needed (already built)
-            mDb <- Loader.loadDatabaseFromCacheFile path
-            case mDb of
-                Just db -> do
-                    Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
-                    return $ Right db
-                Nothing -> return $ Left $ "Failed to load cache file: " <> T.pack path
-        else do
-            format <- detectDirectoryFormat path
-            case format of
-                FormatCSV -> do
-                    -- CSV format - no cross-DB linking for CSV (yet)
-                    isFileCheck <- doesFileExist path
-                    csvFile <-
-                        if isFileCheck
-                            then return path
-                            else do
-                                csvFiles <- findCSVFiles path
-                                case csvFiles of
-                                    [] -> error $ "No CSV files found in: " ++ path
-                                    (f : _) -> return f
-                    if noCache
-                        then do
-                            reportProgress Info $ "Parsing SimaPro CSV: " <> csvFile
-                            (activities, flowDB, unitDB) <- SimaPro.parseSimaProCSV unitConfig csvFile
-                            reportProgress Info $ "Building database from " <> show (length activities) <> " activities"
-                            let simpleDb = SimpleDatabase (buildActivityMap activities) flowDB unitDB
-                            linkedDb <- Loader.fixSimaProActivityLinks simpleDb
-                            dbResult <- buildDatabaseWithMatrices unitConfig (sdbActivities linkedDb) flowDB unitDB
-                            case dbResult of
-                                Left err -> return $ Left err
-                                Right db -> do
-                                    Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
-                                    return $ Right db
-                        else do
-                            mCachedDb <- Loader.loadCachedDatabaseWithMatrices dbName path
-                            case mCachedDb of
-                                Just db -> do
-                                    Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
-                                    return $ Right db
-                                Nothing -> do
-                                    reportProgress Info $ "Parsing SimaPro CSV: " <> csvFile
-                                    (activities, flowDB, unitDB) <- SimaPro.parseSimaProCSV unitConfig csvFile
-                                    reportProgress Info $ "Building database from " <> show (length activities) <> " activities"
-                                    let simpleDb = SimpleDatabase (buildActivityMap activities) flowDB unitDB
-                                    linkedDb <- Loader.fixSimaProActivityLinks simpleDb
-                                    dbResult <- buildDatabaseWithMatrices unitConfig (sdbActivities linkedDb) flowDB unitDB
-                                    case dbResult of
-                                        Left err -> return $ Left err
-                                        Right db -> do
-                                            Loader.saveCachedDatabaseWithMatrices dbName path db
-                                            return $ Right db
-                FormatUnknown ->
-                    return $
-                        Left $
-                            "No supported database files found in: "
-                                <> T.pack path
-                                <> ". Supported formats: EcoSpold v2 (.spold), EcoSpold v1 (.xml), SimaPro CSV (.csv), ILCD"
-                -- FormatSpold, FormatXML and FormatILCD use the same loader - WITH cross-DB linking
-                _ -> do
-                    -- Try cache first (skip if stale: has unresolved links but deps are now available)
-                    mCachedDb <-
-                        if noCache
-                            then return Nothing
-                            else Loader.loadCachedDatabaseWithMatrices dbName path
-                    let cacheUsable = case mCachedDb of
-                            Just db
-                                | unresolvedCount (dbLinkingStats db) > 0
-                                , not (null otherIndexes) ->
-                                    False -- stale: deps now available
-                            Just _ -> True
-                            Nothing -> False
-                    case (cacheUsable, mCachedDb) of
-                        (True, Just db) -> do
-                            Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
-                            return $ Right db
-                        _ -> do
-                            when (isJust mCachedDb && not cacheUsable) $
-                                reportProgress Info "Cache has unresolved links, rebuilding with available dependencies..."
-                            loadResult <-
-                                Loader.loadDatabaseWithCrossDBLinking
-                                    locationAliases
-                                    otherIndexes
-                                    synonymDB
-                                    unitConfig
-                                    locationHier
-                                    path
-                            case loadResult of
-                                Left err -> return $ Left err
-                                Right (simpleDb, stats) -> do
-                                    dbResult <-
-                                        buildDatabaseWithMatrices
-                                            unitConfig
-                                            (sdbActivities simpleDb)
-                                            (sdbFlows simpleDb)
-                                            (sdbUnits simpleDb)
-                                    case dbResult of
-                                        Left err -> return $ Left err
-                                        Right db -> do
-                                            let crossLinks = cdlLinks stats
-                                                depDbs = M.keys (crossDBBySource stats)
-                                                dbWithLinks =
-                                                    db
-                                                        { dbCrossDBLinks = crossLinks
-                                                        , dbDependsOn = depDbs
-                                                        , dbLinkingStats = stats
-                                                        }
-                                            unless noCache $
-                                                Loader.saveCachedDatabaseWithMatrices dbName path dbWithLinks
-                                            return $ Right dbWithLinks
+loadDatabaseRawWithCrossDB dbName locationAliases sourcePath noCache synonymDB unitConfig otherIndexes locationHier = do
+    mCachedDb <-
+        if noCache
+            then return Nothing
+            else Loader.loadCachedDatabaseWithMatrices dbName sourcePath
+    let cacheUsable = case mCachedDb of
+            Just db
+                | unresolvedCount (dbLinkingStats db) > 0
+                , not (null otherIndexes) ->
+                    False -- stale: deps now available
+            Just _ -> True
+            Nothing -> False
+    case (cacheUsable, mCachedDb) of
+        (True, Just db) -> do
+            Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
+            return $ Right db
+        _ -> do
+            when (isJust mCachedDb && not cacheUsable) $
+                reportProgress Info "Cache has unresolved links, rebuilding with available dependencies..."
+            -- Cache miss/stale: now we need the source. Resolve archive if any.
+            path <- resolveDataPath sourcePath
+            isFile <- doesFileExist path
+            isDir <- doesDirectoryExist path
+            if not isFile && not isDir
+                then return $ Left $ "Source path does not exist: " <> T.pack sourcePath
+                else do
+                    format <- detectDirectoryFormat path
+                    case format of
+                        FormatCSV -> loadCSV path
+                        FormatUnknown ->
+                            return $
+                                Left $
+                                    "No supported database files found in: "
+                                        <> T.pack path
+                                        <> ". Supported formats: EcoSpold v2 (.spold), EcoSpold v1 (.xml), SimaPro CSV (.csv), ILCD"
+                        _ -> loadStructured path
+  where
+    loadCSV path = do
+        mCsvFile <-
+            doesFileExist path >>= \isFileCheck ->
+                if isFileCheck
+                    then return (Right path)
+                    else do
+                        csvFiles <- findCSVFiles path
+                        case csvFiles of
+                            [] -> return $ Left $ "No CSV files found in: " <> T.pack path
+                            (f : _) -> return (Right f)
+        case mCsvFile of
+            Left err -> return $ Left err
+            Right csvFile -> do
+                reportProgress Info $ "Parsing SimaPro CSV: " <> csvFile
+                (activities, flowDB, unitDB) <- SimaPro.parseSimaProCSV unitConfig csvFile
+                reportProgress Info $ "Building database from " <> show (length activities) <> " activities"
+                let simpleDb = SimpleDatabase (buildActivityMap activities) flowDB unitDB
+                linkedDb <- Loader.fixSimaProActivityLinks simpleDb
+                dbResult <- buildDatabaseWithMatrices unitConfig (sdbActivities linkedDb) flowDB unitDB
+                case dbResult of
+                    Left err -> return $ Left err
+                    Right db -> do
+                        unless noCache $
+                            Loader.saveCachedDatabaseWithMatrices dbName sourcePath db
+                        Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
+                        return $ Right db
+
+    loadStructured path = do
+        loadResult <-
+            Loader.loadDatabaseWithCrossDBLinking
+                locationAliases
+                otherIndexes
+                synonymDB
+                unitConfig
+                locationHier
+                path
+        case loadResult of
+            Left err -> return $ Left err
+            Right (simpleDb, stats) -> do
+                dbResult <-
+                    buildDatabaseWithMatrices
+                        unitConfig
+                        (sdbActivities simpleDb)
+                        (sdbFlows simpleDb)
+                        (sdbUnits simpleDb)
+                case dbResult of
+                    Left err -> return $ Left err
+                    Right db -> do
+                        let crossLinks = cdlLinks stats
+                            depDbs = M.keys (crossDBBySource stats)
+                            dbWithLinks =
+                                db
+                                    { dbCrossDBLinks = crossLinks
+                                    , dbDependsOn = depDbs
+                                    , dbLinkingStats = stats
+                                    }
+                        unless noCache $
+                            Loader.saveCachedDatabaseWithMatrices dbName sourcePath dbWithLinks
+                        return $ Right dbWithLinks
 
 -- | Load a single database without auto-loading dependencies
 loadDatabaseSingle :: DatabaseManager -> Text -> IO (Either Text LoadedDatabase)
@@ -1536,8 +1509,8 @@ removeDatabase manager dbName = do
     case M.lookup dbName availableDbs of
         Nothing -> return $ Left $ "Database not found: " <> dbName
         Just dbConfig -> do
-            -- Check if it's an uploaded database (only uploaded can be deleted)
-            if not (dcIsUploaded dbConfig)
+            -- Honor the per-config deletable policy (defaults to dcIsUploaded).
+            if not (dcDeletable dbConfig)
                 then return $ Left "Cannot delete configured database. Edit volca.toml to remove it."
                 else
                     if M.member dbName loadedDbs
@@ -1556,7 +1529,7 @@ removeDatabase manager dbName = do
                                             return $ Left $ "Failed to delete: " <> T.pack (show e)
                                         Right () -> do
                                             reportProgress Info $ "Deleted: " <> uploadDir
-                                            deleteCacheFile dbName
+                                            deleteCacheFile dbName (dcPath dbConfig)
                                             removeFromMemory manager dbName
                                 else do
                                     -- Directory already missing, just remove from memory
@@ -1565,8 +1538,8 @@ removeDatabase manager dbName = do
   where
     tryIO :: IO a -> IO (Either SomeException a)
     tryIO = Control.Exception.try
-    deleteCacheFile name = do
-        cacheFile <- Loader.generateMatrixCacheFilename name ""
+    deleteCacheFile name sourcePath = do
+        cacheFile <- Loader.generateMatrixCacheFilename name sourcePath
         let zstdFile = cacheFile ++ ".zst"
         cacheExists <- doesFileExist zstdFile
         when cacheExists $ do
