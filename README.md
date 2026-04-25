@@ -7,8 +7,9 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, and ILCD process databases, builds s
 ## What It Does
 
 - **Browse** activities and flows across multiple databases
-- **Explore** supply chain trees, force-directed dependency graphs, and supply chain analysis by sector classification
-- **Compute** life cycle inventories (LCI) and impact scores (LCIA) — single method or batch across a full collection
+- **Explore** supply chain trees, force-directed dependency graphs, downstream consumers, shortest-path routing, and supply chain analysis by sector classification
+- **Compute** life cycle inventories (LCI) and impact scores (LCIA) — single method or whole collection — with per-flow and per-activity contribution breakdowns
+- **What-if substitutions** — swap an upstream activity (or a cross-database supplier) and recompute inventory and impacts in a single call
 - **Normalize and weight** LCIA results with Raw / Normalized / Weighted view toggle; compute a single-score in Pt when normalization-weighting data is available
 - **Map** method characterization factors to database flows with a 4-step cascade (UUID → CAS → name → synonym) and coverage statistics
 - **Link** databases across nomenclatures (e.g., a sector database referencing Agribalyse)
@@ -21,13 +22,17 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, and ILCD process databases, builds s
 - **Multiple database formats**: EcoSpold2 (.spold), EcoSpold1 (.xml), SimaPro CSV, ILCD process datasets
 - **Archive support**: Load databases directly from .zip, .7z, .gz, or .xz archives — no manual extraction
 - **Cross-database linking**: Resolve supplier references across databases, with configurable dependencies and topological load ordering
+- **Cross-DB what-if substitutions**: Swap an upstream activity at any depth — including suppliers in dependency databases — and recompute inventory and impacts through one endpoint
 - **LCIA method collections**: Load ILCD method packages (ZIP or directory), SimaPro method CSV exports, or tabular CSV from config
 - **Normalization and weighting**: Batch LCIA computes normalized and weighted scores per category and a single aggregated score (Pt) when NW data is present in the method collection
+- **Contribution analysis**: Per-flow and per-activity contributions to any LCIA score, ranked by share
 - **Flow mapping engine**: 4-step matching cascade (UUID → CAS → name → synonym) with per-strategy coverage statistics
-- **Activity classifications**: ISIC, CPC, and category fields parsed from EcoSpold1/2 and ILCD
+- **Activity classifications**: ISIC, CPC, and category fields parsed from EcoSpold1/2 and ILCD, with named TOML presets for common filter bundles
+- **Per-exchange comments**: Free-text exchange comments extracted from EcoSpold1/2, SimaPro, and ILCD and surfaced in API responses
+- **Fuzzy search**: Trigram-based typo and stem tolerance on activity and supply-chain name filters
 - **Auto-extracted synonyms**: Synonym pairs extracted automatically from loaded databases and method packages, available for toggling and download
 - **Reference data management**: Flow synonyms, compartment mappings, and unit definitions can be configured in TOML, uploaded via the API, or toggled independently
-- **Fast cache**: Per-database cache with automatic schema-based invalidation; large databases (26k activities) load in ~47s cold, ~3.4s cached
+- **Fast cache**: Per-database cache co-located with the source path, with automatic schema-based invalidation; large databases (26k activities) load in ~47s cold, ~3.4s cached
 - **Optional access control**: Single-code login with cookie-based session
 
 ---
@@ -71,8 +76,8 @@ volca --config volca.toml server --port 8080
 
 # In another terminal — all commands talk to the server via HTTP
 volca --config volca.toml activities --name "electricity" --geo "FR"
-volca --config volca.toml --db agribalyse tree "12345678-..." --depth 3
-volca --config volca.toml --db agribalyse lcia "12345678-..." --method METHOD_UUID
+volca --config volca.toml --db agribalyse inventory "12345678-..."
+volca --config volca.toml --db agribalyse impacts "12345678-..." --method METHOD_UUID
 ```
 
 ### Interactive REPL
@@ -86,7 +91,7 @@ volca --config volca.toml repl
 # volca> use agribalyse
 # volca[agribalyse]> inventory UUID
 # volca[agribalyse]> :format table
-# volca[agribalyse]> lcia UUID --method METHOD_UUID
+# volca[agribalyse]> impacts UUID --method METHOD_UUID
 # volca[agribalyse]> :help
 # volca[agribalyse]> :quit
 ```
@@ -146,46 +151,91 @@ The `depends` field ensures dependency databases load first and their flows are 
 
 ## REST API
 
-All per-database resources are scoped under `/api/v1/db/{name}/`:
+All per-database resources are scoped under `/api/v1/db/{dbName}/`. POST variants of the analysis endpoints accept a `SubstitutionRequest` body for what-if scenarios:
 
 ```
-GET    /api/v1/db/{name}/activity/{id}                  Activity details
-GET    /api/v1/db/{name}/activity/{id}/tree             Supply chain tree
-GET    /api/v1/db/{name}/activity/{id}/inventory        Life cycle inventory
-GET    /api/v1/db/{name}/activity/{id}/graph?cutoff=    Supply chain graph
-GET    /api/v1/db/{name}/activity/{id}/supply-chain     Supply chain table
-GET    /api/v1/db/{name}/activity/{id}/lcia/{methodId}  LCIA score (single method)
-GET    /api/v1/db/{name}/activity/{id}/lcia-batch/{col} LCIA batch (all categories, with optional NW scores and single-score)
-GET    /api/v1/db/{name}/activities?name=&geo=&product= Search activities
-GET    /api/v1/db/{name}/flows?q=&lang=                 Search flows
-GET    /api/v1/db/{name}/flow/{flowId}                  Flow details
-GET    /api/v1/db/{name}/flow/{flowId}/activities       Activities using a flow
-GET    /api/v1/db/{name}/method/{id}/mapping            Mapping coverage stats
-GET    /api/v1/db/{name}/method/{id}/flow-mapping       Per-flow mapping detail
-GET    /api/v1/db                                       List databases and status
-POST   /api/v1/db/upload                                Upload a database archive
-POST   /api/v1/db/{name}/load                           Load a configured database
-POST   /api/v1/db/{name}/finalize                       Finalize cross-DB linking
-DELETE /api/v1/db/{name}                                Delete a database
-GET    /api/v1/methods                                        List individual methods
-GET    /api/v1/method/{id}                                    Method details
-GET    /api/v1/method/{id}/factors                            Characterization factors
-GET    /api/v1/method-collections                             List method collections
-POST   /api/v1/method-collections/{name}/load                 Load a method collection
-POST   /api/v1/method-collections/{name}/unload               Unload a method collection
-POST   /api/v1/method-collections/upload                      Upload a method package
-DELETE /api/v1/method-collections/{name}                      Delete a method collection
-GET    /api/v1/flow-synonyms                                  List synonym sets
-POST   /api/v1/flow-synonyms/{name}/load                      Activate a synonym set
-POST   /api/v1/flow-synonyms/{name}/unload                    Deactivate a synonym set
-GET    /api/v1/flow-synonyms/{name}/groups                    Browse synonym groups
-GET    /api/v1/flow-synonyms/{name}/download                  Download synonym CSV
-GET    /api/v1/compartment-mappings                           List compartment mappings
-GET    /api/v1/units                                          List unit definitions
-POST   /api/v1/auth                                           Login (returns session cookie)
+# Activity inspection
+GET    /api/v1/db/{dbName}/activity/{processId}                          Activity details
+GET    /api/v1/db/{dbName}/activity/{processId}/flows                    Exchanges as flow summaries
+GET    /api/v1/db/{dbName}/activity/{processId}/inputs                   Input exchanges
+GET    /api/v1/db/{dbName}/activity/{processId}/outputs                  Output exchanges
+GET    /api/v1/db/{dbName}/activity/{processId}/reference-product        Reference product detail
+
+# Supply chain
+GET    /api/v1/db/{dbName}/activity/{processId}/tree                     Supply chain tree
+GET    /api/v1/db/{dbName}/activity/{processId}/graph?cutoff=            Force-directed graph
+GET    /api/v1/db/{dbName}/activity/{processId}/supply-chain             Flat supply-chain table (filters, sort, paging)
+POST   /api/v1/db/{dbName}/activity/{processId}/supply-chain             Same, with substitutions applied
+GET    /api/v1/db/{dbName}/activity/{processId}/consumers                Downstream activities consuming this one
+GET    /api/v1/db/{dbName}/activity/{processId}/path-to?target=          Shortest supply-chain path to a target activity
+GET    /api/v1/db/{dbName}/activity/{processId}/aggregate                SQL-style group/filter on exchanges, supply chain, or biosphere
+GET    /api/v1/db/{dbName}/activity/{processId}/analyze/{analyzerName}   Run a registered plugin analyzer
+
+# Inventory and impacts
+GET    /api/v1/db/{dbName}/activity/{processId}/inventory                Life cycle inventory (LCI)
+POST   /api/v1/db/{dbName}/activity/{processId}/inventory                LCI with substitutions
+GET    /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}     Batch LCIA across a method collection (NW + single-score when available)
+POST   /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}     Batch LCIA with substitutions
+GET    /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}/{methodId}   LCIA score for one method (with top-flows)
+POST   /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}/{methodId}   Same, with substitutions
+GET    /api/v1/db/{dbName}/activity/{processId}/contributing-flows/{collection}/{methodId}        Top biosphere flows by score share
+GET    /api/v1/db/{dbName}/activity/{processId}/contributing-activities/{collection}/{methodId}   Top upstream activities by score share
+POST   /api/v1/db/{dbName}/impacts/{collection}                          Batch-impacts for many activities (multi-RHS solve)
+
+# Search and reference data
+GET    /api/v1/db/{dbName}/activities?name=&geo=&product=&preset=&classification=&sort=  Search activities
+GET    /api/v1/db/{dbName}/flows?q=&lang=                                Search flows
+GET    /api/v1/db/{dbName}/flow/{flowId}                                 Flow details
+GET    /api/v1/db/{dbName}/flow/{flowId}/activities                      Activities using a flow
+GET    /api/v1/db/{dbName}/classifications                               Classification systems available in this DB
+GET    /api/v1/db/{dbName}/method/{methodId}/mapping                     Mapping coverage stats
+GET    /api/v1/db/{dbName}/method/{methodId}/flow-mapping                Per-flow mapping detail
+GET    /api/v1/db/{dbName}/method/{methodId}/characterization?flow=      Characterization factors for one DB flow
+
+# Database management
+GET    /api/v1/db                                                        List databases (status + dependencies)
+POST   /api/v1/db/upload                                                 Upload a database archive
+POST   /api/v1/db/{dbName}/load                                          Load a configured database
+POST   /api/v1/db/{dbName}/unload                                        Unload (keep config, free memory)
+POST   /api/v1/db/{dbName}/relink                                        Re-resolve cross-DB links
+POST   /api/v1/db/{dbName}/finalize                                      Finalize cross-DB linking
+DELETE /api/v1/db/{dbName}                                               Delete a database
+GET    /api/v1/db/{dbName}/setup                                         Setup info (path, dependencies)
+POST   /api/v1/db/{dbName}/add-dependency/{depName}                      Add a dep
+POST   /api/v1/db/{dbName}/remove-dependency/{depName}                   Remove a dep
+POST   /api/v1/db/{dbName}/set-data-path                                 Repoint the source path
+
+# Methods and method collections
+GET    /api/v1/methods                                                   List individual methods (flattened)
+GET    /api/v1/method/{methodId}                                         Method details
+GET    /api/v1/method/{methodId}/factors                                 Characterization factors
+GET    /api/v1/method-collections                                        List method collections
+POST   /api/v1/method-collections/{name}/load                            Load a method collection
+POST   /api/v1/method-collections/{name}/unload                          Unload a method collection
+POST   /api/v1/method-collections/upload                                 Upload a method package
+DELETE /api/v1/method-collections/{name}                                 Delete a method collection
+
+# Reference data (synonyms / compartments / units share the same shape)
+GET    /api/v1/{flow-synonyms|compartment-mappings|units}                List
+POST   /api/v1/{flow-synonyms|compartment-mappings|units}/{name}/load    Activate
+POST   /api/v1/{flow-synonyms|compartment-mappings|units}/{name}/unload  Deactivate
+POST   /api/v1/{flow-synonyms|compartment-mappings|units}/upload         Upload
+DELETE /api/v1/{flow-synonyms|compartment-mappings|units}/{name}         Delete
+GET    /api/v1/flow-synonyms/{name}/groups                               Browse synonym groups
+GET    /api/v1/flow-synonyms/{name}/download                             Download synonym CSV
+
+# Server
+GET    /api/v1/classification-presets                                    Named classification filter bundles (from TOML)
+GET    /api/v1/version                                                   Server version
+GET    /api/v1/stats                                                     Runtime stats (memory)
+GET    /api/v1/hosting                                                   Hosting config (managed instances)
+GET    /api/v1/logs?since=                                               Server logs
+POST   /api/v1/auth                                                      Login (returns session cookie)
 ```
 
-The `lcia-batch` response includes per-category `normalizedScore` and `weightedScore` fields (when normalization-weighting data is present in the method collection), plus a `singleScore` sum in Pt.
+Per-exchange data on inventory and impact responses includes `exComment` — the free-text comment (`generalComment` / `<comment>`) attached to each exchange in the source dataset, when present.
+
+The `impacts/{collection}` response includes per-category `normalizedScore` and `weightedScore` fields (when normalization-weighting data is present in the method collection), plus a `singleScore` sum in Pt.
 
 ### OpenAPI spec
 
@@ -214,20 +264,28 @@ Configure it in your MCP client:
 }
 ```
 
-Available tools:
+Available tools (auto-derived from a single resource registry shared with the REST API and OpenAPI spec, so the three surfaces never drift):
 
 | Tool | Description |
 |------|-------------|
-| `list_databases` | List loaded databases |
-| `search_activities` | Search by name, geography, or product |
-| `search_flows` | Search biosphere flows |
-| `get_activity` | Activity details and exchanges |
-| `get_tree` | Supply chain tree with loop detection |
-| `get_supply_chain` | Flat upstream activity list with quantities |
-| `get_inventory` | LCI biosphere flows (top N by quantity) |
-| `compute_lcia` | LCIA score for an activity and method |
+| `list_databases` | List loaded databases (with dependencies) |
+| `list_presets` | List named classification filter presets |
+| `list_geographies` | List geographies present in a database |
+| `list_classifications` | List classification systems and values for a database |
 | `list_methods` | List loaded impact assessment methods |
+| `search_activities` | Search by name, geography, product, classification, or preset |
+| `search_flows` | Search biosphere flows |
+| `get_activity` | Activity details and exchanges (with comments) |
+| `aggregate` | SQL-style group/filter on exchanges, supply chain, or biosphere |
+| `get_supply_chain` | Flat upstream activity list with quantities and filters |
+| `get_consumers` | Downstream activities that consume a given activity |
+| `get_path_to` | Shortest supply-chain path from one activity to another |
+| `get_inventory` | LCI biosphere flows (top N by quantity) |
+| `get_impacts` | LCIA score for an activity and method (accepts substitutions) |
+| `get_contributing_flows` | Top biosphere flows contributing to an LCIA score |
+| `get_contributing_activities` | Top upstream activities contributing to an LCIA score |
 | `get_flow_mapping` | CF-to-flow mapping coverage for a method |
+| `get_characterization` | Characterization factors for a flow under a method |
 
 Authentication uses the same password as the REST API.
 
@@ -245,7 +303,6 @@ Authentication uses the same password as the REST API.
 | `--db NAME` | Database name to query |
 | `--format FORMAT` | Output format: `pretty` (default), `json`, `table`, `csv` |
 | `--jsonpath PATH` | Field to extract for CSV output (e.g., `srResults`) |
-| `--tree-depth N` | Maximum tree depth (default: 2) |
 | `--no-cache` | Disable caching (for development) |
 
 ### Modes of Operation
@@ -275,18 +332,20 @@ volca flows --query "carbon dioxide" --limit 5
 # Activity details
 volca activity "12345678-..."
 
-# Supply chain tree
-volca tree "12345678-..." --tree-depth 3
-
 # Life cycle inventory
 volca inventory "12345678-..."
 
 # Impact assessment (--method takes a method UUID, not a file path)
-volca lcia "12345678-..." --method METHOD_UUID
+volca impacts "12345678-..." --method METHOD_UUID
 
 # Matrix export (Ecoinvent universal format — runs locally, not via HTTP)
 volca export-matrices ./output_dir
 ```
+
+The `tree`, `supply-chain`, `consumers`, `path-to`, `aggregate`, and contribution
+endpoints are reachable via the REST API and MCP. Use `curl` or the OpenAPI spec
+at `/api/v1/docs` to drive them while the CLI focuses on the most common
+commands.
 
 ### Flow Mapping Diagnostics
 
@@ -328,43 +387,61 @@ volca method delete ef-31                        # delete
 | Feature | REST API | CLI |
 |---------|----------|-----|
 | **Search** | | |
-| Search activities | `GET /db/{db}/activities?name=&geo=&product=` | `activities --name --geo --product` |
+| Search activities | `GET /db/{db}/activities?name=&geo=&product=&preset=&classification=` | `activities --name --geo --product` |
 | Search flows | `GET /db/{db}/flows?q=&lang=` | `flows --query --lang` |
+| Classifications | `GET /db/{db}/classifications` | — |
+| Classification presets | `GET /classification-presets` | — |
 | **Analysis** | | |
 | Activity details | `GET /db/{db}/activity/{id}` | `activity ID` |
-| Supply chain tree | `GET /db/{db}/activity/{id}/tree` | `tree ID --depth N` |
+| Supply chain tree | `GET /db/{db}/activity/{id}/tree` | — |
+| Supply chain (flat) | `GET\|POST /db/{db}/activity/{id}/supply-chain` | — |
 | Supply chain graph | `GET /db/{db}/activity/{id}/graph?cutoff=` | — |
-| Life cycle inventory | `GET /db/{db}/activity/{id}/inventory` | `inventory ID` |
-| LCIA (single method) | `GET /db/{db}/activity/{id}/lcia/{methodId}` | `lcia ID --method METHOD_UUID` |
-| LCIA batch | `GET /db/{db}/activity/{id}/lcia-batch/{col}` | — |
+| Downstream consumers | `GET /db/{db}/activity/{id}/consumers` | — |
+| Path to target | `GET /db/{db}/activity/{id}/path-to?target=` | — |
+| Aggregate | `GET /db/{db}/activity/{id}/aggregate` | — |
+| Life cycle inventory | `GET\|POST /db/{db}/activity/{id}/inventory` | `inventory ID` |
+| LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | — |
+| LCIA single method | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}/{methodId}` | `impacts ID --method METHOD_UUID` |
+| LCIA batch over many activities | `POST /db/{db}/impacts/{collection}` | — |
+| Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | — |
+| Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | — |
 | Flow details | `GET /db/{db}/flow/{flowId}` | `flow FLOW_ID` |
 | Flow activities | `GET /db/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
 | **Flow Mapping** | | |
-| Mapping coverage | `GET /db/{db}/method/{id}/mapping` | `mapping METHOD_UUID` |
-| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `mapping METHOD_UUID --matched` |
-| Unmatched CFs | included in mapping response | `mapping METHOD_UUID --unmatched` |
-| Uncharacterized flows | — | `mapping METHOD_UUID --uncharacterized` |
+| Mapping coverage | `GET /db/{db}/method/{id}/mapping` | `flow-mapping METHOD_UUID` |
+| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` |
+| Characterization for flow | `GET /db/{db}/method/{id}/characterization?flow=` | — |
+| Unmatched CFs | included in mapping response | `flow-mapping METHOD_UUID --unmatched` |
+| Uncharacterized flows | — | `flow-mapping METHOD_UUID --uncharacterized` |
 | **Database Management** | | |
 | List databases | `GET /db` | `database` |
 | Upload database | `POST /db/upload` | `database upload FILE --name NAME` |
-| Load database | `POST /db/{name}/load` | — (use config `load = true`) |
+| Load / unload | `POST /db/{name}/(load\|unload)` | — (use config `load = true`) |
+| Relink / finalize | `POST /db/{name}/(relink\|finalize)` | — |
+| Setup / dependencies | `GET /db/{name}/setup`, `POST .../{add,remove}-dependency/{dep}`, `POST .../set-data-path` | — |
 | Delete database | `DELETE /db/{name}` | `database delete NAME` |
-| Finalize linking | `POST /db/{name}/finalize` | — |
 | **Method Management** | | |
 | List methods | `GET /methods` | `methods` |
 | Method details | `GET /method/{id}` | — |
 | Method factors | `GET /method/{id}/factors` | — |
 | List collections | `GET /method-collections` | `method` |
 | Upload collection | `POST /method-collections/upload` | `method upload FILE --name NAME` |
+| Load / unload collection | `POST /method-collections/{name}/(load\|unload)` | — |
 | Delete collection | `DELETE /method-collections/{name}` | `method delete NAME` |
 | **Reference Data** | | |
-| Flow synonyms | `GET /flow-synonyms` | `synonyms` |
-| Compartment mappings | `GET /compartment-mappings` | `compartment-mappings` |
-| Units | `GET /units` | `units` |
+| Flow synonyms | `GET /flow-synonyms` (+ load/unload/upload/delete/groups/download) | `synonyms` |
+| Compartment mappings | `GET /compartment-mappings` (+ load/unload/upload/delete) | `compartment-mappings` |
+| Units | `GET /units` (+ load/unload/upload/delete) | `units` |
+| **Plugins** | | |
+| List plugins | — | `plugin list` |
+| Run analyzer | `GET /db/{db}/activity/{id}/analyze/{name}` | — |
 | **Matrix Export** | | |
 | Universal format | — | `export-matrices DIR` (local only) |
 | Debug matrices | — | `debug-matrices ID --output FILE` (local only) |
-| **Auth** | | |
+| **Server** | | |
+| Version / stats / hosting / logs | `GET /version`, `/stats`, `/hosting`, `/logs?since=` | — |
+| Stop server | — | `stop` |
+| REPL | — | `repl` |
 | Login | `POST /auth` | — |
 
 All API routes are prefixed with `/api/v1/`. A dash (—) means the feature is only available in one interface.
