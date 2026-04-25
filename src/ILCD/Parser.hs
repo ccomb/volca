@@ -462,17 +462,25 @@ buildActivity flowInfoMap flowDB unitDB p =
                     (M.lookup flowUUID flowInfoMap)
             fUnitId = maybe UUID.nil flowUnitId (M.lookup flowUUID flowDB)
          in if isElementary
-                then BiosphereExchange flowUUID (ierAmount raw) fUnitId isInput (ierLocation raw)
+                then
+                    BiosphereExchange
+                        { bioFlowId = flowUUID
+                        , bioAmount = ierAmount raw
+                        , bioUnitId = fUnitId
+                        , bioIsInput = isInput
+                        , bioLocation = ierLocation raw
+                        }
                 else
                     TechnosphereExchange
-                        flowUUID
-                        (ierAmount raw)
-                        fUnitId
-                        isInput
-                        isRef
-                        UUID.nil
-                        Nothing
-                        (ierLocation raw)
+                        { techFlowId = flowUUID
+                        , techAmount = ierAmount raw
+                        , techUnitId = fUnitId
+                        , techIsInput = isInput
+                        , techIsReference = isRef
+                        , techActivityLinkId = UUID.nil
+                        , techProcessLinkId = Nothing
+                        , techLocation = ierLocation raw
+                        }
 
 --------------------------------------------------------------------------------
 -- Fix activity links (supplier resolution by name)
@@ -503,9 +511,14 @@ fixActivityExchanges :: SupplierIndex -> Activity -> Activity
 fixActivityExchanges idx act =
     act{exchanges = map fixEx (exchanges act)}
   where
-    fixEx ex@(TechnosphereExchange fid amt uid isInp _ _ procLink loc)
-        | isInp = case M.lookup fid idx of
+    fixEx ex@TechnosphereExchange{techFlowId = fid, techIsInput = True} =
+        case M.lookup fid idx of
             Just (actUUID, prodUUID) ->
-                TechnosphereExchange prodUUID amt uid isInp False actUUID procLink loc
+                ex
+                    { techFlowId = prodUUID
+                    , techIsReference = False
+                    , techActivityLinkId = actUUID
+                    }
             Nothing -> ex
-    fixEx ex = ex
+    fixEx ex@TechnosphereExchange{techIsInput = False} = ex
+    fixEx ex@BiosphereExchange{} = ex

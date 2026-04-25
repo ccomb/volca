@@ -31,19 +31,36 @@ emptyActivity =
 
 -- | A production output exchange (isInput=False, isReference=False by default)
 mkOutput :: UUID -> Double -> Exchange
-mkOutput fid amt = TechnosphereExchange fid amt nil False False nil Nothing ""
+mkOutput fid amt =
+    TechnosphereExchange
+        { techFlowId = fid
+        , techAmount = amt
+        , techUnitId = nil
+        , techIsInput = False
+        , techIsReference = False
+        , techActivityLinkId = nil
+        , techProcessLinkId = Nothing
+        , techLocation = ""
+        }
 
 -- | A reference output exchange
 mkRefOutput :: UUID -> Double -> Exchange
-mkRefOutput fid amt = TechnosphereExchange fid amt nil False True nil Nothing ""
+mkRefOutput fid amt = (mkOutput fid amt){techIsReference = True}
 
 -- | A technosphere input exchange
 mkInput :: UUID -> Double -> Exchange
-mkInput fid amt = TechnosphereExchange fid amt nil True False nil Nothing ""
+mkInput fid amt = (mkOutput fid amt){techIsInput = True}
 
 -- | A biosphere exchange
 mkBio :: UUID -> Double -> Exchange
-mkBio fid amt = BiosphereExchange fid amt nil False ""
+mkBio fid amt =
+    BiosphereExchange
+        { bioFlowId = fid
+        , bioAmount = amt
+        , bioUnitId = nil
+        , bioIsInput = False
+        , bioLocation = ""
+        }
 
 fid1, fid2, fid3 :: UUID
 fid1 = read "11111111-1111-1111-1111-111111111111"

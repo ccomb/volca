@@ -309,12 +309,12 @@ buildSupplierEntries db =
     ]
   where
     isReferenceExchange :: Exchange -> Bool
-    isReferenceExchange (TechnosphereExchange _ _ _ _ isRef _ _ _) = isRef
-    isReferenceExchange _ = False
+    isReferenceExchange TechnosphereExchange{techIsReference = isRef} = isRef
+    isReferenceExchange BiosphereExchange{} = False
 
     getExchangeFlowId :: Exchange -> UUID
-    getExchangeFlowId (TechnosphereExchange fid _ _ _ _ _ _ _) = fid
-    getExchangeFlowId (BiosphereExchange fid _ _ _ _) = fid
+    getExchangeFlowId TechnosphereExchange{techFlowId = fid} = fid
+    getExchangeFlowId BiosphereExchange{bioFlowId = fid} = fid
 
 {- | Build an indexed database from a full Database (used when loading from cache)
 This is the preferred method as it works with cached databases
@@ -357,12 +357,12 @@ buildSupplierEntriesFromDB db =
     ]
   where
     isReferenceExchange :: Exchange -> Bool
-    isReferenceExchange (TechnosphereExchange _ _ _ _ isRef _ _ _) = isRef
-    isReferenceExchange _ = False
+    isReferenceExchange TechnosphereExchange{techIsReference = isRef} = isRef
+    isReferenceExchange BiosphereExchange{} = False
 
     getExchangeFlowId :: Exchange -> UUID
-    getExchangeFlowId (TechnosphereExchange fid _ _ _ _ _ _ _) = fid
-    getExchangeFlowId (BiosphereExchange fid _ _ _ _) = fid
+    getExchangeFlowId TechnosphereExchange{techFlowId = fid} = fid
+    getExchangeFlowId BiosphereExchange{bioFlowId = fid} = fid
 
 {- | Find a supplier across all loaded databases (using pre-built indexes)
 This is the fast O(1) lookup version

@@ -410,9 +410,9 @@ Unlinked exchanges stay unlinked for cross-DB resolution.
 Returns (fixed exchange, UnlinkedSummary)
 -}
 fixExchangeLink :: ExchangeLinkContext -> T.Text -> Exchange -> (Exchange, UnlinkedSummary)
-fixExchangeLink ExchangeLinkContext{..} consumerName ex@(TechnosphereExchange fid amt uid isInp isRef _ procLink loc)
+fixExchangeLink ExchangeLinkContext{..} consumerName ex@TechnosphereExchange{techFlowId = fid, techIsInput = isInp, techLocation = loc}
     | isInp =
-        let linked actUUID prodUUID = (TechnosphereExchange prodUUID amt uid isInp isRef actUUID procLink loc, UnlinkedSummary M.empty 1 1 0)
+        let linked actUUID prodUUID = (ex{techFlowId = prodUUID, techActivityLinkId = actUUID}, UnlinkedSummary M.empty 1 1 0)
             unlinked flow lookupLoc =
                 let ue = UnlinkedExchange (flowName flow) lookupLoc
                  in (ex, UnlinkedSummary (M.singleton consumerName [ue]) 1 0 1)
@@ -444,7 +444,7 @@ fixExchangeLink ExchangeLinkContext{..} consumerName ex@(TechnosphereExchange fi
                 Nothing ->
                     (ex, UnlinkedSummary M.empty 1 0 1)
     | otherwise = (ex, emptyUnlinkedSummary)
-fixExchangeLink _ _ ex = (ex, emptyUnlinkedSummary)
+fixExchangeLink _ _ ex@BiosphereExchange{} = (ex, emptyUnlinkedSummary)
 
 {- |
 Load all EcoSpold files with optimized parallel processing and deduplication.
@@ -558,16 +558,17 @@ fixActivityExchangesByName idx flowDb act =
 Returns (fixed exchange, UnlinkedSummary)
 -}
 fixExchangeLinkByName :: NameOnlyIndex -> FlowDB -> T.Text -> Exchange -> (Exchange, UnlinkedSummary)
-fixExchangeLinkByName idx flowDb consumerName ex@(TechnosphereExchange fid amt uid isInp isRef _ procLink loc)
+fixExchangeLinkByName idx flowDb consumerName ex@TechnosphereExchange{techFlowId = fid, techIsInput = isInp, techIsReference = isRef, techLocation = loc}
     | isInp || not isRef -- Inputs + co-product outputs (avoided production credits)
         =
         case M.lookup fid flowDb of
             Just flow ->
                 let key = normalizeText (flowName flow)
+                    relink actUUID prodUUID = ex{techFlowId = prodUUID, techActivityLinkId = actUUID}
                  in case M.lookup key idx of
                         Just (actUUID, prodUUID) ->
                             -- Found supplier: update both activityLinkId AND flowId to match supplier's reference product
-                            (TechnosphereExchange prodUUID amt uid isInp isRef actUUID procLink loc, UnlinkedSummary M.empty 1 1 0)
+                            (relink actUUID prodUUID, UnlinkedSummary M.empty 1 1 0)
                         Nothing ->
                             -- Fallback: try splitting compound name at separators
                             let prefixes = extractProductPrefixes (flowName flow)
@@ -577,7 +578,7 @@ fixExchangeLinkByName idx flowDb consumerName ex@(TechnosphereExchange fid amt u
                                     Nothing -> tryPrefix ps
                              in case tryPrefix prefixes of
                                     Just (actUUID, prodUUID) ->
-                                        (TechnosphereExchange prodUUID amt uid isInp isRef actUUID procLink loc, UnlinkedSummary M.empty 1 1 0)
+                                        (relink actUUID prodUUID, UnlinkedSummary M.empty 1 1 0)
                                     Nothing ->
                                         -- Supplier not found - collect unlinked exchange info
                                         let unlinked = UnlinkedExchange (flowName flow) loc
@@ -587,7 +588,7 @@ fixExchangeLinkByName idx flowDb consumerName ex@(TechnosphereExchange fid amt u
                 -- Flow not in database - shouldn't happen but be safe
                 (ex, UnlinkedSummary M.empty 1 0 1)
     | otherwise = (ex, emptyUnlinkedSummary) -- Not a linkable exchange (outputs/references)
-fixExchangeLinkByName _ _ _ ex = (ex, emptyUnlinkedSummary) -- BiosphereExchange - no linking needed
+fixExchangeLinkByName _ _ _ ex@BiosphereExchange{} = (ex, emptyUnlinkedSummary) -- No supplier linking
 
 -- | Load EcoSpold files from directory
 loadEcoSpoldDirectory :: M.Map T.Text T.Text -> FilePath -> IO (Either T.Text SimpleDatabase)
@@ -1180,7 +1181,7 @@ collectUnlinkedProductNames db =
         (+)
         [ (flowName flow, 1)
         | act <- M.elems (sdbActivities db)
-        , TechnosphereExchange fid _ _ True _ linkId _ _ <- exchanges act
+        , TechnosphereExchange{techFlowId = fid, techIsInput = True, techActivityLinkId = linkId} <- exchanges act
         , linkId == UUID.nil
         , Just flow <- [M.lookup fid (sdbFlows db)]
         ]
@@ -1196,9 +1197,9 @@ countUnlinkedExchanges db =
         ]
   where
     isUnlinkedTechInput :: Exchange -> Bool
-    isUnlinkedTechInput (TechnosphereExchange _ _ _ isInp _ linkId _ _) =
+    isUnlinkedTechInput TechnosphereExchange{techIsInput = isInp, techActivityLinkId = linkId} =
         isInp && linkId == UUID.nil
-    isUnlinkedTechInput _ = False
+    isUnlinkedTechInput BiosphereExchange{} = False
 
 -- | Count total technosphere input exchanges in a database
 countTotalTechInputs :: SimpleDatabase -> Int
@@ -1211,8 +1212,8 @@ countTotalTechInputs db =
         ]
   where
     isTechInput :: Exchange -> Bool
-    isTechInput (TechnosphereExchange _ _ _ isInp _ _ _ _) = isInp
-    isTechInput _ = False
+    isTechInput TechnosphereExchange{techIsInput = isInp} = isInp
+    isTechInput BiosphereExchange{} = False
 
 {- | Find all cross-database links without modifying activities
 Returns statistics including the CrossDBLinks for chained solving
@@ -1259,7 +1260,7 @@ findExchangeCrossDBLink ::
     UUID.UUID ->
     Exchange ->
     CrossDBLinkingStats
-findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID (TechnosphereExchange fid amt _uid isInp _isRef linkId _procLink loc)
+findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID TechnosphereExchange{techFlowId = fid, techAmount = amt, techIsInput = isInp, techActivityLinkId = linkId, techLocation = loc}
     | isInp && linkId == UUID.nil -- Unlinked technosphere input
         =
         case M.lookup fid flowDb of
@@ -1293,7 +1294,7 @@ findExchangeCrossDBLink ctx flowDb unitDb consumerActUUID consumerProdUUID (Tech
                             CrossDBLinkingStats [] (M.singleton (flowName flow) (1, blocker)) S.empty [] 0
     | otherwise =
         emptyCrossDBLinkingStats
-findExchangeCrossDBLink _ _ _ _ _ _ = emptyCrossDBLinkingStats
+findExchangeCrossDBLink _ _ _ _ _ BiosphereExchange{} = emptyCrossDBLinkingStats
 
 -- | Report cross-database linking statistics
 reportCrossDBLinkingStats :: Int -> CrossDBLinkingStats -> IO ()

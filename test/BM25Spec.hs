@@ -36,7 +36,17 @@ mkActivity name loc xs =
         }
 
 mkRefOutput :: UUID -> Exchange
-mkRefOutput fid = TechnosphereExchange fid 1.0 nil False True nil Nothing ""
+mkRefOutput fid =
+    TechnosphereExchange
+        { techFlowId = fid
+        , techAmount = 1.0
+        , techUnitId = nil
+        , techIsInput = False
+        , techIsReference = True
+        , techActivityLinkId = nil
+        , techProcessLinkId = Nothing
+        , techLocation = ""
+        }
 
 mkFlow :: UUID -> Text -> Flow
 mkFlow fid name =

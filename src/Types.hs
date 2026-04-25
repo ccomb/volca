@@ -116,40 +116,40 @@ data Exchange
 
 -- | Helper functions for Exchange variants
 exchangeFlowId :: Exchange -> UUID
-exchangeFlowId (TechnosphereExchange fid _ _ _ _ _ _ _) = fid
-exchangeFlowId (BiosphereExchange fid _ _ _ _) = fid
+exchangeFlowId TechnosphereExchange{techFlowId = fid} = fid
+exchangeFlowId BiosphereExchange{bioFlowId = fid} = fid
 
 exchangeAmount :: Exchange -> Double
-exchangeAmount (TechnosphereExchange _ amt _ _ _ _ _ _) = amt
-exchangeAmount (BiosphereExchange _ amt _ _ _) = amt
+exchangeAmount TechnosphereExchange{techAmount = amt} = amt
+exchangeAmount BiosphereExchange{bioAmount = amt} = amt
 
 exchangeUnitId :: Exchange -> UUID
-exchangeUnitId (TechnosphereExchange _ _ uid _ _ _ _ _) = uid
-exchangeUnitId (BiosphereExchange _ _ uid _ _) = uid
+exchangeUnitId TechnosphereExchange{techUnitId = uid} = uid
+exchangeUnitId BiosphereExchange{bioUnitId = uid} = uid
 
 exchangeIsInput :: Exchange -> Bool
-exchangeIsInput (TechnosphereExchange _ _ _ isInp _ _ _ _) = isInp
-exchangeIsInput (BiosphereExchange _ _ _ isInp _) = isInp
+exchangeIsInput TechnosphereExchange{techIsInput = isInp} = isInp
+exchangeIsInput BiosphereExchange{bioIsInput = isInp} = isInp
 
 exchangeIsReference :: Exchange -> Bool
-exchangeIsReference (TechnosphereExchange _ _ _ _ isRef _ _ _) = isRef
+exchangeIsReference TechnosphereExchange{techIsReference = isRef} = isRef
 exchangeIsReference BiosphereExchange{} = False -- Biosphere exchanges are never reference products
 
 -- | Get activity link ID (backward compatibility)
 exchangeActivityLinkId :: Exchange -> Maybe UUID
-exchangeActivityLinkId (TechnosphereExchange _ _ _ _ _ linkId _ _) =
+exchangeActivityLinkId TechnosphereExchange{techActivityLinkId = linkId} =
     if linkId == UUID.nil then Nothing else Just linkId
 exchangeActivityLinkId BiosphereExchange{} = Nothing
 
 -- | Get process link ID (new field)
 exchangeProcessLinkId :: Exchange -> Maybe ProcessId
-exchangeProcessLinkId (TechnosphereExchange _ _ _ _ _ _ processLinkId _) = processLinkId
+exchangeProcessLinkId TechnosphereExchange{techProcessLinkId = pid} = pid
 exchangeProcessLinkId BiosphereExchange{} = Nothing
 
 -- | Get exchange location (for EcoSpold1 supplier lookup)
 exchangeLocation :: Exchange -> Text
-exchangeLocation (TechnosphereExchange _ _ _ _ _ _ _ loc) = loc
-exchangeLocation (BiosphereExchange _ _ _ _ loc) = loc
+exchangeLocation TechnosphereExchange{techLocation = loc} = loc
+exchangeLocation BiosphereExchange{bioLocation = loc} = loc
 
 -- | Check if exchange is technosphere
 isTechnosphereExchange :: Exchange -> Bool

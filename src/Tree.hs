@@ -12,8 +12,8 @@ import UnitConversion (UnitConfig, convertExchangeAmount)
 isTechnosphereInput :: FlowDB -> Exchange -> Bool
 isTechnosphereInput _ ex =
     case ex of
-        TechnosphereExchange _ _ _ isInput isRef _ _ _ -> isInput && not isRef
-        BiosphereExchange _ _ _ _ _ -> False
+        TechnosphereExchange{techIsInput = isInput, techIsReference = isRef} -> isInput && not isRef
+        BiosphereExchange{} -> False
 
 {- | Get converted exchange amount ensuring unit compatibility.
 Converts exchange amount to the target activity's reference unit for proper scaling.

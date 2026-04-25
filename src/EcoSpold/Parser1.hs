@@ -260,7 +260,7 @@ parseWithXeno xmlContent =
                 InExchange edata ->
                     let (exchange, flow, unit) = buildExchange (psDatasetNumber state) (psLocation state) edata
                         !supplierLinks = case exchange of
-                            TechnosphereExchange _ _ _ True _ _ _ _
+                            TechnosphereExchange{techIsInput = True}
                                 | exNumber edata /= 0 ->
                                     M.insert (exchangeFlowId exchange) (exNumber edata) (psSupplierLinks state)
                             _ -> psSupplierLinks state
@@ -350,17 +350,25 @@ parseWithXeno xmlContent =
             -- (flowName, exchangeLocation) lookup against supplier activities
             exchange =
                 if isBiosphere
-                    then BiosphereExchange flowId (exMeanValue edata) unitId (inputGroup == "4") exchangeLocation
+                    then
+                        BiosphereExchange
+                            { bioFlowId = flowId
+                            , bioAmount = exMeanValue edata
+                            , bioUnitId = unitId
+                            , bioIsInput = inputGroup == "4"
+                            , bioLocation = exchangeLocation
+                            }
                     else
                         TechnosphereExchange
-                            flowId
-                            (exMeanValue edata)
-                            unitId
-                            isInput
-                            isReferenceProduct
-                            UUID.nil -- Will be resolved in Loader.fixEcoSpold1ActivityLinks
-                            Nothing
-                            exchangeLocation
+                            { techFlowId = flowId
+                            , techAmount = exMeanValue edata
+                            , techUnitId = unitId
+                            , techIsInput = isInput
+                            , techIsReference = isReferenceProduct
+                            , techActivityLinkId = UUID.nil -- Will be resolved in Loader.fixEcoSpold1ActivityLinks
+                            , techProcessLinkId = Nothing
+                            , techLocation = exchangeLocation
+                            }
 
             cas = if T.null (exCASNumber edata) then Nothing else Just (exCASNumber edata)
             flow = Flow flowId (exName edata) category Nothing unitId flowType M.empty cas Nothing
@@ -420,10 +428,10 @@ hasReferenceProduct act = any exchangeIsReference (exchanges act)
 removeZeroAmountCoproducts :: [Exchange] -> [Exchange]
 removeZeroAmountCoproducts exs = filter keepExchange exs
   where
-    keepExchange (TechnosphereExchange _ _ _ False True _ _ _) = True
-    keepExchange (TechnosphereExchange _ amount _ False False _ _ _) = amount /= 0.0
-    keepExchange (TechnosphereExchange _ _ _ True _ _ _ _) = True
-    keepExchange (BiosphereExchange _ _ _ _ _) = True
+    keepExchange TechnosphereExchange{techIsInput = False, techIsReference = True} = True
+    keepExchange TechnosphereExchange{techIsInput = False, techIsReference = False, techAmount = amount} = amount /= 0.0
+    keepExchange TechnosphereExchange{techIsInput = True} = True
+    keepExchange BiosphereExchange{} = True
 
 -- | Assign single product as reference product
 assignSingleProductAsReference :: Activity -> Activity
@@ -438,8 +446,9 @@ assignSingleProductAsReference act =
 
 -- | Check if exchange is production exchange
 isProductionExchange :: Exchange -> Bool
-isProductionExchange (TechnosphereExchange _ _ _ False _ _ _ _) = True
-isProductionExchange _ = False
+isProductionExchange TechnosphereExchange{techIsInput = False} = True
+isProductionExchange TechnosphereExchange{techIsInput = True} = False
+isProductionExchange BiosphereExchange{} = False
 
 -- | Update reference product flag
 updateReferenceProduct :: Exchange -> Exchange -> Exchange
@@ -449,15 +458,13 @@ updateReferenceProduct target current
 
 -- | Mark exchange as reference product
 markAsReference :: Exchange -> Exchange
-markAsReference (TechnosphereExchange fid amt uid isInp _ linkId procLink loc) =
-    TechnosphereExchange fid amt uid isInp True linkId procLink loc
-markAsReference ex = ex
+markAsReference ex@TechnosphereExchange{} = ex{techIsReference = True}
+markAsReference ex@BiosphereExchange{} = ex
 
 -- | Unmark exchange as reference product
 unmarkAsReference :: Exchange -> Exchange
-unmarkAsReference (TechnosphereExchange fid amt uid isInp _ linkId procLink loc) =
-    TechnosphereExchange fid amt uid isInp False linkId procLink loc
-unmarkAsReference ex = ex
+unmarkAsReference ex@TechnosphereExchange{} = ex{techIsReference = False}
+unmarkAsReference ex@BiosphereExchange{} = ex
 
 -- ============================================================================
 -- Multi-dataset file support
@@ -580,7 +587,7 @@ parseAllWithXeno xmlContent =
                 InExchange edata ->
                     let (exchange, flow, unit) = buildExchangeForAll (psDatasetNumber state) (psLocation state) edata
                         !supplierLinks = case exchange of
-                            TechnosphereExchange _ _ _ True _ _ _ _
+                            TechnosphereExchange{techIsInput = True}
                                 | exNumber edata /= 0 ->
                                     M.insert (exchangeFlowId exchange) (exNumber edata) (psSupplierLinks state)
                             _ -> psSupplierLinks state
@@ -651,17 +658,25 @@ parseAllWithXeno xmlContent =
                     else exLocation edata
             exchange =
                 if isBiosphere
-                    then BiosphereExchange flowId (exMeanValue edata) unitId (inputGroup == "4") exchangeLocation
+                    then
+                        BiosphereExchange
+                            { bioFlowId = flowId
+                            , bioAmount = exMeanValue edata
+                            , bioUnitId = unitId
+                            , bioIsInput = inputGroup == "4"
+                            , bioLocation = exchangeLocation
+                            }
                     else
                         TechnosphereExchange
-                            flowId
-                            (exMeanValue edata)
-                            unitId
-                            isInput
-                            isReferenceProduct
-                            UUID.nil
-                            Nothing
-                            exchangeLocation
+                            { techFlowId = flowId
+                            , techAmount = exMeanValue edata
+                            , techUnitId = unitId
+                            , techIsInput = isInput
+                            , techIsReference = isReferenceProduct
+                            , techActivityLinkId = UUID.nil
+                            , techProcessLinkId = Nothing
+                            , techLocation = exchangeLocation
+                            }
             cas = if T.null (exCASNumber edata) then Nothing else Just (exCASNumber edata)
             flow = Flow flowId (exName edata) category Nothing unitId flowType M.empty cas Nothing
             unit = Unit unitId (exUnit edata) (exUnit edata) ""

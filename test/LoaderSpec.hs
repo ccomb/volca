@@ -257,7 +257,14 @@ spec = do
         it "does not touch biosphere exchanges" $ do
             let flows = M.empty
                 idx = M.empty
-                bioEx = BiosphereExchange flowUUID1 1.0 UUID.nil False ""
+                bioEx =
+                    BiosphereExchange
+                        { bioFlowId = flowUUID1
+                        , bioAmount = 1.0
+                        , bioUnitId = UUID.nil
+                        , bioIsInput = False
+                        , bioLocation = ""
+                        }
                 (fixed, summary) = fixExchangeLinkByName idx flows "act" bioEx
             -- BiosphereExchange is returned unchanged: verify it is still biosphere
             isBiosphereExchange fixed `shouldBe` True

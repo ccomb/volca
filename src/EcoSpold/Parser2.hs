@@ -251,14 +251,15 @@ parseWithXeno xmlContent processId =
                         uuidWarnings = [w | Just w <- [flowWarn, unitWarn, linkWarn]]
                         exchange =
                             TechnosphereExchange
-                                flowUUID
-                                (idAmount idata)
-                                unitUUID
-                                isInput
-                                isReferenceProduct
-                                linkUUID
-                                Nothing
-                                "" -- EcoSpold2: no per-exchange location
+                                { techFlowId = flowUUID
+                                , techAmount = idAmount idata
+                                , techUnitId = unitUUID
+                                , techIsInput = isInput
+                                , techIsReference = isReferenceProduct
+                                , techActivityLinkId = linkUUID
+                                , techProcessLinkId = Nothing
+                                , techLocation = "" -- EcoSpold2: no per-exchange location
+                                }
                         flow =
                             Flow
                                 flowUUID
@@ -332,12 +333,13 @@ parseWithXeno xmlContent processId =
                         uuidWarnings = [w | Just w <- [flowWarn, unitWarn]]
                         exchange =
                             BiosphereExchange
-                                flowUUID
-                                (edAmount edata)
-                                unitUUID
-                                isInput
-                                "" -- EcoSpold2: no per-exchange location
-                                -- Get subcompartment from the list (first entry if any)
+                                { bioFlowId = flowUUID
+                                , bioAmount = edAmount edata
+                                , bioUnitId = unitUUID
+                                , bioIsInput = isInput
+                                , bioLocation = "" -- EcoSpold2: no per-exchange location
+                                }
+                        -- Get subcompartment from the list (first entry if any)
                         subcompartment = case edSubcompartments edata of
                             (s : _) | not (T.null s) -> Just s
                             _ -> Nothing
@@ -529,10 +531,10 @@ hasReferenceProduct activity = any exchangeIsReference (exchanges activity)
 removeZeroAmountCoproducts :: [Exchange] -> [Exchange]
 removeZeroAmountCoproducts exs = filter keepExchange exs
   where
-    keepExchange (TechnosphereExchange _ _ _ False True _ _ _) = True
-    keepExchange (TechnosphereExchange _ amount _ False False _ _ _) = amount /= 0.0
-    keepExchange (TechnosphereExchange _ _ _ True _ _ _ _) = True
-    keepExchange (BiosphereExchange _ _ _ _ _) = True
+    keepExchange TechnosphereExchange{techIsInput = False, techIsReference = True} = True
+    keepExchange TechnosphereExchange{techIsInput = False, techIsReference = False, techAmount = amount} = amount /= 0.0
+    keepExchange TechnosphereExchange{techIsInput = True} = True
+    keepExchange BiosphereExchange{} = True
 
 -- | Assign single product as reference product
 assignSingleProductAsReference :: Activity -> Activity
@@ -549,8 +551,9 @@ assignSingleProductAsReference activity =
 
 -- | Check if exchange is production exchange (output, non-reference)
 isProductionExchange :: Exchange -> Bool
-isProductionExchange (TechnosphereExchange _ _ _ False _ _ _ _) = True -- Output technosphere = production
-isProductionExchange _ = False
+isProductionExchange TechnosphereExchange{techIsInput = False} = True -- Output technosphere = production
+isProductionExchange TechnosphereExchange{techIsInput = True} = False
+isProductionExchange BiosphereExchange{} = False
 
 -- | Update reference product flag for the specified exchange
 updateReferenceProduct :: Exchange -> Exchange -> Exchange
@@ -560,12 +563,10 @@ updateReferenceProduct target current
 
 -- | Mark exchange as reference product
 markAsReference :: Exchange -> Exchange
-markAsReference (TechnosphereExchange fid amt uid isInp _ linkId procLink loc) =
-    TechnosphereExchange fid amt uid isInp True linkId procLink loc
-markAsReference ex = ex -- No change for biosphere exchanges
+markAsReference ex@TechnosphereExchange{} = ex{techIsReference = True}
+markAsReference ex@BiosphereExchange{} = ex -- Biosphere exchanges have no reference flag
 
 -- | Unmark exchange as reference product
 unmarkAsReference :: Exchange -> Exchange
-unmarkAsReference (TechnosphereExchange fid amt uid isInp _ linkId procLink loc) =
-    TechnosphereExchange fid amt uid isInp False linkId procLink loc
-unmarkAsReference ex = ex -- No change for biosphere exchanges
+unmarkAsReference ex@TechnosphereExchange{} = ex{techIsReference = False}
+unmarkAsReference ex@BiosphereExchange{} = ex

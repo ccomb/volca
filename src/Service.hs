@@ -723,8 +723,8 @@ buildActivityGraph db sharedSolver queryText cutoffPercent = do
                                     [ ex
                                     | ex <- exchanges srcAct
                                     , case ex of
-                                        TechnosphereExchange _ _ _ isInput isRef _ _ _ -> isInput && not isRef
-                                        _ -> False
+                                        TechnosphereExchange{techIsInput = isInput, techIsReference = isRef} -> isInput && not isRef
+                                        BiosphereExchange{} -> False
                                     ]
                             -- Match by target activity UUID
                             case [ex | ex <- techExchanges, exchangeActivityLinkId ex == Just targetUUID] of
@@ -1016,7 +1016,7 @@ convertActivityForAPI unitCfg db processId activity =
     convertExchangeWithUnit exchange =
         let flowInfo = M.lookup (exchangeFlowId exchange) (dbFlows db)
             (targetActivityName, targetActivityLocation, targetProcessId) = case exchange of
-                TechnosphereExchange fId _ _ isInput _ linkId _ _
+                TechnosphereExchange{techFlowId = fId, techIsInput = isInput, techActivityLinkId = linkId}
                     | isInput && linkId /= UUID.nil ->
                         -- EcoSpold path: use explicit activity link
                         case findActivityByActivityUUID db linkId of
@@ -1045,7 +1045,7 @@ convertActivityForAPI unitCfg db processId activity =
                                          in (Just (cdlFlowName link), Just (cdlLocation link), Just crossPid)
                                     Nothing -> (Nothing, Nothing, Nothing)
                     | otherwise -> (Nothing, Nothing, Nothing)
-                BiosphereExchange _ _ _ _ _ -> (Nothing, Nothing, Nothing)
+                BiosphereExchange{} -> (Nothing, Nothing, Nothing)
          in ExchangeWithUnit
                 { ewuExchange = exchange
                 , ewuUnitName = getUnitNameForExchange (dbUnits db) exchange
