@@ -608,6 +608,7 @@ data ExchangeWithUnit = ExchangeWithUnit
     , ewuTargetActivity :: Maybe Text -- For technosphere: name of target activity
     , ewuTargetLocation :: Maybe Text -- For technosphere: location of target activity
     , ewuTargetProcessId :: Maybe Text -- For technosphere: ProcessId for navigation (activityUUID_productUUID)
+    , ewuExComment :: Maybe Text -- Free-text per-exchange comment (mirrors exchangeComment)
     }
     deriving (Generic)
 
