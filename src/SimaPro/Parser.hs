@@ -37,7 +37,7 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isUpper, toLower)
 import qualified Data.Csv as Csv
-import Data.List (foldl')
+import Data.List (dropWhileEnd, foldl')
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -438,6 +438,17 @@ isAllocationField :: SimaProConfig -> BS.ByteString -> Bool
 isAllocationField cfg bs = Expr.isExpression (spDecimal cfg) (decodeBS (BS8.strip bs))
 
 -- | Parse a technosphere exchange row (ByteString input, Text output)
+
+{- | Re-join the trailing CSV columns that hold the free-text comment.
+A comment may itself contain ';' (un-escaped in SimaPro exports), so
+we have to glue the tail back together. Empty padding columns on
+either side get dropped so a blank-comment row produces "" rather
+than ";;;" and a comment in the last filled column doesn't carry
+leading ";"s from skipped intermediate columns.
+-}
+joinComment :: [BS.ByteString] -> Text
+joinComment = decodeBS . BS8.intercalate ";" . dropWhile BS.null . dropWhileEnd BS.null
+
 parseTechRow :: SimaProConfig -> BS.ByteString -> Maybe TechExchangeRow
 parseTechRow cfg line =
     let fields = splitCSV (spDelimiter cfg) line
@@ -451,7 +462,7 @@ parseTechRow cfg line =
                         , terAmount = parseAmount (spDecimal cfg) (BS8.strip amount)
                         , terAmountRaw = norm amount
                         , terUncertainty = decodeBS (BS8.strip unc)
-                        , terComment = decodeBS (BS8.intercalate ";" rest)
+                        , terComment = joinComment rest
                         }
             (name : unit : amount : rest) ->
                 Just
@@ -461,7 +472,7 @@ parseTechRow cfg line =
                         , terAmount = parseAmount (spDecimal cfg) (BS8.strip amount)
                         , terAmountRaw = norm amount
                         , terUncertainty = ""
-                        , terComment = decodeBS (BS8.intercalate ";" rest)
+                        , terComment = joinComment rest
                         }
             _ -> Nothing
 
@@ -480,7 +491,7 @@ parseBioRow cfg line =
                         , berAmount = parseAmount (spDecimal cfg) (BS8.strip amount)
                         , berAmountRaw = norm amount
                         , berUncertainty = decodeBS (BS8.strip unc)
-                        , berComment = decodeBS (BS8.intercalate ";" rest)
+                        , berComment = joinComment rest
                         }
             (name : compartment : unit : amount : rest) ->
                 Just
@@ -491,7 +502,7 @@ parseBioRow cfg line =
                         , berAmount = parseAmount (spDecimal cfg) (BS8.strip amount)
                         , berAmountRaw = norm amount
                         , berUncertainty = ""
-                        , berComment = decodeBS (BS8.intercalate ";" rest)
+                        , berComment = joinComment rest
                         }
             _ -> Nothing
 
@@ -876,6 +887,14 @@ productToExchange unitCfg env isRef ProductRow{..} =
         unit = Unit{unitId = unitUUID, unitName = effUnitName, unitSymbol = effUnitName, unitComment = ""}
      in (exchange, flow, unit)
 
+{- | Drop empty / whitespace-only text. Single normalisation point so future
+cleanup (e.g. stripping control bytes from SimaPro exports) lives here.
+-}
+nonEmptyText :: Text -> Maybe Text
+nonEmptyText t =
+    let s = T.strip t
+     in if T.null s then Nothing else Just s
+
 {- | Convert technosphere row to exchange (if non-zero), flow, and unit.
 Always returns the flow/unit; exchange is Nothing for zero-amount rows.
 -}
@@ -899,7 +918,7 @@ techRowToExchange env isInput TechExchangeRow{..} =
                             , techActivityLinkId = UUID.nil
                             , techProcessLinkId = Nothing
                             , techLocation = location
-                            , techComment = Nothing
+                            , techComment = nonEmptyText terComment
                             }
         flow =
             Flow
@@ -937,7 +956,7 @@ bioRowToExchange env isInput compartment BioExchangeRow{..} =
                 , bioUnitId = unitUUID
                 , bioIsInput = isInput
                 , bioLocation = ""
-                , bioComment = Nothing
+                , bioComment = nonEmptyText berComment
                 }
         flow =
             Flow

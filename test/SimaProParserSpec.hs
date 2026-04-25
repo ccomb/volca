@@ -26,7 +26,7 @@ import SimaPro.Parser (
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
-import Types (Activity (..), Exchange (..), Flow, UUID, Unit (..))
+import Types (Activity (..), Exchange (..), Flow, UUID, Unit (..), exchangeComment)
 import UnitConversion (UnitConfig (..), UnitDef (..), defaultUnitConfig, isKnownUnit)
 
 -- | Test CSV content with a quoted product name containing the delimiter (;)
@@ -642,6 +642,60 @@ spec = do
 
         it "returns Nothing for too-short row" $
             parseBioRow defaultConfig "name;air" `shouldBe` Nothing
+
+    -- -----------------------------------------------------------------------
+    -- Per-exchange comments (terComment / berComment)
+    -- -----------------------------------------------------------------------
+
+    describe "per-exchange comments" $ do
+        it "surfaces the trailing free-text comment on a Materials/fuels row" $ do
+            (activities, _, _) <-
+                parseSectionCSV
+                    [ "Materials/fuels"
+                    , "Soybean meal BR;kg;6506.5;Lognormal;1.533;0;0;Soybean, meal 46 BR, crushing in Brazil, at french port, average, FR"
+                    ]
+            let inputs =
+                    [ ex
+                    | act <- activities
+                    , ex <- exchanges act
+                    , case ex of
+                        TechnosphereExchange{techIsInput = True} -> True
+                        _ -> False
+                    ]
+            map exchangeComment inputs
+                `shouldBe` [Just "Soybean, meal 46 BR, crushing in Brazil, at french port, average, FR"]
+
+        it "returns Nothing for a comment-less row" $ do
+            (activities, _, _) <-
+                parseSectionCSV
+                    [ "Materials/fuels"
+                    , "Plain {FR} U;kg;1.0;Undefined;;;;;;"
+                    ]
+            let inputs =
+                    [ ex
+                    | act <- activities
+                    , ex <- exchanges act
+                    , case ex of
+                        TechnosphereExchange{techIsInput = True} -> True
+                        _ -> False
+                    ]
+            map exchangeComment inputs `shouldBe` [Nothing]
+
+        it "surfaces a per-emission comment on a biosphere row" $ do
+            (activities, _, _) <-
+                parseSectionCSV
+                    [ "Emissions to air"
+                    , "Carbon dioxide, fossil;high. pop.;kg;0.5;Undefined;;;;;;tail-pipe combustion"
+                    ]
+            let bios =
+                    [ ex
+                    | act <- activities
+                    , ex <- exchanges act
+                    , case ex of
+                        BiosphereExchange{} -> True
+                        _ -> False
+                    ]
+            map exchangeComment bios `shouldBe` [Just "tail-pipe combustion"]
 
     -- -----------------------------------------------------------------------
     -- UUID generation
