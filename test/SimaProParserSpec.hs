@@ -715,6 +715,10 @@ spec = do
             (activities, _, _) <- parseNamedCSV "Widget {FR} U" []
             activityLocation (head activities) `shouldBe` "FR"
 
+        it "parses location from process name //[XX] pattern (ecoinvent 3.9.1 SimaPro export)" $ do
+            (activities, _, _) <- parseNamedCSV "mango//[BR] mango production" []
+            activityLocation (head activities) `shouldBe` "BR"
+
         it "parses location from Geography metadata" $ do
             (activities, _, _) <- parseTestCSV
             let a = head activities

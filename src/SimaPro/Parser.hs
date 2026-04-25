@@ -652,9 +652,12 @@ generateUnitUUID unitName =
 -- ============================================================================
 
 {- | Extract location from SimaPro-style names
-Handles: "Name {FR}", "Name {Europe without Switzerland}| market for...", etc.
-Also handles WFLDB-style "/XX" suffix (e.g. "Ammonium nitrate .../CN").
-In SimaPro format, curly braces always denote geography.
+Handles three forms:
+  * Curly-brace tag (ecoinvent 3.10+): "Name {FR}| market for ..."
+  * Embedded bracket tag (ecoinvent 3.9.1 SimaPro export): "name//[FR] ..."
+  * WFLDB-style "/XX" suffix: "Ammonium nitrate .../CN".
+The first two preserve the full name (the tag is informational); the WFLDB
+form strips at the slash because the geo code is a true suffix.
 -}
 extractLocation :: Text -> (Text, Text)
 extractLocation name =
@@ -668,12 +671,24 @@ extractLocation name =
                                 then (T.strip name, cleanLoc)
                                 else (name, "")
                 _ -> (name, "")
-        _ ->
-            -- No {XX} found — try WFLDB-style /XX suffix
-            case extractSlashLocation name of
+        _ -> case extractBracketLocation name of
+            Just loc -> (T.strip name, loc)
+            Nothing -> case extractSlashLocation name of
                 Just (cleanName, loc) -> (cleanName, loc)
                 Nothing -> (name, "")
   where
+    -- Match "//[XX]" anywhere in the string (older SimaPro exports of
+    -- ecoinvent embed the geo code mid-name, so we keep the full name).
+    extractBracketLocation n = case T.breakOn "//[" n of
+        (_, rest) | not (T.null rest) ->
+            case T.breakOn "]" (T.drop 3 rest) of
+                (loc, afterBracket)
+                    | not (T.null afterBracket) ->
+                        let cleanLoc = T.strip loc
+                         in if T.length cleanLoc >= 2 then Just cleanLoc else Nothing
+                _ -> Nothing
+        _ -> Nothing
+
     -- Extract location from WFLDB-style slash suffixes like:
     --   "Product (WFLDB)/CN U"       → ("Product (WFLDB)", "CN")
     --   "Product/ha/GLO/I U"         → ("Product/ha", "GLO")
