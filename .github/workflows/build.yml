@@ -99,6 +99,11 @@ jobs:
           source /c/ghcup/env
           ghc --version
           cabal --version
+          # The Hackage package index lives under C:\cabal\packages and is
+          # NOT inside the cached /c/ghcup tree. Run an explicit update so
+          # cache-hit runs (where the install step is skipped) still have
+          # a populated index. setup-haskell does this for us on Linux/macOS.
+          cabal update
 
       - name: Save GHCup install (Windows)
         if: always() && matrix.os == 'windows' && steps.cache-ghcup.outputs.cache-hit != 'true'
