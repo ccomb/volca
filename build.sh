@@ -16,6 +16,9 @@
 #   --test              Run tests after building
 #   --coverage          Run tests with coverage and generate HTML report (implies --test)
 #   --static            Build a statically-linked binary
+#   --no-optimize       Skip strip + UPX (preserves dylib load commands so
+#                       downstream tooling like dylibbundler / install_name_tool
+#                       can rewrite them — required for the macOS .app)
 #
 # Examples:
 #   ./build.sh                      # Build
@@ -72,6 +75,7 @@ RUN_TESTS=false
 CLEAN_BUILD=false
 COVERAGE=false
 STATIC_BUILD=false
+SKIP_OPTIMIZE=false
 
 # -----------------------------------------------------------------------------
 # Parse arguments
@@ -101,6 +105,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --static)
             STATIC_BUILD=true
+            shift
+            ;;
+        --no-optimize)
+            SKIP_OPTIMIZE=true
             shift
             ;;
         *)
@@ -374,14 +382,29 @@ MUMPS_INCLUDE_DIR="$MUMPS_INCLUDE_DIR" \
 LINK_MODE="$LINK_MODE" \
 ./gen-cabal-config.sh
 
+# If --no-optimize was requested but a previous build left a UPX'd binary
+# in dist-newstyle, delete it so cabal re-links a clean (decompressible)
+# copy. cabal-install caches the link product and would otherwise re-use
+# the compressed one as-is.
+if [[ "$SKIP_OPTIMIZE" == "true" ]]; then
+    PREV_BIN=$(cabal list-bin exe:volca 2>/dev/null || true)
+    if [[ -n "$PREV_BIN" && -f "$PREV_BIN" ]] && upx -t "$PREV_BIN" &>/dev/null; then
+        log_info "--no-optimize: removing previously UPX'd binary to force re-link"
+        rm -f "$PREV_BIN"
+    fi
+fi
+
 cabal build -j
 
 # Strip and compress the binary
 {
     VOLCA_BIN_PATH=$(cabal list-bin exe:volca 2>/dev/null || true)
     if [[ -n "$VOLCA_BIN_PATH" && -f "$VOLCA_BIN_PATH" ]]; then
+        if [[ "$SKIP_OPTIMIZE" == "true" ]]; then
+            FINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
+            log_info "--no-optimize: leaving binary unstripped/uncompressed ($FINAL_SIZE)"
         # Skip if already UPX-compressed (from a previous build)
-        if upx -t "$VOLCA_BIN_PATH" &>/dev/null; then
+        elif upx -t "$VOLCA_BIN_PATH" &>/dev/null; then
             FINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
             log_info "Binary already optimized ($FINAL_SIZE), skipping strip/UPX"
         else
