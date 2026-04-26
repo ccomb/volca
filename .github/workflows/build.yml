@@ -83,12 +83,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential gfortran cmake python3 curl \
-            zlib1g-dev liblapack-dev libblas-dev upx-ucl libquadmath0
-          # Ubuntu ships libquadmath.so.0 without the unversioned symlink that
-          # `ld -lquadmath` needs (gcc's spec adds -lquadmath when linking
-          # gfortran-compiled archives like our libdmumps_seq.a). The .so
-          # symlink lives in gcc-NN-base on amd64 but is absent on arm64;
-          # create it if missing — no-op when the symlink is already there.
+            zlib1g-dev liblapack-dev libblas-dev upx-ucl
+          # Ubuntu ships libquadmath.so.0 (bundled with gfortran) without the
+          # unversioned symlink that `ld -lquadmath` needs — gcc's spec adds
+          # -lquadmath when linking gfortran-compiled archives like our
+          # libdmumps_seq.a. The .so symlink lives in gcc-NN-base on amd64
+          # but is absent on arm64; create it if missing. No-op when the
+          # symlink is already there. Also no-op if quadmath isn't shipped
+          # at all (then the link wouldn't reference it either).
           QM=$(find /usr/lib /usr/lib/gcc -maxdepth 5 -name "libquadmath.so.0" 2>/dev/null | head -1)
           if [[ -n "$QM" ]] && [[ ! -e "${QM%.0}" ]]; then
             echo "Creating ${QM%.0} -> $(basename "$QM")"
