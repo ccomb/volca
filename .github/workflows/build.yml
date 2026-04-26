@@ -69,11 +69,14 @@ jobs:
               BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
               BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
               sh
-          # GITHUB_PATH is read by the runner as Windows paths; convert from
-          # MSYS2's unix-style $HOME so subsequent steps actually find ghc/cabal.
-          cygpath -w "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
+          # GHCup on Windows installs to /c/ghcup, not $HOME/.ghcup. Source the
+          # env file to update PATH for the current step, then propagate the
+          # bin dir to subsequent steps as a Windows path (GITHUB_PATH is read
+          # by the runner outside MSYS2).
+          source /c/ghcup/env
           ghc --version
           cabal --version
+          cygpath -w /c/ghcup/bin >> "$GITHUB_PATH"
 
       - name: Install build dependencies (Linux)
         if: matrix.os == 'linux'
