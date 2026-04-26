@@ -166,8 +166,12 @@ jobs:
         id: cache-cabal
         uses: actions/cache/restore@v4
         with:
+          # GHCup-installed cabal on Windows uses C:\cabal\store, not the
+          # MSYS2 ~/.cabal/store path. Listing both is safe — actions/cache
+          # silently skips paths that do not exist on the running OS.
           path: |
             ~/.cabal/store
+            C:\cabal\store
             dist-newstyle
           key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}
           restore-keys: |
@@ -208,6 +212,7 @@ jobs:
         with:
           path: |
             ~/.cabal/store
+            C:\cabal\store
             dist-newstyle
           key: ${{ steps.cache-cabal.outputs.cache-primary-key }}
 
