@@ -73,21 +73,39 @@ jobs:
             curl
             tar
 
-      - name: Install GHC via ghcup (Windows MSYS2)
+      - name: Restore GHCup install (Windows)
+        id: cache-ghcup
         if: matrix.os == 'windows'
+        uses: actions/cache/restore@v4
+        with:
+          path: C:\ghcup
+          key: ghcup-windows-ghc${{ steps.versions.outputs.ghc }}
+
+      - name: Install GHC via ghcup (Windows MSYS2)
+        if: matrix.os == 'windows' && steps.cache-ghcup.outputs.cache-hit != 'true'
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
             | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
               BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
               BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
               sh
-          # GHCup on Windows installs to /c/ghcup. Verify by sourcing its
-          # env into the current shell. Subsequent MSYS2 steps need to source
-          # this themselves — GITHUB_PATH does not propagate into the
-          # msys2.CMD wrapper.
+
+      - name: Verify GHC + Cabal (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          # GHCup on Windows installs to /c/ghcup. Subsequent MSYS2 steps
+          # need to source this themselves — GITHUB_PATH does not propagate
+          # into the msys2.CMD wrapper.
           source /c/ghcup/env
           ghc --version
           cabal --version
+
+      - name: Save GHCup install (Windows)
+        if: always() && matrix.os == 'windows' && steps.cache-ghcup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\ghcup
+          key: ${{ steps.cache-ghcup.outputs.cache-primary-key }}
 
       - name: Install build dependencies (Linux)
         if: matrix.os == 'linux'
