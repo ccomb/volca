@@ -120,6 +120,9 @@ jobs:
         with:
           path: deps/mumps
           key: mumps-${{ matrix.name }}-${{ steps.versions.outputs.mumps }}
+          # Save even when later steps fail — MUMPS source build is the
+          # same output regardless of whether tests pass downstream.
+          save-always: true
 
       - name: Cache Cabal store
         uses: actions/cache@v4
@@ -130,6 +133,9 @@ jobs:
           key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}
           restore-keys: |
             cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-
+          # Save even on test failure so a Windows test hang does not
+          # discard a 30-min cold cabal compile that did succeed.
+          save-always: true
 
       - name: Build and test
         run: |
