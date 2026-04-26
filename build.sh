@@ -495,7 +495,14 @@ if [[ "$RUN_TESTS" == "true" ]]; then
             log_warn "No .tix file found — coverage report not generated"
         fi
     else
-        cabal test --test-show-details=streaming
+        # VOLCA_TEST_OPTS forwards args to the Hspec executable. CI uses it
+        # to set a per-spec timeout (--timeout=300) so a hang becomes a
+        # readable failure instead of an indefinite stall.
+        EXTRA_TEST_OPTS=()
+        if [[ -n "${VOLCA_TEST_OPTS:-}" ]]; then
+            EXTRA_TEST_OPTS=(--test-options="$VOLCA_TEST_OPTS")
+        fi
+        cabal test --test-show-details=streaming "${EXTRA_TEST_OPTS[@]}"
     fi
     log_success "Tests passed"
     echo ""
