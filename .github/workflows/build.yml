@@ -88,7 +88,7 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential gfortran cmake python3 curl \
             zlib1g-dev liblapack-dev libblas-dev upx-ucl
           # gcc's gfortran spec auto-adds -lquadmath when linking
