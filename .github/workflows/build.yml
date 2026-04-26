@@ -4,6 +4,13 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel any older in-flight runs for the same PR when a new commit is
+# pushed. Keeps queue depth bounded — Windows cold builds are 30 min
+# and there is no point burning runners on superseded code.
+concurrency:
+  group: build-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: ${{ matrix.name }}
