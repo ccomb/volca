@@ -21,6 +21,32 @@ BUILD_DIR="${BUILD_DIR:-$(pwd)/deps/build}"
 BLAS_LIBS="${BLAS_LIBS:--llapack -lblas}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 
+# On macOS, Homebrew gcc installs versioned binaries (gfortran-15, gcc-15) and
+# does not symlink unsuffixed names — `gfortran` resolves to nothing, `gcc` to
+# Apple clang. Pick the highest installed version so MUMPS's Fortran sources compile.
+CC_DEFAULT="gcc"
+FC_DEFAULT="gfortran"
+EXTRA_FFLAGS=""
+EXTRA_CFLAGS=""
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    BREW_PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
+    if ! command -v gfortran &>/dev/null; then
+        FC_DEFAULT=$(ls "${BREW_PREFIX}/bin/gfortran-"* 2>/dev/null | sort -V | tail -1)
+        : "${FC_DEFAULT:?gfortran not found — install with: brew install gcc}"
+    fi
+    # Homebrew gcc is versioned too; Apple's /usr/bin/gcc is clang and lacks
+    # Fortran-aware libraries, but its C compilation works for MUMPS's C bits.
+    # Prefer the matching Homebrew gcc to keep CC/FC from the same toolchain.
+    HOMEBREW_GCC=$(ls "${BREW_PREFIX}/bin/gcc-"* 2>/dev/null | grep -E '/gcc-[0-9]+$' | sort -V | tail -1)
+    if [[ -n "$HOMEBREW_GCC" ]]; then
+        CC_DEFAULT="$HOMEBREW_GCC"
+    fi
+    EXTRA_FFLAGS="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+    EXTRA_CFLAGS="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+fi
+CC="${CC:-$CC_DEFAULT}"
+FC="${FC:-$FC_DEFAULT}"
+
 TARBALL="${BUILD_DIR}/MUMPS_${MUMPS_VERSION}.tar.gz"
 SRCDIR="${BUILD_DIR}/MUMPS_${MUMPS_VERSION}"
 
@@ -69,9 +95,9 @@ printf '%s\n' \
     'OUTC    = -o ' \
     'OUTF    = -o ' \
     'RM      = /bin/rm -f' \
-    'CC      = gcc' \
-    'FC      = gfortran' \
-    'FL      = gfortran' \
+    "CC      = $CC" \
+    "FC      = $FC" \
+    "FL      = $FC" \
     'AR      = ar vr ' \
     'RANLIB  = ranlib' \
     "LIBBLAS = ${BLAS_LIBS}" \
@@ -89,8 +115,8 @@ printf '%s\n' \
     'LIBC    =' \
     'LIBOTHERS = -lpthread' \
     'CDEFS   = -DAdd_' \
-    'OPTF    = -O3 -fPIC -fallow-argument-mismatch' \
-    'OPTC    = -O3 -fPIC' \
+    "OPTF    = -O3 -fPIC -fallow-argument-mismatch ${EXTRA_FFLAGS}" \
+    "OPTC    = -O3 -fPIC ${EXTRA_CFLAGS}" \
     'OPTL    = -O3' \
     'INCS    = $(INCPAR) $(IORDERINGSC)' \
     'LIBS    = $(LIBPAR)' \
