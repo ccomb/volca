@@ -47,9 +47,6 @@ jobs:
           msystem: UCRT64
           update: true
           cache: true
-          # Inherit the runner's Windows PATH so /c/ghcup/bin (added to
-          # GITHUB_PATH after the GHCup install) is visible inside MSYS2.
-          path-type: inherit
           install: >-
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-gcc-fortran
@@ -72,14 +69,13 @@ jobs:
               BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
               BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
               sh
-          # GHCup on Windows installs to /c/ghcup, not $HOME/.ghcup. Source the
-          # env file to update PATH for the current step, then propagate the
-          # bin dir to subsequent steps as a Windows path (GITHUB_PATH is read
-          # by the runner outside MSYS2).
+          # GHCup on Windows installs to /c/ghcup. Verify by sourcing its
+          # env into the current shell. Subsequent MSYS2 steps need to source
+          # this themselves — GITHUB_PATH does not propagate into the
+          # msys2.CMD wrapper.
           source /c/ghcup/env
           ghc --version
           cabal --version
-          cygpath -w /c/ghcup/bin >> "$GITHUB_PATH"
 
       - name: Install build dependencies (Linux)
         if: matrix.os == 'linux'
@@ -127,7 +123,11 @@ jobs:
             cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-
 
       - name: Build and test
-        run: ./build.sh --test
+        run: |
+          # Windows: re-source GHCup env in this MSYS2 shell since the wrapper
+          # does not inherit PATH from the previous step.
+          [[ -f /c/ghcup/env ]] && source /c/ghcup/env
+          ./build.sh --test
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
