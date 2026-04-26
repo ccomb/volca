@@ -5,20 +5,27 @@ module ServerSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, bracket, try)
+import Data.Char (isSpace)
+import Data.List (dropWhileEnd)
 import Network.HTTP.Client (Manager, defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestHeaders, responseStatus)
 import Network.HTTP.Types (statusCode)
 import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (IOMode (..), hClose, openFile)
-import System.Process (CreateProcess (..), ProcessHandle, StdStream (..), createProcess, getProcessExitCode, interruptProcessGroupOf, proc, waitForProcess)
+import System.Process (CreateProcess (..), ProcessHandle, StdStream (..), createProcess, getProcessExitCode, interruptProcessGroupOf, proc, readProcess, waitForProcess)
 import Test.Hspec
 
--- | Find the volca executable in the build directory
+{- | Find the volca executable in the build directory.
+
+`cabal list-bin exe:volca` is portable across architectures (x86_64-linux,
+aarch64-osx, x86_64-windows…). Hardcoding `dist-newstyle/build/x86_64-linux/…`
+breaks every non-Linux-amd64 test run.
+-}
 findVolcaExe :: IO FilePath
 findVolcaExe = do
-    -- The executable is at a known location relative to the project root
-    let exe = "dist-newstyle/build/x86_64-linux/ghc-9.6.7/volca-0.6.0/x/volca/opt/build/volca/volca"
+    raw <- readProcess "cabal" ["list-bin", "exe:volca"] ""
+    let exe = dropWhileEnd isSpace raw
     exists <- doesFileExist exe
     if exists
         then return exe
