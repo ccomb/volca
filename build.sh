@@ -215,8 +215,8 @@ else
     fi
 fi
 
-# Linux/Windows fallback: build MUMPS from source
-if [[ "$MUMPS_FOUND" != "true" ]] && [[ "$OS" == "linux" || "$OS" == "windows" ]]; then
+# Source build fallback when no system/brew/MSYS2 package is found
+if [[ "$MUMPS_FOUND" != "true" ]]; then
     log_info "MUMPS not found; building ${MUMPS_VERSION} from source (this may take a few minutes)..."
     if [[ "$OS" == "windows" ]]; then
         # Ensure Fortran compiler is present (build tool, not the library we're compiling)
@@ -234,6 +234,20 @@ if [[ "$MUMPS_FOUND" != "true" ]] && [[ "$OS" == "linux" || "$OS" == "windows" ]
             pacman -S --noconfirm mingw-w64-ucrt-x86_64-openblas
             BLAS_FLAGS="-lopenblas"
         fi
+    elif [[ "$OS" == "macos" ]]; then
+        # gfortran ships with the Homebrew gcc package
+        if ! command -v gfortran &>/dev/null; then
+            log_info "gfortran not found, installing gcc via brew..."
+            brew install gcc
+        fi
+        # Use Homebrew openblas — works uniformly on Intel and Apple Silicon
+        if ! brew --prefix openblas &>/dev/null; then
+            log_info "openblas not found, installing via brew..."
+            brew install openblas
+        fi
+        OPENBLAS_PREFIX=$(brew --prefix openblas)
+        BLAS_FLAGS="-L${OPENBLAS_PREFIX}/lib -lopenblas"
+        export CPPFLAGS="-I${OPENBLAS_PREFIX}/include ${CPPFLAGS:-}"
     else
         BLAS_FLAGS="-llapack -lblas"
     fi
