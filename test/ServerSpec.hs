@@ -14,6 +14,7 @@ import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (IOMode (..), hClose, openFile)
+import qualified System.Info as Info
 import System.Process (CreateProcess (..), ProcessHandle, StdStream (..), createProcess, getProcessExitCode, interruptProcessGroupOf, proc, readProcess, waitForProcess)
 import Test.Hspec
 
@@ -115,8 +116,21 @@ postEndpoint mgr path = do
     resp <- httpLbs req mgr
     return $ statusCode (responseStatus resp)
 
+{- | These specs spawn volca as a subprocess and tear it down with
+interruptProcessGroupOf + waitForProcess. On Windows the terminate
+signal does not unblock the running RTS reliably, so cleanup waits
+forever and the whole suite stalls until the runner kills the job.
+Skip the spawn-based specs there.
+-}
 spec :: Spec
-spec = do
+spec
+    | Info.os == "mingw32" =
+        describe "Server lifecycle (skipped on Windows)" $
+            it "subprocess teardown deadlocks on this platform" pending
+    | otherwise = serverSpecs
+
+serverSpecs :: Spec
+serverSpecs = do
     describe "Server shutdown endpoint" $ do
         it "POST /api/v1/shutdown stops the server" $ do
             withMinimalConfig $ \cfgPath ->
