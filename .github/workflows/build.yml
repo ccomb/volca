@@ -117,6 +117,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: volca-${{ matrix.name }}
-          path: dist-newstyle/build/*/ghc-*/volca-*/x/volca/build/volca/volca*
+          # The penultimate segment is `opt/build/` with optimization: 2,
+          # `build/` without it; ** absorbs both layouts.
+          path: dist-newstyle/build/*/ghc-*/volca-*/x/volca/**/build/volca/volca*
           if-no-files-found: error
           retention-days: 14
