@@ -132,6 +132,10 @@ jobs:
             cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-
 
       - name: Build and test
+        env:
+          # Per-spec timeout so a Windows test hang becomes a clear failure
+          # instead of stalling the runner for hours.
+          VOLCA_TEST_OPTS: '--timeout=300'
         run: |
           # Windows: re-source GHCup env in this MSYS2 shell since the wrapper
           # does not inherit PATH from the previous step.
