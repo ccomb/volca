@@ -136,10 +136,16 @@ jobs:
           # Windows: re-source GHCup env in this MSYS2 shell since the wrapper
           # does not inherit PATH from the previous step.
           [[ -f /c/ghcup/env ]] && source /c/ghcup/env
-          # Bound the whole build+test phase: hspec has no CLI per-spec
-          # timeout, so wrap with `timeout` (POSIX coreutils, also in MSYS2)
-          # to convert any hang into a recognizable signal kill (exit 124).
-          timeout --foreground 1500 ./build.sh --test
+          # Windows is the only platform exhibiting indefinite test hangs
+          # (waitForProcess never reaping volca.exe). Wrap with GNU `timeout`
+          # (available in MSYS2 coreutils) to convert hangs into exit 124.
+          # macOS / Linux ship without GNU timeout by default and do not
+          # need it, so just call build.sh directly.
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            timeout --foreground 1500 ./build.sh --test
+          else
+            ./build.sh --test
+          fi
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
