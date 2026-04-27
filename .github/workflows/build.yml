@@ -234,6 +234,30 @@ jobs:
             ./build.sh --test
           fi
 
+      - name: Optimize macOS binary (strip + UPX + re-sign)
+        # Tests above ran on the unstripped binary because UPX'd Mach-O on
+        # arm64 fails to launch under cabal test even after ad-hoc re-sign,
+        # turning every test that spawns volca into a 5-min timeout. Now that
+        # tests are done, strip + UPX the binary so the uploaded artifact is
+        # small, then verify it still launches before upload. If UPX corrupts
+        # the binary, fall back to strip-only — still cuts ~60 % off the size.
+        if: matrix.os == 'macos'
+        run: |
+          ./build.sh --optimize-only
+          VOLCA_BIN=$(cabal list-bin exe:volca)
+          if ! "$VOLCA_BIN" --version >/dev/null 2>&1; then
+            echo "::warning::Optimized macOS binary fails to launch — falling back to strip-only"
+            # Delete the corrupted binary so cabal re-links from cached object
+            # files (fast — no recompile, just ld). Then strip + ad-hoc sign,
+            # skipping UPX entirely.
+            rm -f "$VOLCA_BIN"
+            cabal build -j
+            strip -x "$VOLCA_BIN"
+            codesign --force --sign - "$VOLCA_BIN"
+            "$VOLCA_BIN" --version
+          fi
+          ls -lh "$VOLCA_BIN"
+
       - name: Save MUMPS local build
         if: always() && steps.cache-mumps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4

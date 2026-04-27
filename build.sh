@@ -19,6 +19,11 @@
 #   --no-optimize       Skip strip + UPX (preserves dylib load commands so
 #                       downstream tooling like dylibbundler / install_name_tool
 #                       can rewrite them — required for the macOS .app)
+#   --optimize-only     Skip the entire build: just strip + UPX + (re-)sign the
+#                       binary produced by a previous run. Used in CI to ship a
+#                       small artifact AFTER tests have run on the unstripped
+#                       binary (UPX'd Mach-O on macOS arm64 fails to launch
+#                       under cabal test even after ad-hoc re-sign).
 #
 # Examples:
 #   ./build.sh                      # Build
@@ -69,6 +74,64 @@ if [[ "$OS" == "macos" ]]; then
     export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 fi
 
+# Strip + UPX + (re-)sign $1 in place. Idempotent: a binary already UPX'd
+# is left as-is. Linker output is the input; only platform-correct tooling
+# is invoked. Used both at the end of a normal build and as the sole action
+# of `--optimize-only`.
+optimize_volca_binary() {
+    local bin_path="$1"
+    if [[ -z "$bin_path" || ! -f "$bin_path" ]]; then
+        log_error "optimize_volca_binary: binary not found at '$bin_path'"
+        return 1
+    fi
+    if upx -t "$bin_path" &>/dev/null; then
+        local sz; sz=$(du -h "$bin_path" | cut -f1)
+        log_info "Binary already optimized ($sz), skipping strip/UPX"
+        return 0
+    fi
+
+    local original_size stripped_size final_size
+    original_size=$(du -h "$bin_path" | cut -f1)
+    log_info "Binary size before optimization: $original_size"
+
+    log_info "Stripping debug symbols..."
+    if [[ "$OS" == "macos" ]]; then
+        strip -x "$bin_path"
+    else
+        strip --strip-all "$bin_path"
+    fi
+    stripped_size=$(du -h "$bin_path" | cut -f1)
+    log_info "After strip: $stripped_size"
+
+    # UPX (Linux/macOS only — Windows Defender flags UPX binaries as malicious,
+    # breaking the NSIS installer). macOS Mach-O support is gated behind
+    # --force-macos in UPX 5.x.
+    if [[ "$OS" == "windows" ]]; then
+        log_success "Binary optimized: $original_size -> $stripped_size (stripped, no UPX on Windows)"
+        return 0
+    fi
+
+    log_info "Compressing with UPX (default level)..."
+    local upx_flags=()
+    if [[ "$OS" == "macos" ]]; then
+        upx_flags+=(--force-macos)
+    fi
+    if upx "${upx_flags[@]}" "$bin_path"; then
+        final_size=$(du -h "$bin_path" | cut -f1)
+        log_success "Binary optimized: $original_size -> $stripped_size (stripped) -> $final_size (compressed)"
+        # macOS arm64 refuses to launch executables without at least an ad-hoc
+        # signature. UPX rewrites the Mach-O headers and invalidates whatever
+        # signature the linker emitted, which silently kills the process at
+        # fork (the symptom is "Server failed to start within timeout" from
+        # any test that spawns volca). Re-sign in place.
+        if [[ "$OS" == "macos" ]]; then
+            codesign --force --sign - "$bin_path"
+        fi
+    else
+        log_warn "UPX compression failed — using stripped binary ($stripped_size)"
+    fi
+}
+
 # Defaults
 FORCE_REBUILD=false
 RUN_TESTS=false
@@ -76,6 +139,7 @@ CLEAN_BUILD=false
 COVERAGE=false
 STATIC_BUILD=false
 SKIP_OPTIMIZE=false
+OPTIMIZE_ONLY=false
 
 # -----------------------------------------------------------------------------
 # Parse arguments
@@ -111,6 +175,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_OPTIMIZE=true
             shift
             ;;
+        --optimize-only)
+            OPTIMIZE_ONLY=true
+            shift
+            ;;
         *)
             log_error "Unknown option: $1"
             echo "Use --help for usage information"
@@ -126,6 +194,23 @@ if [[ "$STATIC_BUILD" == "true" ]]; then
     log_info "  Static linking: enabled"
 fi
 echo ""
+
+# --optimize-only: skip the entire build/test pipeline and just optimize the
+# binary produced by an earlier run. Needs `cabal` (to locate the binary),
+# `strip`, and `upx` — but none of the heavy build deps (gcc, MUMPS, ...).
+if [[ "$OPTIMIZE_ONLY" == "true" ]]; then
+    if ! command -v cabal &>/dev/null; then
+        log_error "--optimize-only requires cabal in PATH to locate the binary"
+        exit 1
+    fi
+    VOLCA_BIN_PATH=$(cabal list-bin exe:volca 2>/dev/null || true)
+    if [[ -z "$VOLCA_BIN_PATH" || ! -f "$VOLCA_BIN_PATH" ]]; then
+        log_error "--optimize-only: no built volca binary found (run ./build.sh first)"
+        exit 1
+    fi
+    optimize_volca_binary "$VOLCA_BIN_PATH"
+    exit 0
+fi
 
 # Check MSYS2 environment on Windows
 if [[ "$OS" == "windows" ]]; then
@@ -396,63 +481,15 @@ fi
 
 cabal build -j
 
-# Strip and compress the binary
-{
-    VOLCA_BIN_PATH=$(cabal list-bin exe:volca 2>/dev/null || true)
-    if [[ -n "$VOLCA_BIN_PATH" && -f "$VOLCA_BIN_PATH" ]]; then
-        if [[ "$SKIP_OPTIMIZE" == "true" ]]; then
-            FINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
-            log_info "--no-optimize: leaving binary unstripped/uncompressed ($FINAL_SIZE)"
-        # Skip if already UPX-compressed (from a previous build)
-        elif upx -t "$VOLCA_BIN_PATH" &>/dev/null; then
-            FINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
-            log_info "Binary already optimized ($FINAL_SIZE), skipping strip/UPX"
-        else
-            ORIGINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
-            log_info "Binary size before optimization: $ORIGINAL_SIZE"
-
-            # Strip debug symbols
-            log_info "Stripping debug symbols..."
-            if [[ "$OS" == "macos" ]]; then
-                strip -x "$VOLCA_BIN_PATH"
-            else
-                strip --strip-all "$VOLCA_BIN_PATH"
-            fi
-            STRIPPED_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
-            log_info "After strip: $STRIPPED_SIZE"
-
-            # UPX compression (Linux/macOS only — Windows Defender flags UPX binaries
-            # as malicious, causing "Error opening file for writing" during NSIS install).
-            # macOS Mach-O support in UPX 5.x is gated behind --force-macos: it works
-            # for unsigned binaries but the loader stub may invalidate code-signing /
-            # notarization, which is something to revisit when shipping a signed .dmg.
-            if [[ "$OS" != "windows" ]]; then
-                log_info "Compressing with UPX..."
-                UPX_FLAGS=(-1)
-                if [[ "$OS" == "macos" ]]; then
-                    UPX_FLAGS+=(--force-macos)
-                fi
-                if upx "${UPX_FLAGS[@]}" "$VOLCA_BIN_PATH"; then
-                    FINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
-                    log_success "Binary optimized: $ORIGINAL_SIZE -> $STRIPPED_SIZE (stripped) -> $FINAL_SIZE (compressed)"
-                    # macOS arm64 refuses to launch executables without at
-                    # least an ad-hoc signature. UPX rewrites the Mach-O
-                    # headers and invalidates whatever signature the linker
-                    # emitted, which silently kills the process at fork
-                    # (the symptom is "Server failed to start within timeout"
-                    # from any test that spawns volca). Re-sign in place.
-                    if [[ "$OS" == "macos" ]]; then
-                        codesign --force --sign - "$VOLCA_BIN_PATH"
-                    fi
-                else
-                    log_warn "UPX compression failed — using stripped binary ($STRIPPED_SIZE)"
-                fi
-            else
-                log_success "Binary optimized: $ORIGINAL_SIZE -> $STRIPPED_SIZE (stripped, no UPX on Windows)"
-            fi
-        fi
+VOLCA_BIN_PATH=$(cabal list-bin exe:volca 2>/dev/null || true)
+if [[ -n "$VOLCA_BIN_PATH" && -f "$VOLCA_BIN_PATH" ]]; then
+    if [[ "$SKIP_OPTIMIZE" == "true" ]]; then
+        FINAL_SIZE=$(du -h "$VOLCA_BIN_PATH" | cut -f1)
+        log_info "--no-optimize: leaving binary unstripped/uncompressed ($FINAL_SIZE)"
+    else
+        optimize_volca_binary "$VOLCA_BIN_PATH"
     fi
-}
+fi
 
 log_success "volca built successfully"
 echo ""
