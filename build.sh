@@ -103,30 +103,27 @@ optimize_volca_binary() {
     stripped_size=$(du -h "$bin_path" | cut -f1)
     log_info "After strip: $stripped_size"
 
-    # UPX (Linux/macOS only — Windows Defender flags UPX binaries as malicious,
-    # breaking the NSIS installer). macOS Mach-O support is gated behind
-    # --force-macos in UPX 5.x.
+    # Skip UPX on Windows (Defender flags UPX'd .exe as malicious, breaking the
+    # NSIS installer) and on macOS (UPX 5.x with --force-macos compresses arm64
+    # Mach-O fine — observed 104 M -> 48 M — but the resulting binary is killed
+    # by the kernel at fork with SIGKILL ("Killed: 9"), even after `codesign
+    # --force --sign -` re-signs it. This is an upstream UPX/Mach-O issue, not
+    # something we can paper over here. macOS arm64 still gets ad-hoc signed
+    # because strip can also invalidate the linker's signature.
     if [[ "$OS" == "windows" ]]; then
         log_success "Binary optimized: $original_size -> $stripped_size (stripped, no UPX on Windows)"
         return 0
     fi
+    if [[ "$OS" == "macos" ]]; then
+        codesign --force --sign - "$bin_path"
+        log_success "Binary optimized: $original_size -> $stripped_size (stripped + ad-hoc signed, no UPX on macOS arm64)"
+        return 0
+    fi
 
     log_info "Compressing with UPX (default level)..."
-    local upx_flags=()
-    if [[ "$OS" == "macos" ]]; then
-        upx_flags+=(--force-macos)
-    fi
-    if upx "${upx_flags[@]}" "$bin_path"; then
+    if upx "$bin_path"; then
         final_size=$(du -h "$bin_path" | cut -f1)
         log_success "Binary optimized: $original_size -> $stripped_size (stripped) -> $final_size (compressed)"
-        # macOS arm64 refuses to launch executables without at least an ad-hoc
-        # signature. UPX rewrites the Mach-O headers and invalidates whatever
-        # signature the linker emitted, which silently kills the process at
-        # fork (the symptom is "Server failed to start within timeout" from
-        # any test that spawns volca). Re-sign in place.
-        if [[ "$OS" == "macos" ]]; then
-            codesign --force --sign - "$bin_path"
-        fi
     else
         log_warn "UPX compression failed — using stripped binary ($stripped_size)"
     fi
