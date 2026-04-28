@@ -154,6 +154,17 @@ jobs:
           path: ~/.ghcup
           key: ghcup-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-v4
 
+      - name: Pin cabal store dir (Linux/macOS)
+        # Newer cabal-install versions look at $XDG_CONFIG_HOME/cabal/config
+        # and put the package store under $XDG_STATE_HOME/cabal/store. The
+        # ubuntu-latest runner image pre-creates ~/.config/cabal/config, so
+        # cabal "ignores the former" (~/.cabal) and our cached ~/.cabal/store
+        # gets bypassed entirely — every warm run did a full cold dep
+        # rebuild. Pin CABAL_DIR=~/.cabal so the legacy paths win regardless
+        # of cabal version or runner-image state.
+        if: matrix.os == 'linux' || matrix.os == 'macos'
+        run: echo "CABAL_DIR=$HOME/.cabal" >> "$GITHUB_ENV"
+
       - name: Install GHC + Cabal via ghcup (Linux/macOS, cold)
         # We bootstrap ghcup ourselves into ~/.ghcup so that actions/cache
         # has real content to archive (haskell-actions/setup@v2 just symlinks
@@ -250,13 +261,17 @@ jobs:
             ~/.cabal/store
             C:\cabal\store
             dist-newstyle
-          key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}
+          key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}-v2
           # Two-level fallback: same GHC first (object files reusable), then
           # any GHC for the same matrix entry (cabal will re-resolve and
           # rebuild the deps closure but reuse what it can — better than
           # full cold). Don't widen beyond matrix.name: cabal stores are not
           # cross-OS / cross-arch compatible.
+          # Bumped to -v2: previous caches were built with cabal using XDG
+          # paths, while we now force CABAL_DIR=~/.cabal — the dist-newstyle
+          # plan would reference paths cabal can no longer resolve.
           restore-keys: |
+            cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}-
             cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-
             cabal-${{ matrix.name }}-
 
