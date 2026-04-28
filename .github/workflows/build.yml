@@ -152,24 +152,35 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.ghcup
-          key: ghcup-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-v2
+          key: ghcup-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-v3
 
       - name: Install GHC + Cabal via ghcup (Linux/macOS, cold)
-        # We install ghcup ourselves into ~/.ghcup instead of using
-        # haskell-actions/setup@v2 because the latter detects the runner
-        # image's preinstalled `/usr/local/.ghcup` and just symlinks back to
-        # it — `~/.ghcup` ends up holding ~200 bytes of metadata, so caching
-        # it saves nothing. Bootstrapping ghcup directly puts the full GHC
-        # tree under ~/.ghcup, which is what we want to cache. Same pattern
-        # as the Windows path above.
+        # We bootstrap ghcup ourselves into ~/.ghcup instead of using
+        # haskell-actions/setup@v2 because the latter just symlinks back to
+        # the runner image's preinstalled `/usr/local/.ghcup`, leaving
+        # ~/.ghcup ~200 bytes of metadata so caching it saves nothing.
+        #
+        # The runner image also exports `GHCUP_INSTALL_BASE_PREFIX=/usr/local`
+        # in the global environment, which makes the bootstrap script install
+        # into /usr/local/.ghcup as well. We override that to `$HOME` so the
+        # install lives where actions/cache expects it.
         if: (matrix.os == 'linux' || matrix.os == 'macos') && steps.cache-ghcup-unix.outputs.cache-hit != 'true'
         run: |
+          export GHCUP_INSTALL_BASE_PREFIX="$HOME"
           curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
             | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
               BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
               BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
               BOOTSTRAP_HASKELL_ADJUST_BASHRC=no \
+              GHCUP_INSTALL_BASE_PREFIX="$HOME" \
               sh
+          # Sanity-check: bail loudly if ghcup wrote somewhere other than ~/.ghcup
+          # (this would silently revert the cache fix).
+          if [[ ! -x "$HOME/.ghcup/bin/ghc-${{ steps.versions.outputs.ghc }}" ]]; then
+            echo "::error::ghcup did not install to ~/.ghcup as expected — check GHCUP_INSTALL_BASE_PREFIX"
+            ls -la "$HOME/.ghcup/" "$HOME/.ghcup/bin/" 2>&1 || true
+            exit 1
+          fi
           echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
           "$HOME/.ghcup/bin/ghc" --numeric-version
           "$HOME/.ghcup/bin/cabal" --numeric-version
