@@ -152,36 +152,43 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.ghcup
-          key: ghcup-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}
+          key: ghcup-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-v2
 
-      - name: Setup GHC + Cabal (Linux/macOS, cold)
-        # On cache miss, haskell-actions/setup downloads + installs GHC into
-        # ~/.ghcup (~3–4 min on macOS arm64, ~1–2 min on Linux). The "warm"
-        # branch below replaces this with a 5-second PATH+cabal-update.
+      - name: Install GHC + Cabal via ghcup (Linux/macOS, cold)
+        # We install ghcup ourselves into ~/.ghcup instead of using
+        # haskell-actions/setup@v2 because the latter detects the runner
+        # image's preinstalled `/usr/local/.ghcup` and just symlinks back to
+        # it — `~/.ghcup` ends up holding ~200 bytes of metadata, so caching
+        # it saves nothing. Bootstrapping ghcup directly puts the full GHC
+        # tree under ~/.ghcup, which is what we want to cache. Same pattern
+        # as the Windows path above.
         if: (matrix.os == 'linux' || matrix.os == 'macos') && steps.cache-ghcup-unix.outputs.cache-hit != 'true'
-        uses: haskell-actions/setup@v2
-        with:
-          ghc-version: ${{ steps.versions.outputs.ghc }}
-          cabal-version: latest
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
+            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
+              BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
+              BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
+              BOOTSTRAP_HASKELL_ADJUST_BASHRC=no \
+              sh
+          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
+          "$HOME/.ghcup/bin/ghc" --numeric-version
+          "$HOME/.ghcup/bin/cabal" --numeric-version
+          "$HOME/.ghcup/bin/cabal" update
 
       - name: Use cached GHC + Cabal (Linux/macOS, warm)
         if: (matrix.os == 'linux' || matrix.os == 'macos') && steps.cache-ghcup-unix.outputs.cache-hit == 'true'
         shell: bash
         run: |
-          # haskell-actions/setup@v2 makes a GHC active by prepending its
-          # version-specific bindir to PATH, NOT by running `ghcup set`. So
-          # ~/.ghcup/bin/ghc may point to whatever was active before (on
-          # ubuntu-latest the runner image preinstalls a newer GHC; the
-          # symlink survives in the cache and silently shadows our pinned
-          # version on warm runs). Reset it explicitly.
-          GHCUP="$HOME/.ghcup/bin/ghcup"
           GHC_VER="${{ steps.versions.outputs.ghc }}"
           if [[ ! -d "$HOME/.ghcup/ghc/$GHC_VER" ]]; then
             echo "::error::Cached ~/.ghcup is missing GHC $GHC_VER (stale cache key?)"
-            ls -la "$HOME/.ghcup/ghc/" || true
+            ls -la "$HOME/.ghcup/" "$HOME/.ghcup/ghc/" 2>&1 || true
             exit 1
           fi
-          "$GHCUP" set ghc "$GHC_VER"
+          # Force the bare `ghc` symlink to our pinned version — ghcup-install
+          # auto-sets it but we re-assert here in case the cache snapshot was
+          # taken in a state where another version was active.
+          "$HOME/.ghcup/bin/ghcup" set ghc "$GHC_VER"
           echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
           "$HOME/.ghcup/bin/ghc" --numeric-version
           "$HOME/.ghcup/bin/cabal" --numeric-version
