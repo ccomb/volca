@@ -10,7 +10,7 @@ deps/
 
 # Documentation and notes (except README)
 *.txt
-scripts/
+/scripts/
 node_modules/
 
 # Generated source
@@ -38,6 +38,7 @@ cache/
 **/__pycache__/
 **/*.egg-info/
 pyvolca/build/
+pyvolca/dist/
 
 # hidden files
 .*

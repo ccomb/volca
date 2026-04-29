@@ -230,6 +230,16 @@ class Client:
         db: str = "",
         password: str = "",
     ):
+        """Build a client targeting one VoLCA server and one default database.
+
+        Args:
+            base_url: Server URL (no trailing slash needed).
+            db: Default database name. Used by every operation that takes a
+                ``dbName`` path capture; pass ``db_name=`` per call to override.
+            password: Bearer token sent in the Authorization header on every
+                request. The Server class reads this from ``server.password``
+                in the engine TOML.
+        """
         self.base_url = base_url.rstrip("/")
         self.db = db
         self._session = requests.Session()
@@ -460,10 +470,15 @@ class Client:
         return [DatabaseInfo.from_json(d) for d in raw]
 
     def load_database(self, db_name: str) -> dict:
+        """Load a database into memory so it answers queries.
+
+        Has no effect if the database is already loaded.
+        """
         # No operationId (infrastructure endpoint). Direct HTTP.
         return self._json(self._session.post(f"{self.base_url}/api/v1/db/{db_name}/load"))
 
     def unload_database(self, db_name: str) -> dict:
+        """Unload a database from memory to free RAM. The disk copy is kept."""
         return self._json(self._session.post(f"{self.base_url}/api/v1/db/{db_name}/unload"))
 
     def list_presets(self) -> list[dict]:
@@ -485,6 +500,23 @@ class Client:
         offset: int = 0,
         exact: bool = False,
     ) -> list[Activity]:
+        """Search activities in the current database.
+
+        All filters are AND-combined and case-insensitive. ``name`` and
+        ``product`` match by substring unless ``exact=True``.
+
+        Args:
+            name: Substring (or exact match) on activity name.
+            geo: Geography code (``"FR"``, ``"GLO"``, ``"RoW"``…).
+            product: Substring on the reference product name.
+            preset: Apply a named classification preset configured in the engine.
+            classification: System name (``"ISIC rev.4 ecoinvent"``).
+            classification_value: Substring within that system's value.
+            exact: When True, ``name`` and ``product`` are matched exactly.
+
+        Returns:
+            List of :class:`Activity`. Empty list if no match.
+        """
         raw = self._call(
             "search_activities",
             name=name,
@@ -500,6 +532,16 @@ class Client:
         return [Activity.from_json(a) for a in raw["results"]]
 
     def search_flows(self, query: str | None = None, *, limit: int | None = None) -> list[dict]:
+        """Search flows (technosphere products and biosphere flows) in the current database.
+
+        Args:
+            query: Substring matched case-insensitively against flow names.
+            limit: Cap on returned results.
+
+        Returns:
+            List of raw flow dicts (no typed wrapper yet — see
+            ``flow_id``, ``name``, ``unit``, ``category`` keys).
+        """
         raw = self._call("search_flows", q=query, limit=limit)
         return raw["results"]
 
@@ -734,6 +776,18 @@ class Client:
         limit: int | None = None,
         substitutions: list[dict] | None = None,
     ) -> dict:
+        """Compute the life-cycle inventory (cumulative biosphere flows) for an activity.
+
+        Returns the per-elementary-flow totals scaled to one functional unit
+        of the activity's reference product. Use :meth:`get_impacts` to apply
+        a characterization method to the inventory; use :meth:`aggregate` with
+        ``scope="biosphere"`` for grouped views.
+
+        Args:
+            flow: Substring filter on flow name.
+            limit: Cap on returned flow rows.
+            substitutions: Upstream supplier swaps; see :meth:`get_supply_chain`.
+        """
         return self._call(
             "get_inventory",
             process_id=process_id,
@@ -808,6 +862,13 @@ class Client:
     # -- Methods --
 
     def list_methods(self) -> list[dict]:
+        """List every LCIA method available in the engine.
+
+        Returns:
+            Raw method dicts; each carries ``methodId``, ``name``,
+            ``unit``, ``collection``, and the impact category metadata.
+            Pass any ``methodId`` to :meth:`get_impacts`.
+        """
         return self._call("list_methods")
 
     def get_flow_mapping(self, method_id: str) -> dict:
