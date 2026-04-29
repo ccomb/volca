@@ -24,6 +24,16 @@ class Server:
     """
 
     def __init__(self, config: str = "volca.toml", port: int = 0, binary: str = "volca"):
+        """Configure (but don't start) a managed VoLCA server.
+
+        Args:
+            config: Path to the engine TOML. Read for ``server.port`` and
+                ``server.password``. Missing file is tolerated — defaults
+                are used.
+            port: Override the port. ``0`` means "read from config (or 8080)".
+            binary: Name or path of the volca binary. Looked up on PATH if
+                not absolute.
+        """
         self.config = config
         self.binary = binary
         self._process: subprocess.Popen | None = None
@@ -80,7 +90,16 @@ class Server:
             return False
 
     def start(self, idle_timeout: int = 300, wait_timeout: int = 120) -> None:
-        """Start server if not running. Wait until ready."""
+        """Spawn the engine process if it is not already serving, and wait until ready.
+
+        Args:
+            idle_timeout: Seconds without an HTTP request before the engine
+                shuts itself down. Default 5 min.
+            wait_timeout: How long to poll for the server to become healthy
+                before raising :class:`TimeoutError`.
+
+        No-op if a healthy server is already reachable on ``base_url``.
+        """
         if self.is_alive():
             return
 
