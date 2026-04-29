@@ -146,12 +146,93 @@ jobs:
         if: matrix.os == 'macos'
         run: brew install gcc openblas upx
 
-      - name: Setup GHC + Cabal (Linux/macOS)
+      - name: Restore GHCup install (Linux/macOS)
+        id: cache-ghcup-unix
         if: matrix.os == 'linux' || matrix.os == 'macos'
-        uses: haskell-actions/setup@v2
+        uses: actions/cache/restore@v4
         with:
-          ghc-version: ${{ steps.versions.outputs.ghc }}
-          cabal-version: latest
+          path: ~/.ghcup
+          key: ghcup-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-v4
+
+      - name: Pin cabal store dir (Linux/macOS)
+        # Newer cabal-install versions look at $XDG_CONFIG_HOME/cabal/config
+        # and put the package store under $XDG_STATE_HOME/cabal/store. The
+        # ubuntu-latest runner image pre-creates ~/.config/cabal/config, so
+        # cabal "ignores the former" (~/.cabal) and our cached ~/.cabal/store
+        # gets bypassed entirely — every warm run did a full cold dep
+        # rebuild. Pin CABAL_DIR=~/.cabal so the legacy paths win regardless
+        # of cabal version or runner-image state.
+        if: matrix.os == 'linux' || matrix.os == 'macos'
+        run: echo "CABAL_DIR=$HOME/.cabal" >> "$GITHUB_ENV"
+
+      - name: Install GHC + Cabal via ghcup (Linux/macOS, cold)
+        # We bootstrap ghcup ourselves into ~/.ghcup so that actions/cache
+        # has real content to archive (haskell-actions/setup@v2 just symlinks
+        # back to the runner's preinstalled /usr/local/.ghcup, leaving
+        # ~/.ghcup empty of cacheable bytes).
+        #
+        # Two tricks needed:
+        #  1. The runner image exports GHCUP_INSTALL_BASE_PREFIX=/usr/local
+        #     globally, redirecting installs to /usr/local/.ghcup. Override
+        #     to $HOME so install goes to ~/.ghcup.
+        #  2. The runner image pre-creates ~/.ghcup as a façade directory
+        #     containing SYMLINKS into /usr/local/.ghcup (e.g. `share ->
+        #     ./ghc/9.14.1/share`). ghcup install writes through those
+        #     symlinks, but tar archives the symlink shells (~200 bytes)
+        #     not the targets. Wipe ~/.ghcup first so our install lands in
+        #     a real, cacheable directory tree. (rm doesn't follow symlinks,
+        #     so /usr/local/.ghcup is untouched — but we don't need it
+        #     anyway because $PATH below points only at ~/.ghcup/bin.)
+        if: (matrix.os == 'linux' || matrix.os == 'macos') && steps.cache-ghcup-unix.outputs.cache-hit != 'true'
+        run: |
+          rm -rf "$HOME/.ghcup"
+          export GHCUP_INSTALL_BASE_PREFIX="$HOME"
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
+            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
+              BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
+              BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
+              BOOTSTRAP_HASKELL_ADJUST_BASHRC=no \
+              GHCUP_INSTALL_BASE_PREFIX="$HOME" \
+              sh
+          # Sanity-check: bail loudly if the install ended up somewhere we
+          # can't cache, so we don't silently regress the warm path.
+          if [[ ! -x "$HOME/.ghcup/bin/ghc-${{ steps.versions.outputs.ghc }}" ]]; then
+            echo "::error::ghcup did not install to ~/.ghcup as expected"
+            ls -la "$HOME/.ghcup/" "$HOME/.ghcup/bin/" 2>&1 || true
+            exit 1
+          fi
+          echo "[INFO] ~/.ghcup install size: $(du -sh "$HOME/.ghcup" | cut -f1)"
+          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
+          "$HOME/.ghcup/bin/ghc" --numeric-version
+          "$HOME/.ghcup/bin/cabal" --numeric-version
+          "$HOME/.ghcup/bin/cabal" update
+
+      - name: Use cached GHC + Cabal (Linux/macOS, warm)
+        if: (matrix.os == 'linux' || matrix.os == 'macos') && steps.cache-ghcup-unix.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          # The runner image exports GHCUP_INSTALL_BASE_PREFIX=/usr/local
+          # globally; without overriding it here, `ghcup set ghc` would look
+          # for our pinned version under /usr/local/.ghcup/ghc/ and fail with
+          # "version 9.6.7 of the tool ghc is not installed". Match the cold
+          # step's override.
+          export GHCUP_INSTALL_BASE_PREFIX="$HOME"
+          GHC_VER="${{ steps.versions.outputs.ghc }}"
+          if [[ ! -d "$HOME/.ghcup/ghc/$GHC_VER" ]]; then
+            echo "::error::Cached ~/.ghcup is missing GHC $GHC_VER (stale cache key?)"
+            ls -la "$HOME/.ghcup/" "$HOME/.ghcup/ghc/" 2>&1 || true
+            exit 1
+          fi
+          # Force the bare `ghc` symlink to our pinned version — bootstrap
+          # auto-sets it but we re-assert here in case the cache snapshot
+          # was taken in a state where another version was active.
+          "$HOME/.ghcup/bin/ghcup" set ghc "$GHC_VER"
+          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
+          "$HOME/.ghcup/bin/ghc" --numeric-version
+          "$HOME/.ghcup/bin/cabal" --numeric-version
+          # ~/.cabal/packages (Hackage index) lives outside ~/.ghcup and is
+          # not in the cache; refresh it so cabal solve has a current view.
+          "$HOME/.ghcup/bin/cabal" update
 
       # Cache restore + save are split (instead of using actions/cache@v4
       # with save-always, which is deprecated). The save step runs with
@@ -180,9 +261,19 @@ jobs:
             ~/.cabal/store
             C:\cabal\store
             dist-newstyle
-          key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}
+          key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}-v2
+          # Two-level fallback: same GHC first (object files reusable), then
+          # any GHC for the same matrix entry (cabal will re-resolve and
+          # rebuild the deps closure but reuse what it can — better than
+          # full cold). Don't widen beyond matrix.name: cabal stores are not
+          # cross-OS / cross-arch compatible.
+          # Bumped to -v2: previous caches were built with cabal using XDG
+          # paths, while we now force CABAL_DIR=~/.cabal — the dist-newstyle
+          # plan would reference paths cabal can no longer resolve.
           restore-keys: |
+            cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}-
             cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-
+            cabal-${{ matrix.name }}-
 
       - name: Build and test
         run: |
@@ -206,12 +297,41 @@ jobs:
             ./build.sh --test
           fi
 
+      - name: Optimize macOS binary (strip + ad-hoc sign)
+        # Tests above ran on the unstripped binary because UPX'd Mach-O on
+        # arm64 is killed at fork by the kernel even after ad-hoc re-sign
+        # (an upstream UPX 5.x / arm64 limitation — not something we can
+        # work around). Now that tests are done, strip + re-sign the binary
+        # so the uploaded artifact is meaningfully smaller. Then verify it
+        # still launches before upload — if a future UPX path is re-enabled
+        # in build.sh and breaks the binary, this catches it loudly.
+        if: matrix.os == 'macos'
+        run: |
+          ./build.sh --optimize-only
+          VOLCA_BIN=$(cabal list-bin exe:volca)
+          "$VOLCA_BIN" --version
+          ls -lh "$VOLCA_BIN"
+
       - name: Save MUMPS local build
         if: always() && steps.cache-mumps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: deps/mumps
           key: ${{ steps.cache-mumps.outputs.cache-primary-key }}
+
+      - name: Save GHCup install (Linux/macOS)
+        # always() so a downstream test or optimize failure doesn't discard
+        # the GHC install we just paid 3–4 minutes for. The install completes
+        # in a single `Setup GHC + Cabal (Linux/macOS, cold)` step; if THAT
+        # step fails, the workflow halts before this save runs anyway, so
+        # there's no risk of caching a partial ~/.ghcup. (Contrast with the
+        # Windows pattern, which is split across multiple steps and prefers
+        # the safer no-always policy.)
+        if: always() && (matrix.os == 'linux' || matrix.os == 'macos') && steps.cache-ghcup-unix.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ghcup
+          key: ${{ steps.cache-ghcup-unix.outputs.cache-primary-key }}
 
       - name: Save Cabal store
         if: always() && steps.cache-cabal.outputs.cache-hit != 'true'
