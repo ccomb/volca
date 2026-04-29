@@ -16,7 +16,9 @@ classifiers = [
 dev = ["pytest"]
 
 [project.urls]
+Documentation = "https://volca.run/docs/guides/pyvolca/"
 Repository = "https://github.com/ccomb/volca/tree/main/pyvolca"
+Issues = "https://github.com/ccomb/volca/issues"
 
 [build-system]
 requires = ["setuptools>=77"]
