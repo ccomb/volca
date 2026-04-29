@@ -1,0 +1,49 @@
+name: pyvolca
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pyvolca/**'
+      - '.github/workflows/pyvolca.yml'
+
+concurrency:
+  group: pyvolca-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test pyvolca
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pyvolca
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyvolca/pyproject.toml
+
+      - name: Install pyvolca with dev extras
+        run: pip install -e .[dev]
+
+      - name: Run tests
+        # test_drift.py compares the in-tree wrappers against a freshly
+        # dumped OpenAPI spec from the volca binary, so it needs a built
+        # engine. Skipped here; covered locally and (eventually) in a
+        # follow-up that downloads the linux-amd64 artifact from build.yml.
+        run: pytest -v --ignore=tests/test_drift.py
+
+      - name: Verify gen_api_md.py runs cleanly
+        run: python scripts/gen_api_md.py > /dev/null
+
+      - name: Verify package builds and metadata is valid
+        # Catches regressions in pyproject.toml that would block PyPI
+        # upload — license expression, content-type, missing fields, etc.
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*
