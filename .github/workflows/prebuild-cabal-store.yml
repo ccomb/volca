@@ -84,12 +84,16 @@ jobs:
       - name: Install GHC via ghcup (Windows)
         if: matrix.os == 'windows'
         run: |
+          # Pin ghcup to D:\ghcup — D: is the fast local temp disk on
+          # GH-hosted Windows runners (~83k IOPS vs. ~4k on C:). Same
+          # rationale as _build-matrix.yml's Windows install step.
           curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
             | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
               BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
               BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
+              GHCUP_INSTALL_BASE_PREFIX=/d \
               sh
-          source /c/ghcup/env
+          source /d/ghcup/env
           ghc --numeric-version
           cabal --numeric-version
 
@@ -171,7 +175,7 @@ jobs:
           # mumps-hs's c-sources still need to compile against MUMPS headers
           # and the link plan still has to be valid (cabal solver bakes the
           # link line into the install plan).
-          [[ -f /c/ghcup/env ]] && source /c/ghcup/env
+          [[ -f /d/ghcup/env ]] && source /d/ghcup/env
           export MUMPS_LIB_DIR="$(pwd)/deps/mumps/lib"
           export MUMPS_INCLUDE_DIR="$(pwd)/deps/mumps/include"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -194,7 +198,7 @@ jobs:
 
       - name: Build cabal deps
         run: |
-          [[ -f /c/ghcup/env ]] && source /c/ghcup/env
+          [[ -f /d/ghcup/env ]] && source /d/ghcup/env
           cabal update
           cabal build --only-dependencies --enable-tests all
 

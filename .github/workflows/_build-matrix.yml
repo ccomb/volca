@@ -84,13 +84,24 @@ jobs:
             curl
             tar
 
-      # GHCup on Windows: install fresh every run. We previously cached
-      # C:\ghcup with actions/cache, but the Save step took ~26 minutes
-      # (tar + zstd + upload of ~2.5 GB across thousands of small NTFS
-      # files) — vs. ~2 minutes for the install itself. Even on cache-hit
-      # runs the saving was net-negative once 7-day eviction + per-branch
-      # scoping were factored in. The Linux/macOS cache is fine; only
-      # Windows is pathologically slow.
+      # GHCup on Windows: install fresh every run, into D:\ghcup.
+      #
+      # Two things going on:
+      #
+      # 1. We previously cached C:\ghcup with actions/cache, but the Save
+      #    step took ~26 min (tar + zstd + upload of ~2.5 GB across
+      #    thousands of small NTFS files) — vs. ~2 min for the install
+      #    itself. Even on cache-hit runs the saving was net-negative once
+      #    7-day eviction + per-branch scoping were factored in. The
+      #    Linux/macOS cache is fine; only Windows is pathologically slow.
+      #
+      # 2. GitHub-hosted Windows runners are Azure VMs where C: is a remote
+      #    managed disk (~4k IOPS) while D: is local temp storage
+      #    (~83k IOPS, 20× faster). GHCup defaults to C:\ghcup; pinning it
+      #    to D:\ghcup via GHCUP_INSTALL_BASE_PREFIX puts every subsequent
+      #    ghc/cabal read on the fast disk for the rest of the job. D: is
+      #    ephemeral (lost on VM redeploy) but GH runners are ephemeral
+      #    too, so that doesn't matter.
       - name: Install GHC via ghcup (Windows MSYS2)
         if: matrix.os == 'windows'
         run: |
@@ -98,15 +109,16 @@ jobs:
             | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
               BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
               BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
+              GHCUP_INSTALL_BASE_PREFIX=/d \
               sh
 
       - name: Verify GHC + Cabal (Windows)
         if: matrix.os == 'windows'
         run: |
-          # GHCup on Windows installs to /c/ghcup. Subsequent MSYS2 steps
-          # need to source this themselves — GITHUB_PATH does not propagate
-          # into the msys2.CMD wrapper.
-          source /c/ghcup/env
+          # GHCup on Windows installs to /d/ghcup (see comment above).
+          # Subsequent MSYS2 steps need to source this themselves — the
+          # msys2.CMD wrapper does not propagate GITHUB_PATH.
+          source /d/ghcup/env
           ghc --version
           cabal --version
           cabal update
@@ -373,7 +385,7 @@ jobs:
         run: |
           # Windows: re-source GHCup env in this MSYS2 shell since the wrapper
           # does not inherit PATH from the previous step.
-          [[ -f /c/ghcup/env ]] && source /c/ghcup/env
+          [[ -f /d/ghcup/env ]] && source /d/ghcup/env
           # Per-platform behaviour:
           # - Windows: only platform with indefinite test hangs
           #   (waitForProcess never reaping volca.exe). Wrap with GNU
@@ -480,7 +492,7 @@ jobs:
         # Same `cabal list-bin` trick the macOS optimize step uses — handles
         # both opt/build and build paths regardless of optimization level.
         run: |
-          [[ -f /c/ghcup/env ]] && source /c/ghcup/env
+          [[ -f /d/ghcup/env ]] && source /d/ghcup/env
           VOLCA_BIN=$(cabal list-bin exe:volca)
           VERSION='${{ steps.cabal-version.outputs.version }}'
           NAME='${{ matrix.name }}'
