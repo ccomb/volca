@@ -1,9 +1,13 @@
 name: Build
 
-# Slim wrapper around the reusable _build-matrix.yml. PR-only — no
-# push: main, no push: branches. The 4-platform build runs on every
-# push to any PR branch, and is the required status check that gates
-# merging.
+# Slim wrapper around the reusable _build-matrix.yml. Triggers:
+#   - pull_request to main: gate merges on a green 4-platform build
+#   - push to main: re-populate actions/cache after squash-merge so that
+#     subsequent PRs have a default-branch cache to fall back to. Without
+#     this, PR runs save caches scoped to the (then-deleted) PR branch
+#     and main has nothing for new PRs to inherit. The cabal-store
+#     prebuilt usually masks this, but only when its hash matches; cache
+#     fallback is what catches the hash-changed case.
 #
 # Pyvolca PRs are skipped: pyvolca dispatches dynamically against the
 # engine's OpenAPI spec, so its changes don't affect the Haskell build —
@@ -12,6 +16,10 @@ name: Build
 
 on:
   pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'pyvolca/**'
+  push:
     branches: [main]
     paths-ignore:
       - 'pyvolca/**'
