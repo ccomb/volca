@@ -81,6 +81,17 @@ jobs:
             curl
             tar
 
+      # Redirect C:\cabal -> D:\cabal so every cabal write hits the
+      # fast local temp disk. Same rationale + same junction trick as
+      # _build-matrix.yml.
+      - name: Redirect C:\cabal to D:\cabal (Windows IOPS)
+        if: matrix.os == 'windows'
+        shell: cmd
+        run: |
+          if exist C:\cabal rmdir /s /q C:\cabal
+          mkdir D:\cabal
+          mklink /J C:\cabal D:\cabal
+
       - name: Install GHC via ghcup (Windows)
         if: matrix.os == 'windows'
         run: |

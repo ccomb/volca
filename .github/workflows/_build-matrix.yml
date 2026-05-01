@@ -84,6 +84,26 @@ jobs:
             curl
             tar
 
+      # Redirect C:\cabal -> D:\cabal via NTFS directory junction. Cabal
+      # on Windows defaults CABAL_DIR to C:\cabal (store, packages
+      # index, config). C: is a slow Azure managed disk on GH-hosted
+      # runners (~4k IOPS); D: is local temp storage (~83k IOPS, 20×).
+      #
+      # Using a junction instead of CABAL_DIR=D:\cabal lets us keep the
+      # existing cabal-store-prebuilt tarball working unchanged: its
+      # .conf files have absolute C:\cabal\store\... paths baked in
+      # (cabal-install on Windows doesn't use ${pkgroot}), so any other
+      # approach would force a re-prebuild + CABAL_PREBUILT_REVISION
+      # bump. The junction is filesystem-level and transparent — every
+      # C:\cabal\* read/write hits D: at the OS layer.
+      - name: Redirect C:\cabal to D:\cabal (Windows IOPS)
+        if: matrix.os == 'windows'
+        shell: cmd
+        run: |
+          if exist C:\cabal rmdir /s /q C:\cabal
+          mkdir D:\cabal
+          mklink /J C:\cabal D:\cabal
+
       # GHCup on Windows: install fresh every run, into D:\ghcup.
       #
       # Two things going on:
