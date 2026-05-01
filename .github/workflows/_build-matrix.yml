@@ -304,8 +304,53 @@ jobs:
           # is silently reused even when its inputs no longer match.
           key: mumps-${{ matrix.name }}-${{ steps.versions.outputs.mumps }}-${{ hashFiles('build-mumps.sh') }}
 
+      # Cabal store sourcing has the same three layers as MUMPS above:
+      #   1. Download from the matching `cabal-store-prebuilt-*` GH Release
+      #      (~30 s). Populated by `prebuild-cabal-store.yml` once per
+      #      (volca.cabal+mumps-hs.cabal+cabal.project, GHC, REV) tuple.
+      #      Carries only ~/.cabal/store — dist-newstyle is per-PR and
+      #      always rebuilt incrementally on top.
+      #   2. Existing actions/cache restore (~/.cabal/store + dist-newstyle).
+      #      Salvages a previous source build within the 7-day window.
+      #   3. Cabal builds deps from scratch (~10–20 min, the cold path).
+
+      - name: Download prebuilt cabal store (if release exists)
+        id: download-cabal
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source versions.env
+          # Hash matches the prebuild-cabal-store.yml publish step exactly,
+          # so a content change in any of these files always misses the
+          # prebuilt and falls through to the cache + source build path.
+          HASH8=$(cat volca.cabal mumps-hs/mumps-hs.cabal cabal.project | sha256sum | cut -c1-8)
+          REV="${CABAL_PREBUILT_REVISION:-1}"
+          TAG="cabal-store-prebuilt-ghc${GHC_VERSION}-${HASH8}-r${REV}"
+          PLATFORM='${{ matrix.name }}'
+          ASSET="cabal-store-${PLATFORM}.tar.gz"
+          if ! gh release view "$TAG" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::warning::Cabal-store prebuilt $TAG not found — falling back to source build (or cache). Trigger prebuild-cabal-store.yml to populate."
+            echo "populated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh release download "$TAG" -R "${GITHUB_REPOSITORY}" -p "$ASSET" -p SHA256SUMS
+          grep " $ASSET\$" SHA256SUMS | sha256sum -c -
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            mkdir -p /c/cabal
+            tar xzf "$ASSET" -C /c/cabal
+            test -d /c/cabal/store
+          else
+            mkdir -p "$HOME/.cabal"
+            tar xzf "$ASSET" -C "$HOME/.cabal"
+            test -d "$HOME/.cabal/store"
+          fi
+          echo "Prebuilt cabal store $TAG/$ASSET extracted."
+          echo "populated=true" >> "$GITHUB_OUTPUT"
+
       - name: Restore Cabal store
         id: cache-cabal
+        if: steps.download-cabal.outputs.populated != 'true'
         uses: actions/cache/restore@v4
         with:
           # GHCup-installed cabal on Windows uses C:\cabal\store, not the
@@ -420,7 +465,13 @@ jobs:
           key: ${{ steps.cache-ghcup-unix.outputs.cache-primary-key }}
 
       - name: Save Cabal store
-        if: always() && steps.cache-cabal.outputs.cache-hit != 'true'
+        # Skip when the prebuilt download wins — the prebuilt is already
+        # the durable source of truth, and dist-newstyle without a matching
+        # ~/.cabal/store would poison future cache restores.
+        if: |
+          always() &&
+          steps.download-cabal.outputs.populated != 'true' &&
+          steps.cache-cabal.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |

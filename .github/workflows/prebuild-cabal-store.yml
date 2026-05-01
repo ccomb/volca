@@ -1,0 +1,268 @@
+name: Prebuild cabal store
+
+# Manual workflow that builds every external Haskell dep once per
+# (volca.cabal + mumps-hs/mumps-hs.cabal + cabal.project, GHC_VERSION,
+#  CABAL_PREBUILT_REVISION) tuple and attaches each platform's
+# ~/.cabal/store as a tarball to a GH Release tagged
+# `cabal-store-prebuilt-ghc${GHC_VERSION}-${HASH8}-r${REV}`.
+#
+# `_build-matrix.yml` then downloads from that release in ~30 s instead
+# of compiling deps from scratch (10–20 min cold) on every CI run.
+#
+# Trigger after:
+#   * Bumping a Haskell dep version in volca.cabal / mumps-hs.cabal /
+#     cabal.project — the hash changes, so the new tag is a separate
+#     release; older branches still resolve to the previous prebuilt.
+#   * Bumping GHC_VERSION in versions.env (different tag).
+#   * Bumping CABAL_PREBUILT_REVISION (forces rebuild at the same hash+GHC,
+#     e.g. after a runner-image update changes glibc and binaries no
+#     longer load).
+#
+# Build inputs include the prebuilt MUMPS from `prebuild-mumps.yml` —
+# that release must exist before this workflow can succeed.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            runner: ubuntu-latest
+            os: linux
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            os: linux
+          - name: windows-amd64
+            runner: windows-latest
+            os: windows
+          - name: macos-arm64
+            runner: macos-15
+            os: macos
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    defaults:
+      run:
+        shell: ${{ matrix.os == 'windows' && 'msys2 {0}' || 'bash' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned versions
+        id: versions
+        shell: bash
+        run: |
+          source versions.env
+          echo "ghc=$GHC_VERSION" >> "$GITHUB_OUTPUT"
+          echo "mumps=$MUMPS_VERSION" >> "$GITHUB_OUTPUT"
+          echo "mumps_rev=${MUMPS_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup MSYS2 (Windows)
+        if: matrix.os == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gcc-fortran
+            mingw-w64-ucrt-x86_64-openblas
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-make
+            make
+            python
+            git
+            curl
+            tar
+
+      - name: Install GHC via ghcup (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
+            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
+              BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
+              BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
+              sh
+          source /c/ghcup/env
+          ghc --numeric-version
+          cabal --numeric-version
+
+      - name: Install build dependencies (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gfortran cmake python3 curl \
+            zlib1g-dev liblapack-dev libblas-dev
+          # Same libquadmath workaround as _build-matrix.yml — needed for
+          # mumps-hs's link step (gfortran archives reference quadmath).
+          LIBDIR=/usr/lib/$(gcc -print-multiarch)
+          [[ -d "$LIBDIR" ]] || LIBDIR=/usr/lib
+          if [[ ! -e "$LIBDIR/libquadmath.so" ]]; then
+            if [[ -e "$LIBDIR/libquadmath.so.0" ]]; then
+              sudo ln -s libquadmath.so.0 "$LIBDIR/libquadmath.so"
+            else
+              echo 'void __libquadmath_stub(void) {}' \
+                | sudo gcc -shared -x c -o "$LIBDIR/libquadmath.so" -
+            fi
+          fi
+
+      - name: Install build dependencies (macOS)
+        if: matrix.os == 'macos'
+        run: brew install gcc openblas
+
+      - name: Install GHC via ghcup (Linux/macOS)
+        if: matrix.os == 'linux' || matrix.os == 'macos'
+        run: |
+          # Match the bootstrap pattern used by _build-matrix.yml so the
+          # cabal-install version + GHC layout are identical to what normal
+          # CI uses — keeps the prebuilt store binary-compatible.
+          rm -rf "$HOME/.ghcup"
+          export GHCUP_INSTALL_BASE_PREFIX="$HOME"
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
+            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
+              BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
+              BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
+              BOOTSTRAP_HASKELL_ADJUST_BASHRC=no \
+              GHCUP_INSTALL_BASE_PREFIX="$HOME" \
+              sh
+          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
+          # Pin CABAL_DIR=~/.cabal so the legacy paths win regardless of
+          # cabal version or runner-image XDG defaults — same reason
+          # _build-matrix.yml does this.
+          echo "CABAL_DIR=$HOME/.cabal" >> "$GITHUB_ENV"
+          "$HOME/.ghcup/bin/ghc" --numeric-version
+          "$HOME/.ghcup/bin/cabal" --numeric-version
+
+      - name: Download prebuilt MUMPS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source versions.env
+          TAG="mumps-prebuilt-${MUMPS_VERSION}-r${MUMPS_PREBUILT_REVISION:-1}"
+          PLATFORM='${{ matrix.name }}'
+          ASSET="mumps-prebuilt-${PLATFORM}.tar.gz"
+          if ! gh release view "$TAG" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error::Required prebuilt MUMPS release $TAG does not exist. Run prebuild-mumps.yml first."
+            exit 1
+          fi
+          gh release download "$TAG" -R "${GITHUB_REPOSITORY}" -p "$ASSET" -p SHA256SUMS
+          grep " $ASSET\$" SHA256SUMS | sha256sum -c -
+          mkdir -p deps
+          tar xzf "$ASSET" -C deps
+          test -f deps/mumps/lib/libdmumps_seq.a
+
+      - name: Generate cabal.project.local
+        run: |
+          # Mirror build.sh's per-platform LINK_MODE selection so cabal can
+          # resolve mumps-hs's link flags. We build deps only here, but
+          # mumps-hs's c-sources still need to compile against MUMPS headers
+          # and the link plan still has to be valid (cabal solver bakes the
+          # link line into the install plan).
+          [[ -f /c/ghcup/env ]] && source /c/ghcup/env
+          export MUMPS_LIB_DIR="$(pwd)/deps/mumps/lib"
+          export MUMPS_INCLUDE_DIR="$(pwd)/deps/mumps/include"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            export LINK_MODE=windows
+            MSYS2_LIB_DIR=$(cygpath -m /ucrt64/lib)
+            GCC_LIB_DIR=$(find /ucrt64/lib/gcc/x86_64-w64-mingw32 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1)
+            GCC_LIB_DIR=$(cygpath -m "$GCC_LIB_DIR")
+            win_path() { echo "$1" | sed 's|^/\([a-zA-Z]\)/|\1:/|'; }
+            export MUMPS_LIB_DIR=$(win_path "$MUMPS_LIB_DIR")
+            export MUMPS_INCLUDE_DIR=$(win_path "$MUMPS_INCLUDE_DIR")
+            export MSYS2_LIB_DIR GCC_LIB_DIR
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            export LINK_MODE=darwin
+          else
+            export LINK_MODE=static
+          fi
+          ./gen-cabal-config.sh
+          echo "--- cabal.project.local ---"
+          cat cabal.project.local
+
+      - name: Build cabal deps
+        run: |
+          [[ -f /c/ghcup/env ]] && source /c/ghcup/env
+          cabal update
+          cabal build --only-dependencies --enable-tests all
+
+      - name: Package cabal store
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            STORE_PARENT='/c/cabal'
+          else
+            STORE_PARENT="$HOME/.cabal"
+          fi
+          test -d "$STORE_PARENT/store"
+          tar -czf "cabal-store-${{ matrix.name }}.tar.gz" -C "$STORE_PARENT" store
+          ls -lh "cabal-store-${{ matrix.name }}.tar.gz"
+
+      - name: Upload artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cabal-store-${{ matrix.name }}
+          path: cabal-store-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish prebuilt release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute hash + release tag
+        id: tag
+        run: |
+          source versions.env
+          # Hash inputs identical to _build-matrix.yml's actions/cache key
+          # for the cabal store, so a content change there always implies a
+          # new prebuilt release.
+          HASH8=$(cat volca.cabal mumps-hs/mumps-hs.cabal cabal.project | sha256sum | cut -c1-8)
+          REV="${CABAL_PREBUILT_REVISION:-1}"
+          TAG="cabal-store-prebuilt-ghc${GHC_VERSION}-${HASH8}-r${REV}"
+          echo "hash=$HASH8" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ghc=$GHC_VERSION" >> "$GITHUB_OUTPUT"
+          echo "rev=$REV" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if release already exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.tag.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::Release ${{ steps.tag.outputs.tag }} already exists. Bump CABAL_PREBUILT_REVISION in versions.env first."
+            exit 1
+          fi
+
+      - name: Download all artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum cabal-store-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist
+          gh release create "${{ steps.tag.outputs.tag }}" \
+            --title "Cabal store prebuilt — GHC ${{ steps.tag.outputs.ghc }}, hash ${{ steps.tag.outputs.hash }} (revision ${{ steps.tag.outputs.rev }})" \
+            --notes "Prebuilt cabal store (~/.cabal/store) for use by _build-matrix.yml. Hash ${{ steps.tag.outputs.hash }} = first 8 chars of sha256(volca.cabal + mumps-hs/mumps-hs.cabal + cabal.project)." \
+            --prerelease \
+            cabal-store-*.tar.gz SHA256SUMS
