@@ -367,7 +367,11 @@ jobs:
           cp "$VOLCA_BIN" staging/
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             ARTIFACT="volca-${VERSION}-${NAME}.zip"
-            (cd staging && 7z a "../${ARTIFACT}" volca.exe)
+            # 7z is preinstalled on the Windows runner image but lives at
+            # C:\Program Files\7-Zip\, which is on Windows' PATH but not on
+            # MSYS2 bash's PATH (the shell this step runs under). Use the
+            # absolute path explicitly.
+            (cd staging && "/c/Program Files/7-Zip/7z.exe" a "../${ARTIFACT}" volca.exe)
           else
             ARTIFACT="volca-${VERSION}-${NAME}.tar.gz"
             tar -czf "${ARTIFACT}" -C staging volca
