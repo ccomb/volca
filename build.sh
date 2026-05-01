@@ -303,10 +303,15 @@ elif [[ "$OS" == "macos" ]]; then
         log_success "MUMPS found: $MUMPS_LIB_DIR"
     fi
 else
-    # Linux: check system install
-    if [[ -f "/usr/lib/x86_64-linux-gnu/libdmumps_seq.so" ]] || [[ -f "/usr/lib/x86_64-linux-gnu/libdmumps_seq.a" ]]; then
+    # Linux: check system install. Use the multiarch path so the same
+    # check works on amd64 (/usr/lib/x86_64-linux-gnu) and arm64
+    # (/usr/lib/aarch64-linux-gnu); fall back to /usr/lib for distros
+    # that don't use multiarch.
+    SYS_LIBDIR=/usr/lib/$(gcc -print-multiarch 2>/dev/null)
+    [[ -d "$SYS_LIBDIR" ]] || SYS_LIBDIR=/usr/lib
+    if [[ -f "$SYS_LIBDIR/libdmumps_seq.so" ]] || [[ -f "$SYS_LIBDIR/libdmumps_seq.a" ]]; then
         MUMPS_FOUND=true
-        MUMPS_LIB_DIR="/usr/lib/x86_64-linux-gnu"
+        MUMPS_LIB_DIR="$SYS_LIBDIR"
         MUMPS_INCLUDE_DIR="/usr/include"
         log_success "MUMPS_SEQ found (system): $MUMPS_LIB_DIR"
     fi
