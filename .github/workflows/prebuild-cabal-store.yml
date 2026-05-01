@@ -141,6 +141,12 @@ jobs:
           "$HOME/.ghcup/bin/cabal" --numeric-version
 
       - name: Download prebuilt MUMPS
+        # Force git-bash on Windows instead of the workflow-level msys2 default.
+        # MSYS2's CMD wrapper drops most of the GH Actions runner env on entry
+        # (notably GITHUB_REPOSITORY), so `gh release view -R ""` fails on
+        # Windows even when the release does exist. _build-matrix.yml's
+        # equivalent step pins shell: bash for the same reason.
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
