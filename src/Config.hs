@@ -47,7 +47,7 @@ import GHC.Generics (Generic)
 import Plugin.Config (PluginConfig)
 import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
-import System.FilePath (takeFileName, (</>))
+import System.FilePath (takeFileName)
 import TOML (DecodeTOML (..), decodeFile, getArrayOf, getField, getFieldOpt, getFieldOptWith)
 
 -- | A single classification filter entry (system + value)
@@ -304,13 +304,20 @@ loadConfig path = do
 Returns the input unchanged when the env var is unset, or when the path
 has no "data/" prefix. Pure: no IO. Accepts both Unix and Windows path
 separators on the prefix so configs authored on either platform work.
+The output always uses '/' — file APIs on Windows accept it, and it
+keeps the path predictable for downstream string-based consumers.
 -}
 redirectIntoDataDir :: Maybe FilePath -> FilePath -> FilePath
 redirectIntoDataDir Nothing p = p
 redirectIntoDataDir (Just dataDir) p
-    | "data/" `isPrefixOf` p = dataDir </> drop 5 p
-    | "data\\" `isPrefixOf` p = dataDir </> drop 5 p
+    | "data/" `isPrefixOf` p = joinSlash dataDir (drop 5 p)
+    | "data\\" `isPrefixOf` p = joinSlash dataDir (drop 5 p)
     | otherwise = p
+  where
+    joinSlash d r
+        | null d = r
+        | last d == '/' || last d == '\\' = d ++ r
+        | otherwise = d ++ "/" ++ r
 
 {- | Apply redirectIntoDataDir to every reference-data path on the Config.
 Other fields (databases, methods, plugins) are user content that lives
