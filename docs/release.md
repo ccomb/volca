@@ -20,8 +20,10 @@ PR should never bump both.
 Configure once via the GitHub repo settings, then leave alone:
 
 - **Require a PR before merging to main.** Disallow direct pushes.
-- **Require all 4 matrix jobs as required status checks.** GitHub
-  auto-disables the Squash/Merge button until they're green.
+- **Require all 4 build jobs as required status checks**
+  (`build / linux-amd64`, `build / linux-arm64`, `build / windows-amd64`,
+  `build / macos-arm64`). GitHub auto-disables the Squash/Merge button
+  until they're green.
 - **Restrict who can push tags matching `v*` to maintainers.** Add a
   rule under "Tag protection rules" — accidental tag pushes from
   contributors otherwise trigger releases.
@@ -43,7 +45,7 @@ The PR should:
 
 ### 2. Wait for green CI
 
-The 4-platform matrix in `build.yml` must pass. Branch protection
+The 4-platform build in `build.yml` must pass. Branch protection
 disables the merge button until it does.
 
 ### 3. Squash-merge
@@ -64,7 +66,7 @@ git push origin v0.7.0
 
 1. Verify `tag == "v$(awk '/^version:/' volca.cabal)"` — fails fast if
    the cabal bump was forgotten.
-2. Re-run the 4-platform matrix in **release mode** (`_build-matrix.yml`
+2. Re-run the 4-platform build in **release mode** (`_build-matrix.yml`
    with `release: true`), packaging each platform's binary as
    `volca-<version>-<os>-<arch>.{tar.gz,zip}`.
 3. Generate `SHA256SUMS` for all artefacts.

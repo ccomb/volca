@@ -4,7 +4,7 @@ name: Release
 # Calls the reusable _build-matrix.yml in release mode, then publishes a
 # GH Release with all platform tarballs + SHA256SUMS.
 #
-# The matrix is the same one PRs run, so what users download is bit-for-bit
+# The build is the same one PRs run, so what users download is bit-for-bit
 # what merged into main — no separate "release-only" build path that could
 # drift.
 
@@ -29,7 +29,7 @@ jobs:
             exit 1
           fi
 
-  matrix:
+  build:
     needs: verify-tag
     uses: ./.github/workflows/_build-matrix.yml
     with:
@@ -37,14 +37,14 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: matrix
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all matrix artefacts
+      - name: Download all build artefacts
         uses: actions/download-artifact@v4
         with:
           path: dist

@@ -1,9 +1,9 @@
 name: Build
 
 # Slim wrapper around the reusable _build-matrix.yml. PR-only — no
-# push: main, no push: branches. The 4-platform matrix runs on every
-# push to any PR branch, and the matrix is the required status check
-# that gates merging.
+# push: main, no push: branches. The 4-platform build runs on every
+# push to any PR branch, and is the required status check that gates
+# merging.
 #
 # Pyvolca PRs are skipped: pyvolca dispatches dynamically against the
 # engine's OpenAPI spec, so its changes don't affect the Haskell build —
@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  matrix:
+  build:
     uses: ./.github/workflows/_build-matrix.yml
     with:
       release: false
