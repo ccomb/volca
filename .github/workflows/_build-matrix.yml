@@ -264,11 +264,16 @@ jobs:
             echo "populated=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          gh release download "$TAG" -R "${GITHUB_REPOSITORY}" -p "$ASSET" -p SHA256SUMS
-          grep " $ASSET\$" SHA256SUMS | sha256sum -c -
+          # Download into a step-local dir so this step's SHA256SUMS doesn't
+          # collide with the one downloaded by the cabal-store step below.
+          DL=mumps-dl
+          rm -rf "$DL" && mkdir -p "$DL"
+          gh release download "$TAG" -R "${GITHUB_REPOSITORY}" -p "$ASSET" -p SHA256SUMS -D "$DL"
+          (cd "$DL" && grep " $ASSET\$" SHA256SUMS | sha256sum -c -)
           mkdir -p deps
-          tar xzf "$ASSET" -C deps
+          tar xzf "$DL/$ASSET" -C deps
           test -f deps/mumps/lib/libdmumps_seq.a
+          rm -rf "$DL"
           echo "Prebuilt MUMPS $TAG/$ASSET extracted to deps/mumps/"
           echo "populated=true" >> "$GITHUB_OUTPUT"
 
@@ -319,17 +324,22 @@ jobs:
             echo "populated=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          gh release download "$TAG" -R "${GITHUB_REPOSITORY}" -p "$ASSET" -p SHA256SUMS
-          grep " $ASSET\$" SHA256SUMS | sha256sum -c -
+          # Download into a step-local dir to avoid SHA256SUMS collision with
+          # the MUMPS download step above.
+          DL=cabal-dl
+          rm -rf "$DL" && mkdir -p "$DL"
+          gh release download "$TAG" -R "${GITHUB_REPOSITORY}" -p "$ASSET" -p SHA256SUMS -D "$DL"
+          (cd "$DL" && grep " $ASSET\$" SHA256SUMS | sha256sum -c -)
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             mkdir -p /c/cabal
-            tar xzf "$ASSET" -C /c/cabal
+            tar xzf "$DL/$ASSET" -C /c/cabal
             test -d /c/cabal/store
           else
             mkdir -p "$HOME/.cabal"
-            tar xzf "$ASSET" -C "$HOME/.cabal"
+            tar xzf "$DL/$ASSET" -C "$HOME/.cabal"
             test -d "$HOME/.cabal/store"
           fi
+          rm -rf "$DL"
           echo "Prebuilt cabal store $TAG/$ASSET extracted."
           echo "populated=true" >> "$GITHUB_OUTPUT"
 
