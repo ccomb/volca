@@ -132,7 +132,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential gfortran cmake python3 curl \
-            zlib1g-dev liblapack-dev libblas-dev upx-ucl
+            zlib1g-dev liblapack-dev libblas-dev upx-ucl \
+            libmumps-seq-dev
           # gcc's gfortran spec auto-adds -lquadmath when linking
           # gfortran archives (libdmumps_seq.a). amd64 ships
           # /usr/lib/x86_64-linux-gnu/libquadmath.so; arm64 noble ships
@@ -252,6 +253,12 @@ jobs:
 
       - name: Restore MUMPS local build
         id: cache-mumps
+        # Linux uses the apt package libmumps-seq-dev (installed in the
+        # build-deps step). Skip the local-build cache so build.sh's
+        # detection chain (which prefers $LOCAL_MUMPS_DIR over the system
+        # path) sees the empty deps/mumps and falls through to the system
+        # libraries. macOS and Windows still build from source.
+        if: matrix.os != 'linux'
         uses: actions/cache/restore@v4
         with:
           path: deps/mumps
@@ -305,7 +312,13 @@ jobs:
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             ./build.sh --test --no-optimize
           else
-            ./build.sh --test
+            # Linux: --static keeps the same statically-linked-MUMPS profile
+            # we had when CI built MUMPS from source. Without --static, system
+            # MUMPS would be detected and dynamically linked, leaving an
+            # `libdmumps_seq.so.5` runtime dep on the shipped tarball — a UX
+            # regression. The .a archives ship in the libmumps-seq-dev apt
+            # package alongside the .so, so static linking still works.
+            ./build.sh --test --static
           fi
 
       - name: Optimize macOS binary (strip + ad-hoc sign)
@@ -324,7 +337,9 @@ jobs:
           ls -lh "$VOLCA_BIN"
 
       - name: Save MUMPS local build
-        if: always() && steps.cache-mumps.outputs.cache-hit != 'true'
+        # Match the restore step: Linux uses the apt package, no local
+        # build to save.
+        if: always() && matrix.os != 'linux' && steps.cache-mumps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: deps/mumps
