@@ -245,13 +245,56 @@ jobs:
           # not in the cache; refresh it so cabal solve has a current view.
           "$HOME/.ghcup/bin/cabal" update
 
+      # MUMPS sourcing has three layers, tried in order:
+      #
+      #  1. Download a prebuilt archive from the matching `mumps-prebuilt-*`
+      #     GH Release. This is the fast path — populated once per
+      #     (MUMPS_VERSION, MUMPS_PREBUILT_REVISION) tuple by
+      #     `prebuild-mumps.yml`, downloaded in ~5 s here. Everyone benefits
+      #     including cold-cache runs.
+      #  2. GH Actions cache (`deps/mumps` keyed on MUMPS_VERSION +
+      #     hashFiles('build-mumps.sh')). Salvages a previous source build
+      #     within the 7-day cache eviction window if step 1 missed.
+      #  3. Source build via `build-mumps.sh` (build.sh's existing fallback).
+      #     Only runs if both 1 and 2 missed — typically right after a
+      #     MUMPS_VERSION/REVISION bump where the prebuilt release does not
+      #     exist yet.
+      #
+      # build.sh's MUMPS detection at src ~line 282 prefers
+      # $LOCAL_MUMPS_DIR/lib/libdmumps_seq.a when present, so any of the
+      # three paths populating deps/mumps/ is picked up automatically.
+
+      - name: Download prebuilt MUMPS (if release exists)
+        id: download-mumps
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source versions.env
+          TAG="mumps-prebuilt-${MUMPS_VERSION}-r${MUMPS_PREBUILT_REVISION:-1}"
+          PLATFORM='${{ matrix.name }}'
+          ASSET="mumps-prebuilt-${PLATFORM}.tar.gz"
+          if ! gh release view "$TAG" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::warning::Prebuilt MUMPS release $TAG not found — falling back to source build (or cache). Trigger prebuild-mumps.yml to populate."
+            echo "populated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh release download "$TAG" -R "${GITHUB_REPOSITORY}" -p "$ASSET" -p SHA256SUMS
+          grep " $ASSET\$" SHA256SUMS | sha256sum -c -
+          mkdir -p deps
+          tar xzf "$ASSET" -C deps
+          test -f deps/mumps/lib/libdmumps_seq.a
+          echo "Prebuilt MUMPS $TAG/$ASSET extracted to deps/mumps/"
+          echo "populated=true" >> "$GITHUB_OUTPUT"
+
       # Cache restore + save are split (instead of using actions/cache@v4
       # with save-always, which is deprecated). The save step runs with
       # `if: always()` so a downstream test failure or hang does not
       # discard a 30-min cold cabal compile that did succeed.
 
-      - name: Restore MUMPS local build
+      - name: Restore MUMPS local build (fallback when prebuilt missing)
         id: cache-mumps
+        if: steps.download-mumps.outputs.populated != 'true'
         uses: actions/cache/restore@v4
         with:
           path: deps/mumps
@@ -308,6 +351,30 @@ jobs:
             ./build.sh --test
           fi
 
+      - name: Verify static MUMPS link (Linux)
+        # Regression guard: the shipped tarball must not depend on
+        # libdmumps_seq.so / libmumps_common_seq.so / libpord_seq.so /
+        # libmpiseq_seq.so at runtime — end users would have to apt-install
+        # libmumps-seq separately, which breaks the standalone-binary UX.
+        # Catches the case where build-mumps.sh (or someone's local edit)
+        # introduces dynamic MUMPS deps, including any future variant that
+        # enables Scotch and ends up linking the system libscotch.so.
+        if: matrix.os == 'linux'
+        run: |
+          VOLCA_BIN=$(cabal list-bin exe:volca)
+          # Decompress UPX wrapper so ldd can read the dynamic section
+          # (UPX strips section headers; ldd otherwise reports
+          # "not a dynamic executable" regardless of actual linkage).
+          cp "$VOLCA_BIN" /tmp/volca-ldd-check
+          upx -d /tmp/volca-ldd-check >/dev/null 2>&1 || true
+          deps=$(ldd /tmp/volca-ldd-check 2>/dev/null | grep -E 'libdmumps_seq|libmumps_common_seq|libpord_seq|libmpiseq_seq|libscotch' || true)
+          if [[ -n "$deps" ]]; then
+            echo "::error::Binary has dynamic MUMPS/Scotch dependencies — static link regressed:"
+            echo "$deps"
+            exit 1
+          fi
+          echo "OK: no MUMPS shared library dependencies in the shipped binary."
+
       - name: Optimize macOS binary (strip + ad-hoc sign)
         # Tests above ran on the unstripped binary because UPX'd Mach-O on
         # arm64 is killed at fork by the kernel even after ad-hoc re-sign
@@ -324,7 +391,15 @@ jobs:
           ls -lh "$VOLCA_BIN"
 
       - name: Save MUMPS local build
-        if: always() && steps.cache-mumps.outputs.cache-hit != 'true'
+        # Only save when build.sh actually ran a source build (i.e. neither
+        # the prebuilt download nor the cache restore populated deps/mumps).
+        # Without this gate we'd try to save the prebuilt download as if it
+        # were a cache entry, which both wastes cycles and pollutes the
+        # cache key namespace.
+        if: |
+          always() &&
+          steps.download-mumps.outputs.populated != 'true' &&
+          steps.cache-mumps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: deps/mumps

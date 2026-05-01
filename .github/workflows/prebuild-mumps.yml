@@ -1,0 +1,167 @@
+name: Prebuild MUMPS
+
+# Manual workflow that builds MUMPS once per
+# (MUMPS_VERSION, MUMPS_PREBUILT_REVISION) tuple and attaches the result
+# to a GH Release tagged `mumps-prebuilt-<version>-r<rev>`. Subsequent
+# normal CI runs (`_build-matrix.yml`) then download from that release
+# instead of compiling MUMPS from source — eliminating the 8–17 minute
+# cold-cache MUMPS compile from every PR/release run.
+#
+# When to trigger:
+#   * After bumping MUMPS_VERSION in versions.env
+#   * After editing build-mumps.sh (also bump MUMPS_PREBUILT_REVISION
+#     so the new build replaces the previous cached one)
+#
+# The release tag is derived from versions.env, so the same revision
+# cannot be uploaded twice — re-running on an existing tag fails fast
+# in the publish job.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            runner: ubuntu-latest
+            os: linux
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            os: linux
+          - name: windows-amd64
+            runner: windows-latest
+            os: windows
+          - name: macos-arm64
+            runner: macos-15
+            os: macos
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    defaults:
+      run:
+        shell: ${{ matrix.os == 'windows' && 'msys2 {0}' || 'bash' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned versions
+        id: versions
+        shell: bash
+        run: |
+          source versions.env
+          echo "mumps=$MUMPS_VERSION" >> "$GITHUB_OUTPUT"
+          echo "rev=${MUMPS_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup MSYS2 (Windows)
+        if: matrix.os == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gcc-fortran
+            mingw-w64-ucrt-x86_64-openblas
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-make
+            make
+            python
+            git
+            curl
+            tar
+
+      - name: Install build dependencies (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gfortran cmake python3 curl \
+            zlib1g-dev liblapack-dev libblas-dev
+
+      - name: Install build dependencies (macOS)
+        if: matrix.os == 'macos'
+        run: brew install gcc openblas
+
+      - name: Build MUMPS
+        env:
+          MUMPS_VERSION: ${{ steps.versions.outputs.mumps }}
+        run: |
+          # Per-platform BLAS hints — mirror what build.sh chooses for the
+          # source-build fallback path so the prebuilt archives are bit-for-bit
+          # what an in-CI source build would produce.
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            export BLAS_LIBS="-lopenblas"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            OPENBLAS_PREFIX="$(brew --prefix openblas)"
+            export BLAS_LIBS="-L${OPENBLAS_PREFIX}/lib -lopenblas"
+            export CPPFLAGS="-I${OPENBLAS_PREFIX}/include"
+          fi
+          ./build-mumps.sh
+
+      - name: Package
+        shell: bash
+        run: |
+          test -f deps/mumps/lib/libdmumps_seq.a
+          tar -czf "mumps-prebuilt-${{ matrix.name }}.tar.gz" -C deps mumps
+          ls -lh "mumps-prebuilt-${{ matrix.name }}.tar.gz"
+
+      - name: Upload artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mumps-prebuilt-${{ matrix.name }}
+          path: mumps-prebuilt-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish prebuilt release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned versions
+        id: versions
+        run: |
+          source versions.env
+          echo "mumps=$MUMPS_VERSION" >> "$GITHUB_OUTPUT"
+          echo "rev=${MUMPS_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"
+          echo "tag=mumps-prebuilt-${MUMPS_VERSION}-r${MUMPS_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if release already exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.versions.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::Release ${{ steps.versions.outputs.tag }} already exists. Bump MUMPS_PREBUILT_REVISION in versions.env first."
+            exit 1
+          fi
+
+      - name: Download all artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum mumps-prebuilt-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist
+          gh release create "${{ steps.versions.outputs.tag }}" \
+            --title "MUMPS ${{ steps.versions.outputs.mumps }} prebuilt (revision ${{ steps.versions.outputs.rev }})" \
+            --notes "Prebuilt MUMPS_SEQ ${{ steps.versions.outputs.mumps }} (PORD ordering, double precision, static archives) for use by _build-matrix.yml. Source: build-mumps.sh." \
+            --prerelease \
+            mumps-prebuilt-*.tar.gz SHA256SUMS
