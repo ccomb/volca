@@ -20,7 +20,7 @@ Requires Python ≥ 3.10 and a running VoLCA engine. Use `Server` (below) to run
 Most users should start with one of these two modes:
 
 - **You already have access to a VoLCA server** (for example a hosted server prepared by someone else): use `Client` only. You do not need `volca.toml`, and you do not need to install the VoLCA server locally.
-- **You want Python to start a local VoLCA engine process for you**: use `Server`. In that case you need the `volca` binary available on your machine, and `volca.toml` is just a normal file path passed to `Server(config=...)`; put it in your project directory, or pass an absolute path. Do not put it inside your virtualenv or inside `site-packages`.
+- **You want Python to start a local VoLCA engine process for you**: use `download()` once to fetch the VoLCA engine binary and reference data into pyvolca's cache, then use `Server` to start it from Python. `volca.toml` is still a normal file path passed to `Server(config=...)`; put it in your project directory, or pass an absolute path. Do not put it inside your virtualenv or inside `site-packages`.
 
 For a hosted server, the minimal connection looks like this:
 
@@ -37,18 +37,20 @@ c = Client(
 print(c.list_databases())
 ```
 
-Use the `Server` helper only when you deliberately want to launch the engine from Python:
+Use `download()` + `Server` only when you deliberately want to download and launch the engine from Python:
 
 ```python
-# no-test  — needs a local volca binary and a real engine config.
-from volca import Client, Server
+# no-test  — downloads the engine and needs a real engine config/database.
+from volca import Client, Server, download
 
-with Server(config="./volca.toml") as srv:
+installed = download()  # cached after the first run
+
+with Server(config="./volca.toml", binary=str(installed.binary)) as srv:
     c = Client(base_url=srv.base_url, db="agribalyse-3.2", password=srv.password)
     print(c.list_databases())
 ```
 
-In this local mode, `Server(config="./volca.toml")` means “read `./volca.toml` relative to the current working directory”.
+In this local mode, `download()` stores the engine binary and reference data in pyvolca's user cache. `Server(config="./volca.toml")` still means “read `./volca.toml` relative to the current working directory”.
 
 ## Local managed-server quick start
 
