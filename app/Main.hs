@@ -3,7 +3,7 @@
 
 module Main where
 
-import Control.Concurrent (ThreadId, forkIO, myThreadId, threadDelay, throwTo)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad (forM_, unless, when)
 import Data.IORef
 import Data.List (intercalate)
@@ -11,10 +11,11 @@ import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
+import Foreign.C.Types (CInt (..))
 import Options.Applicative
 import System.Environment (lookupEnv)
-import System.Exit (ExitCode (..), die, exitFailure)
-import System.IO (hFlush, stdout)
+import System.Exit (die, exitFailure)
+import System.IO (hFlush, stderr, stdout)
 import Text.Read (readMaybe)
 
 -- VoLCA imports
@@ -46,6 +47,20 @@ import Network.Wai.Application.Static (defaultWebAppSettings, ssIndices, staticA
 import Network.Wai.Handler.Warp (defaultSettings, runSettings, setPort, setTimeout)
 import Servant (serve)
 import WaiAppStatic.Types (MaxAge (..), ssMaxAge, unsafeToPiece)
+
+-- _exit(0) bypasses Haskell RTS teardown — necessary on statically-linked
+-- glibc builds (notably aarch64) where the threaded RTS's shutdown calls
+-- pthread_cancel, which in turn dlopen()'s libgcc_s.so.1 to find the
+-- stack unwinder and SIGILLs when that returns NULL in a static binary.
+-- The 500 ms delay before calling this gives Warp time to flush the HTTP
+-- response back to the caller; hFlush flushes any buffered log lines.
+foreign import ccall "_exit" c_exit :: CInt -> IO ()
+
+hardExit :: IO ()
+hardExit = do
+    hFlush stdout
+    hFlush stderr
+    c_exit 0
 
 -- | Main entry point
 main :: IO ()
@@ -163,7 +178,6 @@ runServerWithConfig cliConfig serverOpts cfgFile = do
             reportProgress Info $ "Web interface available at: http://localhost:" ++ show port ++ "/"
 
     -- Idle timeout: track last request time, watchdog activated on demand via API
-    mainTid <- myThreadId
     lastRequestRef <- newIORef =<< getCurrentTime
     idleActiveRef <- newIORef False
 
@@ -172,14 +186,14 @@ runServerWithConfig cliConfig serverOpts cfgFile = do
     when (idleTimeout > 0) $ do
         reportProgress Info $ "Idle timeout: " ++ show idleTimeout ++ "s"
         writeIORef idleActiveRef True
-        _ <- forkIO $ idleWatchdog mainTid lastRequestRef idleActiveRef idleTimeout
+        _ <- forkIO $ idleWatchdog lastRequestRef idleActiveRef idleTimeout
         pure ()
 
     -- Create app with DatabaseManager - API handlers fetch current DB dynamically
     baseApp <- Main.createServerApp dbManager (serverTreeDepth serverOpts) staticDir desktopMode password (cfgHosting effectiveConfig) (cfgClassificationPresets effectiveConfig)
     let appWithIdleAndShutdown =
             idleTrackingMiddleware lastRequestRef $
-                shutdownEndpoint mainTid lastRequestRef idleActiveRef baseApp
+                shutdownEndpoint lastRequestRef idleActiveRef baseApp
         finalApp = case password of
             Just pwd -> authMiddleware (C8.pack pwd) appWithIdleAndShutdown
             Nothing -> appWithIdleAndShutdown
@@ -331,14 +345,14 @@ idleTrackingMiddleware ref app req respond = do
 {- | Middleware that handles POST /api/v1/idle-timeout/{seconds} and POST /api/v1/shutdown
 0 = cancel timeout, N>0 = activate/restart idle watchdog
 -}
-shutdownEndpoint :: ThreadId -> IORef UTCTime -> IORef Bool -> Application -> Application
-shutdownEndpoint mainTid lastRequestRef idleActiveRef app req respond = do
+shutdownEndpoint :: IORef UTCTime -> IORef Bool -> Application -> Application
+shutdownEndpoint lastRequestRef idleActiveRef app req respond = do
     let path = rawPathInfo req
         method = requestMethod req
     case (method, BS.stripPrefix "/api/v1/idle-timeout/" path, path) of
         ("POST", _, "/api/v1/shutdown") -> do
             reportProgress Info "Shutdown requested via API"
-            _ <- forkIO $ threadDelay 500000 >> throwTo mainTid ExitSuccess
+            _ <- forkIO $ threadDelay 500000 >> hardExit
             respond $
                 responseLBS
                     status200
@@ -355,7 +369,7 @@ shutdownEndpoint mainTid lastRequestRef idleActiveRef app req respond = do
                     writeIORef idleActiveRef True
                     getCurrentTime >>= writeIORef lastRequestRef
                     unless alreadyActive $ do
-                        _ <- forkIO $ idleWatchdog mainTid lastRequestRef idleActiveRef seconds
+                        _ <- forkIO $ idleWatchdog lastRequestRef idleActiveRef seconds
                         pure ()
                     reportProgress Info $ "Idle timeout: " ++ show seconds ++ "s"
             respond $
@@ -366,8 +380,8 @@ shutdownEndpoint mainTid lastRequestRef idleActiveRef app req respond = do
         (_, _, _) -> app req respond
 
 -- | Background thread that exits the server after idle timeout (in seconds)
-idleWatchdog :: ThreadId -> IORef UTCTime -> IORef Bool -> Int -> IO ()
-idleWatchdog mainTid ref activeRef timeoutSecs = go
+idleWatchdog :: IORef UTCTime -> IORef Bool -> Int -> IO ()
+idleWatchdog ref activeRef timeoutSecs = go
   where
     checkInterval = min (timeoutSecs * 1000000) (5 * 1000000) -- check every 5s or timeout, whichever is shorter
     go = do
@@ -382,5 +396,5 @@ idleWatchdog mainTid ref activeRef timeoutSecs = go
                 if idleSeconds >= fromIntegral timeoutSecs
                     then do
                         reportProgress Info $ "Idle for " ++ show timeoutSecs ++ "s, shutting down."
-                        throwTo mainTid ExitSuccess
+                        hardExit
                     else go
