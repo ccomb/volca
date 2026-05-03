@@ -11,13 +11,16 @@
 #   2. Downloads volca-<version>-<platform>.tar.gz from the GH Release
 #   3. Downloads volca-data-<data-version>.tar.gz (the reference data bundle)
 #   4. Verifies both against SHA256SUMS
-#   5. Extracts to:
-#        ~/.local/share/volca/<version>/volca
-#        ~/.local/share/volca/data/<data-version>/{flows.csv,...}
-#      and points ~/.local/share/volca/data/current at <data-version>.
+#   5. Extracts to the OS-native user data dir (matches platformdirs):
+#        Linux:   ${XDG_DATA_HOME:-~/.local/share}/volca/<version>/volca
+#        macOS:   ~/Library/Application Support/volca/<version>/volca
+#      with the data bundle under <root>/data/<data-version>/ and a
+#      <root>/data/current symlink pointing at it.
 #   6. Installs a thin shim at ~/.local/bin/volca that sets VOLCA_DATA_DIR
 #      and execs the real binary. The shim makes the data-bundle layout
 #      invisible to users — they just `volca …`.
+#
+# Override the install root with VOLCA_HOME=/full/path (skips OS detection).
 #
 # Windows:
 #   This script aborts. Use install.ps1 (or download from GH Releases).
@@ -26,9 +29,7 @@
 set -eu
 
 REPO="ccomb/volca"
-PREFIX="${VOLCA_PREFIX:-$HOME/.local}"
-SHARE_DIR="$PREFIX/share/volca"
-BIN_DIR="$PREFIX/bin"
+BIN_DIR="$HOME/.local/bin"
 SHIM="$BIN_DIR/volca"
 
 VERSION="${1:-}"
@@ -66,6 +67,19 @@ case "$UNAME_S" in
         ;;
 esac
 PLATFORM="${OS}-${ARCH}"
+
+# --- Resolve install root ----------------------------------------------------
+# Mirrors platformdirs.user_data_dir("volca", appauthor=False) — the same root
+# pyvolca.download() and install.ps1 use, so all three installers share it.
+
+if [ -n "${VOLCA_HOME:-}" ]; then
+    SHARE_DIR="$VOLCA_HOME"
+else
+    case "$OS" in
+        linux) SHARE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/volca" ;;
+        macos) SHARE_DIR="$HOME/Library/Application Support/volca" ;;
+    esac
+fi
 
 # --- Tooling sanity ----------------------------------------------------------
 

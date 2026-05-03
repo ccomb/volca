@@ -1,17 +1,25 @@
-"""Download cache for the volca binary + reference data bundle.
+"""Download + install the volca binary + reference data bundle.
 
-Public surface: :func:`download`. ``Server`` calls ``cached_binary`` and
-``cached_data_dir`` to pick up downloaded artefacts when no explicit
-binary path is configured.
+Public surface: :func:`download`. ``Server`` calls ``installed_binary`` and
+``installed_data_dir`` to pick up artefacts when no explicit binary path is
+configured.
 
-Cache layout (mirrors install.sh)::
+The install layout is shared with ``install.sh`` and ``install.ps1`` —
+running any of the three installers populates the same root::
 
-    <user_cache_dir("pyvolca")>/
+    <platformdirs.user_data_dir("volca", appauthor=False)>/
         <engine-version>/volca[.exe]
         data/<data-version>/{flows.csv, compartments.csv, units.csv,
                              geographies.csv, flows.csv.cache.zst}
         data/current   -> data/<data-version>   (symlink, or copy on
                                                  platforms without symlinks)
+
+Resolved per-platform:
+    - Linux:   ${XDG_DATA_HOME:-~/.local/share}/volca/
+    - macOS:   ~/Library/Application Support/volca/
+    - Windows: %LOCALAPPDATA%\\volca\\
+
+Override the root with ``$VOLCA_HOME`` (full path, skips platform detection).
 """
 
 from __future__ import annotations
@@ -30,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Optional
 
-from platformdirs import user_cache_dir
+from platformdirs import user_data_dir
 
 if sys.platform == "win32":
     import msvcrt
@@ -84,40 +92,82 @@ def _binary_name() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Cache paths
+# Install paths
 # ---------------------------------------------------------------------------
 
+_SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
-def _cache_root() -> Path:
-    return Path(user_cache_dir("pyvolca"))
+
+def _install_root() -> Path:
+    """Resolve the volca install root.
+
+    ``$VOLCA_HOME`` overrides everything (full path). Otherwise falls back
+    to ``platformdirs.user_data_dir("volca", appauthor=False)`` — same root
+    as install.sh / install.ps1.
+    """
+    if home := os.environ.get("VOLCA_HOME"):
+        return Path(home)
+    return Path(user_data_dir("volca", appauthor=False))
 
 
 def _manifest_path() -> Path:
-    return _cache_root() / "latest.json"
+    return _install_root() / "latest.json"
 
 
-def cached_binary(version: Optional[str] = None) -> Optional[Path]:
+def _scan_installed_versions(root: Path) -> list[tuple[tuple[int, int, int], Path]]:
+    """Find every ``<root>/X.Y.Z/<binary>`` and rank by semver, highest first.
+
+    Lets ``installed_binary()`` discover engines installed via install.sh /
+    install.ps1, which don't write ``latest.json``.
+    """
+    if not root.is_dir():
+        return []
+    binary = _binary_name()
+    found: list[tuple[tuple[int, int, int], Path]] = []
+    for child in root.iterdir():
+        if not child.is_dir():
+            continue
+        m = _SEMVER_RE.match(child.name)
+        if not m:
+            continue
+        bin_path = child / binary
+        if not bin_path.is_file():
+            continue
+        key = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        found.append((key, bin_path))
+    found.sort(reverse=True)
+    return found
+
+
+def installed_binary(version: Optional[str] = None) -> Optional[Path]:
     """Return the binary path for ``version`` if extracted, else ``None``.
 
-    If ``version`` is ``None``, returns the binary recorded in
-    ``latest.json`` by the most recent :func:`download` call.
+    With ``version=None``, prefers the version recorded in ``latest.json``
+    by the most recent :func:`download` call. If that file is missing — e.g.
+    the user ran install.sh / install.ps1, which don't write a manifest —
+    falls back to scanning the install root for the highest-semver dir that
+    contains the binary.
     """
-    if version is None:
-        manifest = _manifest_path()
-        if not manifest.is_file():
-            return None
+    root = _install_root()
+    if version is not None:
+        p = root / version.lstrip("v") / _binary_name()
+        return p if p.is_file() else None
+    manifest = _manifest_path()
+    if manifest.is_file():
         try:
             data = json.loads(manifest.read_text())
+            ver = data.get("version")
+            if ver:
+                p = root / ver.lstrip("v") / _binary_name()
+                if p.is_file():
+                    return p
         except (OSError, json.JSONDecodeError):
-            return None
-        version = data.get("version")
-        if not version:
-            return None
-    p = _cache_root() / version.lstrip("v") / _binary_name()
-    return p if p.is_file() else None
+            pass
+    scanned = _scan_installed_versions(root)
+    return scanned[0][1] if scanned else None
 
 
-def cached_data_dir() -> Optional[Path]:
+def installed_data_dir() -> Optional[Path]:
     """Return the active data dir (``data/current``) if it exists.
 
     Resolves symlinks before returning, so a stale link to a removed
@@ -125,7 +175,7 @@ def cached_data_dir() -> Optional[Path]:
     cannot read. ``Path.exists`` follows symlinks; ``is_symlink`` alone
     would happily return a broken pointer.
     """
-    p = _cache_root() / "data" / "current"
+    p = _install_root() / "data" / "current"
     if p.exists() and p.is_dir():
         return p
     return None
@@ -197,11 +247,11 @@ def _extract(archive: Path, dest: Path) -> None:
 def _exclusive_lock(path: Path) -> Iterator[None]:
     """Hold a process-exclusive lock on ``path`` for the duration of the block.
 
-    Lets concurrent ``download()`` callers serialise around the cache writes:
-    one process actually downloads + extracts, the others wait, and on
-    re-entering the critical section see a fully-populated cache and short-
-    circuit. The OS releases the lock if the holder dies, so a crashed run
-    does not strand subsequent callers.
+    Lets concurrent ``download()`` callers serialise around the install
+    writes: one process actually downloads + extracts, the others wait, and
+    on re-entering the critical section see a fully-populated root and
+    short-circuit. The OS releases the lock if the holder dies, so a crashed
+    run does not strand subsequent callers.
 
     fcntl.flock on Unix; msvcrt.locking on Windows. Both are kernel-level.
     """
@@ -243,8 +293,8 @@ def _link_current(target: Path, link: Path) -> None:
     elif link.is_dir():
         shutil.rmtree(link)
     try:
-        # Use a relative target so the cache stays portable if the parent
-        # dir gets moved (e.g. user's $HOME relocates).
+        # Use a relative target so the install dir stays portable if the
+        # parent gets moved (e.g. user's $HOME relocates).
         link.symlink_to(target.name, target_is_directory=True)
     except (OSError, NotImplementedError):
         shutil.copytree(target, link)
@@ -263,13 +313,13 @@ def download(
 ) -> Installed:
     """Download the volca binary + data bundle for the current platform.
 
-    Idempotent: if both artefacts are already extracted under the expected
-    cache paths and ``force=False``, returns immediately without network.
+    Idempotent: if both artefacts are already extracted under the install
+    root and ``force=False``, returns immediately without network.
 
     Args:
         version: GH Release tag (``v0.7.0``); ``None`` resolves the latest.
         repo: GitHub repo slug. Default ``ccomb/volca``.
-        force: Re-download even if the cache looks complete.
+        force: Re-download even if the install root looks complete.
 
     Returns:
         :class:`Installed` with the resolved paths and versions.
@@ -278,15 +328,15 @@ def download(
     tag = _resolve_tag(repo, version)
     plain_version = tag.lstrip("v")
 
-    cache = _cache_root()
-    cache.mkdir(parents=True, exist_ok=True)
+    root = _install_root()
+    root.mkdir(parents=True, exist_ok=True)
 
-    with _exclusive_lock(cache / ".lock"):
-        return _download_locked(cache, repo, tag, plain_version, slug, ext, force)
+    with _exclusive_lock(root / ".lock"):
+        return _download_locked(root, repo, tag, plain_version, slug, ext, force)
 
 
 def _download_locked(
-    cache: Path,
+    root: Path,
     repo: str,
     tag: str,
     plain_version: str,
@@ -295,7 +345,7 @@ def _download_locked(
     force: bool,
 ) -> Installed:
     # ---- download SHA256SUMS first; it tells us which data version to fetch
-    sums_path = cache / f"SHA256SUMS-{tag}"
+    sums_path = root / f"SHA256SUMS-{tag}"
     sums_path.write_bytes(_http_get(_GH_RELEASES.format(repo=repo, tag=tag, asset="SHA256SUMS")))
     sums = _parse_sha256sums(sums_path.read_text())
 
@@ -312,18 +362,18 @@ def _download_locked(
         raise DownloadError(f"cannot parse data version from {data_asset}")
     data_version = m.group(1)
 
-    binary_dir = cache / plain_version
-    data_dir = cache / "data" / data_version
+    binary_dir = root / plain_version
+    data_dir = root / "data" / data_version
     bin_path = binary_dir / _binary_name()
 
-    fully_cached = (
+    already_installed = (
         bin_path.is_file()
         and (data_dir / "flows.csv").is_file()
         and not force
     )
-    if not fully_cached:
+    if not already_installed:
         # ---- binary
-        bin_arch = cache / f"_dl-{binary_asset}"
+        bin_arch = root / f"_dl-{binary_asset}"
         _download_asset(repo, tag, binary_asset, bin_arch)
         _verify(bin_arch, sums[binary_asset])
         _extract(bin_arch, binary_dir)
@@ -332,16 +382,17 @@ def _download_locked(
             os.chmod(bin_path, 0o755)
 
         # ---- data bundle
-        data_arch = cache / f"_dl-{data_asset}"
+        data_arch = root / f"_dl-{data_asset}"
         _download_asset(repo, tag, data_asset, data_arch)
         _verify(data_arch, sums[data_asset])
         _extract(data_arch, data_dir)
         data_arch.unlink(missing_ok=True)
 
-    _link_current(data_dir, cache / "data" / "current")
+    _link_current(data_dir, root / "data" / "current")
 
-    # Manifest lets Server.start() find the cached binary without knowing
-    # which version was downloaded. Rewritten on every download() call.
+    # Manifest lets Server.start() find the binary without knowing which
+    # version was downloaded. install.sh / install.ps1 don't write this file
+    # — installed_binary() falls back to a semver scan in that case.
     _manifest_path().write_text(
         json.dumps(
             {"version": plain_version, "data_version": data_version, "binary": str(bin_path)},
@@ -351,7 +402,7 @@ def _download_locked(
 
     return Installed(
         binary=bin_path,
-        data_dir=cache / "data" / "current",
+        data_dir=root / "data" / "current",
         version=plain_version,
         data_version=data_version,
     )

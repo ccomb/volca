@@ -20,7 +20,7 @@ Requires Python ≥ 3.10 and a running VoLCA engine. Use `Server` (below) to run
 Most users should start with one of these two modes:
 
 - **You already have access to a VoLCA server** (for example a hosted server prepared by someone else): use `Client` only. You do not need `volca.toml`, and you do not need to install the VoLCA server locally.
-- **You want Python to start a local VoLCA engine process for you**: use `download()` once to fetch the VoLCA engine binary and reference data into pyvolca's cache, then use `Server` to start it from Python. `volca.toml` is still a normal file path passed to `Server(config=...)`; put it in your project directory, or pass an absolute path. Do not put it inside your virtualenv or inside `site-packages`.
+- **You want Python to start a local VoLCA engine process for you**: use `download()` once to fetch the VoLCA engine binary and reference data into the shared volca install dir (see [Where artefacts are installed](#where-artefacts-are-installed)), then use `Server` to start it from Python. `volca.toml` is still a normal file path passed to `Server(config=...)`; put it in your project directory, or pass an absolute path. Do not put it inside your virtualenv or inside `site-packages`.
 
 For a hosted server, the minimal connection looks like this:
 
@@ -50,7 +50,21 @@ with Server(config="./volca.toml", binary=str(installed.binary)) as srv:
     print(c.list_databases())
 ```
 
-In this local mode, `download()` stores the engine binary and reference data in pyvolca's user cache. `Server(config="./volca.toml")` still means “read `./volca.toml` relative to the current working directory”.
+In this local mode, `download()` stores the engine binary and reference data in the shared volca install dir (see below). `Server(config="./volca.toml")` still means “read `./volca.toml` relative to the current working directory”.
+
+### Where artefacts are installed
+
+`download()` writes to the same OS-native location as the `install.sh` / `install.ps1` shell installers, so any of the three tools populate the same directory:
+
+| Platform | Default install root |
+|---|---|
+| Linux   | `${XDG_DATA_HOME:-~/.local/share}/volca/` |
+| macOS   | `~/Library/Application Support/volca/` |
+| Windows | `%LOCALAPPDATA%\volca\` |
+
+Override with `VOLCA_HOME=/full/path` (full path; skips OS detection).
+
+If you ran `install.sh` or `install.ps1` first, `Server()` finds the installed engine without an extra `download()` call. If you previously used `pyvolca < 0.4` it cached artefacts under `<user_cache_dir>/pyvolca/` (Linux: `~/.cache/pyvolca/`); that directory is no longer read and can be removed (`rm -rf ~/.cache/pyvolca`).
 
 ## Local managed-server quick start
 
@@ -285,7 +299,6 @@ Pyvolca dispatches dynamically against the engine's OpenAPI spec, so it ships wi
 ## API reference
 
 <!-- BEGIN: api-reference -->
-
 _This reference is generated from the installed package. Run `python scripts/gen_api_md.py` to regenerate._
 
 ## Classes
@@ -476,7 +489,7 @@ An exchange with the environment (resource extraction or emission).
 
 Filter a supply-chain/consumers query by a classification (system, value, mode).
 
-Matches one classification system entry (e.g. ("Category", "Agricultural\\Food",
+Matches one classification system entry (e.g. ("Category", "Agricultural\Food",
 "exact")). Mode is "exact" (case-insensitive equality) or "contains" (substring).
 Multiple filters are AND-combined by the server.
 
@@ -725,13 +738,13 @@ common case for "what does this variant consume differently?". Pass
 
 Download the volca binary + data bundle for the current platform.
 
-Idempotent: if both artefacts are already extracted under the expected
-cache paths and ``force=False``, returns immediately without network.
+Idempotent: if both artefacts are already extracted under the install
+root and ``force=False``, returns immediately without network.
 
 Args:
     version: GH Release tag (``v0.7.0``); ``None`` resolves the latest.
     repo: GitHub repo slug. Default ``ccomb/volca``.
-    force: Re-download even if the cache looks complete.
+    force: Re-download even if the install root looks complete.
 
 Returns:
     :class:`Installed` with the resolved paths and versions.
@@ -741,6 +754,7 @@ Returns:
 ### `Exchange`
 
 Type alias: `Union[TechnosphereExchange, BiosphereExchange]`.
+
 
 <!-- END: api-reference -->
 

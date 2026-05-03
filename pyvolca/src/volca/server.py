@@ -69,18 +69,18 @@ class Server:
 
         Resolution order:
           1. ``self.binary`` if it is an existing path.
-          2. The most recent download cached by :func:`volca.download` —
-             so a script can ``volca.download()`` then ``Server()`` and
-             have the spawn pick up the cached engine without extra wiring.
+          2. The shared install root (``platformdirs.user_data_dir``) —
+             populated by :func:`volca.download`, ``install.sh``, or
+             ``install.ps1`` interchangeably.
           3. ``shutil.which(self.binary)`` — PATH lookup, including the
              ``~/.local/bin/volca`` shim that ``install.sh`` drops.
           4. ``./volca`` / ``./dist/volca`` for ad-hoc dev trees.
         """
         if Path(self.binary).exists():
             return self.binary
-        cached = _download.cached_binary()
-        if cached is not None:
-            return str(cached)
+        installed = _download.installed_binary()
+        if installed is not None:
+            return str(installed)
         found = shutil.which(self.binary)
         if found:
             return found
@@ -95,15 +95,15 @@ class Server:
     def _subprocess_env(self) -> dict:
         """Subprocess env for the spawned engine.
 
-        When the data bundle has been downloaded into the pyvolca cache,
+        When the data bundle has been installed into the shared install root,
         export VOLCA_DATA_DIR so the engine resolves "data/flows.csv" and
-        friends against the cached bundle instead of the engine's CWD.
+        friends against the bundle instead of the engine's CWD.
         """
         env = os.environ.copy()
         if "VOLCA_DATA_DIR" not in env:
-            cached = _download.cached_data_dir()
-            if cached is not None:
-                env["VOLCA_DATA_DIR"] = str(cached)
+            installed = _download.installed_data_dir()
+            if installed is not None:
+                env["VOLCA_DATA_DIR"] = str(installed)
         return env
 
     def is_alive(self) -> bool:

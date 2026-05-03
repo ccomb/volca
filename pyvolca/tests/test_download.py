@@ -108,34 +108,85 @@ def test_platform_slug_macos_x86_64_rejected():
 
 
 # ---------------------------------------------------------------------------
-# cached_binary
+# _install_root
 # ---------------------------------------------------------------------------
 
 
-def test_cached_binary_no_manifest(tmp_path: Path):
-    with mock.patch.object(_download, "_cache_root", return_value=tmp_path):
-        assert _download.cached_binary() is None
+def test_install_root_default_uses_user_data_dir(tmp_path: Path, monkeypatch):
+    """Without ``$VOLCA_HOME``, defer to platformdirs.user_data_dir."""
+    monkeypatch.delenv("VOLCA_HOME", raising=False)
+    with mock.patch("volca._download.user_data_dir", return_value=str(tmp_path / "platform")) as ud:
+        result = _download._install_root()
+        ud.assert_called_once_with("volca", appauthor=False)
+        assert result == tmp_path / "platform"
 
 
-def test_cached_binary_explicit_version(tmp_path: Path):
+def test_install_root_volca_home_overrides(tmp_path: Path, monkeypatch):
+    """``$VOLCA_HOME`` short-circuits platformdirs."""
+    monkeypatch.setenv("VOLCA_HOME", str(tmp_path / "custom"))
+    with mock.patch("volca._download.user_data_dir") as ud:
+        result = _download._install_root()
+        ud.assert_not_called()
+        assert result == tmp_path / "custom"
+
+
+# ---------------------------------------------------------------------------
+# installed_binary
+# ---------------------------------------------------------------------------
+
+
+def test_installed_binary_no_manifest_no_dirs(tmp_path: Path):
+    """Empty install root → None."""
+    with mock.patch.object(_download, "_install_root", return_value=tmp_path):
+        assert _download.installed_binary() is None
+
+
+def test_installed_binary_explicit_version(tmp_path: Path):
     bin_dir = tmp_path / "0.7.0"
     bin_dir.mkdir()
     bin_path = bin_dir / "volca"
     bin_path.write_bytes(b"")
-    with mock.patch.object(_download, "_cache_root", return_value=tmp_path), \
+    with mock.patch.object(_download, "_install_root", return_value=tmp_path), \
          mock.patch.object(_download, "_binary_name", return_value="volca"):
-        assert _download.cached_binary("v0.7.0") == bin_path
-        assert _download.cached_binary("0.7.0") == bin_path
+        assert _download.installed_binary("v0.7.0") == bin_path
+        assert _download.installed_binary("0.7.0") == bin_path
 
 
-def test_cached_binary_via_manifest(tmp_path: Path):
+def test_installed_binary_via_manifest(tmp_path: Path):
     bin_dir = tmp_path / "0.7.0"
     bin_dir.mkdir()
     (bin_dir / "volca").write_bytes(b"")
     (tmp_path / "latest.json").write_text(json.dumps({"version": "0.7.0"}))
-    with mock.patch.object(_download, "_cache_root", return_value=tmp_path), \
+    with mock.patch.object(_download, "_install_root", return_value=tmp_path), \
          mock.patch.object(_download, "_binary_name", return_value="volca"):
-        result = _download.cached_binary()
+        result = _download.installed_binary()
+        assert result == bin_dir / "volca"
+
+
+def test_installed_binary_scan_fallback_when_no_manifest(tmp_path: Path):
+    """install.sh / install.ps1 don't write latest.json — fall back to a
+    semver scan and pick the highest version that contains the binary."""
+    for ver in ("0.6.0", "0.7.0", "0.10.1"):
+        d = tmp_path / ver
+        d.mkdir()
+        (d / "volca").write_bytes(b"")
+    # A non-semver dir and a semver dir without the binary must both be ignored.
+    (tmp_path / "scratch").mkdir()
+    (tmp_path / "0.5.0").mkdir()  # no binary
+    with mock.patch.object(_download, "_install_root", return_value=tmp_path), \
+         mock.patch.object(_download, "_binary_name", return_value="volca"):
+        result = _download.installed_binary()
+        assert result == tmp_path / "0.10.1" / "volca"
+
+
+def test_installed_binary_corrupt_manifest_falls_back_to_scan(tmp_path: Path):
+    bin_dir = tmp_path / "0.7.0"
+    bin_dir.mkdir()
+    (bin_dir / "volca").write_bytes(b"")
+    (tmp_path / "latest.json").write_text("not json {{{")
+    with mock.patch.object(_download, "_install_root", return_value=tmp_path), \
+         mock.patch.object(_download, "_binary_name", return_value="volca"):
+        result = _download.installed_binary()
         assert result == bin_dir / "volca"
 
 

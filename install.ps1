@@ -10,12 +10,15 @@
 #   2. Downloads volca-<version>-windows-amd64.zip from the GH Release.
 #   3. Downloads volca-data-<data-version>.tar.gz (reference data bundle).
 #   4. Verifies both against SHA256SUMS.
-#   5. Extracts to:
+#   5. Extracts to (matches platformdirs.user_data_dir("volca", appauthor=False)):
 #        $env:LOCALAPPDATA\volca\<version>\volca.exe
 #        $env:LOCALAPPDATA\volca\data\<data-version>\{flows.csv,...}
 #      and points $env:LOCALAPPDATA\volca\data\current at <data-version>.
+#      Same root as install.sh and pyvolca.download().
 #   6. Installs a thin shim at $env:LOCALAPPDATA\volca\bin\volca.cmd that
 #      sets VOLCA_DATA_DIR and execs the real binary.
+#
+# Override the install root with $env:VOLCA_HOME = 'C:\full\path'.
 # =============================================================================
 
 [CmdletBinding()]
@@ -26,7 +29,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $Repo = 'ccomb/volca'
-$Prefix = if ($env:VOLCA_PREFIX) { $env:VOLCA_PREFIX } else { Join-Path $env:LOCALAPPDATA 'volca' }
+$Prefix = if ($env:VOLCA_HOME) { $env:VOLCA_HOME } else { Join-Path $env:LOCALAPPDATA 'volca' }
 $BinDir = Join-Path $Prefix 'bin'
 $Shim = Join-Path $BinDir 'volca.cmd'
 
