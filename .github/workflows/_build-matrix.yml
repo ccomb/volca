@@ -550,8 +550,12 @@ jobs:
         with:
           name: volca-${{ matrix.name }}
           # The penultimate segment is `opt/build/` with optimization: 2,
-          # `build/` without it; ** absorbs both layouts.
-          path: dist-newstyle/build/*/ghc-*/volca-*/x/volca/**/build/volca/volca*
+          # `build/` without it; ** absorbs both layouts. List the binary
+          # names explicitly — a trailing `volca*` glob also matches the
+          # sibling `volca-tmp/` build dir and uploads its Main.hi/Main.o.
+          path: |
+            dist-newstyle/build/*/ghc-*/volca-*/x/volca/**/build/volca/volca
+            dist-newstyle/build/*/ghc-*/volca-*/x/volca/**/build/volca/volca.exe
           if-no-files-found: error
           retention-days: 14
 
