@@ -15,10 +15,21 @@ on:
         type: boolean
         default: false
 
+# Read-only token: this workflow only checks out the repo and downloads
+# from public release artifacts. Publishing to releases is done by the
+# callers (release.yml, prebuild-*.yml) under their own elevated scope.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
+    # Catches genuine hangs without false-failing legitimate cold builds.
+    # Windows cold path (MSYS2 + GHCup install + cold cabal compile + 25-min
+    # test step) tops out around 50 min; 60 min gives ~10 min headroom while
+    # still being well under GH's default 360-min cap.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

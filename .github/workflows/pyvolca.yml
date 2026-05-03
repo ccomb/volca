@@ -11,6 +11,12 @@ concurrency:
   group: pyvolca-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# actions: read is required so gh-CLI can list and download artefacts
+# from main's latest build.yml run (used to wire up test_drift.py).
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   test:
     name: Test pyvolca
@@ -30,12 +36,50 @@ jobs:
       - name: Install pyvolca with dev extras
         run: pip install -e .[dev]
 
+      - name: Download engine binary from main's latest build
+        # Pull the linux-amd64 engine artefact from the most recent
+        # successful build.yml run on main. test_drift.py's live_spec
+        # fixture finds it under <repo>/dist-newstyle/build/.../volca and
+        # invokes `volca dump-openapi` to compare against the in-tree
+        # wrapper list. If no such run exists yet (fresh fork, never
+        # merged to main), the fixture returns None and the drift tests
+        # skip themselves — this step exits 0 so the PR is not blocked.
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RUN_ID=$(gh run list \
+            --workflow build.yml \
+            --branch main \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // empty')
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::warning::No successful build.yml run on main yet — drift tests will skip themselves."
+            exit 0
+          fi
+          echo "Downloading engine artefact from build.yml run $RUN_ID."
+          gh run download "$RUN_ID" --name volca-linux-amd64 --dir engine-dl
+          # The artefact preserves dist-newstyle/build/.../volca path
+          # structure from the upload glob in _build-matrix.yml.
+          if [[ ! -d engine-dl/dist-newstyle ]]; then
+            echo "::warning::Downloaded artefact has unexpected layout — listing for diagnostics:"
+            find engine-dl -maxdepth 4 -print
+            exit 0
+          fi
+          mv engine-dl/dist-newstyle .
+          rm -rf engine-dl
+          # Restore +x — gh run download does not preserve POSIX mode.
+          find dist-newstyle -name volca -type f -exec chmod +x {} +
+
       - name: Run tests
-        # test_drift.py compares the in-tree wrappers against a freshly
-        # dumped OpenAPI spec from the volca binary, so it needs a built
-        # engine. Skipped here; covered locally and (eventually) in a
-        # follow-up that downloads the linux-amd64 artifact from build.yml.
-        run: pytest -v --ignore=tests/test_drift.py
+        # test_drift.py uses the live_spec fixture which auto-skips when
+        # no engine binary is found under dist-newstyle/. So the previous
+        # step's best-effort download determines whether drift runs or
+        # skips, with no need for an --ignore here.
+        run: pytest -v
 
       - name: Verify gen_api_md.py runs cleanly
         run: python scripts/gen_api_md.py > /dev/null
