@@ -48,6 +48,8 @@ WORKDIR /build
 COPY volca.cabal /build/volca/
 COPY mumps-hs/ /build/mumps-hs/
 COPY gen-cabal-config.sh /build/volca/
+# gen-cabal-config.sh compiles cbits/static-shims.c in static mode
+COPY cbits/ /build/volca/cbits/
 
 # Set up cabal.project with mumps-hs as local package
 # Static MUMPS: link .a libs into the binary so the runtime image needs no MUMPS package
