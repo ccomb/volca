@@ -122,6 +122,10 @@ runs:
         # cabal version / runner-image XDG defaults — otherwise ubuntu's
         # pre-created ~/.config/cabal/config redirects the store under
         # XDG_STATE_HOME and the cached ~/.cabal/store gets bypassed.
+        # Both `export` (for the cabal commands later in this step) and
+        # `>> $GITHUB_ENV` (for subsequent workflow steps) are needed:
+        # GITHUB_ENV writes don't take effect until the next step.
+        export CABAL_DIR="$HOME/.cabal"
         echo "CABAL_DIR=$HOME/.cabal" >> "$GITHUB_ENV"
         if [[ -d "$HOME/.ghcup/ghc/$GHC_VER" ]]; then
           # Warm: re-assert the bare `ghc` symlink in case the snapshot
