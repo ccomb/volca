@@ -56,104 +56,18 @@ jobs:
 
       - name: Read pinned versions
         id: versions
-        shell: bash
-        run: |
-          source versions.env
-          echo "ghc=$GHC_VERSION" >> "$GITHUB_OUTPUT"
-          echo "mumps=$MUMPS_VERSION" >> "$GITHUB_OUTPUT"
-          echo "mumps_rev=${MUMPS_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/read-versions
 
-      - name: Setup MSYS2 (Windows)
-        if: matrix.os == 'windows'
-        uses: msys2/setup-msys2@v2
+      - name: Setup Haskell build environment
+        uses: ./.github/actions/setup-haskell-env
         with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-gcc-fortran
-            mingw-w64-ucrt-x86_64-openblas
-            mingw-w64-ucrt-x86_64-cmake
-            mingw-w64-ucrt-x86_64-make
-            make
-            python
-            git
-            curl
-            tar
-
-      # Redirect C:\cabal -> D:\cabal so every cabal write hits the
-      # fast local temp disk. Same rationale + same junction trick as
-      # _build-matrix.yml.
-      - name: Redirect C:\cabal to D:\cabal (Windows IOPS)
-        if: matrix.os == 'windows'
-        shell: cmd
-        run: |
-          if exist C:\cabal rmdir /s /q C:\cabal
-          mkdir D:\cabal
-          mklink /J C:\cabal D:\cabal
-
-      - name: Install GHC via ghcup (Windows)
-        if: matrix.os == 'windows'
-        run: |
-          # Pin ghcup to D:\ghcup — D: is the fast local temp disk on
-          # GH-hosted Windows runners (~83k IOPS vs. ~4k on C:). Same
-          # rationale as _build-matrix.yml's Windows install step.
-          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
-            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
-              BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
-              BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
-              GHCUP_INSTALL_BASE_PREFIX=/d \
-              sh
-          source /d/ghcup/env
-          ghc --numeric-version
-          cabal --numeric-version
-
-      - name: Install build dependencies (Linux)
-        if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential gfortran cmake python3 curl \
-            zlib1g-dev liblapack-dev libblas-dev
-          # Same libquadmath workaround as _build-matrix.yml — needed for
-          # mumps-hs's link step (gfortran archives reference quadmath).
-          LIBDIR=/usr/lib/$(gcc -print-multiarch)
-          [[ -d "$LIBDIR" ]] || LIBDIR=/usr/lib
-          if [[ ! -e "$LIBDIR/libquadmath.so" ]]; then
-            if [[ -e "$LIBDIR/libquadmath.so.0" ]]; then
-              sudo ln -s libquadmath.so.0 "$LIBDIR/libquadmath.so"
-            else
-              echo 'void __libquadmath_stub(void) {}' \
-                | sudo gcc -shared -x c -o "$LIBDIR/libquadmath.so" -
-            fi
-          fi
-
-      - name: Install build dependencies (macOS)
-        if: matrix.os == 'macos'
-        run: brew install gcc openblas
-
-      - name: Install GHC via ghcup (Linux/macOS)
-        if: matrix.os == 'linux' || matrix.os == 'macos'
-        run: |
-          # Match the bootstrap pattern used by _build-matrix.yml so the
-          # cabal-install version + GHC layout are identical to what normal
-          # CI uses — keeps the prebuilt store binary-compatible.
-          rm -rf "$HOME/.ghcup"
-          export GHCUP_INSTALL_BASE_PREFIX="$HOME"
-          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
-            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
-              BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
-              BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
-              BOOTSTRAP_HASKELL_ADJUST_BASHRC=no \
-              GHCUP_INSTALL_BASE_PREFIX="$HOME" \
-              sh
-          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
-          # Pin CABAL_DIR=~/.cabal so the legacy paths win regardless of
-          # cabal version or runner-image XDG defaults — same reason
-          # _build-matrix.yml does this.
-          echo "CABAL_DIR=$HOME/.cabal" >> "$GITHUB_ENV"
-          "$HOME/.ghcup/bin/ghc" --numeric-version
-          "$HOME/.ghcup/bin/cabal" --numeric-version
+          matrix-os: ${{ matrix.os }}
+          matrix-name: ${{ matrix.name }}
+          ghc-version: ${{ steps.versions.outputs.ghc }}
+          # Prebuild workflows run on manual dispatch only; no UPX (we
+          # ship the cabal store, not a binary) and no GHCup cache (the
+          # ~10-min savings don't matter when we run this maybe once
+          # per cabal-deps bump).
 
       - name: Download prebuilt MUMPS
         # Force git-bash on Windows instead of the workflow-level msys2 default.
@@ -241,49 +155,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compute hash + release tag
-        id: tag
-        run: |
-          source versions.env
-          # Hash inputs identical to _build-matrix.yml's actions/cache key
-          # for the cabal store, so a content change there always implies a
-          # new prebuilt release.
-          HASH8=$(cat volca.cabal mumps-hs/mumps-hs.cabal cabal.project | sha256sum | cut -c1-8)
-          REV="${CABAL_PREBUILT_REVISION:-1}"
-          TAG="cabal-store-prebuilt-ghc${GHC_VERSION}-${HASH8}-r${REV}"
-          echo "hash=$HASH8" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "ghc=$GHC_VERSION" >> "$GITHUB_OUTPUT"
-          echo "rev=$REV" >> "$GITHUB_OUTPUT"
+      - name: Read pinned versions
+        id: versions
+        uses: ./.github/actions/read-versions
 
-      - name: Fail if release already exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh release view "${{ steps.tag.outputs.tag }}" >/dev/null 2>&1; then
-            echo "::error::Release ${{ steps.tag.outputs.tag }} already exists. Bump CABAL_PREBUILT_REVISION in versions.env first."
-            exit 1
-          fi
+      - name: Compute cabal store hash
+        id: hash
+        # Hash inputs identical to _build-matrix.yml's actions/cache key
+        # for the cabal store, so a content change there always implies a
+        # new prebuilt release.
+        shell: bash
+        run: echo "hash=$(cat volca.cabal mumps-hs/mumps-hs.cabal cabal.project | sha256sum | cut -c1-8)" >> "$GITHUB_OUTPUT"
 
-      - name: Download all artefacts
-        uses: actions/download-artifact@v4
+      - uses: ./.github/actions/publish-prebuilt-release
         with:
-          path: dist
-          merge-multiple: true
-
-      - name: Generate SHA256SUMS
-        run: |
-          cd dist
-          sha256sum cabal-store-*.tar.gz > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cd dist
-          gh release create "${{ steps.tag.outputs.tag }}" \
-            --title "Cabal store prebuilt — GHC ${{ steps.tag.outputs.ghc }}, hash ${{ steps.tag.outputs.hash }} (revision ${{ steps.tag.outputs.rev }})" \
-            --notes "Prebuilt cabal store (~/.cabal/store) for use by _build-matrix.yml. Hash ${{ steps.tag.outputs.hash }} = first 8 chars of sha256(volca.cabal + mumps-hs/mumps-hs.cabal + cabal.project)." \
-            --prerelease \
-            cabal-store-*.tar.gz SHA256SUMS
+          tag: cabal-store-prebuilt-ghc${{ steps.versions.outputs.ghc }}-${{ steps.hash.outputs.hash }}-r${{ steps.versions.outputs.cabal_rev }}
+          title: Cabal store prebuilt — GHC ${{ steps.versions.outputs.ghc }}, hash ${{ steps.hash.outputs.hash }} (revision ${{ steps.versions.outputs.cabal_rev }})
+          notes: Prebuilt cabal store (~/.cabal/store) for use by _build-matrix.yml. Hash ${{ steps.hash.outputs.hash }} = first 8 chars of sha256(volca.cabal + mumps-hs/mumps-hs.cabal + cabal.project).
+          asset-glob: cabal-store-*.tar.gz
+          bump-hint: CABAL_PREBUILT_REVISION
+          github-token: ${{ secrets.GITHUB_TOKEN }}

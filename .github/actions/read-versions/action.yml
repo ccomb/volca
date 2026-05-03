@@ -1,0 +1,33 @@
+name: Read pinned versions
+description: Source versions.env at the repo root and emit each pinned build version as a step output.
+
+# Single source of truth for the GHC + MUMPS pins consumed by every
+# workflow. Every output that has a *_REVISION sibling defaults to "1"
+# when the env var is unset, matching the inline `${VAR:-1}` fallbacks
+# the workflows used previously.
+
+outputs:
+  ghc:
+    description: GHC compiler version (GHC_VERSION).
+    value: ${{ steps.read.outputs.ghc }}
+  mumps:
+    description: MUMPS solver version (MUMPS_VERSION).
+    value: ${{ steps.read.outputs.mumps }}
+  mumps_rev:
+    description: Prebuilt MUMPS release revision (MUMPS_PREBUILT_REVISION, default 1).
+    value: ${{ steps.read.outputs.mumps_rev }}
+  cabal_rev:
+    description: Prebuilt cabal-store release revision (CABAL_PREBUILT_REVISION, default 1).
+    value: ${{ steps.read.outputs.cabal_rev }}
+
+runs:
+  using: composite
+  steps:
+    - id: read
+      shell: bash
+      run: |
+        source versions.env
+        echo "ghc=$GHC_VERSION" >> "$GITHUB_OUTPUT"
+        echo "mumps=$MUMPS_VERSION" >> "$GITHUB_OUTPUT"
+        echo "mumps_rev=${MUMPS_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"
+        echo "cabal_rev=${CABAL_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"

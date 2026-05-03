@@ -51,41 +51,15 @@ jobs:
 
       - name: Read pinned versions
         id: versions
-        shell: bash
-        run: |
-          source versions.env
-          echo "mumps=$MUMPS_VERSION" >> "$GITHUB_OUTPUT"
-          echo "rev=${MUMPS_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/read-versions
 
-      - name: Setup MSYS2 (Windows)
-        if: matrix.os == 'windows'
-        uses: msys2/setup-msys2@v2
+      - name: Setup build environment (no GHC)
+        uses: ./.github/actions/setup-haskell-env
         with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-gcc-fortran
-            mingw-w64-ucrt-x86_64-openblas
-            mingw-w64-ucrt-x86_64-cmake
-            mingw-w64-ucrt-x86_64-make
-            make
-            python
-            git
-            curl
-            tar
-
-      - name: Install build dependencies (Linux)
-        if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential gfortran cmake python3 curl \
-            zlib1g-dev liblapack-dev libblas-dev
-
-      - name: Install build dependencies (macOS)
-        if: matrix.os == 'macos'
-        run: brew install gcc openblas
+          matrix-os: ${{ matrix.os }}
+          matrix-name: ${{ matrix.name }}
+          # ghc-version='' skips every Cabal/GHC/libquadmath step — we
+          # only build the MUMPS solver here, never invoke cabal.
 
       - name: Build MUMPS
         env:
@@ -128,40 +102,13 @@ jobs:
 
       - name: Read pinned versions
         id: versions
-        run: |
-          source versions.env
-          echo "mumps=$MUMPS_VERSION" >> "$GITHUB_OUTPUT"
-          echo "rev=${MUMPS_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"
-          echo "tag=mumps-prebuilt-${MUMPS_VERSION}-r${MUMPS_PREBUILT_REVISION:-1}" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/read-versions
 
-      - name: Fail if release already exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh release view "${{ steps.versions.outputs.tag }}" >/dev/null 2>&1; then
-            echo "::error::Release ${{ steps.versions.outputs.tag }} already exists. Bump MUMPS_PREBUILT_REVISION in versions.env first."
-            exit 1
-          fi
-
-      - name: Download all artefacts
-        uses: actions/download-artifact@v4
+      - uses: ./.github/actions/publish-prebuilt-release
         with:
-          path: dist
-          merge-multiple: true
-
-      - name: Generate SHA256SUMS
-        run: |
-          cd dist
-          sha256sum mumps-prebuilt-*.tar.gz > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cd dist
-          gh release create "${{ steps.versions.outputs.tag }}" \
-            --title "MUMPS ${{ steps.versions.outputs.mumps }} prebuilt (revision ${{ steps.versions.outputs.rev }})" \
-            --notes "Prebuilt MUMPS_SEQ ${{ steps.versions.outputs.mumps }} (PORD ordering, double precision, static archives) for use by _build-matrix.yml. Source: build-mumps.sh." \
-            --prerelease \
-            mumps-prebuilt-*.tar.gz SHA256SUMS
+          tag: mumps-prebuilt-${{ steps.versions.outputs.mumps }}-r${{ steps.versions.outputs.mumps_rev }}
+          title: MUMPS ${{ steps.versions.outputs.mumps }} prebuilt (revision ${{ steps.versions.outputs.mumps_rev }})
+          notes: "Prebuilt MUMPS_SEQ ${{ steps.versions.outputs.mumps }} (PORD ordering, double precision, static archives) for use by _build-matrix.yml. Source: build-mumps.sh."
+          asset-glob: mumps-prebuilt-*.tar.gz
+          bump-hint: MUMPS_PREBUILT_REVISION
+          github-token: ${{ secrets.GITHUB_TOKEN }}

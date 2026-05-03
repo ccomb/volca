@@ -50,11 +50,7 @@ jobs:
 
       - name: Read pinned versions
         id: versions
-        shell: bash
-        run: |
-          source versions.env
-          echo "ghc=$GHC_VERSION" >> "$GITHUB_OUTPUT"
-          echo "mumps=$MUMPS_VERSION" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/read-versions
 
       - name: Read engine version from cabal
         id: cabal-version
@@ -63,204 +59,15 @@ jobs:
           ver=$(awk '/^version:/ {print $2; exit}' volca.cabal)
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
-      - name: Setup MSYS2 (Windows)
-        if: matrix.os == 'windows'
-        uses: msys2/setup-msys2@v2
+      - name: Setup Haskell build environment
+        id: setup-haskell
+        uses: ./.github/actions/setup-haskell-env
         with:
-          msystem: UCRT64
-          update: true
-          cache: true
-          install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-gcc-fortran
-            mingw-w64-ucrt-x86_64-openblas
-            mingw-w64-ucrt-x86_64-cmake
-            mingw-w64-ucrt-x86_64-make
-            mingw-w64-ucrt-x86_64-python
-            mingw-w64-ucrt-x86_64-upx
-            make
-            python
-            git
-            curl
-            tar
-
-      # Redirect C:\cabal -> D:\cabal via NTFS directory junction. Cabal
-      # on Windows defaults CABAL_DIR to C:\cabal (store, packages
-      # index, config). C: is a slow Azure managed disk on GH-hosted
-      # runners (~4k IOPS); D: is local temp storage (~83k IOPS, 20×).
-      #
-      # Using a junction instead of CABAL_DIR=D:\cabal lets us keep the
-      # existing cabal-store-prebuilt tarball working unchanged: its
-      # .conf files have absolute C:\cabal\store\... paths baked in
-      # (cabal-install on Windows doesn't use ${pkgroot}), so any other
-      # approach would force a re-prebuild + CABAL_PREBUILT_REVISION
-      # bump. The junction is filesystem-level and transparent — every
-      # C:\cabal\* read/write hits D: at the OS layer.
-      - name: Redirect C:\cabal to D:\cabal (Windows IOPS)
-        if: matrix.os == 'windows'
-        shell: cmd
-        run: |
-          if exist C:\cabal rmdir /s /q C:\cabal
-          mkdir D:\cabal
-          mklink /J C:\cabal D:\cabal
-
-      # GHCup on Windows: install fresh every run, into D:\ghcup.
-      #
-      # Two things going on:
-      #
-      # 1. We previously cached C:\ghcup with actions/cache, but the Save
-      #    step took ~26 min (tar + zstd + upload of ~2.5 GB across
-      #    thousands of small NTFS files) — vs. ~2 min for the install
-      #    itself. Even on cache-hit runs the saving was net-negative once
-      #    7-day eviction + per-branch scoping were factored in. The
-      #    Linux/macOS cache is fine; only Windows is pathologically slow.
-      #
-      # 2. GitHub-hosted Windows runners are Azure VMs where C: is a remote
-      #    managed disk (~4k IOPS) while D: is local temp storage
-      #    (~83k IOPS, 20× faster). GHCup defaults to C:\ghcup; pinning it
-      #    to D:\ghcup via GHCUP_INSTALL_BASE_PREFIX puts every subsequent
-      #    ghc/cabal read on the fast disk for the rest of the job. D: is
-      #    ephemeral (lost on VM redeploy) but GH runners are ephemeral
-      #    too, so that doesn't matter.
-      - name: Install GHC via ghcup (Windows MSYS2)
-        if: matrix.os == 'windows'
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
-            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
-              BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
-              BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
-              GHCUP_INSTALL_BASE_PREFIX=/d \
-              sh
-
-      - name: Verify GHC + Cabal (Windows)
-        if: matrix.os == 'windows'
-        run: |
-          # GHCup on Windows installs to /d/ghcup (see comment above).
-          # Subsequent MSYS2 steps need to source this themselves — the
-          # msys2.CMD wrapper does not propagate GITHUB_PATH.
-          source /d/ghcup/env
-          ghc --version
-          cabal --version
-          cabal update
-
-      - name: Install build dependencies (Linux)
-        if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential gfortran cmake python3 curl \
-            zlib1g-dev liblapack-dev libblas-dev upx-ucl
-          # gcc's gfortran spec auto-adds -lquadmath when linking
-          # gfortran archives (libdmumps_seq.a). amd64 ships
-          # /usr/lib/x86_64-linux-gnu/libquadmath.so; arm64 noble ships
-          # no libquadmath at all and the link fails with
-          # "ld: cannot find -lquadmath". Symlink to the runtime if
-          # present, otherwise generate an empty stub — MUMPS in
-          # double-precision does not call __quadmath_* at runtime.
-          LIBDIR=/usr/lib/$(gcc -print-multiarch)
-          [[ -d "$LIBDIR" ]] || LIBDIR=/usr/lib
-          if [[ ! -e "$LIBDIR/libquadmath.so" ]]; then
-            if [[ -e "$LIBDIR/libquadmath.so.0" ]]; then
-              sudo ln -s libquadmath.so.0 "$LIBDIR/libquadmath.so"
-              echo "Symlinked $LIBDIR/libquadmath.so -> libquadmath.so.0"
-            else
-              echo 'void __libquadmath_stub(void) {}' \
-                | sudo gcc -shared -x c -o "$LIBDIR/libquadmath.so" -
-              echo "Stubbed $LIBDIR/libquadmath.so (empty)"
-            fi
-          fi
-
-      - name: Install build dependencies (macOS)
-        if: matrix.os == 'macos'
-        run: brew install gcc openblas upx
-
-      - name: Restore GHCup install (Linux/macOS)
-        id: cache-ghcup-unix
-        if: matrix.os == 'linux' || matrix.os == 'macos'
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.ghcup
-          key: ghcup-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-v4
-
-      - name: Pin cabal store dir (Linux/macOS)
-        # Newer cabal-install versions look at $XDG_CONFIG_HOME/cabal/config
-        # and put the package store under $XDG_STATE_HOME/cabal/store. The
-        # ubuntu-latest runner image pre-creates ~/.config/cabal/config, so
-        # cabal "ignores the former" (~/.cabal) and our cached ~/.cabal/store
-        # gets bypassed entirely — every warm run did a full cold dep
-        # rebuild. Pin CABAL_DIR=~/.cabal so the legacy paths win regardless
-        # of cabal version or runner-image state.
-        if: matrix.os == 'linux' || matrix.os == 'macos'
-        run: echo "CABAL_DIR=$HOME/.cabal" >> "$GITHUB_ENV"
-
-      - name: Install GHC + Cabal via ghcup (Linux/macOS, cold)
-        # We bootstrap ghcup ourselves into ~/.ghcup so that actions/cache
-        # has real content to archive (haskell-actions/setup@v2 just symlinks
-        # back to the runner's preinstalled /usr/local/.ghcup, leaving
-        # ~/.ghcup empty of cacheable bytes).
-        #
-        # Two tricks needed:
-        #  1. The runner image exports GHCUP_INSTALL_BASE_PREFIX=/usr/local
-        #     globally, redirecting installs to /usr/local/.ghcup. Override
-        #     to $HOME so install goes to ~/.ghcup.
-        #  2. The runner image pre-creates ~/.ghcup as a façade directory
-        #     containing SYMLINKS into /usr/local/.ghcup (e.g. `share ->
-        #     ./ghc/9.14.1/share`). ghcup install writes through those
-        #     symlinks, but tar archives the symlink shells (~200 bytes)
-        #     not the targets. Wipe ~/.ghcup first so our install lands in
-        #     a real, cacheable directory tree. (rm doesn't follow symlinks,
-        #     so /usr/local/.ghcup is untouched — but we don't need it
-        #     anyway because $PATH below points only at ~/.ghcup/bin.)
-        if: (matrix.os == 'linux' || matrix.os == 'macos') && steps.cache-ghcup-unix.outputs.cache-hit != 'true'
-        run: |
-          rm -rf "$HOME/.ghcup"
-          export GHCUP_INSTALL_BASE_PREFIX="$HOME"
-          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
-            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
-              BOOTSTRAP_HASKELL_GHC_VERSION=${{ steps.versions.outputs.ghc }} \
-              BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1 \
-              BOOTSTRAP_HASKELL_ADJUST_BASHRC=no \
-              GHCUP_INSTALL_BASE_PREFIX="$HOME" \
-              sh
-          # Sanity-check: bail loudly if the install ended up somewhere we
-          # can't cache, so we don't silently regress the warm path.
-          if [[ ! -x "$HOME/.ghcup/bin/ghc-${{ steps.versions.outputs.ghc }}" ]]; then
-            echo "::error::ghcup did not install to ~/.ghcup as expected"
-            ls -la "$HOME/.ghcup/" "$HOME/.ghcup/bin/" 2>&1 || true
-            exit 1
-          fi
-          echo "[INFO] ~/.ghcup install size: $(du -sh "$HOME/.ghcup" | cut -f1)"
-          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
-          "$HOME/.ghcup/bin/ghc" --numeric-version
-          "$HOME/.ghcup/bin/cabal" --numeric-version
-          "$HOME/.ghcup/bin/cabal" update
-
-      - name: Use cached GHC + Cabal (Linux/macOS, warm)
-        if: (matrix.os == 'linux' || matrix.os == 'macos') && steps.cache-ghcup-unix.outputs.cache-hit == 'true'
-        shell: bash
-        run: |
-          # The runner image exports GHCUP_INSTALL_BASE_PREFIX=/usr/local
-          # globally; without overriding it here, `ghcup set ghc` would look
-          # for our pinned version under /usr/local/.ghcup/ghc/ and fail with
-          # "version 9.6.7 of the tool ghc is not installed". Match the cold
-          # step's override.
-          export GHCUP_INSTALL_BASE_PREFIX="$HOME"
-          GHC_VER="${{ steps.versions.outputs.ghc }}"
-          if [[ ! -d "$HOME/.ghcup/ghc/$GHC_VER" ]]; then
-            echo "::error::Cached ~/.ghcup is missing GHC $GHC_VER (stale cache key?)"
-            ls -la "$HOME/.ghcup/" "$HOME/.ghcup/ghc/" 2>&1 || true
-            exit 1
-          fi
-          # Force the bare `ghc` symlink to our pinned version — bootstrap
-          # auto-sets it but we re-assert here in case the cache snapshot
-          # was taken in a state where another version was active.
-          "$HOME/.ghcup/bin/ghcup" set ghc "$GHC_VER"
-          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
-          "$HOME/.ghcup/bin/ghc" --numeric-version
-          "$HOME/.ghcup/bin/cabal" --numeric-version
-          # ~/.cabal/packages (Hackage index) lives outside ~/.ghcup and is
-          # not in the cache; refresh it so cabal solve has a current view.
-          "$HOME/.ghcup/bin/cabal" update
+          matrix-os: ${{ matrix.os }}
+          matrix-name: ${{ matrix.name }}
+          ghc-version: ${{ steps.versions.outputs.ghc }}
+          install-upx: 'true'
+          cache-ghcup: 'true'
 
       # MUMPS sourcing has three layers, tried in order:
       #
@@ -479,17 +286,17 @@ jobs:
 
       - name: Save GHCup install (Linux/macOS)
         # always() so a downstream test or optimize failure doesn't discard
-        # the GHC install we just paid 3–4 minutes for. The install completes
-        # in a single `Setup GHC + Cabal (Linux/macOS, cold)` step; if THAT
-        # step fails, the workflow halts before this save runs anyway, so
-        # there's no risk of caching a partial ~/.ghcup. (Contrast with the
-        # Windows pattern, which is split across multiple steps and prefers
-        # the safer no-always policy.)
-        if: always() && (matrix.os == 'linux' || matrix.os == 'macos') && steps.cache-ghcup-unix.outputs.cache-hit != 'true'
+        # the GHC install we just paid 3–4 minutes for. The cold install
+        # completes within the setup-haskell-env composite; if THAT fails
+        # the workflow halts before this save runs anyway, so there's no
+        # risk of caching a partial ~/.ghcup. (Contrast with the Windows
+        # pattern, which is split across multiple steps and prefers the
+        # safer no-always policy.)
+        if: always() && (matrix.os == 'linux' || matrix.os == 'macos') && steps.setup-haskell.outputs.ghcup-cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.ghcup
-          key: ${{ steps.cache-ghcup-unix.outputs.cache-primary-key }}
+          key: ${{ steps.setup-haskell.outputs.ghcup-cache-key }}
 
       - name: Save Cabal store
         # Save even when the prebuilt download wins. Two reasons:

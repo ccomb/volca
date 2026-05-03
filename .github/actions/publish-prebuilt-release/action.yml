@@ -1,0 +1,86 @@
+name: Publish prebuilt prerelease
+description: |
+  Shared publish step for the manual prebuild-* workflows
+  (prebuild-mumps.yml, prebuild-cabal-store.yml). Performs:
+
+    1. Tag pre-flight: fail loudly if the GH Release already exists,
+       with a hint pointing at the env var to bump in versions.env.
+    2. Download every per-platform artefact previously uploaded by the
+       build matrix into ./dist (merge-multiple).
+    3. Generate SHA256SUMS over the asset glob.
+    4. Create a prerelease GH Release attaching every matched asset
+       plus SHA256SUMS.
+
+  Requires the calling job to declare `permissions: contents: write` —
+  composite actions cannot grant their own permissions.
+
+  All caller-controlled strings are passed via the env, not interpolated
+  directly into shell commands, so titles or notes containing quotes do
+  not need escaping.
+
+inputs:
+  tag:
+    description: GH Release tag to publish (must not already exist).
+    required: true
+  title:
+    description: Release title.
+    required: true
+  notes:
+    description: Release notes (markdown body).
+    required: true
+  asset-glob:
+    description: Glob (matching files in dist/) for the assets to attach. SHA256SUMS is appended automatically.
+    required: true
+  bump-hint:
+    description: Name of the env var the user should bump in versions.env to retry. Embedded in the duplicate-tag error message.
+    required: true
+  github-token:
+    description: GITHUB_TOKEN with contents:write scope. Pass `${{ secrets.GITHUB_TOKEN }}` from the caller — composite actions cannot read secrets directly.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Fail if release already exists
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        TAG: ${{ inputs.tag }}
+        BUMP_HINT: ${{ inputs.bump-hint }}
+      run: |
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "::error::Release $TAG already exists. Bump $BUMP_HINT in versions.env first."
+          exit 1
+        fi
+
+    - name: Download all artefacts
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+        merge-multiple: true
+
+    - name: Generate SHA256SUMS
+      shell: bash
+      env:
+        ASSET_GLOB: ${{ inputs.asset-glob }}
+      # ASSET_GLOB intentionally unquoted so the shell expands the glob.
+      run: |
+        cd dist
+        sha256sum $ASSET_GLOB > SHA256SUMS
+        cat SHA256SUMS
+
+    - name: Create release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        TAG: ${{ inputs.tag }}
+        TITLE: ${{ inputs.title }}
+        NOTES: ${{ inputs.notes }}
+        ASSET_GLOB: ${{ inputs.asset-glob }}
+      run: |
+        cd dist
+        gh release create "$TAG" \
+          --title "$TITLE" \
+          --notes "$NOTES" \
+          --prerelease \
+          $ASSET_GLOB SHA256SUMS
