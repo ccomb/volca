@@ -20,6 +20,8 @@ module Method.Mapping (
     buildMethodTables,
     computeLCIAScore,
     computeLCIAScoreFromTables,
+    computeLCIAScoreAuto,
+    computeRegionalizedLCIAScore,
     inventoryContributions,
     processContributionsFromTables,
 
@@ -48,12 +50,13 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
 
-import Matrix (Inventory)
+import qualified Data.Set as Set
+import Matrix (Inventory, Vector)
 import qualified Matrix
 import Method.Types
 import Plugin.Types (MapContext (..), MapQuery (..), MapResult (..), MapperHandle (..))
 import SynonymDB
-import Types (Database (..), Flow (..), FlowDB, ProcessId, SparseTriple (..), Unit (..), UnitDB)
+import Types (Activity (..), Database (..), Flow (..), FlowDB, ProcessId, SparseTriple (..), Unit (..), UnitDB)
 import UnitConversion (UnitConfig, convertUnit)
 
 -- | Matching strategy used to find a flow
@@ -234,6 +237,10 @@ data MethodTables = MethodTables
     -- ^ (normalized name, medium, subcompartment) → (CF, unit)
     , mtFallbackCF :: !(M.Map (Text, Text) (Double, Text))
     -- ^ (normalized name, medium) → (CF, unit) for entries with unspecified subcompartment
+    , mtRegionalizedCF :: !(M.Map (UUID, Text) (Double, Text))
+    -- ^ Regionalized cells of the C matrix: (DB flow UUID, consumer location) → (CF, unit).
+    -- Empty for non-regionalized methods. When non-empty, callers should dispatch
+    -- to the regionalized scoring path (see 'Matrix.computeRegionalizedLCIAScore').
     }
 
 -- | Build 'MethodTables' from raw mappings. Run once per (db, method).
@@ -263,6 +270,12 @@ buildMethodTables mappings =
                     , Just (Compartment medium subcomp _) <- [mcfCompartment cf]
                     , T.null subcomp
                     ]
+        , mtRegionalizedCF =
+            M.fromList
+                [ ((flowId flow, loc), (mcfValue cf, mcfUnit cf))
+                | (cf, Just (flow, _)) <- mappings
+                , Just loc <- [mcfConsumerLocation cf]
+                ]
         }
   where
     stripStrategy = M.map (\(v, u, _) -> (v, u))
@@ -333,6 +346,171 @@ computeLCIAScoreFromTables unitConfig unitDB flowDB inventory tables =
 computeLCIAScore :: UnitConfig -> UnitDB -> FlowDB -> Inventory -> [(MethodCF, Maybe (Flow, MatchStrategy))] -> Double
 computeLCIAScore unitConfig unitDB flowDB inventory mappings =
     computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables mappings)
+
+{- | LCIA score with automatic dispatch.
+
+If the method has no regionalized CFs ('mtRegionalizedCF' empty), uses the
+classic vector path ('computeLCIAScoreFromTables'). Otherwise switches to
+the matrix path ('computeRegionalizedLCIAScore').
+
+The caller is expected to provide both an 'Inventory' (cheap if already
+computed for other purposes) and a scaling 'Vector' (cheap if the MUMPS
+factorization is cached). Pass them both and let this function pick.
+
+Returns 'Either' so regionalized methods can surface coverage gaps as
+explicit errors instead of silently under-counting.
+-}
+computeLCIAScoreAuto ::
+    UnitConfig ->
+    UnitDB ->
+    FlowDB ->
+    Database ->
+    -- | Scaling vector @s@ (only consulted if the method is regionalized)
+    Vector ->
+    -- | Pre-computed inventory @g = B · s@ (only used in the classic path)
+    Inventory ->
+    -- | Location hierarchy: child → ordered list of parents
+    M.Map Text [Text] ->
+    MethodTables ->
+    Either Text Double
+computeLCIAScoreAuto unitCfg unitDB flowDB db scalingVec inventory hier tables
+    | M.null (mtRegionalizedCF tables) =
+        Right (computeLCIAScoreFromTables unitCfg unitDB flowDB inventory tables)
+    | otherwise =
+        computeRegionalizedLCIAScore unitCfg unitDB flowDB db scalingVec hier tables
+
+{- | Streaming regionalized LCIA score over the biosphere matrix.
+
+@score = Σ_{(f, a)} B[f, a] · s[a] · C[f, loc(a)]@
+
+Where @C[f, l]@ is resolved by hierarchical fallback:
+
+  1. Exact regional cell @(f, l)@ in 'mtRegionalizedCF'.
+  2. Cell at any parent region of @l@ (walked via the location hierarchy).
+  3. Universal broadcast: the same lookup that 'computeLCIAScoreFromTables' uses
+     ('mtUuidCF' / 'mtExactCF' / 'mtFallbackCF').
+  4. If none of the above and @f@ is regionalized in this method (i.e. the
+     regional table mentions @f@ for some other location), fail with a 'Left'
+     surfacing the gap — silent zero would under-count.
+  5. If @f@ is not covered at all by the method, contribute 0.
+
+The hierarchy is the same one used by 'Database.CrossLinking.isSubregionOf':
+@Map ChildLocation [ParentLocation]@ from broader to broadest.
+
+This path is selected by 'Service' when 'mtRegionalizedCF' is non-empty;
+non-regionalized methods continue to use 'computeLCIAScoreFromTables'.
+-}
+computeRegionalizedLCIAScore ::
+    UnitConfig ->
+    UnitDB ->
+    FlowDB ->
+    Database ->
+    -- | Scaling vector @s@ from 'Matrix.computeScalingVector'
+    Vector ->
+    -- | Location hierarchy: child → ordered list of parents
+    M.Map Text [Text] ->
+    MethodTables ->
+    Either Text Double
+computeRegionalizedLCIAScore unitConfig unitDB flowDB db scalingVec hier tables =
+    let actIdx = dbActivityIndex db
+        bioTriples = dbBiosphereTriples db
+        bioFlows = dbBiosphereFlows db
+        activities = dbActivities db
+        regional = mtRegionalizedCF tables
+        regionalizedFlows = Set.fromList [f | (f, _) <- M.keys regional]
+        colToActivity :: M.Map Int Activity
+        colToActivity =
+            M.fromList
+                [ (fromIntegral (actIdx V.! pid), activities V.! pid)
+                | pid <- [0 .. V.length actIdx - 1]
+                ]
+        step :: Either Text Double -> SparseTriple -> Either Text Double
+        step acc (SparseTriple flowRow colIdx bioVal) = do
+            running <- acc
+            let s = scalingVec U.! fromIntegral colIdx
+                contribution = bioVal * s
+            if contribution == 0
+                then Right running
+                else case M.lookup (fromIntegral colIdx :: Int) colToActivity of
+                    Nothing -> Right running
+                    Just act ->
+                        let flowUUID = bioFlows V.! fromIntegral flowRow
+                            loc = activityLocation act
+                         in case resolveRegionalCF tables flowDB regionalizedFlows hier flowUUID loc of
+                                Right Nothing -> Right running
+                                Right (Just (cfVal, cfUnit)) ->
+                                    let flowUnit = maybe "" unitName (M.lookup flowUUID flowDB >>= \f -> M.lookup (flowUnitId f) unitDB)
+                                        converted =
+                                            if flowUnit == cfUnit || T.null cfUnit
+                                                then contribution
+                                                else fromMaybe contribution (convertUnit unitConfig flowUnit cfUnit contribution)
+                                     in Right (running + converted * cfVal)
+                                Left err -> Left err
+     in U.foldl' step (Right 0) bioTriples
+
+{- | Resolve a CF for a (flow, location) pair through the hierarchy + broadcast
+fallback. See 'computeRegionalizedLCIAScore' for the rules.
+
+* @Right Nothing@: the flow is not covered by this method (silent OK).
+* @Right (Just v)@: a CF was found.
+* @Left err@: the flow IS regionalized in this method but no CF could be
+  resolved for the given location even after walking parents — surfacing the
+  gap prevents silent under-counting.
+-}
+resolveRegionalCF ::
+    MethodTables ->
+    FlowDB ->
+    Set.Set UUID ->
+    M.Map Text [Text] ->
+    UUID ->
+    Text ->
+    Either Text (Maybe (Double, Text))
+resolveRegionalCF tables flowDB regionalizedFlows hier flowUUID loc =
+    case M.lookup (flowUUID, loc) (mtRegionalizedCF tables) of
+        Just v -> Right (Just v)
+        Nothing ->
+            let parents = M.findWithDefault [] loc hier
+                fromParents = firstJust [M.lookup (flowUUID, p) (mtRegionalizedCF tables) | p <- parents]
+             in case fromParents of
+                    Just v -> Right (Just v)
+                    Nothing -> case lookupBroadcastCF tables flowDB flowUUID of
+                        Just v -> Right (Just v)
+                        Nothing
+                            | Set.member flowUUID regionalizedFlows ->
+                                Left $
+                                    "Regionalized CF lookup failed: flow "
+                                        <> T.pack (show flowUUID)
+                                        <> " has regional CFs in this method but none for location '"
+                                        <> loc
+                                        <> "' (after walking "
+                                        <> T.pack (show (length parents))
+                                        <> " parent regions) and no universal broadcast."
+                            | otherwise -> Right Nothing
+
+-- | Universal CF lookup: same cascade as 'computeLCIAScoreFromTables' uses
+-- internally, factored out for reuse from 'computeRegionalizedLCIAScore'.
+lookupBroadcastCF :: MethodTables -> FlowDB -> UUID -> Maybe (Double, Text)
+lookupBroadcastCF tables flowDB fid = case M.lookup fid (mtUuidCF tables) of
+    Just cfv -> Just cfv
+    Nothing -> case M.lookup fid flowDB of
+        Nothing -> Nothing
+        Just flow ->
+            let name = normalizeName (flowName flow)
+                baseMed = normalizeMediumNm . T.takeWhile (/= '/') . T.toLower $ flowCategory flow
+                subcomp = T.toLower $ fromMaybe "" (flowSubcompartment flow)
+                exact = M.lookup (name, baseMed, subcomp) (mtExactCF tables)
+             in case exact of
+                    Just _ -> exact
+                    Nothing -> M.lookup (name, baseMed) (mtFallbackCF tables)
+  where
+    normalizeMediumNm m
+        | m == "natural resource" = "resource"
+        | otherwise = m
+
+firstJust :: [Maybe a] -> Maybe a
+firstJust [] = Nothing
+firstJust (Just x : _) = Just x
+firstJust (Nothing : xs) = firstJust xs
 
 {- | Per-flow contributions over an 'Inventory', keyed by flow UUID (possibly
 cross-DB-merged). Walks the inventory directly (not the mappings) so any

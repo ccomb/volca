@@ -28,6 +28,7 @@ testCF =
         , mcfCAS = Just "124-38-9"
         , mcfCompartment = Nothing
         , mcfUnit = "kg"
+        , mcfConsumerLocation = Nothing
         }
 
 spec :: Spec

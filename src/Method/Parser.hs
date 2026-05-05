@@ -150,6 +150,7 @@ closeTag state tagName
                     , mcfCompartment = extractCompartmentFromDesc (psCurrentFlowName state)
                     , mcfCAS = Nothing -- enriched in buildMethod from flow XMLs
                     , mcfUnit = psUnit state
+                    , mcfConsumerLocation = Nothing
                     }
          in state
                 { psPath = dropPath

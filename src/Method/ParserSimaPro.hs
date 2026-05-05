@@ -164,15 +164,18 @@ step cfg methodologyName st line = case psPhase st of
             let fields = splitCSV (spDelimiter cfg) line
              in case fields of
                     (comp : sub : name : cas : cfVal : cfUnit : _) ->
-                        let !cf =
+                        let !rawName = decodeBS (BS8.strip name)
+                            (!cleanName, !mLoc) = extractLocationSuffix rawName
+                            !cf =
                                 MethodCF
-                                    { mcfFlowRef = makeFlowUUID name comp sub
-                                    , mcfFlowName = decodeBS (BS8.strip name)
+                                    { mcfFlowRef = makeFlowUUID (TE.encodeUtf8 cleanName) comp sub
+                                    , mcfFlowName = cleanName
                                     , mcfDirection = direction comp
                                     , mcfValue = parseAmount (spDecimal cfg) (BS8.strip cfVal)
                                     , mcfCompartment = mkCompartment comp sub
                                     , mcfCAS = normalizeCAS (decodeBS (BS8.strip cas))
                                     , mcfUnit = decodeBS (BS8.strip cfUnit)
+                                    , mcfConsumerLocation = mLoc
                                     }
                          in st{psFactors = cf : psFactors st}
                     _ -> st
@@ -385,3 +388,45 @@ normalizeCAS cas
          in if T.all (\c -> c == '-' || c == '0') cas
                 then Nothing
                 else Just result
+
+{- | SimaPro encodes regional variants of a flow as a suffix on the flow name:
+@"Nitrogen dioxide, FR"@. Detect that suffix so the matching layer can index
+the CF by @(flow, location)@ rather than by an opaque concatenated name.
+
+Heuristic: the trailing token must start with an uppercase ASCII letter,
+contain only letters or hyphens, and be 2–6 characters long. This catches:
+
+  * ISO-2 country codes: @FR@, @DE@, @AD@
+  * Regional aggregates: @RER@, @GLO@
+  * @RoW@ (rest of world; mixed case)
+  * Sub-national codes: @FR-IDF@ (if a database adopts them)
+
+But not: @"change"@ (lowercase first), @"indoor"@, @"yearly"@, etc., which
+are legitimate parts of compound flow names.
+
+If the heuristic doesn't match, the original name is returned unchanged with
+no consumer location.
+
+False positives (extracting a location suffix where the trailing token isn't
+actually a region) are harmless: the synthesized CF gets a 'Just loc' that
+won't match any DB activity, so it contributes 0. False negatives (missing a
+real location) are the bug we're trying to fix.
+-}
+extractLocationSuffix :: Text -> (Text, Maybe Text)
+extractLocationSuffix name =
+    case T.breakOnEnd ", " name of
+        ("", _) -> (name, Nothing) -- no ", " separator
+        (prefixWithSep, candidate)
+            | isLocationCode candidate
+            , let cleaned = T.dropEnd 2 prefixWithSep -- drop trailing ", "
+            , not (T.null cleaned) ->
+                (cleaned, Just candidate)
+            | otherwise -> (name, Nothing)
+  where
+    isLocationCode t
+        | T.length t < 2 || T.length t > 6 = False
+        | otherwise =
+            let firstC = T.head t
+                rest = T.unpack (T.tail t)
+             in firstC >= 'A' && firstC <= 'Z'
+                    && all (\c -> (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '-') rest

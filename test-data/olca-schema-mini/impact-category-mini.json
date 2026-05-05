@@ -1,0 +1,63 @@
+{
+  "@context": "http://greendelta.github.io/olca-schema/context.jsonld",
+  "@type": "ImpactCategory",
+  "@id": "3a08605b-d7c9-4f40-a17e-74cece1dde8b",
+  "name": "Regional LCIA Mini",
+  "description": "Minimal regionalized LCIA fixture for OlcaSchemaSpec.",
+  "referenceUnitName": "m2*year",
+  "impactFactors": [
+    {
+      "@type": "ImpactFactor",
+      "value": 22.15,
+      "flow": {
+        "@type": "Flow",
+        "@id": "0305b169-255d-4041-8f5d-6e095bcb6358",
+        "name": "Occupation, agriculture",
+        "flowType": "ELEMENTARY_FLOW"
+      },
+      "location": {
+        "@type": "Location",
+        "@id": "28840420-4e3d-3522-a930-aaaaaaaaaaaa",
+        "name": "France",
+        "code": "FR"
+      },
+      "unit": {"@type": "Unit", "@id": "20aadc24-a391-41cf-b340-3e4529f44bde", "name": "m2*year"}
+    },
+    {
+      "@type": "ImpactFactor",
+      "value": 17.30,
+      "flow": {
+        "@type": "Flow",
+        "@id": "0305b169-255d-4041-8f5d-6e095bcb6358",
+        "name": "Occupation, agriculture",
+        "flowType": "ELEMENTARY_FLOW"
+      },
+      "location": {"@type": "Location", "@id": "28840420-4e3d-3522-a930-bbbbbbbbbbbb", "name": "Germany", "code": "DE"},
+      "unit": {"@type": "Unit", "@id": "20aadc24-a391-41cf-b340-3e4529f44bde", "name": "m2*year"}
+    },
+    {
+      "@type": "ImpactFactor",
+      "value": 10.00,
+      "flow": {
+        "@type": "Flow",
+        "@id": "0305b169-255d-4041-8f5d-6e095bcb6358",
+        "name": "Occupation, agriculture",
+        "flowType": "ELEMENTARY_FLOW"
+      },
+      "location": {"@type": "Location", "@id": "28840420-4e3d-3522-a930-cccccccccccc", "name": "Global", "code": "GLO"},
+      "unit": {"@type": "Unit", "@id": "20aadc24-a391-41cf-b340-3e4529f44bde", "name": "m2*year"}
+    },
+    {
+      "@type": "ImpactFactor",
+      "value": 5.0,
+      "flow": {
+        "@type": "Flow",
+        "@id": "1405b169-255d-4041-8f5d-6e095bcb6358",
+        "name": "Water consumption",
+        "flowType": "ELEMENTARY_FLOW"
+      },
+      "location": {"@type": "Location", "@id": "28840420-4e3d-3522-a930-dddddddddddd", "name": "Spain", "code": "ES"},
+      "unit": {"@type": "Unit", "@id": "20aadc24-a391-41cf-b340-3e4529f44bde", "name": "m3"}
+    }
+  ]
+}

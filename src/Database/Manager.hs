@@ -67,6 +67,7 @@ module Database.Manager (
     getMergedCompartmentMap,
     getMergedUnitConfig,
     getMergedFlowMetadata,
+    getLocationHierarchy,
 
     -- * Staged Database Operations
     getStagedDatabase,
@@ -146,6 +147,7 @@ import qualified Database.UploadedDatabase as UploadedDB
 import Method.FlowResolver (ILCDFlowInfo)
 import qualified Method.FlowResolver as FlowResolver
 import qualified Method.Parser
+import qualified Method.Parser.OlcaSchema as OlcaSchema
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.ParserSimaPro (isSimaProMethodCSV, parseSimaProMethodCSVBytes)
 import qualified SimaPro.Parser as SimaPro
@@ -2064,8 +2066,9 @@ loadMethodCollectionFromConfig mc = do
             files <- listDirectory dir
             let xmlFiles = filter (\f -> map toLower (takeExtension f) == ".xml") files
                 csvFiles = filter (\f -> map toLower (takeExtension f) == ".csv") files
-            if null xmlFiles && null csvFiles
-                then return $ Left $ "No method files (.xml/.csv) found in: " <> T.pack dir
+                jsonFiles = filter (\f -> map toLower (takeExtension f) == ".json") files
+            if null xmlFiles && null csvFiles && null jsonFiles
+                then return $ Left $ "No method files (.xml/.csv/.json) found in: " <> T.pack dir
                 else do
                     -- Try to find sibling flows/ directory for CF enrichment
                     mFlowsDir <- FlowResolver.resolveFlowDirectory dir
@@ -2087,26 +2090,38 @@ loadMethodCollectionFromConfig mc = do
                         if isSimaProMethodCSV bytes
                             then return $ fmap Left (parseSimaProMethodCSVBytes bytes)
                             else return $ fmap Right (parseMethodCSVBytes bytes)
+                    -- openLCA JSON-LD ImpactCategory files (carries optional regionalized CFs).
+                    -- Only files that actually carry @type=ImpactCategory are parsed; others
+                    -- are skipped silently since arbitrary .json files can sit alongside
+                    -- method data (e.g. metadata or other openLCA entity types).
+                    jsonResults <- forM jsonFiles $ \f -> do
+                        bytes <- BS.readFile (dir </> f)
+                        if OlcaSchema.isOlcaImpactCategoryJson bytes
+                            then return $ Just $ OlcaSchema.parseOlcaImpactCategoryBytes bytes
+                            else return Nothing
                     let (xmlErrs, xmlMethods) = partitionEithers xmlResults
                         (csvErrs, csvOks) = partitionEithers csvParsed
+                        (jsonErrs, jsonMethods) = partitionEithers [r | Just r <- jsonResults]
                         -- Merge: SimaPro CSVs are MethodCollections, tabular CSVs are [Method]
                         spCollections = [sp | Left sp <- csvOks]
                         tabularMethods = concat [ms | Right ms <- csvOks]
                         allMethods =
                             xmlMethods
                                 ++ tabularMethods
+                                ++ jsonMethods
                                 ++ concatMap mcMethods spCollections
                         -- Merge NW data from all SimaPro CSV sources
                         allDamageCats = concatMap mcDamageCategories spCollections
                         allNWSets = concatMap mcNormWeightSets spCollections
                         collection = MethodCollection allMethods allDamageCats allNWSets []
-                        errs = xmlErrs ++ csvErrs
+                        errs = xmlErrs ++ csvErrs ++ jsonErrs
                     if null allMethods && not (null errs)
                         then return $ Left $ "All method files failed to parse: " <> T.pack (head errs)
                         else do
                             let xmlOk = length xmlMethods
                                 csvOk = length csvOks
-                            reportProgress Info $ "  Parsed " <> show xmlOk <> " XML, " <> show csvOk <> " CSV file(s)"
+                                jsonOk = length jsonMethods
+                            reportProgress Info $ "  Parsed " <> show xmlOk <> " XML, " <> show csvOk <> " CSV, " <> show jsonOk <> " JSON file(s)"
                             when (not (null allDamageCats)) $
                                 reportProgress Info $
                                     "  "
@@ -2152,6 +2167,7 @@ listMethodCollections manager = do
     detectFormatFromPath :: FilePath -> Text
     detectFormatFromPath p
         | T.isInfixOf ".csv" (T.toLower (T.pack p)) = "SimaPro CSV"
+        | T.isInfixOf ".json" (T.toLower (T.pack p)) = "Regionalized LCIA JSON"
         | otherwise = "ILCD"
 
 -- | Load a method collection on demand
@@ -2304,6 +2320,12 @@ Detects UUID collisions with divergent metadata. 'M.unions' is first-wins;
 collisions should never happen (same UUID ⇒ same flow by construction),
 but if data drift produces them, surface via log rather than hide.
 -}
+-- | Location hierarchy as a 'Map ChildLocation [ParentLocation]', sourced from
+-- 'data/geographies.csv' (or the hardcoded fallback). Reused across the LCIA
+-- regionalized scoring path (see 'Method.Mapping.computeRegionalizedLCIAScore').
+getLocationHierarchy :: DatabaseManager -> IO (M.Map Text [Text])
+getLocationHierarchy manager = pure (M.map snd (dmGeographies manager))
+
 getMergedFlowMetadata :: DatabaseManager -> IO (FlowDB, UnitDB)
 getMergedFlowMetadata manager = do
     cached <- readTVarIO (dmMergedFlowMetadataCache manager)

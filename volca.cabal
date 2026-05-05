@@ -38,6 +38,7 @@ library
                      , SynonymDB.Extract
                      , Method.Types
                      , Method.Parser
+                     , Method.Parser.OlcaSchema
                      , Method.ParserCSV
                      , Method.ParserSimaPro
                      , Method.ParserNW
@@ -96,6 +97,7 @@ library
                      , warp
                      , aeson
                      , aeson-pretty
+                     , scientific
                      , wai
                      , wai-cors
                      , wai-app-static
@@ -188,6 +190,7 @@ test-suite lca-tests
                      , SubstitutionSpec
                      , CrossDBSubstitutionSpec
                      , DatabaseStatusSpec
+                     , OlcaSchemaSpec
   build-depends:       base >=4.14 && <5
                      , volca
                      , hspec

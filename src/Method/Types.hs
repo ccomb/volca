@@ -89,6 +89,10 @@ data MethodCF = MethodCF
     -- ^ CAS number (normalized, no leading zeros)
     , mcfUnit :: !Text
     -- ^ CF reference unit (e.g., "kg", "kBq")
+    , mcfConsumerLocation :: !(Maybe Text)
+    -- ^ Consumer location for regionalized CFs (ISO 2-3 letter code).
+    -- 'Nothing' = universal CF (broadcast on all locations).
+    -- 'Just loc' = single cell of the C matrix at (flow, loc).
     }
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
