@@ -2,7 +2,7 @@
 
 Python client for [VoLCA](https://github.com/ccomb/volca) — Life Cycle Assessment engine over Agribalyse and ecoinvent.
 
-> **Full guide and tutorials**: <https://volca.run/docs/guides/pyvolca/>
+> **Full guide and tutorials**: <https://volca.run/docs/python/>
 > **Issues / source**: <https://github.com/ccomb/volca>
 
 ## Install
@@ -76,7 +76,7 @@ with Server(config="volca.toml") as srv:
     c = Client(base_url=srv.base_url, db="agribalyse-3.2", password=srv.password)
     plants = c.search_activities(name="wheat flour, at plant", limit=5)
     chain = c.get_supply_chain(plants[0].process_id, name="at farm")
-    score = c.get_impacts(plants[0].process_id, method_id=c.list_methods()[0]["methodId"])
+    score = c.get_impacts(plants[0].process_id, method_id=c.list_methods()[0]["id"])
 ```
 
 This example starts a local engine process from Python. `Server` reads `port` and `password` from the TOML config. The engine self-stops after `idle_timeout` seconds without traffic (default 5 min).
@@ -92,7 +92,7 @@ for db in c.list_databases():
     print(f"  {db.name} [{db.status}]: {db.activity_count} activities")
 
 for m in c.list_methods()[:5]:
-    print(f"  {m['methodId']}  {m['name']} [{m['unit']}]")
+    print(f"  {m['id']}  {m['name']} [{m['unit']}]")
 ```
 
 Other listings: `c.list_classifications()` returns the classification systems and their values for the current database; `c.list_presets()` returns named filter presets configured in the engine. Use `c.load_database(name)` / `c.unload_database(name)` to manage memory if a database isn't auto-loaded.
@@ -299,6 +299,7 @@ Pyvolca dispatches dynamically against the engine's OpenAPI spec, so it ships wi
 ## API reference
 
 <!-- BEGIN: api-reference -->
+
 _This reference is generated from the installed package. Run `python scripts/gen_api_md.py` to regenerate._
 
 ## Classes
@@ -489,7 +490,7 @@ An exchange with the environment (resource extraction or emission).
 
 Filter a supply-chain/consumers query by a classification (system, value, mode).
 
-Matches one classification system entry (e.g. ("Category", "Agricultural\Food",
+Matches one classification system entry (e.g. ("Category", "Agricultural\\Food",
 "exact")). Mode is "exact" (case-insensitive equality) or "contains" (substring).
 Multiple filters are AND-combined by the server.
 
@@ -755,12 +756,11 @@ Returns:
 
 Type alias: `Union[TechnosphereExchange, BiosphereExchange]`.
 
-
 <!-- END: api-reference -->
 
 ## See also
 
-- Full guide and tutorials: <https://volca.run/docs/guides/pyvolca/>
+- Full guide and tutorials: <https://volca.run/docs/python/>
 - VoLCA engine: <https://github.com/ccomb/volca>
 - Examples folder: [`examples/`](examples/)
 

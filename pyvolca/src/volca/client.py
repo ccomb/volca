@@ -865,9 +865,9 @@ class Client:
         """List every LCIA method available in the engine.
 
         Returns:
-            Raw method dicts; each carries ``methodId``, ``name``,
+            Raw method dicts; each carries ``id``, ``name``,
             ``unit``, ``collection``, and the impact category metadata.
-            Pass any ``methodId`` to :meth:`get_impacts`.
+            Pass any ``id`` value to :meth:`get_impacts` as ``method_id``.
         """
         return self._call("list_methods")
 

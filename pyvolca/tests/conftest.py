@@ -351,7 +351,7 @@ def readme_namespace() -> dict[str, Any]:
         ),
     ]
     c.list_methods.return_value = [
-        {"methodId": "EF3.1-climate-change", "name": "Climate change", "unit": "kg CO2 eq"},
+        {"id": "EF3.1-climate-change", "name": "Climate change", "unit": "kg CO2 eq"},
     ]
     c.list_classifications.return_value = [
         {"system": "ISIC rev.4 ecoinvent", "values": ["1061", "1071", "0111"]},
