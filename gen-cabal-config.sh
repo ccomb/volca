@@ -7,6 +7,7 @@
 #   MUMPS_INCLUDE_DIR       Path to MUMPS headers (default: /usr/include)
 #   LINK_MODE               "dynamic" (default), "musl", "darwin", "windows"
 #   OUTPUT_DIR              Where to write cabal.project.local (default: current dir)
+#   VOLCA_OPT_LEVEL         0, 1 or 2 (default 2) - see the block below
 #
 # Output: writes cabal.project.local in OUTPUT_DIR
 
@@ -19,11 +20,38 @@ OUTPUT="${OUTPUT_DIR:-.}/cabal.project.local"
 
 # Optimization level for volca's own code, as a per-package override of the
 # global `optimization: 2` (which must stay 2 so the prebuilt cabal store's
-# deps keep matching). Default 2 — shipped artifacts (Docker, release, local
-# builds) are unaffected. CI PR/test builds export VOLCA_OPT_LEVEL=1 to halve
-# the cold compile of volca's ~100 modules; -O2 buys runtime speed the smoke
-# build doesn't need. Deps stay -O2 either way.
+# deps keep matching). Deps stay -O2 whatever this is, which is what makes the
+# knob cheap: only volca's own modules move.
+#
+# The level follows what the build is for, and each caller picks its own:
+#   0  CI test rows, which only have to run the suite
+#   1  a build from a working copy (build.sh), and a from-source image
+#   2  anything published: the release rows, the engine image
+# Default 2, because an unset variable must never quietly under-optimise
+# something that ships.
+#
+# The spread is wider than it looks. On a 24-core machine a cold build of the
+# library plus the test suite takes 547 s at -O2 and 42 s at -O0; one module
+# of generic JSON instances accounts for 397 s of the -O2 figure and holds
+# everything that imports it behind that. The runtime it buys is real too:
+# unoptimised generic instances encode and decode 10 to 20 % slower, which is
+# why what ships stays at 2.
 VOLCA_OPT_LEVEL="${VOLCA_OPT_LEVEL:-2}"
+
+# Section splitting follows the same rule, for the same reason, and that is
+# why it is decided here rather than left to cabal.project's `package *`.
+# Splitting earns its keep on what ships: the executable prunes what nothing
+# references and comes out several megabytes smaller. Nothing prunes the test
+# suite, which links every section it was handed, and the default linker
+# spends minutes resolving them (302 s and 2.3 GB against 3.6 s without, on a
+# tree built at -O0, where there are more symbols to split). Dependencies keep
+# splitting either way: they are prebuilt, and they are most of what the
+# executable links.
+if [ "$VOLCA_OPT_LEVEL" -lt 2 ]; then
+    VOLCA_SPLIT_SECTIONS="  split-sections: False"
+else
+    VOLCA_SPLIT_SECTIONS="  split-sections: True"
+fi
 
 # Parallelism preamble shared by every LINK_MODE.
 # Lives in cabal.project.local (not cabal.project) so that Docker builds —
@@ -74,6 +102,7 @@ extra-include-dirs: $MUMPS_INCLUDE_DIR
 
 package volca
   optimization: $VOLCA_OPT_LEVEL
+$VOLCA_SPLIT_SECTIONS
 EOF
         ;;
 
@@ -120,6 +149,7 @@ extra-include-dirs: $MUMPS_INCLUDE_DIR
 
 package volca
   optimization: $VOLCA_OPT_LEVEL
+$VOLCA_SPLIT_SECTIONS
   ghc-options: $MUSL_LINK_FLAGS
 EOF
         ;;
@@ -220,6 +250,7 @@ package mumps-hs
 
 package volca
   optimization: $VOLCA_OPT_LEVEL
+$VOLCA_SPLIT_SECTIONS
   ghc-options: $DARWIN_LINK_FLAGS
 EOF
         ;;
@@ -258,6 +289,7 @@ extra-include-dirs: $MUMPS_INCLUDE_DIR
 
 package volca
   optimization: $VOLCA_OPT_LEVEL
+$VOLCA_SPLIT_SECTIONS
   ghc-options: -optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt
 EOF
         ;;
