@@ -39,6 +39,17 @@
   before this are rebuilt on the next load. Wire revision 23.
 
 ### Fixed
+- A load slower than the idle timeout no longer shuts the server down under the
+  caller. The timeout counted the moment a request *arrived*, so a request that
+  is itself long counted as silence for its whole duration: reading a gigabyte
+  of source and building its matrices takes longer than the five minutes a
+  client typically arms, and the process exited mid-load, leaving a closed
+  socket and no answer to say what happened. A request now counts while it runs,
+  and the deadline cannot pass while one is in flight. That holds for an
+  assistant's tool call as much as for an HTTP one, which is where a load is
+  most often asked for. A server that is genuinely unused still shuts down on
+  time, and a log stream left open is not mistaken for someone working: it says
+  the server was in use when it was opened, and nothing after that.
 - A SimaPro export now writes a substitution once. The `Materials/fuels` section
   holds inputs, but the line that built it excluded only the reference product, so
   a coproduct and an avoided product were written there as well as under the header

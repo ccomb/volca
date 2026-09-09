@@ -5,7 +5,7 @@ Implements Streamable HTTP transport (MCP spec 2025-03-26).
 POST /mcp handles initialize, tools/list, tools/call (JSON or SSE response).
 GET  /mcp opens an SSE stream for server-initiated messages (stateless: closes immediately).
 -}
-module API.MCP (mcpApp, mcpCountsAsActivity, toolDefinitions, callTool, selectMethod, handleInitialize, webUrlBase, RpcRequest (..)) where
+module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, selectMethod, handleInitialize, webUrlBase, RpcRequest (..)) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
@@ -45,7 +45,7 @@ import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, scoreActivityWebUrl, slimLCIAPanel, webUrlField)
 import API.Routes (collectionNotLoadedMessage)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits)
-import Control.Monad (mfilter, unless, when)
+import Control.Monad (mfilter, unless)
 import qualified Data.List as L
 import Matrix (applyBiosphereMatrix)
 import qualified Method.Explain as Explain
@@ -157,15 +157,23 @@ webUrlBase hasFrontend hdrs
         "" -> "localhost"
         h -> h
 
+{- | Runs one MCP call with the server counted as in use for its whole duration.
+
+A tool call is not an instant: it can be a load that reads a gigabyte of source
+and builds its matrices. A server that shuts itself down when idle must not
+decide it is idle in the middle of one, so the call is wrapped rather than
+merely noted as it arrives. A server with no such policy passes 'id'.
+-}
+type WhileWorking = IO (Maybe Value) -> IO (Maybe Value)
+
 {- | Build the @\/mcp@ endpoint.
 
-@markActivity@ is called for every request that 'mcpCountsAsActivity' accepts.
-A server that shuts itself down when idle uses it to tell a working client from
-a merely connected one; a server with no such policy passes an action that does
-nothing.
+@whileWorking@ wraps every request that 'mcpCountsAsActivity' accepts, which is
+how a server that shuts itself down when idle tells a working client from a
+merely connected one.
 -}
-mcpApp :: DatabaseManager -> [ClassificationPreset] -> Bool -> Maybe HostingConfig -> Maybe ServerName -> IO () -> IO Application
-mcpApp dbManager presets hasFrontend mHosting mName markActivity = do
+mcpApp :: DatabaseManager -> [ClassificationPreset] -> Bool -> Maybe HostingConfig -> Maybe ServerName -> WhileWorking -> IO Application
+mcpApp dbManager presets hasFrontend mHosting mName whileWorking = do
     (a, b) <- (,) <$> (randomIO :: IO Int) <*> (randomIO :: IO Int)
     let sessionId = T.pack $ show (abs a) ++ "-" ++ show (abs b)
     stateRef <- newIORef McpState{mcpSessionId = sessionId}
@@ -183,8 +191,8 @@ mcpApp dbManager presets hasFrontend mHosting mName markActivity = do
                     Left err ->
                         respond $ jsonResponse (mcpSessionId st) $ rpcError Null (-32700) (T.pack $ "Parse error: " ++ err)
                     Right rpcReq -> do
-                        when (mcpCountsAsActivity (rpcMethod rpcReq)) markActivity
-                        resp <- handleRpc dbManager presets mHosting mBaseUrl mName st rpcReq
+                        let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
+                        resp <- runCall (handleRpc dbManager presets mHosting mBaseUrl mName st rpcReq)
                         case resp of
                             Nothing ->
                                 respond $

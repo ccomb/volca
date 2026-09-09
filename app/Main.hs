@@ -13,7 +13,6 @@ import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Foreign.C.Types (CInt (..))
 import Options.Applicative
 import System.Directory (doesFileExist)
@@ -25,6 +24,7 @@ import Text.Read (readMaybe)
 
 -- VoLCA imports
 import API.Auth (authMiddleware)
+import App.Idle (IdleState (..), idleTrackingMiddleware, idleWatchdog, newIdleState, stampIdle, whileWorking)
 import CLI.Client (executeRemoteCommand, resolveRemoteConfig)
 import CLI.Command (executeCommand)
 import CLI.Parser (cliParserInfo)
@@ -41,7 +41,7 @@ import Progress
 
 import API.DatabaseHandlers (uploadBodyCeiling)
 import API.Licenses (licensesResponse)
-import API.MCP (mcpApp, toolDefinitions)
+import API.MCP (WhileWorking, mcpApp, toolDefinitions)
 import API.Routes (lcaAPI, lcaServer, volcaOpenApi)
 import App.Env (AppEnv (..))
 import Data.Aeson (encode, object, (.=))
@@ -50,7 +50,6 @@ import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.String (fromString)
-import qualified Matrix
 import Network.HTTP.Types (status200, status403)
 import Network.HTTP.Types.Header (hCacheControl, hContentType, hPragma)
 import Network.Wai (Application, Middleware, Request (..), Response, ResponseReceived, mapResponseHeaders, pathInfo, rawPathInfo, rawQueryString, requestHeaders, requestMethod, responseLBS, responseStream)
@@ -223,28 +222,27 @@ logServerStartup serverOpts host port password
             Nothing -> "Authentication: DISABLED (use --password or VOLCA_PASSWORD to enable)"
         reportProgress Info ("Web interface available at: http://" ++ T.unpack (clientHost host) ++ ":" ++ show port ++ "/")
 
-{- | Allocate the idle-tracking refs and fork the watchdog when
-@--idle-timeout@ is positive. The refs are returned for both the
+{- | Allocate the idle-tracking state and fork the watchdog when
+@--idle-timeout@ is positive. The state is returned for both the
 tracking and the shutdown middleware.
 -}
-setupIdleTimeout :: ServerOptions -> IO (IORef UTCTime, IORef Bool)
+setupIdleTimeout :: ServerOptions -> IO IdleState
 setupIdleTimeout serverOpts = do
-    lastRequestRef <- newIORef =<< getCurrentTime
-    idleActiveRef <- newIORef False
+    idle <- newIdleState
     let idleTimeout = serverIdleTimeout serverOpts
     when (idleTimeout > 0) $ do
         reportProgress Info ("Idle timeout: " ++ show idleTimeout ++ "s")
-        writeIORef idleActiveRef True
-        _ <- forkIO (idleWatchdog lastRequestRef idleActiveRef idleTimeout)
+        writeIORef (idleArmed idle) True
+        _ <- forkIO (idleWatchdog idle idleTimeout (shutDownIdle idleTimeout))
         pure ()
-    pure (lastRequestRef, idleActiveRef)
+    pure idle
 
 -- | Stack idle-tracking, shutdown-endpoint and (optionally) auth middleware.
-wrapWithMiddleware :: Maybe String -> Maybe HostingConfig -> IORef UTCTime -> IORef Bool -> Application -> Application
-wrapWithMiddleware password mHosting lastRequestRef idleActiveRef baseApp =
+wrapWithMiddleware :: Maybe String -> Maybe HostingConfig -> IdleState -> Application -> Application
+wrapWithMiddleware password mHosting idle baseApp =
     let withIdleAndShutdown =
-            idleTrackingMiddleware lastRequestRef $
-                shutdownEndpoint mHosting lastRequestRef idleActiveRef baseApp
+            idleTrackingMiddleware idle $
+                shutdownEndpoint mHosting idle baseApp
      in case password of
             Just pwd -> authMiddleware (C8.pack pwd) withIdleAndShutdown
             Nothing -> withIdleAndShutdown
@@ -271,7 +269,7 @@ runServerWithConfig cliConfig serverOpts mCfgFile = do
     logLoadedDatabases dbManager
     let staticDir = fromMaybe "web/dist" (serverStaticDir serverOpts)
     password <- resolvePassword (globalOptions cliConfig) (cfgServer config)
-    (lastRequestRef, idleActiveRef) <- setupIdleTimeout serverOpts
+    idle <- setupIdleTimeout serverOpts
     dataVersion <- readDataVersion config
     let env =
             AppEnv
@@ -288,10 +286,10 @@ runServerWithConfig cliConfig serverOpts mCfgFile = do
             staticDir
             (serverDesktopMode serverOpts)
             (scName (cfgServer config))
-            (getCurrentTime >>= writeIORef lastRequestRef)
+            (whileWorking idle)
     let finalApp =
             uploadSizeLimitMiddleware (cfgHosting config) $
-                wrapWithMiddleware password (cfgHosting config) lastRequestRef idleActiveRef baseApp
+                wrapWithMiddleware password (cfgHosting config) idle baseApp
         settings = setTimeout 600 defaultSettings
     case listenOn (serverPort serverOpts) (cfgServer config) of
         ListenOnFreeLoopbackPort -> do
@@ -404,15 +402,15 @@ logRequest req = do
     hFlush stdout
 
 -- | Create a Wai application over a ready environment.
-createServerApp :: AppEnv -> FilePath -> Bool -> Maybe ServerName -> IO () -> IO Application
-createServerApp env staticDir desktopMode serverName markActivity = do
+createServerApp :: AppEnv -> FilePath -> Bool -> Maybe ServerName -> WhileWorking -> IO Application
+createServerApp env staticDir desktopMode serverName whileCalling = do
     -- The MCP @web_url@ deep links point at Elm SPA routes served from
     -- 'staticDir'. When the SPA is not bundled (backend-only image), those
     -- URLs would 404, so we omit 'web_url' from MCP responses entirely.
     hasFrontend <- doesFileExist (staticDir </> "index.html")
     unless (desktopMode || hasFrontend) $
         reportProgress Info "Frontend not bundled. MCP responses will omit 'web_url'"
-    mcp <- mcpApp (aeDbManager env) (aeClassificationPresets env) hasFrontend (aeHostingConfig env) serverName markActivity
+    mcp <- mcpApp (aeDbManager env) (aeClassificationPresets env) hasFrontend (aeHostingConfig env) serverName whileCalling
     let apiApp = serve lcaAPI (lcaServer env)
     pure $ \req respond -> do
         unless desktopMode (logRequest req)
@@ -460,18 +458,6 @@ validateCLIConfig (CLIConfig globalOpts mCmd) =
   where
     ownCsv = maybe False rendersOwnCsv mCmd
 
-{- | WAI middleware that updates the last-request timestamp on every request.
-
-@\/mcp@ is exempt: a connected assistant polls it on its own initiative, so
-counting those requests would keep an idle server alive with nobody at the
-other end. That endpoint marks activity itself, for the calls that are someone
-asking a question ('API.MCP.mcpCountsAsActivity').
--}
-idleTrackingMiddleware :: IORef UTCTime -> Application -> Application
-idleTrackingMiddleware ref app req respond = do
-    unless (rawPathInfo req == "/mcp") (getCurrentTime >>= writeIORef ref)
-    app req respond
-
 {- | Middleware that handles POST /api/v1/idle-timeout/{seconds} and POST /api/v1/shutdown
 0 = cancel timeout, N>0 = activate/restart idle watchdog
 
@@ -479,8 +465,8 @@ Both endpoints decide the lifetime of the whole process, so a read-only
 instance refuses them: on a server answering many unrelated callers, one of
 them must not be able to shut it down under the others.
 -}
-shutdownEndpoint :: Maybe HostingConfig -> IORef UTCTime -> IORef Bool -> Application -> Application
-shutdownEndpoint mHosting lastRequestRef idleActiveRef app req respond =
+shutdownEndpoint :: Maybe HostingConfig -> IdleState -> Application -> Application
+shutdownEndpoint mHosting idle app req respond =
     case (requestMethod req, BS.stripPrefix "/api/v1/idle-timeout/" path, path) of
         ("POST", _, "/api/v1/shutdown")
             | isReadOnly readOnly -> refuse
@@ -494,14 +480,14 @@ shutdownEndpoint mHosting lastRequestRef idleActiveRef app req respond =
                 let seconds = fromMaybe 30 (readMaybe (C8.unpack secondsBS)) :: Int
                 if seconds <= 0
                     then do
-                        writeIORef idleActiveRef False
+                        writeIORef (idleArmed idle) False
                         reportProgress Info "Idle timeout cancelled"
                     else do
-                        alreadyActive <- readIORef idleActiveRef
-                        writeIORef idleActiveRef True
-                        getCurrentTime >>= writeIORef lastRequestRef
+                        alreadyActive <- readIORef (idleArmed idle)
+                        writeIORef (idleArmed idle) True
+                        stampIdle idle
                         unless alreadyActive $ do
-                            _ <- forkIO $ idleWatchdog lastRequestRef idleActiveRef seconds
+                            _ <- forkIO $ idleWatchdog idle seconds (shutDownIdle seconds)
                             pure ()
                         reportProgress Info $ "Idle timeout: " ++ show seconds ++ "s"
                 ok
@@ -517,32 +503,8 @@ shutdownEndpoint mHosting lastRequestRef idleActiveRef app req respond =
                 [(hContentType, "application/json")]
                 (encode (object ["error" .= readOnlyRefusalFor mHosting]))
 
-{- | Background thread that exits the server after the idle timeout (seconds).
-
-Two things count as being in use, because one alone would be wrong. An HTTP
-request proves someone is there: reading a process sheet resolves no matrix,
-and that reader must not lose the server under them. A matrix solve proves
-expensive work is under way, which may well outlast the request that asked for
-it. So the deadline moves on either, and the solve count is read first: a solve
-that lands in the last seconds has to be seen before the deadline is judged.
--}
-idleWatchdog :: IORef UTCTime -> IORef Bool -> Int -> IO ()
-idleWatchdog ref activeRef timeoutSecs = go =<< Matrix.readSolveCounter
-  where
-    checkInterval = min (timeoutSecs * 1000000) (5 * 1000000) -- check every 5s or timeout, whichever is shorter
-    go lastSeen = do
-        threadDelay checkInterval
-        active <- readIORef activeRef
-        if not active
-            then pure ()
-            else do
-                solves <- Matrix.readSolveCounter
-                when (solves /= lastSeen) (getCurrentTime >>= writeIORef ref)
-                now <- getCurrentTime
-                lastReq <- readIORef ref
-                let idleSeconds = realToFrac (diffUTCTime now lastReq) :: Double
-                if idleSeconds >= fromIntegral timeoutSecs
-                    then do
-                        reportProgress Info $ "Idle for " ++ show timeoutSecs ++ "s, shutting down."
-                        hardExit
-                    else go solves
+-- | Say why the process is going, then go: the log line is the only trace left.
+shutDownIdle :: Int -> IO ()
+shutDownIdle timeoutSecs = do
+    reportProgress Info $ "Idle for " ++ show timeoutSecs ++ "s, shutting down."
+    hardExit

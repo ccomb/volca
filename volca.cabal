@@ -38,6 +38,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     Types
                      , App.Env
+                     , App.Idle
                      , Data.Validation
                      , Progress
                      , UnitConversion
@@ -191,7 +192,6 @@ executable volca
                      , containers
                      , bytestring
                      , stm
-                     , time
                      , warp
                      , wai
                      , wai-extra >=3.1.1
@@ -246,6 +246,7 @@ test-suite lca-tests
                      , CharacterizedFlowsSpec
                      , SubBlindCFSpec
                      , ServerSpec
+                     , IdleSpec
                      , ILCDParserSpec
                      , SupplyChainSpec
                      , HotspotSpec
