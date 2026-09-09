@@ -395,12 +395,15 @@ jobs:
 
       - name: Build and test
         if: needs.preflight.outputs.skip != 'true'
-        # PR/smoke builds compile volca's own code at -O1 (gen-cabal-config.sh
+        # PR/smoke builds compile volca's own code at -O0 (gen-cabal-config.sh
         # turns this into a per-package override; deps stay -O2 so the prebuilt
-        # store still matches). Release builds keep -O2 — the packaged binary
-        # is built in this very step, so the level must be right here.
+        # store still matches). This row exists to run the suite: the suite
+        # itself takes a few seconds longer unoptimised, against a compile it
+        # waits on that is more than ten times shorter. Release builds keep
+        # -O2, since the packaged binary is built in this very step, so the
+        # level has to be right here.
         env:
-          VOLCA_OPT_LEVEL: ${{ inputs.release && '2' || '1' }}
+          VOLCA_OPT_LEVEL: ${{ inputs.release && '2' || '0' }}
         run: |
           # Windows: re-source GHCup env in this MSYS2 shell since the wrapper
           # does not inherit PATH from the previous step.

@@ -478,9 +478,15 @@ else
     LINK_MODE="dynamic"
 fi
 
+# A build run from a working copy is there to be run and tested, not shipped,
+# so it defaults to -O1 rather than the -O2 gen-cabal-config.sh keeps for
+# artifacts. What that buys is not spread evenly over the tree: one module of
+# generic JSON instances holds the whole compile behind it at -O2. An explicit
+# VOLCA_OPT_LEVEL still wins, which is how the release rows of CI ask for 2.
 MUMPS_LIB_DIR="$MUMPS_LIB_DIR" \
 MUMPS_INCLUDE_DIR="$MUMPS_INCLUDE_DIR" \
 LINK_MODE="$LINK_MODE" \
+VOLCA_OPT_LEVEL="${VOLCA_OPT_LEVEL:-1}" \
 ./gen-cabal-config.sh
 
 # If --no-optimize was requested but a previous build left a UPX'd binary

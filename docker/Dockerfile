@@ -130,6 +130,11 @@ COPY gen-cabal-config.sh /build/volca/
 # from the repository's own cabal.project: the hold on
 # insert-ordered-containers has to be repeated, and allow-newer above
 # would let the breaking version in otherwise.
+# 2 because this image is normally the published one. A caller building an
+# image from source to try something out can pass 1 and get the compile back
+# in a fraction of the time; see gen-cabal-config.sh for what each level is for.
+ARG VOLCA_OPT_LEVEL=2
+
 RUN echo "packages: ./volca ./mumps-hs" > /build/cabal.project \
     && echo "allow-newer: true" >> /build/cabal.project \
     && echo "constraints: insert-ordered-containers < 0.3" >> /build/cabal.project \
@@ -138,6 +143,7 @@ RUN echo "packages: ./volca ./mumps-hs" > /build/cabal.project \
     OPENBLAS_LIB_DIR="/build/openblas/lib" \
     LINK_MODE="musl" \
     OUTPUT_DIR="/build" \
+    VOLCA_OPT_LEVEL="$VOLCA_OPT_LEVEL" \
     /build/volca/gen-cabal-config.sh
 
 # Update cabal and build ONLY dependencies (cached layer)
