@@ -130,11 +130,6 @@ COPY gen-cabal-config.sh /build/volca/
 # from the repository's own cabal.project: the hold on
 # insert-ordered-containers has to be repeated, and allow-newer above
 # would let the breaking version in otherwise.
-# 2 because this image is normally the published one. A caller building an
-# image from source to try something out can pass 1 and get the compile back
-# in a fraction of the time; see gen-cabal-config.sh for what each level is for.
-ARG VOLCA_OPT_LEVEL=2
-
 RUN echo "packages: ./volca ./mumps-hs" > /build/cabal.project \
     && echo "allow-newer: true" >> /build/cabal.project \
     && echo "constraints: insert-ordered-containers < 0.3" >> /build/cabal.project \
@@ -143,7 +138,6 @@ RUN echo "packages: ./volca ./mumps-hs" > /build/cabal.project \
     OPENBLAS_LIB_DIR="/build/openblas/lib" \
     LINK_MODE="musl" \
     OUTPUT_DIR="/build" \
-    VOLCA_OPT_LEVEL="$VOLCA_OPT_LEVEL" \
     /build/volca/gen-cabal-config.sh
 
 # Update cabal and build ONLY dependencies (cached layer)
@@ -157,6 +151,26 @@ COPY . /build/volca
 ARG GIT_HASH=unknown
 ARG GIT_TAG=""
 RUN cd /build/volca && GIT_HASH="$GIT_HASH" GIT_TAG="$GIT_TAG" ./gen-version.sh
+
+# The level volca's own code is compiled at. 2, because this image is normally
+# the published one; a caller building from source to try something out passes
+# 1 and gets the compile back in a fraction of the time. See
+# gen-cabal-config.sh for what each level means.
+#
+# Declared here rather than beside the first call, which is why that call is
+# regenerating the same file: docker adds an ARG to the cache key of every
+# layer from its first use onwards, so naming the level any earlier would
+# rebuild the whole musl dependency tree each time it changed. Dependencies
+# compile at the global optimization: 2 whatever this is, so they have no
+# business depending on it.
+ARG VOLCA_OPT_LEVEL=2
+RUN MUMPS_LIB_DIR="/build/mumps/lib" \
+    MUMPS_INCLUDE_DIR="/build/mumps/include" \
+    OPENBLAS_LIB_DIR="/build/openblas/lib" \
+    LINK_MODE="musl" \
+    OUTPUT_DIR="/build" \
+    VOLCA_OPT_LEVEL="$VOLCA_OPT_LEVEL" \
+    /build/volca/gen-cabal-config.sh
 
 # Build volca (only recompiles app code, deps already cached)
 RUN cd /build && cabal build volca

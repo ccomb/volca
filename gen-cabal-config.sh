@@ -7,6 +7,7 @@
 #   MUMPS_INCLUDE_DIR       Path to MUMPS headers (default: /usr/include)
 #   LINK_MODE               "dynamic" (default), "musl", "darwin", "windows"
 #   OUTPUT_DIR              Where to write cabal.project.local (default: current dir)
+#   VOLCA_OPT_LEVEL         0, 1 or 2 (default 2) - see the block below
 #
 # Output: writes cabal.project.local in OUTPUT_DIR
 

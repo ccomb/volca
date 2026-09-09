@@ -692,10 +692,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: volca-${{ matrix.name }}
-          # The penultimate segment is `opt/build/` with optimization: 2,
-          # `build/` without it; ** absorbs both layouts. List the binary
-          # names explicitly — a trailing `volca*` glob also matches the
-          # sibling `volca-tmp/` build dir and uploads its Main.hi/Main.o.
+          # cabal names the penultimate segment after the optimization level:
+          # `opt/build/` at 2, `build/` at 1, `noopt/build/` at 0. ** absorbs
+          # all three. List the binary names explicitly, because a trailing
+          # `volca*` glob also matches the sibling `volca-tmp/` build dir and
+          # uploads its Main.hi/Main.o.
           path: |
             dist-newstyle/build/*/ghc-*/volca-*/x/volca/**/build/volca/volca
             dist-newstyle/build/*/ghc-*/volca-*/x/volca/**/build/volca/volca.exe
