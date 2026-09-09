@@ -128,4 +128,5 @@ writing it or reading someone else's.
 - NEVER use `git add -A` — always add specific files explicitly.
 - **Keep commit messages tight**: explain *why* the change was made and any non-obvious technical choices; don't restate the diff. Subject line + a few short paragraphs max.
 - **Atomic commits — one subject per commit.** If the message needs "and also", split it.
-- One PR = one subject. The PR description explains the why and the final state, not every commit.
+- One PR = one subject.
+- **A pull request description has four parts and stops there**: the problem, the solution, any remarks worth a reader's attention, and how to test or use the result. Not the route you took to get there, not a commit by commit account, not the measurements you made and discarded on the way. A reader wants to know what was wrong, what happens instead, what to be careful about, and what to run. Everything else is the author writing about the author, and it buries the four parts that are worth reading.
