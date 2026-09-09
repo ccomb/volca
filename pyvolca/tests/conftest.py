@@ -535,22 +535,37 @@ def readme_namespace() -> dict[str, Any]:
 def live_spec() -> dict[str, Any] | None:
     """The OpenAPI spec dumped from the currently-built engine binary.
 
-    Returns None if the binary isn't built; callers should skip their
-    drift test rather than fail CI hard in that case.
+    Returns None when no binary is there at all, so a checkout that has
+    never built the engine skips the drift tests rather than failing. A
+    binary that is present and will not answer is a failure, not an
+    absence: the whole point of these tests is that nobody notices when
+    they stop running.
     """
     # Walk up from pyvolca/tests/ to find the cabal dist-newstyle dir.
     here = Path(__file__).resolve()
     # .../volca-public/pyvolca/tests/conftest.py
     #                   ^~~~~~~~~ 2 levels up = pyvolca dir
     volca_public = here.parent.parent.parent
-    candidates = list(
-        (volca_public / "dist-newstyle").rglob("build/*/ghc-*/volca-*/x/volca/opt/build/volca/volca")
-    )
-    if not candidates:
+    binary = _newest_engine_binary(volca_public / "dist-newstyle")
+    if binary is None:
         return None
-    binary = sorted(candidates)[-1]
     try:
         out = subprocess.check_output([str(binary), "dump-openapi"], timeout=30)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return None
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"{binary} will not dump its OpenAPI spec: {exc}") from exc
     return json.loads(out)
+
+
+def _newest_engine_binary(dist_newstyle: Path) -> Path | None:
+    """The most recently built engine executable, whatever level it was built at.
+
+    cabal names the directory above `build/` after the optimization level:
+    `opt/` at -O2, `noopt/` at -O0, and nothing at all at -O1. Matching only
+    one of the three is how these tests came to skip themselves silently for
+    months: CI downloads the engine artefact into `dist-newstyle/`, the level
+    moved, and the glob stopped matching a binary that was sitting right
+    there. `**` matches all three and the next one too.
+    """
+    pattern = "build/*/ghc-*/volca-*/x/volca/**/build/volca/volca"
+    found = [p for p in dist_newstyle.rglob(pattern) if p.is_file()]
+    return max(found, key=lambda p: p.stat().st_mtime) if found else None
