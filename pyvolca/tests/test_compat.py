@@ -7,7 +7,9 @@ mocked session.
 
 from __future__ import annotations
 
+import re
 import warnings
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -152,3 +154,24 @@ def test_search_flows_kind_refuses_an_engine_that_would_drop_it(make_response) -
     assert "wire revision >= 9" in str(exc.value)
     assert session.get.call_count == 1  # version checked; the search never went out
 
+
+def test_known_wire_follows_the_engine() -> None:
+    """The engine's own wire revision and the one this client claims to know.
+
+    They drifted four revisions apart because nothing tied them together: an
+    engine change bumps `currentWireVersion`, the client keeps its own number,
+    and every call against a current engine starts warning that the engine is
+    newer than the client. Read from the source tree when it is there, which is
+    where a pull request runs; skipped when pyvolca is installed on its own.
+    """
+    routes = Path(__file__).resolve().parents[2] / "src" / "API" / "Routes.hs"
+    if not routes.exists():
+        pytest.skip("engine source not alongside; nothing to compare against")
+    m = re.search(r"^currentWireVersion\s*=\s*(\d+)", routes.read_text(), re.M)
+    assert m, f"no currentWireVersion in {routes}"
+    engine_wire = int(m.group(1))
+    assert _compat.KNOWN_WIRE == engine_wire, (
+        f"the engine speaks wire {engine_wire} and this pyvolca knows up to "
+        f"{_compat.KNOWN_WIRE}: read what that revision added, decode it, and "
+        "move KNOWN_WIRE with its docstring."
+    )

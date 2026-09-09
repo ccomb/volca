@@ -32,8 +32,15 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 19
-"""The newest wire revision this pyvolca understands (revision 19 lets a flow
+KNOWN_WIRE = 23
+"""The newest wire revision this pyvolca understands (revision 23 added the
+``supplier_claim`` an exchange carries, how its source designated its supplier
+before linking answered, and the supplier ambiguities a database setup report
+carries; revision 22 added the ``native_id`` an activity carries, the
+identifier its source file gave the dataset block it was read from; revision 21
+added the ``block`` an activity summary carries and the ``block_products``
+beside it; revision 20 added the ``derive_database`` route and the
+``allocation`` and ``source`` a database status carries; revision 19 lets a flow
 search name several kinds at once, comma-separated, so the biosphere-and-waste
 bucket the search counts report is listable in one call; revision 18 added
 ``properties`` on a technosphere exchange, the dry and wet mass its source

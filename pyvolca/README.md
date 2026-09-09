@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.11.0** speaks wire formats **2 to 19** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.11.0** speaks wire formats **2 to 23** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -362,6 +362,17 @@ Direction of a biosphere exchange.
 Lookup is case-insensitive (``BioDirection("emission")`` works): the
 engine reads the wire value that way, so the client should not be
 stricter than the server it speaks for.
+
+### `ClaimKind`
+
+How a source file designates the supplier of an exchange.
+
+``PRODUCT``: the product row itself, its flow and where it has one its
+location - SimaPro, ILCD, and a Brightway row naming no activity.
+``ID``: the supplier activity's own identifier, as EcoSpold 2 writes it.
+``NAME``: the supplier activity by name, from a Brightway ``name`` column.
+``DATASET_NUMBER``: the number the supplier dataset is published under,
+as EcoSpold 1 writes it.
 
 ### `Client`
 
@@ -836,7 +847,11 @@ Setup status of a staged or loaded database (``DatabaseSetupInfo``).
 Key fields: ``isReady`` (can it be finalized/loaded), ``missingSuppliers``
 and ``unresolvedLinks`` (unmet cross-database links), ``dependencies``
 (declared deps), ``dataPath`` / ``availablePaths`` (the selected data
-file and the alternatives, see `set_data_path`), ``completeness``.
+file and the alternatives, see `set_data_path`), ``completeness``,
+and ``supplierAmbiguities``: the inputs several activities of one
+dependency answered equally well, each naming the product asked for,
+the activity linked to and how many tied, so the supplier meant can be
+named rather than guessed (wire revision 23).
 
 ##### `Client.get_stats()`
 
@@ -1369,6 +1384,14 @@ Typed wrapper around the JSON returned by GET /activity/{pid}.
 Use the .inputs / .outputs / .technosphere_inputs convenience properties
 instead of walking the raw exchanges list.
 
+``native_id`` is the identifier the source file gave the dataset block this
+process was read from - SimaPro's ``Process identifier``, the number an
+EcoSpold 1 dataset is published under - which is what a reader copies to
+find the dataset back in the file it came from. It is ``None`` where the
+format has none, where the format names a dataset by the UUID
+``process_id`` already spells, and against an engine older than wire
+revision 22.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `process_id` | `str` | _required_ |
@@ -1382,6 +1405,7 @@ instead of walking the raw exchanges list.
 | `product_unit` | `str \| None` | _required_ |
 | `all_products` | `list[Activity]` | _required_ |
 | `exchanges` | `list[Union[TechnosphereExchange, BiosphereExchange, WasteExchange]]` | _required_ |
+| `native_id` | `str \| None` | None |
 
 #### Properties
 
@@ -1789,6 +1813,14 @@ One entry of `Client.list_databases`.
 flow resolution, mirroring the ``dependsOn`` list surfaced by the relink
 endpoint. Derived from the engine's declared topology, not runtime state.
 
+``allocation`` is the key its multi-output blocks were divided by:
+``"declared"`` for the shares the source itself states, otherwise the name
+of the property recomputed them (``"dry mass"``, ``"wet mass"``). Without
+it a column of shares cannot say which of the two it is showing.
+``source`` names the database this one was derived from, and is ``None``
+for one read straight from its files. Both are ``None`` against an engine
+older than wire revision 20.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `name` | `str` | _required_ |
@@ -1801,6 +1833,8 @@ endpoint. Derived from the engine's declared topology, not runtime state.
 | `description` | `str \| None` | None |
 | `format` | `str \| None` | None |
 | `depends_on` | `list[str]` | list() |
+| `allocation` | `str \| None` | None |
+| `source` | `str \| None` | None |
 
 ### `ExchangeSelector`
 
@@ -2447,6 +2481,24 @@ substitution across multiple calls without aliasing risk.
 
 Serialise to the wire shape consumed by SubstitutionRequest.
 
+### `SupplierClaim`
+
+What the source said about an exchange's supplier, before linking.
+
+Every format designates a supplier differently, and linking overwrites
+what it resolved to; this is the claim itself, which linking never
+rewrites, so a reader can tell what the file asked for from what the
+engine found. ``value`` is the identifier, name or dataset number the
+claim carries, and is ``None`` for `ClaimKind.PRODUCT`, which names
+the supplier by the product row and carries nothing else.
+
+Wire revision 23; ``None`` on a technosphere exchange from an older engine.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `kind` | `ClaimKind` | _required_ |
+| `value` | `str \| int \| None` | None |
+
 ### `SupplyChain`
 
 Flat supply chain of an activity.
@@ -2549,6 +2601,10 @@ unit; another one is fine as long as it converts.
 An exchange with another activity. Carries no compartment: the
 producing activity's classifications describe the product taxonomy.
 
+``supplier_claim`` is how the source designated the supplier, which is not
+the same question as which activity it resolved to: ``target_process_id``
+is the answer, this is what was asked (wire revision 23).
+
 | Field | Type | Default |
 |-------|------|---------|
 | `flow_name` | `str` | _required_ |
@@ -2559,6 +2615,7 @@ producing activity's classifications describe the product taxonomy.
 | `target_location` | `str \| None` | _required_ |
 | `target_process_id` | `str \| None` | _required_ |
 | `comment` | `str \| None` | None |
+| `supplier_claim` | `SupplierClaim \| None` | None |
 | `is_biosphere` | `bool` | False |
 | `is_waste` | `bool` | False |
 
@@ -2611,6 +2668,7 @@ treatment it names was not loaded.
 | `target_process_id` | `str \| None` | _required_ |
 | `comment` | `str \| None` | None |
 | `role` | `WasteRole \| None` | None |
+| `supplier_claim` | `SupplierClaim \| None` | None |
 | `is_biosphere` | `bool` | False |
 | `is_waste` | `bool` | True |
 

@@ -243,6 +243,14 @@ class DatabaseInfo(FromJson):
     ``depends_on`` names the databases this one links against for cross-DB
     flow resolution, mirroring the ``dependsOn`` list surfaced by the relink
     endpoint. Derived from the engine's declared topology, not runtime state.
+
+    ``allocation`` is the key its multi-output blocks were divided by:
+    ``"declared"`` for the shares the source itself states, otherwise the name
+    of the property recomputed them (``"dry mass"``, ``"wet mass"``). Without
+    it a column of shares cannot say which of the two it is showing.
+    ``source`` names the database this one was derived from, and is ``None``
+    for one read straight from its files. Both are ``None`` against an engine
+    older than wire revision 20.
     """
 
     name: str
@@ -255,6 +263,8 @@ class DatabaseInfo(FromJson):
     description: str | None = None
     format: str | None = None
     depends_on: list[str] = field(default_factory=list)
+    allocation: str | None = None
+    source: str | None = None
 
     @classmethod
     def from_json(cls, d: dict) -> "DatabaseInfo":
@@ -906,10 +916,55 @@ def _role_is_reference(role: TechRole) -> bool:
     return role in (TechRole.REFERENCE_PRODUCT, TechRole.REFERENCE_INPUT)
 
 
+class ClaimKind(_StrEnum):
+    """How a source file designates the supplier of an exchange.
+
+    ``PRODUCT``: the product row itself, its flow and where it has one its
+    location - SimaPro, ILCD, and a Brightway row naming no activity.
+    ``ID``: the supplier activity's own identifier, as EcoSpold 2 writes it.
+    ``NAME``: the supplier activity by name, from a Brightway ``name`` column.
+    ``DATASET_NUMBER``: the number the supplier dataset is published under,
+    as EcoSpold 1 writes it.
+    """
+
+    PRODUCT = "ClaimByProduct"
+    ID = "ClaimById"
+    NAME = "ClaimByName"
+    DATASET_NUMBER = "ClaimByDatasetNumber"
+
+
+@dataclass(frozen=True)
+class SupplierClaim:
+    """What the source said about an exchange's supplier, before linking.
+
+    Every format designates a supplier differently, and linking overwrites
+    what it resolved to; this is the claim itself, which linking never
+    rewrites, so a reader can tell what the file asked for from what the
+    engine found. ``value`` is the identifier, name or dataset number the
+    claim carries, and is ``None`` for :attr:`ClaimKind.PRODUCT`, which names
+    the supplier by the product row and carries nothing else.
+
+    Wire revision 23; ``None`` on a technosphere exchange from an older engine.
+    """
+
+    kind: ClaimKind
+    value: str | int | None = None
+
+    @classmethod
+    def from_json(cls, d: dict | None) -> "SupplierClaim | None":
+        if not d or "tag" not in d:
+            return None
+        return cls(kind=ClaimKind(d["tag"]), value=d.get("contents"))
+
+
 @dataclass
 class TechnosphereExchange:
     """An exchange with another activity. Carries no compartment: the
     producing activity's classifications describe the product taxonomy.
+
+    ``supplier_claim`` is how the source designated the supplier, which is not
+    the same question as which activity it resolved to: ``target_process_id``
+    is the answer, this is what was asked (wire revision 23).
     """
 
     flow_name: str
@@ -920,6 +975,7 @@ class TechnosphereExchange:
     target_location: str | None
     target_process_id: str | None
     comment: str | None = None
+    supplier_claim: SupplierClaim | None = None
 
     is_biosphere: bool = False  # discriminator for callers using duck typing
     is_waste: bool = False
@@ -954,6 +1010,7 @@ class TechnosphereExchange:
             target_location=ewu.get("targetLocation"),
             target_process_id=ewu.get("targetProcessId"),
             comment=_exchange_comment(ewu, inner),
+            supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
 
 
@@ -1077,6 +1134,7 @@ class WasteExchange:
     target_process_id: str | None
     comment: str | None = None
     role: WasteRole | None = None  # None from an engine older than wire 10
+    supplier_claim: SupplierClaim | None = None  # how the source named the treatment (wire 23)
 
     is_biosphere: bool = False
     is_waste: bool = True
@@ -1104,6 +1162,7 @@ class WasteExchange:
             target_process_id=ewu.get("targetProcessId"),
             comment=_exchange_comment(ewu, inner),
             role=WasteRole(raw_role) if raw_role else None,
+            supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
 
 
@@ -1157,6 +1216,7 @@ def parse_exchange_detail(ed: dict) -> Exchange:
             target_location=target.get("location"),
             target_process_id=target.get("processId"),
             comment=comment,
+            supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
     if tag == "BiosphereExchange":
         if flow_kind not in (None, "biosphere"):
@@ -1187,6 +1247,7 @@ def parse_exchange_detail(ed: dict) -> Exchange:
             target_location=target.get("location"),
             target_process_id=target.get("processId"),
             comment=comment,
+            supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
     raise ValueError(f"Unknown exchange variant tag: {tag!r}")
 
@@ -1201,6 +1262,14 @@ class ActivityDetail:
 
     Use the .inputs / .outputs / .technosphere_inputs convenience properties
     instead of walking the raw exchanges list.
+
+    ``native_id`` is the identifier the source file gave the dataset block this
+    process was read from - SimaPro's ``Process identifier``, the number an
+    EcoSpold 1 dataset is published under - which is what a reader copies to
+    find the dataset back in the file it came from. It is ``None`` where the
+    format has none, where the format names a dataset by the UUID
+    ``process_id`` already spells, and against an engine older than wire
+    revision 22.
     """
 
     process_id: str
@@ -1214,6 +1283,7 @@ class ActivityDetail:
     product_unit: str | None
     all_products: list[Activity]
     exchanges: list[Exchange]
+    native_id: str | None = None
 
     @classmethod
     def from_json(cls, d: dict) -> "ActivityDetail":
@@ -1231,6 +1301,7 @@ class ActivityDetail:
             product_unit=pfa.get("productUnit"),
             all_products=[Activity.from_json(a) for a in pfa.get("allProducts", [])],
             exchanges=[parse_exchange(e) for e in pfa.get("exchanges", [])],
+            native_id=pfa.get("nativeId"),
         )
 
     @property

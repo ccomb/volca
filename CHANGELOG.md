@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+- pyvolca reads what the last four wire revisions added, and stops warning that
+  the engine is newer than it is. A technosphere or waste exchange carries its
+  `supplier_claim`, how the source designated its supplier before linking
+  answered: by the product row, by an activity identifier, by an activity name,
+  or by the number a dataset is published under. An activity detail carries its
+  `native_id`, the identifier its source file gave the block it was read from.
+  A database listing carries the `allocation` key its blocks were divided by
+  and the `source` it was derived from. The setup report's supplier
+  ambiguities are documented where a reader looks for them.
+
 ### Changed
 - An exchange that resolved to no supplier now reports `activityLinkId` as
   null. It used to report the all-zero UUID, a value that reads as an
