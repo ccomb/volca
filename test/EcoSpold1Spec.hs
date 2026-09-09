@@ -317,6 +317,15 @@ unplaceableMediumXml =
         , "</ecoSpold>"
         ]
 
+-- | 'unplaceableMediumXml' with the offending category taken off entirely.
+uncategorizedMediumXml :: BC.ByteString
+uncategorizedMediumXml = BC.unlines (map withoutCategory (BC.lines unplaceableMediumXml))
+  where
+    withoutCategory :: BC.ByteString -> BC.ByteString
+    withoutCategory line
+        | "                category=\"Luft\"" `BC.isPrefixOf` line = BC.pack "                category=\"\" subCategory=\"hoch\" unit=\"kg\" meanValue=\"0.07\">"
+        | otherwise = line
+
 {- | Fixture carrying the provenance blocks a real export writes: two numbered
 sources of which only the second is the one the dataset was published in, a
 numbered person who proof-read it, and the free texts of the process
@@ -753,6 +762,13 @@ spec = do
             case parseWithXeno spelledOutMediaXml of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right ParsedDataset{pdWarnings = warns} -> warns `shouldBe` []
+
+        it "reports the absence when the exchange carries no category at all" $
+            case parseWithXeno uncategorizedMediumXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdBioFlows = bios, pdWarnings = warns} -> do
+                    map bfCompartment bios `shouldBe` [Nothing]
+                    warns `shouldSatisfy` any (T.isInfixOf "no category")
 
         it "names the word it could not place, rather than scoring zero in silence" $
             case parseWithXeno unplaceableMediumXml of

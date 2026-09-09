@@ -525,6 +525,16 @@ resetDataset state =
         , psUnplacedMedia = S.empty
         }
 
+{- | The category an elementary exchange was filed under, when that word names
+no medium this reader knows and the flow therefore came back with no
+compartment. A technosphere row has no compartment to place, and says nothing.
+-}
+unplacedMedium :: ExchangeData -> ParsedFlow -> Maybe Text
+unplacedMedium edata (ParsedBio flow)
+    | isNothing (bfCompartment flow) = Just (exCategory edata)
+    | otherwise = Nothing
+unplacedMedium _ (ParsedTech _) = Nothing
+
 {- | Build exchange, flow, and unit from exchange data.
 @activityLoc@ is the activity's location, used as a biosphere fallback.
 
@@ -537,17 +547,6 @@ medium 'Waste' whatever group it carries, so it is read as biosphere
 before the groups are consulted. Waste that does have a treatment is not
 written that way and stays on the technosphere side.
 -}
-
-{- | The category an elementary exchange was filed under, when that word names
-no medium this reader knows and the flow therefore came back with no
-compartment. A technosphere row has no compartment to place, and says nothing.
--}
-unplacedMedium :: ExchangeData -> ParsedFlow -> Maybe Text
-unplacedMedium edata (ParsedBio flow)
-    | isNothing (bfCompartment flow) = Just (exCategory edata)
-    | otherwise = Nothing
-unplacedMedium _ (ParsedTech _) = Nothing
-
 buildExchange :: Maybe Text -> ExchangeData -> (Exchange, ParsedFlow, Unit)
 buildExchange activityLoc edata
     | isBiosphere = (bioEx, ParsedBio bioFlow, unit)
@@ -726,7 +725,10 @@ unplacedMediaSeen st
     media :: S.Set Text
     media = psUnplacedMedia st
 
+    -- A group-4 row can carry no category at all, and "filed under \"\"" would
+    -- name nothing; the absence is what there is to report about it.
     quoted :: Text -> Text
+    quoted "" = "no category"
     quoted t = "\"" <> t <> "\""
 
 -- | Build the final per-dataset result, applying the cut-off strategy.

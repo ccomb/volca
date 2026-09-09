@@ -213,7 +213,8 @@ data MapContext = MapContext
     , mcCompartmentMap :: !CompartmentMap
     {- ^ The table both sides of a compartment comparison go through, so the
     cascade reads a compartment the way the scoring tables do. Without it a row
-    written "Emissions to air" would not meet a flow filed under "air".
+    written "urban air" would not meet a flow filed under "air", subcompartment
+    "urban": only the table relates a spelling that carries more than a medium.
     -}
     , mcSynGroupFlows :: !(M.Map (FlowDirection, Int) [BiosphereFlow])
     {- ^ Memoized @(direction, synonym-group id)@ → candidate flows, precomputed
@@ -397,9 +398,10 @@ type MediumKey = Maybe Medium
 the same value, as the scoring tables key it: 'buildMethodTables' indexes a
 factor under the row's normalized medium and 'flowMediumSub' files a flow
 under its own, so a match judged any looser here promises a factor the read
-side never serves. "air" against "emissions to air" is a vocabulary gap that
-only a compartment rule bridges, not a widening. An empty statement
-constrains nothing.
+side never serves. Both sides read their words with 'parseMedium', so two
+spellings of one medium meet in the value they name; "air" against "urban air"
+is a vocabulary gap that only a compartment rule bridges, not a widening. An
+empty statement constrains nothing.
 -}
 mediumFits :: Text -> MediumKey -> Bool
 mediumFits stated actual
@@ -513,9 +515,10 @@ exclusionWarning flows cf
 
 {- | The factors the cascade left unmatched although a flow of their name is
 in the database, stated in a medium no flow of the database is filed under.
-That is a vocabulary gap ("air" against "emissions to air"), which a
-compartment mapping bridges and nothing else will: said once per method,
-with both vocabularies, so the operator knows what to declare.
+That is a vocabulary gap ("air" against "urban air"), which a compartment
+mapping bridges and nothing else will: said once per method, with both
+vocabularies, so the operator knows what to declare. A spelling that names
+only a medium is not one of these, 'parseMedium' having read it already.
 
 Judged on the whole database, not on the flows of that name: a substance the
 database has in water and not in air leaves a factor stated in air unmatched
@@ -686,10 +689,10 @@ name: the one whose subcompartment the row states, else the one filed under no
 particular subcompartment, else any in the row's medium.
 
 Both sides go through 'normalizeCompartment' first, which is what lets a row
-written "Emissions to air" meet a flow filed under "air"; the scoring tables
-read the same table, so the cascade and the tables agree on what a compartment
-is. Without it the row's medium, now a condition, would veto a spelling only
-the table relates.
+written "urban air" meet a flow filed under "air", subcompartment "urban"; the
+scoring tables read the same table, so the cascade and the tables agree on what
+a compartment is. Without it the row's medium, now a condition, would veto a
+spelling only the table relates.
 
 A compartment a row states is a condition, not a preference. When no candidate
 is in that medium this answers Nothing, so 'resolveCF' moves on to the next
