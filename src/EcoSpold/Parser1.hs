@@ -26,6 +26,7 @@ import Data.Either (lefts, rights)
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isNothing)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -194,6 +195,12 @@ data ParseState = ParseState
     , psContext :: !ElementContext
     , psTextAccum :: ![BS.ByteString]
     , psDocs :: !DatasetDocs -- Provenance the dataset states about itself
+    , psUnplacedMedia :: !(S.Set Text)
+    {- ^ The categories this dataset filed an elementary exchange under that
+    'parseMedium' could not place. Such a flow carries no compartment, so no
+    characterization factor reaches it and every method scores it zero: the
+    reading names the word instead of letting the zero pass for an answer.
+    -}
     , psCompletedActivities :: ![Either String ParsedDataset]
     }
 
@@ -216,6 +223,7 @@ initialParseState =
         , psContext = Other
         , psTextAccum = []
         , psDocs = emptyDatasetDocs
+        , psUnplacedMedia = S.empty
         , psCompletedActivities = []
         }
 
@@ -477,6 +485,7 @@ closeExchange state = case psContext state of
                 , psTechFlows = techs
                 , psBioFlows = bios
                 , psUnits = unit : psUnits state
+                , psUnplacedMedia = maybe id S.insert (unplacedMedium edata parsedFlow) (psUnplacedMedia state)
                 , psContext = Other
                 }
     InInputGroup _ -> popPath state
@@ -513,6 +522,7 @@ resetDataset state =
         , psContext = Other
         , psTextAccum = []
         , psDocs = emptyDatasetDocs
+        , psUnplacedMedia = S.empty
         }
 
 {- | Build exchange, flow, and unit from exchange data.
@@ -527,6 +537,17 @@ medium 'Waste' whatever group it carries, so it is read as biosphere
 before the groups are consulted. Waste that does have a treatment is not
 written that way and stays on the technosphere side.
 -}
+
+{- | The category an elementary exchange was filed under, when that word names
+no medium this reader knows and the flow therefore came back with no
+compartment. A technosphere row has no compartment to place, and says nothing.
+-}
+unplacedMedium :: ExchangeData -> ParsedFlow -> Maybe Text
+unplacedMedium edata (ParsedBio flow)
+    | isNothing (bfCompartment flow) = Just (exCategory edata)
+    | otherwise = Nothing
+unplacedMedium _ (ParsedTech _) = Nothing
+
 buildExchange :: Maybe Text -> ExchangeData -> (Exchange, ParsedFlow, Unit)
 buildExchange activityLoc edata
     | isBiosphere = (bioEx, ParsedBio bioFlow, unit)
@@ -574,11 +595,12 @@ buildExchange activityLoc edata
         | otherwise = ClaimByProduct
 
     subCat = if T.null (exSubCategory edata) then Nothing else Just (exSubCategory edata)
-    -- The medium of a group-4 exchange is its @category@, and the vocabulary
-    -- EcoSpold 1 writes there is the four 'parseMedium' reads. A category it
-    -- cannot place leaves the flow with no compartment: this reader assembles
-    -- its result purely and has no channel to report on, which is a limitation
-    -- of the reader rather than a judgement about the file.
+    -- The medium of a group-4 exchange is its @category@, and EcoSpold 1 is
+    -- written in more than one vocabulary there: one family of exports names
+    -- the bare medium, another states the direction too. 'parseMedium' reads
+    -- both. A category it still cannot place leaves the flow with no
+    -- compartment, and 'unplacedMedium' carries the word to the dataset's
+    -- warnings so the resulting zero score is not silent.
     compartment = case parseMedium category of
         Right medium -> Just (Compartment medium subCat)
         Left _ -> Nothing
@@ -668,18 +690,44 @@ The geography is not among them: a dataset that declares none is recorded as
 -}
 placeholdersUsed :: ParseState -> [Text]
 placeholdersUsed st =
-    [ named <> what
+    [ datasetPrefix st <> what
     | (what, absent) <-
         [ ("no activity name, read as \"Unknown Activity\"", isNothing (psActivityName st))
         , ("no reference unit, read as \"UNKNOWN_UNIT\"", isNothing (psRefUnit st))
         ]
     , absent
     ]
+
+{- | What a warning about this dataset calls it. A dataset that declared no
+number is left unnamed rather than called number zero, which is how
+'datasetIdentifier' reads the same field.
+-}
+datasetPrefix :: ParseState -> Text
+datasetPrefix st =
+    maybe "" (\(NativeProcessId n) -> "dataset " <> n <> ": ") (datasetIdentifier (psDatasetNumber st))
+
+{- | The compartment vocabularies this dataset used that the reader could not
+place, said once for the dataset rather than once per exchange.
+
+An elementary flow with no compartment is characterized by no method, so it
+contributes zero to every score while looking like any other flow. The reading
+names the words it could not place, which is what a reader needs to add them.
+-}
+unplacedMediaSeen :: ParseState -> [Text]
+unplacedMediaSeen st
+    | S.null media = []
+    | otherwise =
+        [ datasetPrefix st
+            <> "elementary exchanges filed under "
+            <> T.intercalate ", " (map quoted (S.toList media))
+            <> " carry no compartment, so no method characterizes them"
+        ]
   where
-    -- A dataset that declared no number is left unnamed rather than called
-    -- number zero, which is how 'datasetIdentifier' reads the same field.
-    named :: Text
-    named = maybe "" (\(NativeProcessId n) -> "dataset " <> n <> ": ") (datasetIdentifier (psDatasetNumber st))
+    media :: S.Set Text
+    media = psUnplacedMedia st
+
+    quoted :: Text -> Text
+    quoted t = "\"" <> t <> "\""
 
 -- | Build the final per-dataset result, applying the cut-off strategy.
 buildResult :: ParseState -> Either String ParsedDataset
@@ -724,7 +772,7 @@ buildResult st =
                   pdWasteFlows = []
                 , pdUnits = reverse (psUnits st)
                 , pdDatasetNumber = psDatasetNumber st
-                , pdWarnings = placeholdersUsed st
+                , pdWarnings = placeholdersUsed st ++ unplacedMediaSeen st
                 }
      in -- A file that yields no exchange at all is not a dataset: a stray or
         -- truncated XML the SAX fold walked through without complaint.

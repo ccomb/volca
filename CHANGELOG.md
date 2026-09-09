@@ -39,6 +39,20 @@
   before this are rebuilt on the next load. Wire revision 23.
 
 ### Fixed
+- Emissions read from an EcoSpold 1 file now reach the methods that
+  characterize them. An elementary exchange names its medium in a `category`
+  attribute, and the format is written in two vocabularies there: some exports
+  write the bare medium, `air`, and others state the direction as well,
+  `emissions to air`. Only the first was read, so in a file of the second kind
+  every emission arrived with no compartment at all, matched no
+  characterization factor, and scored exactly zero. What made it hard to see is
+  that resources are spelled the same way in both, so land use, water use and
+  the resource categories came out right while climate change and acidification
+  came out as a clean zero, which reads like an empty inventory rather than a
+  reading fault. Both vocabularies are now read. A word that still names no
+  medium leaves the flow uncharacterizable, as it must, but the reading now
+  says which word it was instead of letting the zero pass for an answer. Caches
+  built before this are rebuilt on the next load.
 - A load slower than the idle timeout no longer shuts the server down under the
   caller. The timeout counted the moment a request *arrived*, so a request that
   is itself long counted as silence for its whole duration: reading a gigabyte

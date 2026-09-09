@@ -6,6 +6,7 @@ module EcoSpold1Spec (spec) where
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import Test.Hspec
 
 import EcoSpold.Common (ParsedDataset (..))
@@ -229,6 +230,87 @@ wasteFlowXml =
         , "                category=\"Final waste flows\" subCategory=\"landfill\""
         , "                unit=\"kg\" meanValue=\"0.02\">"
         , "        <inputGroup>5</inputGroup>"
+        , "      </exchange>"
+        , "    </flowData>"
+        , "  </dataset>"
+        , "</ecoSpold>"
+        ]
+
+{- | The second compartment vocabulary EcoSpold 1 is written in. One family of
+exports files an elementary exchange under the bare medium (@air@, as
+'minimalXml' has it); another spells the direction out, @emissions to air@, and
+abbreviates the subcompartment. Both are the same three media, and a reader
+that places only the first leaves every emission of the second with no
+compartment at all - which characterizes to zero in every method, in silence.
+-}
+spelledOutMediaXml :: BC.ByteString
+spelledOutMediaXml =
+    BC.unlines
+        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
+        , "  <dataset number=\"11\">"
+        , "    <metaInformation>"
+        , "      <processInformation>"
+        , "        <referenceFunction name=\"heat production\" category=\"heat\""
+        , "                           subCategory=\"others\" unit=\"MJ\"/>"
+        , "        <geography location=\"CH\" />"
+        , "      </processInformation>"
+        , "    </metaInformation>"
+        , "    <flowData>"
+        , "      <exchange number=\"1\" name=\"heat\" category=\"heat\""
+        , "                subCategory=\"others\" unit=\"MJ\" meanValue=\"1.0\">"
+        , "        <outputGroup>0</outputGroup>"
+        , "      </exchange>"
+        , "      <exchange number=\"2\" name=\"Carbon dioxide, fossil\""
+        , "                category=\"emissions to air\" subCategory=\"high. pop.\""
+        , "                unit=\"kg\" meanValue=\"0.07\" CASNumber=\"124-38-9\">"
+        , "        <outputGroup>4</outputGroup>"
+        , "      </exchange>"
+        , "      <exchange number=\"3\" name=\"BOD5, Biological Oxygen Demand\""
+        , "                category=\"emissions to water\" subCategory=\"river\""
+        , "                unit=\"kg\" meanValue=\"0.001\">"
+        , "        <outputGroup>4</outputGroup>"
+        , "      </exchange>"
+        , "      <exchange number=\"4\" name=\"Cadmium\" category=\"emissions to soil\""
+        , "                subCategory=\"agricultural\" unit=\"kg\" meanValue=\"1.0E-9\">"
+        , "        <outputGroup>4</outputGroup>"
+        , "      </exchange>"
+        , "      <exchange number=\"5\" name=\"Water, cooling, unspecified natural origin\""
+        , "                category=\"resources\" subCategory=\"in water\""
+        , "                unit=\"m3\" meanValue=\"0.024\">"
+        , "        <inputGroup>4</inputGroup>"
+        , "      </exchange>"
+        , "    </flowData>"
+        , "  </dataset>"
+        , "</ecoSpold>"
+        ]
+
+{- | An elementary exchange filed under a word that belongs to no medium this
+reader knows. There is no right compartment to give it, so the reading says
+which word it could not place rather than handing back a flow that scores zero
+everywhere and looks like an answer.
+-}
+unplaceableMediumXml :: BC.ByteString
+unplaceableMediumXml =
+    BC.unlines
+        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
+        , "  <dataset number=\"12\">"
+        , "    <metaInformation>"
+        , "      <processInformation>"
+        , "        <referenceFunction name=\"heat production\" category=\"heat\""
+        , "                           subCategory=\"others\" unit=\"MJ\"/>"
+        , "        <geography location=\"CH\" />"
+        , "      </processInformation>"
+        , "    </metaInformation>"
+        , "    <flowData>"
+        , "      <exchange number=\"1\" name=\"heat\" category=\"heat\""
+        , "                subCategory=\"others\" unit=\"MJ\" meanValue=\"1.0\">"
+        , "        <outputGroup>0</outputGroup>"
+        , "      </exchange>"
+        , "      <exchange number=\"2\" name=\"Carbon dioxide, fossil\""
+        , "                category=\"Luft\" subCategory=\"hoch\" unit=\"kg\" meanValue=\"0.07\">"
+        , "        <outputGroup>4</outputGroup>"
         , "      </exchange>"
         , "    </flowData>"
         , "  </dataset>"
@@ -650,3 +732,31 @@ spec = do
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right ParsedDataset{pdActivity = act} ->
                     [bioLocation e | e@BiosphereExchange{} <- exchanges act] `shouldBe` ["RoW"]
+
+    -- -----------------------------------------------------------------------
+    -- Compartment vocabularies: EcoSpold 1 is written in more than one, and a
+    -- flow left with no compartment is characterized by no method at all.
+    -- -----------------------------------------------------------------------
+    describe "Elementary compartments" $ do
+        it "places the media an export spells out in full" $
+            case parseWithXeno spelledOutMediaXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdBioFlows = bios} ->
+                    map bfCompartment bios
+                        `shouldBe` [ Just (Compartment Air (Just "high. pop."))
+                                   , Just (Compartment Water (Just "river"))
+                                   , Just (Compartment Soil (Just "agricultural"))
+                                   , Just (Compartment NaturalResource (Just "in water"))
+                                   ]
+
+        it "has nothing to say about a dataset whose media it placed" $
+            case parseWithXeno spelledOutMediaXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdWarnings = warns} -> warns `shouldBe` []
+
+        it "names the word it could not place, rather than scoring zero in silence" $
+            case parseWithXeno unplaceableMediumXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdBioFlows = bios, pdWarnings = warns} -> do
+                    map bfCompartment bios `shouldBe` [Nothing]
+                    warns `shouldSatisfy` any (T.isInfixOf "Luft")

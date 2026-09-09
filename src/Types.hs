@@ -128,7 +128,8 @@ mediumText = \case
 
 {- | Read a medium as any format writes it. Case and surrounding space are
 ignored; @raw@, @resource@ and @resources@ are the three ways the formats name
-'NaturalResource'.
+'NaturalResource', and a file that states the direction as well as the medium
+(@emissions to air@) names the same three emission media as the bare words do.
 
 'Left' names the string it could not place, so an unknown medium is reported
 rather than turned into a flow that quietly belongs nowhere.
@@ -136,8 +137,11 @@ rather than turned into a flow that quietly belongs nowhere.
 parseMedium :: Text -> Either Text Medium
 parseMedium raw = case T.toLower (T.strip raw) of
     "air" -> Right Air
+    "emissions to air" -> Right Air
     "water" -> Right Water
+    "emissions to water" -> Right Water
     "soil" -> Right Soil
+    "emissions to soil" -> Right Soil
     "natural resource" -> Right NaturalResource
     "raw" -> Right NaturalResource
     "resource" -> Right NaturalResource
