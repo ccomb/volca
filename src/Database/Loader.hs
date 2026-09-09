@@ -80,6 +80,8 @@ module Database.Loader (
     normalizeText,
     mergeTechFlows,
     mergeBioFlows,
+    Harvest (..),
+    harvestOf,
     generateActivityUUIDFromActivity,
     datasetUUIDFromPath,
     getReferenceProductUUID,
@@ -206,12 +208,78 @@ mergeBioFlows a b =
         , bfCAS = bfCAS a <|> bfCAS b
         }
 
--- | 8-element unzip helper (Data.List ships 7-tuple as max).
-unzip8 :: [(a, b, c, d, e, f, g, h)] -> ([a], [b], [c], [d], [e], [f], [g], [h])
-unzip8 = foldr step ([], [], [], [], [], [], [], [])
+{- | What one reader harvested from the files it was given: a piece of the
+database, the dataset numbers those files carried, and how many flow and unit
+declarations it read before deduplication. A load is the sum of its harvests.
+
+Summing is not the same operation as harvesting, and the two must not be
+collapsed into one. Inside a harvest the last dataset read wins a duplicate key:
+'M.fromList' keeps the last entry, and 'MS.fromListWith' hands the newer row to
+'mergeTechFlows' as the base. Between two harvests the earlier reader wins:
+'M.union' keeps the leftmost, and 'MS.unionWith' keeps its left argument as the
+base. 'LoaderSpec' pins both directions through 'harvestOf' and this instance,
+which is why the two are exported. The qualifiers are not interchangeable
+either: the flow tables are merged strictly, for the reason the import of
+'Data.Map.Strict' gives, and the rest is left as the build sites had it.
+-}
+data Harvest = Harvest
+    { hvActivities :: !ActivityMap
+    , hvTechFlows :: !TechFlowDB
+    , hvBioFlows :: !BioFlowDB
+    , hvWasteFlows :: !WasteFlowDB
+    , hvUnits :: !UnitDB
+    , hvDatasetNumbers :: !DatasetNumberIndex
+    , hvRawFlows :: !Int
+    -- ^ flow declarations read, before deduplication
+    , hvRawUnits :: !Int
+    -- ^ unit declarations read, before deduplication
+    }
+
+instance Semigroup Harvest where
+    a <> b =
+        Harvest
+            { hvActivities = M.union (hvActivities a) (hvActivities b)
+            , hvTechFlows = MS.unionWith mergeTechFlows (hvTechFlows a) (hvTechFlows b)
+            , hvBioFlows = MS.unionWith mergeBioFlows (hvBioFlows a) (hvBioFlows b)
+            , hvWasteFlows = M.union (hvWasteFlows a) (hvWasteFlows b)
+            , hvUnits = M.union (hvUnits a) (hvUnits b)
+            , hvDatasetNumbers = M.union (hvDatasetNumbers a) (hvDatasetNumbers b)
+            , hvRawFlows = hvRawFlows a + hvRawFlows b
+            , hvRawUnits = hvRawUnits a + hvRawUnits b
+            }
+
+instance Monoid Harvest where
+    mempty = Harvest M.empty MS.empty MS.empty M.empty M.empty M.empty 0 0
+
+{- | Harvest a batch of parsed datasets, each already keyed by the (activity,
+product) pair its source names it under.
+-}
+harvestOf :: [((UUID, UUID), ParsedDataset)] -> Harvest
+harvestOf entries =
+    Harvest
+        { hvActivities = M.fromList [(key, pdActivity parsed) | (key, parsed) <- entries]
+        , hvTechFlows = MS.fromListWith mergeTechFlows [(tfId f, f) | f <- techs]
+        , hvBioFlows = MS.fromListWith mergeBioFlows [(bfId f, f) | f <- bios]
+        , hvWasteFlows = M.fromList [(wfId f, f) | f <- wastes]
+        , hvUnits = M.fromList [(unitId u, u) | u <- units]
+        , hvDatasetNumbers = M.fromList [(pdDatasetNumber parsed, key) | (key, parsed) <- entries, pdDatasetNumber parsed /= 0]
+        , hvRawFlows = length techs + length bios + length wastes
+        , hvRawUnits = length units
+        }
   where
-    step (a, b, c, d, e, f, g, h) (as, bs, cs, ds, es, fs, gs, hs) =
-        (a : as, b : bs, c : cs, d : ds, e : es, f : fs, g : gs, h : hs)
+    techs :: [TechnosphereFlow]
+    techs = concatMap (pdTechFlows . snd) entries
+    bios :: [BiosphereFlow]
+    bios = concatMap (pdBioFlows . snd) entries
+    wastes :: [WasteFlow]
+    wastes = concatMap (pdWasteFlows . snd) entries
+    units :: [Unit]
+    units = concatMap (pdUnits . snd) entries
+
+-- | The five tables of a harvest that make a database; the other three describe the reading.
+harvestDatabase :: Harvest -> SimpleDatabase
+harvestDatabase h =
+    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h)
 
 {- |
 Schema signature of the cache payload.
@@ -1272,50 +1340,43 @@ loadEcoSpoldDirectory opts dir = do
         case errors of
             (firstErr : _) -> return $ Left firstErr
             [] -> do
-                let successResults = rights results
-                let (procMaps, techFlowMaps, bioFlowMaps, wasteFlowMaps, unitMaps, rawFlowCounts, rawUnitCounts, dsIndexes) = unzip8 successResults
-                let !finalProcMap = M.unions procMaps
-                let !finalTechFlowMap = MS.unionsWith mergeTechFlows techFlowMaps
-                let !finalBioFlowMap = MS.unionsWith mergeBioFlows bioFlowMaps
-                let !finalWasteFlowMap = M.unions wasteFlowMaps
-                let !finalUnitMap = M.unions unitMaps
-                let !finalDsIndex = M.unions dsIndexes
+                let !harvested = mconcat (rights results)
 
                 endTime <- getCurrentTime
                 let totalDuration = realToFrac $ diffUTCTime endTime startTime
                 let totalFiles = length allFiles
                 let avgFilesPerSec = fromIntegral totalFiles / totalDuration
-                let totalRawFlows = sum rawFlowCounts
-                let totalRawUnits = sum rawUnitCounts
-                let totalFlows = M.size finalTechFlowMap + M.size finalBioFlowMap
+                let totalRawFlows = hvRawFlows harvested
+                let totalRawUnits = hvRawUnits harvested
+                let totalFlows = M.size (hvTechFlows harvested) + M.size (hvBioFlows harvested)
                 let flowDeduplication = if totalRawFlows > 0 then 100.0 * (1.0 - fromIntegral totalFlows / fromIntegral totalRawFlows) else 0.0 :: Double
-                let unitDeduplication = if totalRawUnits > 0 then 100.0 * (1.0 - fromIntegral (M.size finalUnitMap) / fromIntegral totalRawUnits) else 0.0 :: Double
+                let unitDeduplication = if totalRawUnits > 0 then 100.0 * (1.0 - fromIntegral (M.size (hvUnits harvested)) / fromIntegral totalRawUnits) else 0.0 :: Double
 
                 reportProgress Info $ printf "Parsing completed (%s, %.1f files/sec):" (formatDuration totalDuration) avgFilesPerSec
-                reportProgress Info $ printf "  Activities: %d processes" (M.size finalProcMap)
+                reportProgress Info $ printf "  Activities: %d processes" (M.size (hvActivities harvested))
                 reportProgress Info $
                     printf
                         "  Flows: %d tech + %d bio (%.1f%% deduplication from %d raw)"
-                        (M.size finalTechFlowMap)
-                        (M.size finalBioFlowMap)
+                        (M.size (hvTechFlows harvested))
+                        (M.size (hvBioFlows harvested))
                         flowDeduplication
                         totalRawFlows
                 reportProgress Info $
                     printf
                         "  Units: %d unique (%.1f%% deduplication from %d raw)"
-                        (M.size finalUnitMap)
+                        (M.size (hvUnits harvested))
                         unitDeduplication
                         totalRawUnits
                 reportMemoryUsage "Final parsing memory usage"
 
                 -- For EcoSpold1: fix activity links using supplier lookup table
-                let simpleDb = SimpleDatabase finalProcMap finalTechFlowMap finalBioFlowMap finalWasteFlowMap finalUnitMap
+                let simpleDb = harvestDatabase harvested
                 if isEcoSpold1
-                    then Right <$> fixEcoSpold1ActivityLinks locationAliases finalDsIndex simpleDb
+                    then Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
                     else return $ Right simpleDb
 
     -- Process one worker's share of files
-    processWorker :: UTCTime -> Bool -> (Int, [FilePath]) -> IO (Either T.Text (ActivityMap, TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB, Int, Int, DatasetNumberIndex))
+    processWorker :: UTCTime -> Bool -> (Int, [FilePath]) -> IO (Either T.Text Harvest)
     processWorker _startTime isEcoSpold1 (workerNum, workerFiles) = do
         workerStartTime <- getCurrentTime
         reportProgress Info $ printf "Worker %d started: processing %d files" workerNum (length workerFiles)
@@ -1336,48 +1397,28 @@ loadEcoSpoldDirectory opts dir = do
             (okFiles, okResults) = unzip [(f, r') | (f, rs) <- split, r' <- rs]
         unless isEcoSpold1 $
             mapM_ (warnSplitKeyedOnFileName . fst) (filter ((> 1) . length . snd) split)
-        let procs = map pdActivity okResults
-            techLists = map pdTechFlows okResults
-            bioLists = map pdBioFlows okResults
-            wasteLists = map pdWasteFlows okResults
-            unitLists = map pdUnits okResults
-            dsNums = map pdDatasetNumber okResults
-        let !allTechs = concat techLists
-        let !allBios = concat bioLists
-        let !allWastes = concat wasteLists
-        let !allUnits = concat unitLists
-
-        let procEntries = zipWith (buildProcEntry isEcoSpold1) okFiles procs
+        let procEntries = zipWith (buildProcEntry isEcoSpold1) okFiles (map pdActivity okResults)
 
         case lefts procEntries of
             (firstErr : _) -> return $ Left firstErr
             [] -> do
-                let !procMap = M.fromList (rights procEntries)
-                let !techFlowMap = MS.fromListWith mergeTechFlows [(tfId f, f) | f <- allTechs]
-                let !bioFlowMap = MS.fromListWith mergeBioFlows [(bfId f, f) | f <- allBios]
-                let !wasteFlowMap = M.fromList [(wfId f, f) | f <- allWastes]
-                let !unitMap = M.fromList [(unitId u, u) | u <- allUnits]
-                let !dsIndex =
-                        M.fromList
-                            [(n, key) | (n, Right (key, _)) <- zip dsNums procEntries, n /= 0]
+                let !harvested = harvestOf (zip (map fst (rights procEntries)) okResults)
 
                 workerEndTime <- getCurrentTime
                 let workerDuration = realToFrac $ diffUTCTime workerEndTime workerStartTime
                 let filesPerSec = fromIntegral (length workerFiles) / workerDuration
-                let rawFlowCount = length allTechs + length allBios + length allWastes
-                let rawUnitCount = length allUnits
                 reportProgress Info $
                     printf
                         "Worker %d completed: %d activities, %d tech + %d bio + %d waste flows (%s, %.1f files/sec)"
                         workerNum
-                        (M.size procMap)
-                        (M.size techFlowMap)
-                        (M.size bioFlowMap)
-                        (M.size wasteFlowMap)
+                        (M.size (hvActivities harvested))
+                        (M.size (hvTechFlows harvested))
+                        (M.size (hvBioFlows harvested))
+                        (M.size (hvWasteFlows harvested))
                         (formatDuration workerDuration)
                         filesPerSec
 
-                return $ Right (procMap, techFlowMap, bioFlowMap, wasteFlowMap, unitMap, rawFlowCount, rawUnitCount, dsIndex)
+                return $ Right harvested
 
     -- Build a single process entry, returning Either for error handling
     buildProcEntry :: Bool -> FilePath -> Activity -> Either T.Text ((UUID, UUID), Activity)
@@ -1417,33 +1458,20 @@ loadSingleEcoSpold1File opts filepath = do
     let fileUUID = case results of
             [_] -> datasetUUIDFromPath filepath
             _ -> Nothing
-        expanded = map (buildProcEntryFromResult fileUUID) results
-        !procMap = M.fromList expanded
-        !techFlowMap = MS.fromListWith mergeTechFlows [(tfId f, f) | r <- results, f <- pdTechFlows r]
-        !bioFlowMap = MS.fromListWith mergeBioFlows [(bfId f, f) | r <- results, f <- pdBioFlows r]
-        !wasteFlowMap = M.fromList [(wfId f, f) | r <- results, f <- pdWasteFlows r]
-        !unitMap = M.fromList [(unitId u, u) | r <- results, u <- pdUnits r]
-        !dsIndex =
-            M.fromList
-                [(pdDatasetNumber r, key) | (r, (key, _)) <- zip results expanded, pdDatasetNumber r /= 0]
-        simpleDb = SimpleDatabase procMap techFlowMap bioFlowMap wasteFlowMap unitMap
+        !harvested = harvestOf [(datasetKey fileUUID r, r) | r <- results]
+        simpleDb = harvestDatabase harvested
 
-    let totalTechs = sum (map (length . pdTechFlows) results)
-    let totalBios = sum (map (length . pdBioFlows) results)
-    let totalWastes = sum (map (length . pdWasteFlows) results)
-    let totalUnits = sum (map (length . pdUnits) results)
-    reportProgress Info $ printf "  Activities: %d processes" (M.size procMap)
-    reportProgress Info $ printf "  Flows: %d tech + %d bio + %d waste (from %d raw)" (M.size techFlowMap) (M.size bioFlowMap) (M.size wasteFlowMap) (totalTechs + totalBios + totalWastes)
-    reportProgress Info $ printf "  Units: %d unique (from %d raw)" (M.size unitMap) totalUnits
+    reportProgress Info $ printf "  Activities: %d processes" (M.size (hvActivities harvested))
+    reportProgress Info $ printf "  Flows: %d tech + %d bio + %d waste (from %d raw)" (M.size (hvTechFlows harvested)) (M.size (hvBioFlows harvested)) (M.size (hvWasteFlows harvested)) (hvRawFlows harvested)
+    reportProgress Info $ printf "  Units: %d unique (from %d raw)" (M.size (hvUnits harvested)) (hvRawUnits harvested)
 
-    Right <$> fixEcoSpold1ActivityLinks locationAliases dsIndex simpleDb
+    Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
   where
-    buildProcEntryFromResult :: Maybe UUID.UUID -> ParsedDataset -> ((UUID.UUID, UUID.UUID), Activity)
-    buildProcEntryFromResult fileUUID parsed =
+    datasetKey :: Maybe UUID.UUID -> ParsedDataset -> (UUID.UUID, UUID.UUID)
+    datasetKey fileUUID parsed =
         let activity = pdActivity parsed
             actUUID = fromMaybe (generateActivityUUIDFromActivity activity) fileUUID
-            prodUUID = getReferenceProductUUID activity
-         in ((actUUID, prodUUID), activity)
+         in (actUUID, getReferenceProductUUID activity)
 
 {- |
 Generate filename for matrix cache.

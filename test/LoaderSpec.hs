@@ -15,6 +15,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import Database.Loader
+import EcoSpold.Common (ParsedDataset (..))
 import TestHelpers (loadSampleDatabase)
 import Types
 import UnitConversion (defaultUnitConfig)
@@ -61,6 +62,25 @@ minimalActivity name loc exs =
 -- | The same activity, filed in the source's obsolete category.
 retired :: Activity -> Activity
 retired act = act{activityClassification = M.singleton "Category" "Autres\\Obsolete"}
+
+-- | One dataset as a reader hands it over: an activity and the flows it declared.
+minimalDataset :: Activity -> [TechnosphereFlow] -> ParsedDataset
+minimalDataset act techs =
+    ParsedDataset
+        { pdActivity = act
+        , pdTechFlows = techs
+        , pdBioFlows = []
+        , pdWasteFlows = []
+        , pdUnits = []
+        , pdDatasetNumber = 0
+        , pdWarnings = []
+        }
+
+{- | One reader's share of a load, always under the same (activity, product)
+key, so that two of them collide and the merging law has to decide.
+-}
+share :: Text -> [TechnosphereFlow] -> ((UUID.UUID, UUID.UUID), ParsedDataset)
+share name techs = ((actUUID1, flowUUID1), minimalDataset (minimalActivity name "GLO" []) techs)
 
 refExchange :: UUID.UUID -> Exchange
 refExchange fid =
@@ -217,6 +237,35 @@ spec = do
             let a = minimalFlow flowUUID1 "flow-a"
                 b = minimalFlow flowUUID2 "flow-b"
             tfName (mergeTechFlows a b) `shouldBe` "flow-a"
+
+    -- -----------------------------------------------------------------------
+    -- Which row wins a duplicate key. The answer is not one rule but two
+    -- facing opposite ways, and a load reads both: the files one reader
+    -- harvested are folded into a table with 'fromListWith', several readers'
+    -- tables are then merged with 'unionsWith'. Written down here because
+    -- 'mergeTechFlows' above says what merging two flows does and nothing says
+    -- which of the two is handed to it first.
+    -- -----------------------------------------------------------------------
+    describe "duplicate keys inside a harvest and between harvests" $ do
+        it "keeps the last dataset read, inside one reader's share" $ do
+            let a = (minimalFlow flowUUID1 "flow-a"){tfCAS = Just "7732-18-5"}
+                b = minimalFlow flowUUID1 "flow-b"
+                harvest = harvestOf [share "activity-a" [a], share "activity-b" [b]]
+            fmap tfName (M.lookup flowUUID1 (hvTechFlows harvest)) `shouldBe` Just "flow-b"
+            -- The loser is not lost entirely: its CAS fills the gap.
+            fmap tfCAS (M.lookup flowUUID1 (hvTechFlows harvest)) `shouldBe` Just (Just "7732-18-5")
+
+        it "keeps the first reader's flow, when two shares meet" $ do
+            let a = minimalFlow flowUUID1 "flow-a"
+                b = (minimalFlow flowUUID1 "flow-b"){tfCAS = Just "7732-18-5"}
+                merged = harvestOf [share "activity-a" [a]] <> harvestOf [share "activity-b" [b]]
+            fmap tfName (M.lookup flowUUID1 (hvTechFlows merged)) `shouldBe` Just "flow-a"
+            fmap tfCAS (M.lookup flowUUID1 (hvTechFlows merged)) `shouldBe` Just (Just "7732-18-5")
+
+        it "keeps the first reader's activity, when two shares meet" $ do
+            let merged = harvestOf [share "activity-a" []] <> harvestOf [share "activity-b" []]
+            fmap activityName (M.lookup (actUUID1, flowUUID1) (hvActivities merged))
+                `shouldBe` Just "activity-a"
 
     -- -----------------------------------------------------------------------
     describe "indexActivities" $ do
