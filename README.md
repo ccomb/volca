@@ -607,6 +607,21 @@ Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/), then:
   tooling needs to rewrite the binary's dynamic load commands
   (`dylibbundler`, `install_name_tool` for the macOS `.app`).
 
+A build that ships splits every object into one ELF section per top-level
+symbol so the executable can be pruned to size, and that link is the one the
+default `ld.bfd` is slowest at: about 22 seconds, where every alternative
+takes one or two. Below `-O2` the split is off, since nothing prunes a test
+suite and the sections would be pure cost, and the link is a few seconds
+whatever the linker. Changing linker changes the link alone, so it costs
+nothing on an already compiled tree:
+
+```bash
+cabal build exe:volca --ghc-options=-optl-fuse-ld=lld
+```
+
+`-fuse-ld=` looks for a plain `ld.lld`, `ld.mold` or `ld.gold` on the
+`PATH`, and will not find a versioned `ld.lld-21`.
+
 ### macOS (Apple Silicon)
 
 Tested on macOS 13 Ventura and later, arm64 only. The build pins
