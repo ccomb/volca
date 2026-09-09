@@ -80,6 +80,8 @@ module Database.Loader (
     normalizeText,
     mergeTechFlows,
     mergeBioFlows,
+    Harvest (..),
+    harvestOf,
     generateActivityUUIDFromActivity,
     datasetUUIDFromPath,
     getReferenceProductUUID,
@@ -215,7 +217,8 @@ collapsed into one. Inside a harvest the last dataset read wins a duplicate key:
 'M.fromList' keeps the last entry, and 'MS.fromListWith' hands the newer row to
 'mergeTechFlows' as the base. Between two harvests the earlier reader wins:
 'M.union' keeps the leftmost, and 'MS.unionWith' keeps its left argument as the
-base. 'LoaderSpec' pins both directions. The qualifiers are not interchangeable
+base. 'LoaderSpec' pins both directions through 'harvestOf' and this instance,
+which is why the two are exported. The qualifiers are not interchangeable
 either: the flow tables are merged strictly, for the reason the import of
 'Data.Map.Strict' gives, and the rest is left as the build sites had it.
 -}
