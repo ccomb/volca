@@ -19,6 +19,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
+import Database (Geographies)
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
@@ -32,7 +33,7 @@ import Database.Edit (
     writeActivities,
  )
 import Database.Export (exportDatabase, exportMethodCollection, parseExportFormat, parseMethodExportFormat)
-import Database.Manager (DatabaseManager (..), LoadedDatabase (..), RelinkResult (..), addDatabase, addMethodCollection)
+import Database.Manager (DatabaseManager (..), LoadedDatabase (..), RelinkResult (..), addDatabase, addMethodCollection, managerGeographies)
 import qualified Database.Manager as DM
 import Database.RelinkMapping (relinkWithMappingFile)
 import Database.Upload (UploadData (..), UploadResult (..), findMethodDirectory, handleUpload)
@@ -153,28 +154,28 @@ executeCommand (CLIConfig globalOpts _) cmd manager = do
         -- Database-level commands
         Activity _ -> do
             (database, _solver) <- requireDatabase manager (dbName globalOpts)
-            executeDbCommand outputFormat globalOpts database cmd
+            executeDbCommand outputFormat globalOpts (managerGeographies manager) database cmd
         Inventory _ -> do
             (database, _solver) <- requireDatabase manager (dbName globalOpts)
-            executeDbCommand outputFormat globalOpts database cmd
+            executeDbCommand outputFormat globalOpts (managerGeographies manager) database cmd
         Flow _ _ -> do
             (database, _solver) <- requireDatabase manager (dbName globalOpts)
-            executeDbCommand outputFormat globalOpts database cmd
+            executeDbCommand outputFormat globalOpts (managerGeographies manager) database cmd
         SearchActivities _ -> do
             (database, _solver) <- requireDatabase manager (dbName globalOpts)
-            executeDbCommand outputFormat globalOpts database cmd
+            executeDbCommand outputFormat globalOpts (managerGeographies manager) database cmd
         SearchFlows _ -> do
             (database, _solver) <- requireDatabase manager (dbName globalOpts)
-            executeDbCommand outputFormat globalOpts database cmd
+            executeDbCommand outputFormat globalOpts (managerGeographies manager) database cmd
         Impacts _ _ -> do
             (database, _solver) <- requireDatabase manager (dbName globalOpts)
-            executeDbCommand outputFormat globalOpts database cmd
+            executeDbCommand outputFormat globalOpts (managerGeographies manager) database cmd
         DebugMatrices _ _ -> do
             (database, _solver) <- requireDatabase manager (dbName globalOpts)
-            executeDbCommand outputFormat globalOpts database cmd
+            executeDbCommand outputFormat globalOpts (managerGeographies manager) database cmd
         ExportMatrices _ -> do
             (database, _solver) <- requireDatabase manager (dbName globalOpts)
-            executeDbCommand outputFormat globalOpts database cmd
+            executeDbCommand outputFormat globalOpts (managerGeographies manager) database cmd
         QualityReport _ -> do
             reportError "quality-report is served over HTTP; Main.hs routes it to the client"
             exitFailure
@@ -190,8 +191,8 @@ executeCommand (CLIConfig globalOpts _) cmd manager = do
         Dump _ -> reportError "A dump command is answered before a database is loaded."
 
 -- | Execute commands that require a loaded database
-executeDbCommand :: OutputFormat -> GlobalOptions -> Database -> Command -> IO ()
-executeDbCommand fmt _globalOpts database = \case
+executeDbCommand :: OutputFormat -> GlobalOptions -> Geographies -> Database -> Command -> IO ()
+executeDbCommand fmt _globalOpts geographies database = \case
     Activity uuid ->
         executeActivityCommand fmt database uuid
     Inventory uuid ->
@@ -201,7 +202,7 @@ executeDbCommand fmt _globalOpts database = \case
     Flow flowId (Just FlowActivities) ->
         executeFlowActivitiesCommand fmt database flowId
     SearchActivities opts ->
-        executeSearchActivitiesCommand fmt database opts
+        executeSearchActivitiesCommand fmt geographies database opts
     SearchFlows opts ->
         executeSearchFlowsCommand fmt database opts
     Impacts uuid lciaOpts ->
@@ -258,8 +259,8 @@ executeFlowActivitiesCommand fmt database flowId =
         Right result -> outputResult fmt result
 
 -- | Execute search activities command
-executeSearchActivitiesCommand :: OutputFormat -> Database -> SearchActivitiesOptions -> IO ()
-executeSearchActivitiesCommand fmt database opts = do
+executeSearchActivitiesCommand :: OutputFormat -> Geographies -> Database -> SearchActivitiesOptions -> IO ()
+executeSearchActivitiesCommand fmt geographies database opts = do
     let sf =
             Service.SearchFilter
                 { Service.sfCore =
@@ -275,7 +276,7 @@ executeSearchActivitiesCommand fmt database opts = do
                         }
                 , Service.sfExactMatch = False
                 }
-    searchResult <- Service.searchActivities database sf
+    searchResult <- Service.searchActivities geographies database sf
     case searchResult of
         Left err -> reportServiceError err
         Right result -> outputResult fmt result

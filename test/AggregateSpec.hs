@@ -23,7 +23,7 @@ import Test.Hspec
 import qualified API.Types as API
 import qualified Service.Aggregate as Agg
 import qualified SharedSolver as SS
-import TestHelpers (loadSampleDatabase, mkDepLookupFromMap, mkSolverFromDb)
+import TestHelpers (loadSampleDatabase, mkDepLookupFromMap, mkSolverFromDb, shippedGeographies)
 import Types (CrossDBLink (..), Database (..), ExchangeKind (..), processIdToText)
 import qualified Types
 import qualified UnitConversion as UC
@@ -53,6 +53,7 @@ runAggWith depLookup db params = do
     result <-
         Agg.aggregate
             UC.defaultUnitConfig
+            shippedGeographies
             (dbBioFlows db)
             (dbUnits db)
             db

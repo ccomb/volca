@@ -69,7 +69,7 @@ spec = do
             let rootProcessId = 0 :: ProcessId
             supplyVec <- computeScalingVector db rootProcessId
 
-            let response = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec emptySupply
+            let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootProcessId supplyVec emptySupply
                 entries = scrSupplyChain response
 
             -- With rootRefAmount = 1, sceQuantity must equal sceScalingFactor exactly
@@ -87,7 +87,7 @@ spec = do
             let rootProcessId = 0 :: ProcessId
             supplyVec <- computeScalingVector db rootProcessId
 
-            let response = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec emptySupply
+            let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootProcessId supplyVec emptySupply
                 entries = scrSupplyChain response
 
             -- All entries should have depth > 0 (root is excluded from supply chain)
@@ -101,12 +101,13 @@ spec = do
             supplyVec <- computeScalingVector db rootProcessId
 
             -- No depth filter: should get Y (depth 1) and Z (depth 2)
-            let noFilter = buildSupplyChainFromScalingVector db "test-db" rootProcessId supplyVec emptySupply
+            let noFilter = buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootProcessId supplyVec emptySupply
             scrFilteredActivities noFilter `shouldSatisfy` (>= 2)
 
             -- Depth 1: should only get Y (direct supplier)
             let depth1 =
                     buildSupplyChainFromScalingVector
+                        shippedGeographies
                         db
                         "test-db"
                         rootProcessId
@@ -125,6 +126,7 @@ spec = do
         let loadWithIndex = fmap BM25.addBM25Index (loadSampleDatabase "SAMPLE.min3")
             buildWithName db pid vec nameQ =
                 buildSupplyChainFromScalingVector
+                    shippedGeographies
                     db
                     "test-db"
                     pid
@@ -194,6 +196,7 @@ spec = do
             supplyVec <- computeScalingVector db rootPid
             let resp =
                     buildSupplyChainFromScalingVector
+                        shippedGeographies
                         db
                         "test-db"
                         rootPid
@@ -208,7 +211,7 @@ spec = do
             db <- loadWithIndex
             -- Consumers of Z (pid 2) are Y (pid 1, direct) and X (pid 0, transitive).
             let pidZ = processIdToText db 2
-            case getConsumers db "test-db" pidZ (mapConsumerCore (\c -> c{afcName = Just "X"}) emptyConsumer) of
+            case getConsumers shippedGeographies db "test-db" pidZ (mapConsumerCore (\c -> c{afcName = Just "X"}) emptyConsumer) of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right cr -> do
                     map crActivityName (srResults (crrResults cr)) `shouldBe` ["production of product X"]
@@ -217,21 +220,21 @@ spec = do
         it "accepts typos in the name filter" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db "test-db" pidZ (mapConsumerCore (\c -> c{afcName = Just "prodcution"}) emptyConsumer) of
+            case getConsumers shippedGeographies db "test-db" pidZ (mapConsumerCore (\c -> c{afcName = Just "prodcution"}) emptyConsumer) of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right cr -> length (srResults (crrResults cr)) `shouldSatisfy` (>= 1)
 
         it "returns all consumers when name filter is absent" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db "test-db" pidZ emptyConsumer of
+            case getConsumers shippedGeographies db "test-db" pidZ emptyConsumer of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right cr -> length (srResults (crrResults cr)) `shouldBe` 2
 
         it "non-matching name query returns zero consumers" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db "test-db" pidZ (mapConsumerCore (\c -> c{afcName = Just "zzznomatch"}) emptyConsumer) of
+            case getConsumers shippedGeographies db "test-db" pidZ (mapConsumerCore (\c -> c{afcName = Just "zzznomatch"}) emptyConsumer) of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right cr -> length (srResults (crrResults cr)) `shouldBe` 0
 
@@ -241,7 +244,7 @@ spec = do
         it "populates crClassifications from the consumer's activityClassification" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db "test-db" pidZ emptyConsumer of
+            case getConsumers shippedGeographies db "test-db" pidZ emptyConsumer of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right cr -> not (any (M.null . crClassifications) (srResults (crrResults cr))) `shouldBe` True
 
@@ -251,7 +254,7 @@ spec = do
         it "returns empty edges by default" $ do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
-            case getConsumers db "test-db" pidZ emptyConsumer of
+            case getConsumers shippedGeographies db "test-db" pidZ emptyConsumer of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right cr -> length (crrEdges cr) `shouldBe` 0
 
@@ -259,7 +262,7 @@ spec = do
             db <- loadWithIndex
             let pidZ = processIdToText db 2
                 cnf = emptyConsumer{cnfEdges = WithEdges}
-            case getConsumers db "test-db" pidZ cnf of
+            case getConsumers shippedGeographies db "test-db" pidZ cnf of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right cr -> do
                     -- SAMPLE.min3 wiring: X(0) -> Y(1) -> Z(2). Querying Z reaches

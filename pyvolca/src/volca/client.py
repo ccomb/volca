@@ -1433,10 +1433,12 @@ class Client:
 
         Args:
             name: Substring (or exact match) on activity name.
-            geo: Geography code (``"FR"``, ``"GLO"``, ``"RoW"``…). Answers for
-                that location or one written under it (``"US"`` for
-                ``"US-WECC"``), never for a code sitting inside an unrelated
-                one; ``exact=True`` narrows it to the location itself.
+            geo: Geography code (``"FR"``, ``"GLO"``, ``"RoW"``…). Matches that
+                location, plus every location inside it (``"US"`` also matches
+                ``"US-WECC"``, ``"RER"`` matches ``"FR"``). Which place sits
+                inside which comes from the engine's location table, never from
+                how a code is spelled, so ``"GL"`` does not match ``"GLO"``;
+                ``exact=True`` narrows it to the location itself.
             product: Substring on the reference product name.
             preset: Apply a named classification preset configured in the engine.
             classification: System name (``"ISIC rev.4 ecoinvent"``).

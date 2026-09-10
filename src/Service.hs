@@ -29,7 +29,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, locationAnswers)
+import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVectorFromIndex, computeInventoryMatrix, depDemandsToVector, perturbA, perturbABatch, perturbGlobal, toList)
@@ -917,10 +917,10 @@ paginateSearchResults offsetParam limitParam searchTimeMs project xs =
 {- | Search activities (returns same format as API). The exact-match toggle is
 carried on 'SearchFilter' itself, so there is no separate positional flag.
 -}
-searchActivities :: Database -> SearchFilter -> IO (Either ServiceError Value)
-searchActivities db sFilter@(SearchFilter core _) = do
+searchActivities :: Geographies -> Database -> SearchFilter -> IO (Either ServiceError Value)
+searchActivities geographies db sFilter@(SearchFilter core _) = do
     startTime <- getCurrentTime
-    let allResults = activityMatches db sFilter
+    let allResults = activityMatches geographies db sFilter
     endTime <- getCurrentTime
     let searchTimeMs = realToFrac (diffUTCTime endTime startTime) * 1000 :: Double
         results = paginateSearchResults (afcOffset core) (afcLimit core) searchTimeMs (uncurry (mkActivitySummary db)) allResults
@@ -933,8 +933,8 @@ Split out of 'searchActivities' so a caller that only wants how many there
 are counts the same rows the list would show. Two matchers would drift, and a
 tab counter disagreeing with the tab it labels is worse than no counter.
 -}
-activityMatches :: Database -> SearchFilter -> [(ProcessId, Activity)]
-activityMatches db sFilter@(SearchFilter core exactMatch) =
+activityMatches :: Geographies -> Database -> SearchFilter -> [(ProcessId, Activity)]
+activityMatches geographies db sFilter@(SearchFilter core exactMatch) =
     identified ++ filter (not . alreadyIdentified) searched
   where
     -- The blocks the query names by identifier, ahead of the search rather than
@@ -960,10 +960,10 @@ activityMatches db sFilter@(SearchFilter core exactMatch) =
         Just ranked -> structured False ranked
         -- Non-BM25 path: AND-of-tokens name filter + lex sort.
         Nothing ->
-            L.sortBy ordered (findActivitiesByFields db (afcName core) (afcLocation core) (afcProduct core) (afcClassifications core) exactMatch)
+            L.sortBy ordered (findActivitiesByFields geographies db (afcName core) (afcLocation core) (afcProduct core) (afcClassifications core) exactMatch)
 
     structured :: Bool -> [(ProcessId, Activity)] -> [(ProcessId, Activity)]
-    structured = applyStructuredFilters db (afcLocation core) (afcProduct core) (afcClassifications core)
+    structured = applyStructuredFilters geographies db (afcLocation core) (afcProduct core) (afcClassifications core)
 
     ordered :: (ProcessId, Activity) -> (ProcessId, Activity) -> Ordering
     ordered
@@ -1002,10 +1002,10 @@ countAsListed :: CountAs
 countAsListed = CountAs{caSort = Nothing, caExact = False}
 
 -- | The counts one query finds. The query is required: an empty box has nothing to count.
-searchCounts :: Database -> CountAs -> Text -> SearchCounts
-searchCounts db listedAs query =
+searchCounts :: Geographies -> Database -> CountAs -> Text -> SearchCounts
+searchCounts geographies db listedAs query =
     SearchCounts
-        { scProcesses = length (activityMatches db (nameOnly query))
+        { scProcesses = length (activityMatches geographies db (nameOnly query))
         , scProducts = count KindTechnosphere
         , scFlows = length matchedFlows - count KindTechnosphere
         }
@@ -1657,6 +1657,7 @@ Returns all upstream activities with their scaling factors and subgraph edges.
 -}
 getSupplyChain ::
     UnitConfig ->
+    Geographies ->
     SharedSolver.DepSolverLookup ->
     Database ->
     Text ->
@@ -1664,7 +1665,7 @@ getSupplyChain ::
     Text ->
     SupplyChainFilter ->
     IO (Either ServiceError SupplyChainResponse)
-getSupplyChain unitCfg depLookup db dbName sharedSolver processIdText af =
+getSupplyChain unitCfg geographies depLookup db dbName sharedSolver processIdText af =
     case resolveScorable db processIdText of
         Left err -> return $ Left err
         Right (processId, _rootActivity) ->
@@ -1676,6 +1677,7 @@ getSupplyChain unitCfg depLookup db dbName sharedSolver processIdText af =
                     supplyVec <- solveWithSharedSolver sharedSolver demandVec
                     buildSupplyChainFromScalingVectorCrossDB
                         unitCfg
+                        geographies
                         depLookup
                         db
                         dbName
@@ -1800,6 +1802,8 @@ Entry @sceProcessId@ is qualified with @dbName::@ at a dep level only; root
 entries stay bare for callers that navigate on bare root PIDs.
 -}
 collectSupplyChainEntries ::
+    -- | the declared location table, which is what a geography filter reads
+    Geographies ->
     Database ->
     -- | DB name
     Text ->
@@ -1808,7 +1812,7 @@ collectSupplyChainEntries ::
     U.Vector Double ->
     SupplyChainFilter ->
     Collected
-collectSupplyChainEntries db dbName level supplyVec scf =
+collectSupplyChainEntries geographies db dbName level supplyVec scf =
     let core = scfCore scf
         minQ = fromMaybe 0 (scfMinQuantity scf)
 
@@ -1875,7 +1879,7 @@ collectSupplyChainEntries db dbName level supplyVec scf =
 
         matchesFilters activity pid =
             let nameOk = nameMatchesPid pid
-                locOk = maybe True (\pat -> locationAnswers pat (activityLocation activity)) (afcLocation core)
+                locOk = maybe True (\pat -> locationAnswers geographies pat (activityLocation activity)) (afcLocation core)
                 productOk = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afcProduct core)
                 classOk = matchClassifications activity (afcClassifications core)
                 localDepth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
@@ -1953,17 +1957,19 @@ sortAndPaginate core entries =
 Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
 -}
 buildSupplyChainFromScalingVector ::
+    Geographies ->
     Database ->
     Text ->
     ProcessId ->
     U.Vector Double ->
     SupplyChainFilter ->
     SupplyChainResponse
-buildSupplyChainFromScalingVector db dbName processId supplyVec scf =
+buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf =
     let rootActivity = dbActivities db V.! fromIntegral processId
         rootRefAmount = getReferenceProductAmount rootActivity
         Collected totalActs entries edges =
             collectSupplyChainEntries
+                geographies
                 db
                 dbName
                 (RootLevel processId)
@@ -2008,6 +2014,7 @@ carries virtual cross-DB links synthesised by the substitution classifier.
 -}
 buildSupplyChainFromScalingVectorCrossDB ::
     UnitConfig ->
+    Geographies ->
     SharedSolver.DepSolverLookup ->
     Database ->
     -- | root DB + name
@@ -2019,12 +2026,13 @@ buildSupplyChainFromScalingVectorCrossDB ::
     [CrossDBLink] ->
     SupplyChainFilter ->
     IO (Either ServiceError SupplyChainResponse)
-buildSupplyChainFromScalingVectorCrossDB unitCfg depLookup rootDb rootDbName rootPid rootScaling extraLinks scf = do
+buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling extraLinks scf = do
     let rootActivity = dbActivities rootDb V.! fromIntegral rootPid
         rootRefAmount = getReferenceProductAmount rootActivity
         rootBlock = sourceBlockOf rootDb rootPid
         rootCollected =
             collectSupplyChainEntries
+                geographies
                 rootDb
                 rootDbName
                 (RootLevel rootPid)
@@ -2048,7 +2056,7 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg depLookup rootDb rootDbName roo
                 , prsBlock = sbName rootBlock
                 , prsBlockProducts = sbProducts rootBlock
                 }
-    eDep <- walkDepLevels unitCfg depLookup rootDb rootScaling extraLinks scf 1 S.empty
+    eDep <- walkDepLevels unitCfg geographies depLookup rootDb rootScaling extraLinks scf 1 S.empty
     pure $ case eDep of
         Left err -> Left err
         Right depCollected ->
@@ -2071,6 +2079,7 @@ at the top level on the merged list.
 -}
 walkDepLevels ::
     UnitConfig ->
+    Geographies ->
     SharedSolver.DepSolverLookup ->
     -- | current consumer DB
     Database ->
@@ -2084,13 +2093,13 @@ walkDepLevels ::
     -- | visited DB names (cycle guard)
     S.Set Text ->
     IO (Either ServiceError Collected)
-walkDepLevels unitCfg depLookup consumerDb consumerScaling extras scf depth visited
+walkDepLevels unitCfg geographies depLookup consumerDb consumerScaling extras scf depth visited
     | depth >= SharedSolver.maxDepsDepth = pure (Right mempty)
     | otherwise = do
         let demandsMap = accumulateDepDemandsWith consumerDb extras consumerScaling
         results <-
             mapM
-                (resolveOneDep unitCfg depLookup scf depth visited)
+                (resolveOneDep unitCfg geographies depLookup scf depth visited)
                 (M.toList demandsMap)
         pure $ case lefts results of
             (err : _) -> Left err
@@ -2102,6 +2111,7 @@ minQuantity/maxDepth pruning as the root walk), then recurse.
 -}
 resolveOneDep ::
     UnitConfig ->
+    Geographies ->
     SharedSolver.DepSolverLookup ->
     SupplyChainFilter ->
     -- | current depth (the one we're entering)
@@ -2110,7 +2120,7 @@ resolveOneDep ::
     S.Set Text ->
     (Text, SupplierDemands) ->
     IO (Either ServiceError Collected)
-resolveOneDep unitCfg depLookup scf depth visited (depDbName, demands)
+resolveOneDep unitCfg geographies depLookup scf depth visited (depDbName, demands)
     | depDbName `S.member` visited = pure (Right mempty)
     | otherwise = do
         mDep <- depLookup depDbName
@@ -2122,6 +2132,7 @@ resolveOneDep unitCfg depLookup scf depth visited (depDbName, demands)
                     depScaling <- solveWithSharedSolver depSolver demandVec
                     let local =
                             collectSupplyChainEntries
+                                geographies
                                 depDb
                                 depDbName
                                 (DepLevel depth)
@@ -2130,6 +2141,7 @@ resolveOneDep unitCfg depLookup scf depth visited (depDbName, demands)
                     eDeeper <-
                         walkDepLevels
                             unitCfg
+                            geographies
                             depLookup
                             depDb
                             depScaling
@@ -2997,8 +3009,8 @@ When 'cnfEdges' is 'WithEdges', every technosphere coefficient whose endpoints
 are both reachable from the supplier is emitted alongside the paginated
 result list, mirroring SupplyChainResponse.scrEdges.
 -}
-getConsumers :: Database -> Text -> Text -> ConsumerFilter -> Either ServiceError ConsumersResponse
-getConsumers db dbName processIdText cnf = do
+getConsumers :: Geographies -> Database -> Text -> Text -> ConsumerFilter -> Either ServiceError ConsumersResponse
+getConsumers geographies db dbName processIdText cnf = do
     (processId, _) <- resolveActivityAndProcessId db processIdText
     let core = cnfCore cnf
         -- Build adjacency list: supplier → [direct consumers]
@@ -3034,7 +3046,7 @@ getConsumers db dbName processIdText cnf = do
 
         locationMatches activity = case afcLocation core of
             Nothing -> True
-            Just pat -> locationAnswers pat (activityLocation activity)
+            Just pat -> locationAnswers geographies pat (activityLocation activity)
 
         productMatches prodName = case afcProduct core of
             Nothing -> True

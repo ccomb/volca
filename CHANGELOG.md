@@ -44,6 +44,24 @@
   unchanged and still means the location itself. The same filter narrows a
   delete, so this decides what a delete removes as well as what a search
   returns.
+- A geography filter now names a place, and reads which places are inside it
+  from the location table rather than from how a code is spelled. Asking
+  `search_activities`, `get_consumers` or `get_supply_chain` for a location
+  compared the two as text, and location codes overlap: `NO` opens `NORDEL`
+  and `Northern Cyprus`, `GL` opens `GLO`, `RO` opens `RoW`, `CA` opens
+  `Canary Islands`. So a question about Norway was answered with the Nordic
+  grid, one about Greenland with every global dataset, and nothing in the
+  answer said so. Across the geographies one recent EcoSpold 2 release
+  declares, forty pairs answered that way. Containment now comes from the
+  shipped location table, which says that `US-WECC` is inside `US` and that
+  `FR` is inside `RER`, so a filter also answers for places it never could
+  before: `RER` finds French datasets, `NAFTA` the eighty-four states and
+  provinces it covers. `GLO` and `RoW` are places, not containers, so asking
+  for either returns the datasets written that way rather than the whole
+  database. A location the table does not list answers for itself alone.
+  `exact=true` is unchanged and still means the location itself. The same
+  filter narrows a delete, so this decides what a delete removes as well as
+  what a search returns.
 - An exchange that resolved to no supplier now reports `activityLinkId` as
   null. It used to report the all-zero UUID, a value that reads as an
   identifier and is not one: every consumer had to know that one UUID means
@@ -69,6 +87,27 @@
   before this are rebuilt on the next load. Wire revision 23.
 
 ### Fixed
+- The unit table now agrees with the units its entries are composed of. A
+  composed factor was typed by hand and five were wrong, and the load carried
+  the error into the amounts: a hectare year read as 3.1536e11 square metre
+  years rather than 10 000, the year counted a second time, so a land
+  occupation stated in hectare years arrived thirty one million times too
+  large. `kgy`, the unit a published list uses for a kilogram year, was read as
+  a dimensionless count under the name of a radiation dose. A rate written per
+  hour or per year had its division inverted. Three units sat in a dimension
+  that is neither energy per mass, per length nor per time, which made them
+  convertible into one another. And five dimensions declared no reference unit
+  at all, so a volume over time, a mass over time, a length over time and a
+  passenger kilometre normalized to nothing and stayed in whatever unit the
+  source wrote, two spellings of one quantity ending up in one column. Every
+  dimension now declares its reference, every composed unit agrees with its
+  parts, and a test recomputes both. The units that only ever name a parameter
+  are gone: a parameter unit is an open set no table can close, and the engine
+  converts none of them. A transport service is recorded in tonne kilometres
+  rather than kilogram metres, which is what a dataset states it in and what a
+  reader expects to see. Units are spelled as their standard writes them. A
+  cache records the unit table it was built with, so a cache written before
+  this is rebuilt on the next load. Data version 4.
 - A year written `y` is now read as a year. The unit table already knew
   `year`, `a` and `yr`, and the compound units built on it, `my` for a metre
   year and `kmy` for a kilometre year, so the one spelling missing was the

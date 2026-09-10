@@ -29,6 +29,7 @@ import qualified Data.Text as T
 import Database (buildDatabaseWithMatrices)
 import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches, mkActivitySummary)
+import TestHelpers (shippedGeographies)
 import Types (AllocationKey (..), BuildInputs (..), Database (..))
 import UnitConversion (defaultUnitConfig)
 
@@ -135,7 +136,7 @@ exactProductsFound db = productsMatching db True
 -- | Both of the above, carrying the exact-match flag a 'SearchFilter' holds.
 productsMatching :: Database -> Bool -> Text -> [Text]
 productsMatching db exact query =
-    [prsProductName (mkActivitySummary db pid act) | (pid, act) <- activityMatches db (SearchFilter (nameOnly query) exact)]
+    [prsProductName (mkActivitySummary db pid act) | (pid, act) <- activityMatches shippedGeographies db (SearchFilter (nameOnly query) exact)]
   where
     nameOnly :: Text -> ActivityFilterCore
     nameOnly q =

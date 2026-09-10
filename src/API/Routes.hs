@@ -1583,7 +1583,7 @@ activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity o
     case mSub of
         Nothing -> do
             unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-            result <- liftIO $ Service.getSupplyChain unitCfg (DM.mkDepSolverLookup dbManager) db dbName sharedSolver processIdText scf
+            result <- liftIO $ Service.getSupplyChain unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) db dbName sharedSolver processIdText scf
             either throwServiceError pure result
         Just subReq -> do
             unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
@@ -1605,6 +1605,7 @@ activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity o
                         liftIO $
                             Service.buildSupplyChainFromScalingVectorCrossDB
                                 unitCfg
+                                (DM.managerGeographies dbManager)
                                 (DM.mkDepSolverLookup dbManager)
                                 db
                                 dbName
@@ -1706,7 +1707,7 @@ getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam fnam
                 }
     unitCfg <- liftIO $ getMergedUnitConfig dbManager
     (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-    result <- liftIO $ Agg.aggregate unitCfg mFlows mUnits db dbName sharedSolver (DM.mkDepSolverLookup dbManager) processId params
+    result <- liftIO $ Agg.aggregate unitCfg (DM.managerGeographies dbManager) mFlows mUnits db dbName sharedSolver (DM.mkDepSolverLookup dbManager) processId params
     either throwServiceError pure result
 
 {- | LCIA single-method core. GET passes a top-flows param and logs;
@@ -1840,6 +1841,7 @@ getActivityConsumers ::
     AppM ConsumersResponse
 getActivityConsumers dbName processIdText nameFilter locationFilter productFilter presetParam classSystems classValues classModes limitParam offsetParam maxDepthParam sortParam orderParam includeEdgesParam = do
     presets <- asks aeClassificationPresets
+    dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
     classifications <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
     let cnf =
@@ -1858,7 +1860,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
                 , Service.cnfMaxDepth = maxDepthParam
                 , Service.cnfEdges = if fromMaybe False includeEdgesParam then Service.WithEdges else Service.EntriesOnly
                 }
-    either throwServiceError pure (Service.getConsumers db dbName processIdText cnf)
+    either throwServiceError pure (Service.getConsumers (DM.managerGeographies dbManager) db dbName processIdText cnf)
 
 getActivityPathTo :: Text -> Text -> Maybe Text -> AppM Value
 getActivityPathTo dbName processIdText targetParam = do
@@ -2222,6 +2224,7 @@ searchFlows dbName queryParam langParam kindParam limitParam offsetParam sortPar
 searchActivitiesWithCount :: Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Bool -> Maybe Text -> [Text] -> [Text] -> [Text] -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> AppM (SearchResults ActivitySummary)
 searchActivitiesWithCount dbName nameParam geoParam productParam exactParam presetParam classSystems classValues classModes limitParam offsetParam sortParam orderParam = do
     presets <- asks aeClassificationPresets
+    dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
     classifications <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
     let exactMatch = fromMaybe False exactParam
@@ -2240,7 +2243,7 @@ searchActivitiesWithCount dbName nameParam geoParam productParam exactParam pres
                         }
                 , Service.sfExactMatch = exactMatch
                 }
-    result <- liftIO $ Service.searchActivities db sf
+    result <- liftIO $ Service.searchActivities (DM.managerGeographies dbManager) db sf
     case result of
         Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
         Right jsonValue -> case fromJSON jsonValue of
@@ -2443,10 +2446,11 @@ decide which matcher runs and therefore how many rows there are.
 -}
 countSearchMatches :: Text -> Maybe Text -> Maybe Text -> Maybe Bool -> AppM SearchCountsAPI
 countSearchMatches dbName mQuery sortParam exactParam = do
+    dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
     query <- maybe (badRequest "q is required: there is nothing to count without a query") pure (nonBlank mQuery)
     let listedAs = Service.CountAs{Service.caSort = sortParam, Service.caExact = fromMaybe False exactParam}
-        counts = Service.searchCounts db listedAs query
+        counts = Service.searchCounts (DM.managerGeographies dbManager) db listedAs query
     pure
         SearchCountsAPI
             { scaProcesses = Service.scProcesses counts

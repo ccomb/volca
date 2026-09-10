@@ -69,6 +69,7 @@ module Database.CrossLinking (
     -- * Location Hierarchy
     isSubregionOf,
     locationHierarchy,
+    placelessLocations,
 
     -- * Compound Name Parsing
     extractBracketedLocation,
