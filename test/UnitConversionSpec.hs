@@ -2,7 +2,10 @@
 
 module UnitConversionSpec (spec) where
 
+import Data.Bifunctor (first)
+import Data.Maybe (isNothing)
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Test.Hspec
 import UnitConversion
@@ -136,7 +139,7 @@ spec = do
         -- Guards data/units.csv against reverting to a Bq-canonical /time.
         it "normalizes Bq to canonical kBq (ionising-radiation CFs are per kBq)" $ do
             cfg <- loadFullUnitConfig
-            normalizeToCanonical cfg "Bq" 1000.0 `shouldBe` Just ("kbq", 1.0)
+            fmap (first T.toLower) (normalizeToCanonical cfg "Bq" 1000.0) `shouldBe` Just ("kbq", 1.0)
 
         -- Energy's reference unit is MJ, not the SI joule: that is the unit
         -- energy CFs and cumulative-energy-demand results are authored in, and
@@ -145,35 +148,79 @@ spec = do
         -- and unreadable.
         it "normalizes kWh to canonical MJ (energy CFs are per MJ)" $ do
             cfg <- loadFullUnitConfig
-            normalizeToCanonical cfg "kWh" 1.0 `shouldBe` Just ("mj", 3.6)
+            fmap (first T.toLower) (normalizeToCanonical cfg "kWh" 1.0) `shouldBe` Just ("mj", 3.6)
 
         -- What a dimension's reference unit is decides the unit a reference
         -- product is recorded in and the basis a result-expression CF is read
         -- against. It is a policy choice, not an accident of which spelling
         -- sorts first, so every dimension that declares one is pinned here:
-        -- moving one moves recorded amounts, and has to be deliberate.
+        -- moving one moves recorded amounts, and has to be deliberate. Which
+        -- unit is pinned here, not the case the lookup answers in.
         it "pins the canonical unit of every dimension" $ do
             cfg <- loadFullUnitConfig
             let canonicals =
                     [ ("kilogram", Just "kg")
                     , ("meter", Just "m")
                     , ("second", Just "s")
-                    , ("j", Just "mj")
+                    , ("joule", Just "mj")
                     , ("square meter", Just "m2")
                     , ("cubic meter", Just "m3")
                     , ("unit", Just "p")
-                    , ("eur2005", Just "eur")
+                    , ("EUR2005", Just "eur")
                     , ("Bq", Just "kbq")
                     , ("km/h", Just "m/s")
-                    , ("kg/h", Just "kg/s")
-                    , ("kg/ha", Just "kg/m2")
                     , ("kg/l", Just "kg/m3")
                     , ("tkm", Just "kgm")
                     , ("m2*year", Just "m2a")
-                    , -- a dimension may declare none, and then nothing normalizes
-                      ("mj/kg", Nothing)
+                    , ("m3*year", Just "m3a")
+                    , ("kg*day", Just "kgy")
+                    , ("km*year", Just "my")
+                    , ("passenger-km", Just "pkm")
                     ]
-            map (canonicalUnitFor cfg . fst) canonicals `shouldBe` map snd canonicals
+            map (fmap T.toLower . canonicalUnitFor cfg . fst) canonicals `shouldBe` map snd canonicals
+
+        -- A dimension with no row at 1.0 has no reference unit, so
+        -- 'normalizeToCanonical' answers Nothing and the amount is recorded in
+        -- whatever the source wrote. Two amounts of the same dimension then sit
+        -- in one column in two units. Every dimension the table declares carries
+        -- one, and this is what says so for the ones no case above names.
+        it "leaves no unit without a reference to normalize to" $ do
+            cfg <- loadFullUnitConfig
+            let orphans = [u | u <- M.keys (ucUnits cfg), isNothing (canonicalUnitFor cfg u)]
+            orphans `shouldBe` []
+
+        -- A composed unit's factor is the product of its parts', and the table
+        -- writes it by hand. Where the hand slipped, the load was silently out
+        -- by that much: a hectare year read as 3.1536e11 square metre years
+        -- rather than 10 000, which is the year counted twice.
+        it "agrees with the parts every composed unit is made of" $ do
+            cfg <- loadFullUnitConfig
+            let mile = 1609.344
+                composed =
+                    [ ("ha a", "m2a", 10000) -- a hectare is 10 000 square metres
+                    , ("l*day", "m3a", 1.0e-3 / 365) -- a litre is a thousandth of a cubic metre, a day a 365th of a year
+                    , ("kg*day", "kgy", 1 / 365)
+                    , ("km*year", "my", 1000)
+                    , ("mile*year", "my", mile)
+                    , ("person*mile", "pkm", mile / 1000)
+                    , ("t*mile", "kgm", 1000 * mile)
+                    , ("tkm", "kgm", 1.0e6)
+                    , ("km/h", "m/s", 1000 / 3600)
+                    ]
+            mapM_
+                ( \(from, to, expected) -> case convertUnit cfg from to 1.0 of
+                    Just got -> got `shouldSatisfy` (\x -> abs (x - expected) <= abs expected * 1.0e-12)
+                    Nothing -> expectationFailure (T.unpack (from <> " does not convert to " <> to))
+                )
+                composed
+
+        -- The table read this as a kilogray, in the dimensionless bucket where
+        -- a count lives, while a source writing it means a kilogram year: it is
+        -- the reference unit of mass over time in one published unit list.
+        it "reads kgy as a mass over time, not as a count" $ do
+            cfg <- loadFullUnitConfig
+            unitsCompatible cfg "kgy" "kg*year" `shouldBe` True
+            unitsCompatible cfg "kgy" "unit" `shouldBe` False
 
         it "returns Nothing for incompatible units" $ do
             cfg <- loadFullUnitConfig
