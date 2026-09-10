@@ -246,7 +246,7 @@ CU,Cuba,UN-CARIBBEAN|North America|Latin America|GLO|RoW
 CV,Cape Verde,UN-WAFRICA|Africa|GLO|RoW
 CW,Curaçao,UN-CARIBBEAN|North America|Latin America|GLO|RoW
 Canada without Alberta,Canada without Alberta,CA|North America|NAFTA|GLO|RoW
-Canada without Alberta and Quebec,Canada without Alberta and Quebec,Canada without Alberta|CA|North America|NAFTA|GLO|RoW
+Canada without Alberta and Quebec,Canada without Alberta and Quebec,Canada without Alberta|Canada without Quebec|CA|North America|NAFTA|GLO|RoW
 Canary Islands,Canary Islands,ES|Europe|GLO|RoW
 Central Asia,Central Asia,Asia|GLO|RoW
 China w/o Inner Mongol,China without Inner Mongol,CN|Asia|UN-EASIA|GLO|RoW
@@ -412,11 +412,11 @@ PW,Palau,UN-MICRONESIA|Oceania|GLO|RoW
 PY,Paraguay,UN-SAMERICA|South America|Latin America|GLO|RoW
 QA,Qatar,UN-WASIA|Asia|GLO|RoW
 RE,Réunion,UN-EAFRICA|Africa|GLO|RoW
-RER w/o AT+BE+CH+DE+FR+IT,"Europe without Austria, Belgium, France, Germany, Italy, Liechtenstein, Monaco, San Marino, Switzerland, and the Vatican",Europe|RER|GLO|RoW
+RER w/o AT+BE+CH+DE+FR+IT,"Europe without Austria, Belgium, France, Germany, Italy, Liechtenstein, Monaco, San Marino, Switzerland, and the Vatican",RER w/o CH+DE|Europe|RER|GLO|RoW
 RER w/o CH+DE,Europe without Germany and Switzerland,Europe|RER|GLO|RoW
 RER w/o DE+NL+NO,"Europe without Germany, the Netherlands, and Norway",Europe|RER|GLO|RoW
-RER w/o DE+NL+NO+RU,"Europe without Germany, the Netherlands, Norway, and Russia",RER w/o DE+NL+NO|Europe|RER|GLO|RoW
-RER w/o DE+NL+RU,"Europe without Germany, the Netherlands, and Russia",Europe|RER|GLO|RoW
+RER w/o DE+NL+NO+RU,"Europe without Germany, the Netherlands, Norway, and Russia",RER w/o DE+NL+NO|RER w/o DE+NL+RU|RER w/o RU|Europe|RER|GLO|RoW
+RER w/o DE+NL+RU,"Europe without Germany, the Netherlands, and Russia",RER w/o RU|Europe|RER|GLO|RoW
 RER w/o RU,Europe without Russia,Europe|RER|GLO|RoW
 RFC,ReliabilityFirst Corporation,US|North America|NAFTA|GLO|RoW
 "RFC, US only",ReliabilityFirst Corporation,US|North America|NAFTA|GLO|RoW
@@ -467,7 +467,7 @@ TZ,Tanzania,UN-EAFRICA|Africa|GLO|RoW
 UA,Ukraine,"UN-EEUROPE|Europe, Eastern|Europe|GLO|RoW"
 UCTE without France,UCTE without France,Europe|RER|UCTE|GLO|RoW
 UCTE without Germany,UCTE without Germany,Europe|RER|UCTE|GLO|RoW
-UCTE without Germany and France,UCTE without Germany and France,UCTE without Germany|Europe|RER|UCTE|GLO|RoW
+UCTE without Germany and France,UCTE without Germany and France,UCTE without Germany|UCTE without France|Europe|RER|UCTE|GLO|RoW
 UG,Uganda,UN-EAFRICA|Africa|GLO|RoW
 UN-AMERICAS,Americas,North America|Latin America|GLO|RoW
 UN-ASIA,"Asia, UN Region",Asia|GLO|RoW

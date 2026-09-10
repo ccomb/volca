@@ -785,7 +785,7 @@ params r = case r of
         , Param "name" "string" Required "Name substring to search for (or exact name if exact=true). The identifier a source file gave a dataset (a SimaPro 'Process identifier'), whole or the four or more characters that tell it apart, brings that dataset's products to the top of the results."
         , Param "geo" "string" Optional "Geography/location filter (e.g. 'FR', 'DE', 'GLO'). Matches that location, plus every location inside it ('US' also matches 'US-WECC', 'RER' matches 'FR'). Which place sits inside which comes from the engine's location table, never from how a code is spelled, so 'GL' does not match 'GLO'."
         , Param "product" "string" Optional "Product name filter"
-        , Param "exact" "boolean" Optional "If true, the name and the geography must match exactly (case-insensitive equality) instead of a substring, respectively prefix, search"
+        , Param "exact" "boolean" Optional "If true, the name must match exactly (case-insensitive equality) rather than as a substring, and the geography must be the location itself rather than that location plus every location inside it"
         , Param "preset" "string" Optional "Name of a classification preset (from list_presets): expands to its bundled filters. Can be combined with explicit classification filters."
         , Param "classification" "string" Optional "Classification system name to filter by (e.g. 'ISIC rev.4 ecoinvent', 'CPC'). Use list_classifications to see available systems."
         , Param "classification_value" "string" Optional "Value within the classification system to match"
