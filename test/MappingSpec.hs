@@ -143,18 +143,17 @@ spec = do
                 comp = Compartment "air" "" ""
             fmap bfId (findFlowByNameComp M.empty byName "co2" (Just comp)) `shouldBe` Nothing
 
-        it "does not read a medium that merely contains the stated one as that medium" $ do
-            -- "air" is a substring of "emissions to air", which is another
-            -- vocabulary, not a widening. The scoring tables key on the exact
-            -- normalized medium, so a match here promised a factor scoring
-            -- never served (volca#346). A compartment rule is what bridges it.
+        it "reads a medium stated with its direction as that medium" $ do
+            -- "emissions to air" is how one family of sources spells the air
+            -- medium. The direction is already recorded on the exchange, so
+            -- the two words name one medium and need no rule between them.
+            -- A spelling that carries more than the medium does need one, and
+            -- the "urban air" case below is where that is pinned.
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air Nothing
                 byName = M.singleton "ammonia" [flow]
                 comp = Compartment "emissions to air" "" ""
-                rule = M.singleton ("emissions to air", "", "") (Compartment "air" "" "")
-            fmap bfId (findFlowByNameComp M.empty byName "ammonia" (Just comp)) `shouldBe` Nothing
-            fmap bfId (findFlowByNameComp rule byName "ammonia" (Just comp)) `shouldBe` Just fid
+            fmap bfId (findFlowByNameComp M.empty byName "ammonia" (Just comp)) `shouldBe` Just fid
 
         it "does not read a long-term subcompartment as the immediate one" $ do
             -- "low. pop." is contained in "low. pop., long-term"; a delayed
@@ -425,10 +424,11 @@ spec = do
             score `shouldBe` 0.0
 
     describe "buildMethodTables compartment normalization" $ do
-        -- Regression: BAFU categorizes air emissions as "emissions to air/low. pop.",
-        -- ILCD CFs are keyed on bare "air/...". Without a compartment map applied to
-        -- both sides, the lookup misses and the flow silently scores zero.
-        it "scores zero without a compartment map (regression)" $ do
+        -- Two sides, one vocabulary. A factor table and an inventory each state
+        -- a medium in the words their own format uses, and the tables key on
+        -- the medium those words name. What the reader can place needs nothing
+        -- declared; what it cannot is what a compartment rule is for.
+        it "meets a factor whose medium states its direction, with nothing declared" $ do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air (Just "low. pop.")
                 cf = mkCFComp "ammonia" "emissions to air" "low. pop." 0.747
@@ -436,13 +436,23 @@ spec = do
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
                 score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
-            score `shouldBe` 0.0
+            score `shouldBe` 7.47
 
-        it "bridges 'emissions to air' → 'air' via a medium-only rule" $ do
+        it "scores zero when the factor's medium is one no reader can place" $ do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air (Just "low. pop.")
-                cf = mkCFComp "ammonia" "emissions to air" "low. pop." 0.747
-                cmap = M.singleton ("emissions to air", "", "") (Compartment "air" "" "")
+                cf = mkCFComp "ammonia" "urban air" "low. pop." 0.747
+                tables = buildMethodTables OtherCFFamily M.empty M.empty [(cf, Nothing)]
+                inventory = M.singleton fid 10.0
+                flowDB = M.singleton fid flow
+                score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
+            score `shouldBe` 0.0
+
+        it "bridges 'urban air' → 'air' via a medium-only rule" $ do
+            fid <- nextRandom
+            let flow = mkFlow fid "ammonia" Air (Just "low. pop.")
+                cf = mkCFComp "ammonia" "urban air" "low. pop." 0.747
+                cmap = M.singleton ("urban air", "", "") (Compartment "air" "" "")
                 tables = buildMethodTables OtherCFFamily cmap M.empty [(cf, Nothing)]
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
@@ -815,9 +825,9 @@ spec = do
         it "names both vocabularies when a factor's name is filed under another medium" $ do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air Nothing
-                cf = mkCFComp "ammonia" "emissions to air" "" 0.747
+                cf = mkCFComp "ammonia" "urban air" "" 0.747
             compartmentGapWarning M.empty (M.singleton "ammonia" [flow]) [(cf, Nothing)]
-                `shouldBe` Just "1 factor(s) name a flow this database files under another compartment (method: \"emissions to air\"; database: \"air\"). Declare a [[compartment-mappings]] table bridging them."
+                `shouldBe` Just "1 factor(s) name a flow this database files under another compartment (method: \"urban air\"; database: \"air\"). Declare a [[compartment-mappings]] table bridging them."
 
         it "stays silent when the name is simply absent" $ do
             let cf = mkCFComp "ammonia" "air" "" 0.747

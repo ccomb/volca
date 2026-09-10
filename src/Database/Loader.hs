@@ -407,6 +407,12 @@ History of manual bumps:
 - 32: the supplier an exchange resolved to is a 'Maybe', not a UUID with nil
      standing for none. The field changes width, so every field after it would
      be read at the wrong offset.
+- 33: an EcoSpold 1 elementary exchange whose category states the direction as
+     well as the medium ("emissions to air") is placed in that medium, where it
+     used to be left with no compartment at all. Nothing changes type, so a
+     cache written just before this would pass the fingerprint and go on
+     holding every emission of such an export uncharacterizable - a zero score
+     under every method, beside resource categories that look right.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -414,7 +420,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 32
+     in hi `xor` lo `xor` 33
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
