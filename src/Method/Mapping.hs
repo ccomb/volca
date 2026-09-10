@@ -148,7 +148,7 @@ import qualified SubstanceRegistry as SR
 import SynonymDB
 import Types (Activity (..), BioFlowDB, BiosphereFlow (..), Database (..), FlowClosure (..), Medium (..), ProcessId, SparseTriple (..), Unit (..), UnitDB, ownFlowClosure, parseMedium)
 import qualified Types as VT
-import UnitConversion (UnitConfig, convertUnit, isKnownUnit, normalizeToCanonical, normalizeUnit, unitsCompatible)
+import UnitConversion (UnitConfig, convertUnit, isKnownUnit, normalizeToCanonical, unitKey, unitsCompatible)
 
 -- | Matching strategy used to find a flow
 data MatchStrategy
@@ -2754,7 +2754,7 @@ energyAwareOutcome cfg flowUnit cfu@(CFUnit rawCfUnit) mDensity qty =
     -- against: identical units need no table entry, otherwise a same-dimension
     -- conversion. An incompatible or unknown unit yields 'Nothing' → 0.
     toUnit u
-        | normalizeUnit flowUnit == normalizeUnit u = Just qty
+        | unitKey cfg flowUnit == unitKey cfg u = Just qty
         | otherwise = convertUnit cfg flowUnit u qty
 
 {- | Apply the flow→CF unit conversion factor and multiply by the CF value.

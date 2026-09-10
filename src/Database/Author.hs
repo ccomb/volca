@@ -102,7 +102,7 @@ import Types (
     noProperties,
     parseProcessRef,
  )
-import UnitConversion (UnitConfig, convertUnit, normalizeUnit)
+import UnitConversion (UnitConfig, convertUnit, unitKey)
 
 -- ---------------------------------------------------------------------------
 -- Deterministic identity
@@ -711,7 +711,7 @@ unitError :: AuthorContext -> Supplier -> Text -> Maybe Text
 unitError ctx sup stated
     | T.null (supProducedUnit sup)
     , not (T.null (supAnyRefUnit sup))
-    , normalizeUnit stated /= normalizeUnit (supAnyRefUnit sup) =
+    , unitKey (acUnitConfig ctx) stated /= unitKey (acUnitConfig ctx) (supAnyRefUnit sup) =
         Just $
             "the provider's reference is stated in \""
                 <> supAnyRefUnit sup
@@ -740,8 +740,9 @@ conversionError ctx stated supplierUnit
                     <> supplierUnit
                     <> "\""
   where
+    needsConversion :: Bool
     needsConversion =
-        normalizeUnit stated /= normalizeUnit supplierUnit
+        unitKey (acUnitConfig ctx) stated /= unitKey (acUnitConfig ctx) supplierUnit
             && not (T.null stated)
             && not (T.null supplierUnit)
 
@@ -767,7 +768,7 @@ resolveBio ctx flowRef direction amount mUnit comment
             Just (flow, ownerUnits, local) ->
                 let flowUnit = unitNameOf ownerUnits (bfUnitId flow)
                  in case mUnit of
-                        Just stated | normalizeUnit stated /= normalizeUnit flowUnit -> Left [mismatch stated flowUnit]
+                        Just stated | not (sameSpelling stated flowUnit) -> Left [mismatch stated flowUnit]
                         _ -> emitKnown flowId flow flowUnit local
         FlowByName name comp unit -> case findBioFlowsByName ctx name comp of
             [] -> introduce name comp unit
@@ -777,20 +778,24 @@ resolveBio ctx flowRef direction amount mUnit comment
                 [] -> Left [unitAmong unit several]
                 ties -> Left [severalNamed comp ties]
   where
+    -- The unit the author states and the one the flow carries must be the
+    -- same unit, and case is part of what says so.
+    sameSpelling :: Text -> Text -> Bool
+    sameSpelling stated other = unitKey (acUnitConfig ctx) stated == unitKey (acUnitConfig ctx) other
     -- A name the database already carries addresses that flow, rather than
     -- minting a second one under it: an introduced flow matches no
     -- characterization factor by identity, so the twin of a curated flow
     -- would score as zero next to the original.
     attach stated (flow, ownerUnits, local) =
         let flowUnit = unitNameOf ownerUnits (bfUnitId flow)
-         in if normalizeUnit stated /= normalizeUnit flowUnit
+         in if not (sameSpelling stated flowUnit)
                 then Left [mismatch stated flowUnit]
                 else emitKnown (bfId flow) flow flowUnit local
     -- One name and compartment in two units (an energy carrier recorded in
     -- kg and in MJ) is told apart by the unit the exchange states, which the
     -- author has already written. Nothing else is guessed at.
     statedIn stated (flow, ownerUnits, _) =
-        normalizeUnit stated == normalizeUnit (unitNameOf ownerUnits (bfUnitId flow))
+        sameSpelling stated (unitNameOf ownerUnits (bfUnitId flow))
     introduce name comp unit = case lookupUnit ctx unit of
         Nothing -> Left ["unknown unit \"" <> unit <> "\" for flow \"" <> name <> "\""]
         Just (unitRef, unitLabel) ->
@@ -988,7 +993,7 @@ string.
 -}
 sameUnit :: UnitConfig -> Text -> Text -> Bool
 sameUnit cfg stated other =
-    normalizeUnit stated == normalizeUnit other
+    unitKey cfg stated == unitKey cfg other
         || maybe False (\factor -> abs (factor - 1) < 1e-12) (convertUnit cfg stated other 1)
 
 {- | Judge the unit an exchange to a dependency's supplier is stated in.
@@ -1090,12 +1095,15 @@ plus the canonical name of that unit. Names and symbols both resolve, so
 database happens to use one string for both.
 -}
 lookupUnit :: AuthorContext -> Text -> Maybe (UUID, Text)
-lookupUnit ctx stated = M.lookup (normalizeUnit stated) (unitIndex (dbUnits (acDb ctx)))
+lookupUnit ctx stated = M.lookup (unitKey cfg stated) (unitIndex cfg (dbUnits (acDb ctx)))
+  where
+    cfg :: UnitConfig
+    cfg = acUnitConfig ctx
 
-unitIndex :: UnitDB -> M.Map Text (UUID, Text)
-unitIndex units =
+unitIndex :: UnitConfig -> UnitDB -> M.Map Text (UUID, Text)
+unitIndex cfg units =
     M.fromList
-        [ (normalizeUnit key, (unitId u, unitName u))
+        [ (unitKey cfg key, (unitId u, unitName u))
         | u <- M.elems units
         , key <- [unitSymbol u, unitName u]
         , not (T.null (T.strip key))

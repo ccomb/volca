@@ -63,7 +63,6 @@ kgUnitConfig =
     mkUnitConfig
         ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
         (M.fromList [("kg", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0)])
-        (M.fromList [("kg", "kg")])
 
 testFlow :: BiosphereFlow
 testFlow =

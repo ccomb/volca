@@ -934,7 +934,7 @@ depDemandsToVector unitConfig depDbName depDb demands = do
                         (ex : _) -> getUnitNameForExchange unitsDB ex
                         [] -> ""
                     needsConversion =
-                        UnitConversion.normalizeUnit exchangeUnit /= UnitConversion.normalizeUnit supplierUnit
+                        UnitConversion.unitKey unitConfig exchangeUnit /= UnitConversion.unitKey unitConfig supplierUnit
                             && not (T.null exchangeUnit)
                             && not (T.null supplierUnit)
                     idx = fromIntegral (actIdx V.! fromIntegral pid) :: Int

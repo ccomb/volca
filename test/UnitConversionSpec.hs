@@ -3,6 +3,7 @@
 module UnitConversionSpec (spec) where
 
 import qualified Data.ByteString.Lazy as BL
+import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Hspec
 import UnitConversion
@@ -11,6 +12,20 @@ import UnitConversion
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True
 isLeft _ = False
+
+-- | The table took the reading and named the spelling it took it under.
+respeltAs :: T.Text -> UnitReading -> Bool
+respeltAs spelling (ReadRespelt found _) = found == spelling
+respeltAs _ (ReadExact _) = False
+respeltAs _ ReadAmbiguous{} = False
+respeltAs _ ReadUnknown = False
+
+-- | The table spells it exactly this way, so there is nothing to report.
+exact :: UnitReading -> Bool
+exact (ReadExact _) = True
+exact (ReadRespelt _ _) = False
+exact ReadAmbiguous{} = False
+exact ReadUnknown = False
 
 -- | Load the full unit config from data/units.csv
 loadFullUnitConfig :: IO UnitConfig
@@ -198,18 +213,34 @@ spec = do
             cfg <- loadFullUnitConfig
             convertExchangeAmount cfg "kg" "m" 5.0 `shouldBe` 5.0
 
-    describe "Unit Normalization" $ do
-        it "normalizes to lowercase" $ do
-            normalizeUnit "KG" `shouldBe` "kg"
+    describe "Reading a spelling against the table" $ do
+        it "files a spelling under a case-blind key" $ do
+            foldedUnit "KG" `shouldBe` "kg"
 
         it "trims whitespace" $ do
-            normalizeUnit "  kg  " `shouldBe` "kg"
+            foldedUnit "  kg  " `shouldBe` "kg"
 
-        it "case-insensitive lookup works" $ do
+        it "takes the one reading a case variant leaves, and says which" $ do
             cfg <- loadFullUnitConfig
-            isKnownUnit cfg "KG" `shouldBe` True
-            isKnownUnit cfg "Kg" `shouldBe` True
+            readUnit cfg "KG" `shouldSatisfy` respeltAs "kg"
+            readUnit cfg "Kg" `shouldSatisfy` respeltAs "kg"
             isKnownUnit cfg "kG" `shouldBe` True
+
+        it "takes the exact spelling without a word about it" $ do
+            cfg <- loadFullUnitConfig
+            readUnit cfg "kg" `shouldSatisfy` exact
+            readUnit cfg " kg " `shouldSatisfy` exact
+
+        it "refuses when two spellings differ only by case" $ do
+            let Right cfg = buildFromCSV "name,dimension,factor\nMJ,energy,1.0\nmJ,energy,1.0e-9\n"
+            readUnit cfg "mj" `shouldBe` ReadAmbiguous "MJ" "mJ" []
+            lookupUnitDef cfg "mj" `shouldBe` Nothing
+            isKnownUnit cfg "mj" `shouldBe` False
+            readUnit cfg "MJ" `shouldBe` ReadExact (UnitDef [0, 0, 0, 1, 0, 0, 0, 0] 1.0)
+
+        it "refuses a table that spells one unit twice" $ do
+            buildFromCSV "name,dimension,factor\nkg,mass,1.0\nkg,mass,2.0\n"
+                `shouldBe` (Left "unit spelled more than once: kg" :: Either Text UnitConfig)
 
     describe "Config Building (buildFromCSV)" $ do
         it "builds config from CSV" $ do

@@ -1465,7 +1465,7 @@ spec = do
                 resource = head [ex | ex <- exchanges act, case ex of BiosphereExchange{} -> True; _ -> False]
             bioAmount resource `shouldBe` 3.6
             fmap bfUnitId (M.lookup (exchangeFlowId resource) bioFlows)
-                `shouldBe` Just (generateUnitUUID "mj")
+                `shouldBe` Just (generateUnitUUID "MJ")
 
     describe "what a process identifier is made of" $ do
         let processIds = map (\a -> (generateActivityUUID a, getReferenceProductUUID a))
@@ -1772,7 +1772,6 @@ volumeUnitConfig reference =
             , ("l", UnitDef [0, 0, 0, 0, 0, 1, 0, 0] 0.001)
             ]
         )
-        (M.fromList [(reference, reference), ("l", "l")])
 
 {- | Unit config knowing a non-canonical spelling in two dimensions: g (mass)
 and kWh (energy), so a row written in either has somewhere to be converted to.
@@ -1784,11 +1783,10 @@ mixedUnitConfig =
         ( M.fromList
             [ ("kg", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0)
             , ("g", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 0.001)
-            , ("mj", UnitDef [0, 0, 0, 1, 0, 0, 0, 0] 1.0)
-            , ("kwh", UnitDef [0, 0, 0, 1, 0, 0, 0, 0] 3.6)
+            , ("MJ", UnitDef [0, 0, 0, 1, 0, 0, 0, 0] 1.0)
+            , ("kWh", UnitDef [0, 0, 0, 1, 0, 0, 0, 0] 3.6)
             ]
         )
-        (M.fromList [("kg", "kg"), ("g", "g"), ("mj", "mj"), ("kwh", "kWh")])
 
 -- | Unit config that knows about "ton" (1000 kg) in addition to kg.
 tonUnitConfig :: UnitConfig
@@ -1800,7 +1798,6 @@ tonUnitConfig =
             , ("ton", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1000.0)
             ]
         )
-        (M.fromList [("kg", "kg"), ("ton", "ton")])
 
 -- | A minimal SimaPro CSV declaring a reference product of "1 ton" (mass).
 tonRefCSV :: BS.ByteString

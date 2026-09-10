@@ -31,7 +31,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Database.Allocation (AllocatedActivity, AllocationRefusal, allocatedActivity, asAllocated, describeRefusal)
 import Types
-import UnitConversion (UnitConfig, convertUnit, normalizeUnit)
+import UnitConversion (UnitConfig, convertUnit, unitKey)
 
 {- | Per-process lookup tables built once from the ascending activity-key list.
 
@@ -239,7 +239,7 @@ techTriple unitConfig unitDB lkp supplierRefUnits actCount normFactor j consumer
             exchUnit = getUnitNameForExchange unitDB ex
             suppUnit = supplierRefUnits V.! fromIntegral idx
             needsConversion =
-                normalizeUnit exchUnit /= normalizeUnit suppUnit
+                unitKey unitConfig exchUnit /= unitKey unitConfig suppUnit
                     && not (T.null exchUnit)
                     && not (T.null suppUnit)
          in case (needsConversion, convertUnit unitConfig exchUnit suppUnit raw) of

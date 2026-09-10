@@ -1684,40 +1684,62 @@ loadDatabaseWithCrossDBLinking opts otherIndexes synonymDB locationHier policy p
     case result of
         Left err -> return $ Left err
         Right simpleDb -> do
-            -- Detect unknown units from the database's unit definitions
-            let !unknownUnits =
-                    S.fromList
-                        [ unitName u
-                        | u <- M.elems (sdbUnits simpleDb)
-                        , not (UC.isKnownUnit unitConfig (unitName u))
-                        , not (T.null (unitName u))
-                        ]
+            -- Read every unit the database declares against the unit table.
+            let !verdict = UC.judgeUnits unitConfig (map unitName (M.elems (sdbUnits simpleDb)))
+                !unknownUnits = S.fromList (UC.uvUnknown verdict)
+            mapM_ (reportProgress Warning . T.unpack . respeltLine) (UC.uvRespelt verdict)
             unless (S.null unknownUnits) $
                 reportProgress Warning $
                     printf
                         "%d unknown unit(s): %s — add to the [[units]] CSV file"
                         (S.size unknownUnits)
                         (T.unpack $ T.intercalate ", " $ map (\u -> "\"" <> u <> "\"") $ S.toList unknownUnits)
+            case UC.uvAmbiguous verdict of
+                [] -> loadOn simpleDb unknownUnits
+                ambiguous -> return $ Left (ambiguousUnitsError ambiguous)
+  where
+    -- One spelling the table settles, and the spelling it settles it under.
+    respeltLine :: (T.Text, T.Text) -> T.Text
+    respeltLine (written, spelling) =
+        "unit \"" <> written <> "\" is spelled \"" <> spelling <> "\" in the unit table; read as that one"
 
-            -- If there are other databases to search, perform cross-DB linking
-            let !totalInputs = countTotalTechInputs simpleDb
-            if null otherIndexes
-                then do
-                    -- No cross-DB linking needed
-                    let !stats = mempty{cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs}
-                    reportCrossDBLinkingStats (M.size (sdbActivities simpleDb)) stats
-                    return $ Right (simpleDb, stats)
-                else do
-                    -- Perform cross-database linking using pre-built indexes
-                    (linkedDb, stats) <-
-                        fixActivityLinksWithCrossDB
-                            otherIndexes
-                            synonymDB
-                            unitConfig
-                            locationHier
-                            policy
-                            simpleDb
-                    return $ Right (linkedDb, stats{cdlUnknownUnits = unknownUnits})
+    {- Two entries of the table differ from this spelling only by case, so
+    nothing in the data says which is meant and a guess would be a factor
+    apart. The answer is the source's own spelling or a [[units]] entry, never
+    a ranking of the candidates. -}
+    ambiguousUnitsError :: [(T.Text, [T.Text])] -> T.Text
+    ambiguousUnitsError ambiguous =
+        T.intercalate
+            "; "
+            [ "unit \"" <> written <> "\" could be " <> T.intercalate " or " (map quoted candidates)
+            | (written, candidates) <- ambiguous
+            ]
+            <> " — correct the spelling in the source, or add it to the [[units]] CSV file"
+
+    quoted :: T.Text -> T.Text
+    quoted t = "\"" <> t <> "\""
+
+    loadOn :: SimpleDatabase -> S.Set T.Text -> IO (Either T.Text (SimpleDatabase, CrossDBLinkingStats))
+    loadOn simpleDb unknownUnits = do
+        -- If there are other databases to search, perform cross-DB linking
+        let !totalInputs = countTotalTechInputs simpleDb
+        if null otherIndexes
+            then do
+                -- No cross-DB linking needed
+                let !stats = mempty{cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs}
+                reportCrossDBLinkingStats (M.size (sdbActivities simpleDb)) stats
+                return $ Right (simpleDb, stats)
+            else do
+                -- Perform cross-database linking using pre-built indexes
+                (linkedDb, stats) <-
+                    fixActivityLinksWithCrossDB
+                        otherIndexes
+                        synonymDB
+                        (loUnitConfig opts)
+                        locationHier
+                        policy
+                        simpleDb
+                return $ Right (linkedDb, stats{cdlUnknownUnits = unknownUnits})
 
 {- | Fix activity links using cross-database lookup.
 

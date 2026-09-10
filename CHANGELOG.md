@@ -14,6 +14,17 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
+- The case a unit is written in decides what it means. Every unit name was read
+  in lower case, so `mJ` and `MJ` were the same word: a millijoule and a
+  megajoule, a billion apart. A unit is now read against the spelling the unit
+  table holds. The exact spelling is taken in silence; a spelling that differs
+  from exactly one entry only by case is taken too, and the load says which
+  entry it was read as, so `KWH` still loads and reports that it is written
+  `kWh`; and a spelling that could equally be two entries stops the load and
+  names both, because nothing in the data says which is meant and a guess would
+  be off by whatever separates them. An unknown unit still warns and lets the
+  load continue, as before. A unit table that spells one unit twice is refused
+  at startup rather than keeping one row and dropping the other in silence.
 - A geography filter now names a place. Asking `search_activities`,
   `get_consumers` or `get_supply_chain` for a location matched that text
   anywhere inside one, and location codes overlap: `DE` sits inside `NORDEL`,
