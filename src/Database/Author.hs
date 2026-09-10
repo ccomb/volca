@@ -1094,6 +1094,7 @@ plus the canonical name of that unit. Names and symbols both resolve, so
 @kilogram@ and @kg@ reach the same row; a name wins over a symbol when a
 database happens to use one string for both.
 -}
+
 {- | Why the unit an author named could not be resolved, in the reader's terms.
 
 'lookupUnit' answers 'Nothing' for two different reasons, and calling both
