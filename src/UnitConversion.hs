@@ -127,7 +127,13 @@ The reference unit is the one whose factor is 1.0 in @units.csv@, normally the
 SI base, but a dimension may instead pick the unit its characterization factors
 are authored in. Radioactivity uses @kBq@ (not the SI @Bq@) because EF/ILCD
 ionising-radiation CFs are defined per kBq, and energy uses @MJ@ (not the SI
-joule) for the same reason. 'convertForCharacterization' normalizes a flow to
+joule) for the same reason.
+
+A composed dimension has no factors of its own and picks for the other half of
+the same argument: the unit its inventory data is written in. @m2a@, @m3a@,
+@kgy@, @tkm@ and @pkm@ are what a source states a land occupation, a water
+volume over time or a transport service in, and the SI product of the parts
+(@m2s@, @kgm@) is written by nobody. 'convertForCharacterization' normalizes a flow to
 this reference before applying a result-expression CF, so the choice decides
 what such a factor is read against.
 
