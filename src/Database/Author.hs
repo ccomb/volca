@@ -102,7 +102,7 @@ import Types (
     noProperties,
     parseProcessRef,
  )
-import UnitConversion (UnitConfig, convertUnit, normalizeUnit)
+import UnitConversion (UnitConfig, UnitReading (..), convertUnit, readUnit, unitKey)
 
 -- ---------------------------------------------------------------------------
 -- Deterministic identity
@@ -330,7 +330,7 @@ validateOne ctx a =
             , [ "the product amount is " <> T.pack (show (aaProductAmount a)) <> "; it must be a finite non-zero number"
               | not (isUsableAmount (aaProductAmount a))
               ]
-            , [ "unknown unit \"" <> aaProductUnit a <> "\" for the product"
+            , [ unitRefusal ctx (aaProductUnit a) <> " for the product"
               | Nothing <- [mProductUnit]
               ]
             ]
@@ -682,7 +682,7 @@ resolveLinked ctx provider amount mUnit build =
     resolved sup = do
         let stated = fromMaybe (defaultUnit sup) mUnit
         (unitRef, unitLabel) <-
-            maybe (Left ("unknown unit \"" <> stated <> "\"")) Right (lookupUnit ctx stated)
+            maybe (Left (unitRefusal ctx stated)) Right (lookupUnit ctx stated)
         maybe (Right ()) Left (unitError ctx sup unitLabel)
         newTechFlow <- adoptTechFlow ctx sup
         maybe (Right ()) Left (dependencyUnitError ctx sup unitLabel)
@@ -711,7 +711,7 @@ unitError :: AuthorContext -> Supplier -> Text -> Maybe Text
 unitError ctx sup stated
     | T.null (supProducedUnit sup)
     , not (T.null (supAnyRefUnit sup))
-    , normalizeUnit stated /= normalizeUnit (supAnyRefUnit sup) =
+    , unitKey (acUnitConfig ctx) stated /= unitKey (acUnitConfig ctx) (supAnyRefUnit sup) =
         Just $
             "the provider's reference is stated in \""
                 <> supAnyRefUnit sup
@@ -740,8 +740,9 @@ conversionError ctx stated supplierUnit
                     <> supplierUnit
                     <> "\""
   where
+    needsConversion :: Bool
     needsConversion =
-        normalizeUnit stated /= normalizeUnit supplierUnit
+        unitKey (acUnitConfig ctx) stated /= unitKey (acUnitConfig ctx) supplierUnit
             && not (T.null stated)
             && not (T.null supplierUnit)
 
@@ -767,7 +768,7 @@ resolveBio ctx flowRef direction amount mUnit comment
             Just (flow, ownerUnits, local) ->
                 let flowUnit = unitNameOf ownerUnits (bfUnitId flow)
                  in case mUnit of
-                        Just stated | normalizeUnit stated /= normalizeUnit flowUnit -> Left [mismatch stated flowUnit]
+                        Just stated | not (sameSpelling stated flowUnit) -> Left [mismatch stated flowUnit]
                         _ -> emitKnown flowId flow flowUnit local
         FlowByName name comp unit -> case findBioFlowsByName ctx name comp of
             [] -> introduce name comp unit
@@ -777,22 +778,26 @@ resolveBio ctx flowRef direction amount mUnit comment
                 [] -> Left [unitAmong unit several]
                 ties -> Left [severalNamed comp ties]
   where
+    -- The unit the author states and the one the flow carries must be the
+    -- same unit, and case is part of what says so.
+    sameSpelling :: Text -> Text -> Bool
+    sameSpelling stated other = unitKey (acUnitConfig ctx) stated == unitKey (acUnitConfig ctx) other
     -- A name the database already carries addresses that flow, rather than
     -- minting a second one under it: an introduced flow matches no
     -- characterization factor by identity, so the twin of a curated flow
     -- would score as zero next to the original.
     attach stated (flow, ownerUnits, local) =
         let flowUnit = unitNameOf ownerUnits (bfUnitId flow)
-         in if normalizeUnit stated /= normalizeUnit flowUnit
+         in if not (sameSpelling stated flowUnit)
                 then Left [mismatch stated flowUnit]
                 else emitKnown (bfId flow) flow flowUnit local
     -- One name and compartment in two units (an energy carrier recorded in
     -- kg and in MJ) is told apart by the unit the exchange states, which the
     -- author has already written. Nothing else is guessed at.
     statedIn stated (flow, ownerUnits, _) =
-        normalizeUnit stated == normalizeUnit (unitNameOf ownerUnits (bfUnitId flow))
+        sameSpelling stated (unitNameOf ownerUnits (bfUnitId flow))
     introduce name comp unit = case lookupUnit ctx unit of
-        Nothing -> Left ["unknown unit \"" <> unit <> "\" for flow \"" <> name <> "\""]
+        Nothing -> Left [unitRefusal ctx unit <> " for flow \"" <> name <> "\""]
         Just (unitRef, unitLabel) ->
             let flowId = authoredBioFlowUUID name comp unitLabel
              in emit
@@ -988,7 +993,7 @@ string.
 -}
 sameUnit :: UnitConfig -> Text -> Text -> Bool
 sameUnit cfg stated other =
-    normalizeUnit stated == normalizeUnit other
+    unitKey cfg stated == unitKey cfg other
         || maybe False (\factor -> abs (factor - 1) < 1e-12) (convertUnit cfg stated other 1)
 
 {- | Judge the unit an exchange to a dependency's supplier is stated in.
@@ -1089,13 +1094,37 @@ plus the canonical name of that unit. Names and symbols both resolve, so
 @kilogram@ and @kg@ reach the same row; a name wins over a symbol when a
 database happens to use one string for both.
 -}
-lookupUnit :: AuthorContext -> Text -> Maybe (UUID, Text)
-lookupUnit ctx stated = M.lookup (normalizeUnit stated) (unitIndex (dbUnits (acDb ctx)))
 
-unitIndex :: UnitDB -> M.Map Text (UUID, Text)
-unitIndex units =
+{- | Why the unit an author named could not be resolved, in the reader's terms.
+
+'lookupUnit' answers 'Nothing' for two different reasons, and calling both
+"unknown" hides the one that can be acted on: a spelling the unit table cannot
+settle has candidates, and naming them is the whole point of refusing it.
+-}
+unitRefusal :: AuthorContext -> Text -> Text
+unitRefusal ctx stated = case readUnit (acUnitConfig ctx) stated of
+    ReadAmbiguous a b rest ->
+        "unit \"" <> stated <> "\" could be " <> T.intercalate " or " [quoted u | u <- a : b : rest]
+    ReadExact _ -> unknown
+    ReadRespelt _ _ -> unknown
+    ReadUnknown -> unknown
+  where
+    unknown :: Text
+    unknown = "unknown unit " <> quoted stated
+
+    quoted :: Text -> Text
+    quoted u = "\"" <> u <> "\""
+
+lookupUnit :: AuthorContext -> Text -> Maybe (UUID, Text)
+lookupUnit ctx stated = M.lookup (unitKey cfg stated) (unitIndex cfg (dbUnits (acDb ctx)))
+  where
+    cfg :: UnitConfig
+    cfg = acUnitConfig ctx
+
+unitIndex :: UnitConfig -> UnitDB -> M.Map Text (UUID, Text)
+unitIndex cfg units =
     M.fromList
-        [ (normalizeUnit key, (unitId u, unitName u))
+        [ (unitKey cfg key, (unitId u, unitName u))
         | u <- M.elems units
         , key <- [unitSymbol u, unitName u]
         , not (T.null (T.strip key))

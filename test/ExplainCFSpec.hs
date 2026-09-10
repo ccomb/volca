@@ -63,10 +63,9 @@ massEnergyConfig =
         ["mass", "energy"]
         ( M.fromList
             [ ("kg", UnitDef [1, 0] 1.0)
-            , ("mj", UnitDef [0, 1] 1.0)
+            , ("MJ", UnitDef [0, 1] 1.0)
             ]
         )
-        (M.fromList [("kg", "kg"), ("mj", "MJ")])
 
 cfLine :: Text -> Text -> Text -> Double -> MethodCF
 cfLine name sub unit val =
@@ -415,4 +414,3 @@ spec = do
         mkUnitConfig
             ["mass", "volume"]
             (M.fromList [("kg", UnitDef [1, 0] 1.0), ("m3", UnitDef [0, 1] 1.0)])
-            (M.fromList [("kg", "kg"), ("m3", "m3")])

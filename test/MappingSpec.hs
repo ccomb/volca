@@ -73,7 +73,6 @@ gKgUnitConfig =
             , ("g", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 0.001)
             ]
         )
-        (M.fromList [("kg", "kg"), ("g", "g")])
 
 {- | UnitConfig whose mass dimension has NO canonical base (g only, no kg at
 factor 1.0), so 'normalizeToCanonical' fails — exercises the result-expression
@@ -84,7 +83,6 @@ gOnlyUnitConfig =
     mkUnitConfig
         ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
         (M.fromList [("g", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 0.001)])
-        (M.fromList [("g", "g")])
 
 -- ---------------------------------------------------------------------------
 -- Spec
@@ -514,7 +512,6 @@ spec = do
                 mkUnitConfig
                     []
                     (M.fromList [("kg", kgDef), ("m3", m3Def)])
-                    (M.fromList [("kg", "kg"), ("m3", "m3")])
             cfPerKg = (mkCFComp "Gas, natural/kg" "natural resource" "" 43.1){mcfUnit = "kg"}
             cfPerM3 = (mkCFComp "Gas, natural/m3" "natural resource" "" 34.5){mcfUnit = "m3"}
 
@@ -879,7 +876,6 @@ spec = do
                     UnitConversion.mkUnitConfig
                         []
                         (M.fromList [("kg", kgDef), ("g", gDef)])
-                        (M.fromList [("kg", "kg"), ("g", "g")])
             fid <- nextRandom
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air Nothing){bfUnitId = uidKg}
@@ -959,7 +955,6 @@ spec = do
                         , ("mj", UnitDef [0, 0, 1, 0, 0, 0, 0, 0] 1.0)
                         ]
                     )
-                    (M.fromList [("kg", "kg"), ("m3", "m3"), ("mj", "MJ")])
             fillWith densities unitName' cf = do
                 fid <- nextRandom
                 uid <- nextRandom
