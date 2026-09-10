@@ -265,6 +265,15 @@ spec = do
             convertUnit with "mg" "kg" 1.0 `shouldBe` Just 1.0e-6
             notes `shouldSatisfy` any (T.isInfixOf "beside")
 
+        -- Everything downstream reads the shipped table, where a spelling
+        -- only this file uses does not exist, so it must not become the unit
+        -- amounts are recorded in.
+        it "leaves the shipped table to decide what a dimension is recorded in" $ do
+            cfg <- loadFullUnitConfig
+            let (with, _) = addDeclaredUnits cfg [declaring "kl" "m3" 1.0]
+            canonicalUnitFor with "l" `shouldBe` canonicalUnitFor cfg "l"
+            canonicalUnitFor with "kl" `shouldBe` canonicalUnitFor cfg "m3"
+
         it "places one of two spellings that state the same size" $ do
             cfg <- loadFullUnitConfig
             let (with, notes) =

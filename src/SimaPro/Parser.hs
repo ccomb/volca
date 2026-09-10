@@ -1606,13 +1606,8 @@ unitDeclarations cfg = mapMaybe row . takeWhile (/= "End") . drop 1 . dropWhile 
             | not (BS.null name)
             , not (BS.null reference) ->
                 UnitConversion.UnitDeclaration (decodeBS name) (decodeBS reference)
-                    <$> readAmount (decodeBS (decimalPoint (spDecimal cfg) howMany))
+                    <$> readAmount (Expr.normalizeExpr (spDecimal cfg) (decodeBS howMany))
         _ -> Nothing
-
-    decimalPoint :: Char -> BS.ByteString -> BS.ByteString
-    decimalPoint sep
-        | sep == ',' = BS8.map (\c -> if c == ',' then '.' else c)
-        | otherwise = id
 
 parseSimaProCSV :: UnitConversion.UnitConfig -> FilePath -> IO (Either Text ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB))
 parseSimaProCSV unitCfg path = do

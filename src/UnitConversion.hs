@@ -249,10 +249,30 @@ tonne. Neither is placed and the pair is named, which leaves the reading where
 it already was and says so.
 -}
 addDeclaredUnits :: UnitConfig -> [UnitDeclaration] -> (UnitConfig, [Text])
-addDeclaredUnits cfg decls = (mkUnitConfig (ucDimensionOrder cfg) placed (M.mapWithKey const placed), notes)
+addDeclaredUnits cfg decls = (laid{ucCanonical = canonicals}, notes)
   where
+    laid :: UnitConfig
+    laid = mkUnitConfig (ucDimensionOrder cfg) placed (M.mapWithKey const placed)
+
     placed :: M.Map Text UnitDef
     placed = settle (ucUnits cfg) added
+
+    {- Which unit a dimension is recorded in stays the shipped table's to
+    decide. 'mkUnitConfig' elects the shortest name at factor 1.0, and a file
+    stating @Kl@ as one cubic metre would win that election on spelling alone:
+    every volume in the file would then be recorded as @kl@, a name no other
+    database, method or matrix knows, and a cross-database link out of it would
+    fail to convert. -}
+    canonicals :: M.Map Text Text
+    canonicals = M.mapMaybe (flip M.lookup shippedReference . udDimension) placed
+
+    shippedReference :: M.Map Dimension Text
+    shippedReference =
+        M.fromList
+            [ (udDimension def, reference)
+            | (spelling, def) <- M.toList (ucUnits cfg)
+            , Just reference <- [M.lookup spelling (ucCanonical cfg)]
+            ]
 
     -- One declaration per key, dropping what the shipped table already answers
     -- for and what the file itself spells two ways for two sizes.

@@ -414,13 +414,18 @@ History of manual bumps:
      holding every emission of such an export uncharacterizable - a zero score
      under every method, beside resource categories that look right.
 
+- 34: a SimaPro file's own unit block is read, so an amount written in a unit
+     only that file sizes is converted where it used to be left as written.
+     Nothing changes type, so a cache written just before this would pass the
+     fingerprint and keep the unconverted amount.
+
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
 -}
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 33
+     in hi `xor` lo `xor` 34
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
