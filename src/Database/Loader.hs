@@ -413,6 +413,11 @@ History of manual bumps:
      cache written just before this would pass the fingerprint and go on
      holding every emission of such an export uncharacterizable - a zero score
      under every method, beside resource categories that look right.
+- 34: the unit table a database was built against is keyed by the spelling it
+     writes rather than by that spelling lower-cased, so 'UnitConfig' loses a
+     'Map Text Text' and gains a 'Map Text [(Text, UnitDef)]' in its place.
+     'BuildInputs' holds one, so the stored bytes differ and every field after
+     it would be read at the wrong offset.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -420,7 +425,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 33
+     in hi `xor` lo `xor` 34
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1156,12 +1161,10 @@ other link would abort the whole load — better to leave the input unlinked.
 -}
 linkUnitsCompatible :: UC.UnitConfig -> T.Text -> T.Text -> Bool
 linkUnitsCompatible unitConfig consumerUnit supplierUnit =
-    let cu = T.toLower (T.strip consumerUnit)
-        su = T.toLower (T.strip supplierUnit)
-     in cu == su
-            || T.null cu
-            || T.null su
-            || UC.unitsCompatible unitConfig consumerUnit supplierUnit
+    UC.unitKey unitConfig consumerUnit == UC.unitKey unitConfig supplierUnit
+        || T.null (T.strip consumerUnit)
+        || T.null (T.strip supplierUnit)
+        || UC.unitsCompatible unitConfig consumerUnit supplierUnit
 
 {- | Fix a single exchange's activity link using name-only matching.
 Inputs and non-reference outputs (coproducts / avoided-production credits)
@@ -1694,27 +1697,35 @@ loadDatabaseWithCrossDBLinking opts otherIndexes synonymDB locationHier policy p
                         "%d unknown unit(s): %s — add to the [[units]] CSV file"
                         (S.size unknownUnits)
                         (T.unpack $ T.intercalate ", " $ map (\u -> "\"" <> u <> "\"") $ S.toList unknownUnits)
-            case UC.uvAmbiguous verdict of
+            case unitRefusals verdict of
                 [] -> loadOn simpleDb unknownUnits
-                ambiguous -> return $ Left (ambiguousUnitsError ambiguous)
+                refusals -> return $ Left (T.intercalate "; " refusals)
   where
-    -- One spelling the table settles, and the spelling it settles it under.
+    {- The table spells it differently, and only one way, so the reading is
+    settled. Which side is the misspelling is not for the loader to say: it
+    reports the row it read the amount against and lets the reader judge. -}
     respeltLine :: (T.Text, T.Text) -> T.Text
     respeltLine (written, spelling) =
-        "unit \"" <> written <> "\" is spelled \"" <> spelling <> "\" in the unit table; read as that one"
+        "unit \"" <> written <> "\" is written \"" <> spelling <> "\" in the unit table; amounts read against that row"
 
-    {- Two entries of the table differ from this spelling only by case, so
-    nothing in the data says which is meant and a guess would be a factor
-    apart. The answer is the source's own spelling or a [[units]] entry, never
-    a ranking of the candidates. -}
-    ambiguousUnitsError :: [(T.Text, [T.Text])] -> T.Text
-    ambiguousUnitsError ambiguous =
-        T.intercalate
-            "; "
-            [ "unit \"" <> written <> "\" could be " <> T.intercalate " or " (map quoted candidates)
-            | (written, candidates) <- ambiguous
-            ]
-            <> " — correct the spelling in the source, or add it to the [[units]] CSV file"
+    {- Both refusals say the same thing: the evidence leaves more than one
+    reading, and a guess between them is worth whatever separates the
+    candidates. Neither ranks them. -}
+    unitRefusals :: UC.UnitVerdict -> [T.Text]
+    unitRefusals verdict =
+        [ "unit \"" <> written <> "\" could be " <> T.intercalate " or " (map quoted candidates)
+        | (written, candidates) <- UC.uvAmbiguous verdict
+        ]
+            <> [ "this database tells apart "
+                    <> T.intercalate " and " (map quoted written)
+                    <> ", and the unit table has only "
+                    <> quoted row
+                    <> " for all of them"
+               | (row, written) <- UC.uvCollapsed verdict
+               ]
+            <> [ "correct the spelling in the source, or give the missing unit its own row in the [[units]] CSV file"
+               | not (null (UC.uvAmbiguous verdict)) || not (null (UC.uvCollapsed verdict))
+               ]
 
     quoted :: T.Text -> T.Text
     quoted t = "\"" <> t <> "\""

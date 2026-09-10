@@ -25,6 +25,11 @@
   be off by whatever separates them. An unknown unit still warns and lets the
   load continue, as before. A unit table that spells one unit twice is refused
   at startup rather than keeping one row and dropping the other in silence.
+  And a database that tells apart two units the table has a single row for
+  stops the load naming both, which is how a published unit group writing `Mg`
+  beside `mg` is caught: each on its own reads as the one row the table holds,
+  and only the pair says a megagram was about to be carried through as a
+  milligram.
 - A geography filter now names a place. Asking `search_activities`,
   `get_consumers` or `get_supply_chain` for a location matched that text
   anywhere inside one, and location codes overlap: `DE` sits inside `NORDEL`,

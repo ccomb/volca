@@ -102,7 +102,7 @@ import Types (
     noProperties,
     parseProcessRef,
  )
-import UnitConversion (UnitConfig, convertUnit, unitKey)
+import UnitConversion (UnitConfig, UnitReading (..), convertUnit, readUnit, unitKey)
 
 -- ---------------------------------------------------------------------------
 -- Deterministic identity
@@ -330,7 +330,7 @@ validateOne ctx a =
             , [ "the product amount is " <> T.pack (show (aaProductAmount a)) <> "; it must be a finite non-zero number"
               | not (isUsableAmount (aaProductAmount a))
               ]
-            , [ "unknown unit \"" <> aaProductUnit a <> "\" for the product"
+            , [ unitRefusal ctx (aaProductUnit a) <> " for the product"
               | Nothing <- [mProductUnit]
               ]
             ]
@@ -682,7 +682,7 @@ resolveLinked ctx provider amount mUnit build =
     resolved sup = do
         let stated = fromMaybe (defaultUnit sup) mUnit
         (unitRef, unitLabel) <-
-            maybe (Left ("unknown unit \"" <> stated <> "\"")) Right (lookupUnit ctx stated)
+            maybe (Left (unitRefusal ctx stated)) Right (lookupUnit ctx stated)
         maybe (Right ()) Left (unitError ctx sup unitLabel)
         newTechFlow <- adoptTechFlow ctx sup
         maybe (Right ()) Left (dependencyUnitError ctx sup unitLabel)
@@ -797,7 +797,7 @@ resolveBio ctx flowRef direction amount mUnit comment
     statedIn stated (flow, ownerUnits, _) =
         sameSpelling stated (unitNameOf ownerUnits (bfUnitId flow))
     introduce name comp unit = case lookupUnit ctx unit of
-        Nothing -> Left ["unknown unit \"" <> unit <> "\" for flow \"" <> name <> "\""]
+        Nothing -> Left [unitRefusal ctx unit <> " for flow \"" <> name <> "\""]
         Just (unitRef, unitLabel) ->
             let flowId = authoredBioFlowUUID name comp unitLabel
              in emit
@@ -1094,6 +1094,26 @@ plus the canonical name of that unit. Names and symbols both resolve, so
 @kilogram@ and @kg@ reach the same row; a name wins over a symbol when a
 database happens to use one string for both.
 -}
+{- | Why the unit an author named could not be resolved, in the reader's terms.
+
+'lookupUnit' answers 'Nothing' for two different reasons, and calling both
+"unknown" hides the one that can be acted on: a spelling the unit table cannot
+settle has candidates, and naming them is the whole point of refusing it.
+-}
+unitRefusal :: AuthorContext -> Text -> Text
+unitRefusal ctx stated = case readUnit (acUnitConfig ctx) stated of
+    ReadAmbiguous a b rest ->
+        "unit \"" <> stated <> "\" could be " <> T.intercalate " or " [quoted u | u <- a : b : rest]
+    ReadExact _ -> unknown
+    ReadRespelt _ _ -> unknown
+    ReadUnknown -> unknown
+  where
+    unknown :: Text
+    unknown = "unknown unit " <> quoted stated
+
+    quoted :: Text -> Text
+    quoted u = "\"" <> u <> "\""
+
 lookupUnit :: AuthorContext -> Text -> Maybe (UUID, Text)
 lookupUnit ctx stated = M.lookup (unitKey cfg stated) (unitIndex cfg (dbUnits (acDb ctx)))
   where

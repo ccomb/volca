@@ -242,6 +242,30 @@ spec = do
             buildFromCSV "name,dimension,factor\nkg,mass,1.0\nkg,mass,2.0\n"
                 `shouldBe` (Left "unit spelled more than once: kg" :: Either Text UnitConfig)
 
+        it "refuses when the source tells apart two units the table has one row for" $ do
+            -- A published ILCD unit group writes Mg beside mg. A table holding
+            -- only mg reads each of them as that one row, and each reading on
+            -- its own looks settled; the pair is what says a megagram would be
+            -- carried through as a milligram.
+            let Right cfg = buildFromCSV "name,dimension,factor\nmg,mass,1.0e-6\n"
+                verdict = judgeUnits cfg ["Mg", "mg"]
+            uvCollapsed verdict `shouldBe` [("mg", ["Mg", "mg"])]
+            uvRespelt verdict `shouldBe` []
+
+        it "says nothing once the table holds both readings" $ do
+            let Right cfg = buildFromCSV "name,dimension,factor\nmg,mass,1.0e-6\nMg,mass,1000.0\n"
+                verdict = judgeUnits cfg ["Mg", "mg"]
+            uvCollapsed verdict `shouldBe` []
+            uvRespelt verdict `shouldBe` []
+            uvAmbiguous verdict `shouldBe` []
+            uvUnknown verdict `shouldBe` []
+
+        it "reports a lone case variant without calling it a collapse" $ do
+            let Right cfg = buildFromCSV "name,dimension,factor\nkWh,energy,3.6\n"
+                verdict = judgeUnits cfg ["KWH"]
+            uvRespelt verdict `shouldBe` [("KWH", "kWh")]
+            uvCollapsed verdict `shouldBe` []
+
     describe "Config Building (buildFromCSV)" $ do
         it "builds config from CSV" $ do
             let csv = "name,dimension,factor\nkg,mass,1.0\ng,mass,0.001\ntkm,mass*length,1e6\n"

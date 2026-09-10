@@ -360,30 +360,61 @@ mkUnitConfig dimOrder units =
 {- | What the table says about the units one database declares.
 
 Pure, because the answer depends on two tables and nothing else; naming it to
-the user is the caller's half. The three lists are the three answers of
-'readUnit' that are worth reporting, an exact spelling being the silent one.
+the user is the caller's half. The four lists are every answer worth reporting,
+an exact spelling nothing else lands on being the silent one.
 -}
 data UnitVerdict = UnitVerdict
     { uvRespelt :: ![(Text, Text)]
     -- ^ as the database writes it, as the table does
     , uvAmbiguous :: ![(Text, [Text])]
-    -- ^ as the database writes it, the spellings it could equally mean
+    -- ^ as the database writes it, the table spellings it could equally mean
+    , uvCollapsed :: ![(Text, [Text])]
+    -- ^ one table spelling, and the several the database distinguishes under it
     , uvUnknown :: ![Text]
     -- ^ nothing in the table resembles it
     }
     deriving (Eq, Show)
 
--- | Read every unit a database declares against the table, keeping each answer.
+{- | Read every unit a database declares against the table, keeping each answer.
+
+The collapse is the one answer no single reading can give. A database writing
+both @Mg@ and @mg@ against a table holding only @mg@ has each of them read as
+that one row, and each reading on its own looks settled; it is the pair that
+says the source tells apart two units the table does not, and reading either is
+then a guess worth a factor. So it is judged over the declared set, not one
+name at a time.
+-}
 judgeUnits :: UnitConfig -> [Text] -> UnitVerdict
 judgeUnits cfg written =
     UnitVerdict
-        { uvRespelt = [(u, spelling) | (u, ReadRespelt spelling _) <- readings]
+        { uvRespelt = [(u, spelling) | (u, ReadRespelt spelling _) <- readings, not (collapsedRow spelling)]
         , uvAmbiguous = [(u, a : b : rest) | (u, ReadAmbiguous a b rest) <- readings]
+        , uvCollapsed = M.toList collapsed
         , uvUnknown = [u | (u, ReadUnknown) <- readings]
         }
   where
     readings :: [(Text, UnitReading)]
     readings = [(u, readUnit cfg u) | u <- S.toList (S.fromList written), not (T.null (T.strip u))]
+
+    -- The table spelling each settled reading landed on, and what landed there.
+    landed :: M.Map Text (S.Set Text)
+    landed =
+        M.fromListWith
+            S.union
+            [ (row, S.singleton (T.strip u))
+            | (u, reading) <- readings
+            , row <- case reading of
+                ReadExact _ -> [T.strip u]
+                ReadRespelt spelling _ -> [spelling]
+                ReadAmbiguous{} -> []
+                ReadUnknown -> []
+            ]
+
+    collapsed :: M.Map Text [Text]
+    collapsed = M.map S.toList (M.filter ((> 1) . S.size) landed)
+
+    collapsedRow :: Text -> Bool
+    collapsedRow = flip M.member collapsed
 
 -- | Tracker for unknown units encountered during parsing.
 data UnknownUnitTracker = UnknownUnitTracker
