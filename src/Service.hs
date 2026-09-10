@@ -1875,7 +1875,7 @@ collectSupplyChainEntries db dbName level supplyVec scf =
 
         matchesFilters activity pid =
             let nameOk = nameMatchesPid pid
-                locOk = maybe True (\pat -> textMatches pat (activityLocation activity)) (afcLocation core)
+                locOk = maybe True (\pat -> locationAnswers pat (activityLocation activity)) (afcLocation core)
                 productOk = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afcProduct core)
                 classOk = matchClassifications activity (afcClassifications core)
                 localDepth = IM.findWithDefault maxBound (fromIntegral pid) depthMap

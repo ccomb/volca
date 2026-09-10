@@ -305,8 +305,18 @@ what keeps a filter typed one letter at a time useful, and leaves no way for a c
 to match inside an unrelated one.
 -}
 locationAnswers :: Text -> Text -> Bool
-locationAnswers wanted location =
-    T.toCaseFold (T.strip wanted) `T.isPrefixOf` T.toCaseFold (T.strip location)
+locationAnswers wanted location = asked wanted `T.isPrefixOf` asked location
+
+-- | The same question asked of one location only: 'locationAnswers' under @exact@.
+locationIs :: Text -> Text -> Bool
+locationIs wanted location = asked wanted == asked location
+
+{- | A location as the question is about it: whitespace around a code is not part
+of the place, and neither is the case it was typed in. Both filters read it the
+same way, or the answer would depend on which of the two was asked.
+-}
+asked :: Text -> Text
+asked = T.toCaseFold . T.strip
 
 {- | Apply geo, product, and classification filters to a pre-built candidate list.
 Does NOT touch the name query: callers (BM25 retrieval or name-candidate lookup)
@@ -332,11 +342,8 @@ applyStructuredFilters db geoParam productParam classFilters exactMatch candidat
         geoFiltered = case geoParam of
             Nothing -> candidates
             Just geo
-                | exactMatch ->
-                    let geoFold = T.toCaseFold geo
-                     in [(pid, a) | (pid, a) <- candidates, T.toCaseFold (activityLocation a) == geoFold]
-                | otherwise ->
-                    [(pid, a) | (pid, a) <- candidates, locationAnswers geo (activityLocation a)]
+                | exactMatch -> [(pid, a) | (pid, a) <- candidates, locationIs geo (activityLocation a)]
+                | otherwise -> [(pid, a) | (pid, a) <- candidates, locationAnswers geo (activityLocation a)]
 
         -- exchangeIsReference covers both ReferenceProduct (output) and
         -- ReferenceInput (treatment-process input). Both are the activity's

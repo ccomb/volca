@@ -14,9 +14,10 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
-- A geography filter now names a place. Asking `search_activities` or
-  `get_consumers` for a location matched that text anywhere inside one, and
-  location codes overlap: `DE` sits inside `NORDEL`, `SE` inside `US-SERC`,
+- A geography filter now names a place. Asking `search_activities`,
+  `get_consumers` or `get_supply_chain` for a location matched that text
+  anywhere inside one, and location codes overlap: `DE` sits inside `NORDEL`,
+  `SE` inside `US-SERC`,
   `CH` inside `RER w/o CH+DE`, a region defined by excluding Switzerland. So a
   question about Germany was answered with the Nordic grid and one about
   Switzerland with the region that leaves it out, and nothing in the answer

@@ -827,7 +827,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "name" "string" Optional "Filter by activity name"
-        , Param "location" "string" Optional "Filter by location"
+        , Param "location" "string" Optional "Filter by geography/location: the location itself or one written under it, case-insensitive"
         , pLimit "Max results (default 100)"
         , Param "min_quantity" "number" Optional "Min scaled quantity threshold"
         , Param "max_depth" "integer" Optional "Max depth from root (1 = direct inputs only)"

@@ -8,7 +8,7 @@ codes overlap as text and the same filter narrows a delete.
 -}
 module StructuredFiltersSpec (spec) where
 
-import Database (findActivitiesByFields, locationAnswers)
+import Database (findActivitiesByFields, locationAnswers, locationIs)
 import Test.Hspec
 import TestHelpers (loadSampleDatabase)
 import Types
@@ -42,6 +42,13 @@ geographyFilter = describe "a geography filter names a place" $ do
     it "answers a filter typed one letter at a time" $
         map (uncurry locationAnswers) [("F", "FR"), ("F", "FI"), ("F", "DE")]
             `shouldBe` [True, True, False]
+
+    it "reads a location the same way under exact, so only the question differs" $
+        -- Whitespace and case are not part of a place. Reading them on one arm
+        -- and not the other would make " FR " answer or not depending on which
+        -- of the two filters was asked.
+        map (uncurry locationIs) [(" FR ", "fr"), ("US", "US-WECC"), ("F", "FR")]
+            `shouldBe` [True, False, False]
 
 exactProductFilter :: Spec
 exactProductFilter = describe "exact product filter" $ do
