@@ -291,6 +291,23 @@ bm25DocsMatchingName idx name =
     intersectAll [] = IS.empty
     intersectAll (x : xs) = foldl IS.intersection x xs
 
+{- | Does a location answer a geography filter?
+
+A location is a code from a controlled vocabulary rather than free text, and those
+codes overlap as text: @SE@ sits inside @US-SERC@, @DE@ inside @NORDEL@, and @CH@
+inside @RER w/o CH+DE@, a region defined by excluding Switzerland. Matching anywhere
+in the string answers all three with places nobody asked for, and the answer carries
+nothing that says so.
+
+So a location answers when it is the geography asked for, or one written under it:
+@US@ answers for @US-WECC@ and @Europe@ for @Europe without Switzerland@, which is
+what keeps a filter typed one letter at a time useful, and leaves no way for a code
+to match inside an unrelated one.
+-}
+locationAnswers :: Text -> Text -> Bool
+locationAnswers wanted location =
+    T.toCaseFold (T.strip wanted) `T.isPrefixOf` T.toCaseFold (T.strip location)
+
 {- | Apply geo, product, and classification filters to a pre-built candidate list.
 Does NOT touch the name query: callers (BM25 retrieval or name-candidate lookup)
 produce the initial list.
@@ -319,8 +336,7 @@ applyStructuredFilters db geoParam productParam classFilters exactMatch candidat
                     let geoFold = T.toCaseFold geo
                      in [(pid, a) | (pid, a) <- candidates, T.toCaseFold (activityLocation a) == geoFold]
                 | otherwise ->
-                    let geoLower = T.toLower geo
-                     in [(pid, a) | (pid, a) <- candidates, T.isInfixOf geoLower (T.toLower (activityLocation a))]
+                    [(pid, a) | (pid, a) <- candidates, locationAnswers geo (activityLocation a)]
 
         -- exchangeIsReference covers both ReferenceProduct (output) and
         -- ReferenceInput (treatment-process input). Both are the activity's

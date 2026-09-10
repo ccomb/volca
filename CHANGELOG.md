@@ -14,6 +14,19 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
+- A geography filter now names a place. Asking `search_activities` or
+  `get_consumers` for a location matched that text anywhere inside one, and
+  location codes overlap: `DE` sits inside `NORDEL`, `SE` inside `US-SERC`,
+  `CH` inside `RER w/o CH+DE`, a region defined by excluding Switzerland. So a
+  question about Germany was answered with the Nordic grid and one about
+  Switzerland with the region that leaves it out, and nothing in the answer
+  said so. A location now answers when it is the geography asked for or one
+  written under it, `US` for `US-WECC` and `Europe` for `Europe without
+  Switzerland`, which leaves a filter typed one letter at a time working and
+  leaves no way for a code to match inside an unrelated one. `exact=true` is
+  unchanged and still means the location itself. The same filter narrows a
+  delete, so this decides what a delete removes as well as what a search
+  returns.
 - An exchange that resolved to no supplier now reports `activityLinkId` as
   null. It used to report the all-zero UUID, a value that reads as an
   identifier and is not one: every consumer had to know that one UUID means
