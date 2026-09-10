@@ -370,7 +370,6 @@ gramsAware :: UnitConfig
 gramsAware =
     defaultUnitConfig
         { ucUnits = M.insert "g" (UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 0.001) (ucUnits defaultUnitConfig)
-        , ucOriginalKeys = M.insert "g" "g" (ucOriginalKeys defaultUnitConfig)
         }
 
 mkUUID :: Int -> UUID

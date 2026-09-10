@@ -69,6 +69,7 @@ module Database.CrossLinking (
     -- * Location Hierarchy
     isSubregionOf,
     locationHierarchy,
+    placelessLocations,
 
     -- * Compound Name Parsing
     extractBracketedLocation,
@@ -1134,8 +1135,14 @@ rawLocationHierarchy =
         , ("RoW", [])
         ]
 
--- | Check if two units are compatible for linking
+{- | Check if two units are compatible for linking.
+
+Same rule as 'Database.Loader.linkUnitsCompatible' and the matrix builder's
+own: the same unit needs no conversion, otherwise the dimensions must let one
+happen. 'UC.unitKey' is what decides sameness, so two spellings the table does
+not know are the same only written the same way.
+-}
 unitsAreCompatible :: UC.UnitConfig -> Text -> Text -> Bool
 unitsAreCompatible cfg unit1 unit2
-    | normalizeText unit1 == normalizeText unit2 = True -- Same unit (after normalization)
+    | UC.unitKey cfg unit1 == UC.unitKey cfg unit2 = True
     | otherwise = UC.unitsCompatible cfg unit1 unit2 -- Dimensionally compatible

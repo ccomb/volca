@@ -5,7 +5,7 @@
       <activity specialActivityType="0" id="agriculture-uuid" activityNameId="agriculture-uuid" type="1">
         <activityName xml:lang="en">agricultural production (compound units test)</activityName>
         <generalComment>
-          <text xml:lang="en" index="0">Tests compound unit conversions: kg/ha, MJ/kg, person*km, m2*year</text>
+          <text xml:lang="en" index="0">Tests compound unit conversions: person*km, m2*year. The per-hectare and per-kilogram rows are parameter units the table does not carry, and exercise the warning path.</text>
         </generalComment>
       </activity>
       <geography geographyId="34dbbff8-88ce-11de-ad60-0019e336be3a">

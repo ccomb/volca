@@ -2,7 +2,11 @@
 
 module UnitConversionSpec (spec) where
 
+import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Map.Strict as M
+import Data.Maybe (isNothing)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Hspec
 import UnitConversion
@@ -11,6 +15,20 @@ import UnitConversion
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True
 isLeft _ = False
+
+-- | The table took the reading and named the spelling it took it under.
+respeltAs :: T.Text -> UnitReading -> Bool
+respeltAs spelling (ReadRespelt found _) = found == spelling
+respeltAs _ (ReadExact _) = False
+respeltAs _ ReadAmbiguous{} = False
+respeltAs _ ReadUnknown = False
+
+-- | The table spells it exactly this way, so there is nothing to report.
+exact :: UnitReading -> Bool
+exact (ReadExact _) = True
+exact (ReadRespelt _ _) = False
+exact ReadAmbiguous{} = False
+exact ReadUnknown = False
 
 -- | Load the full unit config from data/units.csv
 loadFullUnitConfig :: IO UnitConfig
@@ -136,7 +154,7 @@ spec = do
         -- Guards data/units.csv against reverting to a Bq-canonical /time.
         it "normalizes Bq to canonical kBq (ionising-radiation CFs are per kBq)" $ do
             cfg <- loadFullUnitConfig
-            normalizeToCanonical cfg "Bq" 1000.0 `shouldBe` Just ("kbq", 1.0)
+            fmap (first T.toLower) (normalizeToCanonical cfg "Bq" 1000.0) `shouldBe` Just ("kbq", 1.0)
 
         -- Energy's reference unit is MJ, not the SI joule: that is the unit
         -- energy CFs and cumulative-energy-demand results are authored in, and
@@ -145,35 +163,80 @@ spec = do
         -- and unreadable.
         it "normalizes kWh to canonical MJ (energy CFs are per MJ)" $ do
             cfg <- loadFullUnitConfig
-            normalizeToCanonical cfg "kWh" 1.0 `shouldBe` Just ("mj", 3.6)
+            fmap (first T.toLower) (normalizeToCanonical cfg "kWh" 1.0) `shouldBe` Just ("mj", 3.6)
 
         -- What a dimension's reference unit is decides the unit a reference
         -- product is recorded in and the basis a result-expression CF is read
         -- against. It is a policy choice, not an accident of which spelling
         -- sorts first, so every dimension that declares one is pinned here:
-        -- moving one moves recorded amounts, and has to be deliberate.
+        -- moving one moves recorded amounts, and has to be deliberate. Which
+        -- unit is pinned here, not the case the lookup answers in.
         it "pins the canonical unit of every dimension" $ do
             cfg <- loadFullUnitConfig
             let canonicals =
                     [ ("kilogram", Just "kg")
                     , ("meter", Just "m")
                     , ("second", Just "s")
-                    , ("j", Just "mj")
+                    , ("joule", Just "mj")
                     , ("square meter", Just "m2")
                     , ("cubic meter", Just "m3")
                     , ("unit", Just "p")
-                    , ("eur2005", Just "eur")
+                    , ("EUR2005", Just "eur")
                     , ("Bq", Just "kbq")
                     , ("km/h", Just "m/s")
-                    , ("kg/h", Just "kg/s")
-                    , ("kg/ha", Just "kg/m2")
                     , ("kg/l", Just "kg/m3")
-                    , ("tkm", Just "kgm")
+                    , ("kgkm", Just "tkm")
                     , ("m2*year", Just "m2a")
-                    , -- a dimension may declare none, and then nothing normalizes
-                      ("mj/kg", Nothing)
+                    , ("m3*year", Just "m3a")
+                    , ("kg*day", Just "kgy")
+                    , ("km*year", Just "my")
+                    , ("passenger-km", Just "pkm")
                     ]
-            map (canonicalUnitFor cfg . fst) canonicals `shouldBe` map snd canonicals
+            map (fmap T.toLower . canonicalUnitFor cfg . fst) canonicals `shouldBe` map snd canonicals
+
+        -- A dimension with no row at 1.0 has no reference unit, so
+        -- 'normalizeToCanonical' answers Nothing and the amount is recorded in
+        -- whatever the source wrote. Two amounts of the same dimension then sit
+        -- in one column in two units. Every dimension the table declares carries
+        -- one, and this is what says so for the ones no case above names.
+        it "leaves no unit without a reference to normalize to" $ do
+            cfg <- loadFullUnitConfig
+            let orphans = [u | u <- M.keys (ucUnits cfg), isNothing (canonicalUnitFor cfg u)]
+            orphans `shouldBe` []
+
+        -- A composed unit's factor is the product of its parts', and the table
+        -- writes it by hand. Where the hand slipped, the load was silently out
+        -- by that much: a hectare year read as 3.1536e11 square metre years
+        -- rather than 10 000, which is the year counted twice.
+        it "agrees with the parts every composed unit is made of" $ do
+            cfg <- loadFullUnitConfig
+            let mile = 1609.344
+                composed =
+                    [ ("ha a", "m2a", 10000) -- a hectare is 10 000 square metres
+                    , ("l*day", "m3a", 1.0e-3 / 365) -- a litre is a thousandth of a cubic metre, a day a 365th of a year
+                    , ("kg*day", "kgy", 1 / 365)
+                    , ("km*year", "my", 1000)
+                    , ("mile*year", "my", mile)
+                    , ("person*mile", "pkm", mile / 1000)
+                    , ("t*mile", "kgm", 1000 * mile)
+                    , ("tkm", "kgm", 1.0e6)
+                    , ("kgkm", "tkm", 1.0e-3)
+                    , ("km/h", "m/s", 1000 / 3600)
+                    ]
+            mapM_
+                ( \(from, to, expected) -> case convertUnit cfg from to 1.0 of
+                    Just got -> got `shouldSatisfy` (\x -> abs (x - expected) <= abs expected * 1.0e-12)
+                    Nothing -> expectationFailure (T.unpack (from <> " does not convert to " <> to))
+                )
+                composed
+
+        -- The table read this as a kilogray, in the dimensionless bucket where
+        -- a count lives, while a source writing it means a kilogram year: it is
+        -- the reference unit of mass over time in one published unit list.
+        it "reads kgy as a mass over time, not as a count" $ do
+            cfg <- loadFullUnitConfig
+            unitsCompatible cfg "kgy" "kg*year" `shouldBe` True
+            unitsCompatible cfg "kgy" "unit" `shouldBe` False
 
         it "returns Nothing for incompatible units" $ do
             cfg <- loadFullUnitConfig
@@ -198,18 +261,58 @@ spec = do
             cfg <- loadFullUnitConfig
             convertExchangeAmount cfg "kg" "m" 5.0 `shouldBe` 5.0
 
-    describe "Unit Normalization" $ do
-        it "normalizes to lowercase" $ do
-            normalizeUnit "KG" `shouldBe` "kg"
+    describe "Reading a spelling against the table" $ do
+        it "files a spelling under a case-blind key" $ do
+            foldedUnit "KG" `shouldBe` "kg"
 
         it "trims whitespace" $ do
-            normalizeUnit "  kg  " `shouldBe` "kg"
+            foldedUnit "  kg  " `shouldBe` "kg"
 
-        it "case-insensitive lookup works" $ do
+        it "takes the one reading a case variant leaves, and says which" $ do
             cfg <- loadFullUnitConfig
-            isKnownUnit cfg "KG" `shouldBe` True
-            isKnownUnit cfg "Kg" `shouldBe` True
+            readUnit cfg "KG" `shouldSatisfy` respeltAs "kg"
+            readUnit cfg "Kg" `shouldSatisfy` respeltAs "kg"
             isKnownUnit cfg "kG" `shouldBe` True
+
+        it "takes the exact spelling without a word about it" $ do
+            cfg <- loadFullUnitConfig
+            readUnit cfg "kg" `shouldSatisfy` exact
+            readUnit cfg " kg " `shouldSatisfy` exact
+
+        it "refuses when two spellings differ only by case" $ do
+            let Right cfg = buildFromCSV "name,dimension,factor\nMJ,energy,1.0\nmJ,energy,1.0e-9\n"
+            readUnit cfg "mj" `shouldBe` ReadAmbiguous "MJ" "mJ" []
+            lookupUnitDef cfg "mj" `shouldBe` Nothing
+            isKnownUnit cfg "mj" `shouldBe` False
+            readUnit cfg "MJ" `shouldBe` ReadExact (UnitDef [0, 0, 0, 1, 0, 0, 0, 0] 1.0)
+
+        it "refuses a table that spells one unit twice" $ do
+            buildFromCSV "name,dimension,factor\nkg,mass,1.0\nkg,mass,2.0\n"
+                `shouldBe` (Left "unit spelled more than once: kg" :: Either Text UnitConfig)
+
+        it "refuses when the source tells apart two units the table has one row for" $ do
+            -- A published ILCD unit group writes Mg beside mg. A table holding
+            -- only mg reads each of them as that one row, and each reading on
+            -- its own looks settled; the pair is what says a megagram would be
+            -- carried through as a milligram.
+            let Right cfg = buildFromCSV "name,dimension,factor\nmg,mass,1.0e-6\n"
+                verdict = judgeUnits cfg ["Mg", "mg"]
+            uvCollapsed verdict `shouldBe` [("mg", ["Mg", "mg"])]
+            uvRespelt verdict `shouldBe` []
+
+        it "says nothing once the table holds both readings" $ do
+            let Right cfg = buildFromCSV "name,dimension,factor\nmg,mass,1.0e-6\nMg,mass,1000.0\n"
+                verdict = judgeUnits cfg ["Mg", "mg"]
+            uvCollapsed verdict `shouldBe` []
+            uvRespelt verdict `shouldBe` []
+            uvAmbiguous verdict `shouldBe` []
+            uvUnknown verdict `shouldBe` []
+
+        it "reports a lone case variant without calling it a collapse" $ do
+            let Right cfg = buildFromCSV "name,dimension,factor\nkWh,energy,3.6\n"
+                verdict = judgeUnits cfg ["KWH"]
+            uvRespelt verdict `shouldBe` [("KWH", "kWh")]
+            uvCollapsed verdict `shouldBe` []
 
     -- A database file carries the unit table its own amounts were written
     -- against. Reading it is what settles a spelling no shipped table can
@@ -254,7 +357,10 @@ spec = do
         -- The case that costs a factor of a billion. One published list states
         -- both `Mg` and `mg` against a lookup that folds their case, so placing
         -- either would answer for both.
-        it "places neither of two units it cannot tell apart, and names them" $ do
+        -- The pair that costs a factor of a billion. One published list states
+        -- both `Mg` and `mg`, and reading a spelling in the case it was written
+        -- is what lets the table hold the two of them.
+        it "reads a megagram beside the milligram the table already had" $ do
             cfg <- loadFullUnitConfig
             let (with, notes) =
                     addDeclaredUnits
@@ -263,7 +369,8 @@ spec = do
                         , declaring "Mg" "kg" 1000.0
                         ]
             convertUnit with "mg" "kg" 1.0 `shouldBe` Just 1.0e-6
-            notes `shouldSatisfy` any (T.isInfixOf "beside")
+            convertUnit with "Mg" "kg" 1.0 `shouldBe` Just 1000.0
+            notes `shouldBe` []
 
         -- Everything downstream reads the shipped table, where a spelling
         -- only this file uses does not exist, so it must not become the unit
@@ -274,16 +381,16 @@ spec = do
             canonicalUnitFor with "l" `shouldBe` canonicalUnitFor cfg "l"
             canonicalUnitFor with "kl" `shouldBe` canonicalUnitFor cfg "m3"
 
-        it "places one of two spellings that state the same size" $ do
+        it "places neither when the file spells one unit twice for two sizes" $ do
             cfg <- loadFullUnitConfig
             let (with, notes) =
                     addDeclaredUnits
                         cfg
                         [ declaring "tn.sh" "kg" 907.18474
-                        , declaring "TN.SH" "kg" 907.18474
+                        , declaring "tn.sh" "kg" 1000.0
                         ]
-            convertUnit with "tn.sh" "kg" 1.0 `shouldBe` Just 907.18474
-            notes `shouldBe` []
+            isKnownUnit with "tn.sh" `shouldBe` False
+            notes `shouldSatisfy` any (T.isInfixOf "tn.sh")
 
     describe "Config Building (buildFromCSV)" $ do
         it "builds config from CSV" $ do

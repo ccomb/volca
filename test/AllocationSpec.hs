@@ -27,7 +27,7 @@ import Database.MatrixBuild (InterningTables (..), buildInterningTables, buildSu
 import Database.Quality (QualityCheck (..), QualityOffender (..), QualityReport (..), qualityReport)
 import qualified Service
 import Types
-import UnitConversion (UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucOriginalKeys, ucUnits)
+import UnitConversion (UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
 -- | Amounts of the five products of the Abondance cheese block, in kilograms.
 abondance :: NE.NonEmpty StatedAmount
@@ -38,8 +38,7 @@ massUnits :: UnitConfig
 massUnits =
     mkUnitConfig
         (ucDimensionOrder defaultUnitConfig)
-        (M.union (M.fromList [("g", UnitDef mass 0.001), ("mj", UnitDef energy 1.0)]) (ucUnits defaultUnitConfig))
-        (M.union (M.fromList [("g", "g"), ("mj", "MJ")]) (ucOriginalKeys defaultUnitConfig))
+        (M.union (M.fromList [("g", UnitDef mass 0.001), ("MJ", UnitDef energy 1.0)]) (ucUnits defaultUnitConfig))
   where
     mass, energy :: [Int]
     mass = [1, 0, 0, 0, 0, 0, 0, 0]

@@ -413,8 +413,12 @@ History of manual bumps:
      cache written just before this would pass the fingerprint and go on
      holding every emission of such an export uncharacterizable - a zero score
      under every method, beside resource categories that look right.
-
-- 34: a SimaPro file's own unit block is read, so an amount written in a unit
+- 34: the unit table a database was built against is keyed by the spelling it
+     writes rather than by that spelling lower-cased, so 'UnitConfig' loses a
+     'Map Text Text' and gains a 'Map Text [(Text, UnitDef)]' in its place.
+     'BuildInputs' holds one, so the stored bytes differ and every field after
+     it would be read at the wrong offset.
+- 35: a SimaPro file's own unit block is read, so an amount written in a unit
      only that file sizes is converted where it used to be left as written.
      Nothing changes type, so a cache written just before this would pass the
      fingerprint and keep the unconverted amount.
@@ -425,7 +429,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 34
+     in hi `xor` lo `xor` 35
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1161,12 +1165,10 @@ other link would abort the whole load — better to leave the input unlinked.
 -}
 linkUnitsCompatible :: UC.UnitConfig -> T.Text -> T.Text -> Bool
 linkUnitsCompatible unitConfig consumerUnit supplierUnit =
-    let cu = T.toLower (T.strip consumerUnit)
-        su = T.toLower (T.strip supplierUnit)
-     in cu == su
-            || T.null cu
-            || T.null su
-            || UC.unitsCompatible unitConfig consumerUnit supplierUnit
+    UC.unitKey unitConfig consumerUnit == UC.unitKey unitConfig supplierUnit
+        || T.null (T.strip consumerUnit)
+        || T.null (T.strip supplierUnit)
+        || UC.unitsCompatible unitConfig consumerUnit supplierUnit
 
 {- | Fix a single exchange's activity link using name-only matching.
 Inputs and non-reference outputs (coproducts / avoided-production credits)
@@ -1689,40 +1691,70 @@ loadDatabaseWithCrossDBLinking opts otherIndexes synonymDB locationHier policy p
     case result of
         Left err -> return $ Left err
         Right simpleDb -> do
-            -- Detect unknown units from the database's unit definitions
-            let !unknownUnits =
-                    S.fromList
-                        [ unitName u
-                        | u <- M.elems (sdbUnits simpleDb)
-                        , not (UC.isKnownUnit unitConfig (unitName u))
-                        , not (T.null (unitName u))
-                        ]
+            -- Read every unit the database declares against the unit table.
+            let !verdict = UC.judgeUnits unitConfig (map unitName (M.elems (sdbUnits simpleDb)))
+                !unknownUnits = S.fromList (UC.uvUnknown verdict)
+            mapM_ (reportProgress Warning . T.unpack . respeltLine) (UC.uvRespelt verdict)
             unless (S.null unknownUnits) $
                 reportProgress Warning $
                     printf
                         "%d unknown unit(s): %s — add to the [[units]] CSV file"
                         (S.size unknownUnits)
                         (T.unpack $ T.intercalate ", " $ map (\u -> "\"" <> u <> "\"") $ S.toList unknownUnits)
+            case unitRefusals verdict of
+                [] -> loadOn simpleDb unknownUnits
+                refusals -> return $ Left (T.intercalate "; " refusals)
+  where
+    {- The table spells it differently, and only one way, so the reading is
+    settled. Which side is the misspelling is not for the loader to say: it
+    reports the row it read the amount against and lets the reader judge. -}
+    respeltLine :: (T.Text, T.Text) -> T.Text
+    respeltLine (written, spelling) =
+        "unit \"" <> written <> "\" is written \"" <> spelling <> "\" in the unit table; amounts read against that row"
 
-            -- If there are other databases to search, perform cross-DB linking
-            let !totalInputs = countTotalTechInputs simpleDb
-            if null otherIndexes
-                then do
-                    -- No cross-DB linking needed
-                    let !stats = mempty{cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs}
-                    reportCrossDBLinkingStats (M.size (sdbActivities simpleDb)) stats
-                    return $ Right (simpleDb, stats)
-                else do
-                    -- Perform cross-database linking using pre-built indexes
-                    (linkedDb, stats) <-
-                        fixActivityLinksWithCrossDB
-                            otherIndexes
-                            synonymDB
-                            unitConfig
-                            locationHier
-                            policy
-                            simpleDb
-                    return $ Right (linkedDb, stats{cdlUnknownUnits = unknownUnits})
+    {- Both refusals say the same thing: the evidence leaves more than one
+    reading, and a guess between them is worth whatever separates the
+    candidates. Neither ranks them. -}
+    unitRefusals :: UC.UnitVerdict -> [T.Text]
+    unitRefusals verdict =
+        [ "unit \"" <> written <> "\" could be " <> T.intercalate " or " (map quoted candidates)
+        | (written, candidates) <- UC.uvAmbiguous verdict
+        ]
+            <> [ "this database tells apart "
+                    <> T.intercalate " and " (map quoted written)
+                    <> ", and the unit table has only "
+                    <> quoted row
+                    <> " for all of them"
+               | (row, written) <- UC.uvCollapsed verdict
+               ]
+            <> [ "correct the spelling in the source, or give the missing unit its own row in the [[units]] CSV file"
+               | not (null (UC.uvAmbiguous verdict)) || not (null (UC.uvCollapsed verdict))
+               ]
+
+    quoted :: T.Text -> T.Text
+    quoted t = "\"" <> t <> "\""
+
+    loadOn :: SimpleDatabase -> S.Set T.Text -> IO (Either T.Text (SimpleDatabase, CrossDBLinkingStats))
+    loadOn simpleDb unknownUnits = do
+        -- If there are other databases to search, perform cross-DB linking
+        let !totalInputs = countTotalTechInputs simpleDb
+        if null otherIndexes
+            then do
+                -- No cross-DB linking needed
+                let !stats = mempty{cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs}
+                reportCrossDBLinkingStats (M.size (sdbActivities simpleDb)) stats
+                return $ Right (simpleDb, stats)
+            else do
+                -- Perform cross-database linking using pre-built indexes
+                (linkedDb, stats) <-
+                    fixActivityLinksWithCrossDB
+                        otherIndexes
+                        synonymDB
+                        (loUnitConfig opts)
+                        locationHier
+                        policy
+                        simpleDb
+                return $ Right (linkedDb, stats{cdlUnknownUnits = unknownUnits})
 
 {- | Fix activity links using cross-database lookup.
 

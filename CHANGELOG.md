@@ -23,11 +23,27 @@
   than left unconvertible. The shipped table still wins wherever it has a row,
   since its constants are exact where a published list rounds them, and a
   disagreement is reported instead of followed.
-- Two units a file spells differently and this engine reads the same are now
-  named at load, and neither is read. One published list states both `Mg` and
-  `mg`, and both `MBq` and `mBq`: the lookup folds their case, so reading the
-  file's table blind would let a megagram overwrite the milligram and every
-  milligram in that file arrive as a tonne.
+- A megagram is read beside the milligram. One published list states both `Mg`
+  and `mg`, and both `MBq` and `mBq`; the table shipped here has a row for only
+  one of each pair, and now takes the other from the file that states it. A
+  file that spells one unit twice for two sizes has said nothing readable, so
+  neither is placed and the pair is named.
+- The case a unit is written in decides what it means. Every unit name was read
+  in lower case, so `mJ` and `MJ` were the same word: a millijoule and a
+  megajoule, a billion apart. A unit is now read against the spelling the unit
+  table holds. The exact spelling is taken in silence; a spelling that differs
+  from exactly one entry only by case is taken too, and the load says which
+  entry it was read as, so `KWH` still loads and reports that it is written
+  `kWh`; and a spelling that could equally be two entries stops the load and
+  names both, because nothing in the data says which is meant and a guess would
+  be off by whatever separates them. An unknown unit still warns and lets the
+  load continue, as before. A unit table that spells one unit twice is refused
+  at startup rather than keeping one row and dropping the other in silence.
+  And a database that tells apart two units the table has a single row for
+  stops the load naming both, which is how a published unit group writing `Mg`
+  beside `mg` is caught: each on its own reads as the one row the table holds,
+  and only the pair says a megagram was about to be carried through as a
+  milligram.
 - A geography filter now names a place. Asking `search_activities`,
   `get_consumers` or `get_supply_chain` for a location matched that text
   anywhere inside one, and location codes overlap: `DE` sits inside `NORDEL`,
@@ -42,6 +58,24 @@
   unchanged and still means the location itself. The same filter narrows a
   delete, so this decides what a delete removes as well as what a search
   returns.
+- A geography filter now names a place, and reads which places are inside it
+  from the location table rather than from how a code is spelled. Asking
+  `search_activities`, `get_consumers` or `get_supply_chain` for a location
+  compared the two as text, and location codes overlap: `NO` opens `NORDEL`
+  and `Northern Cyprus`, `GL` opens `GLO`, `RO` opens `RoW`, `CA` opens
+  `Canary Islands`. So a question about Norway was answered with the Nordic
+  grid, one about Greenland with every global dataset, and nothing in the
+  answer said so. Across the geographies one recent EcoSpold 2 release
+  declares, forty pairs answered that way. Containment now comes from the
+  shipped location table, which says that `US-WECC` is inside `US` and that
+  `FR` is inside `RER`, so a filter also answers for places it never could
+  before: `RER` finds French datasets, `NAFTA` the eighty-four states and
+  provinces it covers. `GLO` and `RoW` are places, not containers, so asking
+  for either returns the datasets written that way rather than the whole
+  database. A location the table does not list answers for itself alone.
+  `exact=true` is unchanged and still means the location itself. The same
+  filter narrows a delete, so this decides what a delete removes as well as
+  what a search returns.
 - An exchange that resolved to no supplier now reports `activityLinkId` as
   null. It used to report the all-zero UUID, a value that reads as an
   identifier and is not one: every consumer had to know that one UUID means
@@ -67,6 +101,27 @@
   before this are rebuilt on the next load. Wire revision 23.
 
 ### Fixed
+- The unit table now agrees with the units its entries are composed of. A
+  composed factor was typed by hand and five were wrong, and the load carried
+  the error into the amounts: a hectare year read as 3.1536e11 square metre
+  years rather than 10 000, the year counted a second time, so a land
+  occupation stated in hectare years arrived thirty one million times too
+  large. `kgy`, the unit a published list uses for a kilogram year, was read as
+  a dimensionless count under the name of a radiation dose. A rate written per
+  hour or per year had its division inverted. Three units sat in a dimension
+  that is neither energy per mass, per length nor per time, which made them
+  convertible into one another. And five dimensions declared no reference unit
+  at all, so a volume over time, a mass over time, a length over time and a
+  passenger kilometre normalized to nothing and stayed in whatever unit the
+  source wrote, two spellings of one quantity ending up in one column. Every
+  dimension now declares its reference, every composed unit agrees with its
+  parts, and a test recomputes both. The units that only ever name a parameter
+  are gone: a parameter unit is an open set no table can close, and the engine
+  converts none of them. A transport service is recorded in tonne kilometres
+  rather than kilogram metres, which is what a dataset states it in and what a
+  reader expects to see. Units are spelled as their standard writes them. A
+  cache records the unit table it was built with, so a cache written before
+  this is rebuilt on the next load. Data version 4.
 - A year written `y` is now read as a year. The unit table already knew
   `year`, `a` and `yr`, and the compound units built on it, `my` for a metre
   year and `kmy` for a kilometre year, so the one spelling missing was the
