@@ -301,7 +301,7 @@ flowSubCommandParser =
 searchActivitiesParser :: Parser Command
 searchActivitiesParser = do
     searchName <- optTextOpt "name" Nothing "TERM" "Search by activity name"
-    searchGeo <- optTextOpt "geo" Nothing "LOCATION" "Filter by geography (exact match)"
+    searchGeo <- optTextOpt "geo" Nothing "LOCATION" "Filter by geography: that location, plus every location inside it ('RER' also finds 'FR')"
     searchProduct <- optTextOpt "product" Nothing "PRODUCT" "Filter by reference product"
     searchLimit <- optIntOpt "limit" Nothing "N" "Limit number of results (max 1000, default 50)"
     searchOffset <- optIntOpt "offset" Nothing "N" "Offset for pagination (default 0)"

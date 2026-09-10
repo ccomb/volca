@@ -63,6 +63,7 @@ import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, make
 import System.FilePath ((</>))
 
 import Config (DatabaseConfig (..))
+import Database (Geographies)
 import Database.Author (
     AuthorContext (..),
     AuthoredActivity,
@@ -92,6 +93,7 @@ import Database.Manager (
     getMergedSynonymDB,
     getMergedUnitConfig,
     loadDatabase,
+    managerGeographies,
     publishLoaded,
     relinkDatabase,
     removeDatabase,
@@ -871,6 +873,7 @@ was not, the button would delete rows the table never showed.
 Order is irrelevant: the result is consumed as a set.
 -}
 filteredProcessIds ::
+    Geographies ->
     Database ->
     Maybe Text -> -- name
     Maybe Text -> -- location
@@ -878,8 +881,8 @@ filteredProcessIds ::
     [(Text, Text, Bool)] -> -- classification (system, value, isExact)
     Bool -> -- exact name match
     [ProcessId]
-filteredProcessIds db nameP geoP prodP classFilters exactMatch =
-    map fst (activityMatches db (SearchFilter core exactMatch))
+filteredProcessIds geographies db nameP geoP prodP classFilters exactMatch =
+    map fst (activityMatches geographies db (SearchFilter core exactMatch))
   where
     core :: ActivityFilterCore
     core =
@@ -949,6 +952,7 @@ deleteActivitiesInDB manager dbName DeleteRequest{drName = nameP, drLocation = g
         Nothing -> pure $ Left $ "Database not loaded: " <> dbName
         Just loaded -> do
             let db = ldDatabase loaded
+                geographies = managerGeographies manager
                 -- The two selection modes are exclusive: ids name the set
                 -- verbatim, filters compute it. A request carrying both is
                 -- ambiguous, so it is refused rather than guessed at: exact
@@ -959,7 +963,7 @@ deleteActivitiesInDB manager dbName DeleteRequest{drName = nameP, drLocation = g
                     Just ids
                         | hasFilter -> Left "ids cannot be combined with name/location/product/classification/exact filters"
                         | otherwise -> traverse (resolveProcess db) ids
-                    Nothing -> Right (filteredProcessIds db nameP geoP prodP classFilters exactMatch)
+                    Nothing -> Right (filteredProcessIds geographies db nameP geoP prodP classFilters exactMatch)
             case (,,) <$> traverse (resolveProcess db) keep <*> traverse (resolveProcess db) extra <*> selectionE of
                 Left err -> pure $ Left err
                 Right (keepPids, extraPids, filtered) -> do

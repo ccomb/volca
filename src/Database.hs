@@ -12,7 +12,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
+import Database.CrossLinking (placelessLocations)
 import Database.MatrixBuild
+import Method.Types (Location (..))
 import Progress
 import qualified Search.BM25.Types as BM25T
 import qualified Search.Fuzzy as Fuzzy
@@ -291,21 +293,65 @@ bm25DocsMatchingName idx name =
     intersectAll [] = IS.empty
     intersectAll (x : xs) = foldl IS.intersection x xs
 
+{- | The location table as a filter reads it: every name folded once, and every
+place carrying the wider places it was declared inside.
+
+Folded once, because the alternative is folding the whole table again for every
+activity a query walks. Held in its own type, because a table folded on one side
+and not the other answers differently depending on which side was asked, and
+there is no way to see that in a 'M.Map'.
+-}
+newtype Geographies = Geographies (M.Map Text (S.Set Text))
+    deriving (Eq, Show)
+
+{- | Read the declared location table, the one shipped as @data/geographies.csv@
+and carried by the database manager.
+
+An entry lists the wider places its data may fall back to, and it lists them all
+the way up rather than one step at a time, so a filter is answered by a lookup
+and never by a walk. Where a row stops short - @Canary Islands@ names @ES@ and
+not @RER@ - the filter stops there too, which is the same reading
+'Database.CrossLinking.isSubregionOf' has always taken of the same table.
+-}
+readGeographies :: M.Map Location [Location] -> Geographies
+readGeographies = Geographies . M.fromListWith S.union . map entry . M.toList
+  where
+    entry :: (Location, [Location]) -> (Text, S.Set Text)
+    entry (Location place, wider) = (asked place, S.fromList [asked w | Location w <- wider])
+
+{- | Places that are a fallback rather than a container, as a filter reads them.
+The table lists them among the parents of every country, so that a
+characterization factor found only for the world can still answer for a country.
+A filter asking for one of them is asking for the places written that way, not
+for every place on earth.
+
+The same three codes as 'placelessLocations', which is where they are decided;
+folded here because that is how a filter compares them.
+-}
+placeless :: S.Set Text
+placeless = S.fromList [asked l | Location l <- placelessLocations]
+
 {- | Does a location answer a geography filter?
 
 A location is a code from a controlled vocabulary rather than free text, and those
-codes overlap as text: @SE@ sits inside @US-SERC@, @DE@ inside @NORDEL@, and @CH@
-inside @RER w/o CH+DE@, a region defined by excluding Switzerland. Matching anywhere
-in the string answers all three with places nobody asked for, and the answer carries
-nothing that says so.
+codes overlap as text: @GL@ (Greenland) opens @GLO@, @RO@ (Romania) opens @RoW@,
+@NO@ (Norway) opens both @NORDEL@ and @Northern Cyprus@. Reading a place out of the
+letters another one starts with answers all of those with somewhere nobody asked
+for, and says nothing about having done so.
 
-So a location answers when it is the geography asked for, or one written under it:
-@US@ answers for @US-WECC@ and @Europe@ for @Europe without Switzerland@, which is
-what keeps a filter typed one letter at a time useful, and leaves no way for a code
-to match inside an unrelated one.
+So containment is read from the declared table and from nowhere else: a location
+answers when it is the geography asked for, or when the table puts it inside that
+geography. @US@ answers for @US-WECC@ and @RER@ for @FR@ because those rows say so,
+and a place the table does not know answers for itself alone.
 -}
-locationAnswers :: Text -> Text -> Bool
-locationAnswers wanted location = asked wanted `T.isPrefixOf` asked location
+locationAnswers :: Geographies -> Text -> Text -> Bool
+locationAnswers (Geographies table) wanted location
+    | locationIs wanted location = True
+    | S.member here placeless = False
+    | otherwise = S.member here (M.findWithDefault S.empty (asked location) table)
+  where
+    here :: Text
+    here = asked wanted
 
 -- | The same question asked of one location only: 'locationAnswers' under @exact@.
 locationIs :: Text -> Text -> Bool
@@ -323,6 +369,8 @@ Does NOT touch the name query: callers (BM25 retrieval or name-candidate lookup)
 produce the initial list.
 -}
 applyStructuredFilters ::
+    -- | the declared location table, which is what a geography filter reads
+    Geographies ->
     Database ->
     -- | geo
     Maybe Text ->
@@ -334,7 +382,7 @@ applyStructuredFilters ::
     Bool ->
     [(ProcessId, Activity)] ->
     [(ProcessId, Activity)]
-applyStructuredFilters db geoParam productParam classFilters exactMatch candidates =
+applyStructuredFilters geographies db geoParam productParam classFilters exactMatch candidates =
     let actVec = dbActivities db
         pidx = dbProductSearchIndex db
 
@@ -343,7 +391,7 @@ applyStructuredFilters db geoParam productParam classFilters exactMatch candidat
             Nothing -> candidates
             Just geo
                 | exactMatch -> [(pid, a) | (pid, a) <- candidates, locationIs geo (activityLocation a)]
-                | otherwise -> [(pid, a) | (pid, a) <- candidates, locationAnswers geo (activityLocation a)]
+                | otherwise -> [(pid, a) | (pid, a) <- candidates, locationAnswers geographies geo (activityLocation a)]
 
         -- exchangeIsReference covers both ReferenceProduct (output) and
         -- ReferenceInput (treatment-process input). Both are the activity's
@@ -401,9 +449,10 @@ applyStructuredFilters db geoParam productParam classFilters exactMatch candidat
 Non-BM25 path: name filter is substring AND-of-tokens on activity name only.
 Returns (ProcessId, Activity) pairs so callers don't need to re-scan for ProcessId.
 -}
-findActivitiesByFields :: Database -> Maybe Text -> Maybe Text -> Maybe Text -> [(Text, Text, Bool)] -> Bool -> [(ProcessId, Activity)]
-findActivitiesByFields db nameParam geoParam productParam classFilters exactMatch =
+findActivitiesByFields :: Geographies -> Database -> Maybe Text -> Maybe Text -> Maybe Text -> [(Text, Text, Bool)] -> Bool -> [(ProcessId, Activity)]
+findActivitiesByFields geographies db nameParam geoParam productParam classFilters exactMatch =
     applyStructuredFilters
+        geographies
         db
         geoParam
         productParam

@@ -39,6 +39,7 @@ import API.Types (
     SupplyChainResponse (..),
     apiFlowName,
  )
+import Database (Geographies)
 import Matrix (activityNormalizationFactor, buildDemandVectorFromIndex)
 import Service (
     ActivityFilterCore (..),
@@ -166,6 +167,7 @@ data AggRow = AggRow
 
 aggregate ::
     UnitConfig ->
+    Geographies ->
     BioFlowDB -> -- merged (root + deps) for biosphere scope
     UnitDB -> -- merged (root + deps) for biosphere scope
     Database ->
@@ -175,7 +177,7 @@ aggregate ::
     Text -> -- processId text
     AggregateParams ->
     IO (Either ServiceError Aggregation)
-aggregate unitConfig flowDB unitDB db dbName solver depLookup pidText params =
+aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidText params =
     case resolveScorable db pidText of
         Left err -> return (Left err)
         Right (processId, activity) ->
@@ -189,6 +191,7 @@ aggregate unitConfig flowDB unitDB db dbName solver depLookup pidText params =
                     eResp <-
                         buildSupplyChainFromScalingVectorCrossDB
                             unitConfig
+                            geographies
                             depLookup
                             db
                             dbName
