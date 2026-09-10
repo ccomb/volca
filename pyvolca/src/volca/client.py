@@ -1433,11 +1433,11 @@ class Client:
 
         Args:
             name: Substring (or exact match) on activity name.
-            geo: Geography code (``"FR"``, ``"GLO"``, ``"RoW"``…). Answers for
-                that location, or for one the engine's location table places
-                inside it (``"US"`` for ``"US-WECC"``, ``"RER"`` for ``"FR"``).
-                Containment comes from that table and never from how a code is
-                spelled, so ``"GL"`` does not answer for ``"GLO"``;
+            geo: Geography code (``"FR"``, ``"GLO"``, ``"RoW"``…). Matches that
+                location, plus every location inside it (``"US"`` also matches
+                ``"US-WECC"``, ``"RER"`` matches ``"FR"``). Which place sits
+                inside which comes from the engine's location table, never from
+                how a code is spelled, so ``"GL"`` does not match ``"GLO"``;
                 ``exact=True`` narrows it to the location itself.
             product: Substring on the reference product name.
             preset: Apply a named classification preset configured in the engine.
