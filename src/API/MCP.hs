@@ -34,7 +34,7 @@ import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (first)
-import Database (filterByName, flowSearchFields)
+import Database (Geographies, filterByName, flowSearchFields)
 import Database.Edit (deriveDatabase, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
@@ -482,9 +482,9 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "unload_database" -> callUnloadDatabase dbManager rid args
     "derive_database" -> callDeriveDatabase dbManager mHosting rid args
     "list_presets" -> callListPresets presets rid
-    "search_activities" -> withDb dbManager rid args $ callSearchActivities presets rid args
+    "search_activities" -> withDb dbManager rid args $ callSearchActivities (DM.managerGeographies dbManager) presets rid args
     "search_flows" -> withDb dbManager rid args $ callSearchFlows rid args
-    "count_search_matches" -> withDb dbManager rid args $ callCountSearchMatches rid args
+    "count_search_matches" -> withDb dbManager rid args $ callCountSearchMatches (DM.managerGeographies dbManager) rid args
     "get_activity" -> withDb dbManager rid args $ callGetActivity rid args
     "get_supply_chain" -> callGetSupplyChain dbManager presets rid args
     "aggregate" -> withDb dbManager rid args $ callAggregate dbManager presets rid args
@@ -500,7 +500,7 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "list_geographies" -> callListGeographies dbManager rid args
     "list_classifications" -> withDb dbManager rid args $ callListClassifications rid args
     "get_path_to" -> withDb dbManager rid args $ callGetPathTo rid args
-    "get_consumers" -> withDb dbManager rid args $ callGetConsumers presets rid args
+    "get_consumers" -> withDb dbManager rid args $ callGetConsumers (DM.managerGeographies dbManager) presets rid args
     "compare_impacts" -> callCompareImpacts dbManager rid args
     "score_activity" -> callScoreActivity dbManager mBaseUrl rid args
     "score_activities" -> callScoreActivities dbManager mBaseUrl rid args
@@ -757,8 +757,8 @@ filter. Shared by the search and consumers handlers.
 classificationFilters :: [ClassificationPreset] -> KeyMap Value -> Either Text [(Text, Text, Bool)]
 classificationFilters presets args = (++ explicitClassFilter args) <$> presetFilters presets args
 
-callSearchActivities :: [ClassificationPreset] -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callSearchActivities presets rid args (db, _) = runTool rid $ do
+callSearchActivities :: Geographies -> [ClassificationPreset] -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callSearchActivities geographies presets rid args (db, _) = runTool rid $ do
     classifications <- except (classificationFilters presets args)
     let sf =
             Service.SearchFilter
@@ -775,7 +775,7 @@ callSearchActivities presets rid args (db, _) = runTool rid $ do
                         }
                 , Service.sfExactMatch = fromMaybe False (boolArg "exact" args)
                 }
-    val <- liftIO (Service.searchActivities db sf) >>= liftShow
+    val <- liftIO (Service.searchActivities geographies db sf) >>= liftShow
     pure (toolSuccessJson rid val)
 
 callListClassifications :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
@@ -803,12 +803,12 @@ callListClassifications rid args (db, _) =
 A missing query is an error rather than three zeros: zeros would read as "this
 database has nothing", which is a different answer from "you asked nothing".
 -}
-callCountSearchMatches :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callCountSearchMatches rid args (db, _) =
+callCountSearchMatches :: Geographies -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callCountSearchMatches geographies rid args (db, _) =
     case mfilter (not . null . Normalize.queryWords) (textArg "query" args) of
         Nothing -> return $ toolError rid "query is required: there is nothing to count without one"
         Just query ->
-            let counts = Service.searchCounts db Service.countAsListed query
+            let counts = Service.searchCounts geographies db Service.countAsListed query
              in return $
                     toolSuccessJson rid $
                         object
@@ -953,14 +953,14 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
     payload <-
         if null subs
             then -- Plain cross-DB supply chain.
-                toJSON <$> (liftIO (Service.getSupplyChain unitCfg depLookup db dbName solver pid scf) >>= liftShow)
+                toJSON <$> (liftIO (Service.getSupplyChain unitCfg (DM.managerGeographies dbManager) depLookup db dbName solver pid scf) >>= liftShow)
             else do
                 -- Substitution-aware: re-solve the root scaling, then build from it.
                 (processId, _) <- liftService (Service.resolveScorable db pid)
                 (scalingVec, virtualLinks) <-
                     liftIO (Service.computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db dbName solver processId subs) >>= liftShow
                 resp <-
-                    liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg depLookup db dbName processId scalingVec virtualLinks scf) >>= liftShow
+                    liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg (DM.managerGeographies dbManager) depLookup db dbName processId scalingVec virtualLinks scf) >>= liftShow
                 pure (toJSON resp)
     pure $ toolSuccessJson rid payload
 
@@ -1004,7 +1004,7 @@ callAggregate dbManager presets rid args (db, solver) =
                                             }
                                 unitCfg <- DM.getMergedUnitConfig dbManager
                                 (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
-                                result <- Agg.aggregate unitCfg mFlows mUnits db dbName solver (DM.mkDepSolverLookup dbManager) pid params
+                                result <- Agg.aggregate unitCfg (DM.managerGeographies dbManager) mFlows mUnits db dbName solver (DM.mkDepSolverLookup dbManager) pid params
                                 case result of
                                     Left err -> return $ toolError rid (T.pack $ show err)
                                     Right agg -> return $ toolSuccessJson rid (toJSON agg)
@@ -1047,8 +1047,8 @@ callGetPathTo rid args (db, solver) = runTool rid $ do
     val <- liftIO (Service.getPathTo db solver pid (Service.NamePattern target)) >>= liftShow
     pure (toolSuccessJson rid val)
 
-callGetConsumers :: [ClassificationPreset] -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callGetConsumers presets rid args (db, _) = runTool rid $ do
+callGetConsumers :: Geographies -> [ClassificationPreset] -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callGetConsumers geographies presets rid args (db, _) = runTool rid $ do
     pid <- except (requireText "process_id" args)
     classifications <- except (classificationFilters presets args)
     let dbName = fromMaybe "" (textArg "database" args) -- validated by withDb
@@ -1068,7 +1068,7 @@ callGetConsumers presets rid args (db, _) = runTool rid $ do
                 , Service.cnfMaxDepth = intArg "max_depth" args
                 , Service.cnfEdges = if fromMaybe False (boolArg "include_edges" args) then Service.WithEdges else Service.EntriesOnly
                 }
-    results <- liftShow (Service.getConsumers db dbName pid cnf)
+    results <- liftShow (Service.getConsumers geographies db dbName pid cnf)
     pure (toolSuccessJson rid (toJSON results))
 
 {- | MCP get_inventory: route through the cross-DB back-substitution path

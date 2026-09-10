@@ -38,6 +38,7 @@ import TestHelpers (
     loadSampleDatabase,
     mkDepLookupFromMap,
     mkSolverFromDb,
+    shippedGeographies,
  )
 import Types
 import UnitConversion (defaultUnitConfig)
@@ -295,6 +296,7 @@ spec = do
             eResp <-
                 buildSupplyChainFromScalingVectorCrossDB
                     defaultUnitConfig
+                    shippedGeographies
                     lookup_
                     root
                     "root"

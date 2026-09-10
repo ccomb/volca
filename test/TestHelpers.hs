@@ -10,10 +10,13 @@ module TestHelpers (
     mkDepLookupFromMap,
     linkDatabases,
     mkSolverFromDb,
+    shippedGeographies,
 ) where
 
+import Builtin (builtinGeographies)
 import Control.Exception (bracket_)
 import Control.Monad (zipWithM_)
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
 import Data.Text (Text)
@@ -21,8 +24,9 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (buildDatabaseWithMatrices)
+import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
 import Database.Loader (loadDatabase)
+import Database.Manager (hierarchyFromGeographies, parseGeographies)
 import qualified SharedSolver as SS
 import System.Environment (setEnv, unsetEnv)
 import System.IO.Temp (withSystemTempDirectory)
@@ -130,3 +134,14 @@ linkDatabases consumerDb supplierDb supplierName coeff =
                 , cdlTiedAlternatives = []
                 }
      in consumerDb{dbCrossDBLinks = link : dbCrossDBLinks consumerDb}
+
+{- | The location table the engine ships, read the way a geography filter reads
+it. A fixture would pin a test to itself; this pins it to the answer a user
+gets. 'StructuredFiltersSpec' checks the table is actually there, so an empty
+one cannot pass unnoticed.
+-}
+shippedGeographies :: Geographies
+shippedGeographies =
+    readGeographies $
+        either (const mempty) hierarchyFromGeographies $
+            parseGeographies "the built-in geographies" (BL.toStrict builtinGeographies)

@@ -61,6 +61,7 @@ module Database.Manager (
     removeMethodCollection,
 
     -- * Geography
+    parseGeographies,
     parseGeographiesCSV,
 
     -- * Reference Data Operations
@@ -88,6 +89,7 @@ module Database.Manager (
     getMergedUnitConfig,
     getMergedFlowMetadata,
     hierarchyFromGeographies,
+    managerGeographies,
 
     -- * Staged Database Operations
     getStagedDatabase,
@@ -164,7 +166,7 @@ import Config
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Time (diffUTCTime, getCurrentTime)
-import Database (buildDatabaseWithMatrices)
+import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
 import qualified Database.Loader as Loader
 import qualified Database.Quality as Quality
 import Matrix (clearCachedSolver)
@@ -4177,6 +4179,13 @@ under test is the shape the matcher gets.
 -}
 hierarchyFromGeographies :: M.Map Text (Text, [Text]) -> M.Map Location [Location]
 hierarchyFromGeographies = M.map (map Location . snd) . M.mapKeysMonotonic Location
+
+{- | The same table in the shape a geography filter reads it. Read here rather
+than at each of the dozen call sites, so a filter and the count beside it cannot
+end up reading the same table two different ways.
+-}
+managerGeographies :: DatabaseManager -> Geographies
+managerGeographies = readGeographies . dmLocationHierarchy
 
 {- | Merged biosphere flow metadata + units across all loaded DBs. Technosphere
 flows are not merged here because characterization (the only consumer of
