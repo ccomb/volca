@@ -3,9 +3,9 @@
 module UnitConversionSpec (spec) where
 
 import Data.Bifunctor (first)
-import Data.Maybe (isNothing)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
+import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import Test.Hspec
 import UnitConversion
@@ -170,7 +170,7 @@ spec = do
                     , ("Bq", Just "kbq")
                     , ("km/h", Just "m/s")
                     , ("kg/l", Just "kg/m3")
-                    , ("tkm", Just "kgm")
+                    , ("kgkm", Just "tkm")
                     , ("m2*year", Just "m2a")
                     , ("m3*year", Just "m3a")
                     , ("kg*day", Just "kgy")
@@ -205,6 +205,7 @@ spec = do
                     , ("person*mile", "pkm", mile / 1000)
                     , ("t*mile", "kgm", 1000 * mile)
                     , ("tkm", "kgm", 1.0e6)
+                    , ("kgkm", "tkm", 1.0e-3)
                     , ("km/h", "m/s", 1000 / 3600)
                     ]
             mapM_

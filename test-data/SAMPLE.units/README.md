@@ -32,11 +32,12 @@ This test dataset validates unit conversion functionality and prevents regressio
 
 ### 4. agriculture_compound.spold
 **Purpose**: Compound unit conversion testing
-**Units tested**: kg/ha, MJ/kg, person*km, m2*year, kg N/ha, kg P/ha
+**Units tested**: person*km, m2*year
 **Key validation**:
-- Tests complex compound units found in agricultural LCA
-- Validates normalization of mass per area ratios
 - Tests transport and land use compound units
+- Its per-hectare and per-kilogram rows (`kg/ha`, `MJ/kg`, `kg N/ha`, `kg P/ha`)
+  are parameter units, which the table does not carry and nothing converts:
+  they exercise the warning path, not a conversion
 
 ### 5. water_treatment_volume.spold
 **Purpose**: Volume, area, and length unit testing

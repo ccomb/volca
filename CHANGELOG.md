@@ -69,7 +69,9 @@
   dimension now declares its reference, every composed unit agrees with its
   parts, and a test recomputes both. The units that only ever name a parameter
   are gone: a parameter unit is an open set no table can close, and the engine
-  converts none of them. Units are spelled as their standard writes them. A
+  converts none of them. A transport service is recorded in tonne kilometres
+  rather than kilogram metres, which is what a dataset states it in and what a
+  reader expects to see. Units are spelled as their standard writes them. A
   cache records the unit table it was built with, so a cache written before
   this is rebuilt on the next load. Data version 4.
 - A year written `y` is now read as a year. The unit table already knew
