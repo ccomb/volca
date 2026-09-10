@@ -783,9 +783,9 @@ params r = case r of
     SearchActivities ->
         [ pDatabase
         , Param "name" "string" Required "Name substring to search for (or exact name if exact=true). The identifier a source file gave a dataset (a SimaPro 'Process identifier'), whole or the four or more characters that tell it apart, brings that dataset's products to the top of the results."
-        , Param "geo" "string" Optional "Geography/location filter (e.g. 'FR', 'DE', 'GLO'). Matches the location itself or one written under it ('US' answers for 'US-WECC'), never a code inside an unrelated one."
+        , Param "geo" "string" Optional "Geography/location filter (e.g. 'FR', 'DE', 'GLO'). Matches that location, plus every location inside it ('US' also matches 'US-WECC', 'RER' matches 'FR'). Which place sits inside which comes from the engine's location table, never from how a code is spelled, so 'GL' does not match 'GLO'."
         , Param "product" "string" Optional "Product name filter"
-        , Param "exact" "boolean" Optional "If true, the name and the geography must match exactly (case-insensitive equality) instead of a substring, respectively prefix, search"
+        , Param "exact" "boolean" Optional "If true, the name must match exactly (case-insensitive equality) rather than as a substring, and the geography must be the location itself rather than that location plus every location inside it"
         , Param "preset" "string" Optional "Name of a classification preset (from list_presets): expands to its bundled filters. Can be combined with explicit classification filters."
         , Param "classification" "string" Optional "Classification system name to filter by (e.g. 'ISIC rev.4 ecoinvent', 'CPC'). Use list_classifications to see available systems."
         , Param "classification_value" "string" Optional "Value within the classification system to match"
@@ -827,7 +827,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "name" "string" Optional "Filter by activity name"
-        , Param "location" "string" Optional "Filter by geography/location: the location itself or one written under it, case-insensitive"
+        , Param "location" "string" Optional "Filter by geography/location: that location, plus every location inside it ('US' also matches 'US-WECC'), case-insensitive"
         , pLimit "Max results (default 100)"
         , Param "min_quantity" "number" Optional "Min scaled quantity threshold"
         , Param "max_depth" "integer" Optional "Max depth from root (1 = direct inputs only)"
@@ -931,7 +931,7 @@ params r = case r of
         [ pDatabase
         , Param "process_id" "string" Required "Process ID of the supplier (activityUUID_productUUID format)"
         , Param "name" "string" Optional "Filter by name (case-insensitive substring)"
-        , Param "location" "string" Optional "Filter by geography/location (e.g. 'FR', 'DE'): the location itself or one written under it, case-insensitive"
+        , Param "location" "string" Optional "Filter by geography/location (e.g. 'FR', 'DE'): that location, plus every location inside it ('RER' also matches 'FR'), case-insensitive"
         , Param "product" "string" Optional "Filter by product name (case-insensitive substring)"
         , Param "preset" "string" Optional "Name of a classification preset (from list_presets): expands to its bundled filters"
         , Param "classification" "string" Optional "Classification system name (e.g. 'ISIC rev.4 ecoinvent')"

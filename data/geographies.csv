@@ -42,9 +42,9 @@ EE,Estonia,Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO
 LU,Luxembourg,"Europe without Switzerland|Europe without Austria|Europe|EU|RER|ENTSO-E|WEU|Europe, Western|GLO|RoW"
 MT,Malta,Europe without Switzerland|Europe without Austria|Europe|EU|RER|UN-SEUROPE|GLO|RoW
 CY,Cyprus,Europe without Switzerland|Europe without Austria|Europe|EU|RER|UN-WASIA|Asia|GLO|RoW
-EU,European Union,Europe without Switzerland|Europe without Austria|Europe|RER|GLO|RoW
-EU-27,European Union (27),Europe without Switzerland|Europe without Austria|Europe|EU|RER|GLO|RoW
-EU-28,European Union (28),Europe without Switzerland|Europe without Austria|Europe|EU|RER|GLO|RoW
+EU,European Union,Europe without Switzerland|Europe|RER|GLO|RoW
+EU-27,European Union (27),Europe without Switzerland|Europe|EU|RER|GLO|RoW
+EU-28,European Union (28),Europe without Switzerland|Europe|EU|RER|GLO|RoW
 RER,Rest of Europe,Europe|GLO|RoW
 ENTSO-E,Europe (ENTSO-E grid),Europe|RER|GLO|RoW
 NORDEL,Nordic countries,Europe|ENTSO-E|RER|GLO|RoW
@@ -246,7 +246,7 @@ CU,Cuba,UN-CARIBBEAN|North America|Latin America|GLO|RoW
 CV,Cape Verde,UN-WAFRICA|Africa|GLO|RoW
 CW,Curaçao,UN-CARIBBEAN|North America|Latin America|GLO|RoW
 Canada without Alberta,Canada without Alberta,CA|North America|NAFTA|GLO|RoW
-Canada without Alberta and Quebec,Canada without Alberta and Quebec,CA|North America|NAFTA|GLO|RoW
+Canada without Alberta and Quebec,Canada without Alberta and Quebec,Canada without Alberta|Canada without Quebec|CA|North America|NAFTA|GLO|RoW
 Canary Islands,Canary Islands,ES|Europe|GLO|RoW
 Central Asia,Central Asia,Asia|GLO|RoW
 China w/o Inner Mongol,China without Inner Mongol,CN|Asia|UN-EASIA|GLO|RoW
@@ -263,8 +263,8 @@ EH,Western Sahara,UN-NAFRICA|Africa|GLO|RoW
 ER,Eritrea,UN-EAFRICA|Africa|GLO|RoW
 ET,Ethiopia,UN-EAFRICA|Africa|GLO|RoW
 Europe without NORDEL (NCPA),Europe without NORDEL (NCPA),Europe|RER|GLO|RoW
-Europe without Switzerland and Austria,Europe without Switzerland and Austria,Europe|RER|GLO|RoW
-Europe without Switzerland and France,Europe without Switzerland and France,Europe|RER|GLO|RoW
+Europe without Switzerland and Austria,Europe without Switzerland and Austria,Europe without Switzerland|Europe without Austria|Europe|RER|GLO|RoW
+Europe without Switzerland and France,Europe without Switzerland and France,Europe without Switzerland|Europe|RER|GLO|RoW
 "Europe, Eastern",Eastern Europe,Europe|RER|GLO|RoW
 "Europe, Western",Western Europe,Europe|RER|GLO|RoW
 "Europe, without Russia and Türkiye","Europe, without Russia and Türkiye",Europe|RER|GLO|RoW
@@ -301,7 +301,7 @@ HT,Haiti,UN-CARIBBEAN|North America|Latin America|GLO|RoW
 "IAI Area, EU27 & EFTA","IAI Area, EU27 & EFTA",Europe|RER|GLO|RoW
 "IAI Area, Gulf Cooperation Council","IAI Area, Gulf Cooperation Council",Asia|GLO|RoW
 "IAI Area, North America","IAI Area, North America",North America|GLO|RoW
-"IAI Area, North America, without Quebec","IAI Area, North America, without Quebec",North America|GLO|RoW
+"IAI Area, North America, without Quebec","IAI Area, North America, without Quebec","IAI Area, North America|North America|GLO|RoW"
 "IAI Area, Russia & RER w/o EU27 & EFTA","IAI Area, Russia & Europe outside EU27 & EFTA",Europe|GLO|RoW
 "IAI Area, South America","IAI Area, South America",South America|Latin America|GLO|RoW
 IM,Isle of Man,UN-NEUROPE|Europe|GLO|RoW
@@ -412,11 +412,11 @@ PW,Palau,UN-MICRONESIA|Oceania|GLO|RoW
 PY,Paraguay,UN-SAMERICA|South America|Latin America|GLO|RoW
 QA,Qatar,UN-WASIA|Asia|GLO|RoW
 RE,Réunion,UN-EAFRICA|Africa|GLO|RoW
-RER w/o AT+BE+CH+DE+FR+IT,"Europe without Austria, Belgium, France, Germany, Italy, Liechtenstein, Monaco, San Marino, Switzerland, and the Vatican",Europe|RER|GLO|RoW
+RER w/o AT+BE+CH+DE+FR+IT,"Europe without Austria, Belgium, France, Germany, Italy, Liechtenstein, Monaco, San Marino, Switzerland, and the Vatican",RER w/o CH+DE|Europe|RER|GLO|RoW
 RER w/o CH+DE,Europe without Germany and Switzerland,Europe|RER|GLO|RoW
 RER w/o DE+NL+NO,"Europe without Germany, the Netherlands, and Norway",Europe|RER|GLO|RoW
-RER w/o DE+NL+NO+RU,"Europe without Germany, the Netherlands, Norway, and Russia",Europe|RER|GLO|RoW
-RER w/o DE+NL+RU,"Europe without Germany, the Netherlands, and Russia",Europe|RER|GLO|RoW
+RER w/o DE+NL+NO+RU,"Europe without Germany, the Netherlands, Norway, and Russia",RER w/o DE+NL+NO|RER w/o DE+NL+RU|RER w/o RU|Europe|RER|GLO|RoW
+RER w/o DE+NL+RU,"Europe without Germany, the Netherlands, and Russia",RER w/o RU|Europe|RER|GLO|RoW
 RER w/o RU,Europe without Russia,Europe|RER|GLO|RoW
 RFC,ReliabilityFirst Corporation,US|North America|NAFTA|GLO|RoW
 "RFC, US only",ReliabilityFirst Corporation,US|North America|NAFTA|GLO|RoW
@@ -467,7 +467,7 @@ TZ,Tanzania,UN-EAFRICA|Africa|GLO|RoW
 UA,Ukraine,"UN-EEUROPE|Europe, Eastern|Europe|GLO|RoW"
 UCTE without France,UCTE without France,Europe|RER|UCTE|GLO|RoW
 UCTE without Germany,UCTE without Germany,Europe|RER|UCTE|GLO|RoW
-UCTE without Germany and France,UCTE without Germany and France,Europe|RER|UCTE|GLO|RoW
+UCTE without Germany and France,UCTE without Germany and France,UCTE without Germany|UCTE without France|Europe|RER|UCTE|GLO|RoW
 UG,Uganda,UN-EAFRICA|Africa|GLO|RoW
 UN-AMERICAS,Americas,North America|Latin America|GLO|RoW
 UN-ASIA,"Asia, UN Region",Asia|GLO|RoW
