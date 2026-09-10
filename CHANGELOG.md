@@ -14,6 +14,20 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
+- A SimaPro file's own unit table is now read. The file carries one at the end,
+  a row per unit giving what it is called, what it is expressed in and how many
+  of that it makes, and it is the table its amounts were written against. What
+  it adds is the spellings no shipped table can enumerate: one published list
+  states 191 units, of which more than a hundred were unknown here, `tn.sh` for
+  a short ton, `cm2a`, `gal*`, `Mtn`. Those are now sized by the file rather
+  than left unconvertible. The shipped table still wins wherever it has a row,
+  since its constants are exact where a published list rounds them, and a
+  disagreement is reported instead of followed.
+- A megagram is read beside the milligram. One published list states both `Mg`
+  and `mg`, and both `MBq` and `mBq`; the table shipped here has a row for only
+  one of each pair, and now takes the other from the file that states it. A
+  file that spells one unit twice for two sizes has said nothing readable, so
+  neither is placed and the pair is named.
 - The case a unit is written in decides what it means. Every unit name was read
   in lower case, so `mJ` and `MJ` were the same word: a millijoule and a
   megajoule, a billion apart. A unit is now read against the spelling the unit

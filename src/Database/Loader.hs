@@ -418,6 +418,10 @@ History of manual bumps:
      'Map Text Text' and gains a 'Map Text [(Text, UnitDef)]' in its place.
      'BuildInputs' holds one, so the stored bytes differ and every field after
      it would be read at the wrong offset.
+- 35: a SimaPro file's own unit block is read, so an amount written in a unit
+     only that file sizes is converted where it used to be left as written.
+     Nothing changes type, so a cache written just before this would pass the
+     fingerprint and keep the unconverted amount.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -425,7 +429,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 34
+     in hi `xor` lo `xor` 35
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

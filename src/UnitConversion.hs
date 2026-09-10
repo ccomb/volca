@@ -16,10 +16,12 @@ module UnitConversion (
     UnitConfig (ucDimensionOrder, ucUnits, ucByFold, ucCanonical),
     UnitReading (..),
     mkUnitConfig,
+    UnitDeclaration (..),
 
     -- * Loading
     defaultUnitConfig,
     buildFromCSV,
+    addDeclaredUnits,
     mergeUnitConfigs,
     unitCount,
 
@@ -54,6 +56,7 @@ import Control.DeepSeq (NFData)
 import Control.Monad (unless)
 import qualified Data.ByteString.Lazy as BL
 import Data.Csv (HasHeader (..), decode)
+import Data.Either (partitionEithers)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.List (elemIndex)
 import qualified Data.Map.Strict as M
@@ -306,6 +309,131 @@ buildFromCSV csvData =
     withoutRepeats pairs = case M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(k, 1) | (k, _) <- pairs])) of
         [] -> Right (M.fromList pairs)
         repeats -> Left $ "unit spelled more than once: " <> T.intercalate ", " repeats
+
+{- | One row of the unit table a database file carries for itself: what the
+unit is called, the unit it is expressed in, and how many of that it makes.
+
+A file stating that @ha a@ is 10 000 @m2a@, or @tn.sh@ 907.18474 @kg@, is
+saying what no table shipped with an engine can know about the spellings that
+file uses.
+-}
+data UnitDeclaration = UnitDeclaration
+    { declName :: !Text
+    , declRelativeTo :: !Text
+    , declHowMany :: !Double
+    }
+    deriving (Eq, Show)
+
+{- | Lay a file's own unit table over the one the engine ships.
+
+The shipped table wins wherever it has a row: its constants are exact where a
+published list often rounds them, and a file that disagrees is reported rather
+than followed. What the file adds is the spellings no shipped table can
+enumerate, @tn.sh@ or @cm2a@ or @gal*@, sized against a unit already known. A
+declaration is placed once the unit it is given in is known, whether from the
+shipped table or from a declaration placed before it, so the pass repeats until
+it places nothing new.
+
+A file that spells one unit twice for two sizes has said nothing this can
+read, so neither is placed and the pair is named. A published list stating both
+@Mg@ and @mg@ is not that case: those are two spellings, they are read as
+written, and the table holds both.
+-}
+addDeclaredUnits :: UnitConfig -> [UnitDeclaration] -> (UnitConfig, [Text])
+addDeclaredUnits cfg decls = (laid{ucCanonical = canonicals}, notes)
+  where
+    laid :: UnitConfig
+    laid = mkUnitConfig (ucDimensionOrder cfg) placed
+
+    placed :: M.Map Text UnitDef
+    placed = settle (ucUnits cfg) added
+
+    {- Which unit a dimension is recorded in stays the shipped table's to
+    decide. 'mkUnitConfig' elects the shortest name at factor 1.0, and a file
+    stating @Kl@ as one cubic metre would win that election on spelling alone:
+    every volume in the file would then be recorded as @kl@, a name no other
+    database, method or matrix knows, and a cross-database link out of it would
+    fail to convert. -}
+    canonicals :: M.Map Text Text
+    canonicals = M.mapMaybe (flip M.lookup shippedReference . udDimension) placed
+
+    shippedReference :: M.Map Dimension Text
+    shippedReference =
+        M.fromList
+            [ (udDimension def, reference)
+            | (spelling, def) <- M.toList (ucUnits cfg)
+            , Just reference <- [M.lookup spelling (ucCanonical cfg)]
+            ]
+
+    -- One declaration per key, dropping what the shipped table already answers
+    -- for and what the file itself spells two ways for two sizes.
+    added :: [UnitDeclaration]
+    added =
+        [ d
+        | (key, d : rest) <- M.toList byKey
+        , not (M.member key (ucUnits cfg))
+        , all (agrees d) rest
+        ]
+
+    byKey :: M.Map Text [UnitDeclaration]
+    byKey = M.fromListWith (<>) [(T.strip (declName d), [d]) | d <- decls]
+
+    agrees :: UnitDeclaration -> UnitDeclaration -> Bool
+    agrees a b =
+        T.strip (declRelativeTo a) == T.strip (declRelativeTo b)
+            && abs (declHowMany a - declHowMany b) <= abs (declHowMany a) * 1.0e-9
+
+    settle :: M.Map Text UnitDef -> [UnitDeclaration] -> M.Map Text UnitDef
+    settle known pending
+        | null done = known
+        | otherwise = settle (M.union (M.fromList done) known) waiting
+      where
+        (waiting, done) = partitionEithers (map (place known) pending)
+
+    place :: M.Map Text UnitDef -> UnitDeclaration -> Either UnitDeclaration (Text, UnitDef)
+    place known d = maybe (Left d) (Right . (,) (T.strip (declName d))) (against known d)
+
+    against :: M.Map Text UnitDef -> UnitDeclaration -> Maybe UnitDef
+    against known d = do
+        UnitDef dim factor <- M.lookup (T.strip (declRelativeTo d)) known
+        pure (UnitDef dim (declHowMany d * factor))
+
+    notes :: [Text]
+    notes = say collapsed saidTwice ++ say unplaceable statedButUnknown ++ say disagreeing sizedDifferently
+
+    say :: Text -> [Text] -> [Text]
+    say _ [] = []
+    say what these = [what <> T.intercalate ", " these]
+
+    collapsed, unplaceable, disagreeing :: Text
+    collapsed = "the file spells one unit twice for two sizes, so it reads neither and an amount in it keeps whatever the shipped table says: "
+    unplaceable = "the file states a unit given in one this engine does not know, so it stays unknown: "
+    disagreeing = "the file sizes a unit differently from the shipped table, which is the one used: "
+
+    saidTwice :: [Text]
+    saidTwice = [T.intercalate " and " (map declName ds) | ds <- M.elems byKey, not (allAgree ds)]
+
+    allAgree :: [UnitDeclaration] -> Bool
+    allAgree [] = True
+    allAgree (d : rest) = all (agrees d) rest
+
+    statedButUnknown :: [Text]
+    statedButUnknown =
+        [ declName d <> " in " <> declRelativeTo d
+        | d <- added
+        , not (M.member (T.strip (declName d)) placed)
+        ]
+
+    sizedDifferently :: [Text]
+    sizedDifferently =
+        [ declName d
+        | ds <- M.elems byKey
+        , allAgree ds
+        , d <- take 1 ds
+        , Just shipped <- [M.lookup (T.strip (declName d)) (ucUnits cfg)]
+        , Just mine <- [against (ucUnits cfg) d]
+        , abs (udFactor mine - udFactor shipped) > abs (udFactor shipped) * 1.0e-9
+        ]
 
 {- | Merge multiple UnitConfigs (later entries override earlier ones).
 | Merge unit configs. Later entries override earlier ones.

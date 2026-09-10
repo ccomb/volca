@@ -4,6 +4,7 @@
 module SimaProParserSpec (spec) where
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -33,6 +34,7 @@ import SimaPro.Parser (
     parseSimaProCSV,
     parseTechRow,
     splitCSV,
+    unitDeclarations,
  )
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
@@ -69,7 +71,7 @@ import Types (
     exchangePedigree,
     tfName,
  )
-import UnitConversion (UnitConfig (..), UnitDef (..), defaultUnitConfig, isKnownUnit, mkUnitConfig)
+import UnitConversion (UnitConfig (..), UnitDeclaration (..), UnitDef (..), buildFromCSV, defaultUnitConfig, isKnownUnit, mkUnitConfig)
 
 -- | Test CSV content with a quoted product name containing the delimiter (;)
 testCSV :: BS.ByteString
@@ -544,6 +546,40 @@ shouldEvalTo (Right got) want
 
 spec :: Spec
 spec = do
+    -- The block sits at the end of the file, after every process, and states
+    -- one unit per row as name;quantity;how many;reference unit.
+    describe "the unit block a file carries" $ do
+        let block =
+                [ "Units"
+                , "kg;Mass;1;kg"
+                , "ha a;Land use;10000;m2a"
+                , "l*day;Volume.Time;0,0000027397;m3y"
+                , ""
+                , "End"
+                ]
+
+        it "reads a row as the unit, what it is given in, and how many" $
+            unitDeclarations defaultConfig block
+                `shouldBe` [ UnitDeclaration "kg" "kg" 1.0
+                           , UnitDeclaration "ha a" "m2a" 10000.0
+                           , UnitDeclaration "l*day" "m3y" 2.7397e-6
+                           ]
+
+        it "reads nothing from a file that carries no block" $
+            unitDeclarations defaultConfig ["Process", "kg;Mass;1;kg", "End"] `shouldBe` []
+
+        -- What reading it is for. The shipped table has no `sh a`, so without
+        -- the block the amount stays in a unit nothing can convert; with it,
+        -- the file's own sizing puts it in the reference unit of its quantity.
+        it "records an amount in the unit the file sized it against" $ do
+            let occupation =
+                    [ "Resources"
+                    , "Occupation, arable;land;sh a;3;Undefined;;;;;;"
+                    ]
+            declared <- parseDeclaring occupation ["m2a;Land use;1;m2a", "sh a;Land use;10000;m2a"]
+            undeclared <- parseDeclaring occupation []
+            map exchangeAmount declared `shouldBe` [30000]
+            map exchangeAmount undeclared `shouldBe` [3]
     describe "SimaPro expression evaluator" $ do
         it "evaluates numeric literals" $ do
             evaluate M.empty "42" `shouldBe` Right 42.0
@@ -1694,6 +1730,49 @@ parseProductsCSV procName productsRows =
         BS.hPut handle content
         hClose handle
         parseOrFail defaultUnitConfig path
+
+{- | Parse one process under the unit table the engine ships, plus the rows
+given as the file's own @Units@ block, and return its biosphere exchanges.
+-}
+parseDeclaring :: [BS.ByteString] -> [BS.ByteString] -> IO [Exchange]
+parseDeclaring sectionLines declarations =
+    withSystemTempFile "declared-units-test.csv" $ \path handle -> do
+        let block = if null declarations then [] else ["Units"] ++ declarations ++ ["", "End", ""]
+            content =
+                BS.intercalate "\r\n" $
+                    [ "{SimaPro 9.6.0.1}"
+                    , "{CSV separator: semicolon}"
+                    , "{Decimal separator: .}"
+                    , ""
+                    , "Process"
+                    , ""
+                    , "Category type"
+                    , "material"
+                    , ""
+                    , "Process name"
+                    , "Occupier"
+                    , ""
+                    , "Type"
+                    , "Unit process"
+                    , ""
+                    , "Products"
+                    , "Reference product;kg;1.0;100;not defined;material;"
+                    , ""
+                    ]
+                        ++ sectionLines
+                        ++ ["", "End", ""]
+                        ++ block
+        BS.hPut handle content
+        hClose handle
+        shipped <- shippedUnitConfig
+        (activities, _, _, _, _) <- parseOrFail shipped path
+        pure [e | a <- activities, e@BiosphereExchange{} <- exchanges a]
+
+-- | The unit table the engine ships, as a load reads it.
+shippedUnitConfig :: IO UnitConfig
+shippedUnitConfig = do
+    csv <- BL.readFile "data/units.csv"
+    either (fail . T.unpack) pure (buildFromCSV csv)
 
 parseNamedCSV :: BS.ByteString -> [BS.ByteString] -> IO ([Activity], M.Map UUID TechnosphereFlow, M.Map UUID BiosphereFlow, M.Map UUID WasteFlow, M.Map UUID Unit)
 parseNamedCSV procName sectionLines =

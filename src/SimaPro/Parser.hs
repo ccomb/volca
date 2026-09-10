@@ -21,6 +21,7 @@ module SimaPro.Parser (
     generateFlowUUID,
     generateUnitUUID,
     canonicalRow,
+    unitDeclarations,
     normalizeSimaProCompartment,
     indexFlows,
     extractLocation,
@@ -54,7 +55,7 @@ import Data.Char (isUpper, toLower)
 import qualified Data.Csv as Csv
 import Data.List (dropWhileEnd, sortOn)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -1590,6 +1591,24 @@ indexFlows unitNames identity = foldM add M.empty
                 _ -> Right (M.insert flowId flow acc)
     nameOf u = M.findWithDefault (UUID.toText u) u unitNames
 
+{- | The units a SimaPro file declares for itself, in its @Units@ block: one
+row of @name;quantity;conversion;reference unit@ between a line reading
+@Units@ and the next @End@. The quantity is the file's own word for the
+dimension and is not read: the dimension comes from the reference unit, which
+is the one row of its quantity that states itself.
+-}
+unitDeclarations :: SimaProConfig -> [BS.ByteString] -> [UnitConversion.UnitDeclaration]
+unitDeclarations cfg = mapMaybe row . takeWhile (/= "End") . drop 1 . dropWhile (/= "Units")
+  where
+    row :: BS.ByteString -> Maybe UnitConversion.UnitDeclaration
+    row line = case splitCSV (spDelimiter cfg) line of
+        (name : _quantity : howMany : reference : _)
+            | not (BS.null name)
+            , not (BS.null reference) ->
+                UnitConversion.UnitDeclaration (decodeBS name) (decodeBS reference)
+                    <$> readAmount (Expr.normalizeExpr (spDecimal cfg) (decodeBS howMany))
+        _ -> Nothing
+
 parseSimaProCSV :: UnitConversion.UnitConfig -> FilePath -> IO (Either Text ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB))
 parseSimaProCSV unitCfg path = do
     reportProgress Info $ "Loading SimaPro CSV file: " ++ path
@@ -1602,6 +1621,12 @@ parseSimaProCSV unitCfg path = do
 
     -- Extract config from header (fast, sequential, ~5 lines)
     let cfg = extractConfig lines'
+
+    -- A file carries its own unit table, and it is the one its amounts were
+    -- written against: a spelling the shipped table never had, or a size it has
+    -- differently, is settled here rather than guessed at row by row.
+    let (fileUnits, unitNotes) = UnitConversion.addDeclaredUnits unitCfg (unitDeclarations cfg lines')
+    forM_ unitNotes (reportProgress Warning . T.unpack)
 
     -- Split lines into N contiguous chunks at End boundaries
     numWorkers <- getNumCapabilities
@@ -1617,7 +1642,7 @@ parseSimaProCSV unitCfg path = do
 
     -- Convert all blocks to activities (one per block; a block without a
     -- product row is no activity) - PARALLEL
-    converted <- catMaybes <$> mapConcurrently (evaluate . force . processBlockToActivity unitCfg globalParams) allBlocks
+    converted <- catMaybes <$> mapConcurrently (evaluate . force . processBlockToActivity fileUnits globalParams) allBlocks
 
     -- Surface every amount the conversion replaced with its lenient fallback:
     -- a number that silently shrinks is worse than a warned one.
