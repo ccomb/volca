@@ -39,6 +39,12 @@
   before this are rebuilt on the next load. Wire revision 23.
 
 ### Fixed
+- A year written `y` is now read as a year. The unit table already knew
+  `year`, `a` and `yr`, and the compound units built on it, `my` for a metre
+  year and `kmy` for a kilometre year, so the one spelling missing was the
+  bare letter. A reference product measured in it converted to nothing at all
+  rather than to a wrong number, which is why it took a source that uses it to
+  notice (data version 4).
 - Emissions read from an EcoSpold 1 file now reach the methods that
   characterize them. An elementary exchange names its medium in a `category`
   attribute, and the format is written in two vocabularies there: some exports

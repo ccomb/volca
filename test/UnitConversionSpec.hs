@@ -116,6 +116,15 @@ spec = do
                 Just v -> v `shouldSatisfy` (\x -> abs (x - 3.6) < 0.001)
                 Nothing -> expectationFailure "conversion failed"
 
+        -- A year is written four ways in the wild, and a source that writes it
+        -- "y" was reading as a unit nobody knew: every conversion through it
+        -- failed rather than being off, which is why it went unnoticed.
+        it "reads every spelling of a year as the same unit" $ do
+            cfg <- loadFullUnitConfig
+            mapM_
+                (\spelling -> convertUnit cfg spelling "day" 1.0 `shouldBe` Just 365.0)
+                ["year", "a", "yr", "y"]
+
         it "converts 1 kBq to 1000 Bq" $ do
             cfg <- loadFullUnitConfig
             convertUnit cfg "kBq" "Bq" 1.0 `shouldBe` Just 1000.0

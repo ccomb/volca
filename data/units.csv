@@ -43,6 +43,7 @@ day,time,86400.0
 year,time,31536000.0
 a,time,31536000.0
 yr,time,31536000.0
+y,time,31536000.0
 month,time,2592000.0
 j,energy,1.0e-6
 joule,energy,1.0e-6
