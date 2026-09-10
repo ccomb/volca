@@ -29,7 +29,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance)
+import Database (IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVectorFromIndex, computeInventoryMatrix, depDemandsToVector, perturbA, perturbABatch, perturbGlobal, toList)
@@ -1875,7 +1875,7 @@ collectSupplyChainEntries db dbName level supplyVec scf =
 
         matchesFilters activity pid =
             let nameOk = nameMatchesPid pid
-                locOk = maybe True (\pat -> textMatches pat (activityLocation activity)) (afcLocation core)
+                locOk = maybe True (\pat -> locationAnswers pat (activityLocation activity)) (afcLocation core)
                 productOk = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afcProduct core)
                 classOk = matchClassifications activity (afcClassifications core)
                 localDepth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
@@ -3034,7 +3034,7 @@ getConsumers db dbName processIdText cnf = do
 
         locationMatches activity = case afcLocation core of
             Nothing -> True
-            Just pat -> Normalize.caseInsensitiveInfixOf pat (activityLocation activity)
+            Just pat -> locationAnswers pat (activityLocation activity)
 
         productMatches prodName = case afcProduct core of
             Nothing -> True

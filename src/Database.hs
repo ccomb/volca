@@ -291,6 +291,33 @@ bm25DocsMatchingName idx name =
     intersectAll [] = IS.empty
     intersectAll (x : xs) = foldl IS.intersection x xs
 
+{- | Does a location answer a geography filter?
+
+A location is a code from a controlled vocabulary rather than free text, and those
+codes overlap as text: @SE@ sits inside @US-SERC@, @DE@ inside @NORDEL@, and @CH@
+inside @RER w/o CH+DE@, a region defined by excluding Switzerland. Matching anywhere
+in the string answers all three with places nobody asked for, and the answer carries
+nothing that says so.
+
+So a location answers when it is the geography asked for, or one written under it:
+@US@ answers for @US-WECC@ and @Europe@ for @Europe without Switzerland@, which is
+what keeps a filter typed one letter at a time useful, and leaves no way for a code
+to match inside an unrelated one.
+-}
+locationAnswers :: Text -> Text -> Bool
+locationAnswers wanted location = asked wanted `T.isPrefixOf` asked location
+
+-- | The same question asked of one location only: 'locationAnswers' under @exact@.
+locationIs :: Text -> Text -> Bool
+locationIs wanted location = asked wanted == asked location
+
+{- | A location as the question is about it: whitespace around a code is not part
+of the place, and neither is the case it was typed in. Both filters read it the
+same way, or the answer would depend on which of the two was asked.
+-}
+asked :: Text -> Text
+asked = T.toCaseFold . T.strip
+
 {- | Apply geo, product, and classification filters to a pre-built candidate list.
 Does NOT touch the name query: callers (BM25 retrieval or name-candidate lookup)
 produce the initial list.
@@ -315,12 +342,8 @@ applyStructuredFilters db geoParam productParam classFilters exactMatch candidat
         geoFiltered = case geoParam of
             Nothing -> candidates
             Just geo
-                | exactMatch ->
-                    let geoFold = T.toCaseFold geo
-                     in [(pid, a) | (pid, a) <- candidates, T.toCaseFold (activityLocation a) == geoFold]
-                | otherwise ->
-                    let geoLower = T.toLower geo
-                     in [(pid, a) | (pid, a) <- candidates, T.isInfixOf geoLower (T.toLower (activityLocation a))]
+                | exactMatch -> [(pid, a) | (pid, a) <- candidates, locationIs geo (activityLocation a)]
+                | otherwise -> [(pid, a) | (pid, a) <- candidates, locationAnswers geo (activityLocation a)]
 
         -- exchangeIsReference covers both ReferenceProduct (output) and
         -- ReferenceInput (treatment-process input). Both are the activity's
