@@ -14,6 +14,20 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
+- A SimaPro file's own unit table is now read. The file carries one at the end,
+  a row per unit giving what it is called, what it is expressed in and how many
+  of that it makes, and it is the table its amounts were written against. What
+  it adds is the spellings no shipped table can enumerate: one published list
+  states 191 units, of which more than a hundred were unknown here, `tn.sh` for
+  a short ton, `cm2a`, `gal*`, `Mtn`. Those are now sized by the file rather
+  than left unconvertible. The shipped table still wins wherever it has a row,
+  since its constants are exact where a published list rounds them, and a
+  disagreement is reported instead of followed.
+- Two units a file spells differently and this engine reads the same are now
+  named at load, and neither is read. One published list states both `Mg` and
+  `mg`, and both `MBq` and `mBq`: the lookup folds their case, so reading the
+  file's table blind would let a megagram overwrite the milligram and every
+  milligram in that file arrive as a tonne.
 - A geography filter now names a place. Asking `search_activities`,
   `get_consumers` or `get_supply_chain` for a location matched that text
   anywhere inside one, and location codes overlap: `DE` sits inside `NORDEL`,

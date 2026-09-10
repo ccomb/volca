@@ -15,10 +15,12 @@ module UnitConversion (
     UnitDef (..),
     UnitConfig (ucDimensionOrder, ucUnits, ucOriginalKeys, ucCanonical),
     mkUnitConfig,
+    UnitDeclaration (..),
 
     -- * Loading
     defaultUnitConfig,
     buildFromCSV,
+    addDeclaredUnits,
     mergeUnitConfigs,
     unitCount,
 
@@ -48,6 +50,7 @@ import Control.DeepSeq (NFData)
 import Control.Monad (unless)
 import qualified Data.ByteString.Lazy as BL
 import Data.Csv (HasHeader (..), decode)
+import Data.Either (partitionEithers)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.List (elemIndex)
 import qualified Data.Map.Strict as M
@@ -213,6 +216,113 @@ buildFromCSV csvData =
     parseRow dimOrder (name, dimExpr, factor) = do
         dim <- parseDimension dimOrder dimExpr
         Right (normalizeUnit name, UnitDef dim factor)
+
+{- | One row of the unit table a database file carries for itself: what the
+unit is called, the unit it is expressed in, and how many of that it makes.
+
+A file stating that @ha a@ is 10 000 @m2a@, or @tn.sh@ 907.18474 @kg@, is
+saying what no table shipped with an engine can know about the spellings that
+file uses.
+-}
+data UnitDeclaration = UnitDeclaration
+    { declName :: !Text
+    , declRelativeTo :: !Text
+    , declHowMany :: !Double
+    }
+    deriving (Eq, Show)
+
+{- | Lay a file's own unit table over the one the engine ships.
+
+The shipped table wins wherever it has a row: its constants are exact where a
+published list often rounds them, and a file that disagrees is reported rather
+than followed. What the file adds is the spellings no shipped table can
+enumerate, @tn.sh@ or @cm2a@ or @gal*@, sized against a unit already known. A
+declaration is placed once the unit it is given in is known, whether from the
+shipped table or from a declaration placed before it, so the pass repeats until
+it places nothing new.
+
+Two declarations this lookup cannot tell apart are the case that matters. One
+published list states both @Mg@ and @mg@, and both @MBq@ and @mBq@: a lookup
+that folds their case has one key for the pair, so placing them would let a
+megagram overwrite the milligram and every milligram in the file arrive as a
+tonne. Neither is placed and the pair is named, which leaves the reading where
+it already was and says so.
+-}
+addDeclaredUnits :: UnitConfig -> [UnitDeclaration] -> (UnitConfig, [Text])
+addDeclaredUnits cfg decls = (mkUnitConfig (ucDimensionOrder cfg) placed (M.mapWithKey const placed), notes)
+  where
+    placed :: M.Map Text UnitDef
+    placed = settle (ucUnits cfg) added
+
+    -- One declaration per key, dropping what the shipped table already answers
+    -- for and what the file itself spells two ways for two sizes.
+    added :: [UnitDeclaration]
+    added =
+        [ d
+        | (key, d : rest) <- M.toList byKey
+        , not (M.member key (ucUnits cfg))
+        , all (agrees d) rest
+        ]
+
+    byKey :: M.Map Text [UnitDeclaration]
+    byKey = M.fromListWith (<>) [(normalizeUnit (declName d), [d]) | d <- decls]
+
+    agrees :: UnitDeclaration -> UnitDeclaration -> Bool
+    agrees a b =
+        normalizeUnit (declRelativeTo a) == normalizeUnit (declRelativeTo b)
+            && abs (declHowMany a - declHowMany b) <= abs (declHowMany a) * 1.0e-9
+
+    settle :: M.Map Text UnitDef -> [UnitDeclaration] -> M.Map Text UnitDef
+    settle known pending
+        | null done = known
+        | otherwise = settle (M.union (M.fromList done) known) waiting
+      where
+        (waiting, done) = partitionEithers (map (place known) pending)
+
+    place :: M.Map Text UnitDef -> UnitDeclaration -> Either UnitDeclaration (Text, UnitDef)
+    place known d = maybe (Left d) (Right . (,) (normalizeUnit (declName d))) (against known d)
+
+    against :: M.Map Text UnitDef -> UnitDeclaration -> Maybe UnitDef
+    against known d = do
+        UnitDef dim factor <- M.lookup (normalizeUnit (declRelativeTo d)) known
+        pure (UnitDef dim (declHowMany d * factor))
+
+    notes :: [Text]
+    notes = say collapsed foldedTogether ++ say unplaceable statedButUnknown ++ say disagreeing sizedDifferently
+
+    say :: Text -> [Text] -> [Text]
+    say _ [] = []
+    say what these = [what <> T.intercalate ", " these]
+
+    collapsed, unplaceable, disagreeing :: Text
+    collapsed = "the file tells apart units this lookup does not, so it reads neither and an amount in either keeps whatever the shipped table says: "
+    unplaceable = "the file states a unit given in one this engine does not know, so it stays unknown: "
+    disagreeing = "the file sizes a unit differently from the shipped table, which is the one used: "
+
+    foldedTogether :: [Text]
+    foldedTogether = [T.intercalate " beside " (map declName ds) | ds <- M.elems byKey, not (allAgree ds)]
+
+    allAgree :: [UnitDeclaration] -> Bool
+    allAgree [] = True
+    allAgree (d : rest) = all (agrees d) rest
+
+    statedButUnknown :: [Text]
+    statedButUnknown =
+        [ declName d <> " in " <> declRelativeTo d
+        | d <- added
+        , not (M.member (normalizeUnit (declName d)) placed)
+        ]
+
+    sizedDifferently :: [Text]
+    sizedDifferently =
+        [ declName d
+        | ds <- M.elems byKey
+        , allAgree ds
+        , d <- take 1 ds
+        , Just shipped <- [M.lookup (normalizeUnit (declName d)) (ucUnits cfg)]
+        , Just mine <- [against (ucUnits cfg) d]
+        , abs (udFactor mine - udFactor shipped) > abs (udFactor shipped) * 1.0e-9
+        ]
 
 {- | Merge multiple UnitConfigs (later entries override earlier ones).
 | Merge unit configs. Later entries override earlier ones.

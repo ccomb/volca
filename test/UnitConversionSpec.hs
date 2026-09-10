@@ -211,6 +211,71 @@ spec = do
             isKnownUnit cfg "Kg" `shouldBe` True
             isKnownUnit cfg "kG" `shouldBe` True
 
+    -- A database file carries the unit table its own amounts were written
+    -- against. Reading it is what settles a spelling no shipped table can
+    -- enumerate, and it is the file, not a heuristic, that says how big it is.
+    describe "Units a file declares for itself" $ do
+        let declaring = UnitDeclaration
+
+        it "sizes a unit the shipped table never had, from the one it is given in" $ do
+            cfg <- loadFullUnitConfig
+            let (with, notes) = addDeclaredUnits cfg [declaring "tn.sh" "kg" 907.18474]
+            notes `shouldBe` []
+            convertUnit with "tn.sh" "kg" 1.0 `shouldBe` Just 907.18474
+
+        it "places a declaration that leans on another declaration" $ do
+            cfg <- loadFullUnitConfig
+            -- The reference row of a quantity states itself, and everything
+            -- else in that quantity is given in it.
+            let (with, notes) =
+                    addDeclaredUnits
+                        cfg
+                        [ declaring "km2a" "m2a" 1.0e6
+                        , declaring "m2a" "m2a" 1.0
+                        ]
+            notes `shouldBe` []
+            convertUnit with "km2a" "m2a" 1.0 `shouldBe` Just 1.0e6
+
+        it "leaves a unit unknown when nothing places it, and says so" $ do
+            cfg <- loadFullUnitConfig
+            let (with, notes) = addDeclaredUnits cfg [declaring "PMH" "PMH" 1.0]
+            isKnownUnit with "PMH" `shouldBe` False
+            notes `shouldSatisfy` any (T.isInfixOf "PMH")
+
+        -- A published list rounds its constants where the shipped table is
+        -- exact, so the shipped one is kept and the disagreement is read out
+        -- rather than acted on.
+        it "keeps the shipped size where the file gives another, and says so" $ do
+            cfg <- loadFullUnitConfig
+            let (with, notes) = addDeclaredUnits cfg [declaring "kcal" "MJ" 0.0041855]
+            convertUnit with "kcal" "MJ" 1.0 `shouldBe` Just 0.004184
+            notes `shouldSatisfy` any (T.isInfixOf "kcal")
+
+        -- The case that costs a factor of a billion. One published list states
+        -- both `Mg` and `mg` against a lookup that folds their case, so placing
+        -- either would answer for both.
+        it "places neither of two units it cannot tell apart, and names them" $ do
+            cfg <- loadFullUnitConfig
+            let (with, notes) =
+                    addDeclaredUnits
+                        cfg
+                        [ declaring "mg" "kg" 1.0e-6
+                        , declaring "Mg" "kg" 1000.0
+                        ]
+            convertUnit with "mg" "kg" 1.0 `shouldBe` Just 1.0e-6
+            notes `shouldSatisfy` any (T.isInfixOf "beside")
+
+        it "places one of two spellings that state the same size" $ do
+            cfg <- loadFullUnitConfig
+            let (with, notes) =
+                    addDeclaredUnits
+                        cfg
+                        [ declaring "tn.sh" "kg" 907.18474
+                        , declaring "TN.SH" "kg" 907.18474
+                        ]
+            convertUnit with "tn.sh" "kg" 1.0 `shouldBe` Just 907.18474
+            notes `shouldBe` []
+
     describe "Config Building (buildFromCSV)" $ do
         it "builds config from CSV" $ do
             let csv = "name,dimension,factor\nkg,mass,1.0\ng,mass,0.001\ntkm,mass*length,1e6\n"
