@@ -77,6 +77,19 @@ spec = do
             -- marker, so the sniff must not over-fire.
             detectArchiveFormat miniProcessJson `shouldBe` ArchivePlainCSV
 
+    describe "detectArchiveFormat on the plain-text sniff" $ do
+        it "answers ArchiveUnknown on empty input" $
+            -- The emptiness guard answers first, so this passes whether or not
+            -- the sniff below it reads the first byte totally. It pins the
+            -- result the guard owes; the byte set is what the cases below pin.
+            detectArchiveFormat BL.empty `shouldBe` ArchiveUnknown
+
+        it "accepts the printable ASCII range and nothing under it" $ do
+            detectArchiveFormat (BL.pack [0x20]) `shouldBe` ArchivePlainCSV
+            detectArchiveFormat (BL.pack [0x7E]) `shouldBe` ArchivePlainCSV
+            detectArchiveFormat (BL.pack [0x1F]) `shouldBe` ArchiveUnknown
+            detectArchiveFormat (BL.pack [0x7F]) `shouldBe` ArchiveUnknown
+
     describe "handleUpload writes JSON-LD as .json" $
         it "persists data.json (not data.csv) so the loader can dispatch through OlcaSchema" $
             withSystemTempDirectory "volca-method-upload" $ \tmp -> do

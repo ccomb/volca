@@ -241,7 +241,9 @@ detectArchiveFormat content
                 && BS.isInfixOf "\"ImpactCategory\"" header2k
         _ -> False
     -- Check if first byte is printable ASCII (plain text / CSV)
-    isPlainText = let b = BL.head content in b == 0x7B || (b >= 0x20 && b < 0x7F)
+    isPlainText = case bytes of
+        b : _ -> b == 0x7B || (b >= 0x20 && b < 0x7F)
+        [] -> False
 
 {- | Extract an archive file on disk to a target directory.
 Reuses extractUpload (reads file, detects format, extracts).
