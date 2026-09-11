@@ -233,6 +233,7 @@ spec = do
                     , ("kg*day", Just "kgy")
                     , ("km*year", Just "my")
                     , ("passenger-km", Just "pkm")
+                    , ("guest night", Just "guestnight")
                     , -- A result expression is the reference of its own
                       -- dimension and of nothing else, which is what keeps it
                       -- from being the unit an amount is recorded in.
@@ -302,6 +303,17 @@ spec = do
             cfg <- loadFullUnitConfig
             unitsCompatible cfg "kgy" "kg*year" `shouldBe` True
             unitsCompatible cfg "kgy" "unit" `shouldBe` False
+
+        -- A guest night is one guest for one night, a count over a time, and
+        -- the table filed it as a bare count. Every spelling of a count then
+        -- converted into it at 1.0, reading one piece or one shipping
+        -- container as one night of one guest, and the dimension vector is the
+        -- whole of what decides, so nothing downstream could notice.
+        it "reads a guest night as a count over a time, not as a count" $ do
+            cfg <- loadFullUnitConfig
+            unitsCompatible cfg "guest night" "guestnight" `shouldBe` True
+            unitsCompatible cfg "guest night" "p" `shouldBe` False
+            unitsCompatible cfg "guest night" "TEU" `shouldBe` False
 
         it "returns Nothing for incompatible units" $ do
             cfg <- loadFullUnitConfig

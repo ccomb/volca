@@ -106,8 +106,8 @@ pieces,count,1.0
 item,count,1.0
 items,count,1.0
 dimensionless,count,1.0
-guest night,count,1.0
-guestnight,count,1.0
+guest night,count*time,1.0
+guestnight,count*time,1.0
 TEU,count,1.0
 EUR,currency,1.0
 EUR2005,currency,1.0
