@@ -266,6 +266,44 @@ spec = describe "per-exchange comments" $ do
                         fcUnevaluable fc `shouldBe` 1
                         fcExample fc `shouldBe` Just "\"fuel_input * 2 + production\" evaluates to 5.0 but the dataset stores 4.0"
 
+        -- A variable two declarations claim with two amounts names no value.
+        -- Binding whichever was read last would make the check answer on a coin
+        -- toss, so it stays unbound and the formulas that use it come back
+        -- unevaluable, which is what the check says when it cannot judge.
+        it "does not keep a <parameter> two declarations disagree on" $
+            withTwiceDeclaredFixture $ \ParsedDataset{pdActivity = act} -> do
+                M.member "twice" (activityParams act) `shouldBe` False
+                M.member "twice" (activityParamExprs act) `shouldBe` False
+
+        it "cannot judge a formula over a variable claimed twice" $
+            withTwiceDeclaredFixture $ \ParsedDataset{pdActivity = act} ->
+                case activityFormulaCheck act of
+                    Nothing -> expectationFailure "expected a FormulaCheck on the activity"
+                    Just fc -> do
+                        -- "shared" is claimed by two exchanges, "twice" by two
+                        -- parameters, and "both" by one of each; only
+                        -- "production" is named once.
+                        fcUnevaluable fc `shouldBe` 3
+                        fcEvaluated fc `shouldBe` 1
+                        fcDivergent fc `shouldBe` 0
+
+        -- A <parameter> and an exchange variableName share one space of names.
+        -- Letting the parameter win would report a divergence against an amount
+        -- the dataset never agreed on, where the two other shapes of the same
+        -- contradiction report that the check could not judge.
+        it "cannot judge a formula over a name an exchange and a parameter share" $
+            withTwiceDeclaredFixture $ \ParsedDataset{pdActivity = act} ->
+                case activityFormulaCheck act of
+                    Nothing -> expectationFailure "expected a FormulaCheck on the activity"
+                    Just fc -> fcExample fc `shouldBe` Nothing
+
+        it "logs the parameter two declarations disagree on" $ do
+            (since, _) <- getLogLines 0
+            withTwiceDeclaredFixture $ \_ -> pure ()
+            (_, newLines) <- getLogLines since
+            any (("Ignoring <parameter> \"twice\"" `isInfixOf`) . llText) newLines
+                `shouldBe` True
+
         it "logs the dropped parameter but nothing about the formulas" $ do
             (since, _) <- getLogLines 0
             withFormulaFixture $ \_ -> pure ()
@@ -727,6 +765,102 @@ formulaXml =
     \    </flowData>\n\
     \  </activityDataset>\n\
     \</ecoSpold>\n"
+
+{- | Synthetic dataset where two declarations claim one variable name:
+  - two inputs both carrying variableName="shared", with two amounts
+  - two <parameter> elements both named "twice", with two amounts
+  - an input and a <parameter> both named "both", with two amounts
+  - one formula per ambiguous variable, and one over the reference output's
+    "production", which stays unambiguous
+-}
+twiceDeclaredXml :: BS.ByteString
+twiceDeclaredXml =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    \<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold02\">\n\
+    \  <activityDataset>\n\
+    \    <activityDescription>\n\
+    \      <activity id=\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\" activityNameId=\"twice-test\">\n\
+    \        <activityName xml:lang=\"en\">Twice declared activity</activityName>\n\
+    \      </activity>\n\
+    \      <geography geographyId=\"TEST\"><shortname xml:lang=\"en\">TEST</shortname></geography>\n\
+    \    </activityDescription>\n\
+    \    <flowData>\n\
+    \      <intermediateExchange id=\"ref\" unitId=\"unit-kwh\" amount=\"1.0\" variableName=\"production\"\n\
+    \                           intermediateExchangeId=\"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\">\n\
+    \        <name xml:lang=\"en\">Twice declared product</name>\n\
+    \        <unitName xml:lang=\"en\">kWh</unitName>\n\
+    \        <outputGroup>0</outputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"dupA\" unitId=\"unit-kg\" amount=\"2.0\" variableName=\"shared\"\n\
+    \                           intermediateExchangeId=\"cccccccc-cccc-cccc-cccc-cccccccccccc\">\n\
+    \        <name xml:lang=\"en\">First claimant</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"dupB\" unitId=\"unit-kg\" amount=\"5.0\" variableName=\"shared\"\n\
+    \                           intermediateExchangeId=\"dddddddd-dddd-dddd-dddd-dddddddddddd\">\n\
+    \        <name xml:lang=\"en\">Second claimant</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"usesShared\" unitId=\"unit-kg\" amount=\"2.0\"\n\
+    \                           mathematicalRelation=\"shared\"\n\
+    \                           intermediateExchangeId=\"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee\">\n\
+    \        <name xml:lang=\"en\">Reads the shared variable</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"usesTwice\" unitId=\"unit-kg\" amount=\"2.0\"\n\
+    \                           mathematicalRelation=\"twice\"\n\
+    \                           intermediateExchangeId=\"ffffffff-ffff-ffff-ffff-ffffffffffff\">\n\
+    \        <name xml:lang=\"en\">Reads the parameter</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"usesProduction\" unitId=\"unit-kg\" amount=\"1.0\"\n\
+    \                           mathematicalRelation=\"production\"\n\
+    \                           intermediateExchangeId=\"99999999-9999-9999-9999-999999999999\">\n\
+    \        <name xml:lang=\"en\">Reads the reference output</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"alsoParam\" unitId=\"unit-kg\" amount=\"8.0\" variableName=\"both\"\n\
+    \                           intermediateExchangeId=\"11111111-1111-1111-1111-111111111111\">\n\
+    \        <name xml:lang=\"en\">Claims a parameter name</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"usesBoth\" unitId=\"unit-kg\" amount=\"8.0\"\n\
+    \                           mathematicalRelation=\"both\"\n\
+    \                           intermediateExchangeId=\"22222222-2222-2222-2222-222222222222\">\n\
+    \        <name xml:lang=\"en\">Reads the name both claim</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <parameter parameterId=\"par-3\" variableName=\"both\" amount=\"4.0\">\n\
+    \        <name xml:lang=\"en\">both</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \      </parameter>\n\
+    \      <parameter parameterId=\"par-1\" variableName=\"twice\" amount=\"2.0\" mathematicalRelation=\"4.0 / 2\">\n\
+    \        <name xml:lang=\"en\">twice</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \      </parameter>\n\
+    \      <parameter parameterId=\"par-2\" variableName=\"twice\" amount=\"9.0\">\n\
+    \        <name xml:lang=\"en\">twice again</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \      </parameter>\n\
+    \    </flowData>\n\
+    \  </activityDataset>\n\
+    \</ecoSpold>\n"
+
+withTwiceDeclaredFixture :: (ParsedDataset -> IO ()) -> IO ()
+withTwiceDeclaredFixture k = withSystemTempDirectory "es2-twice" $ \dir -> do
+    let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
+    BS.writeFile path twiceDeclaredXml
+    result <- streamParseActivityAndFlowsFromFile path
+    case result of
+        Left err -> expectationFailure $ "Parse failed: " ++ err
+        Right res -> k res
 
 withFormulaFixture :: (ParsedDataset -> IO ()) -> IO ()
 withFormulaFixture k = withSystemTempDirectory "es2-formula" $ \dir -> do
