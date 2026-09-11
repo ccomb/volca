@@ -134,10 +134,10 @@ waterFlowIn unitId = (coalFlowIn unitId){bfId = waterId, bfName = "Water"}
 volumeCF :: MethodCF
 volumeCF = energyCF{mcfFlowRef = waterId, mcfFlowName = "Water", mcfValue = 42.95, mcfUnit = "m3"}
 
--- The same factor as the JRC ILCD collection actually writes it: the method's
--- reference quantity is a result expression, "m3-world equivalents", and the
--- parser copies that string onto every factor. It is not a volume, but it is
--- written per one.
+-- The same factor as the ILCD collection carrying this indicator writes it:
+-- the method's reference quantity is a result expression,
+-- "m3-world equivalents", and the parser copies that string onto every factor.
+-- It is not a volume, but it is written per one.
 volumeResultCF :: MethodCF
 volumeResultCF = volumeCF{mcfUnit = "m3-world equivalents"}
 
