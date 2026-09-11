@@ -174,7 +174,7 @@ scoreIntra name acts = do
     db <- buildDB name acts
     case processIdOf db (pA, yY) of
         Nothing -> fail "producer not interned"
-        Just pid -> co2Of <$> computeInventoryMatrix db (fromIntegral pid)
+        Just pid -> co2Of <$> (either (fail . show) pure =<< computeInventoryMatrix db (fromIntegral pid))
 
 -- | A linking context holding one dependency database.
 ctxWithDep :: T.Text -> Database -> LinkingContext

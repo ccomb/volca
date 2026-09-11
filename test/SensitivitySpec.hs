@@ -33,7 +33,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             solver <- mkSolverFromDb db "SAMPLE.min3"
             let demand = buildDemandVectorFromIndex (dbActivityIndex db) 0
-            x <- solveWithSharedSolver solver demand
+            x <- solveWithSharedSolver solver =<< either (fail . show) pure demand
             mFact <- getFactorization solver
             r <- perturbA db mFact x 0 []
             case r of
@@ -188,7 +188,7 @@ spec = do
                     | SparseTriple i j v <- techTriples
                     ]
                 n = fromIntegral (dbActivityCount db)
-                demand = unDemand (buildDemandVectorFromIndex (dbActivityIndex db) 0)
+            demand <- unDemand <$> either (fail . show) pure (buildDemandVectorFromIndex (dbActivityIndex db) 0)
             xRef <- solveSparseLinearSystem scaledTriples n demand
 
             -- Compare element-wise within tight numerical tolerance.

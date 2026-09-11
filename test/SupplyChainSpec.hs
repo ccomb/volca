@@ -67,7 +67,7 @@ spec = do
 
             -- SAMPLE.min3: X → Y(0.6) → Z(0.24), all refAmounts = 1 kg
             let rootProcessId = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootProcessId
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootProcessId
 
             let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootProcessId supplyVec emptySupply
                 entries = scrSupplyChain response
@@ -85,7 +85,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
 
             let rootProcessId = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootProcessId
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootProcessId
 
             let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootProcessId supplyVec emptySupply
                 entries = scrSupplyChain response
@@ -98,7 +98,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
 
             let rootProcessId = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootProcessId
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootProcessId
 
             -- No depth filter: should get Y (depth 1) and Z (depth 2)
             let noFilter = buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootProcessId supplyVec emptySupply
@@ -136,7 +136,7 @@ spec = do
         it "narrows to single entry when token matches only one activity" $ do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootPid
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
             -- Only pid 1's name contains the token "y".
             let entries = scrSupplyChain (buildWithName db rootPid supplyVec (Just "Y"))
             map sceActivityName entries `shouldBe` ["production of product Y"]
@@ -144,7 +144,7 @@ spec = do
         it "accepts typos via edit-distance expansion" $ do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootPid
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
             -- "prodcution" is "production" with two characters transposed.
             let entries = scrSupplyChain (buildWithName db rootPid supplyVec (Just "prodcution"))
             length entries `shouldSatisfy` (>= 1)
@@ -152,7 +152,7 @@ spec = do
         it "accepts stems via prefix-coverage expansion" $ do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootPid
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
             -- "produc" is a stem of "production" — both Y and Z pass.
             let entries = scrSupplyChain (buildWithName db rootPid supplyVec (Just "produc"))
             length entries `shouldBe` 2
@@ -160,7 +160,7 @@ spec = do
         it "is case-insensitive" $ do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootPid
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
             let nUpper = scrFilteredActivities (buildWithName db rootPid supplyVec (Just "PRODUCT"))
                 nLower = scrFilteredActivities (buildWithName db rootPid supplyVec (Just "product"))
             nUpper `shouldBe` nLower
@@ -168,7 +168,7 @@ spec = do
         it "blank name query is equivalent to no filter" $ do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootPid
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
             let nNone = scrFilteredActivities (buildWithName db rootPid supplyVec Nothing)
                 nBlank = scrFilteredActivities (buildWithName db rootPid supplyVec (Just "   "))
             nBlank `shouldBe` nNone
@@ -176,7 +176,7 @@ spec = do
         it "non-matching name query returns zero entries" $ do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootPid
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
             scrFilteredActivities (buildWithName db rootPid supplyVec (Just "zzznomatch"))
                 `shouldBe` 0
 
@@ -186,14 +186,14 @@ spec = do
             -- absent filter.
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootPid
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
             scrFilteredActivities (buildWithName db rootPid supplyVec (Just "???"))
                 `shouldBe` 0
 
         it "preserves depth sort order across filtered entries" $ do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
-            supplyVec <- computeScalingVector db rootPid
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
             let resp =
                     buildSupplyChainFromScalingVector
                         shippedGeographies

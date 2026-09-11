@@ -20,7 +20,7 @@ spec = do
             let rootProcessId = 0 :: ProcessId
 
             -- Compute inventory
-            inventory <- computeInventoryMatrix db rootProcessId
+            inventory <- either (fail . show) pure =<< computeInventoryMatrix db rootProcessId
 
             -- Find CO2 and Zinc flows
             let co2Flow = findFlowByName db "carbon dioxide"
@@ -43,7 +43,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
 
             let rootProcessId = 0 :: ProcessId
-            inventory <- computeInventoryMatrix db rootProcessId
+            inventory <- either (fail . show) pure =<< computeInventoryMatrix db rootProcessId
 
             -- All inventory values should be finite
             let allFinite = all (\(_, v) -> not (isInfinite v) && not (isNaN v)) (M.toList inventory)
@@ -57,7 +57,7 @@ spec = do
             let rootProcessId = 0 :: ProcessId
 
             -- Compute inventory
-            inventory <- computeInventoryMatrix db rootProcessId
+            inventory <- either (fail . show) pure =<< computeInventoryMatrix db rootProcessId
 
             -- All values should be finite
             let allFinite = all (\(_, v) -> not (isInfinite v) && not (isNaN v)) (M.toList inventory)
@@ -67,7 +67,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min"
 
             let rootProcessId = 0 :: ProcessId
-            inventory <- computeInventoryMatrix db rootProcessId
+            inventory <- either (fail . show) pure =<< computeInventoryMatrix db rootProcessId
 
             -- Most biosphere values should be positive (emissions)
             let positiveCount = length $ filter (\(_, v) -> v > 0) (M.toList inventory)
@@ -78,7 +78,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
 
             let rootProcessId = 0 :: ProcessId
-            inventory <- computeInventoryMatrix db rootProcessId
+            inventory <- either (fail . show) pure =<< computeInventoryMatrix db rootProcessId
 
             -- Inventory should not be empty
             M.size inventory `shouldSatisfy` (> 0)
@@ -87,7 +87,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
 
             -- Activity 0 (Product X) should have inventory from downstream
-            inventory0 <- computeInventoryMatrix db 0
+            inventory0 <- either (fail . show) pure =<< computeInventoryMatrix db 0
             M.size inventory0 `shouldSatisfy` (> 0)
 
             -- All inventory values should be reasonable (not astronomically large)
@@ -107,14 +107,14 @@ spec = do
         it "empty batch returns empty list" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             fact <- makeFact db "SAMPLE.min3.empty"
-            result <- computeInventoryMatrixBatch db fact []
+            result <- either (fail . show) pure =<< computeInventoryMatrixBatch db fact []
             result `shouldBe` []
 
         it "singleton batch matches single-solve inventory" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             fact <- makeFact db "SAMPLE.min3.single"
-            single <- computeInventoryMatrix db 0
-            [batched] <- computeInventoryMatrixBatch db fact [0]
+            single <- either (fail . show) pure =<< computeInventoryMatrix db 0
+            [batched] <- either (fail . show) pure =<< computeInventoryMatrixBatch db fact [0]
             M.keys single `shouldBe` M.keys batched
             mapM_
                 ( \k ->
@@ -130,8 +130,8 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             fact <- makeFact db "SAMPLE.min3.k3"
             let pids = [0, 1, 2]
-            singles <- mapM (computeInventoryMatrix db) pids
-            batched <- computeInventoryMatrixBatch db fact pids
+            singles <- either (fail . show) pure . sequence =<< mapM (computeInventoryMatrix db) pids
+            batched <- either (fail . show) pure =<< computeInventoryMatrixBatch db fact pids
             length batched `shouldBe` length singles
             mapM_
                 ( \(s, b) -> do

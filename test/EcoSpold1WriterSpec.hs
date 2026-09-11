@@ -431,7 +431,7 @@ buildDb sdb = do
 inventoryByName :: Database -> IO (M.Map Text Double)
 inventoryByName db = do
     let pid = 0 -- single-activity fixture
-    inv <- Matrix.computeInventoryMatrix db pid
+    inv <- either (fail . show) pure =<< Matrix.computeInventoryMatrix db pid
     pure $
         M.fromListWith
             (+)

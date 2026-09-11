@@ -340,14 +340,14 @@ assertInventoryRoundTrips sdb = do
     db' <- buildDb sdb'
     let pids = [0 .. fromIntegral (V.length (dbProcessIdTable db)) - 1] :: [ProcessId]
     forM_ pids $ \pid -> do
-        inv <- computeInventoryMatrix db pid
+        inv <- either (fail . show) pure =<< computeInventoryMatrix db pid
         -- The round-tripped DB may order activities differently; locate the
         -- matching process by its (actUUID, prodUUID) key.
         let key = dbProcessIdTable db V.! fromIntegral pid
         case V.elemIndex key (dbProcessIdTable db') of
             Nothing -> expectationFailure $ "process key missing after round-trip: " ++ show key
             Just pid' -> do
-                inv' <- computeInventoryMatrix db' (fromIntegral pid')
+                inv' <- either (fail . show) pure =<< computeInventoryMatrix db' (fromIntegral pid')
                 inventoriesClose inv inv' `shouldBe` True
 
 spec :: Spec

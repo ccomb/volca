@@ -55,7 +55,7 @@ spec = do
             solver <- mkSolver db "root"
             let pid = 0
                 demandVec = buildDemandVectorFromIndex (dbActivityIndex db) pid
-            baselineX <- solveWithSharedSolver solver demandVec
+            baselineX <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             let qualifiedPid = "other-db::aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
                 sub =
                     Substitution
@@ -77,7 +77,7 @@ spec = do
             solver <- mkSolver db "root"
             let pid = 0
                 demandVec = buildDemandVectorFromIndex (dbActivityIndex db) pid
-            baselineX <- solveWithSharedSolver solver demandVec
+            baselineX <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             let noDeps _ = pure Nothing
             res <- applySubstitutionsAt defaultUnitConfig noDeps db (ThisDb "root") (RootDb "root") solver [baselineX] []
             case res of
@@ -94,7 +94,7 @@ spec = do
             solver <- mkSolver db "dep"
             let pid = 0
                 demandVec = buildDemandVectorFromIndex (dbActivityIndex db) pid
-            baselineX <- solveWithSharedSolver solver demandVec
+            baselineX <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             let qualifiedToRoot = "root::aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
                 sub =
                     Substitution
@@ -118,7 +118,7 @@ spec = do
             solver <- mkSolver db "dep"
             let pid = 0
                 demandVec = buildDemandVectorFromIndex (dbActivityIndex db) pid
-            baselineX <- solveWithSharedSolver solver demandVec
+            baselineX <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             let bareRootPid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
                 sub =
                     Substitution
@@ -275,7 +275,7 @@ spec = do
             let lookup_ = mkDepLookupFromMap (M.singleton "dep" (dep, depSolver))
                 pid = 0
                 demandVec = buildDemandVectorFromIndex (dbActivityIndex root) pid
-            scaling <- solveWithSharedSolver rootSolver demandVec
+            scaling <- solveWithSharedSolver rootSolver =<< either (fail . show) pure demandVec
             let scf =
                     SupplyChainFilter
                         { scfCore =

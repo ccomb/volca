@@ -40,7 +40,7 @@ import API.Types (
     apiFlowName,
  )
 import Database (Geographies)
-import Matrix (activityNormalizationFactor, buildDemandVectorFromIndex)
+import Matrix (activityNormalizationFactor)
 import Service (
     ActivityFilterCore (..),
     Edges (..),
@@ -48,6 +48,7 @@ import Service (
     SupplyChainFilter (..),
     buildSupplyChainFromScalingVectorCrossDB,
     convertToInventoryExport,
+    demandFor,
     getActivityExchangeDetails,
     getReferenceProductAmount,
     getReferenceProductName,
@@ -184,22 +185,23 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidTex
             case apScope params of
                 ScopeDirect ->
                     return $ Right $ reduce params (rowsFromDirect db activity)
-                ScopeSupplyChain -> do
-                    let demandVec = buildDemandVectorFromIndex (dbActivityIndex db) processId
-                    supplyVec <- solveWithSharedSolver solver demandVec
-                    let af = emptyFilter (apMaxDepth params)
-                    eResp <-
-                        buildSupplyChainFromScalingVectorCrossDB
-                            unitConfig
-                            geographies
-                            depLookup
-                            db
-                            dbName
-                            processId
-                            supplyVec
-                            []
-                            af
-                    return $ fmap (reduce params . rowsFromSupplyChain) eResp
+                ScopeSupplyChain -> case demandFor db processId of
+                    Left err -> return (Left err)
+                    Right demandVec -> do
+                        supplyVec <- solveWithSharedSolver solver demandVec
+                        let af = emptyFilter (apMaxDepth params)
+                        eResp <-
+                            buildSupplyChainFromScalingVectorCrossDB
+                                unitConfig
+                                geographies
+                                depLookup
+                                db
+                                dbName
+                                processId
+                                supplyVec
+                                []
+                                af
+                        return $ fmap (reduce params . rowsFromSupplyChain) eResp
                 ScopeBiosphere -> do
                     solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
                     case solE of
