@@ -500,6 +500,61 @@ spec = do
                     Left err -> T.unpack err `shouldContain` "activityA_productX_v2.spold"
 
     -- -----------------------------------------------------------------------
+    -- A file offered to a load that becomes no dataset
+    -- -----------------------------------------------------------------------
+    describe "a file that becomes no dataset" $ do
+        -- The unreadable files are named in two parts, so their names read and
+        -- only their content can refuse: this pins the parse gate rather than
+        -- the file-name gate beside it.
+        let notADataset = "<ecoSpold><nothing/></ecoSpold>"
+            refusalOf dir = do
+                result <- loadDatabase defaultUnitConfig dir
+                either (return . T.unpack) (const (fail "expected the load to refuse")) result
+
+        it "refuses an EcoSpold2 archive holding a file the parser cannot read" $
+            withSystemTempDirectory "es2-unreadable" $ \dir -> do
+                copyFile "test-data/SAMPLE.min4/activityA_productX.spold" (dir </> "activityA_productX.spold")
+                writeFile (dir </> "brokenA_brokenX.spold") notADataset
+                err <- refusalOf dir
+                err `shouldContain` "brokenA_brokenX.spold"
+
+        it "names every file it refused and counts them against what was offered" $
+            withSystemTempDirectory "es2-two-unreadable" $ \dir -> do
+                copyFile "test-data/SAMPLE.min4/activityA_productX.spold" (dir </> "activityA_productX.spold")
+                writeFile (dir </> "brokenA_brokenX.spold") notADataset
+                writeFile (dir </> "brokenB_brokenY.spold") notADataset
+                err <- refusalOf dir
+                err `shouldContain` "2 of 3 files became no dataset"
+                err `shouldContain` "brokenA_brokenX.spold"
+                err `shouldContain` "brokenB_brokenY.spold"
+
+        it "refuses an EcoSpold1 directory holding a file the parser cannot read" $
+            withSystemTempDirectory "es1-unreadable" $ \dir -> do
+                copyFile "test-data/SAMPLE.ecospold1/process1.xml" (dir </> "process1.xml")
+                writeFile (dir </> "broken.xml") notADataset
+                err <- refusalOf dir
+                err `shouldContain` "broken.xml"
+
+        it "refuses a lone EcoSpold1 file no dataset could be read from, and says why" $
+            withSystemTempDirectory "es1-empty" $ \dir -> do
+                writeFile (dir </> "broken.xml") notADataset
+                err <- refusalOf dir
+                err `shouldContain` "broken.xml"
+                err `shouldContain` "holds no dataset"
+
+        -- A block divided into several processes is keyed on its file name
+        -- once, not once per process, so a name with no reading is one
+        -- refusal. Read per process it would name the file as many times as
+        -- the block divided and count more refusals than files offered.
+        it "counts a name with no reading once for the file, not once per product" $
+            withSystemTempDirectory "es2-divided" $ \dir -> do
+                let dividing = (defaultLoadOptions defaultUnitConfig){loAllocation = ByProperty DryMass}
+                writeFile (dir </> "cheese_and_whey_v2.spold") twoProductsCarryingDryMass
+                refused <- loadDatabaseWithLocationAliases dividing dir
+                err <- either (return . T.unpack) (const (fail "expected the load to refuse")) refused
+                err `shouldContain` "1 of 1 files became no dataset"
+
+    -- -----------------------------------------------------------------------
     -- getReferenceProductUUID
     -- -----------------------------------------------------------------------
     describe "getReferenceProductUUID" $ do
@@ -1120,3 +1175,52 @@ spec = do
             let cls = activityClassification (head activities)
             M.lookup "Category" cls `shouldBe` Just "Energy"
             M.lookup "SubCategory" cls `shouldBe` Just "Electricity"
+
+{- | One EcoSpold 2 block with two product outputs, each stating a dry mass, so
+a load keyed on that property divides it into two processes. Written here
+rather than kept under @test-data@ because what it is for is the division, not
+the numbers.
+-}
+twoProductsCarryingDryMass :: String
+twoProductsCarryingDryMass =
+    unlines
+        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold02\">"
+        , "  <activityDataset>"
+        , "    <activityDescription>"
+        , "      <activity id=\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\" activityNameId=\"two-outputs\">"
+        , "        <activityName xml:lang=\"en\">Two outputs</activityName>"
+        , "      </activity>"
+        , "      <geography geographyId=\"TEST\"><shortname xml:lang=\"en\">TEST</shortname></geography>"
+        , "    </activityDescription>"
+        , "    <flowData>"
+        , "      <intermediateExchange id=\"ref\" unitId=\"unit-kg\" amount=\"1.0\""
+        , "                            intermediateExchangeId=\"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\">"
+        , "        <name xml:lang=\"en\">Cheese</name>"
+        , "        <unitName xml:lang=\"en\">kg</unitName>"
+        , "        <property propertyId=\"p1\" amount=\"0.6\" unitId=\"unit-kg\">"
+        , "          <name xml:lang=\"en\">dry mass</name>"
+        , "          <unitName xml:lang=\"en\">kg</unitName>"
+        , "        </property>"
+        , "        <outputGroup>0</outputGroup>"
+        , "      </intermediateExchange>"
+        , "      <intermediateExchange id=\"co\" unitId=\"unit-kg\" amount=\"2.0\""
+        , "                            intermediateExchangeId=\"cccccccc-cccc-cccc-cccc-cccccccccccc\">"
+        , "        <name xml:lang=\"en\">Whey</name>"
+        , "        <unitName xml:lang=\"en\">kg</unitName>"
+        , "        <property propertyId=\"p1\" amount=\"0.1\" unitId=\"unit-kg\">"
+        , "          <name xml:lang=\"en\">dry mass</name>"
+        , "          <unitName xml:lang=\"en\">kg</unitName>"
+        , "        </property>"
+        , "        <outputGroup>2</outputGroup>"
+        , "      </intermediateExchange>"
+        , "      <intermediateExchange id=\"in\" unitId=\"unit-kg\" amount=\"10.0\""
+        , "                            intermediateExchangeId=\"dddddddd-dddd-dddd-dddd-dddddddddddd\">"
+        , "        <name xml:lang=\"en\">Milk</name>"
+        , "        <unitName xml:lang=\"en\">kg</unitName>"
+        , "        <inputGroup>5</inputGroup>"
+        , "      </intermediateExchange>"
+        , "    </flowData>"
+        , "  </activityDataset>"
+        , "</ecoSpold>"
+        ]
