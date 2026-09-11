@@ -4,6 +4,7 @@
 module EcoSpold1Spec (spec) where
 
 import qualified Data.ByteString.Char8 as BC
+import Data.List (isInfixOf)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -439,6 +440,62 @@ withDocumented k = case parseWithXeno documentedXml of
     Left err -> expectationFailure $ "Parse failed: " ++ err
     Right ParsedDataset{pdActivity = act} -> k act
 
+{- | A dataset whose emission states a meanValue that is not a number. The row
+states no amount at all, so nothing here can say what it should be read as.
+-}
+unreadableAmountXml :: BC.ByteString
+unreadableAmountXml =
+    BC.unlines
+        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
+        , "  <dataset number=\"7\">"
+        , "    <metaInformation>"
+        , "      <processInformation>"
+        , "        <referenceFunction name=\"heat production\" category=\"Energy\""
+        , "                           subCategory=\"Heat\" unit=\"MJ\"/>"
+        , "        <geography location=\"FR\" />"
+        , "      </processInformation>"
+        , "    </metaInformation>"
+        , "    <flowData>"
+        , "      <exchange number=\"1\" name=\"heat, district\" category=\"Energy\""
+        , "                subCategory=\"Heat\" unit=\"MJ\" meanValue=\"1.0\">"
+        , "        <outputGroup>0</outputGroup>"
+        , "      </exchange>"
+        , "      <exchange number=\"2\" name=\"Carbon dioxide, fossil\" category=\"air\""
+        , "                subCategory=\"low population density\" unit=\"kg\" meanValue=\"n/a\">"
+        , "        <outputGroup>4</outputGroup>"
+        , "      </exchange>"
+        , "    </flowData>"
+        , "  </dataset>"
+        , "</ecoSpold>"
+        ]
+
+{- | A dataset whose only exchange states a meanValue that is not a number,
+so leaving the row out leaves the dataset with none.
+-}
+everyAmountUnreadableXml :: BC.ByteString
+everyAmountUnreadableXml =
+    BC.unlines
+        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
+        , "  <dataset number=\"8\">"
+        , "    <metaInformation>"
+        , "      <processInformation>"
+        , "        <referenceFunction name=\"heat production\" category=\"Energy\""
+        , "                           subCategory=\"Heat\" unit=\"MJ\"/>"
+        , "        <geography location=\"FR\" />"
+        , "      </processInformation>"
+        , "    </metaInformation>"
+        , "    <flowData>"
+        , "      <exchange number=\"1\" name=\"heat, district\" category=\"Energy\""
+        , "                subCategory=\"Heat\" unit=\"MJ\" meanValue=\"n/a\">"
+        , "        <outputGroup>0</outputGroup>"
+        , "      </exchange>"
+        , "    </flowData>"
+        , "  </dataset>"
+        , "</ecoSpold>"
+        ]
+
 -- ---------------------------------------------------------------------------
 -- Spec
 -- ---------------------------------------------------------------------------
@@ -776,3 +833,27 @@ spec = do
                 Right ParsedDataset{pdBioFlows = bios, pdWarnings = warns} -> do
                     map bfCompartment bios `shouldBe` [Nothing]
                     warns `shouldSatisfy` any (T.isInfixOf "Luft")
+
+    describe "an exchange whose meanValue is not a number" $ do
+        it "reads the rest of the dataset rather than failing the whole load" $
+            case parseWithXeno unreadableAmountXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdActivity = act} ->
+                    map exchangeAmount (exchanges act) `shouldBe` [1.0]
+
+        it "leaves the row out and names it, rather than reading it as zero" $
+            case parseWithXeno unreadableAmountXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdBioFlows = bios, pdWarnings = warns} -> do
+                    length bios `shouldBe` 0
+                    warns `shouldSatisfy` any (T.isInfixOf "Carbon dioxide, fossil")
+
+        it "refuses a dataset it emptied with the reading, not with no exchange found" $
+            -- The reading only ever rode on pdWarnings, which the caller
+            -- reads on the Right branch alone. A dataset left with nothing
+            -- would otherwise be refused for a reason that is not the one.
+            case parseWithXeno everyAmountUnreadableXml of
+                Right _ -> expectationFailure "expected the emptied dataset to be refused"
+                Left err -> do
+                    err `shouldSatisfy` isInfixOf "heat, district"
+                    err `shouldNotSatisfy` isInfixOf "no exchange found"

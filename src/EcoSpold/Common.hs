@@ -6,8 +6,6 @@ module EcoSpold.Common (
     decodeXmlEntities,
     decodeXmlEntitiesFull,
     numericRefChar,
-    bsToDouble,
-    bsToInt,
     bsToIntMaybe,
     isElement,
     distributeFiles,
@@ -20,10 +18,9 @@ module EcoSpold.Common (
     ParsedDataset (..),
 ) where
 
-import Amount (readAmount)
 import qualified Data.ByteString as BS
 import Data.Char (chr)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -130,16 +127,6 @@ numericRefChar body = case T.uncons body of
         Right (n, leftover)
             | T.null leftover, n >= 0, n <= 0x10FFFF -> Just (chr (fromInteger n))
         _ -> Nothing
-
--- | ByteString to Double conversion (strict - errors on parse failure)
-bsToDouble :: BS.ByteString -> Double
-bsToDouble bs = fromMaybe (error $ "Failed to parse double from: " ++ show bs) (readAmount (bsToText bs))
-
--- | ByteString to Int conversion (strict - errors on parse failure)
-bsToInt :: BS.ByteString -> Int
-bsToInt bs = case TR.decimal (bsToText bs) of
-    Right (val, _) -> val
-    Left _ -> error $ "Failed to parse int from: " ++ show bs
 
 {- | ByteString to Int conversion that returns Nothing on parse failure.
 Use for attribute values that are user-controlled or optional and where
