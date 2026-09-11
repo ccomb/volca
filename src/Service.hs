@@ -1099,7 +1099,7 @@ matches what the score actually consumes.
 calculateActivityMetadata :: Database -> Activity -> ActivityMetadata
 calculateActivityMetadata db activity =
     let allExchanges = exchanges activity
-        uniqueFlows = length $ M.fromList [(exchangeFlowId ex, ()) | ex <- allExchanges]
+        uniqueFlows = S.size (S.fromList [exchangeFlowId ex | ex <- allExchanges])
         techInputs = length [ex | ex <- allExchanges, isTechnosphereExchange ex, exchangeIsInput ex, not (exchangeIsReference ex)]
         bioExchanges = length [ex | ex <- allExchanges, isBiosphereExchange ex]
         resolved = crossDBResolvedFlowIds db activity
