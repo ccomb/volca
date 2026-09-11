@@ -170,7 +170,9 @@
   its cache. The load now refuses, says how many of the files it was offered
   became no dataset, and names the first ten of them. A single file holding
   several datasets and yielding none refuses in the same way, as an empty CSV
-  already did. A file that is read and then divided into several products still
+  already did, and says which of the two it is: a file nothing could be parsed
+  from, or one whose datasets were each skipped, with the reasons they were
+  skipped for. A file that is read and then divided into several products still
   only warns: there the file is read, and what cannot be kept is a product its
   name has no room to key.
 - An EcoSpold 2 archive whose file names carry the dataset number in front of
