@@ -59,8 +59,9 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiUpper, ord, toUpper)
-import Data.Indexing (repeated)
+import Data.Indexing (collisions, repeated)
 import Data.List (find, findIndex, partition)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
@@ -130,7 +131,8 @@ parseBrightwayExcel cfg path = do
         Left err -> pure (Left ("Brightway Excel: " <> err))
         Right sheets -> do
             let (dataSheets, skipped) = partition (validFirstCell . snd) sheets
-                results = concatMap (sheetToActivities cfg . snd) dataSheets
+                blocks = concatMap (mapMaybe parseBlock . activityBlocks . snd) dataSheets
+                results = map (rawToActivity cfg) blocks
                 activities = [a | (a, _, _, _, _) <- results]
                 techFlows = concat [fs | (_, fs, _, _, _) <- results]
                 bioFlows = concat [fs | (_, _, fs, _, _) <- results]
@@ -140,6 +142,7 @@ parseBrightwayExcel cfg path = do
                 unitNames = M.map unitName unitDB
             mapM_ (reportProgress Warning . T.unpack) warnings
             pure $ do
+                mapM_ refuseConflictingMeta blocks
                 techFlowDB <- indexFlows unitNames (\f -> (tfId f, tfUnitId f, tfName f)) techFlows
                 bioFlowDB <- indexFlows unitNames (\f -> (bfId f, bfUnitId f, bfName f)) bioFlows
                 pure (activities, techFlowDB, bioFlowDB, M.empty, unitDB)
@@ -176,11 +179,55 @@ table header (column index → lowercased label) and the data rows.
 -}
 data RawActivity = RawActivity
     { raName :: !Text
-    , raMeta :: !(M.Map Text CellValue)
+    , raMetaPairs :: ![(Text, CellValue)]
+    {- ^ Every metadata row the block wrote, in order, the way 'raHeaders'
+    carries every column its header row wrote. 'metaOf' is the map.
+    -}
     , raHeaders :: ![(Int, Text)]
     , raRows :: ![Row]
     , raHasParams :: !Bool
     }
+
+{- | The metadata a block states, one value per key.
+
+A key stated twice with one value is one answer; a key stated twice with two is
+refused before this is read, by 'conflictingMeta'.
+-}
+metaOf :: RawActivity -> M.Map Text CellValue
+metaOf = M.fromList . raMetaPairs
+
+{- | The metadata keys a block answers two ways, with the answers.
+
+A metadata key fixes the whole activity - its location, its unit, its reference
+product - so two values for one key name no activity, and nothing in the block
+says which was meant. A repeated column is not the same case: it carries one
+field of one exchange row, and the reader is told which column and goes on.
+-}
+conflictingMeta :: RawActivity -> [(Text, NE.NonEmpty CellValue)]
+conflictingMeta ra =
+    [ (key, values)
+    | (key, values) <- collisions (raMetaPairs ra)
+    , NE.length (NE.nub values) > 1
+    ]
+
+-- | Refuse a block that answers one metadata key two ways, naming both answers.
+refuseConflictingMeta :: RawActivity -> Either Text ()
+refuseConflictingMeta ra = case conflictingMeta ra of
+    [] -> Right ()
+    ((key, values) : _) ->
+        Left $
+            "Brightway Excel: activity '"
+                <> raName ra
+                <> "' states '"
+                <> key
+                <> "' more than once, as "
+                <> T.intercalate " and " (map spelt (NE.toList values))
+                <> "; nothing says which is meant"
+  where
+    spelt :: CellValue -> Text
+    spelt v = case v of
+        CellText t -> T.strip t
+        CellNumber n -> T.pack (show n)
 
 sectionKeyword :: Row -> Maybe Text
 sectionKeyword row = T.toLower . T.strip <$> textAt 0 row
@@ -219,13 +266,12 @@ parseBlock block0 = do
         parIdx = findIndex (rowKeyIs "parameters") block
         metaEnd = minimum (length block : catMaybes [excIdx, parIdx])
         metaRows = take (metaEnd - 1) (drop 1 block)
-        meta =
-            M.fromList
-                [ (T.toLower (T.strip k), v)
-                | row <- metaRows
-                , Just k <- [textAt 0 row]
-                , Just v <- [M.lookup 1 row]
-                ]
+        metaPairs =
+            [ (T.toLower (T.strip k), v)
+            | row <- metaRows
+            , Just k <- [textAt 0 row]
+            , Just v <- [M.lookup 1 row]
+            ]
         -- Everything after the Exchanges header is taken as exchange data. This
         -- assumes a @parameters@ section (if any) precedes Exchanges, as bw2io
         -- writes it; a trailing parameters block would be read as exchange rows
@@ -238,7 +284,7 @@ parseBlock block0 = do
     pure
         RawActivity
             { raName = T.strip name
-            , raMeta = meta
+            , raMetaPairs = metaPairs
             , raHeaders = headers
             , raRows = dataRows
             , raHasParams = isJust parIdx
@@ -295,7 +341,7 @@ rawToActivity ::
 rawToActivity cfg ra =
     (activity, techFlows, bioFlows, units, warnings)
   where
-    meta = raMeta ra
+    meta = metaOf ra
     fieldRows = map (rowFields (raHeaders ra)) (raRows ra)
     isType t r = (T.toLower <$> fieldText r "type") == Just t
     prodRows = filter (isType "production") fieldRows
