@@ -4,6 +4,7 @@
 module EcoSpold1Spec (spec) where
 
 import qualified Data.ByteString.Char8 as BC
+import Data.List (isInfixOf)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -469,6 +470,32 @@ unreadableAmountXml =
         , "</ecoSpold>"
         ]
 
+{- | A dataset whose only exchange states a meanValue that is not a number,
+so leaving the row out leaves the dataset with none.
+-}
+everyAmountUnreadableXml :: BC.ByteString
+everyAmountUnreadableXml =
+    BC.unlines
+        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
+        , "  <dataset number=\"8\">"
+        , "    <metaInformation>"
+        , "      <processInformation>"
+        , "        <referenceFunction name=\"heat production\" category=\"Energy\""
+        , "                           subCategory=\"Heat\" unit=\"MJ\"/>"
+        , "        <geography location=\"FR\" />"
+        , "      </processInformation>"
+        , "    </metaInformation>"
+        , "    <flowData>"
+        , "      <exchange number=\"1\" name=\"heat, district\" category=\"Energy\""
+        , "                subCategory=\"Heat\" unit=\"MJ\" meanValue=\"n/a\">"
+        , "        <outputGroup>0</outputGroup>"
+        , "      </exchange>"
+        , "    </flowData>"
+        , "  </dataset>"
+        , "</ecoSpold>"
+        ]
+
 -- ---------------------------------------------------------------------------
 -- Spec
 -- ---------------------------------------------------------------------------
@@ -820,3 +847,13 @@ spec = do
                 Right ParsedDataset{pdBioFlows = bios, pdWarnings = warns} -> do
                     length bios `shouldBe` 0
                     warns `shouldSatisfy` any (T.isInfixOf "Carbon dioxide, fossil")
+
+        it "refuses a dataset it emptied with the reading, not with no exchange found" $
+            -- The reading only ever rode on pdWarnings, which the caller
+            -- reads on the Right branch alone. A dataset left with nothing
+            -- would otherwise be refused for a reason that is not the one.
+            case parseWithXeno everyAmountUnreadableXml of
+                Right _ -> expectationFailure "expected the emptied dataset to be refused"
+                Left err -> do
+                    err `shouldSatisfy` isInfixOf "heat, district"
+                    err `shouldNotSatisfy` isInfixOf "no exchange found"

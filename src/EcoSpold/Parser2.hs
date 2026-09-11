@@ -7,6 +7,7 @@ module EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile) where
 import Amount (readAmount)
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
+import Data.List (intercalate)
 import qualified Data.Map as M
 import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe)
 import qualified Data.Set as S
@@ -1099,10 +1100,15 @@ parseWithXeno xmlContent = do
                     , activityFormulaCheck = formulaCheck
                     }
          in -- A file that yields no exchange at all is not a dataset: a stray or
-            -- truncated XML the SAX fold walked through without complaint.
-            if null (exchanges activity)
-                then Left "not an EcoSpold2 dataset: no exchange found"
-                else
+            -- truncated XML the SAX fold walked through without complaint. A
+            -- dataset whose every exchange was left out is a different story and
+            -- says so: the reading is the reason, and the only thing a reader can
+            -- act on, so it travels on the refusal rather than dying on the branch
+            -- 'pdWarnings' never reaches.
+            case (exchanges activity, reverse (psWarnings st)) of
+                ([], []) -> Left "not an EcoSpold2 dataset: no exchange found"
+                ([], reading) -> Left (intercalate "; " reading)
+                (_ : _, _) ->
                     Right
                         ParsedDataset
                             { pdActivity = activity

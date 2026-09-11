@@ -819,10 +819,15 @@ buildResult st =
                 , pdWarnings = placeholdersUsed st ++ unplacedMediaSeen st ++ unreadableAmountsSeen st
                 }
      in -- A file that yields no exchange at all is not a dataset: a stray or
-        -- truncated XML the SAX fold walked through without complaint.
-        if null (exchanges activity)
-            then Left "not an EcoSpold1 dataset: no exchange found"
-            else Right (pack activity)
+        -- truncated XML the SAX fold walked through without complaint. A
+        -- dataset whose every exchange was left out is a different story and
+        -- says so: the reading is the reason, and the only thing a reader can
+        -- act on, so it travels on the refusal rather than dying on the branch
+        -- 'pdWarnings' never reaches.
+        case (exchanges activity, unreadableAmountsSeen st) of
+            (_ : _, _) -> Right (pack activity)
+            ([], []) -> Left "not an EcoSpold1 dataset: no exchange found"
+            ([], reading) -> Left (T.unpack (T.intercalate "; " reading))
 
 -- | Run the shared SAX fold, surfacing any Xeno error as a String.
 foldEcoSpold1 :: BS.ByteString -> Either String ParseState
