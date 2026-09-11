@@ -101,13 +101,7 @@ parseILCDDirectory unitConfig key dir = runExceptT $ do
     processFiles <- liftIO $ listXMLFiles (dir </> "processes")
     liftIO $ reportProgress Info $ printf "Parsing %d ILCD process files..." (length processFiles)
     claimedProcesses <- liftIO $ parseProcessFilesParallel processFiles
-    processes <- ExceptT $ do
-        outcome <- latestByUUID claimedProcesses
-        case outcome of
-            Left err -> return (Left err)
-            Right indexed -> do
-                mapM_ (reportProgress Warning . T.unpack) (ixSuperseded indexed)
-                return (Right (M.elems (ixByUUID indexed)))
+    processes <- M.elems <$> ExceptT (oneDataSetPerUUID claimedProcesses)
 
     liftIO $ reportProgress Info $ printf "Parsed %d processes, building activity map..." (length processes)
 
@@ -136,15 +130,22 @@ readDataSets :: forall a. FilePath -> (BS.ByteString -> Maybe (UUID, a)) -> IO (
 readDataSets dir parse = do
     files <- listXMLFiles dir
     claims <- mapM claimOf files
-    outcome <- latestByUUID (Data.Maybe.catMaybes claims)
+    oneDataSetPerUUID (Data.Maybe.catMaybes claims)
+  where
+    claimOf :: FilePath -> IO (Maybe (Claimed a))
+    claimOf f = fmap (uncurry (Claimed f)) . parse <$> BS.readFile f
+
+{- | One dataset per UUID out of what a directory was read as, saying which
+files a newer version superseded.
+-}
+oneDataSetPerUUID :: [Claimed a] -> IO (Either Text (M.Map UUID a))
+oneDataSetPerUUID claims = do
+    outcome <- latestByUUID claims
     case outcome of
         Left err -> return (Left err)
         Right indexed -> do
             mapM_ (reportProgress Warning . T.unpack) (ixSuperseded indexed)
             return (Right (ixByUUID indexed))
-  where
-    claimOf :: FilePath -> IO (Maybe (Claimed a))
-    claimOf f = fmap (uncurry (Claimed f)) . parse <$> BS.readFile f
 
 --------------------------------------------------------------------------------
 -- Unit Groups: unitGroupUUID → (refUnitName, refUnitInternalId)

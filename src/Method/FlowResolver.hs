@@ -30,6 +30,7 @@ import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.DeepSeq (NFData, force)
 import Control.Exception (SomeException, catch, evaluate)
+import Control.Monad (when)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import Data.Store (Store, decodeEx, encode)
@@ -84,11 +85,17 @@ parseFlowDirectory dir = do
     let cacheFile = flowCacheFile dir
     cached <- loadFlowCache cacheFile dir
     case cached of
-        Just info -> return (Right info)
+        Just flows -> do
+            -- The cache stands in for the directory read, so it has to stand
+            -- in for what that read said as well: a file a newer version
+            -- superseded is named on every start, not only on the one that
+            -- happened to build the cache.
+            mapM_ (reportProgress Warning . T.unpack) (cfSuperseded flows)
+            return (Right (cfByUUID flows))
         Nothing -> do
             parsed <- parseFlowDirectoryFresh dir
             mapM_ (saveFlowCache cacheFile) parsed
-            return parsed
+            return (fmap cfByUUID parsed)
 
 {- | Parse all flow XMLs from scratch using worker-based parallelism.
 
@@ -96,7 +103,7 @@ The workers hand back what they read rather than a map each: merging maps made
 the flow a duplicated UUID resolved to depend on which chunk each file fell
 into, and therefore on the number of cores the machine has.
 -}
-parseFlowDirectoryFresh :: FilePath -> IO (Either Text (M.Map UUID ILCDFlowInfo))
+parseFlowDirectoryFresh :: FilePath -> IO (Either Text CachedFlows)
 parseFlowDirectoryFresh dir = do
     xmlFiles <- listXMLFiles dir
     numWorkers <- getNumCapabilities
@@ -107,24 +114,44 @@ parseFlowDirectoryFresh dir = do
         Left err -> return (Left err)
         Right indexed -> do
             mapM_ (reportProgress Warning . T.unpack) (ixSuperseded indexed)
-            return (Right (ixByUUID indexed))
+            return (Right (CachedFlows (ixByUUID indexed) (ixSuperseded indexed)))
   where
     parseWorker :: [FilePath] -> IO [Claimed ILCDFlowInfo]
     parseWorker paths = do
         results <- mapM parseOneFile paths
-        return $! [Claimed path uuid info | (path, Just (uuid, info)) <- results]
+        return [Claimed path uuid info | (path, Just (uuid, info)) <- results]
     parseOneFile :: FilePath -> IO (FilePath, Maybe (UUID, ILCDFlowInfo))
     parseOneFile path = do
         bytes <- BS.readFile path
-        return (path, parseFlowXML bytes)
+        -- Parsed here and not where the result is used, or the whole directory
+        -- would be parsed on whichever thread first looks at the list, with
+        -- every file's bytes held until it does.
+        parsed <- evaluate (force (parseFlowXML bytes))
+        return (path, parsed)
 
--- | Cache file path for a flows directory
+{- | What a flows directory read comes to: one flow per UUID, and the lines
+about the files a newer version superseded.
+-}
+data CachedFlows = CachedFlows
+    { cfByUUID :: !(M.Map UUID ILCDFlowInfo)
+    , cfSuperseded :: ![Text]
+    }
+    deriving (Generic, NFData, Store)
+
+{- | Cache file path for a flows directory.
+
+The name carries the shape of what is inside it. A cache written before the
+directory read learnt to arbitrate between two files holds a flow that was
+picked by the machine's core count, and it must not be read back as though the
+arbitration had happened.
+-}
 flowCacheFile :: FilePath -> FilePath
-flowCacheFile dir = dir </> ".volca.flows.cache.zst"
+flowCacheFile dir = dir </> ".volca.flows.v2.cache.zst"
 
 -- | Load flow info from cache if valid (file exists and is newer than directory)
-loadFlowCache :: FilePath -> FilePath -> IO (Maybe (M.Map UUID ILCDFlowInfo))
+loadFlowCache :: FilePath -> FilePath -> IO (Maybe CachedFlows)
 loadFlowCache cacheFile dir = do
+    dropSupersededCache dir
     exists <- doesFileExist cacheFile
     if not exists
         then return Nothing
@@ -142,9 +169,9 @@ loadFlowCache cacheFile dir = do
                             compressed <- BS.readFile cacheFile
                             case Zstd.decompress compressed of
                                 Zstd.Decompress raw -> do
-                                    let !info = decodeEx raw
-                                    result <- evaluate (force info)
-                                    reportProgress Info $ "[FLOWS-CACHE] Loaded " <> show (M.size result) <> " flow definitions from cache"
+                                    let !flows = decodeEx raw
+                                    result <- evaluate (force flows)
+                                    reportProgress Info $ "[FLOWS-CACHE] Loaded " <> show (M.size (cfByUUID result)) <> " flow definitions from cache"
                                     return (Just result)
                                 _ -> do
                                     reportProgress Warning "[FLOWS-CACHE] Decompression failed, reparsing"
@@ -153,15 +180,26 @@ loadFlowCache cacheFile dir = do
                 )
                 (\(_ :: SomeException) -> return Nothing)
 
--- | Save parsed flow info to cache
-saveFlowCache :: FilePath -> M.Map UUID ILCDFlowInfo -> IO ()
-saveFlowCache cacheFile info =
+-- | Remove a cache left by a version that wrote a different shape.
+dropSupersededCache :: FilePath -> IO ()
+dropSupersededCache dir =
     catch
         ( do
-            let serialized = encode info
+            let old = dir </> ".volca.flows.cache.zst"
+            stale <- doesFileExist old
+            when stale (removeFile old)
+        )
+        (\(_ :: SomeException) -> return ())
+
+-- | Save parsed flow info to cache
+saveFlowCache :: FilePath -> CachedFlows -> IO ()
+saveFlowCache cacheFile flows =
+    catch
+        ( do
+            let serialized = encode flows
                 compressed = Zstd.compress 1 serialized
             BS.writeFile cacheFile compressed
-            reportProgress Info $ "[FLOWS-CACHE] Saved " <> show (M.size info) <> " flow definitions to cache"
+            reportProgress Info $ "[FLOWS-CACHE] Saved " <> show (M.size (cfByUUID flows)) <> " flow definitions to cache"
         )
         (\(_ :: SomeException) -> return ())
 
