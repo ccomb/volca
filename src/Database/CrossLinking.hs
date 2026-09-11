@@ -360,7 +360,7 @@ extractBracketedLocation name =
     looksLikeGeo t =
         T.length t >= 2
             && T.length t <= 3
-            && isUpper (T.head t)
+            && maybe False (isUpper . fst) (T.uncons t)
     extractFromBrackets :: Char -> Char -> Text -> Maybe Text
     extractFromBrackets open close txt =
         let (_, afterOpen) = T.breakOn (T.singleton open) txt

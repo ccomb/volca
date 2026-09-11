@@ -5,7 +5,12 @@
 #
 # The partial functions are banned separately, over src and app alone, by
 # `.hlint-partials.yaml`: hlint reads one configuration per invocation, and that ban
-# is not the test suite's. Run it too: hlint --hint=.hlint-partials.yaml src app
+# is not the test suite's. Run it too:
+#
+#     hlint --hint=.hlint-partials.yaml --only="Avoid restricted function" src app
+#
+# Never pass both files to one invocation: this file ignores the restriction's
+# hint name globally, so together they switch the ban off.
 #
 # The hygiene pass either *fixes* a hint or *baselines* it here with a one-line reason.
 # src, app and test are all hint-clean; the baselines below are deliberate exceptions

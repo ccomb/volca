@@ -14,6 +14,12 @@
 # third option, and a baseline names a function rather than a line, so moving
 # the site out of that function raises the error again.
 #
+# What this list does NOT reach, so nobody reads it as more than it is: the
+# indexing operators, `V.!`, `VU.!`, `M.!` and `IM.!`, which crash the same way
+# on a key that is absent, and the strict `decodeUtf8`, which throws on bytes
+# that are not UTF-8. Those have dozens of call sites each and are a job of
+# their own, not a line in this file.
+#
 # ---------------------------------------------------------------------------
 # Why this is a file of its own
 # ---------------------------------------------------------------------------
@@ -33,7 +39,18 @@
 # that scoping and fire in thirteen modules instead of everywhere.
 #
 # `--hint` replaces `.hlint.yaml` rather than adding to it, so nothing from
-# there applies here and this file carries its own baselines.
+# there applies here and this file carries its own baselines. Two consequences
+# worth knowing before touching the workflow:
+#
+# Never pass both files to one invocation. `.hlint.yaml` ignores the
+# restriction's hint name globally, in order to scope its own `fromList` ban,
+# so passing them together switches this ban off in silence.
+#
+# Replacing the config does not replace the built-in hints, only the
+# baselines that tame them. Run this file with
+# `--only="Avoid restricted function"`, or the run becomes a second
+# default-hint pass with no exemptions and fails on a bracket that
+# `.hlint.yaml` has already baselined.
 #
 # ---------------------------------------------------------------------------
 # Why some names are qualified
@@ -115,10 +132,12 @@
 
 # The global mutable boxes: one `MVar`, `IORef` or `TVar` per top-level name,
 # each allocated once behind a NOINLINE pragma, which is the idiom this has to
-# be written in. Three of them exist because MUMPS holds Fortran state that is
-# not thread-safe, so the handle, the factorization and the solve call each
-# need a process-wide lock; the counter and the log buffer are read from every
-# thread. Nothing here computes: `newMVar`, `newIORef`, `newTVarIO`.
+# be written in. Two of them are process-wide locks, because the solver holds
+# Fortran state that is not thread-safe and the factorization and the solve
+# call must not overlap; one is a cache of already-factorized solvers, whose
+# own serialisation is done by each entry's worker thread rather than by the
+# box; the counter and the log buffers are read from every thread. Nothing
+# here computes: `newMVar`, `newIORef`, `newTVarIO`.
 - ignore:
     name: "Avoid restricted function"
     within:
@@ -141,7 +160,3 @@
 # literal three-element list.
 - ignore: {name: "Avoid restricted function", within: Search.Fuzzy.editDistance}
 
-# A short uppercase code, where the same expression tests the length first:
-# `T.length t >= 2 && ... isUpper (T.head t)`. Guarded rather than total, and
-# reading it through `T.uncons` would say less than the length test does.
-- ignore: {name: "Avoid restricted function", within: [Database.CrossLinking.extractBracketedLocation, SimaPro.Parser.extractLocation]}

@@ -954,7 +954,7 @@ extractLocation name =
                     | isGeoCode loc ->
                         Just (T.strip (T.dropWhileEnd (== '/') before), loc)
                 _ -> go (T.dropWhileEnd (== '/') before)
-    isGeoCode t = T.length t >= 2 && isUpper (T.head t)
+    isGeoCode t = T.length t >= 2 && maybe False (isUpper . fst) (T.uncons t)
 
 -- | Resolve a parameterized amount: try expression evaluation, fall back to numeric parse
 resolveAmount :: M.Map Text Double -> Text -> Double -> Double
