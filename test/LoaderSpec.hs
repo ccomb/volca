@@ -2,6 +2,7 @@
 
 module LoaderSpec (spec) where
 
+import Data.List (isInfixOf)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -100,6 +101,17 @@ minimalWaste fid name syns =
         , wfCAS = Nothing
         , wfSubstanceId = Nothing
         }
+
+{- | One reader's share carrying units instead of flows, so two spellings of one
+unit identifier can meet.
+-}
+metering :: Text -> [Unit] -> ((UUID.UUID, UUID.UUID), ParsedDataset)
+metering name units =
+    ((actUUID1, flowUUID1), (minimalDataset (minimalActivity name "GLO" []) []){pdUnits = units})
+
+-- | The unit identifier the tests above and below spell two ways.
+unitUUID1 :: UUID.UUID
+unitUUID1 = read "dddddddd-0000-0000-0000-000000000001"
 
 {- | One coproduct of a block published under dataset number 7: allocation gives
 each of them its own key, and they all carry the number the block was read under.
@@ -308,6 +320,22 @@ spec = do
                 merged = harvestOf [wasting "activity-a" [a]] <> harvestOf [wasting "activity-b" [b]]
             fmap wfSynonyms (M.lookup flowUUID2 (hvWasteFlows merged))
                 `shouldBe` Just (M.singleton "en" (S.fromList ["mine spoil", "overburden"]))
+
+        -- A unit identifier is the file's own, and the name under it is what a
+        -- writer prints and what a conversion looks up. Two names for one
+        -- identifier is the file contradicting itself.
+        it "keeps the first name read for a unit identifier" $ do
+            let harvest = harvestOf [metering "activity-a" [Unit unitUUID1 "kg" "kg" ""], metering "activity-b" [Unit unitUUID1 "kilogram" "kilogram" ""]]
+            fmap unitName (M.lookup unitUUID1 (hvUnits harvest)) `shouldBe` Just "kg"
+
+        it "keeps the first reader's name too, when two shares meet" $ do
+            let merged = harvestOf [metering "activity-a" [Unit unitUUID1 "kg" "kg" ""]] <> harvestOf [metering "activity-b" [Unit unitUUID1 "kilogram" "kilogram" ""]]
+            fmap unitName (M.lookup unitUUID1 (hvUnits merged)) `shouldBe` Just "kg"
+
+        it "names both spellings rather than dropping one without a word" $ do
+            let merged = harvestOf [metering "activity-a" [Unit unitUUID1 "kg" "kg" ""]] <> harvestOf [metering "activity-b" [Unit unitUUID1 "kilogram" "kilogram" ""]]
+            unitNameConflicts merged
+                `shouldSatisfy` any (\line -> "kg" `isInfixOf` line && "kilogram" `isInfixOf` line)
 
         -- The dataset-number table is under neither law: an allocated block is
         -- written once per coproduct, all of them under the block's number, so

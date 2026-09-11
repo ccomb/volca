@@ -83,6 +83,7 @@ module Database.Loader (
     mergeWasteFlows,
     Harvest (..),
     harvestOf,
+    unitNameConflicts,
     generateActivityUUIDFromActivity,
     datasetUUIDFromPath,
     getReferenceProductUUID,
@@ -250,6 +251,12 @@ data Harvest = Harvest
     -- ^ flow declarations read, before deduplication
     , hvRawUnits :: !Int
     -- ^ unit declarations read, before deduplication
+    , hvUnitNames :: !(M.Map UUID.UUID (S.Set T.Text))
+    {- ^ Every name the files gave each unit identifier. The identifier is the
+    file's own and the name is what a writer prints and what a conversion looks
+    up, so a file giving one identifier two names has said two things where the
+    table can hold one; 'unitNameConflicts' is where they are said.
+    -}
     }
 
 instance Semigroup Harvest where
@@ -260,13 +267,14 @@ instance Semigroup Harvest where
             , hvBioFlows = MS.unionWith mergeBioFlows (hvBioFlows a) (hvBioFlows b)
             , hvWasteFlows = MS.unionWith mergeWasteFlows (hvWasteFlows a) (hvWasteFlows b)
             , hvUnits = M.union (hvUnits a) (hvUnits b)
+            , hvUnitNames = MS.unionWith S.union (hvUnitNames a) (hvUnitNames b)
             , hvDatasetNumbers = MS.unionWith (<>) (hvDatasetNumbers a) (hvDatasetNumbers b)
             , hvRawFlows = hvRawFlows a + hvRawFlows b
             , hvRawUnits = hvRawUnits a + hvRawUnits b
             }
 
 instance Monoid Harvest where
-    mempty = Harvest M.empty MS.empty MS.empty MS.empty M.empty M.empty 0 0
+    mempty = Harvest M.empty MS.empty MS.empty MS.empty M.empty M.empty 0 0 M.empty
 
 {- | Harvest a batch of parsed datasets, each already keyed by the (activity,
 product) pair its source names it under.
@@ -278,12 +286,19 @@ harvestOf entries =
         , hvTechFlows = MS.fromListWith mergeTechFlows [(tfId f, f) | f <- techs]
         , hvBioFlows = MS.fromListWith mergeBioFlows [(bfId f, f) | f <- bios]
         , hvWasteFlows = MS.fromListWith mergeWasteFlows [(wfId f, f) | f <- wastes]
-        , hvUnits = M.fromList [(unitId u, u) | u <- units]
+        , hvUnits = MS.fromListWith firstRead [(unitId u, u) | u <- units]
         , hvDatasetNumbers = MS.fromListWith (flip (<>)) [(pdDatasetNumber parsed, key NE.:| []) | (key, parsed) <- entries, pdDatasetNumber parsed /= 0]
         , hvRawFlows = length techs + length bios + length wastes
         , hvRawUnits = length units
+        , hvUnitNames = MS.fromListWith S.union [(unitId u, S.singleton (unitName u)) | u <- units]
         }
   where
+    -- 'M.fromListWith' hands the new row first, so keeping the second argument
+    -- keeps the row read first, which is the rule two harvests meeting already
+    -- follow for this table. One rule, so 'unitNameConflicts' can name it.
+    firstRead :: Unit -> Unit -> Unit
+    firstRead _ old = old
+
     techs :: [TechnosphereFlow]
     techs = concatMap (pdTechFlows . snd) entries
     bios :: [BiosphereFlow]
@@ -292,6 +307,24 @@ harvestOf entries =
     wastes = concatMap (pdWasteFlows . snd) entries
     units :: [Unit]
     units = concatMap (pdUnits . snd) entries
+
+{- | One line per unit identifier the files gave more than one name.
+
+The identifier is the file's own, so two names under it is the file
+contradicting itself, and the table can hold one of them. It holds the one read
+first, in the order the files were given; the other names are said here rather
+than dropped without a word.
+-}
+unitNameConflicts :: Harvest -> [String]
+unitNameConflicts h =
+    [ "Unit "
+        <> UUID.toString uid
+        <> " is given more than one name: "
+        <> T.unpack (T.intercalate ", " (S.toList names))
+        <> "; the first one read is kept"
+    | (uid, names) <- M.toList (hvUnitNames h)
+    , S.size names > 1
+    ]
 
 -- | The five tables of a harvest that make a database; the other three describe the reading.
 harvestDatabase :: Harvest -> SimpleDatabase
@@ -1420,6 +1453,7 @@ loadEcoSpoldDirectory opts dir = do
                         (M.size (hvUnits harvested))
                         unitDeduplication
                         totalRawUnits
+                mapM_ (reportProgress Warning) (unitNameConflicts harvested)
                 reportMemoryUsage "Final parsing memory usage"
 
                 -- For EcoSpold1: fix activity links using supplier lookup table
@@ -1526,6 +1560,7 @@ loadSingleEcoSpold1File opts filepath = do
     reportProgress Info $ printf "  Activities: %d processes" (M.size (hvActivities harvested))
     reportProgress Info $ printf "  Flows: %d tech + %d bio + %d waste (from %d raw)" (M.size (hvTechFlows harvested)) (M.size (hvBioFlows harvested)) (M.size (hvWasteFlows harvested)) (hvRawFlows harvested)
     reportProgress Info $ printf "  Units: %d unique (from %d raw)" (M.size (hvUnits harvested)) (hvRawUnits harvested)
+    mapM_ (reportProgress Warning) (unitNameConflicts harvested)
 
     Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
   where
