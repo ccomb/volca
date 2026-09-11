@@ -125,6 +125,7 @@ module Database.Manager (
 
     -- * Internal (for tests: the names two entries both claim)
     shadowedNames,
+    shadowedMethods,
 
     -- * Installing a database the caller built itself
     solverFor,
@@ -148,6 +149,7 @@ import Data.Char (toLower)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
 import Data.Indexing (uniqueIndex)
+import qualified Data.Indexing as Indexing
 import Data.List (intercalate, isPrefixOf, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
@@ -1190,7 +1192,7 @@ discoverDatabases config = do
 discoverMethods :: Config -> IO [MethodConfig]
 discoverMethods config = do
     combined <- (cfgMethods config ++) <$> discoverUploadedMethodConfigs
-    mapM_ (reportProgress Warning) (shadowedNames "method collection" mcName mcPath combined)
+    mapM_ (reportProgress Warning) (shadowedMethods combined)
     return combined
 
 -- | Configured reference data plus whatever sits under @uploads/<kind>/@.
@@ -1211,13 +1213,13 @@ discoverRefDataSources config =
 {- | One warning per name held by more than one entry, naming the one that is
 read and the ones that are not.
 
-'newManager' indexes databases, method collections and reference sources by
-name, so a repeated one keeps the last and drops the rest. The configuration
-refuses a repeated name, but it only ever sees the configured half: what
-reaches these indexes is that half concatenated with whatever the uploads
-directory holds, so an uploaded directory named like a configured entry is all
-it takes to replace it. Which one wins then follows from a concatenation order
-nothing states, and it used to be said nowhere.
+'newManager' indexes databases and reference sources by name, so a repeated one
+keeps the last and drops the rest. The configuration refuses a repeated name,
+but it only ever sees the configured half: what reaches these indexes is that
+half concatenated with whatever the uploads directory holds, so an uploaded
+directory named like a configured entry is all it takes to replace it. Which
+one wins then follows from a concatenation order nothing states, and it used to
+be said nowhere.
 -}
 shadowedNames :: String -> (a -> Text) -> (a -> String) -> [a] -> [String]
 shadowedNames kind nameOf describe entries =
@@ -1226,16 +1228,32 @@ shadowedNames kind nameOf describe entries =
         <> " named "
         <> T.unpack name
         <> "; reading "
-        <> winner
+        <> NE.last paths
         <> ", ignoring "
-        <> intercalate ", " (reverse ignored)
-    | (name, winner : ignored@(_ : _)) <- M.toList lastFirst
+        <> intercalate ", " (NE.init paths)
+    | (name, paths) <- Indexing.collisions [(nameOf e, describe e) | e <- entries]
     ]
-  where
-    -- 'M.fromListWith' prepends, so a group comes out last entry first, and
-    -- that first one is what 'M.fromList' keeps.
-    lastFirst :: Map Text [String]
-    lastFirst = M.fromListWith (++) [(nameOf e, [describe e]) | e <- entries]
+
+{- | The same for method collections, which cannot be told which one is read,
+because two registries answer and they disagree.
+
+'dmAvailableMethods' is indexed like the others and keeps the last entry, so a
+listing describes the uploaded collection. The boot load walks the configured
+list instead and takes the active ones, and an uploaded collection is never
+active, so what is actually scored with is the configured one. Under a repeated
+name those are two different collections, and neither is simply ignored.
+-}
+shadowedMethods :: [MethodConfig] -> [String]
+shadowedMethods mcs =
+    [ "More than one method collection named "
+        <> T.unpack name
+        <> "; listed from "
+        <> NE.last paths
+        <> " and loaded from "
+        <> NE.head paths
+        <> ", so the name answers with two different collections"
+    | (name, paths) <- Indexing.collisions [(mcName mc, mcPath mc) | mc <- mcs]
+    ]
 
 {- | The location hierarchy this run scores against. Falling back to the
 built-in hierarchy when a named file cannot be read would change every
