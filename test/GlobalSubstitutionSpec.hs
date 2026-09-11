@@ -52,7 +52,7 @@ spec = do
                     let sub = Substitution (processIdToText db aPid) (processIdToText db bPid) AllConsumers
                     gRes <- computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig noDeps db "root" solver 0 [sub]
                     refSolver <- createSharedSolver "ref" (relocateRow db aPid bPid) (fromIntegral (dbActivityCount db))
-                    xRef <- solveWithSharedSolver refSolver (buildDemandVectorFromIndex (dbActivityIndex db) 0)
+                    xRef <- solveWithSharedSolver refSolver =<< either (fail . show) pure (buildDemandVectorFromIndex (dbActivityIndex db) 0)
                     case gRes of
                         Right (xGlobal, links) -> do
                             links `shouldBe` []
@@ -116,7 +116,7 @@ spec = do
                         sub = Substitution (processIdToText root aPid) ("dep::" <> processIdToText dep bPid) AllConsumers
                     gRes <- computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig lookup_ root "root" rootSolver 0 [sub]
                     refSolver <- createSharedSolver "ref" (deleteRow root aPid) (fromIntegral (dbActivityCount root))
-                    xRef <- solveWithSharedSolver refSolver (buildDemandVectorFromIndex (dbActivityIndex root) 0)
+                    xRef <- solveWithSharedSolver refSolver =<< either (fail . show) pure (buildDemandVectorFromIndex (dbActivityIndex root) 0)
                     case gRes of
                         Right (xGlobal, links) -> do
                             length links `shouldBe` nConsumers

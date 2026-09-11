@@ -153,18 +153,21 @@ lazy factorization cache. Same shape as 'Matrix.computeScalingVector' but
 amortizes factorization across every call in a server's lifetime — the
 right default for endpoint handlers.
 -}
-computeScalingVectorCached :: Database -> SharedSolver -> ProcessId -> IO Vector
+computeScalingVectorCached :: Database -> SharedSolver -> ProcessId -> IO (Either Text Vector)
 computeScalingVectorCached db solver pid =
-    solveWithSharedSolver solver (buildDemandVectorFromIndex (dbActivityIndex db) pid)
+    either
+        (pure . Left)
+        (fmap Right . solveWithSharedSolver solver)
+        (buildDemandVectorFromIndex (dbActivityIndex db) pid)
 
 -- | Inventory for @pid@ using the shared-solver factorization cache.
-computeInventoryMatrixCached :: Database -> SharedSolver -> ProcessId -> IO Inventory
+computeInventoryMatrixCached :: Database -> SharedSolver -> ProcessId -> IO (Either Text Inventory)
 computeInventoryMatrixCached db solver pid =
-    applyBiosphereMatrix db <$> computeScalingVectorCached db solver pid
+    fmap (applyBiosphereMatrix db) <$> computeScalingVectorCached db solver pid
 
 -- | Batch inventories for many pids using one MUMPS multi-RHS call against the cached factorization.
-computeInventoryMatrixBatchCached :: Database -> SharedSolver -> [ProcessId] -> IO [Inventory]
-computeInventoryMatrixBatchCached _ _ [] = pure []
+computeInventoryMatrixBatchCached :: Database -> SharedSolver -> [ProcessId] -> IO (Either Text [Inventory])
+computeInventoryMatrixBatchCached _ _ [] = pure (Right [])
 computeInventoryMatrixBatchCached db solver pids = do
     fact <- ensureFactorization solver
     computeInventoryMatrixBatch db fact pids
@@ -236,14 +239,10 @@ computeInventoryMatrixBatchWithDepsCached ::
     IO (Either Text [CrossDBSolution])
 computeInventoryMatrixBatchWithDepsCached _ _ _ _ _ [] = pure (Right [])
 computeInventoryMatrixBatchWithDepsCached unitConfig depLookup db dbName solver pids =
-    goWithDeps
-        unitConfig
-        depLookup
-        db
-        dbName
-        solver
-        (map (buildDemandVectorFromIndex (dbActivityIndex db)) pids)
-        0
+    either
+        (pure . Left)
+        (\demands -> goWithDeps unitConfig depLookup db dbName solver demands 0)
+        (traverse (buildDemandVectorFromIndex (dbActivityIndex db)) pids)
 
 -- | Single-process convenience wrapper. One-element batch.
 computeInventoryMatrixWithDepsCached ::
@@ -426,12 +425,10 @@ crossDBProcessContributions ::
     LongTermMode ->
     IO (Either Text (M.Map (Text, ProcessId) Double))
 crossDBProcessContributions unitConfig unitDB flowDB depLookup rootDb rootName rootSolver rootPid tables ltMode =
-    go
-        rootDb
-        rootName
-        rootSolver
-        [buildDemandVectorFromIndex (dbActivityIndex rootDb) rootPid]
-        0
+    either
+        (pure . Left)
+        (\demand -> go rootDb rootName rootSolver [demand] 0)
+        (buildDemandVectorFromIndex (dbActivityIndex rootDb) rootPid)
   where
     go ::
         Database ->

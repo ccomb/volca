@@ -477,17 +477,19 @@ The caller must supply a 'MatrixFactorization' — typically obtained from
 would re-factorize per demand vector (~2 s each on Ecoinvent), defeating
 the point of batching.
 
-Precondition: every ProcessId must resolve against 'dbActivityIndex'. Callers
-should validate with 'Service.resolveActivityAndProcessId' first —
-'buildDemandVectorFromIndex' crashes on an out-of-range id.
+Every ProcessId must name a column of 'dbActivityIndex'; the batch is refused
+as a whole, naming the first that does not. Callers resolve with
+'Service.resolveActivityAndProcessId', which clears the same bound.
 -}
-computeInventoryMatrixBatch :: Database -> MatrixFactorization -> [ProcessId] -> IO [Inventory]
-computeInventoryMatrixBatch _ _ [] = pure []
-computeInventoryMatrixBatch db fact pids = do
-    let activityIndex = dbActivityIndex db
-        demandVecs = map (buildDemandVectorFromIndex activityIndex) pids
-    scalingVecs <- solveSparseLinearSystemWithFactorizationMulti fact (coerce demandVecs)
-    mapConcurrently (\x -> evaluate $! applyBiosphereMatrix db x) scalingVecs
+computeInventoryMatrixBatch :: Database -> MatrixFactorization -> [ProcessId] -> IO (Either Text [Inventory])
+computeInventoryMatrixBatch _ _ [] = pure (Right [])
+computeInventoryMatrixBatch db fact pids =
+    either (pure . Left) solveAll (traverse (buildDemandVectorFromIndex (dbActivityIndex db)) pids)
+  where
+    solveAll :: [Demand] -> IO (Either Text [Inventory])
+    solveAll demandVecs = do
+        scalingVecs <- solveSparseLinearSystemWithFactorizationMulti fact (coerce demandVecs)
+        Right <$> mapConcurrently (\x -> evaluate $! applyBiosphereMatrix db x) scalingVecs
 
 {- |
 Solve the fundamental LCA equation (I - A) * x = b using MUMPS direct solver.
@@ -549,13 +551,17 @@ Compute the scaling vector by solving (I - A)x = d.
 Returns the supply vector where x[i] is the scaling factor for activity i
 (how much of activity i is needed to produce one unit of the root activity).
 -}
-computeScalingVector :: Database -> ProcessId -> IO Vector
-computeScalingVector db rootProcessId = do
-    let activityCount = dbActivityCount db
-        techTriples = dbTechnosphereTriples db
-        activityIndex = dbActivityIndex db
-        demandVec = buildDemandVectorFromIndex activityIndex rootProcessId
-    solveSparseLinearSystem [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples] (fromIntegral activityCount) (unDemand demandVec)
+computeScalingVector :: Database -> ProcessId -> IO (Either Text Vector)
+computeScalingVector db rootProcessId =
+    either (pure . Left) solve (buildDemandVectorFromIndex (dbActivityIndex db) rootProcessId)
+  where
+    solve :: Demand -> IO (Either Text Vector)
+    solve demandVec =
+        Right
+            <$> solveSparseLinearSystem
+                [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+                (fromIntegral (dbActivityCount db))
+                (unDemand demandVec)
 
 {- |
 Apply the biosphere matrix to a scaling vector: g = B * x.
@@ -593,9 +599,9 @@ applyBiosphereMatrix db supplyVec =
             , i < invLen
             ]
 
-computeInventoryMatrix :: Database -> ProcessId -> IO Inventory
+computeInventoryMatrix :: Database -> ProcessId -> IO (Either Text Inventory)
 computeInventoryMatrix db rootProcessId =
-    applyBiosphereMatrix db <$> computeScalingVector db rootProcessId
+    fmap (applyBiosphereMatrix db) <$> computeScalingVector db rootProcessId
 
 {- |
 Per-process LCIA contributions for one impact category.
@@ -960,15 +966,26 @@ Build the final demand vector f for LCA calculations.
 The demand vector represents external demand for products from each activity:
 - f[i] = 1.0 for the root activity (functional unit)
 - f[i] = 0.0 for all other activities
+
+A process id the index does not hold names no column, so there is no vector
+to build and the caller is told. A vector of zeros would solve to an
+inventory of zeros and be reported as an answer.
 -}
-buildDemandVectorFromIndex :: V.Vector Int32 -> ProcessId -> Demand
+buildDemandVectorFromIndex :: V.Vector Int32 -> ProcessId -> Either Text Demand
 buildDemandVectorFromIndex activityIndex rootProcessId =
-    let n = V.length activityIndex
-        rootIndex =
-            if fromIntegral rootProcessId >= (0 :: Int) && fromIntegral rootProcessId < n
-                then fromIntegral $ activityIndex V.! fromIntegral rootProcessId
-                else error $ "FATAL: ProcessId not found in activity index: " ++ show rootProcessId
-     in Demand $ fromList [if i == rootIndex then 1.0 else 0.0 | i <- [0 .. n - 1 :: Int]]
+    maybe (Left noColumn) (Right . loadColumn) (activityIndex V.!? fromIntegral rootProcessId)
+  where
+    n :: Int
+    n = V.length activityIndex
+    loadColumn :: Int32 -> Demand
+    loadColumn col = Demand $ fromList [if i == fromIntegral col then 1.0 else 0.0 | i <- [0 .. n - 1 :: Int]]
+    noColumn :: Text
+    noColumn =
+        "ProcessId "
+            <> T.pack (show rootProcessId)
+            <> " is not in the activity index ("
+            <> T.pack (show n)
+            <> " processes), so it names no column to put the functional unit in"
 
 {- |
 Pre-compute matrix factorization for concurrent inventory calculations.

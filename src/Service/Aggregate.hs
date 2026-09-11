@@ -184,22 +184,23 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidTex
             case apScope params of
                 ScopeDirect ->
                     return $ Right $ reduce params (rowsFromDirect db activity)
-                ScopeSupplyChain -> do
-                    let demandVec = buildDemandVectorFromIndex (dbActivityIndex db) processId
-                    supplyVec <- solveWithSharedSolver solver demandVec
-                    let af = emptyFilter (apMaxDepth params)
-                    eResp <-
-                        buildSupplyChainFromScalingVectorCrossDB
-                            unitConfig
-                            geographies
-                            depLookup
-                            db
-                            dbName
-                            processId
-                            supplyVec
-                            []
-                            af
-                    return $ fmap (reduce params . rowsFromSupplyChain) eResp
+                ScopeSupplyChain -> case buildDemandVectorFromIndex (dbActivityIndex db) processId of
+                    Left err -> return (Left (MatrixError err))
+                    Right demandVec -> do
+                        supplyVec <- solveWithSharedSolver solver demandVec
+                        let af = emptyFilter (apMaxDepth params)
+                        eResp <-
+                            buildSupplyChainFromScalingVectorCrossDB
+                                unitConfig
+                                geographies
+                                depLookup
+                                db
+                                dbName
+                                processId
+                                supplyVec
+                                []
+                                af
+                        return $ fmap (reduce params . rowsFromSupplyChain) eResp
                 ScopeBiosphere -> do
                     solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
                     case solE of

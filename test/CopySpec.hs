@@ -132,7 +132,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
             copySolver = ldSharedSolver (loaded M.! "mycopy")
 
         -- Force the source solver's lazy factorization via a first solve.
-        _ <- solveWithSharedSolver srcSolver (buildDemandVectorFromIndex (dbActivityIndex srcDb) 0)
+        _ <- solveWithSharedSolver srcSolver =<< either (fail . show) pure (buildDemandVectorFromIndex (dbActivityIndex srcDb) 0)
         -- MatrixFactorization has no Show instance, so assert on the Bool.
         getFactorization srcSolver >>= (`shouldBe` True) . isJust
 

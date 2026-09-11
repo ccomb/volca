@@ -19,7 +19,7 @@ spec = do
             case co2Flow of
                 Nothing -> expectationFailure "CO2 flow not found in SAMPLE.min3"
                 Just co2 -> do
-                    scalingVec <- computeScalingVector db 0
+                    scalingVec <- either (fail . show) pure =<< computeScalingVector db 0
                     let cfMap = M.singleton (bfId co2) 1.0
                     let contribs = computeProcessLCIAContributions db scalingVec cfMap
                     let nonZero = M.filter (\v -> abs v > 1e-15) contribs
@@ -32,7 +32,7 @@ spec = do
             case co2Flow of
                 Nothing -> expectationFailure "CO2 flow not found in SAMPLE.min3"
                 Just co2 -> do
-                    scalingVec <- computeScalingVector db 0
+                    scalingVec <- either (fail . show) pure =<< computeScalingVector db 0
                     let cfMap = M.singleton (bfId co2) 1.0
                     let contribs = computeProcessLCIAContributions db scalingVec cfMap
                     let total = sum (M.elems contribs)
@@ -46,7 +46,7 @@ spec = do
             case co2Flow of
                 Nothing -> expectationFailure "CO2 flow not found in SAMPLE.min3"
                 Just co2 -> do
-                    scalingVec <- computeScalingVector db 0
+                    scalingVec <- either (fail . show) pure =<< computeScalingVector db 0
                     let cfMap = M.singleton (bfId co2) 1.0
                     let nonZero =
                             M.filter (\v -> abs v > 1e-15) $
@@ -61,7 +61,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             -- A random UUID that doesn't exist in the database
             let ghostUUID = read "00000000-0000-0000-0000-000000000001" :: UUID
-            scalingVec <- computeScalingVector db 0
+            scalingVec <- either (fail . show) pure =<< computeScalingVector db 0
             let cfMap = M.singleton ghostUUID 1.0
             let contribs = computeProcessLCIAContributions db scalingVec cfMap
             sum (M.elems contribs) `shouldBe` 0.0

@@ -904,7 +904,7 @@ co2Inventory sdb = do
     case built of
         Left err -> pure (Left err)
         Right db -> do
-            inv <- computeInventoryMatrix db 0
+            inv <- either (fail . show) pure =<< computeInventoryMatrix db 0
             pure (Right (lookupCo2 db inv))
   where
     lookupCo2 db inv =

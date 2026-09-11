@@ -360,7 +360,7 @@ inventoryByName (acts, tech, bio, waste, units) target = do
                     ]
             case pidFor of
                 (pid : _) -> do
-                    inv <- computeInventoryMatrix db pid
+                    inv <- either (fail . show) pure =<< computeInventoryMatrix db pid
                     pure (M.mapKeys (flowName db) inv)
                 [] -> expectationFailure ("no activity named " <> T.unpack target) >> pure M.empty
 

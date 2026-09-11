@@ -212,7 +212,7 @@ inventoryByName db target = do
                     ]
             case pids of
                 (pid : _) -> do
-                    inv <- computeInventoryMatrix d pid
+                    inv <- either (fail . show) pure =<< computeInventoryMatrix d pid
                     pure (M.mapKeys (flowName d) inv)
                 [] -> expectationFailure ("no activity named " <> T.unpack target) >> pure M.empty
   where

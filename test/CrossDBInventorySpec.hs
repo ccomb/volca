@@ -136,7 +136,7 @@ spec = do
             let pids = [0]
                 noDeps _ = pure Nothing
 
-            localInvs <- computeInventoryMatrixBatchCached db solver pids
+            localInvs <- either (fail . show) pure =<< computeInventoryMatrixBatchCached db solver pids
             withDepsE <- computeInventoryMatrixBatchWithDepsCached defaultUnitConfig noDeps db "SAMPLE.min3" solver pids
 
             case withDepsE of

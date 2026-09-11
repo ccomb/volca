@@ -14,7 +14,7 @@ module Matrix.Export (
 ) where
 
 import Database (filterByName, flowSearchFields)
-import Matrix (Demand (..), applySparseMatrix, buildDemandVectorFromIndex, solveSparseLinearSystem, toList)
+import Matrix (Demand (..), Vector, applySparseMatrix, buildDemandVectorFromIndex, solveSparseLinearSystem, toList)
 import Progress (ProgressLevel (..), reportProgress)
 import Types
 
@@ -55,59 +55,65 @@ row it is, which is the row the caller resolved: an activity UUID would have to
 be resolved again here, and would answer with an arbitrary product of an
 activity written as several coproduct rows.
 -}
-extractMatrixDebugInfo :: Database -> ProcessId -> Maybe Text -> IO MatrixDebugInfo
-extractMatrixDebugInfo database targetProcessId flowFilter = do
-    let activities = dbActivities database
-        bioFlows = dbBioFlows database
-        techTriples = dbTechnosphereTriples database
-        bioTriples = dbBiosphereTriples database
-        activityIndexVec = dbActivityIndex database
-        bioFlowUUIDs = dbBiosphereOrder database
-        activityCount = dbActivityCount database
-        bioFlowCount = dbBiosphereCount database
+extractMatrixDebugInfo :: Database -> ProcessId -> Maybe Text -> IO (Either Text MatrixDebugInfo)
+extractMatrixDebugInfo database targetProcessId flowFilter =
+    either
+        (pure . Left)
+        (fmap Right . withDemand . unDemand)
+        (buildDemandVectorFromIndex (dbActivityIndex database) targetProcessId)
+  where
+    withDemand :: Vector -> IO MatrixDebugInfo
+    withDemand demandVec = do
+        let activities = dbActivities database
+            bioFlows = dbBioFlows database
+            techTriples = dbTechnosphereTriples database
+            bioTriples = dbBiosphereTriples database
+            activityIndexVec = dbActivityIndex database
+            bioFlowUUIDs = dbBiosphereOrder database
+            activityCount = dbActivityCount database
+            bioFlowCount = dbBiosphereCount database
 
-        demandVec = unDemand (buildDemandVectorFromIndex activityIndexVec targetProcessId)
-        demandList = toList demandVec
+            demandList = toList demandVec
 
-        techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
-        activityCountInt = fromIntegral activityCount
+            techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
+            activityCountInt = fromIntegral activityCount
 
-    supplyVec <- solveSparseLinearSystem techTriplesInt activityCountInt demandVec
-    let supplyList = toList supplyVec
+        supplyVec <- solveSparseLinearSystem techTriplesInt activityCountInt demandVec
+        let supplyList = toList supplyVec
 
-        bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
-        bioFlowCountInt = fromIntegral bioFlowCount
-        inventoryVec = applySparseMatrix bioTriplesInt bioFlowCountInt supplyVec
-        inventoryList = toList inventoryVec
+            bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
+            bioFlowCountInt = fromIntegral bioFlowCount
+            inventoryVec = applySparseMatrix bioTriplesInt bioFlowCountInt supplyVec
+            inventoryList = toList inventoryVec
 
-        filteredBioTriples = case flowFilter of
-            Nothing -> bioTriples
-            Just filterText ->
-                -- The filter read the way a flow search reads a query: the
-                -- words in any order, punctuation of the name left to the name.
-                let candidates =
-                        [ (idx, flow)
-                        | (uuid, idx) <- zip (V.toList bioFlowUUIDs) ([0 ..] :: [Int])
-                        , Just flow <- [M.lookup uuid bioFlows]
-                        ]
-                    matchingFlowIndices =
-                        map fst (filterByName filterText (flowSearchFields . BioKind . snd) candidates)
-                    matchingFlowIndicesInt32 = map fromIntegral matchingFlowIndices :: [Int32]
-                 in U.filter (\(SparseTriple row _ _) -> row `elem` matchingFlowIndicesInt32) bioTriples
-    return
-        MatrixDebugInfo
-            { mdActivities = activities
-            , mdBioFlows = bioFlows
-            , mdTechTriples = techTriples
-            , mdBioTriples = filteredBioTriples
-            , mdActivityIndex = activityIndexVec
-            , mdBioFlowUUIDs = bioFlowUUIDs
-            , mdTargetProcessId = targetProcessId
-            , mdDatabase = database
-            , mdSupplyVector = supplyList
-            , mdDemandVector = demandList
-            , mdInventoryVector = inventoryList
-            }
+            filteredBioTriples = case flowFilter of
+                Nothing -> bioTriples
+                Just filterText ->
+                    -- The filter read the way a flow search reads a query: the
+                    -- words in any order, punctuation of the name left to the name.
+                    let candidates =
+                            [ (idx, flow)
+                            | (uuid, idx) <- zip (V.toList bioFlowUUIDs) ([0 ..] :: [Int])
+                            , Just flow <- [M.lookup uuid bioFlows]
+                            ]
+                        matchingFlowIndices =
+                            map fst (filterByName filterText (flowSearchFields . BioKind . snd) candidates)
+                        matchingFlowIndicesInt32 = map fromIntegral matchingFlowIndices :: [Int32]
+                     in U.filter (\(SparseTriple row _ _) -> row `elem` matchingFlowIndicesInt32) bioTriples
+        return
+            MatrixDebugInfo
+                { mdActivities = activities
+                , mdBioFlows = bioFlows
+                , mdTechTriples = techTriples
+                , mdBioTriples = filteredBioTriples
+                , mdActivityIndex = activityIndexVec
+                , mdBioFlowUUIDs = bioFlowUUIDs
+                , mdTargetProcessId = targetProcessId
+                , mdDatabase = database
+                , mdSupplyVector = supplyList
+                , mdDemandVector = demandList
+                , mdInventoryVector = inventoryList
+                }
 
 -- | Export matrix debug CSVs
 exportMatrixDebugCSVs :: FilePath -> MatrixDebugInfo -> IO ()

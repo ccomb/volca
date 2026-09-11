@@ -2,6 +2,7 @@
 
 module MatrixConstructionSpec (spec) where
 
+import Data.Either (isLeft)
 import Data.List (elemIndex)
 import qualified Data.Map as M
 import qualified Data.Text as T
@@ -9,7 +10,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Database (buildDatabaseWithMatrices)
-import Matrix (computeInventoryMatrix)
+import Matrix (Demand (..), buildDemandVectorFromIndex, computeInventoryMatrix)
 import Test.Hspec
 import TestHelpers
 import Types
@@ -93,6 +94,18 @@ spec = do
             -- Activity index should be identity mapping for simple case
             let activityIndex = dbActivityIndex db
             V.length activityIndex `shouldBe` 3
+
+        it "refuses a demand vector for a process the index does not hold" $ do
+            db <- loadSampleDatabase "SAMPLE.min3"
+
+            -- One unit of demand lands in the column the process occupies; an id
+            -- with no column is refused rather than answered with a vector of
+            -- zeros, which would solve to an inventory of zeros.
+            let activityIndex = dbActivityIndex db
+                offEnd = fromIntegral (V.length activityIndex) :: ProcessId
+            fmap (VU.sum . unDemand) (buildDemandVectorFromIndex activityIndex 0) `shouldBe` Right 1.0
+            isLeft (buildDemandVectorFromIndex activityIndex offEnd) `shouldBe` True
+            isLeft (buildDemandVectorFromIndex activityIndex (-1)) `shouldBe` True
 
     describe "Matrix Sparsity" $ do
         it "produces only well above-zero entries on the basic SAMPLE.min3 fixture" $ do
@@ -410,6 +423,6 @@ spec = do
                 Right db -> case elemIndex (pA, yY) (V.toList (dbProcessIdTable db)) of
                     Nothing -> expectationFailure "producer activity was not interned"
                     Just ix -> do
-                        inv <- computeInventoryMatrix db (fromIntegral ix)
+                        inv <- either (fail . show) pure =<< computeInventoryMatrix db (fromIntegral ix)
                         -- 3 kg waste × 2 kg CO2/kg treated = +6 kg CO2 (positive!)
                         withinTolerance 1.0e-9 6.0 (M.findWithDefault 0.0 co2 inv) `shouldBe` True

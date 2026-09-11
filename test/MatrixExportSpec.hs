@@ -181,25 +181,25 @@ spec = do
     describe "extractMatrixDebugInfo" $ do
         it "returns supply, demand, and inventory vectors of correct length" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            info <- extractMatrixDebugInfo db (targetRow db) Nothing
+            info <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) Nothing
             let n = fromIntegral (dbActivityCount db)
             length (mdSupplyVector info) `shouldBe` n
             length (mdDemandVector info) `shouldBe` n
 
         it "demand vector has exactly one non-zero entry" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            info <- extractMatrixDebugInfo db (targetRow db) Nothing
+            info <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) Nothing
             length (filter (/= 0.0) (mdDemandVector info)) `shouldBe` 1
 
         it "inventory vector is non-empty (has biosphere contributions)" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            info <- extractMatrixDebugInfo db (targetRow db) Nothing
+            info <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) Nothing
             any (/= 0.0) (mdInventoryVector info) `shouldBe` True
 
         it "flow filter restricts biosphere triples" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            infoAll <- extractMatrixDebugInfo db (targetRow db) Nothing
-            infoFiltered <- extractMatrixDebugInfo db (targetRow db) (Just "carbon")
+            infoAll <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) Nothing
+            infoFiltered <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) (Just "carbon")
             -- Filtered should have ≤ triples than unfiltered
             let nAll = length (mdInventoryVector infoAll)
                 nFiltered = length (mdInventoryVector infoFiltered)
@@ -208,7 +208,7 @@ spec = do
     describe "exportMatrixDebugCSVs" $ do
         it "creates supply chain and biosphere CSV files" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            info <- extractMatrixDebugInfo db (targetRow db) Nothing
+            info <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) Nothing
             withSystemTempDirectory "acv-debug" $ \tmpDir -> do
                 let base = tmpDir </> "debug"
                 exportMatrixDebugCSVs base info
@@ -219,7 +219,7 @@ spec = do
 
         it "supply chain CSV has one row per activity" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            info <- extractMatrixDebugInfo db (targetRow db) Nothing
+            info <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) Nothing
             withSystemTempDirectory "acv-debug" $ \tmpDir -> do
                 let base = tmpDir </> "debug"
                 exportMatrixDebugCSVs base info

@@ -231,6 +231,14 @@ validateProcessIdInMatrixIndex db processId =
                         <> T.pack (show processId)
                         <> ". This activity may exist in the database but is not indexed for inventory calculations."
 
+{- | The demand vector that puts the functional unit on @processId@, with the
+builder's refusal carried as the matrix error it is. A process id that reached
+here without being resolved is the only way to get a 'Left'.
+-}
+demandFor :: Database -> ProcessId -> Either ServiceError Demand
+demandFor db processId =
+    either (Left . MatrixError) Right (buildDemandVectorFromIndex (dbActivityIndex db) processId)
+
 -- | Rich activity info (returns same format as API)
 getActivityInfo :: Database -> Text -> Either ServiceError Value
 getActivityInfo db queryText = do
@@ -334,10 +342,12 @@ getActivityInventory db processIdText =
     case resolveScorable db processIdText >>= \(pid, act) -> validateProcessIdInMatrixIndex db pid >> Right (pid, act) of
         Left err -> return $ Left err
         Right (processId, activity) -> do
-            -- Matrix computation (will not fail if validation passed)
-            inventory <- computeInventoryMatrix db processId
-            let !inventoryExport = convertToInventoryExport db (dbBioFlows db) (dbUnits db) processId activity inventory
-            return $ Right $ toJSON inventoryExport
+            inventoryE <- computeInventoryMatrix db processId
+            return $ case inventoryE of
+                Left err -> Left (MatrixError err)
+                Right inventory ->
+                    let !inventoryExport = convertToInventoryExport db (dbBioFlows db) (dbUnits db) processId activity inventory
+                     in Right (toJSON inventoryExport)
 
 {- | The nodes and edges a tree walk has reached so far. Threaded through the
 walk in visit order and never combined out of it: a node id can be inserted
@@ -704,10 +714,10 @@ Uses efficient sparse matrix operations to extract connections.
 -}
 buildActivityGraph :: Database -> SharedSolver -> Text -> Double -> IO (Either ServiceError GraphExport)
 buildActivityGraph db sharedSolver queryText cutoffPercent =
-    case resolveActivityAndProcessId db queryText of
+    case resolveActivityAndProcessId db queryText >>= \(pid, _) -> (,) pid <$> demandFor db pid of
         Left err -> pure (Left err)
-        Right (processId, _activity) -> do
-            supplyVec <- solveWithSharedSolver sharedSolver (buildDemandVectorFromIndex (dbActivityIndex db) processId)
+        Right (processId, demandVec) -> do
+            supplyVec <- solveWithSharedSolver sharedSolver demandVec
             let supplyList = toList supplyVec
                 threshold = sum (map abs supplyList) * (cutoffPercent / 100.0)
                 significantActivities = selectSignificantActivities threshold processId supplyList
@@ -1669,11 +1679,11 @@ getSupplyChain unitCfg geographies depLookup db dbName sharedSolver processIdTex
     case resolveScorable db processIdText of
         Left err -> return $ Left err
         Right (processId, _rootActivity) ->
-            case validateProcessIdInMatrixIndex db processId of
+            -- Building the demand vector is the matrix-index check: an id with
+            -- no column is refused here, by name.
+            case demandFor db processId of
                 Left err -> return $ Left err
-                Right () -> do
-                    let activityIndex = dbActivityIndex db
-                        demandVec = buildDemandVectorFromIndex activityIndex processId
+                Right demandVec -> do
                     supplyVec <- solveWithSharedSolver sharedSolver demandVec
                     buildSupplyChainFromScalingVectorCrossDB
                         unitCfg
@@ -2239,12 +2249,10 @@ computeScalingVectorWithSubstitutions ::
     IO (Either ServiceError (U.Vector Double))
 computeScalingVectorWithSubstitutions db sharedSolver processId subs =
     case subs of
-        [] -> Right <$> solveWithSharedSolver sharedSolver demandVec
+        [] -> either (pure . Left) (fmap Right . solveWithSharedSolver sharedSolver) (demandFor db processId)
         _ ->
             pure . Left . MatrixError $
                 "computeScalingVectorWithSubstitutions: substitutions must be applied via the cross-DB path"
-  where
-    demandVec = buildDemandVectorFromIndex (dbActivityIndex db) processId
 
 {- | Run sensitivity analysis on a process: compute the baseline scaling
 vector @x₀@ once, then resolve every 'Perturbation' to a (consumer column,
@@ -2271,34 +2279,34 @@ computeSensitivities ::
     ProcessId ->
     [Perturbation] ->
     IO (Either ServiceError (U.Vector Double, [(Perturbation, Either Text (U.Vector Double))]))
-computeSensitivities db sharedSolver processId perts = do
-    let activityIndex = dbActivityIndex db
-        demandVec = buildDemandVectorFromIndex activityIndex processId
-    -- The baseline solve and factorization retrieval hit MUMPS through the FFI
-    -- and can throw via exceptions (singular A, allocation failure, …). Wrap
-    -- them so the documented 'Left' branch of the signature is reachable,
-    -- instead of letting raw exceptions escape to the caller.
-    eBaseline <- try @SomeException $ do
-        baselineX <- solveWithSharedSolver sharedSolver demandVec
-        mFact <- getFactorization sharedSolver
-        pure (baselineX, mFact)
-    case eBaseline of
-        Left ex ->
-            pure $
-                Left $
-                    MatrixError $
-                        "baseline solve failed: " <> T.pack (show ex)
-        Right (baselineX, mFact) -> do
-            -- Resolve each perturbation up-front. Resolution errors graft onto
-            -- the final result; resolved specs go to the batch (a Left becomes
-            -- a no-op empty spec so the batch preserves indexing).
-            let resolved = map (resolveSpec db) perts
-            smResults <-
-                perturbABatch db mFact baselineX (map (fromRight (0, [])) resolved)
-            let combined = zipWith3 step perts resolved smResults
-                step p (Left e) _ = (p, Left e)
-                step p (Right _) sm = (p, sm)
-            pure $ Right (baselineX, combined)
+computeSensitivities db sharedSolver processId perts = case demandFor db processId of
+    Left err -> pure (Left err)
+    Right demandVec -> do
+        -- The baseline solve and factorization retrieval hit MUMPS through the FFI
+        -- and can throw via exceptions (singular A, allocation failure, …). Wrap
+        -- them so the documented 'Left' branch of the signature is reachable,
+        -- instead of letting raw exceptions escape to the caller.
+        eBaseline <- try @SomeException $ do
+            baselineX <- solveWithSharedSolver sharedSolver demandVec
+            mFact <- getFactorization sharedSolver
+            pure (baselineX, mFact)
+        case eBaseline of
+            Left ex ->
+                pure $
+                    Left $
+                        MatrixError $
+                            "baseline solve failed: " <> T.pack (show ex)
+            Right (baselineX, mFact) -> do
+                -- Resolve each perturbation up-front. Resolution errors graft onto
+                -- the final result; resolved specs go to the batch (a Left becomes
+                -- a no-op empty spec so the batch preserves indexing).
+                let resolved = map (resolveSpec db) perts
+                smResults <-
+                    perturbABatch db mFact baselineX (map (fromRight (0, [])) resolved)
+                let combined = zipWith3 step perts resolved smResults
+                    step p (Left e) _ = (p, Left e)
+                    step p (Right _) sm = (p, sm)
+                pure $ Right (baselineX, combined)
 
 resolveSpec :: Database -> Perturbation -> Either Text (Int, [(Int, Double)])
 resolveSpec db p = do
@@ -2377,17 +2385,18 @@ inventoryWithSubsAndDeps unitCfg depLookup db rootDbName solver pid subs =
             eValid <- validateAnchorDbs depLookup db rootDb subs
             case eValid of
                 Left e -> pure (Left e)
-                Right () -> do
-                    let demand = buildDemandVectorFromIndex (dbActivityIndex db) pid
-                    res <- goWithSubsAndDeps unitCfg depLookup db (ThisDb rootDbName) rootDb solver [demand] subs 0
-                    pure $ case res of
-                        Left err -> Left err
-                        Right (sol : _) -> Right sol
-                        Right [] ->
-                            -- unreachable: K=1 single-demand always yields one solution.
-                            -- Surface as Left rather than fabricate an empty solution
-                            -- with no 'csScalings' (NonEmpty forbids it).
-                            Left $ MatrixError "inventoryWithSubsAndDeps: empty result for single demand"
+                Right () -> case demandFor db pid of
+                    Left e -> pure (Left e)
+                    Right demand -> do
+                        res <- goWithSubsAndDeps unitCfg depLookup db (ThisDb rootDbName) rootDb solver [demand] subs 0
+                        pure $ case res of
+                            Left err -> Left err
+                            Right (sol : _) -> Right sol
+                            Right [] ->
+                                -- unreachable: K=1 single-demand always yields one solution.
+                                -- Surface as Left rather than fabricate an empty solution
+                                -- with no 'csScalings' (NonEmpty forbids it).
+                                Left $ MatrixError "inventoryWithSubsAndDeps: empty result for single demand"
   where
     rootDb = RootDb rootDbName
 
@@ -2569,15 +2578,16 @@ computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db rootDbName sol
                     Left $
                         MatrixError $
                             "substitution consumer must live in root database (got: " <> cDb <> ")"
-            Nothing -> do
-                let demandVec = buildDemandVectorFromIndex (dbActivityIndex db) pid
-                originalX <- solveWithSharedSolver solver demandVec
-                res <- applySubstitutionsAt unitCfg depLookup db (ThisDb rootDbName) rootDb solver [originalX] subs
-                pure $ case res of
-                    Left e -> Left e
-                    Right ([x'], links) -> Right (x', links)
-                    Right (x' : _, links) -> Right (x', links) -- unreachable: K=1
-                    Right ([], _) -> Right (originalX, []) -- unreachable
+            Nothing -> case demandFor db pid of
+                Left e -> pure (Left e)
+                Right demandVec -> do
+                    originalX <- solveWithSharedSolver solver demandVec
+                    res <- applySubstitutionsAt unitCfg depLookup db (ThisDb rootDbName) rootDb solver [originalX] subs
+                    pure $ case res of
+                        Left e -> Left e
+                        Right ([x'], links) -> Right (x', links)
+                        Right (x' : _, links) -> Right (x', links) -- unreachable: K=1
+                        Right ([], _) -> Right (originalX, []) -- unreachable
   where
     rootDb = RootDb rootDbName
     firstNonRootAnchor =
@@ -3124,25 +3134,28 @@ exportMatrixDebugData database processIdText opts = do
     case resolveScorable database processIdText >>= withRef of
         Left err -> return $ Left err
         Right (processId, targetActivity, ref) -> do
-            matrixData <- MatrixExport.extractMatrixDebugInfo database processId (debugFlowFilter opts)
-            let inventoryList = MatrixExport.mdInventoryVector matrixData
-                bioFlowUUIDs = MatrixExport.mdBioFlowUUIDs matrixData
-                inventory = M.fromList $ zip (V.toList bioFlowUUIDs) inventoryList
+            matrixDataE <- MatrixExport.extractMatrixDebugInfo database processId (debugFlowFilter opts)
+            case matrixDataE of
+                Left err -> return $ Left $ MatrixError err
+                Right matrixData -> do
+                    let inventoryList = MatrixExport.mdInventoryVector matrixData
+                        bioFlowUUIDs = MatrixExport.mdBioFlowUUIDs matrixData
+                        inventory = M.fromList $ zip (V.toList bioFlowUUIDs) inventoryList
 
-            Progress.reportProgress Progress.Info $ "DEBUG: Starting CSV export to " ++ debugOutput opts
-            MatrixExport.exportMatrixDebugCSVs (debugOutput opts) matrixData
-            Progress.reportProgress Progress.Info "DEBUG: CSV export completed"
+                    Progress.reportProgress Progress.Info $ "DEBUG: Starting CSV export to " ++ debugOutput opts
+                    MatrixExport.exportMatrixDebugCSVs (debugOutput opts) matrixData
+                    Progress.reportProgress Progress.Info "DEBUG: CSV export completed"
 
-            let summary =
-                    M.fromList
-                        [ ("activity_uuid" :: Text, UUID.toText (prActivity ref))
-                        , ("activity_name" :: Text, activityName targetActivity)
-                        , ("total_inventory_flows" :: Text, T.pack $ show $ M.size inventory)
-                        , ("matrix_debug_exported" :: Text, "CSV_EXPORTED")
-                        , ("supply_chain_file" :: Text, T.pack $ debugOutput opts ++ "_supply_chain.csv")
-                        , ("biosphere_matrix_file" :: Text, T.pack $ debugOutput opts ++ "_biosphere_matrix.csv")
-                        ]
-            return $ Right $ toJSON summary
+                    let summary =
+                            M.fromList
+                                [ ("activity_uuid" :: Text, UUID.toText (prActivity ref))
+                                , ("activity_name" :: Text, activityName targetActivity)
+                                , ("total_inventory_flows" :: Text, T.pack $ show $ M.size inventory)
+                                , ("matrix_debug_exported" :: Text, "CSV_EXPORTED")
+                                , ("supply_chain_file" :: Text, T.pack $ debugOutput opts ++ "_supply_chain.csv")
+                                , ("biosphere_matrix_file" :: Text, T.pack $ debugOutput opts ++ "_biosphere_matrix.csv")
+                                ]
+                    return $ Right $ toJSON summary
   where
     withRef (pid, act) =
         maybe
