@@ -123,6 +123,10 @@ module Database.Manager (
     -- * Internal (for tests: pure dependency-list builder)
     buildDependencyChoices,
 
+    -- * Internal (for tests: the names two entries both claim)
+    shadowedNames,
+    shadowedMethods,
+
     -- * Installing a database the caller built itself
     solverFor,
     publishLoaded,
@@ -145,6 +149,7 @@ import Data.Char (toLower)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
 import Data.Indexing (uniqueIndex)
+import qualified Data.Indexing as Indexing
 import Data.List (intercalate, isPrefixOf, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
@@ -1179,11 +1184,16 @@ discoverDatabases config = do
         return dbConfig{dcPath = resolvedPath, dcFormat = Just format}
     -- Uploaded databases are self-describing, through their meta.toml
     uploaded <- discoverUploadedDatabases
-    return (configured ++ uploaded)
+    let combined = configured ++ uploaded
+    mapM_ (reportProgress Warning) (shadowedNames "database" dcName dcPath combined)
+    return combined
 
 -- | Configured method collections plus the uploaded ones.
 discoverMethods :: Config -> IO [MethodConfig]
-discoverMethods config = (cfgMethods config ++) <$> discoverUploadedMethodConfigs
+discoverMethods config = do
+    combined <- (cfgMethods config ++) <$> discoverUploadedMethodConfigs
+    mapM_ (reportProgress Warning) (shadowedMethods combined)
+    return combined
 
 -- | Configured reference data plus whatever sits under @uploads/<kind>/@.
 discoverRefDataSources :: Config -> IO RefDataSources
@@ -1197,33 +1207,53 @@ discoverRefDataSources config =
     withUploads :: String -> [RefDataConfig] -> FilePath -> IO [RefDataConfig]
     withUploads kind configured dir = do
         combined <- (configured ++) <$> discoverUploadedRefData dir
-        mapM_ (reportProgress Warning) (shadowedSources kind combined)
+        mapM_ (reportProgress Warning) (shadowedNames (kind <> " source") rdName (describeSource . rdSource) combined)
         pure combined
 
-{- | One warning per name held by more than one source. 'newManager' indexes
-these by name, so a repeated one keeps the last and drops the rest: an uploaded
-directory named like a configured source is all it takes, and the configuration
-checks duplicates for databases and method collections but not for these. Which
-one wins follows from a concatenation order nothing states, so name the file
-being read as well as the ones being ignored.
+{- | One warning per name held by more than one entry, naming the one that is
+read and the ones that are not.
+
+'newManager' indexes databases and reference sources by name, so a repeated one
+keeps the last and drops the rest. The configuration refuses a repeated name,
+but it only ever sees the configured half: what reaches these indexes is that
+half concatenated with whatever the uploads directory holds, so an uploaded
+directory named like a configured entry is all it takes to replace it. Which
+one wins then follows from a concatenation order nothing states, and it used to
+be said nowhere.
 -}
-shadowedSources :: String -> [RefDataConfig] -> [String]
-shadowedSources kind rds =
-    [ "Reference data: more than one "
+shadowedNames :: String -> (a -> Text) -> (a -> String) -> [a] -> [String]
+shadowedNames kind nameOf describe entries =
+    [ "More than one "
         <> kind
-        <> " source named "
+        <> " named "
         <> T.unpack name
         <> "; reading "
-        <> winner
+        <> NE.last paths
         <> ", ignoring "
-        <> intercalate ", " (reverse ignored)
-    | (name, winner : ignored@(_ : _)) <- M.toList lastFirst
+        <> intercalate ", " (NE.init paths)
+    | (name, paths) <- Indexing.collisions [(nameOf e, describe e) | e <- entries]
     ]
-  where
-    -- 'M.fromListWith' prepends, so a group comes out last source first, and
-    -- that first one is what 'M.fromList' keeps.
-    lastFirst :: Map Text [String]
-    lastFirst = M.fromListWith (++) [(rdName rd, [describeSource (rdSource rd)]) | rd <- rds]
+
+{- | The same for method collections, which cannot be told which one is read,
+because two registries answer and they disagree.
+
+'dmAvailableMethods' is indexed like the others and keeps the last entry, so a
+listing describes the uploaded collection. The boot load walks the configured
+list instead and takes the active ones, and an uploaded collection is never
+active, so what is actually scored with is the configured one. Under a repeated
+name those are two different collections, and neither is simply ignored.
+-}
+shadowedMethods :: [MethodConfig] -> [String]
+shadowedMethods mcs =
+    [ "More than one method collection named "
+        <> T.unpack name
+        <> "; listed from "
+        <> NE.last paths
+        <> " and loaded from "
+        <> NE.head paths
+        <> ", so the name answers with two different collections"
+    | (name, paths) <- Indexing.collisions [(mcName mc, mcPath mc) | mc <- mcs]
+    ]
 
 {- | The location hierarchy this run scores against. Falling back to the
 built-in hierarchy when a named file cannot be read would change every
