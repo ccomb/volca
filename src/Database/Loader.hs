@@ -109,7 +109,6 @@ import Data.Bits (xor)
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
 import Data.Either (lefts, partitionEithers, rights)
-import Data.Foldable (find)
 import Data.List (intercalate, sort, sortBy, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
@@ -225,7 +224,9 @@ either: the flow tables are merged strictly, for the reason the import of
 
 'hvDatasetNumbers' is the one table under neither law: a repeated number is the
 ordinary shape there, not a collision to arbitrate, so both sides are kept and
-the reader picks by product name. See 'DatasetNumberIndex'.
+the reader picks by product name. See 'DatasetNumberIndex'. It is built and
+merged strictly, like the flow tables and for the same reason: its value grows
+by repeated '<>', and the lazy API would leave that chain unforced.
 -}
 data Harvest = Harvest
     { hvActivities :: !ActivityMap
@@ -924,9 +925,13 @@ fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlo
     -- The number names several datasets whenever the block it came from was
     -- allocated into coproducts, and then only the product name says which one
     -- the input asked for. That name was already what Tier 1 checked when the
-    -- number named a single dataset; here it also chooses.
+    -- number named a single dataset; here it also chooses. Two coproducts
+    -- published under one name leave it with nothing to choose on, so the
+    -- number answers nothing and the tiers below take their turn, exactly as
+    -- when the name does not match at all.
     supplierNamed :: TechnosphereFlow -> NE.NonEmpty (UUID.UUID, UUID.UUID) -> Maybe (UUID.UUID, UUID.UUID)
-    supplierNamed flow = find (produces (normalizeText (tfName flow)))
+    supplierNamed flow candidates =
+        NE.nonEmpty (NE.filter (produces (normalizeText (tfName flow))) candidates) >>= sole
 
     produces :: T.Text -> (UUID.UUID, UUID.UUID) -> Bool
     produces name (_, prodUUID) = Just name == (normalizeText . tfName <$> M.lookup prodUUID elcFlowDB)

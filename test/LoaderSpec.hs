@@ -787,6 +787,22 @@ spec = do
                 (acts, _) = fixAllActivities (ecoSpold1LinkContext M.empty dsIndex db) (sdbActivities db)
             inputLinksIn acts `shouldBe` [Just actUUID1]
 
+        -- Two coproducts of one block published under one product name leave
+        -- the number nothing to choose on, so it answers nothing and the tiers
+        -- below take their turn.
+        it "leaves a numbered input unlinked when two coproducts share its product name" $ do
+            let heatA = ((actUUID1, flowUUID1), minimalActivity "cogeneration, heat a" "GLO" [refExchange flowUUID1])
+                heatB = ((actUUID2, flowUUID2), minimalActivity "cogeneration, heat b" "GLO" [refExchange flowUUID2])
+                greenhouse =
+                    ( (consumerUUID, breadUUID)
+                    , minimalActivity "greenhouse" "CH" [refExchange breadUUID, buyingDataset 7 (inputExchange flowUUID1 "")]
+                    )
+                names = [(flowUUID1, "Heat"), (flowUUID2, "Heat"), (breadUUID, "Bread")]
+                dsIndex = hvDatasetNumbers (harvestOf [numbered (actUUID1, flowUUID1), numbered (actUUID2, flowUUID2)])
+                db = simpleDBOf [heatA, heatB, greenhouse] names
+                (acts, _) = fixAllActivities (ecoSpold1LinkContext M.empty dsIndex db) (sdbActivities db)
+            inputLinksIn acts `shouldBe` [Nothing]
+
     -- -----------------------------------------------------------------------
     -- countTotalTechInputs / countUnlinkedExchanges / collectUnlinkedProductNames
     -- (integration tests via SAMPLE.min3)
