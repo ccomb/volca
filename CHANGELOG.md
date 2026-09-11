@@ -14,6 +14,24 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
+- A unit written with a capital prefix is no longer read as its lower-case
+  twin. The shipped unit table held `mg` and not `Mg`, `ml` and not `ML`, `MJ`
+  and not `mJ`, `MWh` and not `mWh`, `mm` and not `Mm`. A source writing the
+  half the table lacked found the half it had, the single candidate looked
+  settled, and the amount was read against it: a megagram came through as a
+  milligram and a megalitre as a millilitre, a factor of a billion and of a
+  thousand billion, with nothing but a note saying the table spells the unit
+  differently. Each of those spellings now has a row of its own, so both halves
+  of a pair are read as written, and a database whose own unit list tells a
+  megagram from a milligram loads where it used to be refused. The litre also
+  gains the `L` and `mL` spellings the standard allows, so neither is read as a
+  respelling of the other. The other side of the same change: a spelling that
+  discards the case of a pair now lands on two rows with nothing to decide
+  between them, so the load stops and names them rather than guess. Those are
+  `MG`, `mG`, `MM`, `mM`, `Ml`, `mj`, `Mj`, `mwh` and `MWH`. Correct the
+  spelling in the source, or give the unit you mean a row in a `[[units]]` file
+  of your own. Data version 4. A cache records the unit table it was built
+  with, so every cache rebuilds itself from its source on the next load.
 - A guest night is no longer read as a plain count. It is one guest for one
   night, a count over a time, and the shipped unit table filed it beside
   `piece`, `item` and `TEU` at the reference unit's own factor. Every spelling

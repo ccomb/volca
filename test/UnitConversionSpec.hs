@@ -356,6 +356,18 @@ spec = do
             readUnit cfg "kg" `shouldSatisfy` exact
             readUnit cfg " kg " `shouldSatisfy` exact
 
+        it "reads a capitalised prefix as the unit it spells" $ do
+            -- The table holds both halves of each pair, so neither is read as
+            -- the other. Without the capitalised row a megagram folds onto the
+            -- milligram, the single candidate looks settled, and the amount is
+            -- carried through a billion times small.
+            cfg <- loadFullUnitConfig
+            lookupUnitDef cfg "Mg" `shouldBe` Just (unitDef "mass" 1000.0)
+            lookupUnitDef cfg "ML" `shouldBe` Just (unitDef "volume" 1000.0)
+            lookupUnitDef cfg "mJ" `shouldBe` Just (unitDef "energy" 1.0e-9)
+            lookupUnitDef cfg "mWh" `shouldBe` Just (unitDef "energy" 3.6e-6)
+            lookupUnitDef cfg "Mm" `shouldBe` Just (unitDef "length" 1000000.0)
+
         it "refuses when two spellings differ only by case" $ do
             let Right cfg = buildFromCSV "name,dimension,factor\nMJ,energy,1.0\nmJ,energy,1.0e-9\n"
             readUnit cfg "mj" `shouldBe` ReadAmbiguous "MJ" "mJ" []
