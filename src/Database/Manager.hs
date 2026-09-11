@@ -1585,11 +1585,11 @@ computeDepLevels configMap loadOrder =
             Nothing -> 0
             Just cfg -> case dcDepends cfg of
                 [] -> 0
-                deps -> 1 + maximum [M.findWithDefault 0 d lvls | d <- deps]
+                deps -> 1 + foldl' max 0 [M.findWithDefault 0 d lvls | d <- deps]
         -- Fold through topo-sorted order to assign levels
         levels' = foldl (\acc name -> M.insert name (levelOf acc name) acc) M.empty loadOrder
         -- Group by level
-        maxLevel = if M.null levels' then 0 else maximum (M.elems levels')
+        maxLevel = foldl' max 0 (M.elems levels')
      in
         [[name | name <- loadOrder, M.findWithDefault 0 name levels' == lvl] | lvl <- [0 .. maxLevel]]
 

@@ -40,6 +40,7 @@ import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import System.IO (hPutStrLn, stderr)
 import Text.Printf (printf)
+import Text.Read (readMaybe)
 
 import SubstanceRegistry (normalizeCAS)
 import SynonymDB (fromClassMaps, normalizeName)
@@ -137,10 +138,9 @@ parseIdToSynonyms (A.Object obj) =
     let pairs = [(AK.toText k, v) | (k, v) <- KM.toList obj]
      in M.fromList <$> mapM parsePair pairs
   where
-    parsePair (idText, A.Array arr) = do
-        let !gid = read (T.unpack idText) :: Int
-        names <- mapM parseText (V.toList arr)
-        Right (gid, names)
+    parsePair (idText, A.Array arr) = case readMaybe (T.unpack idText) of
+        Nothing -> Left $ "Expected an integer group id: " ++ T.unpack idText
+        Just gid -> (,) gid <$> mapM parseText (V.toList arr)
     parsePair (idText, _) = Left $ "Expected array for group: " ++ T.unpack idText
     parseText (A.String t) = Right t
     parseText _ = Left "Expected string in synonyms array"
