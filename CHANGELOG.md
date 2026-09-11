@@ -21,9 +21,11 @@
   quantity and would never have converted into one another, with nothing able
   to notice they should. Both spellings now land on one description, and `area`
   and `volume` stay names you may write in your own `[[units]]` table. No unit
-  the engine ships changes what it converts into and no amount moves; every
-  cache rebuilds once on the next load, because a cache records the unit table
-  it was built with.
+  the engine ships changes what it converts into and no amount moves. A cache
+  records the unit table it was built with, so every cache rebuilds itself from
+  its source on the next load; a host that ships a cache with no source archive
+  beside it needs that archive rebuilt, since there is nothing there to rebuild
+  from.
 - A SimaPro file's own unit table is now read. The file carries one at the end,
   a row per unit giving what it is called, what it is expressed in and how many
   of that it makes, and it is the table its amounts were written against. What

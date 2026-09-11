@@ -46,7 +46,10 @@ them different dimensions - and only the examples that mix the two notice. Going
 through 'parseDimension' leaves the slot list one author.
 
 An expression the parser refuses yields an empty vector, which no unit has, so
-the example that asked for it fails rather than passing on a wrong shape.
+it converts with nothing well formed beside it and the example that asked for
+it fails. Two refused expressions in one fixture are the hole in that: they
+share the empty vector, so they convert into one another at the ratio of their
+factors. Only a typo repeated across every row of a fixture reaches it.
 -}
 unitDef :: Text -> Double -> UnitDef
 unitDef dimExpr = UnitDef (fromRight [] (parseDimension defaultDimensionOrder dimExpr))

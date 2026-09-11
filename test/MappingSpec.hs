@@ -24,7 +24,7 @@ import Types (
     Unit (..),
  )
 import qualified Types as VT
-import UnitConversion (UnitConfig (..), defaultUnitConfig, mkUnitConfig)
+import UnitConversion (UnitConfig (..), defaultDimensionOrder, defaultUnitConfig, mkUnitConfig)
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -68,7 +68,7 @@ unitNamed n = Unit{unitId = nil, unitName = n, unitSymbol = n, unitComment = ""}
 gKgUnitConfig :: UnitConfig
 gKgUnitConfig =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        defaultDimensionOrder
         ( M.fromList
             [ ("kg", unitDef "mass" 1.0)
             , ("g", unitDef "mass" 0.001)
@@ -82,7 +82,7 @@ branch's hard-fail to 0.
 gOnlyUnitConfig :: UnitConfig
 gOnlyUnitConfig =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        defaultDimensionOrder
         (M.fromList [("g", unitDef "mass" 0.001)])
 
 -- ---------------------------------------------------------------------------

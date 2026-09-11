@@ -75,7 +75,7 @@ Order: [mass, length, time, energy, count, currency]
 
 Area and volume are not among them: they are powers of length, and a table
 free to write both spellings is a table where one quantity has two vectors
-that never convert. 'inBaseDimensions' is where the two are spent.
+that never convert. 'dimensionShorthands' is where the two are spent.
 -}
 type Dimension = [Int]
 
@@ -127,10 +127,6 @@ newton metre and so into a torque.
 -}
 dimensionShorthands :: [(Text, (Text, Int))]
 dimensionShorthands = [("area", ("length", 2)), ("volume", ("length", 3))]
-
--- | The base dimension a name is written against, and the power it is raised to.
-inBaseDimensions :: Text -> (Text, Int)
-inBaseDimensions name = fromMaybe (name, 1) (lookup name dimensionShorthands)
 
 {- | The case-blind key a spelling is filed under.
 
@@ -300,9 +296,10 @@ parseDimension dimOrder expr
                         <> T.intercalate ", " (order <> map fst dimensionShorthands)
                         <> ")"
       where
+        -- The base dimension this name is written against, and its power.
         base :: Text
         power :: Int
-        (base, power) = inBaseDimensions dimName
+        (base, power) = fromMaybe (dimName, 1) (lookup dimName dimensionShorthands)
 
     modifyAt :: Int -> (Int -> Int) -> [Int] -> [Int]
     modifyAt idx f = zipWith (\i x -> if i == idx then f x else x) [0 ..]

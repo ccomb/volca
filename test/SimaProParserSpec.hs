@@ -72,7 +72,7 @@ import Types (
     exchangePedigree,
     tfName,
  )
-import UnitConversion (UnitConfig (..), UnitDeclaration (..), buildFromCSV, defaultUnitConfig, isKnownUnit, mkUnitConfig)
+import UnitConversion (UnitConfig (..), UnitDeclaration (..), buildFromCSV, defaultDimensionOrder, defaultUnitConfig, isKnownUnit, mkUnitConfig)
 
 -- | Test CSV content with a quoted product name containing the delimiter (;)
 testCSV :: BS.ByteString
@@ -1846,7 +1846,7 @@ follow it.
 volumeUnitConfig :: Text -> UnitConfig
 volumeUnitConfig reference =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        defaultDimensionOrder
         ( M.fromList
             [ (reference, unitDef "volume" 1.0)
             , ("l", unitDef "volume" 0.001)
@@ -1859,7 +1859,7 @@ and kWh (energy), so a row written in either has somewhere to be converted to.
 mixedUnitConfig :: UnitConfig
 mixedUnitConfig =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        defaultDimensionOrder
         ( M.fromList
             [ ("kg", unitDef "mass" 1.0)
             , ("g", unitDef "mass" 0.001)
@@ -1872,7 +1872,7 @@ mixedUnitConfig =
 tonUnitConfig :: UnitConfig
 tonUnitConfig =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        defaultDimensionOrder
         ( M.fromList
             [ ("kg", unitDef "mass" 1.0)
             , ("ton", unitDef "mass" 1000.0)

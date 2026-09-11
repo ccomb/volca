@@ -37,7 +37,7 @@ import Types (
     emptyProductIndex,
  )
 import qualified Types as VT
-import UnitConversion (UnitConfig (..), defaultUnitConfig, mkUnitConfig)
+import UnitConversion (UnitConfig (..), defaultDimensionOrder, defaultUnitConfig, mkUnitConfig)
 
 -- ---------------------------------------------------------------------------
 -- Fixture
@@ -62,7 +62,7 @@ kgUnit = Unit{unitId = mkUUID 9, unitName = "kg", unitSymbol = "kg", unitComment
 kgUnitConfig :: UnitConfig
 kgUnitConfig =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        defaultDimensionOrder
         (M.fromList [("kg", unitDef "mass" 1.0)])
 
 testFlow :: BiosphereFlow
