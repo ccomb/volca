@@ -53,7 +53,10 @@ module Method.WriterILCD (
 ) where
 
 import qualified Data.ByteString as BS
+import Data.Indexing (collisions)
 import Data.List (sortOn)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
@@ -110,14 +113,16 @@ checkIlcdMethodExportable mc = do
     firstError (concatMap methodErrors ms)
     firstError (map flowConflict (M.toList (flowDefs ms)))
   where
-    duplicateIds ms =
-        M.toList $ M.filter ((> 1) . length) $ M.fromListWith (++) [(methodId m, [methodName m]) | m <- ms]
+    duplicateIds :: [Method] -> [(UUID, NonEmpty Text)]
+    duplicateIds ms = collisions [(methodId m, methodName m) | m <- ms]
+
+    noDuplicateId :: (UUID, NonEmpty Text) -> Maybe Text
     noDuplicateId (u, names) =
         Just $
             "Two methods share the id "
                 <> UUID.toText u
                 <> " ("
-                <> T.intercalate ", " names
+                <> T.intercalate ", " (NE.toList names)
                 <> "); their ILCD files would overwrite each other."
 
 methodErrors :: Method -> [Maybe Text]

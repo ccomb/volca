@@ -39,6 +39,7 @@ library
   exposed-modules:     Types
                      , App.Env
                      , App.Idle
+                     , Data.Indexing
                      , Data.Validation
                      , Progress
                      , UnitConversion
@@ -222,6 +223,7 @@ test-suite lca-tests
                      , GoldenData
                      , DetectFormatSpec
                      , AmountSpec
+                     , IndexingSpec
                      , AutoRelinkSpec
                      , AutoSynonymsSpec
                      , RelinkMappingSpec

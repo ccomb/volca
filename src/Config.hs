@@ -70,6 +70,7 @@ module Config (
 
 import Builtin (BuiltinTable (..), DataVersion (..), builtinDataVersion, builtinName)
 import Control.Monad (forM_, unless, when)
+import Data.Indexing (repeated)
 import Data.List (find, isPrefixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -971,19 +972,19 @@ validateConfig :: Config -> Either Text Config
 validateConfig cfg = do
     -- Check for duplicate database names
     let dbNames = map dcName (cfgDatabases cfg)
-        duplicates = findDuplicates dbNames
+        duplicates = repeated dbNames
     unless (null duplicates) $
         Left $
             "Duplicate database names: " <> T.intercalate ", " duplicates
 
     -- A duplicate name would silently shadow one of its bearers everywhere the
     -- name is the key (preset expansion, method lookup), so refuse it up front.
-    let presetDupes = findDuplicates (map cpName (cfgClassificationPresets cfg))
+    let presetDupes = repeated (map cpName (cfgClassificationPresets cfg))
     unless (null presetDupes) $
         Left $
             "Duplicate classification preset names: " <> T.intercalate ", " presetDupes
 
-    let methodDupes = findDuplicates (map mcName (cfgMethods cfg))
+    let methodDupes = repeated (map mcName (cfgMethods cfg))
     unless (null methodDupes) $
         Left $
             "Duplicate method collection names: " <> T.intercalate ", " methodDupes
@@ -1008,15 +1009,6 @@ validateConfig cfg = do
     case resolveLoadOrder allLoaded of
         Left err -> Left err
         Right _ -> Right cfg
-
--- | Find duplicates in a list
-findDuplicates :: (Eq a) => [a] -> [a]
-findDuplicates = go [] []
-  where
-    go _ dups [] = dups
-    go seen dups (x : rest)
-        | x `elem` seen = go seen (if x `elem` dups then dups else x : dups) rest
-        | otherwise = go (x : seen) dups rest
 
 {- | Expand load=true transitively through depends, then topologically sort.
 Returns Left on cycle, Right with ordered list of DB names to load.
