@@ -1094,6 +1094,12 @@ spec = do
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right nw -> nwName nw `shouldBe` "my-fallback"
 
+        it "refuses a category that carries two sets of factors" $ do
+            let csv = "category;normalization;weighting\nCC;1e-4;0.21\nCC;2e-4;0.79\n"
+            case parseNormWeightCSVBytes "x" (TE.encodeUtf8 (T.pack csv)) of
+                Left err -> err `shouldContain` "CC"
+                Right _ -> expectationFailure "Should have refused the repeated category"
+
         it "fails on empty data" $ do
             let csv = "# normalization-weighting set: Empty\ncategory;normalization;weighting\n"
             case parseNormWeightCSVBytes "x" (TE.encodeUtf8 (T.pack csv)) of

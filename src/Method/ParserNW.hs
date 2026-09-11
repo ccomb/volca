@@ -22,6 +22,8 @@ module Method.ParserNW (
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
 import Data.Char (isAsciiUpper)
+import Data.Indexing (uniqueIndex)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -50,13 +52,20 @@ parseNormWeightCSVBytes fallbackName bs =
             [] -> ';'
      in case dropHeader rest of
             [] -> Left "NW CSV: no data rows after header"
-            rows ->
+            rows -> do
                 let parsed = [parseRow delim l | l <- rows, not (BS.null (BC.strip l))]
-                    normMap = M.fromList [(cat, n) | (cat, n, _) <- parsed, not (T.null cat)]
-                    weightMap = M.fromList [(cat, w) | (cat, _, w) <- parsed, not (T.null cat)]
-                 in if M.null normMap && M.null weightMap
-                        then Left "NW CSV: no valid rows parsed"
-                        else Right $ NormWeightSet name normMap weightMap
+                -- One category named twice carries two normalization factors and
+                -- two weights, and the file says nothing about which is meant.
+                factors <- categoryIndex [(cat, (n, w)) | (cat, n, w) <- parsed, not (T.null cat)]
+                if M.null factors
+                    then Left "NW CSV: no valid rows parsed"
+                    else Right $ NormWeightSet name (M.map fst factors) (M.map snd factors)
+
+-- | Index rows on their category, or refuse and name the ones spelled twice.
+categoryIndex :: [(Text, (Double, Double))] -> Either String (M.Map Text (Double, Double))
+categoryIndex rows = case uniqueIndex rows of
+    Right table -> Right table
+    Left cats -> Left $ "NW CSV: two rows for the same category: " <> T.unpack (T.intercalate ", " (NE.toList cats))
 
 -- | Extract set name from "# normalization-weighting set: NAME" comment.
 extractName :: [BS.ByteString] -> Text -> Text
