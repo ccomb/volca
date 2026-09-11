@@ -33,20 +33,22 @@ See `README.md` for the full feature spec.
 ./build.sh --test       # Build + run the test suite, at -O0: it only has to pass
 ./build.sh --coverage   # Build + tests + HTML coverage report
 cabal test lca-tests --test-options="--match /Inventory/" # Re-run one spec group in a tree ./build.sh --test already built
+VOLCA_EXE=$(cabal list-bin exe:volca) cabal test lca-tests --test-options="--match /Server/" # ... and Server and Routes want the binary named
 ```
 
 **Build and test through `./build.sh --test`, not through `cabal` directly.** It
 settles four things a bare `cabal test` leaves to you: it runs `./gen-version.sh`;
-it compiles volca's own modules at `-O0`, where cabal's own default is `-O1` and
-a test binary only has to pass; it builds `exe:volca`; and it exports `VOLCA_EXE`
-so `test/ServerSpec.hs` does not spawn a `cabal list-bin` from inside `cabal test`.
-Skip it and the suite is slower to compile and `ServerSpec` and `RoutesSpec` report
-`volca executable not found`. `VOLCA_OPT_LEVEL` overrides the level. The two levels
-do not share a build tree, so alternating costs one cold build each way and stays
-incremental on both sides after that.
+it compiles volca's own modules at `-O0`, since a test binary only has to pass and
+cabal's own default is `-O1`; it builds `exe:volca`; and it exports `VOLCA_EXE` so
+`ServerSpec` and `RoutesSpec` do not spawn a `cabal list-bin` from inside `cabal
+test`. Skip it on a tree the script has not built and those two report `volca
+executable not found`; on Windows they do worse, the spawned cabal blocking on the
+build lock the parent already holds until the job is killed. `VOLCA_OPT_LEVEL`
+overrides the level. The two levels do not share a build tree, so alternating costs
+one cold build each way and stays incremental on both sides after that; a bare
+`cabal` in between inherits whichever level the last run of the script wrote.
 
-`src/Version.hs` is generated, not committed — a native `cabal build`/`cabal test`
-fails without running `./gen-version.sh` first. Tests use hspec + hspec-discover;
+`src/Version.hs` is generated and gitignored. Tests use hspec + hspec-discover;
 spec modules are `*Spec.hs` under `test/` and auto-discovered. New behavior needs a
 `*Spec.hs`; integration fixtures (sample databases, golden values) live in `test-data/`.
 
