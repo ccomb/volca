@@ -14,6 +14,18 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
+- A product no dependency supplies now says every reason it was refused, and how
+  many demands each reason refused. It used to say one, chosen by the order the
+  linking runs happened to merge in, beside the total of all of them: a product
+  asked for by two activities in a unit nothing ships it in and by three more at
+  a location the geography policy rejects read as five activities blocked by the
+  unit. The load log writes the reasons on one line, each with its share; the
+  setup report's missing-supplier list names such a product once per reason,
+  biggest first; and a gap entry carries them all in a new `reasons` field. Its
+  `reason` and `detail` still carry the first of them for clients written before
+  that field, and are dropped in the release after next. Wire revision 24. The
+  linking stats travel in the database cache, so every cache rebuilds itself
+  from its source on the next load.
 - A unit written with a capital prefix is no longer read as its lower-case
   twin. The shipped unit table held `mg` and not `Mg`, `ml` and not `ML`, `MJ`
   and not `mJ`, `MWh` and not `mWh`, `mm` and not `Mm`. A source writing the

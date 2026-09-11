@@ -243,6 +243,26 @@ spec = do
             [(msProductName s, msCount s) | s <- dsiMissingSuppliers info]
                 `shouldBe` [("zzz gap", 2), ("aaa gap", 1)]
 
+    -- A product is routinely refused several ways: two demands in a unit the
+    -- dependency does not ship it in, three more at a location the geography
+    -- policy rejects. One row carrying five would name a cause that raised
+    -- two of them and hide the one that raised three.
+    describe "buildLoadedSetupInfo (a product refused two ways)" $
+        it "lists the product once per reason, biggest first" $ do
+            db <- readyDb
+            let refused =
+                    (dbLinkingStats db)
+                        { cdlUnresolvedProducts =
+                            M.singleton
+                                "wheat"
+                                (UnresolvedProduct (M.fromList [(UnitIncompatible "m3" "kg", 2), (LocationUnavailable "FR", 3)]))
+                        }
+                info = setupInfoFor db{dbLinkingStats = refused}
+            [(msProductName s, msCount s, msReason s, msDetail s) | s <- dsiMissingSuppliers info]
+                `shouldBe` [ ("wheat", 3, "location_unavailable", Just "FR")
+                           , ("wheat", 2, "unit_incompatible", Just "m3 vs kg")
+                           ]
+
     -- The dangling-import shape, but its matching background is loaded as a
     -- dependency: the input resolves cross-DB by activityLinkId, recorded in
     -- 'dbCrossDBLinks'. Readiness must follow the matrix (ready at 100% with no

@@ -1706,7 +1706,7 @@ data LinkBlocker
       designation must fail loudly, never fall back to the generic cascade.
       -}
       AliasTargetMissing !Text !(Maybe Text)
-    deriving (Show, Eq, Generic, NFData, Store)
+    deriving (Show, Eq, Ord, Generic, NFData, Store)
 
 {- | A physical property of a product, which shares can be divided on.
 
@@ -1797,7 +1797,7 @@ data LocationKind
       GlobalLoc
     | -- | Different but not in the hierarchy (e.g. SimaPro "Mixed data")
       UnrelatedLoc
-    deriving (Show, Eq, Enum, Bounded, Generic, NFData, Store)
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic, NFData, Store)
 
 {- | Stable lowercase wire code for a 'LocationKind'. Single source of truth
 shared by the JSON encoder and the human-readable rejection reason, so the UI
@@ -1821,6 +1821,8 @@ data BlockerReason = BlockerReason
     { brReason :: !Text
     , brDetail :: !(Maybe Text)
     }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped BlockerReason)
 
 {- | The wire spelling of a 'LinkBlocker' — single source of truth shared by the
 setup page's missing-supplier list and the supplier-gap report, so the two
@@ -1969,22 +1971,27 @@ data SupplierAmbiguity = SupplierAmbiguity
     deriving (Show, Eq, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SupplierAmbiguity)
 
-{- | One product no dependency supplies: how many activities asked for it,
-and what stopped the first of them.
+{- | One product no dependency supplies: every reason a demand for it was
+refused, and how many demands each reason refused.
 
-The single blocker is a known gap, not a decision: merging two linking runs
-sums the demands and keeps the first blocker, so a product blocked for two
-different reasons is counted under both and named after one. Widening it to a
-count per blocker changes what the setup page and the load log display, so it
-is issue #391 rather than a field of this record.
+The reasons are counted separately because a product is routinely blocked for
+several: two activities asking for it in a unit the supplier does not ship, three
+more whose location the geography policy rejects. A single blocker plus a total
+could not tell that apart from five demands refused for one reason, so every
+surface reading this has to say what it does with several.
 -}
-data UnresolvedProduct = UnresolvedProduct
-    { upDemands :: !Int
-    -- ^ Activities that asked for this product
-    , upBlocker :: !LinkBlocker
-    -- ^ What stopped the first of them
+newtype UnresolvedProduct = UnresolvedProduct
+    { upBlockers :: M.Map LinkBlocker Int
+    -- ^ How many demands each reason refused
     }
     deriving (Show, Eq, Generic, NFData, Store)
+
+-- | Demands from every reason: what a product costs, whatever refused it.
+upDemands :: UnresolvedProduct -> Int
+upDemands = sum . M.elems . upBlockers
+
+instance Semigroup UnresolvedProduct where
+    UnresolvedProduct a <> UnresolvedProduct b = UnresolvedProduct (M.unionWith (+) a b)
 
 {- | Statistics from cross-database linking
 Only essential state is stored; counts are derived via accessor functions.
@@ -2015,15 +2022,15 @@ data CrossDBLinkingStats = CrossDBLinkingStats
     }
     deriving (Generic, NFData, Store)
 
-{- | Field-wise '<>'. On unresolved-product collision counts are summed
-and the first 'LinkBlocker' wins (tiebreaker). Hand-written: bare 'Int'
-has no canonical 'Monoid', and 'UnresolvedProduct' is not one either.
+{- | Field-wise '<>'. On unresolved-product collision the two reason tallies are
+added reason by reason, so nothing a run recorded is lost to the run it merges
+with. Hand-written: bare 'Int' has no canonical 'Monoid'.
 -}
 instance Semigroup CrossDBLinkingStats where
     s1 <> s2 =
         CrossDBLinkingStats
             { cdlLinks = cdlLinks s1 <> cdlLinks s2
-            , cdlUnresolvedProducts = M.unionWith mergeUnresolved (cdlUnresolvedProducts s1) (cdlUnresolvedProducts s2)
+            , cdlUnresolvedProducts = M.unionWith (<>) (cdlUnresolvedProducts s1) (cdlUnresolvedProducts s2)
             , cdlUnknownUnits = cdlUnknownUnits s1 <> cdlUnknownUnits s2
             , cdlLocationFallbacks = cdlLocationFallbacks s1 <> cdlLocationFallbacks s2
             , cdlLocationUnresolved = cdlLocationUnresolved s1 <> cdlLocationUnresolved s2
@@ -2034,8 +2041,6 @@ instance Semigroup CrossDBLinkingStats where
             , cdlWasteAmbiguous = cdlWasteAmbiguous s1 + cdlWasteAmbiguous s2
             , cdlCutoffWasteCount = cdlCutoffWasteCount s1 + cdlCutoffWasteCount s2
             }
-      where
-        mergeUnresolved u1 u2 = u1{upDemands = upDemands u1 + upDemands u2}
 
 instance Monoid CrossDBLinkingStats where
     mempty =

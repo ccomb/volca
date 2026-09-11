@@ -571,7 +571,8 @@ description r = case r of
         "LCA / ACV: supplier-gap report of a database: every input demand \
         \still unsupplied after internal resolution and cross-database \
         \linking, aggregated per (product, location, unit) and ranked by \
-        \demanding edges. Each gap carries the blocking reason, the number of \
+        \demanding edges. Each gap carries every reason it was blocked for, \
+        \the number of \
         \consumer edges and distinct consumers, the total demanded amount, \
         \and the top consuming processes. Answers 'what is missing to switch \
         \or complete this database's background dependency?': typically read \

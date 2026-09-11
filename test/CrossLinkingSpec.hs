@@ -22,11 +22,15 @@ spec = do
     -- CrossDBLinkingStats Semigroup / Monoid
     -- -----------------------------------------------------------------------
     describe "CrossDBLinkingStats <>" $ do
-        it "sums unresolved-product counts per key and keeps the first blocker" $ do
+        it "keeps every reason a product was refused for, counted apart" $ do
             let s1 = mempty{cdlUnresolvedProducts = M.fromList [("wheat", unresolved 2 NoNameMatch)]} :: CrossDBLinkingStats
                 s2 = mempty{cdlUnresolvedProducts = M.fromList [("wheat", unresolved 3 (LocationUnavailable "FR")), ("maize", unresolved 1 NoNameMatch)]}
                 merged = s1 <> s2
-            M.lookup "wheat" (cdlUnresolvedProducts merged) `shouldBe` Just (unresolved 5 NoNameMatch)
+            -- Two runs refused wheat two different ways. The merge owes the
+            -- reader both, not the total under whichever arrived first.
+            fmap upBlockers (M.lookup "wheat" (cdlUnresolvedProducts merged))
+                `shouldBe` Just (M.fromList [(NoNameMatch, 2), (LocationUnavailable "FR", 3)])
+            fmap upDemands (M.lookup "wheat" (cdlUnresolvedProducts merged)) `shouldBe` Just 5
             M.lookup "maize" (cdlUnresolvedProducts merged) `shouldBe` Just (unresolved 1 NoNameMatch)
 
         it "adds the scalar counters" $ do
@@ -538,7 +542,7 @@ twoProducerDB =
 
 -- | An unresolved product with @n@ demands behind it, blocked by @b@.
 unresolved :: Int -> LinkBlocker -> UnresolvedProduct
-unresolved n b = UnresolvedProduct{upDemands = n, upBlocker = b}
+unresolved n b = UnresolvedProduct (M.singleton b n)
 
 -- | A demand that names no supplier activity: product, location, unit.
 query :: Text -> Text -> Text -> SupplierQuery

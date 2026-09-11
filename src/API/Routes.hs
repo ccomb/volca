@@ -1330,7 +1330,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 23: the @supplierClaim@ an exchange carries, saying how its source
+(revision 24: the @reasons@ a gap entry carries, every reason its product was
+refused a supplier under, where @reason@ and @detail@ name only the first, and
+the setup report's missing-supplier list naming a product once per reason;
+revision 23: the @supplierClaim@ an exchange carries, saying how its source
 designates its supplier - by the product row, by an activity identifier, by an
 activity name, or by a dataset number - and the @supplierAmbiguities@ a
 database setup report carries, the inputs several activities of one dependency
@@ -1377,7 +1380,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 23
+currentWireVersion = 24
 
 getVersion :: AppM Value
 getVersion = do

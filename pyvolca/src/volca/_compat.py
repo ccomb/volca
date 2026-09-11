@@ -32,8 +32,12 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 23
-"""The newest wire revision this pyvolca understands (revision 23 added the
+KNOWN_WIRE = 24
+"""The newest wire revision this pyvolca understands (revision 24 added the
+``reasons`` a supplier-gap entry carries, every reason its product was refused
+a supplier under, where ``reason`` and ``detail`` name only the first of them,
+and made the setup report's missing-supplier list name a product once per
+reason; revision 23 added the
 ``supplier_claim`` an exchange carries, how its source designated its supplier
 before linking answered, and the supplier ambiguities a database setup report
 carries; revision 22 added the ``native_id`` an activity carries, the
