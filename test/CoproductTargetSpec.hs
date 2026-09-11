@@ -20,9 +20,10 @@ import Test.Hspec
 import API.Types (ActivityForAPI (..), ActivitySummary (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), NodeType (..), ProducerFilter (..), TreeEdge (..), TreeExport (..))
 import Database (buildDatabaseWithMatrices)
 import qualified Service
+import TestHelpers (unitDef)
 import Tree (buildLoopAwareTree)
 import Types
-import UnitConversion (UnitConfig (..), UnitDef (..), defaultUnitConfig)
+import UnitConversion (UnitConfig (..), defaultUnitConfig)
 
 spec :: Spec
 spec = do
@@ -369,7 +370,7 @@ about.
 gramsAware :: UnitConfig
 gramsAware =
     defaultUnitConfig
-        { ucUnits = M.insert "g" (UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 0.001) (ucUnits defaultUnitConfig)
+        { ucUnits = M.insert "g" (unitDef "mass" 0.001) (ucUnits defaultUnitConfig)
         }
 
 mkUUID :: Int -> UUID

@@ -19,6 +19,7 @@ module UnitConversion (
     UnitDeclaration (..),
 
     -- * Loading
+    defaultDimensionOrder,
     defaultUnitConfig,
     buildFromCSV,
     addDeclaredUnits,
@@ -70,7 +71,11 @@ import GHC.Generics (Generic)
 import Progress (ProgressLevel (Info), reportProgress)
 
 {- | Dimension as exponent vector.
-Order: [mass, length, time, energy, area, volume, count, currency]
+Order: [mass, length, time, energy, count, currency]
+
+Area and volume are not among them: they are powers of length, and a table
+free to write both spellings is a table where one quantity has two vectors
+that never convert. 'inBaseDimensions' is where the two are spent.
 -}
 type Dimension = [Int]
 
@@ -105,7 +110,27 @@ instance Store UnitConfig
 
 -- | Default dimension order.
 defaultDimensionOrder :: [Text]
-defaultDimensionOrder = ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+defaultDimensionOrder = ["mass", "length", "time", "energy", "count", "currency"]
+
+{- | The dimension names that stand for a power of a base dimension.
+
+A square metre is a length squared and a cubic metre a length cubed, so area
+and volume are spellings rather than dimensions: with a slot of their own, a
+density written @mass/volume@ and one written @mass/length/length/length@ are
+two vectors for one quantity, and nothing converts between them or can notice
+that it should. Both spellings stay writable and both land on the same vector.
+
+Energy keeps a slot of its own rather than becoming
+@mass*length*length/time/time@, because the unit its characterization factors
+are authored in is @MJ@ and merging it would make a joule convert into a
+newton metre and so into a torque.
+-}
+dimensionShorthands :: [(Text, (Text, Int))]
+dimensionShorthands = [("area", ("length", 2)), ("volume", ("length", 3))]
+
+-- | The base dimension a name is written against, and the power it is raised to.
+inBaseDimensions :: Text -> (Text, Int)
+inBaseDimensions name = fromMaybe (name, 1) (lookup name dimensionShorthands)
 
 {- | The case-blind key a spelling is filed under.
 
@@ -265,15 +290,19 @@ parseDimension dimOrder expr
   where
     addExp :: [Text] -> Int -> Dimension -> Text -> Either Text Dimension
     addExp order delta vec dimName =
-        case elemIndex dimName order of
-            Just idx -> Right $ modifyAt idx (+ delta) vec
+        case elemIndex base order of
+            Just idx -> Right $ modifyAt idx (+ (delta * power)) vec
             Nothing ->
                 Left $
                     "Unknown dimension: "
                         <> dimName
                         <> " (valid: "
-                        <> T.intercalate ", " order
+                        <> T.intercalate ", " (order <> map fst dimensionShorthands)
                         <> ")"
+      where
+        base :: Text
+        power :: Int
+        (base, power) = inBaseDimensions dimName
 
     modifyAt :: Int -> (Int -> Int) -> [Int] -> [Int]
     modifyAt idx f = zipWith (\i x -> if i == idx then f x else x) [0 ..]
@@ -449,18 +478,27 @@ mergeUnitConfigs cfgs@(first : _) =
 unitCount :: UnitConfig -> Int
 unitCount = M.size . ucUnits
 
--- | Minimal bootstrap unit config (kg, m, s, item) for when no CSV is loaded.
+{- | Minimal bootstrap unit config (kg, m, s, item) for when no CSV is loaded.
+
+The four vectors are read off 'defaultDimensionOrder' rather than written out.
+A vector written by hand is a copy of the slot list with no author: it keeps
+parsing the day a slot is added or removed, and the kilogram here quietly stops
+being the kilogram the table parses, which 'mergeUnitConfigs' would then hold
+both of. "UnitConversionSpec" pins the four against 'parseDimension'.
+-}
 defaultUnitConfig :: UnitConfig
 defaultUnitConfig =
     mkUnitConfig
         defaultDimensionOrder
         ( M.fromList
-            [ ("kg", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0)
-            , ("m", UnitDef [0, 1, 0, 0, 0, 0, 0, 0] 1.0)
-            , ("s", UnitDef [0, 0, 1, 0, 0, 0, 0, 0] 1.0)
-            , ("item", UnitDef [0, 0, 0, 0, 0, 0, 1, 0] 1.0)
+            [ (name, UnitDef (onlySlot dim) 1.0)
+            | (name, dim) <- [("kg", "mass"), ("m", "length"), ("s", "time"), ("item", "count")]
             ]
         )
+  where
+    -- 1 in the slot this base dimension occupies, 0 in every other.
+    onlySlot :: Text -> Dimension
+    onlySlot dim = [if slot == dim then 1 else 0 | slot <- defaultDimensionOrder]
 
 {- | Assemble a config, indexing once what every read of a unit would rescan.
 

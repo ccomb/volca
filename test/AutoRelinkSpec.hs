@@ -38,8 +38,9 @@ import Test.Hspec
 import Database.Loader (LoadOptions (..))
 import Database.Manager (CachePolicy (..), LoadSource (..), RawLoad (..), loadDatabaseRawWithCrossDB)
 import SynonymDB (emptySynonymDB)
+import TestHelpers (unitDef)
 import Types (AllocationKey (..), GeographyPolicy (..))
-import UnitConversion (UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
+import UnitConversion (UnitConfig, defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
 {- | Copy regular files from one directory into another (non-recursive,
 which is all the EcoSpold v2 fixtures here need).
@@ -84,7 +85,7 @@ withGram :: UnitConfig
 withGram =
     mkUnitConfig
         (ucDimensionOrder defaultUnitConfig)
-        (M.insert "g" (UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 0.001) (ucUnits defaultUnitConfig))
+        (M.insert "g" (unitDef "mass" 0.001) (ucUnits defaultUnitConfig))
 
 spec :: Spec
 spec = do

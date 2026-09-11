@@ -26,8 +26,9 @@ import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
 import Database.MatrixBuild (InterningTables (..), buildInterningTables, buildSupplierRefUnits, buildTechTriples)
 import Database.Quality (QualityCheck (..), QualityOffender (..), QualityReport (..), qualityReport)
 import qualified Service
+import TestHelpers (unitDef)
 import Types
-import UnitConversion (UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
+import UnitConversion (UnitConfig, defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
 -- | Amounts of the five products of the Abondance cheese block, in kilograms.
 abondance :: NE.NonEmpty StatedAmount
@@ -38,11 +39,7 @@ massUnits :: UnitConfig
 massUnits =
     mkUnitConfig
         (ucDimensionOrder defaultUnitConfig)
-        (M.union (M.fromList [("g", UnitDef mass 0.001), ("MJ", UnitDef energy 1.0)]) (ucUnits defaultUnitConfig))
-  where
-    mass, energy :: [Int]
-    mass = [1, 0, 0, 0, 0, 0, 0, 0]
-    energy = [0, 0, 0, 1, 0, 0, 0, 0]
+        (M.union (M.fromList [("g", unitDef "mass" 0.001), ("MJ", unitDef "energy" 1.0)]) (ucUnits defaultUnitConfig))
 
 {- | A product of a block as the products table reports it: the summary the
 reader sees, and the row it was split from, which is where a mass is read.

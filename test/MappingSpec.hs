@@ -17,13 +17,14 @@ import Method.Mapping
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.Types (Compartment (..), EnergyDensity (..), FlowDirection (..), Method (..), MethodCF (..), buildCompartmentMapFromCSV)
 import SynonymDB (BridgeDirection (..), SynEdge (..), buildFromEdges, buildFromPairs, emptySynonymDB, normalizeName)
+import TestHelpers (unitDef)
 import Types (
     BiosphereFlow (..),
     Medium (..),
     Unit (..),
  )
 import qualified Types as VT
-import UnitConversion (UnitConfig (..), UnitDef (..), defaultUnitConfig, mkUnitConfig)
+import UnitConversion (UnitConfig (..), defaultUnitConfig, mkUnitConfig)
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -69,8 +70,8 @@ gKgUnitConfig =
     mkUnitConfig
         ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
         ( M.fromList
-            [ ("kg", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0)
-            , ("g", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 0.001)
+            [ ("kg", unitDef "mass" 1.0)
+            , ("g", unitDef "mass" 0.001)
             ]
         )
 
@@ -82,7 +83,7 @@ gOnlyUnitConfig :: UnitConfig
 gOnlyUnitConfig =
     mkUnitConfig
         ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
-        (M.fromList [("g", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 0.001)])
+        (M.fromList [("g", unitDef "mass" 0.001)])
 
 -- ---------------------------------------------------------------------------
 -- Spec
@@ -506,8 +507,8 @@ spec = do
         -- on one name key. The row whose raw name equals the flow's raw name
         -- must win: the other variant is dimensionally incompatible with the
         -- flow and would silently convert to 0.
-        let kgDef = UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0
-            m3Def = UnitDef [0, 3, 0, 0, 0, 0, 0, 0] 1.0
+        let kgDef = unitDef "mass" 1.0
+            m3Def = unitDef "volume" 1.0
             cfg =
                 mkUnitConfig
                     []
@@ -870,8 +871,8 @@ spec = do
         it "pre-multiplied broadcast equals legacy when CF unit absorbs into flow unit" $ do
             -- Build a custom config with both kg and g (default config only has kg).
             -- 1 g = 0.001 kg → factor 0.001 against the SI base.
-            let kgDef = UnitConversion.UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0
-                gDef = UnitConversion.UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0e-3
+            let kgDef = unitDef "mass" 1.0
+                gDef = unitDef "mass" 1.0e-3
                 cfg =
                     UnitConversion.mkUnitConfig
                         []
@@ -950,9 +951,9 @@ spec = do
                 mkUnitConfig
                     []
                     ( M.fromList
-                        [ ("kg", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0)
-                        , ("m3", UnitDef [0, 1, 0, 0, 0, 0, 0, 0] 1.0)
-                        , ("mj", UnitDef [0, 0, 1, 0, 0, 0, 0, 0] 1.0)
+                        [ ("kg", unitDef "mass" 1.0)
+                        , ("m3", unitDef "volume" 1.0)
+                        , ("mj", unitDef "energy" 1.0)
                         ]
                     )
             fillWith densities unitName' cf = do

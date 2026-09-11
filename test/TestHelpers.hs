@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module TestHelpers (
+    unitDef,
     withScratchDataDir,
     loadSampleDatabase,
     loadSampleDatabaseWithPath,
@@ -17,6 +18,7 @@ import Builtin (builtinGeographies)
 import Control.Exception (bracket_)
 import Control.Monad (zipWithM_)
 import qualified Data.ByteString.Lazy as BL
+import Data.Either (fromRight)
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
 import Data.Text (Text)
@@ -32,7 +34,22 @@ import System.Environment (setEnv, unsetEnv)
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 import Types
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (UnitDef (..), defaultDimensionOrder, defaultUnitConfig, parseDimension)
+
+{- | A unit definition written the way the shipped table writes one: a dimension
+expression and a factor.
+
+A hand-written exponent vector is a copy of 'defaultDimensionOrder' with no
+author. It keeps parsing the day a slot is added or removed, so an example goes
+on comparing a kilogram of its own against a kilogram of the table's and finding
+them different dimensions - and only the examples that mix the two notice. Going
+through 'parseDimension' leaves the slot list one author.
+
+An expression the parser refuses yields an empty vector, which no unit has, so
+the example that asked for it fails rather than passing on a wrong shape.
+-}
+unitDef :: Text -> Double -> UnitDef
+unitDef dimExpr = UnitDef (fromRight [] (parseDimension defaultDimensionOrder dimExpr))
 
 {- | Run an example with the engine's data directory pointed at a scratch
 tree. Anything that writes there - an upload, a copy, an edit journal - then

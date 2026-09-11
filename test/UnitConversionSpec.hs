@@ -9,6 +9,7 @@ import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Hspec
+import TestHelpers (unitDef)
 import UnitConversion
 
 -- Helper for testing Left results
@@ -41,22 +42,22 @@ loadFullUnitConfig = do
 spec :: Spec
 spec = do
     describe "Dimension Parsing" $ do
-        let dimOrder = ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        let dimOrder = defaultDimensionOrder
 
         it "parses single dimension" $ do
-            parseDimension dimOrder "mass" `shouldBe` Right [1, 0, 0, 0, 0, 0, 0, 0]
+            parseDimension dimOrder "mass" `shouldBe` Right [1, 0, 0, 0, 0, 0]
 
         it "parses product of dimensions (mass*length)" $ do
-            parseDimension dimOrder "mass*length" `shouldBe` Right [1, 1, 0, 0, 0, 0, 0, 0]
+            parseDimension dimOrder "mass*length" `shouldBe` Right [1, 1, 0, 0, 0, 0]
 
         it "parses division (length/time)" $ do
-            parseDimension dimOrder "length/time" `shouldBe` Right [0, 1, -1, 0, 0, 0, 0, 0]
+            parseDimension dimOrder "length/time" `shouldBe` Right [0, 1, -1, 0, 0, 0]
 
         it "parses repeated division (length/time/time)" $ do
-            parseDimension dimOrder "length/time/time" `shouldBe` Right [0, 1, -2, 0, 0, 0, 0, 0]
+            parseDimension dimOrder "length/time/time" `shouldBe` Right [0, 1, -2, 0, 0, 0]
 
         it "parses complex expression (mass*length/time)" $ do
-            parseDimension dimOrder "mass*length/time" `shouldBe` Right [1, 1, -1, 0, 0, 0, 0, 0]
+            parseDimension dimOrder "mass*length/time" `shouldBe` Right [1, 1, -1, 0, 0, 0]
 
         it "rejects empty expression" $
             parseDimension dimOrder "" `shouldSatisfy` isLeft
@@ -69,6 +70,47 @@ spec = do
 
         it "rejects unknown dimension in denominator" $
             parseDimension dimOrder "mass/velocity" `shouldSatisfy` isLeft
+
+        it "offers the shorthands as well as the slots when it refuses" $
+            first (T.isInfixOf "area") (parseDimension dimOrder "velocity") `shouldBe` Left True
+
+    {- A square metre is a length squared, so the two spellings have to land on
+    one vector: with a slot of its own, a density written "mass/volume" and one
+    written "mass/length/length/length" are two quantities that never convert,
+    and nothing downstream can notice that they should.
+    -}
+    describe "Area and volume are powers of length" $ do
+        let dimOrder = defaultDimensionOrder
+
+        it "reads an area as a length squared" $
+            parseDimension dimOrder "area" `shouldBe` parseDimension dimOrder "length*length"
+
+        it "reads a volume as a length cubed" $
+            parseDimension dimOrder "volume" `shouldBe` parseDimension dimOrder "length*length*length"
+
+        it "leaves a density one vector, whichever way the table writes it" $
+            parseDimension dimOrder "mass/volume" `shouldBe` parseDimension dimOrder "mass/length/length/length"
+
+        it "carries the power through a denominator" $
+            parseDimension dimOrder "count/area" `shouldBe` parseDimension dimOrder "count/length/length"
+
+        it "still tells an area from a volume" $ do
+            cfg <- loadFullUnitConfig
+            unitsCompatible cfg "m2" "m3" `shouldBe` False
+
+        it "converts an area and a volume as it did before" $ do
+            cfg <- loadFullUnitConfig
+            convertUnit cfg "ha" "m2" 1 `shouldBe` Just 10000
+            convertUnit cfg "l" "m3" 1 `shouldBe` Just 0.001
+
+    describe "The bootstrap table" $
+        it "stands its four units on the slots the shipped table parses into" $
+            mapM_
+                ( \(name, dim) ->
+                    (udDimension <$> M.lookup name (ucUnits defaultUnitConfig))
+                        `shouldBe` either (const Nothing) Just (parseDimension defaultDimensionOrder dim)
+                )
+                [("kg", "mass"), ("m", "length"), ("s", "time"), ("item", "count")]
 
     describe "Unit Compatibility" $ do
         it "tkm and kgkm are compatible (both mass*length)" $ do
@@ -284,7 +326,7 @@ spec = do
             readUnit cfg "mj" `shouldBe` ReadAmbiguous "MJ" "mJ" []
             lookupUnitDef cfg "mj" `shouldBe` Nothing
             isKnownUnit cfg "mj" `shouldBe` False
-            readUnit cfg "MJ" `shouldBe` ReadExact (UnitDef [0, 0, 0, 1, 0, 0, 0, 0] 1.0)
+            readUnit cfg "MJ" `shouldBe` ReadExact (unitDef "energy" 1.0)
 
         it "refuses a table that spells one unit twice" $ do
             buildFromCSV "name,dimension,factor\nkg,mass,1.0\nkg,mass,2.0\n"
