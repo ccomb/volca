@@ -688,9 +688,15 @@ docker run -p 8080:8080 -v /path/to/data:/data volca
 ```bash
 ./build.sh --test
 
-# Or manually
-cabal test --test-show-details=streaming
+# One spec group, in a tree that script has already built
+cabal test lca-tests --test-options="--match /Inventory/"
 ```
+
+`./build.sh --test` is the way in: it generates `src/Version.hs`, compiles at
+`-O0`, builds the `volca` executable and names it to the specs that start a
+server. A bare `cabal test` from a fresh clone does none of those: it stops on
+the missing `src/Version.hs`, and once that is generated the specs that want the
+executable stop too. `AGENTS.md` says the rest.
 
 Tests cover matrix construction (sign convention), inventory calculation (golden values), parsers (EcoSpold1/2, ILCD, SimaPro, Brightway Excel, classification fields), and matrix export format compliance.
 
