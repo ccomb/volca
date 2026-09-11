@@ -659,8 +659,12 @@ reportAmbiguousProducers ties = do
                 apCandidates
                 (T.unpack apChosen)
   where
+    -- One line per choice made, and the first one made. A later row for the
+    -- same product and activity can carry a different count, when its input
+    -- named its supplier and narrowed the field; the line says which choice was
+    -- made, and the report below names the inputs that named one.
     unique :: [AmbiguousProducer]
-    unique = M.elems $ M.fromList [((apProduct t, apChosen t), t) | t <- ties]
+    unique = oncePerKey (\t -> (apProduct t, apChosen t)) ties
 
 -- | Report grouped summary of unlinked exchanges
 reportUnlinkedActivities :: UnlinkedSummary -> IO ()
