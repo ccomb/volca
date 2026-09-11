@@ -94,7 +94,6 @@ Sm3,volume,1.0
 l,volume,0.001
 liter,volume,0.001
 litre,volume,0.001
-L,volume,0.001
 dm3,volume,0.001
 ml,volume,1e-06
 mL,volume,1e-06

@@ -23,9 +23,9 @@
   thousand billion, with nothing but a note saying the table spells the unit
   differently. Each of those spellings now has a row of its own, so both halves
   of a pair are read as written, and a database whose own unit list tells a
-  megagram from a milligram loads where it used to be refused. The litre also
-  gains the `L` and `mL` spellings the standard allows, so neither is read as a
-  respelling of the other. The other side of the same change: a spelling that
+  megagram from a milligram loads where it used to be refused. The millilitre
+  also gains the `mL` spelling the standard allows, so it is not read as the
+  megalitre. The other side of the same change: a spelling that
   discards the case of a pair now lands on two rows with nothing to decide
   between them, so the load stops and names them rather than guess. Those are
   `MG`, `mG`, `MM`, `mM`, `Ml`, `mj`, `Mj`, `mwh` and `MWH`. Correct the

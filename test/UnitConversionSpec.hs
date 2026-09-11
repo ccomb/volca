@@ -367,6 +367,10 @@ spec = do
             lookupUnitDef cfg "mJ" `shouldBe` Just (unitDef "energy" 1.0e-9)
             lookupUnitDef cfg "mWh" `shouldBe` Just (unitDef "energy" 3.6e-6)
             lookupUnitDef cfg "Mm" `shouldBe` Just (unitDef "length" 1000000.0)
+            -- Both halves of the pair are exact, so `Ml` lands on two rows and
+            -- the table decides nothing.
+            lookupUnitDef cfg "mL" `shouldBe` Just (unitDef "volume" 1.0e-6)
+            lookupUnitDef cfg "Ml" `shouldBe` Nothing
 
         it "refuses when two spellings differ only by case" $ do
             let Right cfg = buildFromCSV "name,dimension,factor\nMJ,energy,1.0\nmJ,energy,1.0e-9\n"
