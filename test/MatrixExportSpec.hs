@@ -231,10 +231,18 @@ spec = do
         it "names each column's own activity, and scales it by that column's supply" $ do
             -- Both files in full, because both are read by eye and every field of
             -- them is a promise: the two columns have to come back under their own
-            -- activity, and the amounts have to keep the last digit the solver
-            -- produced. The producer sits at column 0 and the treatment at column
-            -- 1, so an export that mistook one column for another would name the
-            -- wrong activity here rather than merely lose a row.
+            -- activity, and the amounts have to keep the last digit of the value
+            -- the record holds. The producer sits at column 0 and the treatment at
+            -- column 1, so an export that mistook one column for another would name
+            -- the wrong activity here rather than merely lose a row.
+            --
+            -- The expected amounts are read off the record rather than written out,
+            -- because the last digit of a solve is the solver's, not the exporter's:
+            -- gfortran contracts differently across the platforms this suite runs on,
+            -- and a literal here would fail on an exporter that is faithful. Reading
+            -- them off the record keeps what this test is for, which is that the file
+            -- restitutes the record and puts each column under its own activity: a
+            -- swapped column still fails, the two supplies differ.
             db <- treatmentDatabase
             info <- either (fail . show) pure =<< extractMatrixDebugInfo db (rowOf db treatmentUUID) Nothing
             withSystemTempDirectory "acv-debug-columns" $ \tmpDir -> do
@@ -242,6 +250,8 @@ spec = do
                     producer = processIdToText db (rowOf db producerUUID)
                     treatment = processIdToText db (rowOf db treatmentUUID)
                     co2 = T.pack (show carbonDioxide)
+                    supplyAt col = mdSupplyVector info U.! col
+                    shown = T.pack . show
                 exportMatrixDebugCSVs base info
                 supplyChain <- TIO.readFile (base ++ "_supply_chain.csv")
                 biosphere <- TIO.readFile (base ++ "_biosphere_matrix.csv")
@@ -249,15 +259,15 @@ spec = do
                     `shouldBe` T.intercalate
                         "\n"
                         [ "activity_id,activity_name,location,supply_amount,col_idx"
-                        , producer <> ",producer of Y,GLO,-0.4999999999999999,0"
-                        , treatment <> ",treatment of waste W,GLO,1.0,1"
+                        , producer <> ",producer of Y,GLO," <> shown (supplyAt 0) <> ",0"
+                        , treatment <> ",treatment of waste W,GLO," <> shown (supplyAt 1) <> ",1"
                         ]
                 biosphere
                     `shouldBe` T.intercalate
                         "\n"
                         [ "flow_id,flow_name,unit,activity_id,activity_name,matrix_value,contribution"
-                        , co2 <> ",carbon dioxide,kg," <> producer <> ",producer of Y,3.0,-1.4999999999999996"
-                        , co2 <> ",carbon dioxide,kg," <> treatment <> ",treatment of waste W,-2.0,-2.0"
+                        , co2 <> ",carbon dioxide,kg," <> producer <> ",producer of Y,3.0," <> shown (3.0 * supplyAt 0)
+                        , co2 <> ",carbon dioxide,kg," <> treatment <> ",treatment of waste W,-2.0," <> shown (-2.0 * supplyAt 1)
                         ]
 
 {- | The row SAMPLE.min3's activity X sits at. Row 0 when it is missing, which
