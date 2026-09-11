@@ -31,8 +31,9 @@ import Data.Aeson.Encoding (Encoding, Series, encodingToLazyByteString, list, pa
 import qualified Data.Aeson.Key as K
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.Indexing (collisions)
 import Data.List (sortOn)
-import qualified Data.Map.Strict as M
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -166,14 +167,14 @@ checkOlcaExportable mc
         mapM_ checkMethod (mcMethods mc)
   where
     checkUniqueIds ms =
-        case M.toList (M.filter ((> 1) . length) (M.fromListWith (<>) [(methodId m, [methodName m]) | m <- ms])) of
+        case collisions [(methodId m, methodName m) | m <- ms] of
             [] -> Right ()
             (mid, names) : _ ->
                 Left
                     ( "impact categories share the id "
                         <> UUID.toText mid
                         <> " ("
-                        <> T.intercalate ", " names
+                        <> T.intercalate ", " (NE.toList names)
                         <> "); their archive entries would overwrite each other"
                     )
     checkMethod m = mapM_ (checkCF (methodName m)) (methodFactors m)

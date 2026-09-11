@@ -59,6 +59,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiUpper, ord, toUpper)
+import Data.Indexing (repeated)
 import Data.List (find, findIndex, partition)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
@@ -262,11 +263,7 @@ carries a value; the reader is told which labels rather than losing a column in
 silence.
 -}
 duplicateLabels :: [(Int, Text)] -> [Text]
-duplicateLabels headers =
-    [ lbl
-    | (lbl, n) <- M.toList (M.fromListWith (+) [(lbl, 1 :: Int) | (_, lbl) <- headers])
-    , n > 1
-    ]
+duplicateLabels headers = repeated [lbl | (_, lbl) <- headers]
 
 -- ---------------------------------------------------------------------------
 -- Domain construction (pure)

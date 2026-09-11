@@ -67,6 +67,7 @@ module ILCD.Writer (
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (lefts)
+import Data.Indexing (repeated)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -114,9 +115,7 @@ ilcdExportNamespace =
 
 -- | The activity UUIDs carried by more than one @(activity, product)@ entry.
 sharedActivityUUIDs :: SimpleDatabase -> S.Set UUID
-sharedActivityUUIDs db =
-    M.keysSet . M.filter (> (1 :: Int)) . M.fromListWith (+) $
-        [(actUUID, 1) | (actUUID, _) <- M.keys (sdbActivities db)]
+sharedActivityUUIDs db = S.fromList (repeated [actUUID | (actUUID, _) <- M.keys (sdbActivities db)])
 
 {- | The @common:UUID@ — and the filename — of one exported process dataset.
 

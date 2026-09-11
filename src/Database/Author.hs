@@ -67,6 +67,7 @@ module Database.Author (
 
 import qualified Data.ByteString as BS
 import Data.Either (partitionEithers)
+import Data.Indexing (repeated)
 import Data.List (nub)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
@@ -261,7 +262,7 @@ validateAuthored ctx activities =
     case partitionEithers (map (validateOne ctx) activities) of
         ([], oks) ->
             let inserts = map fst oks
-             in case duplicateKeys (map riKey inserts) of
+             in case repeated (map riKey inserts) of
                     [] -> Right (inserts, concatMap snd oks)
                     dups -> Left (map duplicateMessage dups)
         (errs, _) -> Left (concat errs)
@@ -272,9 +273,6 @@ validateAuthored ctx activities =
             <> "_"
             <> UUID.toText p
             <> "): same name, location, product and unit."
-
-duplicateKeys :: [(UUID, UUID)] -> [(UUID, UUID)]
-duplicateKeys keys = M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(k, 1) | k <- keys]))
 
 validateOne :: AuthorContext -> AuthoredActivity -> Either [Text] (ResolvedInsert, [Text])
 validateOne ctx a =

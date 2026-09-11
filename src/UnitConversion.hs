@@ -60,7 +60,9 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Csv (HasHeader (..), decode)
 import Data.Either (partitionEithers)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.Indexing (uniqueIndex)
 import Data.List (elemIndex)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Set as S
@@ -384,9 +386,9 @@ buildFromCSV csvData =
     {- A table that spells one unit twice has two factors for it and no way to
     say which is meant, and 'M.fromList' would keep the last in silence. -}
     withoutRepeats :: [(Text, UnitDef)] -> Either Text (M.Map Text UnitDef)
-    withoutRepeats pairs = case M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(k, 1) | (k, _) <- pairs])) of
-        [] -> Right (M.fromList pairs)
-        repeats -> Left $ "unit spelled more than once: " <> T.intercalate ", " repeats
+    withoutRepeats pairs = case uniqueIndex pairs of
+        Right table -> Right table
+        Left repeats -> Left $ "unit spelled more than once: " <> T.intercalate ", " (NE.toList repeats)
 
 {- | One row of the unit table a database file carries for itself: what the
 unit is called, the unit it is expressed in, and how many of that it makes.
