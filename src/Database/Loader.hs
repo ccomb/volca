@@ -1473,13 +1473,21 @@ loadEcoSpoldDirectory opts dir = do
          in Right ((actUUID, prodUUID), activity)
     buildProcEntry False filepath activity =
         -- EcoSpold2: the identifiers are in the file name. Some publishers put
-        -- the dataset number in front of the pair; neither a UUID nor the
-        -- number holds the separator, so the pair is the last two parts either
-        -- way. The number is dropped: this format addresses its suppliers by
-        -- UUID and numbers no dataset.
+        -- the dataset number in front of the pair, and the pair is then the
+        -- last two parts. What says the leading part is a number rather than
+        -- half of the name is that the two behind it are both identifiers, so
+        -- a longer name is read only when they are: in any other name a part
+        -- could as easily have been added at the end as at the front, and
+        -- there is nothing to choose between the two readings. The number is
+        -- dropped, this format addressing its suppliers by UUID and numbering
+        -- no dataset.
         case reverse (T.splitOn "_" (T.pack (takeBaseName filepath))) of
-            (prodUUIDText : actUUIDText : _) ->
+            [prodUUIDText, actUUIDText] ->
                 Right ((parseUUID actUUIDText, parseUUID prodUUIDText), activity)
+            prodUUIDText : actUUIDText : _ : _
+                | Just prodUUID <- UUID.fromText prodUUIDText
+                , Just actUUID <- UUID.fromText actUUIDText ->
+                    Right ((actUUID, prodUUID), activity)
             _ -> Left $ T.pack $ "Invalid filename format (expected [datasetNumber_]activityUUID_productUUID.spold): " ++ filepath
 
 {- | Load a single EcoSpold1 file containing multiple datasets
