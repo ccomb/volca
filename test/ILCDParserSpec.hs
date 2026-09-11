@@ -5,13 +5,14 @@ module ILCDParserSpec (spec) where
 import Control.Monad (forM_)
 import qualified Data.ByteString as BS
 import Data.List (find, sortOn)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import ILCD.Common (readDataSetVersion)
-import ILCD.Parser (ILCDExchangeRaw (..), ILCDProcessRaw (..), buildSupplierIndex, fixActivityExchanges, parseILCDDirectory, parseProcessXML)
+import ILCD.Parser (ILCDExchangeRaw (..), ILCDProcessRaw (..), ILCDProducer (..), buildSupplierIndex, fixActivityExchanges, parseILCDDirectory, parseProcessXML)
 import System.Directory (copyFile, createDirectoryIfMissing, listDirectory)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -32,6 +33,31 @@ prodUUID1 = read "bbbbbbbb-0000-0000-0000-000000000001"
 prodUUID2 = read "bbbbbbbb-0000-0000-0000-000000000002"
 
 -- An activity with a single reference output exchange for the given flow UUID
+
+-- | The pair an index entry names, for tests written before it carried a location.
+asPair :: ILCDProducer -> (UUID.UUID, UUID.UUID)
+asPair p = (ipActivity p, ipProduct p)
+
+-- | The same activity somewhere else.
+at :: Text -> Activity -> Activity
+at loc act = act{activityLocation = loc}
+
+-- | The same activity, its input exchange stating where it wants its supplier.
+inputFrom :: Text -> Activity -> Activity
+inputFrom loc act = act{exchanges = map stating (exchanges act)}
+  where
+    stating :: Exchange -> Exchange
+    stating ex@TechnosphereExchange{} = ex{techLocation = loc}
+    stating ex = ex
+
+-- | The same activity under another name, so a ranking has something to rank on.
+named :: Text -> Activity -> Activity
+named name act = act{activityName = name}
+
+-- | The same activity, marked retired the way an EcoSpold 1 file marks one.
+retired :: Activity -> Activity
+retired act = act{activityClassification = M.singleton "Category" "material, obsolete"}
+
 activityWithRefExchange :: UUID.UUID -> Activity
 activityWithRefExchange fid =
     Activity
@@ -260,8 +286,8 @@ spec = do
                         , ((actUUID2, prodUUID2), activityWithRefExchange flowUUID2)
                         ]
                 idx = buildSupplierIndex activities
-            M.lookup flowUUID1 idx `shouldBe` Just (actUUID1, prodUUID1)
-            M.lookup flowUUID2 idx `shouldBe` Just (actUUID2, prodUUID2)
+            fmap (NE.map asPair) (M.lookup flowUUID1 idx) `shouldBe` Just ((actUUID1, prodUUID1) NE.:| [])
+            fmap (NE.map asPair) (M.lookup flowUUID2 idx) `shouldBe` Just ((actUUID2, prodUUID2) NE.:| [])
 
         it "does not index non-reference exchanges" $ do
             let activities =
@@ -281,12 +307,55 @@ spec = do
                 idx = buildSupplierIndex activities
             M.size idx `shouldBe` 2
 
+        -- One product made in two places is two processes declaring one
+        -- product flow, and an exchange names the flow. Keeping one entry kept
+        -- whichever the identifiers put last.
+        it "keeps every process declaring one product flow" $ do
+            let activities =
+                    M.fromList
+                        [ ((actUUID1, prodUUID1), named "wheat production, a" (activityWithRefExchange flowUUID1))
+                        , ((actUUID2, prodUUID2), named "wheat production, b" (activityWithRefExchange flowUUID1))
+                        ]
+                idx = buildSupplierIndex activities
+            fmap NE.length (M.lookup flowUUID1 idx) `shouldBe` Just 2
+
+        it "links to the process still in service, whatever its identifier" $ do
+            let activities =
+                    M.fromList
+                        [ ((actUUID1, prodUUID1), retired (named "wheat production, a" (activityWithRefExchange flowUUID1)))
+                        , ((actUUID2, prodUUID2), named "wheat production, b" (activityWithRefExchange flowUUID1))
+                        ]
+                idx = buildSupplierIndex activities
+            fmap (asPair . NE.head) (M.lookup flowUUID1 idx) `shouldBe` Just (actUUID2, prodUUID2)
+
+        -- An ILCD exchange states a location of its own, and that is the one
+        -- thing in the file saying which producer of the flow was meant.
+        it "links an input to a process at the location it states" $ do
+            let activities =
+                    M.fromList
+                        [ ((actUUID1, prodUUID1), at "DE" (named "electricity production" (activityWithRefExchange flowUUID1)))
+                        , ((actUUID2, prodUUID2), at "FR" (named "electricity production" (activityWithRefExchange flowUUID1)))
+                        ]
+                idx = buildSupplierIndex activities
+                act = fixActivityExchanges idx (inputFrom "FR" (activityWithInputExchange flowUUID1))
+            [techActivityLinkId e | e@TechnosphereExchange{} <- exchanges act] `shouldBe` [Just actUUID2]
+
+        it "falls back to the ranking when no process sits at the stated location" $ do
+            let activities =
+                    M.fromList
+                        [ ((actUUID1, prodUUID1), at "DE" (named "electricity production" (activityWithRefExchange flowUUID1)))
+                        , ((actUUID2, prodUUID2), at "FR" (named "electricity production" (activityWithRefExchange flowUUID1)))
+                        ]
+                idx = buildSupplierIndex activities
+                act = fixActivityExchanges idx (inputFrom "CN" (activityWithInputExchange flowUUID1))
+            [techActivityLinkId e | e@TechnosphereExchange{} <- exchanges act] `shouldBe` [Just actUUID1]
+
     -- -------------------------------------------------------------------
     -- fixActivityExchanges: resolves input exchanges via supplier index
     -- -------------------------------------------------------------------
     describe "fixActivityExchanges" $ do
         it "resolves input exchange flow UUID to supplier (actUUID, prodUUID)" $ do
-            let idx = M.fromList [(flowUUID1, (actUUID1, prodUUID1))]
+            let idx = M.fromList [(flowUUID1, ILCDProducer actUUID1 prodUUID1 "" NE.:| [])]
                 act = activityWithInputExchange flowUUID1
                 fixed = fixActivityExchanges idx act
             case exchanges fixed of
@@ -305,7 +374,7 @@ spec = do
                 _ -> expectationFailure "expected one TechnosphereExchange"
 
         it "does not touch output (reference) exchanges" $ do
-            let idx = M.fromList [(flowUUID1, (actUUID1, prodUUID1))]
+            let idx = M.fromList [(flowUUID1, ILCDProducer actUUID1 prodUUID1 "" NE.:| [])]
                 act = activityWithRefExchange flowUUID1
                 fixed = fixActivityExchanges idx act
             case exchanges fixed of
