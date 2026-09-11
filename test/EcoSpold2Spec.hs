@@ -423,6 +423,59 @@ spec = describe "per-exchange comments" $ do
                 sectionNamed "Sampling procedure" act `shouldBe` Just "Test sampling"
                 sectionNamed "Extrapolations" act `shouldBe` Just "Test extrapolation"
 
+    describe "an exchange whose amount is not a number" $ do
+        let runOnBytes bytes = withSystemTempDirectory "es2-amount" $ \dir -> do
+                let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
+                BS.writeFile path bytes
+                streamParseActivityAndFlowsFromFile path
+
+        it "reads the rest of the dataset rather than failing the whole load" $ do
+            result <- runOnBytes unreadableAmountXml
+            case result of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right parsed ->
+                    map exchangeAmount (exchanges (pdActivity parsed)) `shouldBe` [1.0]
+
+        it "leaves the row out and names it, rather than reading it as zero" $ do
+            result <- runOnBytes unreadableAmountXml
+            case result of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right parsed -> do
+                    length (pdBioFlows parsed) `shouldBe` 0
+                    pdWarnings parsed
+                        `shouldSatisfy` any (T.isInfixOf "cccccccc-cccc-cccc-cccc-cccccccccccc")
+
+{- | A dataset whose emission states an amount that is not a number. The row
+states no amount at all, so nothing here can say what it should be read as.
+-}
+unreadableAmountXml :: BS.ByteString
+unreadableAmountXml =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    \<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold02\">\n\
+    \  <activityDataset>\n\
+    \    <activityDescription>\n\
+    \      <activity id=\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\" activityNameId=\"amount-test\" activityType=\"1\">\n\
+    \        <activityName xml:lang=\"en\">amount test activity</activityName>\n\
+    \      </activity>\n\
+    \      <geography geographyId=\"TEST\"><shortname xml:lang=\"en\">TEST</shortname></geography>\n\
+    \    </activityDescription>\n\
+    \    <flowData>\n\
+    \      <intermediateExchange id=\"ref\" unitId=\"unit-kg\" amount=\"1.0\"\n\
+    \                           intermediateExchangeId=\"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\">\n\
+    \        <name xml:lang=\"en\">amount test product</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <outputGroup>0</outputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <elementaryExchange id=\"emission\" unitId=\"unit-kg\" amount=\"n/a\"\n\
+    \                          elementaryExchangeId=\"cccccccc-cccc-cccc-cccc-cccccccccccc\">\n\
+    \        <name xml:lang=\"en\">Carbon dioxide, fossil</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <outputGroup>4</outputGroup>\n\
+    \      </elementaryExchange>\n\
+    \    </flowData>\n\
+    \  </activityDataset>\n\
+    \</ecoSpold>\n"
+
 {- | Synthetic dataset in the shape a real ecoinvent file uses: every free text
 wrapped in @\<comment\>\<text\>@, a published source spread over three
 attributes, one review with details, and one @[System]@ review whose only

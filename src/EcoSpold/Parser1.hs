@@ -19,6 +19,7 @@ module EcoSpold.Parser1 (
     generateUnitUUID,
 ) where
 
+import Amount (readAmount)
 import Control.Monad (forM_)
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
@@ -32,7 +33,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID.V5 as UUID5
-import EcoSpold.Common (ParsedDataset (..), bsToDouble, bsToIntMaybe, bsToText, docSection, isElement, joinParts, nonEmptyText)
+import EcoSpold.Common (ParsedDataset (..), bsToIntMaybe, bsToText, docSection, isElement, joinParts, nonEmptyText)
 import Progress (ProgressLevel (..), reportProgress)
 import Types
 import qualified Xeno.SAX as X
@@ -118,7 +119,7 @@ data ExchangeData = ExchangeData
     , exSubCategory :: !Text -- Subcategory
     , exLocation :: !Text -- Location (for technosphere)
     , exUnit :: !Text -- Unit name
-    , exMeanValue :: !Double -- Amount
+    , exMeanValue :: !(Maybe Double) -- Amount, absent when the row states none a reader can make sense of
     , exInputGroup :: !Text -- Input group (1-4 = technosphere input, 4 = resource)
     , exOutputGroup :: !Text -- Output group (0 = reference, 1-3 = byproduct, 4 = emission)
     , exCASNumber :: !Text -- CAS number (optional)
@@ -130,7 +131,7 @@ data ExchangeData = ExchangeData
 
 -- | Initial exchange data
 emptyExchangeData :: ExchangeData
-emptyExchangeData = ExchangeData 0 "" "" "" "" "" 0.0 "" "" "" "" False ""
+emptyExchangeData = ExchangeData 0 "" "" "" "" "" Nothing "" "" "" "" False ""
 
 {- | One @\<source\>@ of the dataset's own bibliography. EcoSpold1 numbers them
 within the dataset, and @dataGeneratorAndPublication\@referenceToPublishedSource@
@@ -202,6 +203,12 @@ data ParseState = ParseState
     characterization factor reaches it and every method scores it zero: the
     reading names the word instead of letting the zero pass for an answer.
     -}
+    , psUnreadableAmounts :: !(S.Set Text)
+    {- ^ The exchanges of this dataset whose @meanValue@ is not a number. Such
+    a row states no amount, so it is left out rather than read as zero: a zero
+    row cannot be told apart from a flow the dataset really put at zero, and
+    every score drawn from it would undercount without saying so.
+    -}
     , psCompletedActivities :: ![Either String ParsedDataset]
     }
 
@@ -225,6 +232,7 @@ initialParseState =
         , psTextAccum = []
         , psDocs = emptyDatasetDocs
         , psUnplacedMedia = S.empty
+        , psUnreadableAmounts = S.empty
         , psCompletedActivities = []
         }
 
@@ -280,8 +288,7 @@ onAttribute state name value = case psContext state of
     --
     -- A number that will not parse leaves the dataset with none, which drops
     -- it out of the supplier index the same way a dataset carrying no number
-    -- does. 'bsToInt' would call @error@ from inside the pure fold instead,
-    -- killing the whole load over one malformed attribute.
+    -- does, rather than killing the whole load over one malformed attribute.
     datasetNumberAttr
         | isElement name "number"
         , currentElement : _ <- psPath state
@@ -346,14 +353,17 @@ setExchangeAttr :: BS.ByteString -> BS.ByteString -> ExchangeData -> ExchangeDat
 setExchangeAttr name value e
     -- An unparseable number leaves the exchange at 0, which merges it with the
     -- other unnumbered exchanges of the same name and compartment rather than
-    -- killing the load; 'bsToInt' would call @error@ from inside the fold.
+    -- killing the load.
     | isElement name "number" = e{exNumber = fromMaybe 0 (bsToIntMaybe value)}
     | isElement name "name" = e{exName = bsToText value}
     | isElement name "category" = e{exCategory = bsToText value}
     | isElement name "subCategory" = e{exSubCategory = bsToText value}
     | isElement name "location" = e{exLocation = bsToText value}
     | isElement name "unit" = e{exUnit = bsToText value}
-    | isElement name "meanValue" = e{exMeanValue = bsToDouble value}
+    -- The amount is the row's whole point, so a meanValue that will not read as
+    -- a number is not stood in for: the row states none, and 'closeExchange'
+    -- leaves it out.
+    | isElement name "meanValue" = e{exMeanValue = readAmount (bsToText value)}
     | isElement name "CASNumber" = e{exCASNumber = bsToText value}
     | isElement name "formula" = e{exFormula = bsToText value}
     | isElement name "infrastructureProcess" = e{exInfrastructure = bsToText value == "true"}
@@ -476,17 +486,23 @@ record the supplier link for technosphere inputs.
 -}
 closeExchange :: ParseState -> ParseState
 closeExchange state = case psContext state of
-    InExchange edata ->
-        let (exchange, parsedFlow, unit) = buildExchange (psLocation state) edata
-            (techs, bios) = case parsedFlow of
-                ParsedTech tf -> (tf : psTechFlows state, psBioFlows state)
-                ParsedBio bf -> (psTechFlows state, bf : psBioFlows state)
-         in (popElement state)
-                { psExchanges = exchange : psExchanges state
-                , psTechFlows = techs
-                , psBioFlows = bios
-                , psUnits = unit : psUnits state
-                , psUnplacedMedia = maybe id S.insert (unplacedMedium edata parsedFlow) (psUnplacedMedia state)
+    InExchange edata
+        | Just amount <- exMeanValue edata ->
+            let (exchange, parsedFlow, unit) = buildExchange (psLocation state) amount edata
+                (techs, bios) = case parsedFlow of
+                    ParsedTech tf -> (tf : psTechFlows state, psBioFlows state)
+                    ParsedBio bf -> (psTechFlows state, bf : psBioFlows state)
+             in (popElement state)
+                    { psExchanges = exchange : psExchanges state
+                    , psTechFlows = techs
+                    , psBioFlows = bios
+                    , psUnits = unit : psUnits state
+                    , psUnplacedMedia = maybe id S.insert (unplacedMedium edata parsedFlow) (psUnplacedMedia state)
+                    , psContext = Other
+                    }
+        | otherwise ->
+            (popElement state)
+                { psUnreadableAmounts = S.insert (exName edata) (psUnreadableAmounts state)
                 , psContext = Other
                 }
     InInputGroup _ -> popPath state
@@ -524,6 +540,7 @@ resetDataset state =
         , psTextAccum = []
         , psDocs = emptyDatasetDocs
         , psUnplacedMedia = S.empty
+        , psUnreadableAmounts = S.empty
         }
 
 {- | The category an elementary exchange was filed under, when that word names
@@ -548,8 +565,8 @@ medium 'Waste' whatever group it carries, so it is read as biosphere
 before the groups are consulted. Waste that does have a treatment is not
 written that way and stays on the technosphere side.
 -}
-buildExchange :: Maybe Text -> ExchangeData -> (Exchange, ParsedFlow, Unit)
-buildExchange activityLoc edata
+buildExchange :: Maybe Text -> Double -> ExchangeData -> (Exchange, ParsedFlow, Unit)
+buildExchange activityLoc amount edata
     | isBiosphere = (bioEx, ParsedBio bioFlow, unit)
     | otherwise = (techEx, ParsedTech techFlow, unit)
   where
@@ -608,7 +625,7 @@ buildExchange activityLoc edata
     bioEx =
         BiosphereExchange
             { bioFlowId = flowId
-            , bioAmount = exMeanValue edata
+            , bioAmount = amount
             , bioUnitId = unitId
             , bioDirection = if inputGroup == "4" then Resource else Emission
             , bioLocation = exchangeLocation
@@ -620,7 +637,7 @@ buildExchange activityLoc edata
     techEx =
         TechnosphereExchange
             { techFlowId = flowId
-            , techAmount = exMeanValue edata
+            , techAmount = amount
             , techUnitId = unitId
             , techRole = techRoleFor
             , techActivityLinkId = Nothing
@@ -732,6 +749,30 @@ unplacedMediaSeen st
     quoted "" = "no category"
     quoted t = "\"" <> t <> "\""
 
+{- | The exchanges of this dataset that stated no amount a reader could make
+sense of, said once for the dataset rather than once per row.
+
+The row is left out, so the dataset is short a flow. Naming the rows is what
+lets a reader tell that from a dataset that never carried them.
+-}
+unreadableAmountsSeen :: ParseState -> [Text]
+unreadableAmountsSeen st
+    | S.null names = []
+    | otherwise =
+        [ datasetPrefix st
+            <> "exchanges named "
+            <> T.intercalate ", " (map named (S.toList names))
+            <> " state no amount that reads as a number, and are left out"
+        ]
+  where
+    names :: S.Set Text
+    names = psUnreadableAmounts st
+
+    -- A row can carry no name at all, and "named \"\"" would name nothing.
+    named :: Text -> Text
+    named "" = "no name"
+    named t = "\"" <> t <> "\""
+
 -- | Build the final per-dataset result, applying the cut-off strategy.
 buildResult :: ParseState -> Either String ParsedDataset
 buildResult st =
@@ -775,7 +816,7 @@ buildResult st =
                   pdWasteFlows = []
                 , pdUnits = reverse (psUnits st)
                 , pdDatasetNumber = psDatasetNumber st
-                , pdWarnings = placeholdersUsed st ++ unplacedMediaSeen st
+                , pdWarnings = placeholdersUsed st ++ unplacedMediaSeen st ++ unreadableAmountsSeen st
                 }
      in -- A file that yields no exchange at all is not a dataset: a stray or
         -- truncated XML the SAX fold walked through without complaint.

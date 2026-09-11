@@ -15,7 +15,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
-import EcoSpold.Common (ParsedDataset (..), bsToDouble, bsToInt, bsToIntMaybe, bsToText, docSection, isElement, joinParts, nonEmptyText)
+import EcoSpold.Common (ParsedDataset (..), bsToIntMaybe, bsToText, docSection, isElement, joinParts, nonEmptyText)
 import qualified Expr
 import Progress (ProgressLevel (..), reportProgress)
 import SubstanceRegistry (nonEmptyCAS)
@@ -65,14 +65,14 @@ data ElementContext
     | InGeographyShortname
     | InIntermediateExchange !IntermediateData
     | InElementaryExchange !ElementaryData
-    | InGeneralCommentText !Int -- Track index
+    | InGeneralCommentText
     | Other
     deriving (Eq)
 
 -- | Intermediate exchange accumulator
 data IntermediateData = IntermediateData
     { idFlowId :: !Text
-    , idAmount :: !Double
+    , idAmount :: !(Maybe Double)
     , idUnitId :: !Text
     , idFlowName :: !Text
     , idUnitName :: !Text
@@ -91,7 +91,7 @@ data IntermediateData = IntermediateData
 -- | Elementary exchange accumulator
 data ElementaryData = ElementaryData
     { edFlowId :: !Text
-    , edAmount :: !Double
+    , edAmount :: !(Maybe Double)
     , edUnitId :: !Text
     , edFlowName :: !Text
     , edUnitName :: !Text
@@ -363,7 +363,7 @@ mapExchange fi fe = \case
     InElementaryExchange d -> InElementaryExchange (fe d)
     InActivityName -> InActivityName
     InGeographyShortname -> InGeographyShortname
-    InGeneralCommentText i -> InGeneralCommentText i
+    InGeneralCommentText -> InGeneralCommentText
     Other -> Other
 
 -- | Apply per-kind updates to the open exchange accumulator, then pop path+text.
@@ -381,7 +381,7 @@ currentIntermediate st = case psContext st of
     InElementaryExchange _ -> Nothing
     InActivityName -> Nothing
     InGeographyShortname -> Nothing
-    InGeneralCommentText _ -> Nothing
+    InGeneralCommentText -> Nothing
     Other -> Nothing
 
 -- | The currently-open elementary exchange, if any.
@@ -391,13 +391,13 @@ currentElementary st = case psContext st of
     InIntermediateExchange _ -> Nothing
     InActivityName -> Nothing
     InGeographyShortname -> Nothing
-    InGeneralCommentText _ -> Nothing
+    InGeneralCommentText -> Nothing
     Other -> Nothing
 
 -- | Are we inside a @generalComment@ @\<text\>@ element?
 inGeneralComment :: ParseState -> Bool
 inGeneralComment st = case psContext st of
-    InGeneralCommentText _ -> True
+    InGeneralCommentText -> True
     InIntermediateExchange _ -> False
     InElementaryExchange _ -> False
     InActivityName -> False
@@ -555,6 +555,20 @@ missingUnitWarning kind flowId unitNm =
     | T.null unitNm
     ]
 
+{- | An exchange whose @amount@ attribute is not a number states no amount, so
+it is left out of the dataset rather than read as zero. A zero row is
+indistinguishable from a flow the dataset really put at zero, and every score
+drawn from it would undercount without saying so.
+-}
+unreadableAmountWarning :: String -> Text -> [String]
+unreadableAmountWarning kind flowId =
+    [ "[WARNING] Dropping "
+        ++ kind
+        ++ " exchange with flow ID: "
+        ++ T.unpack flowId
+        ++ " - amount missing or not a number"
+    ]
+
 -- | Parse a UUID, treating the empty string as the nil UUID (no warning).
 parseUUIDOrNil :: Text -> (UUID, Maybe String)
 parseUUIDOrNil t
@@ -577,18 +591,22 @@ addBioFlow f st = st{psBioFlows = f : psBioFlows st}
 addWasteFlow :: WasteFlow -> ParseState -> ParseState
 addWasteFlow f st = st{psWasteFlows = f : psWasteFlows st}
 
-{- | Common exchange-close bookkeeping: leave the exchange context, pop the
-path/text, clear pending groups, record the unit and any warnings.
+{- | Leave the exchange context: pop the path/text, clear the pending groups
+and file whatever the reading has to say. The exchange itself contributes
+nothing, which is what closing a dropped one amounts to.
 -}
-finishExchange :: Unit -> [String] -> ParseState -> ParseState
-finishExchange unit warns st =
+leaveExchange :: [String] -> ParseState -> ParseState
+leaveExchange warns st =
     (popText st)
         { psContext = Other
         , psPendingInputGroup = ""
         , psPendingOutputGroup = ""
-        , psUnits = unit : psUnits st
         , psWarnings = warns ++ psWarnings st
         }
+
+-- | Leave the exchange context, recording the unit it named.
+finishExchange :: Unit -> [String] -> ParseState -> ParseState
+finishExchange unit warns st = (leaveExchange warns st){psUnits = unit : psUnits st}
 
 {- | Check exchange @mathematicalRelation@ formulas against the dataset-local
 environment: the dataset's @\<parameter\>@ variables plus every exchange's own
@@ -693,10 +711,10 @@ parseWithXeno xmlContent = do
                 | isElement tagName "activityName" = InActivityName
                 | isElement tagName "shortname" && any (isElement "geography") (psPath cleanState) = InGeographyShortname
                 | isElement tagName "intermediateExchange" =
-                    InIntermediateExchange (IntermediateData "" 0.0 "" "" "" "" "" "" M.empty Nothing M.empty "" "" noProperties)
+                    InIntermediateExchange (IntermediateData "" Nothing "" "" "" "" "" "" M.empty Nothing M.empty "" "" noProperties)
                 | isElement tagName "elementaryExchange" =
-                    InElementaryExchange (ElementaryData "" 0.0 "" "" "" "" "" [] [] M.empty Nothing Nothing "" "")
-                | isElement tagName "text" && any (isElement "generalComment") (psPath cleanState) = InGeneralCommentText 0
+                    InElementaryExchange (ElementaryData "" Nothing "" "" "" "" "" [] [] M.empty Nothing Nothing "" "")
+                | isElement tagName "text" && any (isElement "generalComment") (psPath cleanState) = InGeneralCommentText
                 -- Classification elements: don't switch context. Handled via psTextAccum + psPendingClassSystem.
                 -- Switching context here would destroy InIntermediateExchange when classifications appear inside exchanges.
                 -- DON'T switch context for child elements (synonym, compartment, etc) - keep parent exchange context
@@ -731,7 +749,7 @@ parseWithXeno xmlContent = do
                 InIntermediateExchange idata ->
                     let updated
                             | isElement name "intermediateExchangeId" = idata{idFlowId = bsToText value}
-                            | isElement name "amount" && not isInsideProperty = idata{idAmount = bsToDouble value}
+                            | isElement name "amount" && not isInsideProperty = idata{idAmount = readAmount (bsToText value)}
                             | isElement name "unitId" && not isInsideProperty = idata{idUnitId = bsToText value}
                             | isElement name "inputGroup" = idata{idInputGroup = bsToText value}
                             | isElement name "outputGroup" = idata{idOutputGroup = bsToText value}
@@ -743,7 +761,7 @@ parseWithXeno xmlContent = do
                 InElementaryExchange edata ->
                     let updated
                             | isElement name "elementaryExchangeId" = edata{edFlowId = bsToText value}
-                            | isElement name "amount" && not isInsideProperty = edata{edAmount = bsToDouble value}
+                            | isElement name "amount" && not isInsideProperty = edata{edAmount = readAmount (bsToText value)}
                             | isElement name "unitId" && not isInsideProperty = edata{edUnitId = bsToText value}
                             | isElement name "inputGroup" = edata{edInputGroup = bsToText value}
                             | isElement name "outputGroup" = edata{edOutputGroup = bsToText value}
@@ -752,9 +770,7 @@ parseWithXeno xmlContent = do
                             | isElement name "mathematicalRelation" && not isInsideProperty = edata{edMathRel = bsToText value}
                             | otherwise = edata
                      in onProperty (withLang state{psContext = InElementaryExchange updated})
-                InGeneralCommentText _ ->
-                    let idx = if isElement name "index" then bsToInt value else 0
-                     in withLang state{psContext = InGeneralCommentText idx}
+                InGeneralCommentText -> withLang state
                 _ ->
                     -- Attributes on the <activity> opening tag carry the
                     -- ecospold2 activityType and specialActivityType enums;
@@ -810,137 +826,143 @@ parseWithXeno xmlContent = do
         | isElement tagName "intermediateExchange" =
             case currentIntermediate state of
                 Nothing -> popPath state
-                Just idata ->
-                    let (finalInputGroup, finalOutputGroup) = resolveGroups (idInputGroup idata) (idOutputGroup idata) state
-                        isInput = not (T.null finalInputGroup)
-                        isOutput = T.null finalInputGroup
-                        -- Reference products are identified ONLY by outputGroup="0"; this holds for
-                        -- normal production (positive amount) and waste treatment (negative amount).
-                        -- Negative inputs (e.g. wastewater discharge) are never reference products.
-                        isReferenceProduct = isOutput && finalOutputGroup == "0"
-                        -- The one waste marker EcoSpold2 carries: an intermediateExchange
-                        -- classified (System='By-product classification', Value='Waste'), a waste
-                        -- output that consumers treat via a treatment activity.
-                        isWasteFlow = M.lookup "By-product classification" (idClassifications idata) == Just "Waste"
-                        (flowUUID, flowWarn) = parseUUID (idFlowId idata)
-                        (unitUUID, unitWarn) = parseUUID (idUnitId idata)
-                        (linkUUID, linkWarn) = parseUUIDOrNil (idActivityLinkId idata)
-                        warns =
-                            catMaybes [flowWarn, unitWarn, linkWarn]
-                                ++ missingUnitWarning "intermediate" (idFlowId idata) (idUnitName idata)
-                        techRoleFor
-                            | isReferenceProduct = ReferenceProduct
-                            | isInput = Input
-                            | otherwise = Coproduct
-                        resolvedFlowName = nonBlankOr (idFlowId idata) (idFlowName idata)
-                        unit = mkUnit unitUUID (idUnitName idata)
-                        techExchange =
-                            TechnosphereExchange
-                                { techFlowId = flowUUID
-                                , techAmount = idAmount idata
-                                , techUnitId = unitUUID
-                                , techRole = techRoleFor
-                                , techActivityLinkId = nonNil linkUUID
-                                , techSupplierClaim = maybe ClaimByProduct ClaimById (nonNil linkUUID)
-                                , techLocation = "" -- EcoSpold2: no per-exchange location
-                                , techComment = snd <$> idComment idata
-                                , techPedigree = Nothing
-                                , techShare = Nothing
-                                , techClassification = M.empty
-                                , techProperties = idProperties idata
-                                }
-                        techFlow = TechnosphereFlow flowUUID resolvedFlowName unitUUID (idSynonyms idata) Nothing Nothing
-                        wasteExchange =
-                            WasteExchange
-                                { waFlowId = flowUUID
-                                , waAmount = idAmount idata
-                                , waUnitId = unitUUID
-                                , waIsInput = isInput
-                                , waActivityLinkId = nonNil linkUUID
-                                , waSupplierClaim = maybe ClaimByProduct ClaimById (nonNil linkUUID)
-                                , waLocation = ""
-                                , waComment = snd <$> idComment idata
-                                , waPedigree = Nothing
-                                }
-                        wasteFlow = WasteFlow flowUUID resolvedFlowName unitUUID (idSynonyms idata) Nothing Nothing
-                        -- A waste-classified flow normally routes to the waste axis. The one
-                        -- exception is the reference flow of a waste-treatment / market-for-waste
-                        -- activity: it is itself waste (negative amount, outputGroup="0") yet it
-                        -- IS the reference product. Diverting it to the waste axis leaves the
-                        -- activity with no reference product, so 'applyCutoffStrategy' rejects it
-                        -- and the whole dataset is dropped — silently severing every input that
-                        -- links into the treatment subsystem.
-                        refOnWasteAxis = isWasteFlow && not isReferenceProduct
-                        newRefUnit =
-                            if isReferenceProduct && not (T.null (idUnitName idata))
-                                then Just (idUnitName idata)
-                                else psRefUnit state
-                        formula = ExchangeFormula (nonEmptyText (idVariableName idata)) (nonEmptyText (idMathRel idata))
-                        base = (finishExchange unit warns state){psRefUnit = newRefUnit}
-                     in if refOnWasteAxis
-                            then addExchange wasteExchange formula (addWasteFlow wasteFlow base)
-                            else addExchange techExchange formula (addTechFlow techFlow base)
+                Just idata
+                    | Just amount <- idAmount idata ->
+                        let (finalInputGroup, finalOutputGroup) = resolveGroups (idInputGroup idata) (idOutputGroup idata) state
+                            isInput = not (T.null finalInputGroup)
+                            isOutput = T.null finalInputGroup
+                            -- Reference products are identified ONLY by outputGroup="0"; this holds for
+                            -- normal production (positive amount) and waste treatment (negative amount).
+                            -- Negative inputs (e.g. wastewater discharge) are never reference products.
+                            isReferenceProduct = isOutput && finalOutputGroup == "0"
+                            -- The one waste marker EcoSpold2 carries: an intermediateExchange
+                            -- classified (System='By-product classification', Value='Waste'), a waste
+                            -- output that consumers treat via a treatment activity.
+                            isWasteFlow = M.lookup "By-product classification" (idClassifications idata) == Just "Waste"
+                            (flowUUID, flowWarn) = parseUUID (idFlowId idata)
+                            (unitUUID, unitWarn) = parseUUID (idUnitId idata)
+                            (linkUUID, linkWarn) = parseUUIDOrNil (idActivityLinkId idata)
+                            warns =
+                                catMaybes [flowWarn, unitWarn, linkWarn]
+                                    ++ missingUnitWarning "intermediate" (idFlowId idata) (idUnitName idata)
+                            techRoleFor
+                                | isReferenceProduct = ReferenceProduct
+                                | isInput = Input
+                                | otherwise = Coproduct
+                            resolvedFlowName = nonBlankOr (idFlowId idata) (idFlowName idata)
+                            unit = mkUnit unitUUID (idUnitName idata)
+                            techExchange =
+                                TechnosphereExchange
+                                    { techFlowId = flowUUID
+                                    , techAmount = amount
+                                    , techUnitId = unitUUID
+                                    , techRole = techRoleFor
+                                    , techActivityLinkId = nonNil linkUUID
+                                    , techSupplierClaim = maybe ClaimByProduct ClaimById (nonNil linkUUID)
+                                    , techLocation = "" -- EcoSpold2: no per-exchange location
+                                    , techComment = snd <$> idComment idata
+                                    , techPedigree = Nothing
+                                    , techShare = Nothing
+                                    , techClassification = M.empty
+                                    , techProperties = idProperties idata
+                                    }
+                            techFlow = TechnosphereFlow flowUUID resolvedFlowName unitUUID (idSynonyms idata) Nothing Nothing
+                            wasteExchange =
+                                WasteExchange
+                                    { waFlowId = flowUUID
+                                    , waAmount = amount
+                                    , waUnitId = unitUUID
+                                    , waIsInput = isInput
+                                    , waActivityLinkId = nonNil linkUUID
+                                    , waSupplierClaim = maybe ClaimByProduct ClaimById (nonNil linkUUID)
+                                    , waLocation = ""
+                                    , waComment = snd <$> idComment idata
+                                    , waPedigree = Nothing
+                                    }
+                            wasteFlow = WasteFlow flowUUID resolvedFlowName unitUUID (idSynonyms idata) Nothing Nothing
+                            -- A waste-classified flow normally routes to the waste axis. The one
+                            -- exception is the reference flow of a waste-treatment / market-for-waste
+                            -- activity: it is itself waste (negative amount, outputGroup="0") yet it
+                            -- IS the reference product. Diverting it to the waste axis leaves the
+                            -- activity with no reference product, so 'applyCutoffStrategy' rejects it
+                            -- and the whole dataset is dropped — silently severing every input that
+                            -- links into the treatment subsystem.
+                            refOnWasteAxis = isWasteFlow && not isReferenceProduct
+                            newRefUnit =
+                                if isReferenceProduct && not (T.null (idUnitName idata))
+                                    then Just (idUnitName idata)
+                                    else psRefUnit state
+                            formula = ExchangeFormula (nonEmptyText (idVariableName idata)) (nonEmptyText (idMathRel idata))
+                            base = (finishExchange unit warns state){psRefUnit = newRefUnit}
+                         in if refOnWasteAxis
+                                then addExchange wasteExchange formula (addWasteFlow wasteFlow base)
+                                else addExchange techExchange formula (addTechFlow techFlow base)
+                    | otherwise ->
+                        leaveExchange (unreadableAmountWarning "intermediate" (idFlowId idata)) state
         | isElement tagName "elementaryExchange" =
             case currentElementary state of
                 Nothing -> popPath state
-                Just edata ->
-                    let (finalInputGroup, finalOutputGroup) = resolveGroups (edInputGroup edata) (edOutputGroup edata) state
-                        -- A missing compartment becomes 'Nothing', not an empty 'Compartment ""'
-                        -- sentinel — the latter used to silently collide with method-side empty mediums.
-                        -- A medium the reader cannot place is reported and the
-                        -- compartment dropped, rather than carried as a string
-                        -- nothing downstream can bucket.
-                        mediumReading = case edCompartments edata of
-                            (c : _) | not (T.null c) -> Just (parseMedium c)
-                            _ -> Nothing
-                        mCompName = mediumReading >>= either (const Nothing) Just
-                        subCompartment = case edSubcompartments edata of
-                            (s : _) | not (T.null s) -> Just s
-                            _ -> Nothing
-                        compartment = case (mCompName, subCompartment) of
-                            (Nothing, Nothing) -> Nothing
-                            (Just c, sc) -> Just (Compartment c sc)
-                            (Nothing, Just _) -> Nothing -- sub without medium is meaningless; drop
-                            -- Biosphere direction: prefer inputGroup/outputGroup, else fall back to the
-                            -- compartment heuristic (natural-resource flows are extractions).
-                            -- An inventory indicator is the exception: it counts what the activity
-                            -- sends away, and a source writes the same indicator under both groups
-                            -- from one dataset to the next, so the group is not information. Reading
-                            -- it would make the direction of a flow depend on which dataset one
-                            -- happens to look at, and cost the writers that reconstruct direction
-                            -- from the compartment their round-trip.
-                        direction
-                            | isInventoryIndicator = Emission
-                            | not (T.null finalInputGroup) = Resource
-                            | not (T.null finalOutputGroup) = Emission
-                            | mCompName == Just NaturalResource = Resource
-                            | otherwise = Emission
-                        isInventoryIndicator = mCompName == Just InventoryIndicator
-                        (flowUUID, flowWarn) = parseUUID (edFlowId edata)
-                        (unitUUID, unitWarn) = parseUUID (edUnitId edata)
-                        mediumWarn = case mediumReading of
-                            Just (Left got) -> Just (unknownMedium got)
-                            Just (Right _) -> Nothing
-                            Nothing -> Nothing
-                        warns =
-                            catMaybes [flowWarn, unitWarn, mediumWarn]
-                                ++ missingUnitWarning "elementary" (edFlowId edata) (edUnitName edata)
-                        resolvedFlowName = nonBlankOr (edFlowId edata) (edFlowName edata)
-                        unit = mkUnit unitUUID (edUnitName edata)
-                        bioExchange =
-                            BiosphereExchange
-                                { bioFlowId = flowUUID
-                                , bioAmount = edAmount edata
-                                , bioUnitId = unitUUID
-                                , bioDirection = direction
-                                , bioLocation = "" -- EcoSpold2: no per-exchange location
-                                , bioComment = snd <$> edComment edata
-                                , bioPedigree = Nothing
-                                }
-                        bioFlow = BiosphereFlow flowUUID resolvedFlowName unitUUID (edSynonyms edata) (edCAS edata) Nothing compartment
-                        formula = ExchangeFormula (nonEmptyText (edVariableName edata)) (nonEmptyText (edMathRel edata))
-                        base = finishExchange unit warns state
-                     in addExchange bioExchange formula (addBioFlow bioFlow base)
+                Just edata
+                    | Just amount <- edAmount edata ->
+                        let (finalInputGroup, finalOutputGroup) = resolveGroups (edInputGroup edata) (edOutputGroup edata) state
+                            -- A missing compartment becomes 'Nothing', not an empty 'Compartment ""'
+                            -- sentinel — the latter used to silently collide with method-side empty mediums.
+                            -- A medium the reader cannot place is reported and the
+                            -- compartment dropped, rather than carried as a string
+                            -- nothing downstream can bucket.
+                            mediumReading = case edCompartments edata of
+                                (c : _) | not (T.null c) -> Just (parseMedium c)
+                                _ -> Nothing
+                            mCompName = mediumReading >>= either (const Nothing) Just
+                            subCompartment = case edSubcompartments edata of
+                                (s : _) | not (T.null s) -> Just s
+                                _ -> Nothing
+                            compartment = case (mCompName, subCompartment) of
+                                (Nothing, Nothing) -> Nothing
+                                (Just c, sc) -> Just (Compartment c sc)
+                                (Nothing, Just _) -> Nothing -- sub without medium is meaningless; drop
+                                -- Biosphere direction: prefer inputGroup/outputGroup, else fall back to the
+                                -- compartment heuristic (natural-resource flows are extractions).
+                                -- An inventory indicator is the exception: it counts what the activity
+                                -- sends away, and a source writes the same indicator under both groups
+                                -- from one dataset to the next, so the group is not information. Reading
+                                -- it would make the direction of a flow depend on which dataset one
+                                -- happens to look at, and cost the writers that reconstruct direction
+                                -- from the compartment their round-trip.
+                            direction
+                                | isInventoryIndicator = Emission
+                                | not (T.null finalInputGroup) = Resource
+                                | not (T.null finalOutputGroup) = Emission
+                                | mCompName == Just NaturalResource = Resource
+                                | otherwise = Emission
+                            isInventoryIndicator = mCompName == Just InventoryIndicator
+                            (flowUUID, flowWarn) = parseUUID (edFlowId edata)
+                            (unitUUID, unitWarn) = parseUUID (edUnitId edata)
+                            mediumWarn = case mediumReading of
+                                Just (Left got) -> Just (unknownMedium got)
+                                Just (Right _) -> Nothing
+                                Nothing -> Nothing
+                            warns =
+                                catMaybes [flowWarn, unitWarn, mediumWarn]
+                                    ++ missingUnitWarning "elementary" (edFlowId edata) (edUnitName edata)
+                            resolvedFlowName = nonBlankOr (edFlowId edata) (edFlowName edata)
+                            unit = mkUnit unitUUID (edUnitName edata)
+                            bioExchange =
+                                BiosphereExchange
+                                    { bioFlowId = flowUUID
+                                    , bioAmount = amount
+                                    , bioUnitId = unitUUID
+                                    , bioDirection = direction
+                                    , bioLocation = "" -- EcoSpold2: no per-exchange location
+                                    , bioComment = snd <$> edComment edata
+                                    , bioPedigree = Nothing
+                                    }
+                            bioFlow = BiosphereFlow flowUUID resolvedFlowName unitUUID (edSynonyms edata) (edCAS edata) Nothing compartment
+                            formula = ExchangeFormula (nonEmptyText (edVariableName edata)) (nonEmptyText (edMathRel edata))
+                            base = finishExchange unit warns state
+                         in addExchange bioExchange formula (addBioFlow bioFlow base)
+                    | otherwise ->
+                        leaveExchange (unreadableAmountWarning "elementary" (edFlowId edata)) state
         | isElement tagName "text" =
             if inGeneralComment state
                 then
@@ -971,7 +993,7 @@ parseWithXeno xmlContent = do
                     InElementaryExchange _ -> state
                     InActivityName -> state
                     InGeographyShortname -> state
-                    InGeneralCommentText _ -> state
+                    InGeneralCommentText -> state
                     Other -> state
              in (popText filed){psPendingProperty = emptyPendingProperty}
         | isElement tagName "synonym" =

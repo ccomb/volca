@@ -439,6 +439,36 @@ withDocumented k = case parseWithXeno documentedXml of
     Left err -> expectationFailure $ "Parse failed: " ++ err
     Right ParsedDataset{pdActivity = act} -> k act
 
+{- | A dataset whose emission states a meanValue that is not a number. The row
+states no amount at all, so nothing here can say what it should be read as.
+-}
+unreadableAmountXml :: BC.ByteString
+unreadableAmountXml =
+    BC.unlines
+        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
+        , "  <dataset number=\"7\">"
+        , "    <metaInformation>"
+        , "      <processInformation>"
+        , "        <referenceFunction name=\"heat production\" category=\"Energy\""
+        , "                           subCategory=\"Heat\" unit=\"MJ\"/>"
+        , "        <geography location=\"FR\" />"
+        , "      </processInformation>"
+        , "    </metaInformation>"
+        , "    <flowData>"
+        , "      <exchange number=\"1\" name=\"heat, district\" category=\"Energy\""
+        , "                subCategory=\"Heat\" unit=\"MJ\" meanValue=\"1.0\">"
+        , "        <outputGroup>0</outputGroup>"
+        , "      </exchange>"
+        , "      <exchange number=\"2\" name=\"Carbon dioxide, fossil\" category=\"air\""
+        , "                subCategory=\"low population density\" unit=\"kg\" meanValue=\"n/a\">"
+        , "        <outputGroup>4</outputGroup>"
+        , "      </exchange>"
+        , "    </flowData>"
+        , "  </dataset>"
+        , "</ecoSpold>"
+        ]
+
 -- ---------------------------------------------------------------------------
 -- Spec
 -- ---------------------------------------------------------------------------
@@ -776,3 +806,17 @@ spec = do
                 Right ParsedDataset{pdBioFlows = bios, pdWarnings = warns} -> do
                     map bfCompartment bios `shouldBe` [Nothing]
                     warns `shouldSatisfy` any (T.isInfixOf "Luft")
+
+    describe "an exchange whose meanValue is not a number" $ do
+        it "reads the rest of the dataset rather than failing the whole load" $
+            case parseWithXeno unreadableAmountXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdActivity = act} ->
+                    map exchangeAmount (exchanges act) `shouldBe` [1.0]
+
+        it "leaves the row out and names it, rather than reading it as zero" $
+            case parseWithXeno unreadableAmountXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdBioFlows = bios, pdWarnings = warns} -> do
+                    length bios `shouldBe` 0
+                    warns `shouldSatisfy` any (T.isInfixOf "Carbon dioxide, fossil")
