@@ -83,7 +83,7 @@ module Database.Loader (
     mergeWasteFlows,
     Harvest (..),
     harvestOf,
-    unitNameConflicts,
+    unitNamesDisagreeing,
     generateActivityUUIDFromActivity,
     datasetUUIDFromPath,
     getReferenceProductUUID,
@@ -234,6 +234,10 @@ which is why the two are exported. The qualifiers are not interchangeable
 either: the flow tables are merged strictly, for the reason the import of
 'Data.Map.Strict' gives, and the rest is left as the build sites had it.
 
+'hvUnits' is under neither law and needs no arbitration: an identifier given
+two names stops the load, and the only merge left is a real name displacing the
+placeholder a nameless declaration carries.
+
 'hvDatasetNumbers' is the one table under neither law: a repeated number is the
 ordinary shape there, not a collision to arbitrate, so both sides are kept and
 the reader picks by product name. See 'DatasetNumberIndex'. It is built and
@@ -252,10 +256,10 @@ data Harvest = Harvest
     , hvRawUnits :: !Int
     -- ^ unit declarations read, before deduplication
     , hvUnitNames :: !(M.Map UUID.UUID (S.Set T.Text))
-    {- ^ Every name the files gave each unit identifier. The identifier is the
-    file's own and the name is what a writer prints and what a conversion looks
-    up, so a file giving one identifier two names has said two things where the
-    table can hold one; 'unitNameConflicts' is where they are said.
+    {- ^ The names the files gave each unit identifier, the placeholder of a
+    nameless declaration aside. The identifier is the file's own and the name
+    is what a writer prints and what a conversion looks up, so two names under
+    one identifier are two units, not two spellings: see 'unitNamesDisagreeing'.
     -}
     }
 
@@ -266,7 +270,7 @@ instance Semigroup Harvest where
             , hvTechFlows = MS.unionWith mergeTechFlows (hvTechFlows a) (hvTechFlows b)
             , hvBioFlows = MS.unionWith mergeBioFlows (hvBioFlows a) (hvBioFlows b)
             , hvWasteFlows = MS.unionWith mergeWasteFlows (hvWasteFlows a) (hvWasteFlows b)
-            , hvUnits = M.union (hvUnits a) (hvUnits b)
+            , hvUnits = MS.unionWith (\l r -> if isPlaceholderUnit l then r else l) (hvUnits a) (hvUnits b)
             , hvUnitNames = MS.unionWith S.union (hvUnitNames a) (hvUnitNames b)
             , hvDatasetNumbers = MS.unionWith (<>) (hvDatasetNumbers a) (hvDatasetNumbers b)
             , hvRawFlows = hvRawFlows a + hvRawFlows b
@@ -286,18 +290,18 @@ harvestOf entries =
         , hvTechFlows = MS.fromListWith mergeTechFlows [(tfId f, f) | f <- techs]
         , hvBioFlows = MS.fromListWith mergeBioFlows [(bfId f, f) | f <- bios]
         , hvWasteFlows = MS.fromListWith mergeWasteFlows [(wfId f, f) | f <- wastes]
-        , hvUnits = MS.fromListWith firstRead [(unitId u, u) | u <- units]
+        , hvUnits = MS.fromListWith namedOverPlaceholder [(unitId u, u) | u <- units]
         , hvDatasetNumbers = MS.fromListWith (flip (<>)) [(pdDatasetNumber parsed, key NE.:| []) | (key, parsed) <- entries, pdDatasetNumber parsed /= 0]
         , hvRawFlows = length techs + length bios + length wastes
         , hvRawUnits = length units
-        , hvUnitNames = MS.fromListWith S.union [(unitId u, S.singleton (unitName u)) | u <- units]
+        , hvUnitNames = MS.fromListWith S.union [(unitId u, S.singleton (unitName u)) | u <- units, not (isPlaceholderUnit u)]
         }
   where
-    -- 'M.fromListWith' hands the new row first, so keeping the second argument
-    -- keeps the row read first, which is the rule two harvests meeting already
-    -- follow for this table. One rule, so 'unitNameConflicts' can name it.
-    firstRead :: Unit -> Unit -> Unit
-    firstRead _ old = old
+    -- The only two rows under one identifier that can be reconciled: a
+    -- declaration with no name carries a placeholder, and a real name takes
+    -- its place whichever was read first. Two real names stop the load.
+    namedOverPlaceholder :: Unit -> Unit -> Unit
+    namedOverPlaceholder new old = if isPlaceholderUnit old then new else old
 
     techs :: [TechnosphereFlow]
     techs = concatMap (pdTechFlows . snd) entries
@@ -308,25 +312,34 @@ harvestOf entries =
     units :: [Unit]
     units = concatMap (pdUnits . snd) entries
 
-{- | One line per unit identifier the files gave more than one name.
+{- | The placeholder a declaration with no name carries.
 
-The identifier is the file's own, so two names under it is the file
-contradicting itself, and the table can hold one of them. It holds the one read
-first, in the order the files were given; the other names are said here rather
-than dropped without a word.
+'EcoSpold.Parser2.mkUnit' writes it so that an exchange whose unit the file left
+blank still has a unit; it is not a name the file gave, so it neither displaces
+a real name nor counts as one.
 -}
-unitNameConflicts :: Harvest -> [String]
-unitNameConflicts h =
+isPlaceholderUnit :: Unit -> Bool
+isPlaceholderUnit u = unitName u == "UNKNOWN_UNIT"
+
+{- | The unit identifiers the files gave more than one name, with the names.
+
+The identifier is the file's own and the name is what a writer prints and what
+a conversion looks up, so @kg@ and @t@ under one identifier are not two
+spellings of one unit: they are two units, and every amount carrying that
+identifier is a thousand times one or the other. Nothing in the files says
+which, so the load stops rather than picking.
+-}
+unitNamesDisagreeing :: Harvest -> [T.Text]
+unitNamesDisagreeing h =
     [ "Unit "
-        <> UUID.toString uid
+        <> T.pack (UUID.toString uid)
         <> " is given more than one name: "
-        <> T.unpack (T.intercalate ", " (S.toList names))
-        <> "; the first one read is kept"
+        <> T.intercalate ", " (S.toList names)
     | (uid, names) <- M.toList (hvUnitNames h)
     , S.size names > 1
     ]
 
--- | The five tables of a harvest that make a database; the other three describe the reading.
+-- | The five tables of a harvest that make a database; the rest describes the reading.
 harvestDatabase :: Harvest -> SimpleDatabase
 harvestDatabase h =
     SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h)
@@ -1453,14 +1466,15 @@ loadEcoSpoldDirectory opts dir = do
                         (M.size (hvUnits harvested))
                         unitDeduplication
                         totalRawUnits
-                mapM_ (reportProgress Warning) (unitNameConflicts harvested)
                 reportMemoryUsage "Final parsing memory usage"
 
                 -- For EcoSpold1: fix activity links using supplier lookup table
                 let simpleDb = harvestDatabase harvested
-                if isEcoSpold1
-                    then Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
-                    else return $ Right simpleDb
+                case unitNamesDisagreeing harvested of
+                    (conflict : more) -> return (Left (T.intercalate "; " (conflict : more)))
+                    []
+                        | isEcoSpold1 -> Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
+                        | otherwise -> return (Right simpleDb)
 
     -- Process one worker's share of files
     processWorker :: UTCTime -> Bool -> (Int, [FilePath]) -> IO (Either T.Text Harvest)
@@ -1560,7 +1574,6 @@ loadSingleEcoSpold1File opts filepath = do
     reportProgress Info $ printf "  Activities: %d processes" (M.size (hvActivities harvested))
     reportProgress Info $ printf "  Flows: %d tech + %d bio + %d waste (from %d raw)" (M.size (hvTechFlows harvested)) (M.size (hvBioFlows harvested)) (M.size (hvWasteFlows harvested)) (hvRawFlows harvested)
     reportProgress Info $ printf "  Units: %d unique (from %d raw)" (M.size (hvUnits harvested)) (hvRawUnits harvested)
-    mapM_ (reportProgress Warning) (unitNameConflicts harvested)
 
     Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
   where

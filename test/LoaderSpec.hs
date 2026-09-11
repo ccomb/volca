@@ -2,7 +2,6 @@
 
 module LoaderSpec (spec) where
 
-import Data.List (isInfixOf)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -322,20 +321,31 @@ spec = do
                 `shouldBe` Just (M.singleton "en" (S.fromList ["mine spoil", "overburden"]))
 
         -- A unit identifier is the file's own, and the name under it is what a
-        -- writer prints and what a conversion looks up. Two names for one
-        -- identifier is the file contradicting itself.
-        it "keeps the first name read for a unit identifier" $ do
-            let harvest = harvestOf [metering "activity-a" [Unit unitUUID1 "kg" "kg" ""], metering "activity-b" [Unit unitUUID1 "kilogram" "kilogram" ""]]
-            fmap unitName (M.lookup unitUUID1 (hvUnits harvest)) `shouldBe` Just "kg"
+        -- writer prints and what a conversion looks up. Two names under one
+        -- identifier are two units, not two spellings of one.
+        it "names both units when one identifier is given two names" $ do
+            let harvest = harvestOf [metering "activity-a" [Unit unitUUID1 "kg" "kg" ""], metering "activity-b" [Unit unitUUID1 "t" "t" ""]]
+            unitNamesDisagreeing harvest
+                `shouldSatisfy` any (\line -> "kg" `T.isInfixOf` line && "t" `T.isInfixOf` line)
 
-        it "keeps the first reader's name too, when two shares meet" $ do
-            let merged = harvestOf [metering "activity-a" [Unit unitUUID1 "kg" "kg" ""]] <> harvestOf [metering "activity-b" [Unit unitUUID1 "kilogram" "kilogram" ""]]
-            fmap unitName (M.lookup unitUUID1 (hvUnits merged)) `shouldBe` Just "kg"
+        it "names them across two readers as well" $ do
+            let merged = harvestOf [metering "activity-a" [Unit unitUUID1 "kg" "kg" ""]] <> harvestOf [metering "activity-b" [Unit unitUUID1 "t" "t" ""]]
+            unitNamesDisagreeing merged `shouldSatisfy` not . null
 
-        it "names both spellings rather than dropping one without a word" $ do
-            let merged = harvestOf [metering "activity-a" [Unit unitUUID1 "kg" "kg" ""]] <> harvestOf [metering "activity-b" [Unit unitUUID1 "kilogram" "kilogram" ""]]
-            unitNameConflicts merged
-                `shouldSatisfy` any (\line -> "kg" `isInfixOf` line && "kilogram" `isInfixOf` line)
+        it "says nothing about an identifier every file names the same way" $ do
+            let merged = harvestOf [metering "activity-a" [Unit unitUUID1 "kg" "kg" ""]] <> harvestOf [metering "activity-b" [Unit unitUUID1 "kg" "kg" ""]]
+            unitNamesDisagreeing merged `shouldBe` []
+
+        -- A declaration with no name carries a placeholder, which is not a name
+        -- the file gave: a real name takes its place and nothing is refused.
+        it "lets a real name take the place of the placeholder, whichever came first" $ do
+            let placeheld = Unit unitUUID1 "UNKNOWN_UNIT" "?" ""
+                named = Unit unitUUID1 "kg" "kg" ""
+                afterFirst = harvestOf [metering "activity-a" [placeheld], metering "activity-b" [named]]
+                afterSecond = harvestOf [metering "activity-a" [named], metering "activity-b" [placeheld]]
+            fmap unitName (M.lookup unitUUID1 (hvUnits afterFirst)) `shouldBe` Just "kg"
+            fmap unitName (M.lookup unitUUID1 (hvUnits afterSecond)) `shouldBe` Just "kg"
+            unitNamesDisagreeing afterFirst `shouldBe` []
 
         -- The dataset-number table is under neither law: an allocated block is
         -- written once per coproduct, all of them under the block's number, so
