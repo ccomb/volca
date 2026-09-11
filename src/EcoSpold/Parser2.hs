@@ -1098,7 +1098,10 @@ parseWithXeno xmlContent = do
 streamParseActivityAndFlowsFromFile :: FilePath -> IO (Either String ParsedDataset)
 streamParseActivityAndFlowsFromFile path = do
     !xmlContent <- BS.readFile path
-    let parsed = parseWithXeno xmlContent
+    -- The failure is named after its file like the warnings below: read across
+    -- an archive of several thousand, a reason that names no file is a reason
+    -- nobody can act on.
+    let parsed = first ((path ++ ": ") ++) (parseWithXeno xmlContent)
     either (const (pure ())) (reportReading path) parsed
     return parsed
 

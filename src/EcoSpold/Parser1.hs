@@ -805,7 +805,10 @@ parseAllWithXeno = fmap (reverse . psCompletedActivities) . foldEcoSpold1
 streamParseActivityAndFlowsFromFile1 :: FilePath -> IO (Either String ParsedDataset)
 streamParseActivityAndFlowsFromFile1 path = do
     !xmlContent <- BS.readFile path
-    let parsed = parseWithXeno xmlContent
+    -- The failure is named after its file like the warnings below: read across
+    -- a directory of several thousand, a reason that names no file is a reason
+    -- nobody can act on.
+    let parsed = first ((path ++ ": ") ++) (parseWithXeno xmlContent)
     either (const (pure ())) (reportReading path) parsed
     return parsed
 
