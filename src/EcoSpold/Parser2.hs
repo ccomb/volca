@@ -247,6 +247,7 @@ data ParseState = ParseState
     , psActivityType :: !(Maybe Int) -- ecospold2 <activity activityType="1..8"> attribute
     , psSpecialActivityType :: !(Maybe Int) -- ecospold2 <activity specialActivityType="…"> attribute
     , psParams :: !(M.Map Text Double) -- <parameter> variableName → amount (amounts are pre-evaluated in the source)
+    , psAmbiguousParams :: !(S.Set Text) -- variableNames declared twice with two amounts, struck from psParams at the end
     , psParamExprs :: !(M.Map Text Text) -- <parameter> variableName → mathematicalRelation (raw formula, for inspection)
     , psPendingParam :: !PendingParam -- attribute accumulator for the open <parameter>
     , psPendingProperty :: !PendingProperty -- attribute and child accumulator for the open <property>
@@ -278,6 +279,7 @@ initialParseState =
         , psActivityType = Nothing
         , psSpecialActivityType = Nothing
         , psParams = M.empty
+        , psAmbiguousParams = S.empty
         , psParamExprs = M.empty
         , psPendingParam = emptyPendingParam
         , psPendingProperty = emptyPendingProperty
@@ -627,7 +629,8 @@ checkFormulas params pairs = case checked of
                 }
   where
     -- Left-biased union: a <parameter> wins over an exchange variable of the same name.
-    env = M.union params (M.fromList [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]])
+    env :: M.Map Text Double
+    env = M.union params (amountsAgreedOn [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]])
     checked = [(ex, rel, Expr.evaluate env (Expr.normalizeExpr '.' rel)) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
@@ -639,6 +642,20 @@ checkFormulas params pairs = case checked of
             <> " but the dataset stores "
             <> T.pack (show (exchangeAmount ex))
     nearlyEqual a b = abs (a - b) <= 1e-9 * max 1 (max (abs a) (abs b))
+
+{- | Bind each variable the rows agree on, and leave the rest unbound.
+
+Two exchanges declaring one @variableName@ with two amounts leave the formulas
+that use it no single reading, and taking whichever was read last would make
+the check above answer on a coin toss. Unbound, those formulas come back
+unevaluable, which is what this check already reports when it cannot judge.
+-}
+amountsAgreedOn :: [(Text, Double)] -> M.Map Text Double
+amountsAgreedOn kvs = M.mapMaybe agreed (M.fromListWith (++) [(k, [v]) | (k, v) <- kvs])
+  where
+    agreed :: [Double] -> Maybe Double
+    agreed [] = Nothing
+    agreed (v : vs) = if all (== v) vs then Just v else Nothing
 
 {- | The fields the dataset left out and this reader stood in for.
 
@@ -986,11 +1003,20 @@ parseWithXeno xmlContent processId = do
         | isElement tagName "parameter" =
             let PendingParam var amt rel = psPendingParam state
                 committed = case (nonEmptyText var, amt) of
-                    (Just v, Just a) ->
-                        state
-                            { psParams = M.insert v a (psParams state)
-                            , psParamExprs = maybe (psParamExprs state) (\r -> M.insert v r (psParamExprs state)) (nonEmptyText rel)
-                            }
+                    (Just v, Just a)
+                        | Just previous <- M.lookup v (psParams state)
+                        , previous /= a ->
+                            state
+                                { psAmbiguousParams = S.insert v (psAmbiguousParams state)
+                                , psWarnings =
+                                    ("[WARNING] Ignoring <parameter> \"" ++ T.unpack v ++ "\" - declared twice with two amounts")
+                                        : psWarnings state
+                                }
+                        | otherwise ->
+                            state
+                                { psParams = M.insert v a (psParams state)
+                                , psParamExprs = maybe (psParamExprs state) (\r -> M.insert v r (psParamExprs state)) (nonEmptyText rel)
+                                }
                     (Just v, Nothing) ->
                         state
                             { psWarnings =
@@ -1030,7 +1056,11 @@ parseWithXeno xmlContent processId = do
             refUnit = fromMaybe "UNKNOWN_UNIT" (psRefUnit st)
             nativeType = ecoSpoldNativeType (psActivityType st) (psSpecialActivityType st)
             pairs = reverse (psExchanges st)
-            formulaCheck = checkFormulas (psParams st) pairs
+            -- A variable the file declared twice with two amounts names no
+            -- value, so it is not one of the dataset's parameters.
+            params = M.withoutKeys (psParams st) (psAmbiguousParams st)
+            paramExprs = M.withoutKeys (psParamExprs st) (psAmbiguousParams st)
+            formulaCheck = checkFormulas params pairs
             -- Apply cutoff strategy to exchanges
             activity =
                 Activity
@@ -1043,8 +1073,8 @@ parseWithXeno xmlContent processId = do
                     , activityLocationSource = locationSource
                     , activityUnit = refUnit
                     , exchanges = map fst pairs
-                    , activityParams = psParams st
-                    , activityParamExprs = psParamExprs st
+                    , activityParams = params
+                    , activityParamExprs = paramExprs
                     , activityNativeType = nativeType
                     , activityNativeId = Nothing
                     , activityFormulaCheck = formulaCheck
