@@ -20,17 +20,10 @@ import Types
 
 {- | The bundled fixture has a `<comment xml:lang="en">...</comment>` on each
 of its four exchanges (1 input, 1 reference output, 2 emissions).
-
-streamParseActivityAndFlowsFromFile derives a synthetic ProcessId from the
-filename and rejects names that don't match `actUUID_prodUUID`, so we copy
-the fixture into a temp path with that shape.
 -}
 withFixture :: (ParsedDataset -> IO ()) -> IO ()
-withFixture k = withSystemTempDirectory "es2-spec" $ \dir -> do
-    bytes <- BS.readFile "test-data/electricity-production.spold"
-    let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
-    BS.writeFile path bytes
-    result <- streamParseActivityAndFlowsFromFile path
+withFixture k = do
+    result <- streamParseActivityAndFlowsFromFile "test-data/electricity-production.spold"
     case result of
         Left err -> expectationFailure $ "Parse failed: " ++ err
         Right res -> k res

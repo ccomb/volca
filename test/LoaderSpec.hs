@@ -9,7 +9,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (copyFile, createDirectoryIfMissing, listDirectory)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
@@ -391,6 +391,32 @@ spec = do
                 actUUIDs <- loadedActUUIDs dir
                 length actUUIDs `shouldBe` 2
                 actUUIDs `shouldSatisfy` notElem fileUUID
+
+    -- -----------------------------------------------------------------------
+    -- EcoSpold2 file-name identity, end to end through loadDatabase
+    -- -----------------------------------------------------------------------
+    describe "EcoSpold2 file-name identity" $ do
+        let plainDir = "test-data/SAMPLE.min4"
+            loadedKeys dir = do
+                result <- loadDatabase defaultUnitConfig dir
+                either (fail . show) (return . M.keys . sdbActivities) result
+            copyRenamed dir rename = do
+                names <- listDirectory plainDir
+                sequence_ [copyFile (plainDir </> n) (dir </> rename i n) | (i, n) <- zip [22971 :: Int ..] names]
+
+        it "reads a name the dataset number precedes, and keys it on the pair alone" $
+            withSystemTempDirectory "es2-numbered" $ \dir -> do
+                copyRenamed dir (\i n -> show i ++ "_" ++ n)
+                numbered <- loadedKeys dir
+                plain <- loadedKeys plainDir
+                numbered `shouldMatchList` plain
+
+        it "reads an archive that numbers some of its files and not others" $
+            withSystemTempDirectory "es2-mixed" $ \dir -> do
+                copyRenamed dir (\i n -> if even i then show i ++ "_" ++ n else n)
+                mixed <- loadedKeys dir
+                plain <- loadedKeys plainDir
+                mixed `shouldMatchList` plain
 
     -- -----------------------------------------------------------------------
     -- getReferenceProductUUID

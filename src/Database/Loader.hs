@@ -1472,14 +1472,15 @@ loadEcoSpoldDirectory opts dir = do
             prodUUID = getReferenceProductUUID activity
          in Right ((actUUID, prodUUID), activity)
     buildProcEntry False filepath activity =
-        -- EcoSpold2: Parse UUIDs from filename
-        let filename = T.pack $ takeBaseName filepath
-         in case T.splitOn "_" filename of
-                [actUUIDText, prodUUIDText] ->
-                    let actUUID = parseUUID actUUIDText
-                        prodUUID = parseUUID prodUUIDText
-                     in Right ((actUUID, prodUUID), activity)
-                _ -> Left $ T.pack $ "Invalid filename format (expected activityUUID_productUUID.spold): " ++ filepath
+        -- EcoSpold2: the identifiers are in the file name. Some publishers put
+        -- the dataset number in front of the pair; neither a UUID nor the
+        -- number holds the separator, so the pair is the last two parts either
+        -- way. The number is dropped: this format addresses its suppliers by
+        -- UUID and numbers no dataset.
+        case reverse (T.splitOn "_" (T.pack (takeBaseName filepath))) of
+            (prodUUIDText : actUUIDText : _) ->
+                Right ((parseUUID actUUIDText, parseUUID prodUUIDText), activity)
+            _ -> Left $ T.pack $ "Invalid filename format (expected [datasetNumber_]activityUUID_productUUID.spold): " ++ filepath
 
 {- | Load a single EcoSpold1 file containing multiple datasets
 This handles files where <ecoSpold> contains multiple <dataset> elements.
