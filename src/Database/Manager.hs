@@ -144,7 +144,10 @@ import Data.Bifunctor (first)
 import Data.Char (toLower)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
+import Data.Indexing (uniqueIndex)
 import Data.List (intercalate, isPrefixOf, sort, sortOn)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isNothing, mapMaybe)
@@ -4540,14 +4543,13 @@ parseGeographies :: Text -> BS.ByteString -> Either Text (Map Text (Text, [Text]
 parseGeographies label bytes = do
     content <- first (\decodeErr -> label <> ": not valid UTF-8 (" <> T.pack (show decodeErr) <> ")") (TE.decodeUtf8' bytes)
     rows <- first (\err -> label <> ": " <> T.pack err) (Csv.decode Csv.NoHeader (BL.fromStrict (TE.encodeUtf8 (T.unlines (filter meaningful (T.lines content))))))
-    let parsed = map entry (V.toList rows)
-        dups = M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(fst p, 1) | p <- parsed]))
     -- A duplicated code would silently shadow the earlier row in the map;
     -- refuse the table instead.
-    if null dups
-        then Right (M.fromList parsed)
-        else Left (label <> ": duplicate codes: " <> T.intercalate ", " dups)
+    first duplicateCodes (uniqueIndex (map entry (V.toList rows)))
   where
+    duplicateCodes :: NonEmpty Text -> Text
+    duplicateCodes codes = label <> ": duplicate codes: " <> T.intercalate ", " (NE.toList codes)
+
     meaningful :: Text -> Bool
     meaningful line =
         let stripped = T.strip line

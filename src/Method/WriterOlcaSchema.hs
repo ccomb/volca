@@ -166,6 +166,7 @@ checkOlcaExportable mc
         checkUniqueIds (mcMethods mc)
         mapM_ checkMethod (mcMethods mc)
   where
+    checkUniqueIds :: [Method] -> Either Text ()
     checkUniqueIds ms =
         case collisions [(methodId m, methodName m) | m <- ms] of
             [] -> Right ()
