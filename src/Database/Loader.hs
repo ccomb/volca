@@ -1457,18 +1457,17 @@ loadEcoSpoldDirectory opts dir = do
         let paired = zipWith (\f -> either (Left . T.pack) (Right . (f,))) workerFiles workerResults
         let (unread, oks) = partitionEithers paired
         let split = [(f, allocateParsed opts r) | (f, r) <- oks]
-            (okFiles, okResults) = unzip [(f, r') | (f, rs) <- split, r' <- rs]
         unless isEcoSpold1 $
             mapM_ (warnSplitKeyedOnFileName . fst) (filter ((> 1) . length . snd) split)
-        let procEntries = zipWith (buildProcEntry isEcoSpold1) okFiles (map pdActivity okResults)
+        let (unreadableNames, keyed) = partitionEithers [keyDatasetsOf isEcoSpold1 f rs | (f, rs) <- split]
 
         -- A file whose content has no reading and a file whose name has none
         -- are the same answer: it was offered and it becomes no dataset. They
         -- refuse together rather than one of them being dropped with a word.
-        case unread <> lefts procEntries of
+        case unread <> unreadableNames of
             (refusal : rest) -> return $ Left (refusal NE.:| rest)
             [] -> do
-                let !harvested = harvestOf (zip (map fst (rights procEntries)) okResults)
+                let !harvested = harvestOf (concat keyed)
 
                 workerEndTime <- getCurrentTime
                 let workerDuration = realToFrac $ diffUTCTime workerEndTime workerStartTime
@@ -1486,16 +1485,29 @@ loadEcoSpoldDirectory opts dir = do
 
                 return $ Right harvested
 
-    -- Build a single process entry, returning Either for error handling
-    buildProcEntry :: Bool -> FilePath -> Activity -> Either T.Text ((UUID, UUID), Activity)
-    buildProcEntry True filepath activity =
+    -- \| The datasets one file becomes, each under its own key, or the one
+    --    reason it becomes none.
+    --
+    --    The key is read once per process the file holds, but the reason a file has
+    --    none is read once for the file: an EcoSpold 2 key is read from the name,
+    --    which is the same name however many processes the allocation divided the
+    --    file into, so reading it per process would name a refused file once per
+    --    process and count more refusals than the directory offered files.
+    --
+    keyDatasetsOf :: Bool -> FilePath -> [ParsedDataset] -> Either T.Text [((UUID, UUID), ParsedDataset)]
+    keyDatasetsOf isEcoSpold1 filepath =
+        traverse (\parsed -> (,parsed) <$> processKeyOf isEcoSpold1 filepath (pdActivity parsed))
+
+    -- The (activity, product) pair one process is filed under
+    processKeyOf :: Bool -> FilePath -> Activity -> Either T.Text (UUID, UUID)
+    processKeyOf True filepath activity =
         -- EcoSpold1: prefer the identifier the file itself carries, so a
         -- dataset keeps its identity across releases; mint from name and
         -- location only when the file name carries none.
         let actUUID = fromMaybe (generateActivityUUIDFromActivity activity) (datasetUUIDFromPath filepath)
             prodUUID = getReferenceProductUUID activity
-         in Right ((actUUID, prodUUID), activity)
-    buildProcEntry False filepath activity =
+         in Right (actUUID, prodUUID)
+    processKeyOf False filepath _activity =
         -- EcoSpold2: the identifiers are in the file name. Some publishers put
         -- the dataset number in front of the pair, and the pair is then the
         -- last two parts. What says the leading part is a number rather than
@@ -1507,11 +1519,11 @@ loadEcoSpoldDirectory opts dir = do
         -- no dataset.
         case reverse (T.splitOn "_" (T.pack (takeBaseName filepath))) of
             [prodUUIDText, actUUIDText] ->
-                Right ((parseUUID actUUIDText, parseUUID prodUUIDText), activity)
+                Right (parseUUID actUUIDText, parseUUID prodUUIDText)
             prodUUIDText : actUUIDText : _ : _
                 | Just prodUUID <- UUID.fromText prodUUIDText
                 , Just actUUID <- UUID.fromText actUUIDText ->
-                    Right ((actUUID, prodUUID), activity)
+                    Right (actUUID, prodUUID)
             _ -> Left $ T.pack $ filepath ++ ": the name is not [datasetNumber_]activityUUID_productUUID"
 
 {- | Load a single EcoSpold1 file containing multiple datasets
@@ -1525,14 +1537,14 @@ loadSingleEcoSpold1File :: LoadOptions -> FilePath -> IO (Either T.Text SimpleDa
 loadSingleEcoSpold1File opts filepath = do
     let locationAliases = loLocationAliases opts
     reportProgress Info "Parsing multi-dataset EcoSpold1 file..."
-    parsed <- streamParseAllDatasetsFromFile1 filepath
-    reportProgress Info $ "Parsed " ++ show (length parsed) ++ " datasets from file"
-    -- The parser answers with a list, and a file it could not read at all
-    -- answers with an empty one. An empty database is not what was asked for
-    -- and reads as a complete one, so it is a refusal, as it is for a CSV.
-    if null parsed
-        then return $ Left $ T.pack filepath <> ": no dataset could be read from this file"
-        else do
+    read1 <- streamParseAllDatasetsFromFile1 filepath
+    -- A file that holds no dataset would otherwise load as an empty database,
+    -- which reads exactly like a complete one. It refuses instead, and says
+    -- what the parser made of it, as it does for a CSV holding no process.
+    case read1 of
+        Left reason -> return $ Left (T.pack reason)
+        Right parsed -> do
+            reportProgress Info $ "Parsed " ++ show (length parsed) ++ " datasets from file"
             let results = concatMap (allocateParsed opts) parsed
 
             -- Build activity map from all parsed activities
