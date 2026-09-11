@@ -266,7 +266,7 @@ instance Semigroup Harvest where
             }
 
 instance Monoid Harvest where
-    mempty = Harvest M.empty MS.empty MS.empty M.empty M.empty M.empty 0 0
+    mempty = Harvest M.empty MS.empty MS.empty MS.empty M.empty M.empty 0 0
 
 {- | Harvest a batch of parsed datasets, each already keyed by the (activity,
 product) pair its source names it under.
