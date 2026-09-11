@@ -538,21 +538,17 @@ data NameProducer = NameProducer
     }
     deriving (Eq, Show)
 
-{- | Type alias for name-only supplier lookup (for SimaPro and Brightway Excel)
-Maps normalizedProductName → every activity producing it, ranked by
-'producerOrder' so the head is the one the tie-break picks.
+{- | Name-only supplier lookup, mapping a normalized product name to every
+activity producing it, ranked by 'producerOrder' so the head is the one the
+tie-break picks.
+
+Several is the ordinary shape, not the exception: a product name carries no
+location, so one name covers every geography the product is made in. The
+SimaPro and Brightway Excel readers take the head; the EcoSpold1 reader refuses
+a name covering more than one dataset, because there a location was expected
+and is missing.
 -}
 type NameOnlyIndex = M.Map T.Text (NE.NonEmpty NameProducer)
-
-{- | Name-only supplier lookup for EcoSpold1, mapping a normalized product name
-to every dataset producing it as @(activityUUID, productUUID, location)@.
-
-Several is the ordinary shape here, not the exception: an EcoSpold1 product name
-carries no location, so one name covers every geography the product is made in.
-That is why the value is a 'NE.NonEmpty' and why both readers refuse a name that
-covers more than one dataset instead of taking whichever it finds.
--}
-type SupplierByNameWithLocation = M.Map T.Text (NE.NonEmpty (UUID.UUID, UUID.UUID, T.Text))
 
 {- | Dataset number → the datasets carrying it, for EcoSpold1 Tier 1 linking.
 
@@ -725,6 +721,11 @@ Two blocks the file gives no way to tell apart are ordered by activity name
 then by location, never by identifier: a change in how identity is minted must
 not move a supply chain. The identifier breaks the last tie only.
 
+'activityIsObsolete' answers on a spelling: a @Category@ whose segments include
+one reading @Obsolete@. A format that marks a retired block some other way, or
+not at all, therefore answers 'False' for every dataset, and the ranking starts
+at the activity name. The axis is there for the formats that say it.
+
 The duplication is a defect in its own right, and 'Database.Quality' reports it
 as one, along with an input a retired block supplies.
 -}
@@ -768,20 +769,6 @@ buildSupplierIndexByName = rankedProducers const
 -- | The rank a producer holds among those sharing a product name.
 producerOrder :: NameProducer -> (Bool, T.Text, T.Text, UUID.UUID)
 producerOrder p = (npObsolete p, npActivityName p, npLocation p, npActivityUUID p)
-
-{- | Build the name-only supplier index for EcoSpold1 linking, keeping every
-dataset a name covers rather than the last one seen.
--}
-buildSupplierIndexByNameWithLocation :: ActivityMap -> TechFlowDB -> SupplierByNameWithLocation
-buildSupplierIndexByNameWithLocation activities techFlowDb =
-    M.fromListWith
-        (flip (<>))
-        [ (normalizeText (tfName flow), (actUUID, prodUUID, activityLocation act) NE.:| [])
-        | ((actUUID, prodUUID), act) <- M.toList activities
-        , ex <- exchanges act
-        , exchangeIsReference ex
-        , Just flow <- [M.lookup (exchangeFlowId ex) techFlowDb]
-        ]
 
 {- | Fix EcoSpold1 activity links by resolving supplier references.
 An input's dataset number names its supplier first, checked against the
@@ -853,7 +840,7 @@ argument and makes the dependencies explicit.
 data ExchangeLinkContext = ExchangeLinkContext
     { elcLocationAliases :: !(M.Map T.Text T.Text)
     , elcSupplierIndex :: !SupplierIndex
-    , elcNameIndex :: !SupplierByNameWithLocation
+    , elcNameIndex :: !NameOnlyIndex
     , elcDatasetIndex :: !DatasetNumberIndex
     , elcFlowDB :: !TechFlowDB
     , elcActivities :: !ActivityMap
@@ -865,8 +852,8 @@ ecoSpold1LinkContext locationAliases dsIndex db =
     ExchangeLinkContext
         { elcLocationAliases = locationAliases
         , elcSupplierIndex = buildSupplierIndex (sdbUnits db) (sdbActivities db) (sdbTechFlows db)
-        , -- Name-only index, with location, for exchanges missing the location attribute
-          elcNameIndex = buildSupplierIndexByNameWithLocation (sdbActivities db) (sdbTechFlows db)
+        , -- Name-only index, for exchanges missing the location attribute
+          elcNameIndex = buildSupplierIndexByName (sdbUnits db) (sdbActivities db) (sdbTechFlows db)
         , elcDatasetIndex = dsIndex
         , elcFlowDB = sdbTechFlows db
         , elcActivities = sdbActivities db
@@ -913,7 +900,7 @@ fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlo
                             -- Tier 2: name + location lookup
                             let soleSupplier = M.lookup (normalizeText (tfName flow)) elcNameIndex >>= sole
                                 lookupLoc
-                                    | T.null declaredLoc = maybe declaredLoc (\(_, _, actLoc) -> actLoc) soleSupplier
+                                    | T.null declaredLoc = maybe declaredLoc npLocation soleSupplier
                                     | otherwise = declaredLoc
                                 key = (normalizeText (tfName flow), lookupLoc)
                              in case M.lookup key elcSupplierIndex of
@@ -925,7 +912,7 @@ fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlo
                                         -- covers a single dataset. A name shared by
                                         -- several geographies names none of them.
                                         case soleSupplier of
-                                            Just (actUUID, prodUUID, _) -> linked [] [] actUUID prodUUID
+                                            Just p -> linked [] [] (npActivityUUID p) (npProductUUID p)
                                             Nothing -> unlinked flow lookupLoc
                 Nothing ->
                     (ex, mempty{usTotalLinks = 1, usMissingLinks = 1})
