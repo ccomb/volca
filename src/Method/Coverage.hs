@@ -26,6 +26,7 @@ module Method.Coverage (
     collectionBridges,
 ) where
 
+import Data.Containers.ListUtils (nubOrdOn)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, listToMaybe)
@@ -139,8 +140,8 @@ collectionBridges name total characterized perMethod =
     -- keeps its first-seen strategy.
     flowsOf items =
         sortOn brfFlowName $
-            [ BridgedFlow fname strat
-            | (fname, strat) <- M.toList (M.fromListWith (\_ old -> old) [(bfName f, s) | (_, f, s) <- items])
+            [ BridgedFlow (bfName f) s
+            | (_, f, s) <- nubOrdOn (\(_, f, _) -> bfName f) items
             ]
 
 isExact :: Reach -> Bool

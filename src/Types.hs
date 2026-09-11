@@ -36,6 +36,7 @@ import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 
 import Control.Lens ((&), (?~))
+import Data.Containers.ListUtils (nubOrdOn)
 import Data.List (find, nub)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -2041,37 +2042,26 @@ instance Monoid CrossDBLinkingStats where
             , cdlCutoffWasteCount = 0
             }
 
--- | Deduplicate location fallbacks by (product, requestedLoc)
+-- The four report lists below keep one row per (product, requested location):
+-- the same fallback is taken once per input that asks for it, and a reader
+-- wants the case, not the tally. The first row seen is the one kept, so each
+-- list stays in the order the load found them.
+
+-- | One location fallback per (product, requested location).
 deduplicateFallbacks :: [LocationFallback] -> [LocationFallback]
-deduplicateFallbacks =
-    map snd
-        . M.toList
-        . M.fromListWith (\_ b -> b)
-        . map (\f -> ((lfProduct f, lfRequested f), f))
+deduplicateFallbacks = nubOrdOn (\f -> (lfProduct f, lfRequested f))
 
--- | Deduplicate unresolved entries by (product, requestedLoc)
+-- | One unresolved entry per (product, requested location).
 deduplicateUnresolved :: [LocationUnresolved] -> [LocationUnresolved]
-deduplicateUnresolved =
-    map snd
-        . M.toList
-        . M.fromListWith (\_ b -> b)
-        . map (\u -> ((luProduct u, luRequested u), u))
+deduplicateUnresolved = nubOrdOn (\u -> (luProduct u, luRequested u))
 
--- | Deduplicate attribute fallbacks by (product, requestedLoc)
+-- | One attribute fallback per (product, requested location).
 deduplicateAttributeFallbacks :: [AttributeFallback] -> [AttributeFallback]
-deduplicateAttributeFallbacks =
-    map snd
-        . M.toList
-        . M.fromListWith (\_ b -> b)
-        . map (\a -> ((afProduct a, afRequested a), a))
+deduplicateAttributeFallbacks = nubOrdOn (\a -> (afProduct a, afRequested a))
 
--- | Deduplicate supplier ambiguities by (product, requestedLoc)
+-- | One supplier ambiguity per (product, requested location).
 deduplicateSupplierAmbiguities :: [SupplierAmbiguity] -> [SupplierAmbiguity]
-deduplicateSupplierAmbiguities =
-    map snd
-        . M.toList
-        . M.fromListWith (\_ b -> b)
-        . map (\a -> ((saProduct a, saRequested a), a))
+deduplicateSupplierAmbiguities = nubOrdOn (\a -> (saProduct a, saRequested a))
 
 -- | Number of resolved cross-DB links
 crossDBLinksCount :: CrossDBLinkingStats -> Int

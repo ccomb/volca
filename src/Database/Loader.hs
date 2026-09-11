@@ -108,6 +108,7 @@ import Control.Monad
 import Data.Bits (xor)
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
+import Data.Containers.ListUtils (nubOrdOn)
 import Data.Either (lefts, partitionEithers, rights)
 import Data.List (intercalate, sort, sortBy, sortOn)
 import qualified Data.List.NonEmpty as NE
@@ -645,8 +646,10 @@ reportAmbiguousProducers ties = do
                 apCandidates
                 (T.unpack apChosen)
   where
+    -- One line per choice made, and the first one made: the count it carries
+    -- is the same on every row that shares the product and the activity.
     unique :: [AmbiguousProducer]
-    unique = M.elems $ M.fromList [((apProduct t, apChosen t), t) | t <- ties]
+    unique = nubOrdOn (\t -> (apProduct t, apChosen t)) ties
 
 -- | Report grouped summary of unlinked exchanges
 reportUnlinkedActivities :: UnlinkedSummary -> IO ()
