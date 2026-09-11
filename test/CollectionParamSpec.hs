@@ -2,8 +2,8 @@
 
 {- | What shape does the published spec give the @collection@ parameter?
 
-A method collection is named in a path capture on nine routes and in a query
-parameter on three more, and the Haskell type behind those positions is what
+A method collection is named by a path capture on some routes and by a query
+parameter on others, and the Haskell type behind those positions is what
 decides the schema the published spec carries. 'ResourcesDriftSpec' compares
 parameter /names/ only, so a parameter whose schema changed underneath keeps
 every test in this suite green. This is the test that notices, and it is what
