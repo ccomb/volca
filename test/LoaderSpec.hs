@@ -441,8 +441,9 @@ spec = do
                         [refExchange flowUUID1]
                 acts = M.fromList [((actUUID1, flowUUID1), act)]
                 flows = M.fromList [(flowUUID1, minimalFlow flowUUID1 "Wheat")]
-                idx = buildSupplierIndex acts flows
-            M.lookup ("wheat", "GLO") idx `shouldBe` Just (actUUID1, flowUUID1)
+                idx = buildSupplierIndex M.empty acts flows
+            fmap (fmap npActivityUUID) (M.lookup ("wheat", "GLO") idx)
+                `shouldBe` Just (actUUID1 NE.:| [])
 
         it "does not index input (non-reference) exchanges" $ do
             let act =
@@ -452,8 +453,25 @@ spec = do
                         [inputExchange flowUUID1 "GLO"]
                 acts = M.fromList [((actUUID1, flowUUID1), act)]
                 flows = M.fromList [(flowUUID1, minimalFlow flowUUID1 "Wheat")]
-                idx = buildSupplierIndex acts flows
+                idx = buildSupplierIndex M.empty acts flows
             M.null idx `shouldBe` True
+
+        -- A name and a location do not tell two exports of one block apart, so
+        -- the key holds both and the ranking says which supplies. The retired
+        -- block here is the one a table keeping a single entry would have kept:
+        -- it holds the later identifier and the earlier name.
+        it "ranks a retired block behind the one still in service, at one location" $ do
+            let live = minimalActivity "wheat production, z" "GLO" [refExchange flowUUID1]
+                old = retired (minimalActivity "wheat production, a" "GLO" [refExchange flowUUID2])
+                acts = M.fromList [((actUUID1, flowUUID1), live), ((actUUID2, flowUUID2), old)]
+                flows =
+                    M.fromList
+                        [ (flowUUID1, minimalFlow flowUUID1 "Wheat")
+                        , (flowUUID2, minimalFlow flowUUID2 "Wheat")
+                        ]
+                idx = buildSupplierIndex M.empty acts flows
+            fmap (NE.toList . fmap npActivityUUID) (M.lookup ("wheat", "GLO") idx)
+                `shouldBe` Just [actUUID1, actUUID2]
 
     -- -----------------------------------------------------------------------
     -- buildSupplierIndexByName (name-only keyed, SimaPro style)
@@ -828,6 +846,23 @@ spec = do
                 db = simpleDBOf [heatA, heatB, greenhouse] names
                 (acts, _) = fixAllActivities (ecoSpold1LinkContext M.empty dsIndex db) (sdbActivities db)
             inputLinksIn acts `shouldBe` [Nothing]
+
+        -- Two exports of one block share a product name and a location, so the
+        -- key reaches both and the ranking picks; the retired one holds the
+        -- later identifier, which is what used to decide.
+        it "links to the block still in service, and says the choice was made" $ do
+            let live = ((actUUID1, flowUUID1), minimalActivity "wheat production, z" "GLO" [refExchange flowUUID1])
+                old = ((actUUID2, flowUUID2), retired (minimalActivity "wheat production, a" "GLO" [refExchange flowUUID2]))
+                consumer =
+                    ( (consumerUUID, breadUUID)
+                    , minimalActivity "bread production" "CH" [refExchange breadUUID, inputExchange flowUUID1 "GLO"]
+                    )
+                names = [(flowUUID1, "Wheat"), (flowUUID2, "Wheat"), (breadUUID, "Bread")]
+                db = simpleDBOf [live, old, consumer] names
+                (acts, summary) = fixAllActivities (ecoSpold1LinkContext M.empty M.empty db) (sdbActivities db)
+            inputLinksIn acts `shouldBe` [Just actUUID1]
+            usAmbiguousProducers summary
+                `shouldBe` [AmbiguousProducer{apProduct = "Wheat", apChosen = "wheat production, z", apCandidates = 2}]
 
     -- -----------------------------------------------------------------------
     -- countTotalTechInputs / countUnlinkedExchanges / collectUnlinkedProductNames

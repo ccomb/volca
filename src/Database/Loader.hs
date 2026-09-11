@@ -510,8 +510,16 @@ indexActivities activities =
             <> activityLocation kept
             <> "': they differ only in case, no process identifier tells them apart, and only the last read keeps its inventory"
 
--- | Type alias for supplier lookup index (with location)
-type SupplierIndex = M.Map (T.Text, T.Text) (UUID.UUID, UUID.UUID)
+{- | Supplier lookup for EcoSpold1, mapping @(normalized product name,
+location)@ to every activity answering it, ranked by 'producerOrder' so the head
+is the one the tie-break picks.
+
+Several is not the exception it looks like: a name and a location leave a block
+exported twice, and an allocated block's coproducts, indistinguishable. Keeping
+one entry kept whichever the map ordering of the identifiers put last, which is
+a ranking on minted identity and the one thing the ranking must never be.
+-}
+type SupplierIndex = M.Map (T.Text, T.Text) (NE.NonEmpty NameProducer)
 
 {- | One activity of this database producing a given product name.
 
@@ -530,21 +538,17 @@ data NameProducer = NameProducer
     }
     deriving (Eq, Show)
 
-{- | Type alias for name-only supplier lookup (for SimaPro and Brightway Excel)
-Maps normalizedProductName → every activity producing it, ranked by
-'producerOrder' so the head is the one the tie-break picks.
+{- | Name-only supplier lookup, mapping a normalized product name to every
+activity producing it, ranked by 'producerOrder' so the head is the one the
+tie-break picks.
+
+Several is the ordinary shape, not the exception: a product name carries no
+location, so one name covers every geography the product is made in. The
+SimaPro and Brightway Excel readers take the head; the EcoSpold1 reader refuses
+a name covering more than one dataset, because there a location was expected
+and is missing.
 -}
 type NameOnlyIndex = M.Map T.Text (NE.NonEmpty NameProducer)
-
-{- | Name-only supplier lookup for EcoSpold1, mapping a normalized product name
-to every dataset producing it as @(activityUUID, productUUID, location)@.
-
-Several is the ordinary shape here, not the exception: an EcoSpold1 product name
-carries no location, so one name covers every geography the product is made in.
-That is why the value is a 'NE.NonEmpty' and why both readers refuse a name that
-covers more than one dataset instead of taking whichever it finds.
--}
-type SupplierByNameWithLocation = M.Map T.Text (NE.NonEmpty (UUID.UUID, UUID.UUID, T.Text))
 
 {- | Dataset number → the datasets carrying it, for EcoSpold1 Tier 1 linking.
 
@@ -707,75 +711,68 @@ reportUnlinkedActivities summary
 normalizeText :: T.Text -> T.Text
 normalizeText = T.toLower . T.strip . normalizeUnicode
 
-{- | Build supplier index: (normalizedProductName, location) → (activityUUID, productUUID)
-For each activity, we index it by its reference product name + activity location
--}
-buildSupplierIndex :: ActivityMap -> TechFlowDB -> SupplierIndex
-buildSupplierIndex activities techFlowDb =
-    M.fromList
-        [ ((normalizeText (tfName flow), activityLocation act), (actUUID, prodUUID))
-        | ((actUUID, prodUUID), act) <- M.toList activities
-        , ex <- exchanges act
-        , exchangeIsReference ex
-        , Just flow <- [M.lookup (exchangeFlowId ex) techFlowDb]
-        ]
+{- | Every activity of the database under the key its reference product gives
+it, ranked best first.
 
-{- | Build name-only supplier index for SimaPro linking, on the reference
-product name and nothing else.
-
-When several activities produce one product name they are duplicates of each
-other, a block exported twice, most often because one of the two has been
-retired. The file says which: a retired block is filed under an obsolete
-category, and 'activityIsObsolete' reads it, so the block still in service
-supplies and the retired one supplies nothing. On the Agribalyse 4.0 export of
-13 May 2026 that settles all ten of its duplicated products.
+When several activities answer one key they are duplicates of each other, a
+block exported twice, most often because one of the two has been retired. The
+file says which: a retired block is filed under an obsolete category, and
+'activityIsObsolete' reads it, so the block still in service supplies and the
+retired one supplies nothing. On the Agribalyse 4.0 export of 13 May 2026 that
+settles all ten of its duplicated products.
 
 Two blocks the file gives no way to tell apart are ordered by activity name
 then by location, never by identifier: a change in how identity is minted must
 not move a supply chain. The identifier breaks the last tie only.
 
+'activityIsObsolete' answers on a spelling: a @Category@ whose segments include
+one reading @Obsolete@. A format that marks a retired block some other way, or
+not at all, therefore answers 'False' for every dataset, and the ranking starts
+at the activity name. The axis is there for the formats that say it.
+
 The duplication is a defect in its own right, and 'Database.Quality' reports it
 as one, along with an input a retired block supplies.
 -}
-buildSupplierIndexByName :: UnitDB -> ActivityMap -> TechFlowDB -> NameOnlyIndex
-buildSupplierIndexByName unitDB activities techFlowDb =
+rankedProducers ::
+    (Ord k) =>
+    (T.Text -> Activity -> k) ->
+    UnitDB ->
+    ActivityMap ->
+    TechFlowDB ->
+    M.Map k (NE.NonEmpty NameProducer)
+rankedProducers keyOf unitDB activities techFlowDb =
     M.map (NE.sortWith producerOrder) $
         M.fromListWith
             (<>)
-            [ ( normalizeText (tfName flow)
-              , NameProducer
-                    { npActivityUUID = actUUID
-                    , npProductUUID = prodUUID
-                    , npActivityName = activityName act
-                    , npLocation = activityLocation act
-                    , npObsolete = activityIsObsolete act
-                    , npReferenceUnit = getUnitNameForExchange unitDB ex
-                    }
-                    NE.:| []
-              )
+            [ (keyOf (normalizeText (tfName flow)) act, producing actUUID prodUUID act ex NE.:| [])
             | ((actUUID, prodUUID), act) <- M.toList activities
             , ex <- exchanges act
             , exchangeIsReference ex
             , Just flow <- [M.lookup (exchangeFlowId ex) techFlowDb]
             ]
+  where
+    producing :: UUID.UUID -> UUID.UUID -> Activity -> Exchange -> NameProducer
+    producing actUUID prodUUID act ex =
+        NameProducer
+            { npActivityUUID = actUUID
+            , npProductUUID = prodUUID
+            , npActivityName = activityName act
+            , npLocation = activityLocation act
+            , npObsolete = activityIsObsolete act
+            , npReferenceUnit = getUnitNameForExchange unitDB ex
+            }
+
+-- | Supplier lookup for EcoSpold1: the reference product name and the location.
+buildSupplierIndex :: UnitDB -> ActivityMap -> TechFlowDB -> SupplierIndex
+buildSupplierIndex = rankedProducers (\name act -> (name, activityLocation act))
+
+-- | Supplier lookup for SimaPro: the reference product name and nothing else.
+buildSupplierIndexByName :: UnitDB -> ActivityMap -> TechFlowDB -> NameOnlyIndex
+buildSupplierIndexByName = rankedProducers const
 
 -- | The rank a producer holds among those sharing a product name.
 producerOrder :: NameProducer -> (Bool, T.Text, T.Text, UUID.UUID)
 producerOrder p = (npObsolete p, npActivityName p, npLocation p, npActivityUUID p)
-
-{- | Build the name-only supplier index for EcoSpold1 linking, keeping every
-dataset a name covers rather than the last one seen.
--}
-buildSupplierIndexByNameWithLocation :: ActivityMap -> TechFlowDB -> SupplierByNameWithLocation
-buildSupplierIndexByNameWithLocation activities techFlowDb =
-    M.fromListWith
-        (flip (<>))
-        [ (normalizeText (tfName flow), (actUUID, prodUUID, activityLocation act) NE.:| [])
-        | ((actUUID, prodUUID), act) <- M.toList activities
-        , ex <- exchanges act
-        , exchangeIsReference ex
-        , Just flow <- [M.lookup (exchangeFlowId ex) techFlowDb]
-        ]
 
 {- | Fix EcoSpold1 activity links by resolving supplier references.
 An input's dataset number names its supplier first, checked against the
@@ -847,7 +844,7 @@ argument and makes the dependencies explicit.
 data ExchangeLinkContext = ExchangeLinkContext
     { elcLocationAliases :: !(M.Map T.Text T.Text)
     , elcSupplierIndex :: !SupplierIndex
-    , elcNameIndex :: !SupplierByNameWithLocation
+    , elcNameIndex :: !NameOnlyIndex
     , elcDatasetIndex :: !DatasetNumberIndex
     , elcFlowDB :: !TechFlowDB
     , elcActivities :: !ActivityMap
@@ -858,9 +855,9 @@ ecoSpold1LinkContext :: M.Map T.Text T.Text -> DatasetNumberIndex -> SimpleDatab
 ecoSpold1LinkContext locationAliases dsIndex db =
     ExchangeLinkContext
         { elcLocationAliases = locationAliases
-        , elcSupplierIndex = buildSupplierIndex (sdbActivities db) (sdbTechFlows db)
-        , -- Name-only index, with location, for exchanges missing the location attribute
-          elcNameIndex = buildSupplierIndexByNameWithLocation (sdbActivities db) (sdbTechFlows db)
+        , elcSupplierIndex = buildSupplierIndex (sdbUnits db) (sdbActivities db) (sdbTechFlows db)
+        , -- Name-only index, for exchanges missing the location attribute
+          elcNameIndex = buildSupplierIndexByName (sdbUnits db) (sdbActivities db) (sdbTechFlows db)
         , elcDatasetIndex = dsIndex
         , elcFlowDB = sdbTechFlows db
         , elcActivities = sdbActivities db
@@ -890,9 +887,9 @@ Returns (fixed exchange, UnlinkedSummary)
 fixExchangeLink :: ExchangeLinkContext -> Activity -> Exchange -> (Exchange, UnlinkedSummary)
 fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlowId = fid, techRole = role, techSupplierClaim = claim, techLocation = loc}
     | role == Input || role == ReferenceInput =
-        let linked overrides actUUID prodUUID =
+        let linked overrides ties actUUID prodUUID =
                 ( ex{techFlowId = prodUUID, techActivityLinkId = Just actUUID}
-                , mempty{usTotalLinks = 1, usFoundLinks = 1, usLocationOverrides = overrides}
+                , mempty{usTotalLinks = 1, usFoundLinks = 1, usLocationOverrides = overrides, usAmbiguousProducers = ties}
                 )
             unlinked flow lookupLoc =
                 let ue = UnlinkedExchange (tfName flow) lookupLoc
@@ -902,22 +899,24 @@ fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlo
                     -- Tier 1: dataset-number lookup with name validation
                     case claimedNumber claim >>= \dsNum -> (,) dsNum <$> (M.lookup dsNum elcDatasetIndex >>= supplierNamed flow) of
                         Just (dsNum, (actUUID, prodUUID)) ->
-                            linked (locationOverride flow dsNum (actUUID, prodUUID)) actUUID prodUUID
+                            linked (locationOverride flow dsNum (actUUID, prodUUID)) [] actUUID prodUUID
                         Nothing ->
                             -- Tier 2: name + location lookup
                             let soleSupplier = M.lookup (normalizeText (tfName flow)) elcNameIndex >>= sole
                                 lookupLoc
-                                    | T.null declaredLoc = maybe declaredLoc (\(_, _, actLoc) -> actLoc) soleSupplier
+                                    | T.null declaredLoc = maybe declaredLoc npLocation soleSupplier
                                     | otherwise = declaredLoc
                                 key = (normalizeText (tfName flow), lookupLoc)
                              in case M.lookup key elcSupplierIndex of
-                                    Just (actUUID, prodUUID) -> linked [] actUUID prodUUID
+                                    Just producers ->
+                                        let chosen = NE.head producers
+                                         in linked [] (tiedOn (tfName flow) producers) (npActivityUUID chosen) (npProductUUID chosen)
                                     Nothing ->
                                         -- Tier 3: the name alone, and only when it
                                         -- covers a single dataset. A name shared by
                                         -- several geographies names none of them.
                                         case soleSupplier of
-                                            Just (actUUID, prodUUID, _) -> linked [] actUUID prodUUID
+                                            Just p -> linked [] [] (npActivityUUID p) (npProductUUID p)
                                             Nothing -> unlinked flow lookupLoc
                 Nothing ->
                     (ex, mempty{usTotalLinks = 1, usMissingLinks = 1})
