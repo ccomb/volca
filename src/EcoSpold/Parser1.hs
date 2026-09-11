@@ -24,6 +24,7 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import Data.Either (lefts, rights)
 import qualified Data.IntMap.Strict as IM
+import Data.List (intercalate)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Set as S
@@ -823,16 +824,27 @@ reportReading path = mapM_ (reportProgress Warning . ((path ++ ": ") ++) . T.unp
 {- | Parse ALL datasets from a single EcoSpold1 file
 Used for multi-dataset files where <ecoSpold> contains multiple <dataset> elements
 Skips activities that fail (e.g. no reference product) and logs warnings
+
+A file that yields not one dataset answers with the reason rather than with an
+empty list: the caller has nothing to load and is going to say so, and the only
+place the reason would otherwise be is a log line it cannot quote.
 -}
-streamParseAllDatasetsFromFile1 :: FilePath -> IO [ParsedDataset]
+streamParseAllDatasetsFromFile1 :: FilePath -> IO (Either String [ParsedDataset])
 streamParseAllDatasetsFromFile1 path = do
     !xmlContent <- BS.readFile path
     case parseAllWithXeno xmlContent of
+        Left err -> return $ Left (path ++ ": " ++ err)
         Right results -> do
             forM_ (lefts results) $ \e ->
                 reportProgress Warning $ "Skipping dataset in " ++ path ++ ": " ++ e
             mapM_ (reportReading path) (rights results)
-            return (rights results)
-        Left err -> do
-            reportProgress Warning $ "Failed to parse " ++ path ++ ": " ++ err
-            return []
+            return $ case rights results of
+                [] -> Left (yieldedNothing path (lefts results))
+                kept -> Right kept
+
+{- | Why a file that parsed holds no dataset: what each of them was skipped
+for, or that there were none to skip.
+-}
+yieldedNothing :: FilePath -> [String] -> String
+yieldedNothing path [] = path ++ ": the file holds no dataset"
+yieldedNothing path skipped = path ++ ": every dataset in it was skipped: " ++ intercalate "; " skipped
