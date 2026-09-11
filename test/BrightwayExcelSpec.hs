@@ -15,7 +15,7 @@ import BrightwayExcel.Parser (CellValue (..), parseBrightwayExcel, parseSheetXml
 import Codec.Archive.Zip (addEntryToArchive, emptyArchive, fromArchive, toEntry)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (chr, ord)
-import Data.List (find, isInfixOf)
+import Data.List (find)
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -24,7 +24,6 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import Database.Loader (loadDatabase)
 import Database.Upload (ArchiveFormat (..), detectArchiveFormat)
-import Progress (LogLine (..), getLogLines)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
@@ -87,15 +86,23 @@ spec = describe "BrightwayExcel.Parser" $ do
                                           , "Cotton fibre production"
                                           ]
 
-        -- A header column stated twice is already reported; a metadata row
-        -- stated twice was not, and it is dropped the same way.
-        it "names a metadata key the block states twice" $
+        -- A metadata key fixes the whole activity, and two values for one key
+        -- name no activity. A repeated column is the other case: it carries
+        -- one field of one exchange row, and is reported rather than refused.
+        it "refuses a block that states one metadata key two ways" $
             withWorkbook (buildWorkbook [("data", twiceStatedSheet)]) $ \path -> do
-                (since, _) <- getLogLines 0
-                _ <- parseBrightwayExcel defaultUnitConfig path
-                (_, newLines) <- getLogLines since
-                any (("metadata key 'location' appears more than once" `isInfixOf`) . llText) newLines
-                    `shouldBe` True
+                parseBrightwayExcel defaultUnitConfig path >>= \case
+                    Right _ -> expectationFailure "Expected the load to stop on two values for one key"
+                    Left err -> do
+                        err `shouldSatisfy` T.isInfixOf "location"
+                        err `shouldSatisfy` T.isInfixOf "GLO"
+                        err `shouldSatisfy` T.isInfixOf "FR"
+
+        it "reads a metadata key the block states twice with one value" $
+            withWorkbook (buildWorkbook [("data", twiceAgreeingSheet)]) $ \path -> do
+                parseBrightwayExcel defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right (acts, _, _, _, _) -> map activityLocation acts `shouldBe` ["GLO"]
 
         it "keys the reference product by its product name" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
@@ -292,8 +299,8 @@ buildWorkbook sheets =
   where
     enc = BL.fromStrict . TE.encodeUtf8
 
-{- | A worksheet whose block states one metadata key twice. A workbook can do
-that, and only one of the two rows reaches the activity.
+{- | A worksheet whose block states one metadata key twice, with two values.
+A workbook can do that, and nothing in it says which value was meant.
 -}
 twiceStatedSheet :: [[Cell]]
 twiceStatedSheet =
@@ -307,6 +314,14 @@ twiceStatedSheet =
     , [CT "name", CT "amount", CT "reference product", CT "location", CT "unit", CT "categories", CT "type", CT "database"]
     , [CT "Widget manufacturing", CN 1, CT "widget", CT "GLO", CT "kilogram", CE, CT "production", CT "DB"]
     ]
+
+-- | The same block, stating its repeated key the same way both times.
+twiceAgreeingSheet :: [[Cell]]
+twiceAgreeingSheet = map keepGLO twiceStatedSheet
+  where
+    keepGLO :: [Cell] -> [Cell]
+    keepGLO [CT "location", CT _] = [CT "location", CT "GLO"]
+    keepGLO row = row
 
 -- | A single-activity worksheet (standard column order) for multi-sheet tests.
 activitySheet :: Text -> Text -> [[Cell]]
