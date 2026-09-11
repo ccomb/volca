@@ -257,7 +257,7 @@ spec = do
                     geDemandSum e `shouldBe` 7.0
                     geLocation e `shouldBe` "FR"
                     geUnit e `shouldBe` "kg"
-                    geReason e `shouldBe` GapBlocked (NE.singleton NoNameMatch)
+                    geReason e `shouldBe` GapBlocked (NE.singleton (BlockerReason "no_name_match" Nothing))
 
         it "names the top consumers most-demanding first" $
             case entryFor "flour" of
@@ -327,7 +327,7 @@ spec = do
                     relinkSimpleDatabase [supplierIndexed] emptySynonymDB defaultUnitConfig M.empty GeoGlobal aliases consumerDB
                 r = gapReportForStaged "consumer" consumerDB aliasStats
             case filter ((== "flour") . geFlowName) (grGaps r) of
-                [e] -> geReason e `shouldBe` GapBlocked (NE.singleton (AliasTargetMissing "no such product" Nothing))
+                [e] -> geReason e `shouldBe` GapBlocked (NE.singleton (BlockerReason "alias_target_missing" (Just "no such product")))
                 other -> expectationFailure ("expected one flour entry, got: " <> show other)
 
     describe "partial coverage" $ do

@@ -149,6 +149,21 @@ buildDb acts flows = do
 setupInfoFor :: Database -> DatabaseSetupInfo
 setupInfoFor db = buildLoadedSetupInfo stubConfig db M.empty M.empty
 
+{- | Setup info for a database whose linker refused one product the given ways.
+Written onto the stats rather than provoked through a fixture: the reasons are
+what is under test, and a fixture producing a chosen pair of them would be
+three databases of scaffolding.
+-}
+refusedAs :: M.Map LinkBlocker Int -> IO DatabaseSetupInfo
+refusedAs blockers = do
+    db <- readyDb
+    let stats = (dbLinkingStats db){cdlUnresolvedProducts = M.singleton "wheat" (UnresolvedProduct blockers)}
+    return (setupInfoFor db{dbLinkingStats = stats})
+
+-- | The missing-supplier rows that matter here: reason, count, detail.
+missingRows :: DatabaseSetupInfo -> [(Text, Int, Maybe Text)]
+missingRows info = [(msReason s, msCount s, msDetail s) | s <- dsiMissingSuppliers info]
+
 {- | Install a built database as a LoadedDatabase under @name@: solver, config,
 loaded map, and available map. Mirrors what the load path does, without disk
 I/O.
@@ -247,21 +262,21 @@ spec = do
     -- dependency does not ship it in, three more at a location the geography
     -- policy rejects. One row carrying five would name a cause that raised
     -- two of them and hide the one that raised three.
-    describe "buildLoadedSetupInfo (a product refused two ways)" $
+    describe "buildLoadedSetupInfo (a product refused two ways)" $ do
         it "lists the product once per reason, biggest first" $ do
-            db <- readyDb
-            let refused =
-                    (dbLinkingStats db)
-                        { cdlUnresolvedProducts =
-                            M.singleton
-                                "wheat"
-                                (UnresolvedProduct (M.fromList [(UnitIncompatible "m3" "kg", 2), (LocationUnavailable "FR", 3)]))
-                        }
-                info = setupInfoFor db{dbLinkingStats = refused}
-            [(msProductName s, msCount s, msReason s, msDetail s) | s <- dsiMissingSuppliers info]
-                `shouldBe` [ ("wheat", 3, "location_unavailable", Just "FR")
-                           , ("wheat", 2, "unit_incompatible", Just "m3 vs kg")
+            info <- refusedAs (M.fromList [(UnitIncompatible "m3" "kg", 2), (LocationUnavailable "FR", 3)])
+            missingRows info
+                `shouldBe` [ ("location_unavailable", 3, Just "FR")
+                           , ("unit_incompatible", 2, Just "m3 vs kg")
                            ]
+
+        -- The location a demand asked for is part of the blocker, so a product
+        -- demanded at forty locations no dependency serves would be forty rows
+        -- on a page that shows ten products. One reason refused all of them;
+        -- which locations is what the unresolved-location list is for.
+        it "counts one reason once, whatever locations it was refused at" $ do
+            info <- refusedAs (M.fromList [(LocationUnavailable loc, 1) | loc <- ["FR", "DE", "IT"]])
+            missingRows info `shouldBe` [("location_unavailable", 3, Nothing)]
 
     -- The dangling-import shape, but its matching background is loaded as a
     -- dependency: the input resolves cross-DB by activityLinkId, recorded in

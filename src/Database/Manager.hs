@@ -260,7 +260,6 @@ import Types (
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
-    blockerReason,
     computeMinimalSelectedDeps,
     crossDBBySource,
     crossDBRedundantSources,
@@ -272,6 +271,7 @@ import Types (
     flowClosure,
     initializeRuntimeFields,
     parseAllocationKey,
+    reasonsOf,
     toSimpleDatabase,
     unresolvedCount,
     upDemands,
@@ -3301,8 +3301,7 @@ and never as one of them carrying the other's demands.
 missingSuppliersOf :: (Text, UnresolvedProduct) -> [MissingSupplier]
 missingSuppliersOf (name, unresolved) =
     [ MissingSupplier name n Nothing (brReason reason) (brDetail reason)
-    | (blocker, n) <- sortOn (Down . snd) (M.toList (upBlockers unresolved))
-    , let reason = blockerReason blocker
+    | (reason, n) <- reasonsOf (upBlockers unresolved)
     ]
 
 {- | Missing-supplier list for a staged database: rich blockers from the

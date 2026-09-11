@@ -41,6 +41,7 @@ import Data.List (find, nub, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), enum_, type_)
+import Data.Ord (Down (..))
 import Search.BM25.Types (BM25Index)
 import SubstanceRegistry (CASNumber (..), NormName (..), nonEmptyCAS)
 import SynonymDB (normalizeName)
@@ -1838,6 +1839,34 @@ blockerReason blocker = case blocker of
         BlockerReason "location_rejected" (Just (req <> " ↛ " <> act <> " (" <> locationKindCode kind <> ")"))
     AliasTargetMissing name mLoc ->
         BlockerReason "alias_target_missing" (Just (name <> maybe "" (" @ " <>) mLoc))
+
+{- | What a tally of refusals amounts to: one reason per wire code, each
+carrying the demands it refused, biggest first.
+
+Two demands refused at two different locations are one reason counted twice,
+not two reasons - a product demanded at forty locations no dependency serves
+would otherwise be forty lines on a page that shows ten products, and the
+locations themselves are already listed by 'cdlLocationUnresolved'. A code's
+detail survives when every refusal under it states the same one, and is left
+out when they differ, no single one of them describing the group.
+-}
+reasonsOf :: M.Map LinkBlocker Int -> [(BlockerReason, Int)]
+reasonsOf =
+    sortOn (Down . snd) . map row . M.toList . M.fromListWith (M.unionWith (+)) . map coded . M.toList
+  where
+    coded :: (LinkBlocker, Int) -> (Text, M.Map (Maybe Text) Int)
+    coded (blocker, n) = (brReason reason, M.singleton (brDetail reason) n)
+      where
+        reason :: BlockerReason
+        reason = blockerReason blocker
+
+    row :: (Text, M.Map (Maybe Text) Int) -> (BlockerReason, Int)
+    row (code, details) = (BlockerReason code (soleDetail details), sum (M.elems details))
+
+    soleDetail :: M.Map (Maybe Text) Int -> Maybe Text
+    soleDetail details = case M.keys details of
+        [detail] -> detail
+        _ -> Nothing
 
 instance FromJSON LocationKind where
     parseJSON v = do

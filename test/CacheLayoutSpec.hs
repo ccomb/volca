@@ -6,8 +6,8 @@
 nothing inside it, so a layout that shifted under a cache built before the shift
 would not be rejected, it would be decoded as the layout it is not. Wrapping a value in a record or a newtype is meant to cost exactly nothing
 here: a type with one constructor carries no tag, so it pokes the fields it
-wraps, in the order it wraps them. This says that out loud, and fails the day it
-stops being true.
+wraps, in the order it wraps them. This says that out loud, and fails the day
+it stops being true.
 -}
 module CacheLayoutSpec (spec) where
 

@@ -23,7 +23,10 @@
   setup report's missing-supplier list names such a product once per reason,
   biggest first; and a gap entry carries them all in a new `reasons` field. Its
   `reason` and `detail` still carry the first of them for clients written before
-  that field, and are dropped in the release after next. Wire revision 24. The
+  that field, and are dropped in 0.13.0. Wire revision 24. Two demands refused
+  at two different locations are one reason counted twice, not two reasons, so
+  a product demanded all over the map stays one line per cause; which locations
+  were asked for is what the unresolved-location list already answers. The
   linking stats travel in the database cache, so every cache rebuilds itself
   from its source on the next load.
 - A unit written with a capital prefix is no longer read as its lower-case

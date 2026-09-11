@@ -245,7 +245,6 @@ import Types (
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
-    blockerReason,
     getUnitNameForBioFlow,
     parseAllocationKey,
     processRefText,
@@ -378,11 +377,9 @@ gapReportToAPI mLimit r =
             , gcaLocation = Loader.gcLocation c
             , gcaEdges = Loader.gcEdges c
             }
-    -- Ordered by the blockers' own 'Ord', which is the declaration order of
-    -- 'LinkBlocker': the same gap always lists its reasons the same way.
     gapReasons :: Loader.GapReason -> NonEmpty BlockerReason
     gapReasons gr = case gr of
-        Loader.GapBlocked blockers -> fmap blockerReason blockers
+        Loader.GapBlocked reasons -> reasons
         Loader.GapDanglingIdentity -> BlockerReason "dangling_source_identity" Nothing :| []
         Loader.GapWasteInput -> BlockerReason "unlinked_waste_input" Nothing :| []
 
