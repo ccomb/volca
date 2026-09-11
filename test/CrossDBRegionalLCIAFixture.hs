@@ -53,9 +53,10 @@ import qualified Data.Vector.Unboxed as U
 
 import Method.Mapping (MatchStrategy (..), MethodTables, buildMethodTables, fillBroadcastVector, fillRegionalActivityWeights)
 import Method.Types (CFFamily (..), FlowDirection (..), MethodCF (..))
+import TestHelpers (unitDef)
 import Types
 import qualified Types as VT
-import UnitConversion (UnitConfig (..), UnitDef (..), defaultUnitConfig, mkUnitConfig)
+import UnitConversion (UnitConfig (..), defaultDimensionOrder, defaultUnitConfig, mkUnitConfig)
 
 -- | One biosphere flow shared by both DBs (cross-DB merging keys on UUID).
 flowUUID :: UUID
@@ -77,8 +78,8 @@ kgUnit = Unit{unitId = mkUUID 9, unitName = "kg", unitSymbol = "kg", unitComment
 kgUnitConfig :: UnitConfig
 kgUnitConfig =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
-        (M.fromList [("kg", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0)])
+        defaultDimensionOrder
+        (M.fromList [("kg", unitDef "mass" 1.0)])
 
 testFlow :: BiosphereFlow
 testFlow =

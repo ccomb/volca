@@ -39,6 +39,7 @@ import SimaPro.Parser (
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
+import TestHelpers (unitDef)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -71,7 +72,7 @@ import Types (
     exchangePedigree,
     tfName,
  )
-import UnitConversion (UnitConfig (..), UnitDeclaration (..), UnitDef (..), buildFromCSV, defaultUnitConfig, isKnownUnit, mkUnitConfig)
+import UnitConversion (UnitConfig (..), UnitDeclaration (..), buildFromCSV, defaultDimensionOrder, defaultUnitConfig, isKnownUnit, mkUnitConfig)
 
 -- | Test CSV content with a quoted product name containing the delimiter (;)
 testCSV :: BS.ByteString
@@ -1845,10 +1846,10 @@ follow it.
 volumeUnitConfig :: Text -> UnitConfig
 volumeUnitConfig reference =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        defaultDimensionOrder
         ( M.fromList
-            [ (reference, UnitDef [0, 0, 0, 0, 0, 1, 0, 0] 1.0)
-            , ("l", UnitDef [0, 0, 0, 0, 0, 1, 0, 0] 0.001)
+            [ (reference, unitDef "volume" 1.0)
+            , ("l", unitDef "volume" 0.001)
             ]
         )
 
@@ -1858,12 +1859,12 @@ and kWh (energy), so a row written in either has somewhere to be converted to.
 mixedUnitConfig :: UnitConfig
 mixedUnitConfig =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        defaultDimensionOrder
         ( M.fromList
-            [ ("kg", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0)
-            , ("g", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 0.001)
-            , ("MJ", UnitDef [0, 0, 0, 1, 0, 0, 0, 0] 1.0)
-            , ("kWh", UnitDef [0, 0, 0, 1, 0, 0, 0, 0] 3.6)
+            [ ("kg", unitDef "mass" 1.0)
+            , ("g", unitDef "mass" 0.001)
+            , ("MJ", unitDef "energy" 1.0)
+            , ("kWh", unitDef "energy" 3.6)
             ]
         )
 
@@ -1871,10 +1872,10 @@ mixedUnitConfig =
 tonUnitConfig :: UnitConfig
 tonUnitConfig =
     mkUnitConfig
-        ["mass", "length", "time", "energy", "area", "volume", "count", "currency"]
+        defaultDimensionOrder
         ( M.fromList
-            [ ("kg", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1.0)
-            , ("ton", UnitDef [1, 0, 0, 0, 0, 0, 0, 0] 1000.0)
+            [ ("kg", unitDef "mass" 1.0)
+            , ("ton", unitDef "mass" 1000.0)
             ]
         )
 

@@ -36,6 +36,7 @@ import Method.Mapping (
  )
 import Method.Types (CFFamily (..), Compartment (..), EnergyDensity (..), EnergyDensityMap, FlowDirection (..), MethodCF (..))
 import SynonymDB (normalizeName)
+import TestHelpers (unitDef)
 import Types (
     BiosphereFlow (..),
     Medium (..),
@@ -43,7 +44,7 @@ import Types (
     UnitDB,
  )
 import qualified Types as VT
-import UnitConversion (UnitConfig (..), UnitDef (..), defaultUnitConfig, mkUnitConfig)
+import UnitConversion (UnitConfig (..), defaultDimensionOrder, defaultUnitConfig, mkUnitConfig)
 
 mkUUID :: Integer -> UUID
 mkUUID n = UUID.fromWords64 (fromIntegral n) 0
@@ -60,10 +61,10 @@ than an unknown unit.
 massEnergyConfig :: UnitConfig
 massEnergyConfig =
     mkUnitConfig
-        ["mass", "energy"]
+        defaultDimensionOrder
         ( M.fromList
-            [ ("kg", UnitDef [1, 0] 1.0)
-            , ("MJ", UnitDef [0, 1] 1.0)
+            [ ("kg", unitDef "mass" 1.0)
+            , ("MJ", unitDef "energy" 1.0)
             ]
         )
 
@@ -412,5 +413,5 @@ spec = do
     -- kg and m3 known but dimensionally apart, so the pair is a mismatch.
     volumeMassConfig =
         mkUnitConfig
-            ["mass", "volume"]
-            (M.fromList [("kg", UnitDef [1, 0] 1.0), ("m3", UnitDef [0, 1] 1.0)])
+            defaultDimensionOrder
+            (M.fromList [("kg", unitDef "mass" 1.0), ("m3", unitDef "volume" 1.0)])
