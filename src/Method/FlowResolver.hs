@@ -31,7 +31,6 @@ import Control.Concurrent.Async (mapConcurrently)
 import Control.DeepSeq (NFData, force)
 import Control.Exception (SomeException, catch, evaluate)
 import qualified Data.ByteString as BS
-import Data.Char (toLower)
 import qualified Data.Map.Strict as M
 import Data.Store (Store, decodeEx, encode)
 import Data.Text (Text)
@@ -40,11 +39,12 @@ import qualified Data.Text.Read as TR
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import GHC.Generics (Generic)
-import System.Directory (doesDirectoryExist, doesFileExist, getModificationTime, listDirectory, removeFile)
-import System.FilePath (takeDirectory, takeExtension, (</>))
+import System.Directory (doesDirectoryExist, doesFileExist, getModificationTime, removeFile)
+import System.FilePath (takeDirectory, (</>))
 import qualified Xeno.SAX as X
 
 import EcoSpold.Common (bsToText, decodeXmlEntitiesFull, distributeFiles, isElement)
+import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles)
 import Method.Types (Compartment (..))
 import Progress (ProgressLevel (..), reportProgress)
 import SubstanceRegistry (normalizeCAS)
@@ -79,33 +79,44 @@ resolveFlowDirectory methodDir = do
   Uses a zstd-compressed cache to skip re-parsing on subsequent startups.
   Falls back to worker-based parallel parsing on cache miss.
 -}
-parseFlowDirectory :: FilePath -> IO (M.Map UUID ILCDFlowInfo)
+parseFlowDirectory :: FilePath -> IO (Either Text (M.Map UUID ILCDFlowInfo))
 parseFlowDirectory dir = do
     let cacheFile = flowCacheFile dir
     cached <- loadFlowCache cacheFile dir
     case cached of
-        Just info -> return info
+        Just info -> return (Right info)
         Nothing -> do
-            info <- parseFlowDirectoryFresh dir
-            saveFlowCache cacheFile info
-            return info
+            parsed <- parseFlowDirectoryFresh dir
+            mapM_ (saveFlowCache cacheFile) parsed
+            return parsed
 
--- | Parse all flow XMLs from scratch using worker-based parallelism
-parseFlowDirectoryFresh :: FilePath -> IO (M.Map UUID ILCDFlowInfo)
+{- | Parse all flow XMLs from scratch using worker-based parallelism.
+
+The workers hand back what they read rather than a map each: merging maps made
+the flow a duplicated UUID resolved to depend on which chunk each file fell
+into, and therefore on the number of cores the machine has.
+-}
+parseFlowDirectoryFresh :: FilePath -> IO (Either Text (M.Map UUID ILCDFlowInfo))
 parseFlowDirectoryFresh dir = do
-    files <- listDirectory dir
-    let xmlFiles = [dir </> f | f <- files, map toLower (takeExtension f) == ".xml"]
+    xmlFiles <- listXMLFiles dir
     numWorkers <- getNumCapabilities
     let workers = distributeFiles numWorkers xmlFiles
     workerResults <- mapConcurrently parseWorker workers
-    return $! M.unions workerResults
+    outcome <- latestByUUID (concat workerResults)
+    case outcome of
+        Left err -> return (Left err)
+        Right indexed -> do
+            mapM_ (reportProgress Warning . T.unpack) (ixSuperseded indexed)
+            return (Right (ixByUUID indexed))
   where
+    parseWorker :: [FilePath] -> IO [Claimed ILCDFlowInfo]
     parseWorker paths = do
         results <- mapM parseOneFile paths
-        return $! M.fromList [(uuid, info) | Just (uuid, info) <- results]
+        return $! [Claimed path uuid info | (path, Just (uuid, info)) <- results]
+    parseOneFile :: FilePath -> IO (FilePath, Maybe (UUID, ILCDFlowInfo))
     parseOneFile path = do
         bytes <- BS.readFile path
-        return $ parseFlowXML bytes
+        return (path, parseFlowXML bytes)
 
 -- | Cache file path for a flows directory
 flowCacheFile :: FilePath -> FilePath

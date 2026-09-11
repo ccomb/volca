@@ -2,12 +2,19 @@
 
 module ILCDParserSpec (spec) where
 
+import Control.Monad (forM_)
 import qualified Data.ByteString as BS
 import Data.List (find, sortOn)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.UUID as UUID
+import GHC.Conc (getNumCapabilities, setNumCapabilities)
+import ILCD.Common (readDataSetVersion)
 import ILCD.Parser (ILCDExchangeRaw (..), ILCDProcessRaw (..), buildSupplierIndex, fixActivityExchanges, parseILCDDirectory, parseProcessXML)
+import System.Directory (copyFile, createDirectoryIfMissing, listDirectory)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 import Types
 import UnitConversion (defaultUnitConfig)
@@ -93,6 +100,66 @@ activityWithInputExchange fid =
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
         }
+
+-- ---------------------------------------------------------------------------
+-- Two files, one dataset
+-- ---------------------------------------------------------------------------
+
+{- | A process claiming the twin UUID, under the given declared version and
+base name. Everything else is the sample's coal extraction, so the two files
+differ only where the test reads them.
+-}
+twinProcess :: BS.ByteString -> BS.ByteString -> BS.ByteString
+twinProcess version baseName =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    \<processDataSet xmlns=\"http://lca.jrc.it/ILCD/Process\"\n\
+    \                xmlns:common=\"http://lca.jrc.it/ILCD/Common\">\n\
+    \  <processInformation>\n\
+    \    <dataSetInformation>\n\
+    \      <common:UUID>aaaaaaaa-0000-0000-0000-000000000009</common:UUID>\n\
+    \      <name>\n\
+    \        <baseName xml:lang=\"en\">"
+        <> baseName
+        <> "</baseName>\n\
+           \      </name>\n\
+           \    </dataSetInformation>\n\
+           \    <geography location=\"GLO\"/>\n\
+           \    <quantitativeReference>\n\
+           \      <referenceToReferenceFlow>0</referenceToReferenceFlow>\n\
+           \    </quantitativeReference>\n\
+           \  </processInformation>\n\
+           \  <exchanges>\n\
+           \    <exchange dataSetInternalID=\"0\">\n\
+           \      <referenceToFlowDataSet refObjectId=\"aaaaaaaa-0000-0000-0000-000000000004\"\n\
+           \                              type=\"flow data set\"/>\n\
+           \      <exchangeDirection>Output</exchangeDirection>\n\
+           \      <resultingAmount>1.0</resultingAmount>\n\
+           \    </exchange>\n\
+           \  </exchanges>\n\
+           \  <administrativeInformation>\n\
+           \    <publicationAndOwnership>\n\
+           \      <common:dataSetVersion>"
+        <> version
+        <> "</common:dataSetVersion>\n\
+           \    </publicationAndOwnership>\n\
+           \  </administrativeInformation>\n\
+           \</processDataSet>\n"
+
+{- | The sample package copied beside the given extra process files, so a test
+can add a twin without touching the fixture every other test reads.
+-}
+withSampleAnd :: [(FilePath, BS.ByteString)] -> (FilePath -> IO a) -> IO a
+withSampleAnd extra k = withSystemTempDirectory "ilcd-twin" $ \dir -> do
+    forM_ ["processes", "flows", "flowproperties", "unitgroups"] $ \sub -> do
+        createDirectoryIfMissing True (dir </> sub)
+        names <- listDirectory ("test-data/SAMPLE.ilcd" </> sub)
+        forM_ names $ \n -> copyFile ("test-data/SAMPLE.ilcd" </> sub </> n) (dir </> sub </> n)
+    forM_ extra $ \(name, bytes) -> BS.writeFile (dir </> "processes" </> name) bytes
+    k dir
+
+-- | The activity names of a loaded database, sorted.
+namesOf :: SimpleDatabase -> [Text]
+namesOf db = sortOn id [activityName a | a <- M.elems (sdbActivities db)]
 
 spec :: Spec
 spec = do
@@ -246,6 +313,63 @@ spec = do
                     fid `shouldBe` flowUUID1 -- unchanged
                     role `shouldBe` ReferenceProduct
                 _ -> expectationFailure "expected one TechnosphereExchange"
+
+    -- -----------------------------------------------------------------------
+    -- An ILCD dataset is named by the UUID in the file, so two files can claim
+    -- one dataset. The version each declares says which, and nothing else can.
+    -- -----------------------------------------------------------------------
+    describe "two files claiming one dataset" $ do
+        -- The file names are chosen so the higher version sorts first: a table
+        -- keeping whichever file came last would take the older dataset, and a
+        -- listing in the other order would take the newer one.
+        let older = ("z-first-edition.xml", twinProcess "01.00.000" "Coal extraction, first edition")
+            newer = ("a-second-edition.xml", twinProcess "02.00.000" "Coal extraction, second edition")
+
+        it "keeps the dataset declaring the higher version" $
+            withSampleAnd [older, newer] $ \dir -> do
+                result <- parseILCDDirectory defaultUnitConfig Declared dir
+                case result of
+                    Left err -> expectationFailure $ "Expected Right but got: " ++ show err
+                    Right db -> namesOf db `shouldSatisfy` elem "Coal extraction, second edition"
+
+        it "does not keep the dataset it replaces" $
+            withSampleAnd [older, newer] $ \dir -> do
+                result <- parseILCDDirectory defaultUnitConfig Declared dir
+                case result of
+                    Left err -> expectationFailure $ "Expected Right but got: " ++ show err
+                    Right db -> namesOf db `shouldSatisfy` notElem "Coal extraction, first edition"
+
+        -- The files are read by as many workers as the machine has cores, and
+        -- the answer used to depend on which worker each file fell to.
+        it "answers the same on one core as on four" $
+            withSampleAnd [older, newer] $ \dir -> do
+                cores <- getNumCapabilities
+                setNumCapabilities 1
+                onOne <- parseILCDDirectory defaultUnitConfig Declared dir
+                setNumCapabilities 4
+                onFour <- parseILCDDirectory defaultUnitConfig Declared dir
+                setNumCapabilities cores
+                fmap namesOf onOne `shouldBe` fmap namesOf onFour
+
+        it "refuses when two files declare one dataset at the same version"
+            $ withSampleAnd
+                [ ("twin-a.xml", twinProcess "03.00.000" "Coal extraction, one way")
+                , ("twin-b.xml", twinProcess "03.00.000" "Coal extraction, another way")
+                ]
+            $ \dir -> do
+                result <- parseILCDDirectory defaultUnitConfig Declared dir
+                case result of
+                    Right _ -> expectationFailure "Expected the load to stop on two files at one version"
+                    Left err -> do
+                        err `shouldSatisfy` T.isInfixOf "twin-a.xml"
+                        err `shouldSatisfy` T.isInfixOf "twin-b.xml"
+
+    describe "readDataSetVersion" $ do
+        it "compares the numbers and not the text" $
+            (readDataSetVersion "10.00.000" > readDataSetVersion "09.00.000") `shouldBe` True
+
+        it "reads nothing from a version that is not dotted numbers" $
+            readDataSetVersion "draft" `shouldBe` Nothing
 
     -- -----------------------------------------------------------------------
     -- parseProcessXML: basic fields

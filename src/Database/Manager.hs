@@ -3793,7 +3793,7 @@ loadMethodCollectionFromConfig mc = runExceptT $ do
     files <- liftIO $ methodFilesOf source
     when (noMethodFiles files) $
         throwE ("No method files (.xml/.csv/.json) found in: " <> T.pack (mfDirectory files))
-    flowInfo <- liftIO $ flowDefinitionsFor source (mfDirectory files)
+    flowInfo <- ExceptT $ flowDefinitionsFor source (mfDirectory files)
     parsed <- liftIO $ parseMethodFiles flowInfo files
     collection <- except (collectionOf parsed)
     liftIO $ reportProgress Info (parseCounts parsed)
@@ -3857,18 +3857,18 @@ loadMethodCollectionFromConfig mc = runExceptT $ do
     {- Scanning a coincidental neighbouring flows/ would parse unrelated flow
     XMLs and register foreign synonyms under this collection's name, so only a
     real ILCD directory is looked at. -}
-    flowDefinitionsFor :: MethodSource -> FilePath -> IO (M.Map UUID ILCDFlowInfo)
-    flowDefinitionsFor (BareMethodFile _) _ = pure M.empty
+    flowDefinitionsFor :: MethodSource -> FilePath -> IO (Either Text (M.Map UUID ILCDFlowInfo))
+    flowDefinitionsFor (BareMethodFile _) _ = pure (Right M.empty)
     flowDefinitionsFor (MethodDirectory _) dir =
         FlowResolver.resolveFlowDirectory dir >>= \case
             Nothing -> do
                 reportProgress Info "  No flows/ directory found, using shortDescription fallback"
-                pure M.empty
+                pure (Right M.empty)
             Just flowsDir -> do
                 reportProgress Info $ "  Loading ILCD flow XMLs from: " <> flowsDir
-                info <- FlowResolver.parseFlowDirectory flowsDir
-                reportProgress Info $ "  Loaded " <> show (M.size info) <> " flow definitions"
-                pure info
+                outcome <- FlowResolver.parseFlowDirectory flowsDir
+                mapM_ (\info -> reportProgress Info $ "  Loaded " <> show (M.size info) <> " flow definitions") outcome
+                pure outcome
 
     parseMethodFiles :: M.Map UUID ILCDFlowInfo -> MethodFiles -> IO ParsedMethodFiles
     parseMethodFiles flowInfo files = do
