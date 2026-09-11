@@ -56,14 +56,13 @@ parseNormWeightCSVBytes fallbackName bs =
                 let parsed = [parseRow delim l | l <- rows, not (BS.null (BC.strip l))]
                 -- One category named twice carries two normalization factors and
                 -- two weights, and the file says nothing about which is meant.
-                normMap <- categoryIndex [(cat, n) | (cat, n, _) <- parsed, not (T.null cat)]
-                weightMap <- categoryIndex [(cat, w) | (cat, _, w) <- parsed, not (T.null cat)]
-                if M.null normMap && M.null weightMap
+                factors <- categoryIndex [(cat, (n, w)) | (cat, n, w) <- parsed, not (T.null cat)]
+                if M.null factors
                     then Left "NW CSV: no valid rows parsed"
-                    else Right $ NormWeightSet name normMap weightMap
+                    else Right $ NormWeightSet name (M.map fst factors) (M.map snd factors)
 
 -- | Index rows on their category, or refuse and name the ones spelled twice.
-categoryIndex :: [(Text, Double)] -> Either String (M.Map Text Double)
+categoryIndex :: [(Text, (Double, Double))] -> Either String (M.Map Text (Double, Double))
 categoryIndex rows = case uniqueIndex rows of
     Right table -> Right table
     Left cats -> Left $ "NW CSV: two rows for the same category: " <> T.unpack (T.intercalate ", " (NE.toList cats))

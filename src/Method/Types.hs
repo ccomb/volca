@@ -55,7 +55,7 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Csv (HasHeader (..), decode)
-import Data.Indexing (uniqueIndex)
+import Data.Indexing (collisions, uniqueIndex)
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
@@ -439,15 +439,27 @@ buildEnergyDensityMapFromCSV :: BL.ByteString -> Either String EnergyDensityMap
 buildEnergyDensityMapFromCSV csvData =
     case decode HasHeader csvData of
         Left err -> Left $ "CSV parse error: " <> err
-        Right rows ->
-            traverse toEntry (V.toList (rows :: V.Vector (Text, Double, Text, Text)))
-                >>= first repeatedFlows . uniqueIndex
+        Right rows -> do
+            let entries = V.toList (rows :: V.Vector (Text, Double, Text, Text))
+            table <- traverse toEntry entries
+            case collisions [(normalizeName name, name) | (name, _, _, _) <- entries] of
+                [] -> Right (M.fromList table)
+                clashes -> Left (repeatedFlows clashes)
   where
-    -- Two densities for one flow are two answers at score time, and normalizing
-    -- the name can bring together two rows that were spelt apart.
-    repeatedFlows :: NonEmpty Text -> String
-    repeatedFlows names =
-        "two rows give a density for the same flow: " <> T.unpack (T.intercalate (T.pack ", ") (NE.toList names))
+    -- Two densities for one flow are two answers at score time, and the file
+    -- has to give one row instead. The spellings are what the message names:
+    -- the key is the normalized name, which lowercases and drops a unit
+    -- suffix, so two rows can collide without looking alike.
+    repeatedFlows :: [(Text, NonEmpty Text)] -> String
+    repeatedFlows clashes =
+        "two rows give a density for the same flow, where the table needs one: "
+            <> T.unpack (T.intercalate (T.pack "; ") (map spelt clashes))
+
+    spelt :: (Text, NonEmpty Text) -> Text
+    spelt (key, names) = key <> T.pack " (" <> T.intercalate (T.pack ", ") (map quoted (NE.toList names)) <> T.pack ")"
+
+    quoted :: Text -> Text
+    quoted t = T.pack "\"" <> t <> T.pack "\""
 
     toEntry :: (Text, Double, Text, Text) -> Either String (Text, EnergyDensity)
     toEntry (name, value, targetUnit, nativeUnit)

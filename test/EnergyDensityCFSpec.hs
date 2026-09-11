@@ -339,9 +339,14 @@ spec = do
             csv <- BL.readFile "data/energy_density.csv"
             buildEnergyDensityMapFromCSV csv `shouldSatisfy` isRight
 
-        it "rejects two rows whose names normalize to the same key" $
-            buildEnergyDensityMapFromCSV (BLC.pack "flow_name,value,target_unit,native_unit\n\"Gas, natural/m3\",38.29,MJ,m3\n\"Gas, natural\",45.0,MJ,kg\n")
-                `shouldSatisfy` isLeft
+        it "rejects two rows whose names normalize to the same key, naming both spellings" $
+            case buildEnergyDensityMapFromCSV (BLC.pack "flow_name,value,target_unit,native_unit\n\"Gas, natural/m3\",38.29,MJ,m3\n\"Gas, natural\",45.0,MJ,kg\n") of
+                Left err -> do
+                    -- The key alone would send the reader looking for a string
+                    -- the file does not contain.
+                    err `shouldContain` "Gas, natural/m3"
+                    err `shouldContain` "Gas, natural\""
+                Right _ -> expectationFailure "Should have refused two densities for one key"
 
         it "rejects a non-positive value" $
             buildEnergyDensityMapFromCSV (BLC.pack "flow_name,value,target_unit,native_unit\nPeat,0,MJ,kg\n")
