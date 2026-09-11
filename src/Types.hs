@@ -37,7 +37,7 @@ import GHC.Generics (Generic)
 
 import Control.Lens ((&), (?~))
 import Data.Containers.ListUtils (nubOrdOn)
-import Data.List (find, nub)
+import Data.List (find, nub, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), enum_, type_)
@@ -2042,26 +2042,32 @@ instance Monoid CrossDBLinkingStats where
             , cdlCutoffWasteCount = 0
             }
 
--- The four report lists below keep one row per (product, requested location):
--- the same fallback is taken once per input that asks for it, and a reader
--- wants the case, not the tally. The first row seen is the one kept, so each
--- list stays in the order the load found them.
+{- | One row per key, the first one seen, ordered by the key.
+
+A report list holds one row per occurrence, and the same case is met once per
+input that runs into it: a reader wants the case, not the tally. Which of the
+rows survives has to be said rather than left to the argument order of
+'M.fromListWith', and the key order is what groups a product's rows together on
+the page that shows them.
+-}
+oncePerKey :: (Ord k) => (a -> k) -> [a] -> [a]
+oncePerKey key = sortOn key . nubOrdOn key
 
 -- | One location fallback per (product, requested location).
 deduplicateFallbacks :: [LocationFallback] -> [LocationFallback]
-deduplicateFallbacks = nubOrdOn (\f -> (lfProduct f, lfRequested f))
+deduplicateFallbacks = oncePerKey (\f -> (lfProduct f, lfRequested f))
 
 -- | One unresolved entry per (product, requested location).
 deduplicateUnresolved :: [LocationUnresolved] -> [LocationUnresolved]
-deduplicateUnresolved = nubOrdOn (\u -> (luProduct u, luRequested u))
+deduplicateUnresolved = oncePerKey (\u -> (luProduct u, luRequested u))
 
 -- | One attribute fallback per (product, requested location).
 deduplicateAttributeFallbacks :: [AttributeFallback] -> [AttributeFallback]
-deduplicateAttributeFallbacks = nubOrdOn (\a -> (afProduct a, afRequested a))
+deduplicateAttributeFallbacks = oncePerKey (\a -> (afProduct a, afRequested a))
 
 -- | One supplier ambiguity per (product, requested location).
 deduplicateSupplierAmbiguities :: [SupplierAmbiguity] -> [SupplierAmbiguity]
-deduplicateSupplierAmbiguities = nubOrdOn (\a -> (saProduct a, saRequested a))
+deduplicateSupplierAmbiguities = oncePerKey (\a -> (saProduct a, saRequested a))
 
 -- | Number of resolved cross-DB links
 crossDBLinksCount :: CrossDBLinkingStats -> Int
