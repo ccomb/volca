@@ -22,7 +22,7 @@ import Data.Int (Int32)
 import qualified Data.IntSet as IS
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
-import Data.Maybe (isJust, listToMaybe)
+import Data.Maybe (isJust, listToMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Store (Size (..), Store (..))
 import Data.Text (Text)
@@ -844,28 +844,30 @@ sourceBlockOf db pid = maybe orphan blockOfRef (processIdToRef db pid)
 
 {- | Is this dataset filed in its source's obsolete category?
 
-A source that keeps a retired process in its export says so in the category,
-and the two conventions put the word in different places. A SimaPro CSV export
-gives it a segment of its own (@Others\\Obsolete@, or @Autres\\Obsolete@ in a
-French export). An EcoSpold 1 export appends it to the words a segment is
-already made of, one segment at a time: @material, obsolete@, or
-@wood, obsolete\\extraction, obsolete@.
+A source that keeps a retired process in its export says so in its
+classification, and the two conventions differ in where the word goes and which
+cell carries it. A SimaPro CSV export gives it a segment of its own in the
+category (@Others\\Obsolete@, or @Autres\\Obsolete@ in a French export). An
+EcoSpold 1 export appends it to the words a segment is already made of, one
+segment at a time, and writes it in whichever of the two cells describes the
+retired thing: @category="material, obsolete"@, or a category that says nothing
+beside @subCategory="transport, obsolete\\road, obsolete"@.
 
-Both are the same statement, so both are read: the category is cut into
-segments and each segment into its comma-separated words, and the dataset is
+Both are the same statement, so both cells are read and cut the same way: into
+segments, then each segment into its comma-separated words, and the dataset is
 retired when one of those words is @obsolete@. Such a process still carries its
 exchanges and still computes; what its author says is that a newer one has
-replaced it. Read on the @Category@ classification, which is the cell the
-block's product row carries. Formats with no such convention never say yes.
+replaced it. Formats with no such convention never say yes.
 -}
 activityIsObsolete :: Activity -> Bool
-activityIsObsolete =
-    maybe False (elem "obsolete" . map T.toCaseFold . categoryWords)
-        . M.lookup "Category"
-        . activityClassification
+activityIsObsolete act =
+    any (elem "obsolete" . classificationWords) (mapMaybe cell ["Category", "SubCategory"])
   where
-    categoryWords :: Text -> [Text]
-    categoryWords = concatMap (map T.strip . T.splitOn ",") . T.splitOn "\\"
+    cell :: Text -> Maybe Text
+    cell k = M.lookup k (activityClassification act)
+
+    classificationWords :: Text -> [Text]
+    classificationWords = map (T.toCaseFold . T.strip) . concatMap (T.splitOn ",") . T.splitOn "\\"
 
 {- | Loop-aware tree for SVG export. Every node that exists names the row it
 sits at, so an allocated activity written as several coproduct rows is several
