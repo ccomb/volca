@@ -445,6 +445,19 @@ volcaOpenApi = API.OpenApi.stampInfo (API.OpenApi.enrichWithResources (toOpenApi
 -- Behavior is byte-identical to the original where-bound versions.
 -- ============================================================================
 
+{- | The damage category each sub-indicator rolls up into, which is the table
+'enrichWithNW' reads.
+
+'M.fromList' is the right answer here and the repeated key is not a mistake to
+refuse: a sub-indicator belonging to two damage categories is how an endpoint
+method is built - climate change counts towards human health and towards
+ecosystems both - so a refusal would reject a valid collection. No method that
+loads today declares one twice.
+-}
+damageCategoryIndex :: [DamageCategory] -> M.Map Text Text
+damageCategoryIndex damageCats =
+    M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
+
 -- | Enrich a raw LCIA result with damage category mapping and NW scores. Pure.
 enrichWithNW :: M.Map Text Text -> Maybe NormWeightSet -> LCIAResult -> LCIAResult
 enrichWithNW dcLookup mNW result =
@@ -777,12 +790,7 @@ buildLCIABatchResultCached ::
 buildLCIABatchResultCached dbManager dbName collectionName db actPid activity collection sol ctxs topFlows = do
     let damageCats = mcDamageCategories collection
         nwSets = mcNormWeightSets collection
-        dcLookup =
-            M.fromList
-                [ (subName, dcName dc)
-                | dc <- damageCats
-                , (subName, _) <- dcImpacts dc
-                ]
+        dcLookup = damageCategoryIndex damageCats
         mNW = case nwSets of (nw : _) -> Just nw; [] -> Nothing
         methods = map mctxMethod ctxs
         inventory = SharedSolver.csInventory sol
@@ -874,7 +882,7 @@ activityLCIABatchH dbName processIdText collectionNameText mSub ltMode = do
     (db, sharedSolver) <- requireDatabaseByName dbName
     (actProcessId, activity) <- resolveOrThrow db processIdText
     (methods, damageCats, nwSets, scoringSets) <- loadCollection collectionName
-    let dcLookup = M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
+    let dcLookup = damageCategoryIndex damageCats
         mNW = case nwSets of (nw : _) -> Just nw; [] -> Nothing
     t0 <- liftIO getCurrentTime
     sol <- crossDBSolutionFor dbName db sharedSolver actProcessId mSub >>= liftIO . applyLongTermToSolution dbManager ltMode
