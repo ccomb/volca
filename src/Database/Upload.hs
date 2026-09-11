@@ -240,9 +240,12 @@ detectArchiveFormat content
             BS.isInfixOf "\"@type\"" header2k
                 && BS.isInfixOf "\"ImpactCategory\"" header2k
         _ -> False
-    -- Check if first byte is printable ASCII (plain text / CSV)
+    -- Check if first byte is printable ASCII (plain text / CSV). 0x7B, the
+    -- opening brace a JSON document starts with, sits inside that range and
+    -- needs no disjunct of its own: the sniff above routes JSON-LD before
+    -- this one is asked.
     isPlainText = case bytes of
-        b : _ -> b == 0x7B || (b >= 0x20 && b < 0x7F)
+        b : _ -> b >= 0x20 && b < 0x7F
         [] -> False
 
 {- | Extract an archive file on disk to a target directory.

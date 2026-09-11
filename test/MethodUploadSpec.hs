@@ -84,7 +84,7 @@ spec = do
             -- result the guard owes; the byte set is what the cases below pin.
             detectArchiveFormat BL.empty `shouldBe` ArchiveUnknown
 
-        it "accepts the printable ASCII range and nothing under it" $ do
+        it "accepts the printable ASCII range and nothing outside it" $ do
             detectArchiveFormat (BL.pack [0x20]) `shouldBe` ArchivePlainCSV
             detectArchiveFormat (BL.pack [0x7E]) `shouldBe` ArchivePlainCSV
             detectArchiveFormat (BL.pack [0x1F]) `shouldBe` ArchiveUnknown
