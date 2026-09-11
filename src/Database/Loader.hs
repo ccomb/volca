@@ -80,6 +80,7 @@ module Database.Loader (
     normalizeText,
     mergeTechFlows,
     mergeBioFlows,
+    mergeWasteFlows,
     Harvest (..),
     harvestOf,
     generateActivityUUIDFromActivity,
@@ -208,6 +209,16 @@ mergeBioFlows a b =
         , bfCAS = bfCAS a <|> bfCAS b
         }
 
+{- | Waste counterpart of 'mergeTechFlows'. A waste flow carries the same two
+fields, and an EcoSpold 2 file fills its synonyms from the same place.
+-}
+mergeWasteFlows :: WasteFlow -> WasteFlow -> WasteFlow
+mergeWasteFlows a b =
+    a
+        { wfSynonyms = M.unionWith S.union (wfSynonyms a) (wfSynonyms b)
+        , wfCAS = wfCAS a <|> wfCAS b
+        }
+
 {- | What one reader harvested from the files it was given: a piece of the
 database, the dataset numbers those files carried, and how many flow and unit
 declarations it read before deduplication. A load is the sum of its harvests.
@@ -247,7 +258,7 @@ instance Semigroup Harvest where
             { hvActivities = M.union (hvActivities a) (hvActivities b)
             , hvTechFlows = MS.unionWith mergeTechFlows (hvTechFlows a) (hvTechFlows b)
             , hvBioFlows = MS.unionWith mergeBioFlows (hvBioFlows a) (hvBioFlows b)
-            , hvWasteFlows = M.union (hvWasteFlows a) (hvWasteFlows b)
+            , hvWasteFlows = MS.unionWith mergeWasteFlows (hvWasteFlows a) (hvWasteFlows b)
             , hvUnits = M.union (hvUnits a) (hvUnits b)
             , hvDatasetNumbers = MS.unionWith (<>) (hvDatasetNumbers a) (hvDatasetNumbers b)
             , hvRawFlows = hvRawFlows a + hvRawFlows b
@@ -266,7 +277,7 @@ harvestOf entries =
         { hvActivities = M.fromList [(key, pdActivity parsed) | (key, parsed) <- entries]
         , hvTechFlows = MS.fromListWith mergeTechFlows [(tfId f, f) | f <- techs]
         , hvBioFlows = MS.fromListWith mergeBioFlows [(bfId f, f) | f <- bios]
-        , hvWasteFlows = M.fromList [(wfId f, f) | f <- wastes]
+        , hvWasteFlows = MS.fromListWith mergeWasteFlows [(wfId f, f) | f <- wastes]
         , hvUnits = M.fromList [(unitId u, u) | u <- units]
         , hvDatasetNumbers = MS.fromListWith (flip (<>)) [(pdDatasetNumber parsed, key NE.:| []) | (key, parsed) <- entries, pdDatasetNumber parsed /= 0]
         , hvRawFlows = length techs + length bios + length wastes

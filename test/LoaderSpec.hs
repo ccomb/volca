@@ -82,6 +82,25 @@ key, so that two of them collide and the merging law has to decide.
 share :: Text -> [TechnosphereFlow] -> ((UUID.UUID, UUID.UUID), ParsedDataset)
 share name techs = ((actUUID1, flowUUID1), minimalDataset (minimalActivity name "GLO" []) techs)
 
+{- | One reader's share carrying a waste flow instead of a technosphere one.
+An EcoSpold 2 file fills a waste flow's synonyms from the same place as a
+technosphere flow's, so the same collision is reachable there.
+-}
+wasting :: Text -> [WasteFlow] -> ((UUID.UUID, UUID.UUID), ParsedDataset)
+wasting name wastes =
+    ((actUUID1, flowUUID1), (minimalDataset (minimalActivity name "GLO" []) []){pdWasteFlows = wastes})
+
+minimalWaste :: UUID.UUID -> Text -> [Text] -> WasteFlow
+minimalWaste fid name syns =
+    WasteFlow
+        { wfId = fid
+        , wfName = name
+        , wfUnitId = UUID.nil
+        , wfSynonyms = M.singleton "en" (S.fromList syns)
+        , wfCAS = Nothing
+        , wfSubstanceId = Nothing
+        }
+
 {- | One coproduct of a block published under dataset number 7: allocation gives
 each of them its own key, and they all carry the number the block was read under.
 -}
@@ -272,6 +291,23 @@ spec = do
             let merged = harvestOf [share "activity-a" []] <> harvestOf [share "activity-b" []]
             fmap activityName (M.lookup (actUUID1, flowUUID1) (hvActivities merged))
                 `shouldBe` Just "activity-a"
+
+        -- A waste flow carries the same synonyms and the same CAS as the two
+        -- tables beside it, and it used to keep one row of a repeated key
+        -- whole, so a synonym declared only by the file that lost was gone.
+        it "keeps the synonyms of every file that declared one waste flow" $ do
+            let a = minimalWaste flowUUID2 "spoil" ["mine spoil"]
+                b = minimalWaste flowUUID2 "spoil" ["overburden"]
+                harvest = harvestOf [wasting "activity-a" [a], wasting "activity-b" [b]]
+            fmap wfSynonyms (M.lookup flowUUID2 (hvWasteFlows harvest))
+                `shouldBe` Just (M.singleton "en" (S.fromList ["mine spoil", "overburden"]))
+
+        it "keeps them across two readers as well" $ do
+            let a = minimalWaste flowUUID2 "spoil" ["mine spoil"]
+                b = minimalWaste flowUUID2 "spoil" ["overburden"]
+                merged = harvestOf [wasting "activity-a" [a]] <> harvestOf [wasting "activity-b" [b]]
+            fmap wfSynonyms (M.lookup flowUUID2 (hvWasteFlows merged))
+                `shouldBe` Just (M.singleton "en" (S.fromList ["mine spoil", "overburden"]))
 
         -- The dataset-number table is under neither law: an allocated block is
         -- written once per coproduct, all of them under the block's number, so
