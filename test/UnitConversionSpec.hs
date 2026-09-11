@@ -45,19 +45,19 @@ spec = do
         let dimOrder = defaultDimensionOrder
 
         it "parses single dimension" $ do
-            parseDimension dimOrder "mass" `shouldBe` Right [1, 0, 0, 0, 0, 0]
+            parseDimension dimOrder "mass" `shouldBe` Right [1, 0, 0, 0, 0, 0, 0]
 
         it "parses product of dimensions (mass*length)" $ do
-            parseDimension dimOrder "mass*length" `shouldBe` Right [1, 1, 0, 0, 0, 0]
+            parseDimension dimOrder "mass*length" `shouldBe` Right [1, 1, 0, 0, 0, 0, 0]
 
         it "parses division (length/time)" $ do
-            parseDimension dimOrder "length/time" `shouldBe` Right [0, 1, -1, 0, 0, 0]
+            parseDimension dimOrder "length/time" `shouldBe` Right [0, 1, -1, 0, 0, 0, 0]
 
         it "parses repeated division (length/time/time)" $ do
-            parseDimension dimOrder "length/time/time" `shouldBe` Right [0, 1, -2, 0, 0, 0]
+            parseDimension dimOrder "length/time/time" `shouldBe` Right [0, 1, -2, 0, 0, 0, 0]
 
         it "parses complex expression (mass*length/time)" $ do
-            parseDimension dimOrder "mass*length/time" `shouldBe` Right [1, 1, -1, 0, 0, 0]
+            parseDimension dimOrder "mass*length/time" `shouldBe` Right [1, 1, -1, 0, 0, 0, 0]
 
         it "rejects empty expression" $
             parseDimension dimOrder "" `shouldSatisfy` isLeft
@@ -233,8 +233,31 @@ spec = do
                     , ("kg*day", Just "kgy")
                     , ("km*year", Just "my")
                     , ("passenger-km", Just "pkm")
+                    , -- A result expression is the reference of its own
+                      -- dimension and of nothing else, which is what keeps it
+                      -- from being the unit an amount is recorded in.
+                      ("m3-world equivalents", Just "m3-world equivalents")
                     ]
             map (fmap T.toLower . canonicalUnitFor cfg . fst) canonicals `shouldBe` map snd canonicals
+
+        -- A water scarcity indicator states its result in cubic metres of water
+        -- weighted by how scarce water is where it was taken. That is not a
+        -- volume, and the dimension vector is the whole of what decides what
+        -- converts into what, so it may not carry a volume's. Filed as one it
+        -- was the reference unit's equal: an exchange stated in it linked to a
+        -- product in litres, and an amount recorded in it came back named m3.
+        it "keeps a result expression out of the volume it is expressed per" $ do
+            cfg <- loadFullUnitConfig
+            unitsCompatible cfg "m3-world equivalents" "gallon" `shouldBe` False
+            convertUnit cfg "l" "m3-world equivalents" 1.0 `shouldBe` Nothing
+
+        -- The other half: characterization has to see through the distinction,
+        -- because a factor written in that result *is* written per cubic metre.
+        -- A flow in litres reaches it; one in kilograms does not.
+        it "still reads a result expression as the quantity it is written per" $ do
+            cfg <- loadFullUnitConfig
+            convertOntoFactorBasis cfg "l" "m3-world equivalents" 1.0 `shouldBe` Just 1.0e-3
+            convertOntoFactorBasis cfg "kg" "m3-world equivalents" 1.0 `shouldBe` Nothing
 
         -- A dimension with no row at 1.0 has no reference unit, so
         -- 'normalizeToCanonical' answers Nothing and the amount is recorded in

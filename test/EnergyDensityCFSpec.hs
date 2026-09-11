@@ -55,7 +55,7 @@ import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig)
 unitConfig :: UnitConfig
 unitConfig =
     fromRight defaultUnitConfig $
-        buildFromCSV (BLC.pack "name,dimension,factor\nkg,mass,1.0\ntonne,mass,1000.0\nm3,volume,1.0\nmj,energy,1.0\n")
+        buildFromCSV (BLC.pack "name,dimension,factor\nkg,mass,1.0\ntonne,mass,1000.0\nm3,volume,1.0\nmj,energy,1.0\nm3-world equivalents,result*volume,1.0\n")
 
 uidKg, uidTonne, uidM3, uidMJ :: UUID
 uidKg = UUID.fromWords64 1 0
@@ -133,6 +133,13 @@ waterFlowIn unitId = (coalFlowIn unitId){bfId = waterId, bfName = "Water"}
 -- A volume-denominated CF (an AWARE-style water-scarcity factor per m³).
 volumeCF :: MethodCF
 volumeCF = energyCF{mcfFlowRef = waterId, mcfFlowName = "Water", mcfValue = 42.95, mcfUnit = "m3"}
+
+-- The same factor as the ILCD collection carrying this indicator writes it:
+-- the method's reference quantity is a result expression,
+-- "m3-world equivalents", and the parser copies that string onto every factor.
+-- It is not a volume, but it is written per one.
+volumeResultCF :: MethodCF
+volumeResultCF = volumeCF{mcfUnit = "m3-world equivalents"}
 
 -- A per-kilogram water CF — the shape a non-regionalized method takes when it
 -- writes water deprivation against a mass basis instead of a volume one.
@@ -241,6 +248,28 @@ spec = do
         it "still scores 0 without a density (cross-dimensional, no bridge)" $ do
             let flow = waterFlowIn uidKg
                 tables = tablesFor flow M.empty volumeCF
+            scoreFlow flow 1.0 tables `shouldSatisfy` near 0
+
+    -- The factor as the collection writes it, in a result expression rather
+    -- than in a unit. The three cases above have to come out the same, because
+    -- the factor is the same factor: what the result is expressed in says
+    -- nothing about what it is written per. This is also what says the row may
+    -- not simply leave data/units.csv — take it away and the first case stops
+    -- bridging and scores the kilogram under a per-cubic-metre factor.
+    describe "The same factor written as a result expression" $ do
+        it "bridges a kg flow exactly as the per-m3 spelling does" $ do
+            let flow = waterFlowIn uidKg
+                tables = tablesFor flow waterDensities volumeResultCF
+            scoreFlow flow 1.0 tables `shouldSatisfy` near (0.001 * 42.95)
+
+        it "leaves a flow already in the unit the factor is written per untouched" $ do
+            let flow = waterFlowIn uidM3
+                tables = tablesFor flow waterDensities volumeResultCF
+            scoreFlow flow 1.0 tables `shouldSatisfy` near 42.95
+
+        it "refuses a kg flow with no density rather than scoring the kilogram" $ do
+            let flow = waterFlowIn uidKg
+                tables = tablesFor flow M.empty volumeResultCF
             scoreFlow flow 1.0 tables `shouldSatisfy` near 0
 
     describe "Density bridge, inverse direction: mass CF vs. volume flow" $ do
