@@ -506,6 +506,32 @@ spec = do
             firstProducer "pork, bone" (buildSupplierIndexByName M.empty acts flows)
                 `shouldBe` Just (actUUID1, flowUUID1, "unknown")
 
+        it "reads the marker a source appends to the words of a subcategory" $ do
+            -- The other convention: no segment of its own, the word is added to
+            -- the words a segment already carries, one segment at a time, and
+            -- written in whichever cell describes the retired thing. Here the
+            -- category says nothing and the subcategory carries it all.
+            let obsoleteWords act =
+                    act
+                        { activityClassification =
+                            M.fromList
+                                [ ("Category", "transport systems")
+                                , ("SubCategory", "transport, obsolete\\road, obsolete")
+                                ]
+                        }
+                acts =
+                    M.fromList
+                        [ ((actUUID1, flowUUID1), obsoleteWords (minimalActivity "lorry transport, a" "FR" [refExchange flowUUID1]))
+                        , ((actUUID2, flowUUID2), minimalActivity "lorry transport, z" "FR" [refExchange flowUUID2])
+                        ]
+                flows =
+                    M.fromList
+                        [ (flowUUID1, minimalFlow flowUUID1 "Transport, lorry")
+                        , (flowUUID2, minimalFlow flowUUID2 "Transport, lorry")
+                        ]
+            firstProducer "transport, lorry" (buildSupplierIndexByName M.empty acts flows)
+                `shouldBe` Just (actUUID2, flowUUID2, "unknown")
+
         it "does not index a prefix of a product name" $ do
             -- "Urea {RER}| urea production" and "Urea {RoW}| urea production"
             -- are not the same product, and neither is "Urea".
