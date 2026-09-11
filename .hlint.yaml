@@ -22,3 +22,100 @@
 # This test's whole point is the right-identity law `s <> mempty`; hlint would simplify
 # it to `s` and delete exactly what's under test. Keep the law spelled out.
 - ignore: {name: "Monoid law, right identity", within: LoaderSpec}
+
+# ---------------------------------------------------------------------------
+# A key read out of a file can repeat
+# ---------------------------------------------------------------------------
+#
+# `M.fromList` keeps the last row of a repeated key and says nothing. An index
+# asserts that its key determines its value, so where the key comes out of a
+# file - which nothing makes a primary key - one of three answers has to be
+# chosen and said: refuse (`Data.Indexing.uniqueIndex`), keep all
+# (`fromListWith` towards a `NonEmpty`), or reconcile.
+#
+# The restriction is scoped to the modules that read files. It is done in three
+# steps because hlint names every restriction hint "Avoid restricted function":
+# the ban is global, the hint is then ignored everywhere, and re-raised as an
+# error in the modules below. A restriction added here later inherits that
+# scoping and will NOT fire outside this list - extend the list with it.
+- functions:
+    - name: Data.Map.fromList
+      within: []
+      message: "a key read out of a file can repeat, and this keeps the last row in silence: refuse (Data.Indexing.uniqueIndex), keep all (fromListWith towards a NonEmpty), or reconcile - and say which"
+    - name: Data.Map.Strict.fromList
+      within: []
+      message: "a key read out of a file can repeat, and this keeps the last row in silence: refuse (Data.Indexing.uniqueIndex), keep all (fromListWith towards a NonEmpty), or reconcile - and say which"
+    - name: Data.Map.Lazy.fromList
+      within: []
+      message: "a key read out of a file can repeat, and this keeps the last row in silence: refuse (Data.Indexing.uniqueIndex), keep all (fromListWith towards a NonEmpty), or reconcile - and say which"
+- ignore: {name: "Avoid restricted function"}
+- error:
+    name: "Avoid restricted function"
+    within:
+      [ BrightwayExcel.Parser
+      , Config
+      , Database.Loader
+      , EcoSpold.Parser1
+      , EcoSpold.Parser2
+      , ILCD.Common
+      , ILCD.Parser
+      , Method.FlowResolver
+      , Method.ParserCSV
+      , Method.ParserNW
+      , Method.Types
+      , SimaPro.Parser
+      , UnitConversion
+      ]
+
+# The sites in those modules where the key does determine its value, each with
+# what makes that true. A line here is the comment, except that hlint checks it
+# stays attached to a function that exists.
+
+# Keys written in this file: the configuration schema, the four units the engine
+# starts with, the two classification cells an EcoSpold 1 dataset carries, the
+# ones a SimaPro block carries.
+- ignore: {name: "Avoid restricted function", within: [Config.configKeys, UnitConversion.defaultUnitConfig, EcoSpold.Parser1.buildResult, SimaPro.Parser.processBlockToActivity, SimaPro.Parser.productToExchange]}
+
+# Keys walked out of a `Map`, so unique before the list is built: the ILCD flow
+# and unit-group tables, and the groups `latestByUUID` has just formed.
+- ignore: {name: "Avoid restricted function", within: [ILCD.Parser.buildFlowAndUnitDB, ILCD.Common.latestByUUID]}
+
+# A unit identifier minted from the unit's name, by a UUIDv5 over that name, for
+# a value whose every field is that same name. Two rows under one identifier are
+# the same unit.
+- ignore: {name: "Avoid restricted function", within: [BrightwayExcel.Parser.parseBrightwayExcel, SimaPro.Parser.parseSimaProCSV, Database.Loader.allocateParsed]}
+
+# Keys a file format makes unique within the part they are read from: a
+# relationship identifier in a workbook's rels part, a column index within one
+# row.
+- ignore: {name: "Avoid restricted function", within: [BrightwayExcel.Parser.readSheets, BrightwayExcel.Parser.parseRow]}
+
+# The repeat is answered a few lines above, and this builds the table once the
+# answer is known: the compartment and energy-density tables refuse it, the
+# workbook block refuses a metadata key answered two ways, and `added` is one
+# declaration per unit name by construction.
+- ignore: {name: "Avoid restricted function", within: [Method.Types.buildEnergyDensityMapFromCSV, BrightwayExcel.Parser.metaOf, UnitConversion.addDeclaredUnits]}
+
+# `rowFields` keys a data row on its column label, and the labels a header row
+# spells more than once are reported beside it by `duplicateLabels`: one column
+# of each survives per row, and the reader is told which.
+- ignore: {name: "Avoid restricted function", within: BrightwayExcel.Parser.rowFields}
+
+# The dataset key of a harvest is the (activity, product) pair its source names
+# the dataset under, and which of two datasets under one pair survives is the
+# harvest's own stated law, pinned by "LoaderSpec".
+- ignore: {name: "Avoid restricted function", within: Database.Loader.harvestOf}
+
+# A process is keyed on the pair (process, its reference product), and an
+# allocated process gives one activity per coproduct, each with its own product.
+- ignore: {name: "Avoid restricted function", within: ILCD.Parser.buildActivityMap}
+
+# SimaPro states its parameters in groups of rising precedence - database, then
+# project, then process - so a name stated twice is meant to take the last, and
+# the function's own documentation says so.
+- ignore: {name: "Avoid restricted function", within: SimaPro.Parser.buildParamEnv}
+
+# A database name held by two entries is reported at discovery, and this keeps
+# the same one the manager's own registry keeps, so the load order and the
+# registry agree. `inDeg` is keyed over a list that came out of a `Set`.
+- ignore: {name: "Avoid restricted function", within: Config.resolveLoadOrder}
