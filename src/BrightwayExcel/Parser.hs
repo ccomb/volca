@@ -177,6 +177,11 @@ table header (column index → lowercased label) and the data rows.
 data RawActivity = RawActivity
     { raName :: !Text
     , raMeta :: !(M.Map Text CellValue)
+    , raMetaRepeats :: ![Text]
+    {- ^ The metadata keys the block spells more than once. 'raMeta' keys on
+    the label, so one row of each survives and the others are dropped; the
+    reader is told which keys rather than losing a field in silence.
+    -}
     , raHeaders :: ![(Int, Text)]
     , raRows :: ![Row]
     , raHasParams :: !Bool
@@ -219,13 +224,13 @@ parseBlock block0 = do
         parIdx = findIndex (rowKeyIs "parameters") block
         metaEnd = minimum (length block : catMaybes [excIdx, parIdx])
         metaRows = take (metaEnd - 1) (drop 1 block)
-        meta =
-            M.fromList
-                [ (T.toLower (T.strip k), v)
-                | row <- metaRows
-                , Just k <- [textAt 0 row]
-                , Just v <- [M.lookup 1 row]
-                ]
+        metaPairs =
+            [ (T.toLower (T.strip k), v)
+            | row <- metaRows
+            , Just k <- [textAt 0 row]
+            , Just v <- [M.lookup 1 row]
+            ]
+        meta = M.fromList metaPairs
         -- Everything after the Exchanges header is taken as exchange data. This
         -- assumes a @parameters@ section (if any) precedes Exchanges, as bw2io
         -- writes it; a trailing parameters block would be read as exchange rows
@@ -239,6 +244,7 @@ parseBlock block0 = do
         RawActivity
             { raName = T.strip name
             , raMeta = meta
+            , raMetaRepeats = repeated (map fst metaPairs)
             , raHeaders = headers
             , raRows = dataRows
             , raHasParams = isJust parIdx
@@ -331,6 +337,9 @@ rawToActivity cfg ra =
                ]
             ++ [ "activity '" <> raName ra <> "': column '" <> lbl <> "' appears more than once; one of them is read per row and the others are dropped"
                | lbl <- duplicateLabels (raHeaders ra)
+               ]
+            ++ [ "activity '" <> raName ra <> "': metadata key '" <> key <> "' appears more than once; the last row is read and the others are dropped"
+               | key <- raMetaRepeats ra
                ]
 
     location = fromMaybe "" (metaText meta "location")

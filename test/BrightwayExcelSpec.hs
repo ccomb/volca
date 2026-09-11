@@ -15,7 +15,7 @@ import BrightwayExcel.Parser (CellValue (..), parseBrightwayExcel, parseSheetXml
 import Codec.Archive.Zip (addEntryToArchive, emptyArchive, fromArchive, toEntry)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (chr, ord)
-import Data.List (find)
+import Data.List (find, isInfixOf)
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -24,6 +24,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import Database.Loader (loadDatabase)
 import Database.Upload (ArchiveFormat (..), detectArchiveFormat)
+import Progress (LogLine (..), getLogLines)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
@@ -85,6 +86,16 @@ spec = describe "BrightwayExcel.Parser" $ do
                                           , "Widget manufacturing"
                                           , "Cotton fibre production"
                                           ]
+
+        -- A header column stated twice is already reported; a metadata row
+        -- stated twice was not, and it is dropped the same way.
+        it "names a metadata key the block states twice" $
+            withWorkbook (buildWorkbook [("data", twiceStatedSheet)]) $ \path -> do
+                (since, _) <- getLogLines 0
+                _ <- parseBrightwayExcel defaultUnitConfig path
+                (_, newLines) <- getLogLines since
+                any (("metadata key 'location' appears more than once" `isInfixOf`) . llText) newLines
+                    `shouldBe` True
 
         it "keys the reference product by its product name" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
@@ -280,6 +291,22 @@ buildWorkbook sheets =
                   ]
   where
     enc = BL.fromStrict . TE.encodeUtf8
+
+{- | A worksheet whose block states one metadata key twice. A workbook can do
+that, and only one of the two rows reaches the activity.
+-}
+twiceStatedSheet :: [[Cell]]
+twiceStatedSheet =
+    [ [CT "Activity", CT "Widget manufacturing"]
+    , [CT "production amount", CN 1]
+    , [CT "reference product", CT "widget"]
+    , [CT "location", CT "GLO"]
+    , [CT "location", CT "FR"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Exchanges"]
+    , [CT "name", CT "amount", CT "reference product", CT "location", CT "unit", CT "categories", CT "type", CT "database"]
+    , [CT "Widget manufacturing", CN 1, CT "widget", CT "GLO", CT "kilogram", CE, CT "production", CT "DB"]
+    ]
 
 -- | A single-activity worksheet (standard column order) for multi-sheet tests.
 activitySheet :: Text -> Text -> [[Cell]]
