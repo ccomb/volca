@@ -11,6 +11,7 @@ import Data.UUID (UUID, fromWords, nil)
 import Data.UUID.V4 (nextRandom)
 import Test.Hspec
 
+import Data.Either (isLeft)
 import Data.Maybe (isJust)
 import Method.ChemSynonyms (emptyChemSynonyms, parseChemSynonymsCSV)
 import Method.Mapping
@@ -625,6 +626,13 @@ spec = do
             -- what scores, not merely that the wildcard was blocked: a gate that
             -- only blocked would leave this uncharacterized, at 0.
             scoreWith [uns, mkCFComp "Nitrogen, total" "water" "ocean" 5.0] "ocean" `shouldReturn` 5.0
+
+        -- The key is lowercased and stripped, so two rows that differ only in
+        -- case are one rule with two targets, and the file says nothing about
+        -- which was meant.
+        it "refuses two rows normalizing the same source compartment" $
+            buildCompartmentMapFromCSV "source_medium,source_sub,source_qualifier,target_medium,target_sub,target_qualifier\nwater,sea water,,water,ocean,\nWater,Sea water,,water,river,\n"
+                `shouldSatisfy` isLeft
 
         it "recognizes the sea through the spelling compartments.csv translates" $ do
             -- 'isForeignMediumSub' names the canonical subcompartment only, so

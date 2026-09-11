@@ -25,8 +25,9 @@ Plus the CSV reader: it keys by normalized name and rejects malformed rows.
 -}
 module EnergyDensityCFSpec (spec) where
 
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
-import Data.Either (fromRight, isLeft)
+import Data.Either (fromRight, isLeft, isRight)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import Data.UUID (UUID)
@@ -327,6 +328,20 @@ spec = do
             case buildEnergyDensityMapFromCSV (BLC.pack "flow_name,value,target_unit,native_unit\n\"Coal, hard\",18.01,MJ,kg\n") of
                 Left err -> expectationFailure err
                 Right m -> M.lookup (normalizeName "Coal, hard") m `shouldBe` Just (EnergyDensity 18.01 "MJ" "kg")
+
+        -- The key is the normalized name, and normalizing drops a unit suffix,
+        -- so a table listing a substance per m3 and per kg lands both rows on
+        -- one key. Keeping whichever came last would score the flow on the
+        -- wrong basis, which is what the two units are there to prevent.
+        -- The table the engine ships goes through the same refusal, and nothing
+        -- else reads it here: a row added twice would stop the load.
+        it "accepts the table shipped with the engine" $ do
+            csv <- BL.readFile "data/energy_density.csv"
+            buildEnergyDensityMapFromCSV csv `shouldSatisfy` isRight
+
+        it "rejects two rows whose names normalize to the same key" $
+            buildEnergyDensityMapFromCSV (BLC.pack "flow_name,value,target_unit,native_unit\n\"Gas, natural/m3\",38.29,MJ,m3\n\"Gas, natural\",45.0,MJ,kg\n")
+                `shouldSatisfy` isLeft
 
         it "rejects a non-positive value" $
             buildEnergyDensityMapFromCSV (BLC.pack "flow_name,value,target_unit,native_unit\nPeat,0,MJ,kg\n")

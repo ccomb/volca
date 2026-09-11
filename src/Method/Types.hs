@@ -51,10 +51,14 @@ module Method.Types (
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Data.Aeson (FromJSON, ToJSON)
+import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Csv (HasHeader (..), decode)
+import Data.Indexing (uniqueIndex)
 import Data.List (sortOn)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Maybe
 import Data.Store (Store)
@@ -316,7 +320,17 @@ buildCompartmentMapFromCSV csvData =
                       )
                     | (sm, ss, sq, tm, ts, tq) <- entries
                     ]
-             in Right $ M.fromList pairs
+             in first repeatedCompartments (uniqueIndex pairs)
+  where
+    -- Two rows for one source compartment give two targets, and the file says
+    -- nothing about which was meant.
+    repeatedCompartments :: NonEmpty (Text, Text, Text) -> String
+    repeatedCompartments keys =
+        "two rows normalize the same compartment: "
+            <> T.unpack (T.intercalate (T.pack "; ") (map spelt (NE.toList keys)))
+
+    spelt :: (Text, Text, Text) -> Text
+    spelt (sm, ss, sq) = T.intercalate (T.pack ",") [sm, ss, sq]
 
 {- | Normalize a compartment using the mapping.
 
@@ -426,8 +440,16 @@ buildEnergyDensityMapFromCSV csvData =
     case decode HasHeader csvData of
         Left err -> Left $ "CSV parse error: " <> err
         Right rows ->
-            M.fromList <$> traverse toEntry (V.toList (rows :: V.Vector (Text, Double, Text, Text)))
+            traverse toEntry (V.toList (rows :: V.Vector (Text, Double, Text, Text)))
+                >>= first repeatedFlows . uniqueIndex
   where
+    -- Two densities for one flow are two answers at score time, and normalizing
+    -- the name can bring together two rows that were spelt apart.
+    repeatedFlows :: NonEmpty Text -> String
+    repeatedFlows names =
+        "two rows give a density for the same flow: " <> T.unpack (T.intercalate (T.pack ", ") (NE.toList names))
+
+    toEntry :: (Text, Double, Text, Text) -> Either String (Text, EnergyDensity)
     toEntry (name, value, targetUnit, nativeUnit)
         | value <= 0 =
             Left $ "density must be positive (flow: " <> T.unpack name <> ")"
