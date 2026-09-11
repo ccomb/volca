@@ -14,6 +14,21 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
+- A guest night is no longer read as a plain count. It is one guest for one
+  night, a count over a time, and the shipped unit table filed it beside
+  `piece`, `item` and `TEU` at the reference unit's own factor. Every spelling
+  of a count therefore converted into it at 1.0, reading one shipping container
+  or one piece as one night of one guest, and an exchange stated in either
+  would link to a product stated in the other. What a unit is described as is
+  the whole of what decides that, so nothing downstream could notice. It is now
+  described as a count over a time, the way `kgy` is described as a mass over a
+  time, and it is the reference unit of that description since the table holds
+  no other spelling of one. A reference product stated in guest nights is
+  therefore recorded under `guestnight` where it used to be recorded under `p`,
+  which moves that product flow's identifier and the activity's process id.
+  `TEU` stays a count, of shipping containers, which is what a count is for.
+  Data version 4. A cache records the unit table it was built with, so every
+  cache rebuilds itself from its source on the next load.
 - A water scarcity indicator's unit is no longer read as a volume.
   `m3-world equivalents` is what such an indicator states its result in, a
   cubic metre of water weighted by how scarce water is where it was taken, and
