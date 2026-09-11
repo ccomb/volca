@@ -282,6 +282,7 @@ test-suite lca-tests
                      , MappingSpec
                      , BuiltinSpec
                      , ManagerBuiltinSpec
+                     , ShadowedNamesSpec
                      , MethodSetTablesSpec
                      , MethodCollectionCacheSpec
                      , DependencyFlowClosureSpec

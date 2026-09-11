@@ -123,6 +123,9 @@ module Database.Manager (
     -- * Internal (for tests: pure dependency-list builder)
     buildDependencyChoices,
 
+    -- * Internal (for tests: the names two entries both claim)
+    shadowedNames,
+
     -- * Installing a database the caller built itself
     solverFor,
     publishLoaded,
@@ -1179,11 +1182,16 @@ discoverDatabases config = do
         return dbConfig{dcPath = resolvedPath, dcFormat = Just format}
     -- Uploaded databases are self-describing, through their meta.toml
     uploaded <- discoverUploadedDatabases
-    return (configured ++ uploaded)
+    let combined = configured ++ uploaded
+    mapM_ (reportProgress Warning) (shadowedNames "database" dcName dcPath combined)
+    return combined
 
 -- | Configured method collections plus the uploaded ones.
 discoverMethods :: Config -> IO [MethodConfig]
-discoverMethods config = (cfgMethods config ++) <$> discoverUploadedMethodConfigs
+discoverMethods config = do
+    combined <- (cfgMethods config ++) <$> discoverUploadedMethodConfigs
+    mapM_ (reportProgress Warning) (shadowedNames "method collection" mcName mcPath combined)
+    return combined
 
 -- | Configured reference data plus whatever sits under @uploads/<kind>/@.
 discoverRefDataSources :: Config -> IO RefDataSources
@@ -1197,21 +1205,25 @@ discoverRefDataSources config =
     withUploads :: String -> [RefDataConfig] -> FilePath -> IO [RefDataConfig]
     withUploads kind configured dir = do
         combined <- (configured ++) <$> discoverUploadedRefData dir
-        mapM_ (reportProgress Warning) (shadowedSources kind combined)
+        mapM_ (reportProgress Warning) (shadowedNames (kind <> " source") rdName (describeSource . rdSource) combined)
         pure combined
 
-{- | One warning per name held by more than one source. 'newManager' indexes
-these by name, so a repeated one keeps the last and drops the rest: an uploaded
-directory named like a configured source is all it takes, and the configuration
-checks duplicates for databases and method collections but not for these. Which
-one wins follows from a concatenation order nothing states, so name the file
-being read as well as the ones being ignored.
+{- | One warning per name held by more than one entry, naming the one that is
+read and the ones that are not.
+
+'newManager' indexes databases, method collections and reference sources by
+name, so a repeated one keeps the last and drops the rest. The configuration
+refuses a repeated name, but it only ever sees the configured half: what
+reaches these indexes is that half concatenated with whatever the uploads
+directory holds, so an uploaded directory named like a configured entry is all
+it takes to replace it. Which one wins then follows from a concatenation order
+nothing states, and it used to be said nowhere.
 -}
-shadowedSources :: String -> [RefDataConfig] -> [String]
-shadowedSources kind rds =
-    [ "Reference data: more than one "
+shadowedNames :: String -> (a -> Text) -> (a -> String) -> [a] -> [String]
+shadowedNames kind nameOf describe entries =
+    [ "More than one "
         <> kind
-        <> " source named "
+        <> " named "
         <> T.unpack name
         <> "; reading "
         <> winner
@@ -1220,10 +1232,10 @@ shadowedSources kind rds =
     | (name, winner : ignored@(_ : _)) <- M.toList lastFirst
     ]
   where
-    -- 'M.fromListWith' prepends, so a group comes out last source first, and
+    -- 'M.fromListWith' prepends, so a group comes out last entry first, and
     -- that first one is what 'M.fromList' keeps.
     lastFirst :: Map Text [String]
-    lastFirst = M.fromListWith (++) [(rdName rd, [describeSource (rdSource rd)]) | rd <- rds]
+    lastFirst = M.fromListWith (++) [(nameOf e, [describe e]) | e <- entries]
 
 {- | The location hierarchy this run scores against. Falling back to the
 built-in hierarchy when a named file cannot be read would change every
