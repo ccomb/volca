@@ -844,19 +844,28 @@ sourceBlockOf db pid = maybe orphan blockOfRef (processIdToRef db pid)
 
 {- | Is this dataset filed in its source's obsolete category?
 
-The tool that writes SimaPro CSV files keeps a retired process in the export,
-under a category whose last segment is @Obsolete@ (@Others\\Obsolete@, or
-@Autres\\Obsolete@ in a French export). Such a process still carries its
+A source that keeps a retired process in its export says so in the category,
+and the two conventions put the word in different places. A SimaPro CSV export
+gives it a segment of its own (@Others\\Obsolete@, or @Autres\\Obsolete@ in a
+French export). An EcoSpold 1 export appends it to the words a segment is
+already made of, one segment at a time: @material, obsolete@, or
+@wood, obsolete\\extraction, obsolete@.
+
+Both are the same statement, so both are read: the category is cut into
+segments and each segment into its comma-separated words, and the dataset is
+retired when one of those words is @obsolete@. Such a process still carries its
 exchanges and still computes; what its author says is that a newer one has
-replaced it, and the writing tool warns whenever a calculation reaches one.
-Read here on the @Category@ classification, which is the cell the block's
-product row carries. Formats with no such convention never say yes.
+replaced it. Read on the @Category@ classification, which is the cell the
+block's product row carries. Formats with no such convention never say yes.
 -}
 activityIsObsolete :: Activity -> Bool
 activityIsObsolete =
-    maybe False (elem "obsolete" . map T.toCaseFold . T.splitOn "\\")
+    maybe False (elem "obsolete" . map T.toCaseFold . categoryWords)
         . M.lookup "Category"
         . activityClassification
+  where
+    categoryWords :: Text -> [Text]
+    categoryWords = concatMap (map T.strip . T.splitOn ",") . T.splitOn "\\"
 
 {- | Loop-aware tree for SVG export. Every node that exists names the row it
 sits at, so an allocated activity written as several coproduct rows is several

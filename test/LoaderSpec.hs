@@ -487,6 +487,23 @@ spec = do
             firstProducer "pork, bone" (buildSupplierIndexByName M.empty acts flows)
                 `shouldBe` Just (actUUID1, flowUUID1, "unknown")
 
+        it "reads the marker a source appends to the words of a category" $ do
+            -- The other convention: no segment of its own, the word is added to
+            -- the words the segment already carries, one segment at a time.
+            let obsoleteWords act = act{activityClassification = M.singleton "Category" "wood, obsolete\\extraction, obsolete"}
+                acts =
+                    M.fromList
+                        [ ((actUUID1, flowUUID1), obsoleteWords (minimalActivity "sawnwood, a" "FR" [refExchange flowUUID1]))
+                        , ((actUUID2, flowUUID2), minimalActivity "sawnwood, z" "FR" [refExchange flowUUID2])
+                        ]
+                flows =
+                    M.fromList
+                        [ (flowUUID1, minimalFlow flowUUID1 "Sawnwood")
+                        , (flowUUID2, minimalFlow flowUUID2 "Sawnwood")
+                        ]
+            firstProducer "sawnwood" (buildSupplierIndexByName M.empty acts flows)
+                `shouldBe` Just (actUUID2, flowUUID2, "unknown")
+
         it "does not index a prefix of a product name" $ do
             -- "Urea {RER}| urea production" and "Urea {RoW}| urea production"
             -- are not the same product, and neither is "Urea".
