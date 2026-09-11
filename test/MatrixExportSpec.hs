@@ -8,6 +8,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
+import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
 import Matrix.Export (
     MatrixDebugInfo (..),
@@ -183,7 +184,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             info <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) Nothing
             let n = fromIntegral (dbActivityCount db)
-            length (mdSupplyVector info) `shouldBe` n
+            U.length (mdSupplyVector info) `shouldBe` n
             length (mdDemandVector info) `shouldBe` n
 
         it "demand vector has exactly one non-zero entry" $ do
@@ -227,15 +228,59 @@ spec = do
                 -- header + 3 activities (SAMPLE.min3)
                 length (lines (T.unpack content)) `shouldBe` 4
 
+        it "names each column's own activity, and scales it by that column's supply" $ do
+            -- Both files in full, because both are read by eye and every field of
+            -- them is a promise: the two columns have to come back under their own
+            -- activity, and the amounts have to keep the last digit of the value
+            -- the record holds. The producer sits at column 0 and the treatment at
+            -- column 1, so an export that mistook one column for another would name
+            -- the wrong activity here rather than merely lose a row.
+            --
+            -- The expected amounts are read off the record rather than written out,
+            -- because the last digit of a solve is the solver's, not the exporter's:
+            -- gfortran contracts differently across the platforms this suite runs on,
+            -- and a literal here would fail on an exporter that is faithful. Reading
+            -- them off the record keeps what this test is for, which is that the file
+            -- restitutes the record and puts each column under its own activity: a
+            -- swapped column still fails, the two supplies differ.
+            db <- treatmentDatabase
+            info <- either (fail . show) pure =<< extractMatrixDebugInfo db (rowOf db treatmentUUID) Nothing
+            withSystemTempDirectory "acv-debug-columns" $ \tmpDir -> do
+                let base = tmpDir </> "debug"
+                    producer = processIdToText db (rowOf db producerUUID)
+                    treatment = processIdToText db (rowOf db treatmentUUID)
+                    co2 = T.pack (show carbonDioxide)
+                    supplyAt col = mdSupplyVector info U.! col
+                    shown = T.pack . show
+                exportMatrixDebugCSVs base info
+                supplyChain <- TIO.readFile (base ++ "_supply_chain.csv")
+                biosphere <- TIO.readFile (base ++ "_biosphere_matrix.csv")
+                supplyChain
+                    `shouldBe` T.intercalate
+                        "\n"
+                        [ "activity_id,activity_name,location,supply_amount,col_idx"
+                        , producer <> ",producer of Y,GLO," <> shown (supplyAt 0) <> ",0"
+                        , treatment <> ",treatment of waste W,GLO," <> shown (supplyAt 1) <> ",1"
+                        ]
+                biosphere
+                    `shouldBe` T.intercalate
+                        "\n"
+                        [ "flow_id,flow_name,unit,activity_id,activity_name,matrix_value,contribution"
+                        , co2 <> ",carbon dioxide,kg," <> producer <> ",producer of Y,3.0," <> shown (3.0 * supplyAt 0)
+                        , co2 <> ",carbon dioxide,kg," <> treatment <> ",treatment of waste W,-2.0," <> shown (-2.0 * supplyAt 1)
+                        ]
+
 {- | The row SAMPLE.min3's activity X sits at. Row 0 when it is missing, which
 only happens if the fixture changes: the assertions below would then fail on a
 different activity rather than on a resolution error, which is the shape hspec
 reports best.
 -}
 targetRow :: Database -> ProcessId
-targetRow db =
-    let targetUUID = read "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" :: UUID
-     in fromMaybe 0 (findProcessIdByActivityUUID db targetUUID)
+targetRow db = rowOf db (read "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+-- | The row an activity was interned at. Row 0 when it is missing, as above.
+rowOf :: Database -> UUID -> ProcessId
+rowOf db activityUUID = fromMaybe 0 (findProcessIdByActivityUUID db activityUUID)
 
 -- --------------------------------------------------------------------------- --
 -- A database with one waste treatment in it
@@ -243,7 +288,9 @@ targetRow db =
 
 {- | Two activities: an ordinary producer of Y, and a treatment of waste W in the
 convention EcoSpold 2 uses, where the treated waste is the reference product and its
-amount is negative. The treatment consumes half a Y and emits 2 kg of CO2.
+amount is negative. The treatment consumes half a Y and emits 2 kg of CO2; the producer
+emits 3, so both columns of the biosphere matrix carry a row and the debug export has to
+name a different activity for each.
 
 Everything the export has to get right about signs is visible in four coefficients, which
 is why this is built here rather than loaded from a fixture: a sample file would have to
@@ -293,7 +340,7 @@ testUUID :: String -> UUID
 testUUID = fromMaybe UUID.nil . UUID.fromString
 
 producerOfY :: Activity
-producerOfY = blankActivity "producer of Y" [reference productY 1.0]
+producerOfY = blankActivity "producer of Y" [reference productY 1.0, emits 3.0]
 
 treatmentOfW :: Activity
 treatmentOfW =
@@ -301,16 +348,21 @@ treatmentOfW =
         "treatment of waste W"
         [ reference wasteW (-1.0)
         , consumesFrom producerUUID productY 0.5
-        , BiosphereExchange
-            { bioFlowId = carbonDioxide
-            , bioAmount = 2.0
-            , bioUnitId = kilogram
-            , bioDirection = Emission
-            , bioLocation = ""
-            , bioComment = Nothing
-            , bioPedigree = Nothing
-            }
+        , emits 2.0
         ]
+
+-- | Carbon dioxide to air, in kilograms.
+emits :: Double -> Exchange
+emits amount =
+    BiosphereExchange
+        { bioFlowId = carbonDioxide
+        , bioAmount = amount
+        , bioUnitId = kilogram
+        , bioDirection = Emission
+        , bioLocation = ""
+        , bioComment = Nothing
+        , bioPedigree = Nothing
+        }
 
 blankActivity :: Text -> [Exchange] -> Activity
 blankActivity name exs =
