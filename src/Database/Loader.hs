@@ -109,6 +109,7 @@ import Data.Bits (xor)
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
 import Data.Either (lefts, partitionEithers, rights)
+import Data.Foldable (find)
 import Data.List (intercalate, sort, sortBy, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
@@ -221,6 +222,10 @@ base. 'LoaderSpec' pins both directions through 'harvestOf' and this instance,
 which is why the two are exported. The qualifiers are not interchangeable
 either: the flow tables are merged strictly, for the reason the import of
 'Data.Map.Strict' gives, and the rest is left as the build sites had it.
+
+'hvDatasetNumbers' is the one table under neither law: a repeated number is the
+ordinary shape there, not a collision to arbitrate, so both sides are kept and
+the reader picks by product name. See 'DatasetNumberIndex'.
 -}
 data Harvest = Harvest
     { hvActivities :: !ActivityMap
@@ -243,7 +248,7 @@ instance Semigroup Harvest where
             , hvBioFlows = MS.unionWith mergeBioFlows (hvBioFlows a) (hvBioFlows b)
             , hvWasteFlows = M.union (hvWasteFlows a) (hvWasteFlows b)
             , hvUnits = M.union (hvUnits a) (hvUnits b)
-            , hvDatasetNumbers = M.union (hvDatasetNumbers a) (hvDatasetNumbers b)
+            , hvDatasetNumbers = MS.unionWith (<>) (hvDatasetNumbers a) (hvDatasetNumbers b)
             , hvRawFlows = hvRawFlows a + hvRawFlows b
             , hvRawUnits = hvRawUnits a + hvRawUnits b
             }
@@ -262,7 +267,7 @@ harvestOf entries =
         , hvBioFlows = MS.fromListWith mergeBioFlows [(bfId f, f) | f <- bios]
         , hvWasteFlows = M.fromList [(wfId f, f) | f <- wastes]
         , hvUnits = M.fromList [(unitId u, u) | u <- units]
-        , hvDatasetNumbers = M.fromList [(pdDatasetNumber parsed, key) | (key, parsed) <- entries, pdDatasetNumber parsed /= 0]
+        , hvDatasetNumbers = MS.fromListWith (flip (<>)) [(pdDatasetNumber parsed, key NE.:| []) | (key, parsed) <- entries, pdDatasetNumber parsed /= 0]
         , hvRawFlows = length techs + length bios + length wastes
         , hvRawUnits = length units
         }
@@ -540,8 +545,16 @@ covers more than one dataset instead of taking whichever it finds.
 -}
 type SupplierByNameWithLocation = M.Map T.Text (NE.NonEmpty (UUID.UUID, UUID.UUID, T.Text))
 
--- | Dataset number → (activityUUID, productUUID) for EcoSpold1 Tier 1 linking
-type DatasetNumberIndex = M.Map Int (UUID.UUID, UUID.UUID)
+{- | Dataset number → the datasets carrying it, for EcoSpold1 Tier 1 linking.
+
+One number names several datasets rather than one whenever the block it came
+from declares more than one product: allocation rewrites such a block into one
+dataset per coproduct, all of them carrying the number the block was read
+under. Keeping one would leave the others unreachable by number, and the
+reading order does not say which coproduct an input meant. The product name
+does, and that is what Tier 1 already checks.
+-}
+type DatasetNumberIndex = M.Map Int (NE.NonEmpty (UUID.UUID, UUID.UUID))
 
 -- | Information about an unlinked technosphere exchange
 data UnlinkedExchange = UnlinkedExchange
@@ -882,12 +895,10 @@ fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlo
          in case M.lookup fid elcFlowDB of
                 Just flow ->
                     -- Tier 1: dataset-number lookup with name validation
-                    case claimedNumber claim >>= \dsNum -> (,) dsNum <$> M.lookup dsNum elcDatasetIndex of
-                        Just (dsNum, (actUUID, prodUUID))
-                            | Just supplierFlow <- M.lookup prodUUID elcFlowDB
-                            , normalizeText (tfName supplierFlow) == normalizeText (tfName flow) ->
-                                linked (locationOverride flow dsNum (actUUID, prodUUID)) actUUID prodUUID
-                        _ ->
+                    case claimedNumber claim >>= \dsNum -> (,) dsNum <$> (M.lookup dsNum elcDatasetIndex >>= supplierNamed flow) of
+                        Just (dsNum, (actUUID, prodUUID)) ->
+                            linked (locationOverride flow dsNum (actUUID, prodUUID)) actUUID prodUUID
+                        Nothing ->
                             -- Tier 2: name + location lookup
                             let soleSupplier = M.lookup (normalizeText (tfName flow)) elcNameIndex >>= sole
                                 lookupLoc
@@ -909,6 +920,16 @@ fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlo
   where
     declaredLoc :: T.Text
     declaredLoc = fromMaybe loc (M.lookup loc elcLocationAliases)
+
+    -- The number names several datasets whenever the block it came from was
+    -- allocated into coproducts, and then only the product name says which one
+    -- the input asked for. That name was already what Tier 1 checked when the
+    -- number named a single dataset; here it also chooses.
+    supplierNamed :: TechnosphereFlow -> NE.NonEmpty (UUID.UUID, UUID.UUID) -> Maybe (UUID.UUID, UUID.UUID)
+    supplierNamed flow = find (produces (normalizeText (tfName flow)))
+
+    produces :: T.Text -> (UUID.UUID, UUID.UUID) -> Bool
+    produces name (_, prodUUID) = Just name == (normalizeText . tfName <$> M.lookup prodUUID elcFlowDB)
 
     -- The number named a dataset. When the declared location names another
     -- dataset of the same product, the number still wins: it is what the file
