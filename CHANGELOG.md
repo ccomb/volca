@@ -158,6 +158,14 @@
   linking never rewrites, and reports it as `supplierClaim`, which replaces the
   `supplierActivity` of the same release, never shipped. Caches built
   before this are rebuilt on the next load. Wire revision 23.
+- The debug matrix files now take seconds to write on a database of any size.
+  Naming the activity behind a column meant searching the whole index for it,
+  once for the identifier and once again for the name, and reading a supply
+  amount meant counting a list from the start. Both grew with the square of the
+  database, so the two files that only restate what the solver already computed
+  cost more than the solve. On a synthetic chain of 16 000 activities they take
+  0.35 seconds instead of 15, and doubling the database no longer quadruples the
+  wait. The files themselves are unchanged, to the byte.
 
 ### Fixed
 - A file an EcoSpold directory offers and the reader cannot read now stops the
