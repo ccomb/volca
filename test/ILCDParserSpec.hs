@@ -5,6 +5,7 @@ module ILCDParserSpec (spec) where
 import Control.Monad (forM_)
 import qualified Data.ByteString as BS
 import Data.List (find, sortOn)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -32,6 +33,15 @@ prodUUID1 = read "bbbbbbbb-0000-0000-0000-000000000001"
 prodUUID2 = read "bbbbbbbb-0000-0000-0000-000000000002"
 
 -- An activity with a single reference output exchange for the given flow UUID
+
+-- | The same activity under another name, so a ranking has something to rank on.
+named :: Text -> Activity -> Activity
+named name act = act{activityName = name}
+
+-- | The same activity, marked retired the way an EcoSpold 1 file marks one.
+retired :: Activity -> Activity
+retired act = act{activityClassification = M.singleton "Category" "material, obsolete"}
+
 activityWithRefExchange :: UUID.UUID -> Activity
 activityWithRefExchange fid =
     Activity
@@ -260,8 +270,8 @@ spec = do
                         , ((actUUID2, prodUUID2), activityWithRefExchange flowUUID2)
                         ]
                 idx = buildSupplierIndex activities
-            M.lookup flowUUID1 idx `shouldBe` Just (actUUID1, prodUUID1)
-            M.lookup flowUUID2 idx `shouldBe` Just (actUUID2, prodUUID2)
+            M.lookup flowUUID1 idx `shouldBe` Just ((actUUID1, prodUUID1) NE.:| [])
+            M.lookup flowUUID2 idx `shouldBe` Just ((actUUID2, prodUUID2) NE.:| [])
 
         it "does not index non-reference exchanges" $ do
             let activities =
@@ -281,12 +291,33 @@ spec = do
                 idx = buildSupplierIndex activities
             M.size idx `shouldBe` 2
 
+        -- One product made in two places is two processes declaring one
+        -- product flow, and an exchange names the flow. Keeping one entry kept
+        -- whichever the identifiers put last.
+        it "keeps every process declaring one product flow" $ do
+            let activities =
+                    M.fromList
+                        [ ((actUUID1, prodUUID1), named "wheat production, a" (activityWithRefExchange flowUUID1))
+                        , ((actUUID2, prodUUID2), named "wheat production, b" (activityWithRefExchange flowUUID1))
+                        ]
+                idx = buildSupplierIndex activities
+            fmap NE.length (M.lookup flowUUID1 idx) `shouldBe` Just 2
+
+        it "links to the process still in service, whatever its identifier" $ do
+            let activities =
+                    M.fromList
+                        [ ((actUUID1, prodUUID1), retired (named "wheat production, a" (activityWithRefExchange flowUUID1)))
+                        , ((actUUID2, prodUUID2), named "wheat production, b" (activityWithRefExchange flowUUID1))
+                        ]
+                idx = buildSupplierIndex activities
+            fmap NE.head (M.lookup flowUUID1 idx) `shouldBe` Just (actUUID2, prodUUID2)
+
     -- -------------------------------------------------------------------
     -- fixActivityExchanges: resolves input exchanges via supplier index
     -- -------------------------------------------------------------------
     describe "fixActivityExchanges" $ do
         it "resolves input exchange flow UUID to supplier (actUUID, prodUUID)" $ do
-            let idx = M.fromList [(flowUUID1, (actUUID1, prodUUID1))]
+            let idx = M.fromList [(flowUUID1, (actUUID1, prodUUID1) NE.:| [])]
                 act = activityWithInputExchange flowUUID1
                 fixed = fixActivityExchanges idx act
             case exchanges fixed of
@@ -305,7 +336,7 @@ spec = do
                 _ -> expectationFailure "expected one TechnosphereExchange"
 
         it "does not touch output (reference) exchanges" $ do
-            let idx = M.fromList [(flowUUID1, (actUUID1, prodUUID1))]
+            let idx = M.fromList [(flowUUID1, (actUUID1, prodUUID1) NE.:| [])]
                 act = activityWithRefExchange flowUUID1
                 fixed = fixActivityExchanges idx act
             case exchanges fixed of

@@ -776,26 +776,61 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
 -- Fix activity links (supplier resolution by name)
 --------------------------------------------------------------------------------
 
--- | Flow UUID → (activityUUID, productUUID) for reference exchanges
-type SupplierIndex = M.Map UUID (UUID, UUID)
+{- | Flow UUID → every process declaring that flow as its reference output,
+the first of them being the one an input naming only the flow is linked to.
+
+Several is the ordinary shape rather than the exception: one product made in
+two places is two processes declaring one product flow, and an ILCD exchange
+names the flow, never the process. The file therefore does not say which one an
+input meant, and something has to choose.
+-}
+type SupplierIndex = M.Map UUID (NE.NonEmpty (UUID, UUID))
 
 fixILCDActivityLinks :: SimpleDatabase -> IO SimpleDatabase
 fixILCDActivityLinks db = do
     let idx = buildSupplierIndex (sdbActivities db)
     reportProgress Info $ printf "Built supplier index with %d entries for ILCD linking" (M.size idx)
+    mapM_ (reportProgress Warning) (sharedProducts idx)
     return db{sdbActivities = M.map (fixActivityExchanges idx) (sdbActivities db)}
 
-{- | Build a flow-UUID-keyed index of (activityUUID, productUUID) from reference exchanges.
-UUID-based: no name collisions, no indirection through flowDB.
+{- | How many product flows more than one process makes, said once.
+
+One line per flow would be one line per product with a regional variant, which
+is most of a package; the count is what tells a reader that the linking below
+chose, and the ranking is what makes the choice the same everywhere.
+-}
+sharedProducts :: SupplierIndex -> [String]
+sharedProducts idx =
+    [ printf
+        "%d product flow(s) are made by more than one process; each input naming one of them is linked to the process still in service, then the first by name and location"
+        shared
+    | let shared = length [() | producers <- M.elems idx, NE.length producers > 1]
+    , shared > 0
+    ]
+
+{- | Build a flow-UUID-keyed index of the processes producing each flow.
+
+Ranked on what the datasets say - in service before retired, then the name and
+the location - because the alternative is the order of the identifiers, which
+ranks on the identity a file was minted with and can put a retired process
+first. The activity UUID breaks the last tie so that two processes agreeing on
+all of it still come out in the same order on every machine.
 -}
 buildSupplierIndex :: ActivityMap -> SupplierIndex
 buildSupplierIndex activities =
-    M.fromList
-        [ (exchangeFlowId ex, (actUUID, prodUUID))
-        | ((actUUID, prodUUID), act) <- M.toList activities
-        , ex <- exchanges act
-        , exchangeIsReference ex
-        ]
+    M.map (NE.sortWith supplierOrder) $
+        M.fromListWith
+            (<>)
+            [ (exchangeFlowId ex, (actUUID, prodUUID) NE.:| [])
+            | ((actUUID, prodUUID), act) <- M.toList activities
+            , ex <- exchanges act
+            , exchangeIsReference ex
+            ]
+  where
+    supplierOrder :: (UUID, UUID) -> (Bool, Text, Text, UUID, UUID)
+    supplierOrder (actUUID, prodUUID) = case M.lookup (actUUID, prodUUID) activities of
+        Just act -> (activityIsObsolete act, activityName act, activityLocation act, actUUID, prodUUID)
+        Nothing -> (True, "", "", actUUID, prodUUID)
 
 fixActivityExchanges :: SupplierIndex -> Activity -> Activity
 fixActivityExchanges idx act =
@@ -806,7 +841,7 @@ fixActivityExchanges idx act =
     -- (it is a reference exchange) but rewriting it would point the activity
     -- at itself and erase the role, breaking 'activityNormFactor'.
     fixEx ex@TechnosphereExchange{techFlowId = fid, techRole = Input} =
-        case M.lookup fid idx of
+        case NE.head <$> M.lookup fid idx of
             Just (actUUID, prodUUID) ->
                 ex
                     { techFlowId = prodUUID
@@ -818,7 +853,7 @@ fixActivityExchanges idx act =
     -- A waste input awaiting treatment-activity resolution follows the same
     -- name-lookup logic as a technosphere Input.
     fixEx ex@WasteExchange{waFlowId = fid, waIsInput = True} =
-        case M.lookup fid idx of
+        case NE.head <$> M.lookup fid idx of
             Just (actUUID, prodUUID) ->
                 ex
                     { waFlowId = prodUUID
