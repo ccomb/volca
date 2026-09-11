@@ -19,7 +19,6 @@ import EcoSpold.Common (ParsedDataset (..), bsToDouble, bsToInt, bsToIntMaybe, b
 import qualified Expr
 import Progress (ProgressLevel (..), reportProgress)
 import SubstanceRegistry (nonEmptyCAS)
-import System.FilePath (takeBaseName)
 import Types
 import qualified Xeno.SAX as X
 
@@ -55,18 +54,6 @@ parseUUID txt = case UUID.fromText txt of
                     then Nothing
                     else Just $ "Invalid UUID format: " ++ T.unpack txt ++ " - generated UUID: " ++ show generatedUUID
          in (generatedUUID, warning)
-
-{- | Parse ProcessId from filename (no Database needed here)
-Expects format: activity_uuid_product_uuid.spold
--}
-parseProcessId :: Text -> Maybe ProcessId
-parseProcessId filename = case T.splitOn "_" filename of
-    [_, _]
-        | not (T.null filename) ->
-            -- During parsing we don't have ProcessId yet, just return a placeholder
-            -- The actual ProcessId will be assigned during database construction
-            Just 0 -- Temporary ProcessId, will be replaced during DB construction
-    _ -> Nothing
 
 -- ============================================================================
 -- Xeno SAX Parser Implementation (8-15x faster than xml-conduit)
@@ -684,10 +671,10 @@ placeholdersUsed st =
     ]
 
 -- | Xeno SAX parser implementation
-parseWithXeno :: BS.ByteString -> ProcessId -> Either String ParsedDataset
-parseWithXeno xmlContent processId = do
+parseWithXeno :: BS.ByteString -> Either String ParsedDataset
+parseWithXeno xmlContent = do
     finalState <- first show (X.fold openTag attribute endOpen text closeTag cdata initialParseState xmlContent)
-    buildResult finalState processId
+    buildResult finalState
   where
     -- Open tag handler - update path and context
     openTag state tagName =
@@ -1055,8 +1042,8 @@ parseWithXeno xmlContent processId = do
     cdata = text
 
     -- Build final result from parse state
-    buildResult :: ParseState -> ProcessId -> Either String ParsedDataset
-    buildResult st _pid =
+    buildResult :: ParseState -> Either String ParsedDataset
+    buildResult st =
         let name = fromMaybe "Unknown Activity" (psActivityName st)
             location = fromMaybe "GLO" (psLocation st)
             -- "GLO" above is this loader's stand-in, not something the dataset
@@ -1111,13 +1098,9 @@ parseWithXeno xmlContent processId = do
 streamParseActivityAndFlowsFromFile :: FilePath -> IO (Either String ParsedDataset)
 streamParseActivityAndFlowsFromFile path = do
     !xmlContent <- BS.readFile path
-    let filenameBase = T.pack $ takeBaseName path
-    case EcoSpold.Parser2.parseProcessId filenameBase of
-        Nothing -> return $ Left $ "Invalid filename format for ProcessId: " ++ path
-        Just pid -> do
-            let parsed = parseWithXeno xmlContent pid
-            either (const (pure ())) (reportReading path) parsed
-            return parsed
+    let parsed = parseWithXeno xmlContent
+    either (const (pure ())) (reportReading path) parsed
+    return parsed
 
 -- | Send what a reading had to say to the progress log, the one place it can go.
 reportReading :: FilePath -> ParsedDataset -> IO ()

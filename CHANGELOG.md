@@ -160,6 +160,19 @@
   before this are rebuilt on the next load. Wire revision 23.
 
 ### Fixed
+- An EcoSpold 2 archive whose file names carry the dataset number in front of
+  the two identifiers now loads in full. Such a name has three parts where the
+  reader accepted only two, so every file carrying one was refused and dropped
+  with a warning, and what loaded was the handful of files named the other way:
+  an archive of several thousand datasets arrived as a few dozen, and said
+  nothing about the rest. A name of two parts is read as before, and a longer
+  one is read as its last two when both of them are identifiers, which is what
+  tells a dataset number in front of a pair from a part added to the end of a
+  name. The number itself is dropped, since this format names the supplier of
+  an input by its identifier and numbers no dataset. A name this leaves no
+  reading of is now a refusal that names the file and stops the load, where
+  before it was a warning in passing and a dataset quietly missing from the
+  result.
 - The unit table now agrees with the units its entries are composed of. A
   composed factor was typed by hand and five were wrong, and the load carried
   the error into the amounts: a hectare year read as 3.1536e11 square metre

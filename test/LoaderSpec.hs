@@ -9,7 +9,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (copyFile, createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
@@ -391,6 +391,39 @@ spec = do
                 actUUIDs <- loadedActUUIDs dir
                 length actUUIDs `shouldBe` 2
                 actUUIDs `shouldSatisfy` notElem fileUUID
+
+    -- -----------------------------------------------------------------------
+    -- EcoSpold2 file-name identity, end to end through loadDatabase
+    -- -----------------------------------------------------------------------
+    describe "EcoSpold2 file-name identity" $ do
+        let dataset = "test-data/SAMPLE.min4/activityA_productX.spold"
+            spoldActUUID = read "f0cc71ac-2d3e-49da-b798-f9b81fb6c0d2" :: UUID.UUID
+            spoldProdUUID = read "759b89bd-3aa6-42ad-b767-5bb9ef5d331d" :: UUID.UUID
+            numberedName = "22971_" ++ show spoldActUUID ++ "_" ++ show spoldProdUUID ++ ".spold"
+            loadedKeys dir = do
+                result <- loadDatabase defaultUnitConfig dir
+                either (fail . show) (return . M.keys . sdbActivities) result
+
+        it "reads a name the dataset number precedes, and keys it on the pair alone" $
+            withSystemTempDirectory "es2-numbered" $ \dir -> do
+                copyFile dataset (dir </> numberedName)
+                keys <- loadedKeys dir
+                keys `shouldBe` [(spoldActUUID, spoldProdUUID)]
+
+        it "reads an archive that numbers some of its files and not others" $
+            withSystemTempDirectory "es2-mixed" $ \dir -> do
+                copyFile dataset (dir </> numberedName)
+                copyFile "test-data/SAMPLE.min4/activityB_productY.spold" (dir </> "activityB_productY.spold")
+                keys <- loadedKeys dir
+                length keys `shouldBe` 2
+
+        it "refuses a longer name whose last two parts are not identifiers" $
+            withSystemTempDirectory "es2-suffixed" $ \dir -> do
+                copyFile dataset (dir </> "activityA_productX_v2.spold")
+                result <- loadDatabase defaultUnitConfig dir
+                case result of
+                    Right _ -> expectationFailure "expected the load to refuse a name it cannot read"
+                    Left err -> T.unpack err `shouldContain` "activityA_productX_v2.spold"
 
     -- -----------------------------------------------------------------------
     -- getReferenceProductUUID
