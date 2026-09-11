@@ -19,6 +19,7 @@ import Progress (ProgressLevel (..), reportProgress)
 import Types
 
 import Data.Int (Int32)
+import qualified Data.IntMap.Strict as IM
 import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
@@ -45,7 +46,7 @@ data MatrixDebugInfo = MatrixDebugInfo
     , mdBioFlowUUIDs :: V.Vector UUID
     , mdTargetProcessId :: ProcessId
     , mdDatabase :: Database
-    , mdSupplyVector :: [Double]
+    , mdSupplyVector :: U.Vector Double
     , mdDemandVector :: [Double]
     , mdInventoryVector :: [Double]
     }
@@ -79,9 +80,7 @@ extractMatrixDebugInfo database targetProcessId flowFilter =
             activityCountInt = fromIntegral activityCount
 
         supplyVec <- solveSparseLinearSystem techTriplesInt activityCountInt demandVec
-        let supplyList = toList supplyVec
-
-            bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
+        let bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
             bioFlowCountInt = fromIntegral bioFlowCount
             inventoryVec = applySparseMatrix bioTriplesInt bioFlowCountInt supplyVec
             inventoryList = toList inventoryVec
@@ -110,7 +109,7 @@ extractMatrixDebugInfo database targetProcessId flowFilter =
                 , mdBioFlowUUIDs = bioFlowUUIDs
                 , mdTargetProcessId = targetProcessId
                 , mdDatabase = database
-                , mdSupplyVector = supplyList
+                , mdSupplyVector = supplyVec
                 , mdDemandVector = demandList
                 , mdInventoryVector = inventoryList
                 }
@@ -137,7 +136,7 @@ exportSupplyChainData filePath debugInfo = do
             | processId <- [toEnum 0 .. toEnum (V.length activities - 1)]
             , let activity = activities V.! fromEnum processId
             , let idx = fromIntegral (activityIndexVec V.! fromEnum processId) :: Int
-            , let supply = if idx < length supplyVector then supplyVector !! idx else 0.0
+            , let supply = fromMaybe 0.0 (supplyVector U.!? idx)
             ]
 
         csvRow processId activity idx supply =
@@ -155,6 +154,25 @@ exportSupplyChainData filePath debugInfo = do
     writeFile filePath csvContent
     reportProgress Info $ "Supply chain: " ++ show (length supplyChainRows) ++ " activities → " ++ filePath
 
+{- | The process each matrix column belongs to, inverted once.
+
+The export needs this answer once per biosphere triple, and it used to find it by
+scanning the whole index for each of them, which is quadratic in the size of the
+database. Every construction of the index makes it the identity permutation, so no
+two processes claim the same column; the fold keeps the first claim regardless,
+because that is the one the scan returned and the file has to keep reading the same.
+A process beyond the end of the activity vector claims nothing, which is the range
+the scan walked.
+-}
+columnOwners :: ActivityDB -> V.Vector Int32 -> IM.IntMap ProcessId
+columnOwners activities activityIndex =
+    IM.fromListWith
+        (\_later earlier -> earlier)
+        [ (fromIntegral column, process)
+        | (process, column) <- zip [0 ..] (V.toList activityIndex)
+        , fromEnum process < V.length activities
+        ]
+
 -- | Export biosphere matrix contributions
 exportBiosphereMatrixData :: FilePath -> MatrixDebugInfo -> IO ()
 exportBiosphereMatrixData filePath debugInfo = do
@@ -165,6 +183,7 @@ exportBiosphereMatrixData filePath debugInfo = do
         bioFlowUUIDs = mdBioFlowUUIDs debugInfo
         activityIndex = mdActivityIndex debugInfo
         supplyVector = mdSupplyVector debugInfo
+        owners = columnOwners activities activityIndex
 
         matrixRows =
             [ csvRow bioTriple
@@ -175,11 +194,12 @@ exportBiosphereMatrixData filePath debugInfo = do
         csvRow (SparseTriple row col value) =
             let rowInt = fromIntegral row :: Int
                 colInt = fromIntegral col :: Int
+                owner = IM.lookup colInt owners
              in [ maybe "unknown" show (getFlowUUID rowInt)
                 , maybe "unknown" (T.unpack . bfName) (getFlow rowInt)
                 , maybe "unknown" T.unpack (getFlowUnit rowInt)
-                , maybe "unknown" (T.unpack . processIdToText database) (getActivityProcessId colInt)
-                , maybe "unknown" (T.unpack . activityName) (lookupActivity colInt)
+                , maybe "unknown" (T.unpack . processIdToText database) owner
+                , maybe "unknown" (T.unpack . activityName) (owner >>= ownedActivity)
                 , show value
                 , show (realContribution colInt)
                 ]
@@ -193,22 +213,10 @@ exportBiosphereMatrixData filePath debugInfo = do
             getFlow rowIdx = getFlowUUID rowIdx >>= flip M.lookup flows
             getFlowUnit :: Int -> Maybe Text
             getFlowUnit rowIdx = fmap (getUnitNameForBioFlow (dbUnits database)) (getFlow rowIdx)
-            getActivityProcessId :: Int -> Maybe ProcessId
-            getActivityProcessId colIdx =
-                L.find
-                    (\pid -> fromIntegral (activityIndex V.! fromEnum pid) == colIdx)
-                    [toEnum 0 .. toEnum (V.length activities - 1)]
-            lookupActivity :: Int -> Maybe Activity
-            lookupActivity colIdx = do
-                processId <- getActivityProcessId colIdx
-                if fromEnum processId < V.length activities
-                    then Just (activities V.! fromEnum processId)
-                    else Nothing
+            ownedActivity :: ProcessId -> Maybe Activity
+            ownedActivity process = activities V.!? fromEnum process
             realContribution :: Int -> Double
-            realContribution colIdx =
-                if colIdx < length supplyVector
-                    then value * (supplyVector !! colIdx)
-                    else 0.0
+            realContribution colIdx = maybe 0.0 (value *) (supplyVector U.!? colIdx)
 
         csvHeader = ["flow_id", "flow_name", "unit", "activity_id", "activity_name", "matrix_value", "contribution"]
         allRows = csvHeader : matrixRows
