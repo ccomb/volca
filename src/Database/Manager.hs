@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -156,7 +157,7 @@ import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isNothing, mapMaybe)
-import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), enum_, type_)
+import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToParamSchema, ToSchema (..), enum_, type_)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -229,6 +230,7 @@ import Method.Types (
  )
 import Progress (ProgressLevel (..), reportError, reportProgress, reportProgressWithTiming, withLogScope)
 import qualified Search.BM25 as BM25
+import Servant.API (FromHttpApiData)
 import SharedSolver (SharedSolver, createSharedSolver)
 import qualified SharedSolver
 import SubstanceRegistry (CASNumber (..), KeyNormalizers (..), NormName (..), SubstanceEdge, casBindingsFromEdges, normalizeCAS, parseSubstanceEdges)
@@ -708,9 +710,15 @@ getFlowClosure manager dbName db = atomically $ do
 {- | The name of a method collection. A newtype because it travels next to a
 database name, of the same type, through every cache lookup below: swapped,
 the two would read and fill the wrong cache entry and nothing would say so.
+
+'FromHttpApiData' and 'ToParamSchema' are derived from 'Text', not written, so
+the URL segment a route captures parses and documents itself exactly as it did
+when it was a 'Text'. They are what lets the name be minted at the capture
+rather than a few lines into each handler.
 -}
 newtype CollectionName = CollectionName {unCollectionName :: Text}
-    deriving (Eq, Ord, Show)
+    deriving stock (Eq, Ord, Show)
+    deriving newtype (FromHttpApiData, ToParamSchema)
 
 {- | Cached flow mapping: avoids re-matching method CFs to database flows on every LCIA call.
 The mapping depends only on (database, method), not on the process being evaluated.

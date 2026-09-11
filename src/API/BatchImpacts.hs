@@ -29,7 +29,7 @@ import qualified Data.Map as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Database.Manager (DatabaseManager (..))
+import Database.Manager (CollectionName (..), DatabaseManager (..))
 import Method.Mapping (LongTermMode (..))
 import Servant (ServerError (..))
 import qualified Servant
@@ -82,7 +82,7 @@ runActivityLCIABatch ::
     LongTermMode ->
     IO (Either BatchError LCIABatchResult)
 runActivityLCIABatch dbm dbName pid coll mSub ltMode =
-    runBare dbm (activityLCIABatchH dbName pid coll mSub ltMode)
+    runBare dbm (activityLCIABatchH dbName pid (CollectionName coll) mSub ltMode)
 
 {- | Score N activities against every method in a collection in one
 multi-RHS MUMPS solve plus parallel characterization. Unresolved process
@@ -103,7 +103,7 @@ runBatchImpacts ::
     [Text] ->
     IO (Either BatchError BatchImpactsResponse)
 runBatchImpacts dbm dbName coll topFlows ltMode pids =
-    runBare dbm (batchImpactsH dbName coll topFlows ltMode BatchImpactsRequest{birProcessIds = pids})
+    runBare dbm (batchImpactsH dbName (CollectionName coll) topFlows ltMode BatchImpactsRequest{birProcessIds = pids})
 
 {- | Computed-checks report over the whole catalogue of a loaded database.
 Same wire shape as the REST endpoint ('computedQualityReportH'), so both
