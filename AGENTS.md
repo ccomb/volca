@@ -29,12 +29,21 @@ See `README.md` for the full feature spec.
 
 ```bash
 ./gen-version.sh        # Generate src/Version.hs and src/Builtin/Literals.hs (git metadata, built-in reference data) — REQUIRED before a native build
-./build.sh              # Build the engine
-./build.sh --test       # Build + run the test suite
+./build.sh              # Build the engine, at -O1: this binary is going to be run
+./build.sh --test       # Build + run the test suite, at -O0: it only has to pass
 ./build.sh --coverage   # Build + tests + HTML coverage report
-cabal test lca-tests --test-show-details=streaming        # Run tests directly
-cabal test lca-tests --test-options="--match /Inventory/" # Run a single spec group
+cabal test lca-tests --test-options="--match /Inventory/" # Re-run one spec group in a tree ./build.sh --test already built
 ```
+
+**Build and test through `./build.sh --test`, not through `cabal` directly.** It
+settles four things a bare `cabal test` leaves to you: it runs `./gen-version.sh`;
+it compiles volca's own modules at `-O0`, where cabal's own default is `-O1` and
+a test binary only has to pass; it builds `exe:volca`; and it exports `VOLCA_EXE`
+so `test/ServerSpec.hs` does not spawn a `cabal list-bin` from inside `cabal test`.
+Skip it and the suite is slower to compile and `ServerSpec` and `RoutesSpec` report
+`volca executable not found`. `VOLCA_OPT_LEVEL` overrides the level. The two levels
+do not share a build tree, so alternating costs one cold build each way and stays
+incremental on both sides after that.
 
 `src/Version.hs` is generated, not committed — a native `cabal build`/`cabal test`
 fails without running `./gen-version.sh` first. Tests use hspec + hspec-discover;
