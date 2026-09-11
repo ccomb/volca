@@ -82,6 +82,12 @@ key, so that two of them collide and the merging law has to decide.
 share :: Text -> [TechnosphereFlow] -> ((UUID.UUID, UUID.UUID), ParsedDataset)
 share name techs = ((actUUID1, flowUUID1), minimalDataset (minimalActivity name "GLO" []) techs)
 
+{- | One coproduct of a block published under dataset number 7: allocation gives
+each of them its own key, and they all carry the number the block was read under.
+-}
+numbered :: (UUID.UUID, UUID.UUID) -> ((UUID.UUID, UUID.UUID), ParsedDataset)
+numbered key = (key, (minimalDataset (minimalActivity "cogeneration" "GLO" []) []){pdDatasetNumber = 7})
+
 refExchange :: UUID.UUID -> Exchange
 refExchange fid =
     TechnosphereExchange
@@ -266,6 +272,19 @@ spec = do
             let merged = harvestOf [share "activity-a" []] <> harvestOf [share "activity-b" []]
             fmap activityName (M.lookup (actUUID1, flowUUID1) (hvActivities merged))
                 `shouldBe` Just "activity-a"
+
+        -- The dataset-number table is under neither law: an allocated block is
+        -- written once per coproduct, all of them under the block's number, so
+        -- a repeated number is the ordinary shape and every side is kept.
+        it "keeps every coproduct of one dataset number, in reading order" $ do
+            let harvest = harvestOf [numbered (actUUID1, flowUUID1), numbered (actUUID2, flowUUID2)]
+            M.lookup 7 (hvDatasetNumbers harvest)
+                `shouldBe` Just ((actUUID1, flowUUID1) NE.:| [(actUUID2, flowUUID2)])
+
+        it "keeps both readers' datasets under one number, the first reader's first" $ do
+            let merged = harvestOf [numbered (actUUID1, flowUUID1)] <> harvestOf [numbered (actUUID2, flowUUID2)]
+            M.lookup 7 (hvDatasetNumbers merged)
+                `shouldBe` Just ((actUUID1, flowUUID1) NE.:| [(actUUID2, flowUUID2)])
 
     -- -----------------------------------------------------------------------
     describe "indexActivities" $ do
@@ -700,7 +719,7 @@ spec = do
             gasNames = [(flowUUID1, "Natural gas"), (flowUUID2, "Natural gas"), (breadUUID, "Heat")]
             linkPlantDeclaring loc =
                 let db = simpleDBOf [gasBG, gasRER, plantDeclaring loc] gasNames
-                    ctx = ecoSpold1LinkContext M.empty (M.singleton 300474 (actUUID1, flowUUID1)) db
+                    ctx = ecoSpold1LinkContext M.empty (M.singleton 300474 ((actUUID1, flowUUID1) NE.:| [])) db
                  in fixAllActivities ctx (sdbActivities db)
 
         -- The number is on the row that carries it. Held in one map per
@@ -716,7 +735,7 @@ spec = do
                 ctx =
                     ecoSpold1LinkContext
                         M.empty
-                        (M.fromList [(1, (actUUID1, flowUUID1)), (2, (actUUID2, flowUUID2))])
+                        (M.fromList [(1, (actUUID1, flowUUID1) NE.:| []), (2, (actUUID2, flowUUID2) NE.:| [])])
                         db
                 (acts, _) = fixAllActivities ctx (sdbActivities db)
                 supplierOf key =
@@ -745,6 +764,44 @@ spec = do
             let (acts, summary) = linkPlantDeclaring "ENTSO"
             inputLinksIn acts `shouldBe` [Just actUUID1]
             usLocationOverrides summary `shouldBe` []
+
+        -- One number, several suppliers: the block was allocated into a heat
+        -- dataset and an electricity one, both published under number 7. Only
+        -- the product name says which the input meant, and nothing else can:
+        -- "Heat" is made in two places, so neither the name alone nor the name
+        -- with a location the input does not declare reaches a dataset.
+        it "links a numbered input to the coproduct its product names" $ do
+            let rivalHeatUUID = read "bbbbbbbb-0000-0000-0000-000000000004" :: UUID.UUID
+                cogenHeat = ((actUUID1, flowUUID1), minimalActivity "cogeneration, heat" "GLO" [refExchange flowUUID1])
+                cogenPower = ((actUUID2, flowUUID2), minimalActivity "cogeneration, electricity" "GLO" [refExchange flowUUID2])
+                boilerHeat = ((missingActUUID, rivalHeatUUID), minimalActivity "heat, boiler" "FR" [refExchange rivalHeatUUID])
+                greenhouse =
+                    ( (consumerUUID, breadUUID)
+                    , minimalActivity "greenhouse" "CH" [refExchange breadUUID, buyingDataset 7 (inputExchange flowUUID1 "")]
+                    )
+                names = [(flowUUID1, "Heat"), (flowUUID2, "Electricity"), (rivalHeatUUID, "Heat"), (breadUUID, "Bread")]
+                -- The electricity coproduct is read last, which is the one a
+                -- table keeping a single dataset per number would have kept.
+                dsIndex = hvDatasetNumbers (harvestOf [numbered (actUUID1, flowUUID1), numbered (actUUID2, flowUUID2)])
+                db = simpleDBOf [cogenHeat, cogenPower, boilerHeat, greenhouse] names
+                (acts, _) = fixAllActivities (ecoSpold1LinkContext M.empty dsIndex db) (sdbActivities db)
+            inputLinksIn acts `shouldBe` [Just actUUID1]
+
+        -- Two coproducts of one block published under one product name leave
+        -- the number nothing to choose on, so it answers nothing and the tiers
+        -- below take their turn.
+        it "leaves a numbered input unlinked when two coproducts share its product name" $ do
+            let heatA = ((actUUID1, flowUUID1), minimalActivity "cogeneration, heat a" "GLO" [refExchange flowUUID1])
+                heatB = ((actUUID2, flowUUID2), minimalActivity "cogeneration, heat b" "GLO" [refExchange flowUUID2])
+                greenhouse =
+                    ( (consumerUUID, breadUUID)
+                    , minimalActivity "greenhouse" "CH" [refExchange breadUUID, buyingDataset 7 (inputExchange flowUUID1 "")]
+                    )
+                names = [(flowUUID1, "Heat"), (flowUUID2, "Heat"), (breadUUID, "Bread")]
+                dsIndex = hvDatasetNumbers (harvestOf [numbered (actUUID1, flowUUID1), numbered (actUUID2, flowUUID2)])
+                db = simpleDBOf [heatA, heatB, greenhouse] names
+                (acts, _) = fixAllActivities (ecoSpold1LinkContext M.empty dsIndex db) (sdbActivities db)
+            inputLinksIn acts `shouldBe` [Nothing]
 
     -- -----------------------------------------------------------------------
     -- countTotalTechInputs / countUnlinkedExchanges / collectUnlinkedProductNames
