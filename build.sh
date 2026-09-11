@@ -13,7 +13,10 @@
 #   --help              Show this help message
 #   --clean             Clean build artifacts before building
 #   --all               Force clean rebuild
-#   --test              Run tests after building
+#   --test              Run tests after building. Compiles volca's own modules
+#                       at -O0, since the binary only has to make the suite
+#                       pass; VOLCA_OPT_LEVEL overrides that, and a build
+#                       without --test stays at -O1 because it is going to run
 #   --coverage          Run tests with coverage and generate HTML report (implies --test)
 #   --werror            Treat warnings as errors (-Werror) when compiling — the
 #                       strict gate CI uses; -Wall-clean is a hard project rule
@@ -478,15 +481,38 @@ else
     LINK_MODE="dynamic"
 fi
 
-# A build run from a working copy is there to be run and tested, not shipped,
-# so it defaults to -O1 rather than the -O2 gen-cabal-config.sh keeps for
-# artifacts. What that buys is not spread evenly over the tree: one module of
-# generic JSON instances holds the whole compile behind it at -O2. An explicit
-# VOLCA_OPT_LEVEL still wins, which is how the release rows of CI ask for 2.
+# A build run from a working copy is not shipped, so it defaults below the -O2
+# gen-cabal-config.sh keeps for artifacts. Which level below follows what the
+# build is for, the same rule that file states:
+#
+#   --test   0   the binary only has to make the suite pass, and one module of
+#                generic JSON instances holds the whole compile behind it above
+#                that level
+#   plain    1   the binary is going to be run, and unoptimised generic
+#                instances encode and decode 10 to 20 % slower
+#
+# The two do not share a build tree - cabal puts level 0 under `noopt/` - so
+# alternating between them costs one cold build each and then stays
+# incremental on both sides.
+#
+# An explicit VOLCA_OPT_LEVEL wins over both, which is how the release rows of
+# CI ask for 2 while its test rows ask for 0.
+if [[ "$RUN_TESTS" == "true" ]]; then
+    DEFAULT_OPT_LEVEL=0
+else
+    DEFAULT_OPT_LEVEL=1
+fi
+OPT_LEVEL="${VOLCA_OPT_LEVEL:-$DEFAULT_OPT_LEVEL}"
+
+# Said out loud because the level decides how fast the binary runs, and a
+# developer who builds with --test and then serves that binary would otherwise
+# find it slow with nothing on screen to say why.
+log_info "Optimization level: -O$OPT_LEVEL"
+
 MUMPS_LIB_DIR="$MUMPS_LIB_DIR" \
 MUMPS_INCLUDE_DIR="$MUMPS_INCLUDE_DIR" \
 LINK_MODE="$LINK_MODE" \
-VOLCA_OPT_LEVEL="${VOLCA_OPT_LEVEL:-1}" \
+VOLCA_OPT_LEVEL="$OPT_LEVEL" \
 ./gen-cabal-config.sh
 
 # If --no-optimize was requested but a previous build left a UPX'd binary

@@ -24,8 +24,10 @@ OUTPUT="${OUTPUT_DIR:-.}/cabal.project.local"
 # knob cheap: only volca's own modules move.
 #
 # The level follows what the build is for, and each caller picks its own:
-#   0  CI test rows, which only have to run the suite
-#   1  a build from a working copy (build.sh), and a from-source image
+#   0  anything that only has to run the suite: the CI test rows, and
+#      `build.sh --test` from a working copy
+#   1  a working-copy binary that is going to be run (`build.sh` with no
+#      --test), and a from-source image
 #   2  anything published: the release rows, the engine image
 # Default 2, because an unset variable must never quietly under-optimise
 # something that ships.
