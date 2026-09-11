@@ -20,6 +20,7 @@ import Control.Monad.ST (runST)
 import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -120,7 +121,7 @@ tokenTrigrams t
                 | T.length s < 3 = []
                 | otherwise = T.take 3 s : go (T.drop 1 s)
             raw = go t
-         in M.keys (M.fromList [(tg, ()) | tg <- raw]) -- dedupe
+         in S.toAscList (S.fromList raw)
 
 {- | Extract searchable tokens for one activity: name + reference product
 name(s). Location is deliberately excluded: it's a structured filter
