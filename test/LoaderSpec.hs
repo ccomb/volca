@@ -426,6 +426,49 @@ spec = do
                     Left err -> T.unpack err `shouldContain` "activityA_productX_v2.spold"
 
     -- -----------------------------------------------------------------------
+    -- A file offered to a load that becomes no dataset
+    -- -----------------------------------------------------------------------
+    describe "a file that becomes no dataset" $ do
+        -- The unreadable files are named in two parts, so their names read and
+        -- only their content can refuse: this pins the parse gate rather than
+        -- the file-name gate beside it.
+        let notADataset = "<ecoSpold><nothing/></ecoSpold>"
+            refusalOf dir = do
+                result <- loadDatabase defaultUnitConfig dir
+                either (return . T.unpack) (const (fail "expected the load to refuse")) result
+
+        it "refuses an EcoSpold2 archive holding a file the parser cannot read" $
+            withSystemTempDirectory "es2-unreadable" $ \dir -> do
+                copyFile "test-data/SAMPLE.min4/activityA_productX.spold" (dir </> "activityA_productX.spold")
+                writeFile (dir </> "brokenA_brokenX.spold") notADataset
+                err <- refusalOf dir
+                err `shouldContain` "brokenA_brokenX.spold"
+
+        it "names every file it refused and counts them against what was offered" $
+            withSystemTempDirectory "es2-two-unreadable" $ \dir -> do
+                copyFile "test-data/SAMPLE.min4/activityA_productX.spold" (dir </> "activityA_productX.spold")
+                writeFile (dir </> "brokenA_brokenX.spold") notADataset
+                writeFile (dir </> "brokenB_brokenY.spold") notADataset
+                err <- refusalOf dir
+                err `shouldContain` "2 of 3 files became no dataset"
+                err `shouldContain` "brokenA_brokenX.spold"
+                err `shouldContain` "brokenB_brokenY.spold"
+
+        it "refuses an EcoSpold1 directory holding a file the parser cannot read" $
+            withSystemTempDirectory "es1-unreadable" $ \dir -> do
+                copyFile "test-data/SAMPLE.ecospold1/process1.xml" (dir </> "process1.xml")
+                writeFile (dir </> "broken.xml") notADataset
+                err <- refusalOf dir
+                err `shouldContain` "broken.xml"
+
+        it "refuses a lone EcoSpold1 file no dataset could be read from" $
+            withSystemTempDirectory "es1-empty" $ \dir -> do
+                writeFile (dir </> "broken.xml") notADataset
+                err <- refusalOf dir
+                err `shouldContain` "broken.xml"
+                err `shouldContain` "no dataset could be read"
+
+    -- -----------------------------------------------------------------------
     -- getReferenceProductUUID
     -- -----------------------------------------------------------------------
     describe "getReferenceProductUUID" $ do

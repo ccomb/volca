@@ -160,6 +160,19 @@
   before this are rebuilt on the next load. Wire revision 23.
 
 ### Fixed
+- A file an EcoSpold directory offers and the reader cannot read now stops the
+  load instead of disappearing from it. Such a file used to be a warning in
+  passing and a dataset silently absent, and the load then described a complete
+  database: the counters say what was kept and never what was offered, so
+  nothing told a small database from one missing datasets. The warning did not
+  even name the file, and it was gone from the log as soon as a longer load
+  filled the buffer, or never written at all when the database came back from
+  its cache. The load now refuses, says how many of the files it was offered
+  became no dataset, and names the first ten of them. A single file holding
+  several datasets and yielding none refuses in the same way, as an empty CSV
+  already did. A file that is read and then divided into several products still
+  only warns: there the file is read, and what cannot be kept is a product its
+  name has no room to key.
 - An EcoSpold 2 archive whose file names carry the dataset number in front of
   the two identifiers now loads in full. Such a name has three parts where the
   reader accepted only two, so every file carrying one was refused and dropped

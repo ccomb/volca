@@ -1080,6 +1080,28 @@ than silent: the alternative is a database quietly missing the very products
 the key was named to produce. Keying an EcoSpold 2 process on its own product
 rather than on its file name is what would fix it.
 -}
+
+{- | Everything a directory load was offered and could not turn into a dataset.
+
+Named together rather than one at a time: a publisher writes its file names by
+one convention, so a directory that has one unreadable file usually has
+thousands, and naming the first alone would take as many loads to find that out
+as there are files. The first ten are named and the count says how many there
+were, the way 'reportKeyRefusals' names what the allocation key refused.
+-}
+refusedFiles :: Int -> NE.NonEmpty T.Text -> T.Text
+refusedFiles offered refusals =
+    T.intercalate "\n" (header : map ("  " <>) (NE.take 10 refusals) <> rest)
+  where
+    refused :: Int
+    refused = length refusals
+
+    header :: T.Text
+    header = T.pack $ printf "%d of %d files became no dataset:" refused offered
+
+    rest :: [T.Text]
+    rest = ["  ... and " <> T.pack (show (refused - 10)) <> " more" | refused > 10]
+
 warnSplitKeyedOnFileName :: FilePath -> IO ()
 warnSplitKeyedOnFileName file =
     reportProgress Warning $
@@ -1377,10 +1399,11 @@ loadEcoSpoldDirectory opts dir = do
         scoped <- inheritLogScope
         results <- mapConcurrently (scoped . processWorker startTime isEcoSpold1) (zip [1 ..] workers)
 
-        -- Check for errors from any worker
-        let errors = lefts results
-        case errors of
-            (firstErr : _) -> return $ Left firstErr
+        -- Every file no worker could turn into a dataset, in one message: the
+        -- workers each hold a share of the directory, so what one of them
+        -- refused is a share of the answer.
+        case concatMap NE.toList (lefts results) of
+            (refusal : rest) -> return $ Left $ refusedFiles (length allFiles) (refusal NE.:| rest)
             [] -> do
                 let !harvested = mconcat (rights results)
 
@@ -1418,7 +1441,7 @@ loadEcoSpoldDirectory opts dir = do
                     else return $ Right simpleDb
 
     -- Process one worker's share of files
-    processWorker :: UTCTime -> Bool -> (Int, [FilePath]) -> IO (Either T.Text Harvest)
+    processWorker :: UTCTime -> Bool -> (Int, [FilePath]) -> IO (Either (NE.NonEmpty T.Text) Harvest)
     processWorker _startTime isEcoSpold1 (workerNum, workerFiles) = do
         workerStartTime <- getCurrentTime
         reportProgress Info $ printf "Worker %d started: processing %d files" workerNum (length workerFiles)
@@ -1431,18 +1454,19 @@ loadEcoSpoldDirectory opts dir = do
                     then streamParseActivityAndFlowsFromFile1
                     else streamParseActivityAndFlowsFromFile
         workerResults <- mapM parseFile workerFiles
-        let paired = zipWith (\f r -> fmap (f,) r) workerFiles workerResults
-        let (errs, oks) = partitionEithers paired
-        forM_ errs $ \e ->
-            reportProgress Warning e
+        let paired = zipWith (\f -> either (Left . T.pack) (Right . (f,))) workerFiles workerResults
+        let (unread, oks) = partitionEithers paired
         let split = [(f, allocateParsed opts r) | (f, r) <- oks]
             (okFiles, okResults) = unzip [(f, r') | (f, rs) <- split, r' <- rs]
         unless isEcoSpold1 $
             mapM_ (warnSplitKeyedOnFileName . fst) (filter ((> 1) . length . snd) split)
         let procEntries = zipWith (buildProcEntry isEcoSpold1) okFiles (map pdActivity okResults)
 
-        case lefts procEntries of
-            (firstErr : _) -> return $ Left firstErr
+        -- A file whose content has no reading and a file whose name has none
+        -- are the same answer: it was offered and it becomes no dataset. They
+        -- refuse together rather than one of them being dropped with a word.
+        case unread <> lefts procEntries of
+            (refusal : rest) -> return $ Left (refusal NE.:| rest)
             [] -> do
                 let !harvested = harvestOf (zip (map fst (rights procEntries)) okResults)
 
@@ -1488,7 +1512,7 @@ loadEcoSpoldDirectory opts dir = do
                 | Just prodUUID <- UUID.fromText prodUUIDText
                 , Just actUUID <- UUID.fromText actUUIDText ->
                     Right ((actUUID, prodUUID), activity)
-            _ -> Left $ T.pack $ "Invalid filename format (expected [datasetNumber_]activityUUID_productUUID.spold): " ++ filepath
+            _ -> Left $ T.pack $ filepath ++ ": the name is not [datasetNumber_]activityUUID_productUUID"
 
 {- | Load a single EcoSpold1 file containing multiple datasets
 This handles files where <ecoSpold> contains multiple <dataset> elements.
@@ -1503,20 +1527,26 @@ loadSingleEcoSpold1File opts filepath = do
     reportProgress Info "Parsing multi-dataset EcoSpold1 file..."
     parsed <- streamParseAllDatasetsFromFile1 filepath
     reportProgress Info $ "Parsed " ++ show (length parsed) ++ " datasets from file"
-    let results = concatMap (allocateParsed opts) parsed
+    -- The parser answers with a list, and a file it could not read at all
+    -- answers with an empty one. An empty database is not what was asked for
+    -- and reads as a complete one, so it is a refusal, as it is for a CSV.
+    if null parsed
+        then return $ Left $ T.pack filepath <> ": no dataset could be read from this file"
+        else do
+            let results = concatMap (allocateParsed opts) parsed
 
-    -- Build activity map from all parsed activities
-    let fileUUID = case results of
-            [_] -> datasetUUIDFromPath filepath
-            _ -> Nothing
-        !harvested = harvestOf [(datasetKey fileUUID r, r) | r <- results]
-        simpleDb = harvestDatabase harvested
+            -- Build activity map from all parsed activities
+            let fileUUID = case results of
+                    [_] -> datasetUUIDFromPath filepath
+                    _ -> Nothing
+                !harvested = harvestOf [(datasetKey fileUUID r, r) | r <- results]
+                simpleDb = harvestDatabase harvested
 
-    reportProgress Info $ printf "  Activities: %d processes" (M.size (hvActivities harvested))
-    reportProgress Info $ printf "  Flows: %d tech + %d bio + %d waste (from %d raw)" (M.size (hvTechFlows harvested)) (M.size (hvBioFlows harvested)) (M.size (hvWasteFlows harvested)) (hvRawFlows harvested)
-    reportProgress Info $ printf "  Units: %d unique (from %d raw)" (M.size (hvUnits harvested)) (hvRawUnits harvested)
+            reportProgress Info $ printf "  Activities: %d processes" (M.size (hvActivities harvested))
+            reportProgress Info $ printf "  Flows: %d tech + %d bio + %d waste (from %d raw)" (M.size (hvTechFlows harvested)) (M.size (hvBioFlows harvested)) (M.size (hvWasteFlows harvested)) (hvRawFlows harvested)
+            reportProgress Info $ printf "  Units: %d unique (from %d raw)" (M.size (hvUnits harvested)) (hvRawUnits harvested)
 
-    Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
+            Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
   where
     datasetKey :: Maybe UUID.UUID -> ParsedDataset -> (UUID.UUID, UUID.UUID)
     datasetKey fileUUID parsed =
