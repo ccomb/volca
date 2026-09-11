@@ -628,9 +628,14 @@ checkFormulas params pairs = case checked of
                 , fcExample = listToMaybe (map example divergent)
                 }
   where
-    -- Left-biased union: a <parameter> wins over an exchange variable of the same name.
+    -- A <parameter> and an exchange variableName share one space of names, so
+    -- both go in together and a name they disagree on is as unreadable as one
+    -- two exchanges disagree on.
     env :: M.Map Text Double
-    env = M.union params (amountsAgreedOn [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]])
+    env =
+        amountsAgreedOn $
+            M.toList params
+                ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
     checked = [(ex, rel, Expr.evaluate env (Expr.normalizeExpr '.' rel)) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
@@ -643,15 +648,19 @@ checkFormulas params pairs = case checked of
             <> T.pack (show (exchangeAmount ex))
     nearlyEqual a b = abs (a - b) <= 1e-9 * max 1 (max (abs a) (abs b))
 
-{- | Bind each variable the rows agree on, and leave the rest unbound.
+{- | Bind each variable the declarations agree on, and leave the rest unbound.
 
-Two exchanges declaring one @variableName@ with two amounts leave the formulas
-that use it no single reading, and taking whichever was read last would make
-the check above answer on a coin toss. Unbound, those formulas come back
-unevaluable, which is what this check already reports when it cannot judge.
+Two declarations of one name with two amounts leave the formulas that use it no
+single reading, and taking whichever was read last would make the check above
+answer on a coin toss. Unbound, those formulas come back unevaluable, which is
+what this check already reports when it cannot judge.
+
+The names are folded to lower case because 'Expr.evaluate' looks them up that
+way: judging agreement on the exact spelling would let @Water@ and @water@ both
+bind, and the evaluator would then silently keep one of the two.
 -}
 amountsAgreedOn :: [(Text, Double)] -> M.Map Text Double
-amountsAgreedOn kvs = M.mapMaybe agreed (M.fromListWith (++) [(k, [v]) | (k, v) <- kvs])
+amountsAgreedOn kvs = M.mapMaybe agreed (M.fromListWith (++) [(T.toLower k, [v]) | (k, v) <- kvs])
   where
     agreed :: [Double] -> Maybe Double
     agreed [] = Nothing
@@ -1004,6 +1013,7 @@ parseWithXeno xmlContent processId = do
             let PendingParam var amt rel = psPendingParam state
                 committed = case (nonEmptyText var, amt) of
                     (Just v, Just a)
+                        | S.member v (psAmbiguousParams state) -> state
                         | Just previous <- M.lookup v (psParams state)
                         , previous /= a ->
                             state

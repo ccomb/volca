@@ -280,11 +280,22 @@ spec = describe "per-exchange comments" $ do
                 case activityFormulaCheck act of
                     Nothing -> expectationFailure "expected a FormulaCheck on the activity"
                     Just fc -> do
-                        -- "shared" is claimed by two exchanges and "twice" by
-                        -- two parameters; only "production" is named once.
-                        fcUnevaluable fc `shouldBe` 2
+                        -- "shared" is claimed by two exchanges, "twice" by two
+                        -- parameters, and "both" by one of each; only
+                        -- "production" is named once.
+                        fcUnevaluable fc `shouldBe` 3
                         fcEvaluated fc `shouldBe` 1
                         fcDivergent fc `shouldBe` 0
+
+        -- A <parameter> and an exchange variableName share one space of names.
+        -- Letting the parameter win would report a divergence against an amount
+        -- the dataset never agreed on, where the two other shapes of the same
+        -- contradiction report that the check could not judge.
+        it "cannot judge a formula over a name an exchange and a parameter share" $
+            withTwiceDeclaredFixture $ \ParsedDataset{pdActivity = act} ->
+                case activityFormulaCheck act of
+                    Nothing -> expectationFailure "expected a FormulaCheck on the activity"
+                    Just fc -> fcExample fc `shouldBe` Nothing
 
         it "logs the parameter two declarations disagree on" $ do
             (since, _) <- getLogLines 0
@@ -758,6 +769,7 @@ formulaXml =
 {- | Synthetic dataset where two declarations claim one variable name:
   - two inputs both carrying variableName="shared", with two amounts
   - two <parameter> elements both named "twice", with two amounts
+  - an input and a <parameter> both named "both", with two amounts
   - one formula per ambiguous variable, and one over the reference output's
     "production", which stays unambiguous
 -}
@@ -812,6 +824,23 @@ twiceDeclaredXml =
     \        <unitName xml:lang=\"en\">kg</unitName>\n\
     \        <inputGroup>5</inputGroup>\n\
     \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"alsoParam\" unitId=\"unit-kg\" amount=\"8.0\" variableName=\"both\"\n\
+    \                           intermediateExchangeId=\"11111111-1111-1111-1111-111111111111\">\n\
+    \        <name xml:lang=\"en\">Claims a parameter name</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"usesBoth\" unitId=\"unit-kg\" amount=\"8.0\"\n\
+    \                           mathematicalRelation=\"both\"\n\
+    \                           intermediateExchangeId=\"22222222-2222-2222-2222-222222222222\">\n\
+    \        <name xml:lang=\"en\">Reads the name both claim</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <parameter parameterId=\"par-3\" variableName=\"both\" amount=\"4.0\">\n\
+    \        <name xml:lang=\"en\">both</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \      </parameter>\n\
     \      <parameter parameterId=\"par-1\" variableName=\"twice\" amount=\"2.0\" mathematicalRelation=\"4.0 / 2\">\n\
     \        <name xml:lang=\"en\">twice</name>\n\
     \        <unitName xml:lang=\"en\">kg</unitName>\n\
