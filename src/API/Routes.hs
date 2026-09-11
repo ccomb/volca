@@ -437,6 +437,25 @@ Built in two steps:
 volcaOpenApi :: OpenApi
 volcaOpenApi = API.OpenApi.stampInfo (API.OpenApi.enrichWithResources (toOpenApi (Proxy :: Proxy LCAAPI)))
 
+{- | The damage category each sub-indicator rolls up into, which is the table
+'enrichWithNW' reads.
+
+The table holds one category per sub-indicator, so a collection naming two
+loses one: 'M.fromList' keeps the last row, and that sub-indicator's share of
+the other category disappears from the weighted score without a word. No
+method that loads today names two - the only ones declaring damage categories
+at all are the two EF 3.1 files, and no sub-indicator there appears under more
+than one. An endpoint method is built the other way round, a single indicator
+feeding two damages, so the day one is loaded this type, 'enrichWithNW' and
+the single category 'lrDamageCategory' carries all have to change together.
+Refusing a repeated key here would bring that day forward without making the
+score such a method needs any more expressible, which is why the key is left
+as it is rather than checked.
+-}
+damageCategoryIndex :: [DamageCategory] -> M.Map Text Text
+damageCategoryIndex damageCats =
+    M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
+
 -- ============================================================================
 -- Hoisted helpers — previously in lcaServer's `where`. Lifted to top level so
 -- non-Servant callers (notably src/API/BatchImpacts.hs and any client of the
@@ -777,12 +796,7 @@ buildLCIABatchResultCached ::
 buildLCIABatchResultCached dbManager dbName collectionName db actPid activity collection sol ctxs topFlows = do
     let damageCats = mcDamageCategories collection
         nwSets = mcNormWeightSets collection
-        dcLookup =
-            M.fromList
-                [ (subName, dcName dc)
-                | dc <- damageCats
-                , (subName, _) <- dcImpacts dc
-                ]
+        dcLookup = damageCategoryIndex damageCats
         mNW = case nwSets of (nw : _) -> Just nw; [] -> Nothing
         methods = map mctxMethod ctxs
         inventory = SharedSolver.csInventory sol
@@ -874,7 +888,7 @@ activityLCIABatchH dbName processIdText collectionNameText mSub ltMode = do
     (db, sharedSolver) <- requireDatabaseByName dbName
     (actProcessId, activity) <- resolveOrThrow db processIdText
     (methods, damageCats, nwSets, scoringSets) <- loadCollection collectionName
-    let dcLookup = M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
+    let dcLookup = damageCategoryIndex damageCats
         mNW = case nwSets of (nw : _) -> Just nw; [] -> Nothing
     t0 <- liftIO getCurrentTime
     sol <- crossDBSolutionFor dbName db sharedSolver actProcessId mSub >>= liftIO . applyLongTermToSolution dbManager ltMode
