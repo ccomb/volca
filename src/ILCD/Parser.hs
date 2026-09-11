@@ -19,8 +19,9 @@ import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import qualified Data.ByteString as BS
-import Data.Char (toLower)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Maybe
@@ -29,13 +30,13 @@ import qualified Data.Text as T
 import qualified Data.Text.Read as TR
 import qualified Data.UUID as UUID
 import Database.Allocation (Allocating (..), allocate)
-import System.Directory (listDirectory)
-import System.FilePath (takeExtension, (</>))
+import System.FilePath ((</>))
 import Text.Printf (printf)
 import UnitConversion (UnitConfig)
 import qualified Xeno.SAX as X
 
 import EcoSpold.Common (bsToText, distributeFiles, isElement)
+import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles)
 import Method.FlowResolver (ILCDFlowInfo (..), parseFlowDirectory)
 import qualified Method.Types as MT
 import Progress (ProgressLevel (..), reportProgress)
@@ -80,60 +81,78 @@ data ILCDExchangeRaw = ILCDExchangeRaw
 Expects subdirectories: processes/, flows/, flowproperties/, unitgroups/
 -}
 parseILCDDirectory :: UnitConfig -> AllocationKey -> FilePath -> IO (Either Text SimpleDatabase)
-parseILCDDirectory unitConfig key dir = do
-    reportProgress Info $ "Loading ILCD database from: " ++ dir
+parseILCDDirectory unitConfig key dir = runExceptT $ do
+    liftIO $ reportProgress Info $ "Loading ILCD database from: " ++ dir
 
     -- Step 1: Parse unit groups and flow properties (small, sequential)
-    unitGroupMap <- parseUnitGroups (dir </> "unitgroups")
-    flowPropMap <- parseFlowProperties (dir </> "flowproperties")
-    reportProgress Info $ printf "Parsed %d unit groups, %d flow properties" (M.size unitGroupMap) (M.size flowPropMap)
+    unitGroupMap <- ExceptT $ parseUnitGroups (dir </> "unitgroups")
+    flowPropMap <- ExceptT $ parseFlowProperties (dir </> "flowproperties")
+    liftIO $ reportProgress Info $ printf "Parsed %d unit groups, %d flow properties" (M.size unitGroupMap) (M.size flowPropMap)
 
     -- Step 2: Parse flows (reuse FlowResolver, parallel + cached)
-    flowInfoMap <- parseFlowDirectory (dir </> "flows")
-    reportProgress Info $ printf "Parsed %d flows" (M.size flowInfoMap)
+    flowInfoMap <- ExceptT $ parseFlowDirectory (dir </> "flows")
+    liftIO $ reportProgress Info $ printf "Parsed %d flows" (M.size flowInfoMap)
 
     -- Step 3: Build TechFlowDB, BioFlowDB, WasteFlowDB and UnitDB from parsed data
     let (techFlowDB, bioFlowDB, wasteFlowDB, unitDB) = buildFlowAndUnitDB flowInfoMap flowPropMap unitGroupMap
-    mapM_ (reportProgress Warning . T.unpack) (unplaceableMedia flowInfoMap)
+    liftIO $ mapM_ (reportProgress Warning . T.unpack) (unplaceableMedia flowInfoMap)
 
     -- Step 4: Parse process XMLs in parallel
-    processFiles <- listXMLFiles (dir </> "processes")
-    reportProgress Info $ printf "Parsing %d ILCD process files..." (length processFiles)
-    rawProcesses <- parseProcessFilesParallel processFiles
+    processFiles <- liftIO $ listXMLFiles (dir </> "processes")
+    liftIO $ reportProgress Info $ printf "Parsing %d ILCD process files..." (length processFiles)
+    claimedProcesses <- liftIO $ parseProcessFilesParallel processFiles
+    processes <- M.elems <$> ExceptT (oneDataSetPerUUID claimedProcesses)
 
-    reportProgress Info $ printf "Parsed %d processes, building activity map..." (length rawProcesses)
+    liftIO $ reportProgress Info $ printf "Parsed %d processes, building activity map..." (length processes)
 
     -- Step 5: Build ActivityMap
     let alloc = Allocating{alKey = key, alUnitConfig = unitConfig, alUnitDB = unitDB}
-        activityMap = buildActivityMap alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB rawProcesses
+        activityMap = buildActivityMap alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB processes
 
     -- Step 6: Fix supplier links (name-based, like SimaPro)
     let simpleDb = SimpleDatabase activityMap techFlowDB bioFlowDB wasteFlowDB unitDB
-    fixedDb <- fixILCDActivityLinks simpleDb
-    reportProgress Info $
-        printf
-            "ILCD database loaded: %d activities, %d tech flows, %d bio flows, %d units"
-            (M.size $ sdbActivities fixedDb)
-            (M.size $ sdbTechFlows fixedDb)
-            (M.size $ sdbBioFlows fixedDb)
-            (M.size $ sdbUnits fixedDb)
-    return $ Right fixedDb
+    fixedDb <- liftIO $ fixILCDActivityLinks simpleDb
+    liftIO $
+        reportProgress Info $
+            printf
+                "ILCD database loaded: %d activities, %d tech flows, %d bio flows, %d units"
+                (M.size $ sdbActivities fixedDb)
+                (M.size $ sdbTechFlows fixedDb)
+                (M.size $ sdbBioFlows fixedDb)
+                (M.size $ sdbUnits fixedDb)
+    return fixedDb
 
--- | List XML files in a directory
-listXMLFiles :: FilePath -> IO [FilePath]
-listXMLFiles d = do
-    fs <- listDirectory d
-    return [d </> f | f <- fs, map toLower (takeExtension f) == ".xml"]
+{- | Read a directory of one kind of ILCD dataset into one value per UUID,
+saying which files a newer version superseded and refusing when two files
+declare one dataset at the same version.
+-}
+readDataSets :: forall a. FilePath -> (BS.ByteString -> Maybe (UUID, a)) -> IO (Either Text (M.Map UUID a))
+readDataSets dir parse = do
+    files <- listXMLFiles dir
+    claims <- mapM claimOf files
+    oneDataSetPerUUID (Data.Maybe.catMaybes claims)
+  where
+    claimOf :: FilePath -> IO (Maybe (Claimed a))
+    claimOf f = fmap (uncurry (Claimed f)) . parse <$> BS.readFile f
+
+{- | One dataset per UUID out of what a directory was read as, saying which
+files a newer version superseded.
+-}
+oneDataSetPerUUID :: [Claimed a] -> IO (Either Text (M.Map UUID a))
+oneDataSetPerUUID claims = do
+    outcome <- latestByUUID claims
+    case outcome of
+        Left err -> return (Left err)
+        Right indexed -> do
+            mapM_ (reportProgress Warning . T.unpack) (ixSuperseded indexed)
+            return (Right (ixByUUID indexed))
 
 --------------------------------------------------------------------------------
 -- Unit Groups: unitGroupUUID → (refUnitName, refUnitInternalId)
 --------------------------------------------------------------------------------
 
-parseUnitGroups :: FilePath -> IO (M.Map UUID (Text, Int))
-parseUnitGroups dir = do
-    files <- listXMLFiles dir
-    results <- mapM (fmap parseUnitGroupXML . BS.readFile) files
-    return $ M.fromList (Data.Maybe.catMaybes results)
+parseUnitGroups :: FilePath -> IO (Either Text (M.Map UUID (Text, Int)))
+parseUnitGroups dir = readDataSets dir parseUnitGroupXML
 
 data UGState = UGState
     { ugUUID :: !Text
@@ -194,11 +213,8 @@ parseUnitGroupXML bytes =
 -- Flow Properties: flowPropertyUUID → unitGroupUUID
 --------------------------------------------------------------------------------
 
-parseFlowProperties :: FilePath -> IO (M.Map UUID UUID)
-parseFlowProperties dir = do
-    files <- listXMLFiles dir
-    results <- mapM (fmap parseFlowPropertyXML . BS.readFile) files
-    return $ M.fromList (Data.Maybe.catMaybes results)
+parseFlowProperties :: FilePath -> IO (Either Text (M.Map UUID UUID))
+parseFlowProperties dir = readDataSets dir parseFlowPropertyXML
 
 data FPState = FPState
     { fpUUID :: !Text
@@ -595,16 +611,21 @@ parseProcessXML bytes =
                         }
 
 -- | Parse process files in parallel using worker pattern
-parseProcessFilesParallel :: [FilePath] -> IO [ILCDProcessRaw]
+parseProcessFilesParallel :: [FilePath] -> IO [Claimed ILCDProcessRaw]
 parseProcessFilesParallel files = do
     numWorkers <- getNumCapabilities
     let workers = distributeFiles numWorkers files
     workerResults <- mapConcurrently parseWorker workers
-    return $ concat workerResults
+    return (concat workerResults)
   where
+    parseWorker :: [FilePath] -> IO [Claimed ILCDProcessRaw]
     parseWorker paths = do
-        results <- mapM (fmap parseProcessXML . BS.readFile) paths
-        return (Data.Maybe.catMaybes results)
+        results <- mapM parseOneFile paths
+        return [Claimed path (iprUUID raw) raw | (path, Just raw) <- results]
+    parseOneFile :: FilePath -> IO (FilePath, Maybe ILCDProcessRaw)
+    parseOneFile path = do
+        bytes <- BS.readFile path
+        return (path, parseProcessXML bytes)
 
 --------------------------------------------------------------------------------
 -- Build ActivityMap from raw processes

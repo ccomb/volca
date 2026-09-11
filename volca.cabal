@@ -118,6 +118,7 @@ library
                      , BrightwayExcel.Writer
                      , Expr
                      , Zip
+                     , ILCD.Common
                      , ILCD.Parser
                      , ILCD.Writer
                      , Database.Export

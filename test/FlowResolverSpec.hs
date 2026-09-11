@@ -3,11 +3,56 @@
 module FlowResolverSpec (spec) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import Data.List (isInfixOf)
+import qualified Data.Map.Strict as M
 import qualified Data.UUID as UUID
 import EcoSpold.Common (decodeXmlEntities, decodeXmlEntitiesFull)
-import Method.FlowResolver (ILCDFlowInfo (..), parseFlowXML, splitIlcdSynonyms)
+import Method.FlowResolver (ILCDFlowInfo (..), parseFlowDirectory, parseFlowXML, splitIlcdSynonyms)
 import Method.Types (Compartment (..))
+import Progress (LogLine (..), getLogLines)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
+
+{- | A flow claiming the twin UUID, under the given declared version and base
+name, so two files can be written that differ only where the reader looks.
+-}
+twinFlow :: ByteString -> ByteString -> ByteString
+twinFlow version baseName =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    \<flowDataSet xmlns=\"http://lca.jrc.it/ILCD/Flow\"\n\
+    \             xmlns:common=\"http://lca.jrc.it/ILCD/Common\">\n\
+    \  <flowInformation>\n\
+    \    <dataSetInformation>\n\
+    \      <common:UUID>aaaaaaaa-0000-0000-0000-00000000000f</common:UUID>\n\
+    \      <name>\n\
+    \        <baseName xml:lang=\"en\">"
+        <> baseName
+        <> "</baseName>\n\
+           \      </name>\n\
+           \    </dataSetInformation>\n\
+           \  </flowInformation>\n\
+           \  <modellingAndValidation>\n\
+           \    <LCIMethod>\n\
+           \      <typeOfDataSet>Elementary flow</typeOfDataSet>\n\
+           \    </LCIMethod>\n\
+           \  </modellingAndValidation>\n\
+           \  <administrativeInformation>\n\
+           \    <publicationAndOwnership>\n\
+           \      <common:dataSetVersion>"
+        <> version
+        <> "</common:dataSetVersion>\n\
+           \    </publicationAndOwnership>\n\
+           \  </administrativeInformation>\n\
+           \</flowDataSet>\n"
+
+-- | A flows directory holding the two twins, and nothing else.
+withTwinFlows :: (FilePath -> IO a) -> IO a
+withTwinFlows k = withSystemTempDirectory "ilcd-flows" $ \dir -> do
+    BS.writeFile (dir </> "z-first-edition.xml") (twinFlow "01.00.000" "Carbon dioxide, first edition")
+    BS.writeFile (dir </> "a-second-edition.xml") (twinFlow "02.00.000" "Carbon dioxide, second edition")
+    k dir
 
 spec :: Spec
 spec = do
@@ -51,6 +96,28 @@ spec = do
             splitIlcdSynonyms "a;b othernames c" `shouldBe` ["a", "b", "c"]
 
     -- -----------------------------------------------------------------------
+    -- -----------------------------------------------------------------------
+    -- A flows directory is read once and then cached, so the cache has to
+    -- stand in for what the read said as well as for what it produced.
+    -- -----------------------------------------------------------------------
+    describe "parseFlowDirectory" $ do
+        it "keeps the flow declaring the higher version" $
+            withTwinFlows $ \dir -> do
+                result <- parseFlowDirectory dir
+                case result of
+                    Left err -> expectationFailure $ "Expected Right but got: " ++ show err
+                    Right flows ->
+                        map ilcdBaseName (M.elems flows) `shouldBe` ["Carbon dioxide, second edition"]
+
+        it "names the superseded file again when the flows come from the cache" $
+            withTwinFlows $ \dir -> do
+                _ <- parseFlowDirectory dir
+                (since, _) <- getLogLines 0
+                _ <- parseFlowDirectory dir
+                (_, afterCache) <- getLogLines since
+                let texts = map llText afterCache
+                any ("z-first-edition.xml" `isInfixOf`) texts `shouldBe` True
+
     -- parseFlowXML — well-formed elementary flow
     -- -----------------------------------------------------------------------
     describe "parseFlowXML" $ do
