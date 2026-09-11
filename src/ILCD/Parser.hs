@@ -12,6 +12,7 @@ module ILCD.Parser (
     ILCDProcessRaw (..),
     ILCDExchangeRaw (..),
     buildSupplierIndex,
+    ILCDProducer (..),
     fixActivityExchanges,
 ) where
 
@@ -776,15 +777,27 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
 -- Fix activity links (supplier resolution by name)
 --------------------------------------------------------------------------------
 
+{- | One process declaring a product flow as its reference output, and where it
+declares it.
+
+The location is carried because an ILCD exchange states one of its own, and
+that is the only thing in the file that says which producer an input meant.
+-}
+data ILCDProducer = ILCDProducer
+    { ipActivity :: !UUID
+    , ipProduct :: !UUID
+    , ipLocation :: !Text
+    }
+    deriving (Eq, Show)
+
 {- | Flow UUID → every process declaring that flow as its reference output,
-the first of them being the one an input naming only the flow is linked to.
+ranked so the head is the one an input that says nothing more is linked to.
 
 Several is the ordinary shape rather than the exception: one product made in
 two places is two processes declaring one product flow, and an ILCD exchange
-names the flow, never the process. The file therefore does not say which one an
-input meant, and something has to choose.
+names the flow, never the process.
 -}
-type SupplierIndex = M.Map UUID (NE.NonEmpty (UUID, UUID))
+type SupplierIndex = M.Map UUID (NE.NonEmpty ILCDProducer)
 
 fixILCDActivityLinks :: SimpleDatabase -> IO SimpleDatabase
 fixILCDActivityLinks db = do
@@ -802,7 +815,7 @@ chose, and the ranking is what makes the choice the same everywhere.
 sharedProducts :: SupplierIndex -> [String]
 sharedProducts idx =
     [ printf
-        "%d product flow(s) are made by more than one process; each input naming one of them is linked to the process still in service, then the first by name and location"
+        "%d product flow(s) are made by more than one process; an input stating a location is linked to a process there, and one that states none to the process still in service, then the first by name and location"
         shared
     | let shared = length [() | producers <- M.elems idx, NE.length producers > 1]
     , shared > 0
@@ -818,19 +831,21 @@ all of it still come out in the same order on every machine.
 -}
 buildSupplierIndex :: ActivityMap -> SupplierIndex
 buildSupplierIndex activities =
-    M.map (NE.sortWith supplierOrder) $
+    M.map (NE.map snd . NE.sortWith fst) $
         M.fromListWith
             (<>)
-            [ (exchangeFlowId ex, (actUUID, prodUUID) NE.:| [])
+            [ (exchangeFlowId ex, (supplierOrder act actUUID prodUUID, producing act actUUID prodUUID) NE.:| [])
             | ((actUUID, prodUUID), act) <- M.toList activities
             , ex <- exchanges act
             , exchangeIsReference ex
             ]
   where
-    supplierOrder :: (UUID, UUID) -> (Bool, Text, Text, UUID, UUID)
-    supplierOrder (actUUID, prodUUID) = case M.lookup (actUUID, prodUUID) activities of
-        Just act -> (activityIsObsolete act, activityName act, activityLocation act, actUUID, prodUUID)
-        Nothing -> (True, "", "", actUUID, prodUUID)
+    producing :: Activity -> UUID -> UUID -> ILCDProducer
+    producing act actUUID prodUUID = ILCDProducer actUUID prodUUID (activityLocation act)
+
+    supplierOrder :: Activity -> UUID -> UUID -> (Bool, Text, Text, UUID, UUID)
+    supplierOrder act actUUID prodUUID =
+        (activityIsObsolete act, activityName act, activityLocation act, actUUID, prodUUID)
 
 fixActivityExchanges :: SupplierIndex -> Activity -> Activity
 fixActivityExchanges idx act =
@@ -840,24 +855,40 @@ fixActivityExchanges idx act =
     -- own waste-treatment reference flow — it appears in the supplier index
     -- (it is a reference exchange) but rewriting it would point the activity
     -- at itself and erase the role, breaking 'activityNormFactor'.
-    fixEx ex@TechnosphereExchange{techFlowId = fid, techRole = Input} =
-        case NE.head <$> M.lookup fid idx of
-            Just (actUUID, prodUUID) ->
+    fixEx ex@TechnosphereExchange{techFlowId = fid, techRole = Input, techLocation = loc} =
+        case supplierFor loc fid of
+            Just p ->
                 ex
-                    { techFlowId = prodUUID
-                    , techActivityLinkId = Just actUUID
+                    { techFlowId = ipProduct p
+                    , techActivityLinkId = Just (ipActivity p)
                     }
             Nothing -> ex
     fixEx ex@TechnosphereExchange{} = ex
     fixEx ex@BiosphereExchange{} = ex
     -- A waste input awaiting treatment-activity resolution follows the same
     -- name-lookup logic as a technosphere Input.
-    fixEx ex@WasteExchange{waFlowId = fid, waIsInput = True} =
-        case NE.head <$> M.lookup fid idx of
-            Just (actUUID, prodUUID) ->
+    fixEx ex@WasteExchange{waFlowId = fid, waIsInput = True, waLocation = loc} =
+        case supplierFor loc fid of
+            Just p ->
                 ex
-                    { waFlowId = prodUUID
-                    , waActivityLinkId = Just actUUID
+                    { waFlowId = ipProduct p
+                    , waActivityLinkId = Just (ipActivity p)
                     }
             Nothing -> ex
     fixEx ex@WasteExchange{} = ex
+
+    {- The exchange's own location is the only thing an ILCD file says about
+    which producer an input meant, so a process there answers ahead of the
+    ranking. Where the file says nothing, or names a location no producer of
+    that flow sits at, the ranking answers instead. -}
+    supplierFor :: Text -> UUID -> Maybe ILCDProducer
+    supplierFor loc fid = do
+        producers <- M.lookup fid idx
+        pure (Data.Maybe.fromMaybe (NE.head producers) (Data.Maybe.listToMaybe (atLocation loc producers)))
+
+    atLocation :: Text -> NE.NonEmpty ILCDProducer -> [ILCDProducer]
+    atLocation loc producers
+        | T.null declared = []
+        | otherwise = NE.filter ((== declared) . ipLocation) producers
+      where
+        declared = T.strip loc
