@@ -437,6 +437,25 @@ Built in two steps:
 volcaOpenApi :: OpenApi
 volcaOpenApi = API.OpenApi.stampInfo (API.OpenApi.enrichWithResources (toOpenApi (Proxy :: Proxy LCAAPI)))
 
+{- | The damage category each sub-indicator rolls up into, which is the table
+'enrichWithNW' reads.
+
+The table holds one category per sub-indicator, so a collection naming two
+loses one: 'M.fromList' keeps the last row, and that sub-indicator's share of
+the other category disappears from the weighted score without a word. No
+method that loads today names two - the only ones declaring damage categories
+at all are the two EF 3.1 files, and no sub-indicator there appears under more
+than one. An endpoint method is built the other way round, a single indicator
+feeding two damages, so the day one is loaded this type, 'enrichWithNW' and
+the single category 'lrDamageCategory' carries all have to change together.
+Refusing a repeated key here would bring that day forward without making the
+score such a method needs any more expressible, which is why the key is left
+as it is rather than checked.
+-}
+damageCategoryIndex :: [DamageCategory] -> M.Map Text Text
+damageCategoryIndex damageCats =
+    M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
+
 -- ============================================================================
 -- Hoisted helpers — previously in lcaServer's `where`. Lifted to top level so
 -- non-Servant callers (notably src/API/BatchImpacts.hs and any client of the
@@ -444,19 +463,6 @@ volcaOpenApi = API.OpenApi.stampInfo (API.OpenApi.enrichWithResources (toOpenApi
 --
 -- Behavior is byte-identical to the original where-bound versions.
 -- ============================================================================
-
-{- | The damage category each sub-indicator rolls up into, which is the table
-'enrichWithNW' reads.
-
-'M.fromList' is the right answer here and the repeated key is not a mistake to
-refuse: a sub-indicator belonging to two damage categories is how an endpoint
-method is built - climate change counts towards human health and towards
-ecosystems both - so a refusal would reject a valid collection. No method that
-loads today declares one twice.
--}
-damageCategoryIndex :: [DamageCategory] -> M.Map Text Text
-damageCategoryIndex damageCats =
-    M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
 
 -- | Enrich a raw LCIA result with damage category mapping and NW scores. Pure.
 enrichWithNW :: M.Map Text Text -> Maybe NormWeightSet -> LCIAResult -> LCIAResult
