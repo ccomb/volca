@@ -16,8 +16,8 @@ extra-source-files:  README.md CHANGELOG.md
 common warnings
   -- Optimization is set in cabal.project.local (see gen-cabal-config.sh):
   -- global `optimization: 2` keeps deps at -O2, and a per-package override
-  -- sets volca itself from $VOLCA_OPT_LEVEL (default 2; CI PR builds drop it
-  -- to 1 for faster compiles). A hardcoded -O2 here would win over that
+  -- sets volca itself from $VOLCA_OPT_LEVEL (default 2; anything that only has
+  -- to run the suite drops it to 0). A hardcoded -O2 here would win over that
   -- per-package setting (ghc-options beat the project optimization flag), so
   -- it lives in the project file, not here.
   --
