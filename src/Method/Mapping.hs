@@ -148,7 +148,7 @@ import qualified SubstanceRegistry as SR
 import SynonymDB
 import Types (Activity (..), BioFlowDB, BiosphereFlow (..), Database (..), FlowClosure (..), Medium (..), ProcessId, SparseTriple (..), Unit (..), UnitDB, ownFlowClosure, parseMedium)
 import qualified Types as VT
-import UnitConversion (UnitConfig, convertUnit, isKnownUnit, normalizeToCanonical, unitKey, unitsCompatible)
+import UnitConversion (UnitConfig, convertOntoFactorBasis, convertUnit, isKnownUnit, normalizeToCanonical, unitKey)
 
 -- | Matching strategy used to find a flow
 data MatchStrategy
@@ -1816,9 +1816,11 @@ convertedQuantity (Unconvertible _) = 0
 expects, for characterization.
 
   * Units match, or the flow carries no unit → @qty@ unchanged.
-  * Both units known to the 'UnitConfig' → ordinary same-dimension conversion;
-    a dimensional mismatch (flow @m@, CF @kg@) hard-fails to @0@ rather than
-    injecting wrong-dimension data into the score.
+  * Both units known to the 'UnitConfig' → ordinary same-dimension conversion,
+    read onto the basis the CF is written per, so a factor in
+    @"m3-world equivalents"@ is reached by a flow in litres
+    ('convertOntoFactorBasis'); a dimensional mismatch (flow @m@, CF @kg@)
+    hard-fails to @0@ rather than injecting wrong-dimension data into the score.
   * The CF unit is a result expression unknown to the 'UnitConfig' (e.g.
     @"kg CO2 eq"@ — the common ILCD/EF case, where 'mcfUnit' carries the impact
     unit, not the flow's reference unit) → the CF value is defined per the
@@ -1845,7 +1847,7 @@ characterizationOutcome cfg flowUnit (CFUnit cfu) qty
         maybe
             (Unconvertible (DimensionalMismatch flowUnit cfu))
             (`Converted` UnitConverted flowUnit cfu)
-            (convertUnit cfg flowUnit cfu qty)
+            (convertOntoFactorBasis cfg flowUnit cfu qty)
     | otherwise =
         maybe
             (Unconvertible (NoCanonicalBase flowUnit))
@@ -2730,26 +2732,31 @@ energyAwareOutcome cfg flowUnit cfu@(CFUnit rawCfUnit) mDensity qty =
         Just density@(EnergyDensity ev targetUnit nativeUnit)
             | crossDimension
             , ev > 0
-            , unitsCompatible cfg rawCfUnit targetUnit ->
+            , cfIsWrittenPer targetUnit ->
                 bridged density DensityForward $ do
                     qtyNative <- toUnit nativeUnit
-                    factor <- convertUnit cfg targetUnit rawCfUnit ev
+                    factor <- convertOntoFactorBasis cfg targetUnit rawCfUnit ev
                     pure (qtyNative * factor)
             | crossDimension
             , ev > 0
-            , unitsCompatible cfg rawCfUnit nativeUnit ->
+            , cfIsWrittenPer nativeUnit ->
                 bridged density DensityInverse $ do
                     qtyTarget <- toUnit targetUnit
-                    convertUnit cfg nativeUnit rawCfUnit (qtyTarget / ev)
+                    convertOntoFactorBasis cfg nativeUnit rawCfUnit (qtyTarget / ev)
         _ -> characterizationOutcome cfg flowUnit cfu qty
   where
     bridged density dir =
         maybe (Unconvertible (EnergyBridgeRefused density)) (`Converted` EnergyBridged density dir)
+    -- What the CF is written per, which for a result expression the table holds
+    -- ("m3-world equivalents") is the quantity the result is expressed per, and
+    -- for one it does not know ("kg CO2 eq") is nothing, so that one is never
+    -- bridged.
+    cfIsWrittenPer :: Text -> Bool
+    cfIsWrittenPer u = isJust (convertOntoFactorBasis cfg rawCfUnit u 1)
     -- Both arms need the flow's unit to be unreachable from the CF's: a
-    -- same-dimension pair belongs to the ordinary conversion, and a CF unit the
-    -- config does not know (a result expression like "kg CO2 eq") is compatible
-    -- with neither leg, so it is never bridged.
-    crossDimension = not (unitsCompatible cfg rawCfUnit flowUnit)
+    -- same-dimension pair belongs to the ordinary conversion.
+    crossDimension :: Bool
+    crossDimension = not (cfIsWrittenPer flowUnit)
     -- Bring the inventory quantity into the leg the arm applies the density
     -- against: identical units need no table entry, otherwise a same-dimension
     -- conversion. An incompatible or unknown unit yields 'Nothing' → 0.

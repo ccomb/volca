@@ -14,6 +14,20 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
+- A water scarcity indicator's unit is no longer read as a volume.
+  `m3-world equivalents` is what such an indicator states its result in, a
+  cubic metre of water weighted by how scarce water is where it was taken, and
+  the shipped unit table filed it as a plain cubic metre at the reference
+  unit's own factor. It therefore converted into every other volume: an
+  exchange stated in it would link to a product in litres, and an amount
+  recorded in it came back named `m3`. It is now described as a result
+  expressed per a volume, a description nothing else in the table carries, so
+  nothing converts into it and nothing links against it. What a factor written
+  in it does is unchanged, because it is still read as written per cubic metre:
+  a water flow in litres reaches it, a flow in kilograms reaches it through the
+  density of water, and a flow in kilograms with no density is refused as
+  before. Data version 4. A cache records the unit table it was built with, so
+  every cache rebuilds itself from its source on the next load.
 - Area and volume are read as powers of length rather than as quantities of
   their own. A square metre is a length squared and a cubic metre a length
   cubed, but a unit table could write both conventions, so a density written

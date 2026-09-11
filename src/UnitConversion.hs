@@ -34,6 +34,7 @@ module UnitConversion (
     isKnownUnit,
     unitsCompatible,
     convertUnit,
+    convertOntoFactorBasis,
     lookupUnitDef,
     canonicalUnitFor,
     normalizeToCanonical,
@@ -71,11 +72,15 @@ import GHC.Generics (Generic)
 import Progress (ProgressLevel (Info), reportProgress)
 
 {- | Dimension as exponent vector.
-Order: [mass, length, time, energy, count, currency]
+Order: [mass, length, time, energy, count, currency, result]
 
 Area and volume are not among them: they are powers of length, and a table
 free to write both spellings is a table where one quantity has two vectors
 that never convert. 'dimensionShorthands' is where the two are spent.
+
+@result@ is the mirror of that argument and the reason 'resultDimension'
+exists: two things that must never convert into one another cannot share a
+vector, because the vector is the whole of what decides.
 -}
 type Dimension = [Int]
 
@@ -110,7 +115,23 @@ instance Store UnitConfig
 
 -- | Default dimension order.
 defaultDimensionOrder :: [Text]
-defaultDimensionOrder = ["mass", "length", "time", "energy", "count", "currency"]
+defaultDimensionOrder = ["mass", "length", "time", "energy", "count", "currency", resultDimension]
+
+{- | The slot that separates a result expression from the quantity it is
+expressed per.
+
+@m3-world equivalents@ is what a water scarcity indicator states its result in:
+a cubic metre of water weighted by how scarce water is where it was taken. It
+is not a volume, and an exchange may not be stated in it, but a factor written
+in it is written per cubic metre. Writing it @result*volume@ keeps both facts:
+nothing converts it into a litre, and 'convertOntoFactorBasis' still reads it
+as a factor per cubic metre.
+
+A unit of the quantity itself leaves this slot at zero, which is every other
+row of the table.
+-}
+resultDimension :: Text
+resultDimension = "result"
 
 {- | The dimension names that stand for a power of a base dimension.
 
@@ -217,12 +238,43 @@ unitsCompatible cfg u1 u2 =
 Returns Nothing if units are incompatible or unknown.
 -}
 convertUnit :: UnitConfig -> Text -> Text -> Double -> Maybe Double
-convertUnit cfg fromUnit toUnit amount = do
+convertUnit = convertRead id
+
+{- | Convert an amount onto the basis a characterization factor is written per.
+
+'convertUnit' with one difference: a result expression is read as the quantity
+its result is expressed per, so a factor in @m3-world equivalents@ is reached
+by a flow in litres and not by one in kilograms. Characterization is the only
+question that wants that reading. Everywhere else a result expression is a
+thing no exchange may be stated in and nothing may link against, which is what
+'convertUnit' and 'unitsCompatible' answer.
+-}
+convertOntoFactorBasis :: UnitConfig -> Text -> Text -> Double -> Maybe Double
+convertOntoFactorBasis cfg = convertRead (onFactorBasis (ucDimensionOrder cfg)) cfg
+
+{- | 'convertUnit' and 'convertOntoFactorBasis', which differ only in how each
+reads a dimension before comparing two of them.
+-}
+convertRead :: (Dimension -> Dimension) -> UnitConfig -> Text -> Text -> Double -> Maybe Double
+convertRead readDim cfg fromUnit toUnit amount = do
     UnitDef dimFrom factorFrom <- lookupUnitDef cfg fromUnit
     UnitDef dimTo factorTo <- lookupUnitDef cfg toUnit
-    if dimFrom == dimTo && factorTo /= 0
+    if readDim dimFrom == readDim dimTo && factorTo /= 0
         then Just (amount * factorFrom / factorTo)
         else Nothing
+
+{- | A dimension with its 'resultDimension' slot spent: what a factor written
+in that unit is written per.
+
+Read by the slot's index, not by walking the two lists together: an order
+shorter than the vectors would otherwise drop the slots past its end, and every
+dimension would compare equal to every other.
+-}
+onFactorBasis :: [Text] -> Dimension -> Dimension
+onFactorBasis dimOrder = maybe id zeroAt (elemIndex resultDimension dimOrder)
+  where
+    zeroAt :: Int -> Dimension -> Dimension
+    zeroAt idx = zipWith (\slot e -> if slot == idx then 0 else e) [0 :: Int ..]
 
 {- | Canonical (reference) unit name for the dimension of a given unit.
 

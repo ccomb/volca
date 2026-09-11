@@ -96,7 +96,7 @@ cm3,volume,1e-06
 cm³,volume,1e-06
 gallon,volume,0.003785411784
 gal,volume,0.003785411784
-m3-world equivalents,volume,1.0
+m3-world equivalents,result*volume,1.0
 unit,count,1.0
 units,count,1.0
 p,count,1.0
