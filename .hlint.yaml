@@ -3,15 +3,14 @@
 # Its presence activates the hlint step in CI, which otherwise skips when no config is
 # found. Run locally with: hlint src app test
 #
+# The partial functions are banned separately, over src and app alone, by
+# `.hlint-partials.yaml`: hlint reads one configuration per invocation, and that ban
+# is not the test suite's. Run it too: hlint --hint=.hlint-partials.yaml src app
+#
 # The hygiene pass either *fixes* a hint or *baselines* it here with a one-line reason.
 # src, app and test are all hint-clean; the baselines below are deliberate exceptions
 # where the suggested rewrite conflicts with a stronger rule (code safety, the
 # formatter, or the point of the test).
-
-# `cells !! 0` is guarded by `length cells > colIdx + 2`, so it never fails — but the
-# suggested `head cells` is a partial function we ban project-wide. Keep the guarded
-# indexing rather than reintroduce `head`.
-- ignore: {name: "Use head", within: Method.ParserCSV}
 
 # fourmolu's `single-constraint-parens: always` writes `(HasCallStack) =>`, which hlint
 # reads as a redundant bracket. The formatter wins, so silence the lint on these
@@ -42,8 +41,9 @@
 # name "Avoid restricted function": the ban is global, the hint is then ignored
 # everywhere, and re-raised as an error in the modules below. Another
 # `functions:` restriction added here later inherits that scoping and will NOT
-# fire outside this list - extend the list with it. A `modules:` or
-# `extensions:` restriction carries its own hint name and is unaffected.
+# fire outside this list - extend the list with it, or give it a file of its own
+# read through `--hint`, which is what `.hlint-partials.yaml` does. A `modules:`
+# or `extensions:` restriction carries its own hint name and is unaffected.
 - functions:
     - name: Data.Map.fromList
       within: []

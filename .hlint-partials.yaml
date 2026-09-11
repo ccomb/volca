@@ -1,0 +1,147 @@
+# Partial functions are refused in src and app.
+#
+# Run with: hlint --hint=.hlint-partials.yaml src app
+#
+# Each name below crashes the process on an input its own type allows, which is
+# the one failure a caller cannot handle, and each has a total counterpart:
+# `uncons` / `unsnoc` for a first or last element, `readMaybe` for a parse,
+# `stripSuffix` for a trailing byte, a seeded `foldl'` for a fold with an
+# identity, `Either Text a` for something that can fail. GHC's -Wall covers two
+# of them on lists (-Wx-partial, head and tail); this covers the rest, and the
+# same names on Text, ByteString and Vector.
+#
+# Fix the site or baseline it below with what makes that site safe. There is no
+# third option, and a baseline names a function rather than a line, so moving
+# the site out of that function raises the error again.
+#
+# ---------------------------------------------------------------------------
+# Why this is a file of its own
+# ---------------------------------------------------------------------------
+#
+# Two reasons, both about scope.
+#
+# The test suite is deliberately outside this ban: `volca.cabal` turns
+# -Wx-partial off there because a fixture that does not match should crash the
+# test at the line that destructured it, naming the fixture, rather than be
+# silenced. `--hint` applies per invocation, so the ban reaches src and app and
+# stops there, and `hlint src app test` keeps running the other file over
+# everything.
+#
+# Every `functions:` restriction shares the single hint name "Avoid restricted
+# function", and `.hlint.yaml` ignores that name globally in order to scope its
+# `fromList` ban to the format parsers. A restriction added there would inherit
+# that scoping and fire in thirteen modules instead of everywhere.
+#
+# `--hint` replaces `.hlint.yaml` rather than adding to it, so nothing from
+# there applies here and this file carries its own baselines.
+#
+# ---------------------------------------------------------------------------
+# Why some names are qualified
+# ---------------------------------------------------------------------------
+#
+# A restriction on a bare name matches anything spelled that way, and two of
+# these names belong to total functions as well: `NonEmpty.head`, `.last` and
+# `.init` cannot fail, the type says so, and a mutable vector's `read` is an
+# index into IO, not a parse of a String. hlint resolves a qualified name
+# through the importing module's imports, so `Data.Text.head` catches `T.head`
+# and leaves `NE.head` alone.
+#
+# So the four element accessors and `read` are named per module, and the list
+# is the modules this tree imports. A module that starts importing another
+# container adds its names here. The rest have no total namesake and are left
+# bare, which catches every spelling of them.
+- functions:
+    # The first or the last element of something that may be empty: `uncons`,
+    # `unsnoc`, or a `NonEmpty` if the emptiness is truly impossible.
+    - {name: Prelude.head, within: []}
+    - {name: Prelude.tail, within: []}
+    - {name: Prelude.init, within: []}
+    - {name: Prelude.last, within: []}
+    - {name: Data.List.head, within: []}
+    - {name: Data.List.tail, within: []}
+    - {name: Data.List.init, within: []}
+    - {name: Data.List.last, within: []}
+    - {name: Data.Text.head, within: []}
+    - {name: Data.Text.tail, within: []}
+    - {name: Data.Text.init, within: []}
+    - {name: Data.Text.last, within: []}
+    - {name: Data.Text.Lazy.head, within: []}
+    - {name: Data.Text.Lazy.tail, within: []}
+    - {name: Data.Text.Lazy.init, within: []}
+    - {name: Data.Text.Lazy.last, within: []}
+    - {name: Data.ByteString.head, within: []}
+    - {name: Data.ByteString.tail, within: []}
+    - {name: Data.ByteString.init, within: []}
+    - {name: Data.ByteString.last, within: []}
+    - {name: Data.ByteString.Char8.head, within: []}
+    - {name: Data.ByteString.Char8.tail, within: []}
+    - {name: Data.ByteString.Char8.init, within: []}
+    - {name: Data.ByteString.Char8.last, within: []}
+    - {name: Data.ByteString.Lazy.head, within: []}
+    - {name: Data.ByteString.Lazy.tail, within: []}
+    - {name: Data.ByteString.Lazy.init, within: []}
+    - {name: Data.ByteString.Lazy.last, within: []}
+    - {name: Data.Vector.head, within: []}
+    - {name: Data.Vector.tail, within: []}
+    - {name: Data.Vector.init, within: []}
+    - {name: Data.Vector.last, within: []}
+    - {name: Data.Vector.Unboxed.head, within: []}
+    - {name: Data.Vector.Unboxed.tail, within: []}
+    - {name: Data.Vector.Unboxed.init, within: []}
+    - {name: Data.Vector.Unboxed.last, within: []}
+    # A parse that crashes rather than answering: `readMaybe`.
+    - {name: Prelude.read, within: []}
+    # An index past the end, and a Maybe opened without looking: pattern match
+    # on it, or `maybe` / `fromMaybe` with what the absence means.
+    - {name: "!!", within: []}
+    - {name: fromJust, within: []}
+    # A fold with no element to start from: seed it, or take a `NonEmpty`.
+    - {name: maximum, within: []}
+    - {name: minimum, within: []}
+    - {name: foldr1, within: []}
+    - {name: foldl1, within: []}
+    # A failure that ends the process instead of reaching the caller:
+    # `Either Text a`, propagated to a 4xx/5xx or a warning line.
+    - {name: error, within: []}
+    - {name: errorWithoutStackTrace, within: []}
+    - {name: undefined, within: []}
+    # A value read out of IO where the type promises purity. Safe only for a
+    # top-level CAF that allocates a mutable box once, with NOINLINE.
+    - {name: unsafePerformIO, within: []}
+
+# ---------------------------------------------------------------------------
+# The sites that stay, each with what makes it safe
+# ---------------------------------------------------------------------------
+
+# The global mutable boxes: one `MVar`, `IORef` or `TVar` per top-level name,
+# each allocated once behind a NOINLINE pragma, which is the idiom this has to
+# be written in. Three of them exist because MUMPS holds Fortran state that is
+# not thread-safe, so the handle, the factorization and the solve call each
+# need a process-wide lock; the counter and the log buffer are read from every
+# thread. Nothing here computes: `newMVar`, `newIORef`, `newTVarIO`.
+- ignore:
+    name: "Avoid restricted function"
+    within:
+      [ Matrix.cachedSolver
+      , Matrix.mumpsFactorizationMutex
+      , Matrix.mumpsSolveMutex
+      , Matrix.solveCounter
+      , Progress.progressOutputMutex
+      , Progress.logBufferRef
+      , Progress.logScopesRef
+      ]
+
+# A fold seeded with an element of its own: `maximum . (1 :)` over the column
+# depths, `minimum (length block : ...)` over the section starts. The list is
+# non-empty because the seed is in it, and the seed is the answer when nothing
+# else is.
+- ignore: {name: "Avoid restricted function", within: [Method.WriterCSV.tableRows, BrightwayExcel.Parser.parseBlock]}
+
+# `minimum` over the three costs of one edit-distance cell, written as a
+# literal three-element list.
+- ignore: {name: "Avoid restricted function", within: Search.Fuzzy.editDistance}
+
+# A short uppercase code, where the same expression tests the length first:
+# `T.length t >= 2 && ... isUpper (T.head t)`. Guarded rather than total, and
+# reading it through `T.uncons` would say less than the length test does.
+- ignore: {name: "Avoid restricted function", within: [Database.CrossLinking.extractBracketedLocation, SimaPro.Parser.extractLocation]}
