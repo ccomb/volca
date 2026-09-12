@@ -197,10 +197,19 @@
   negative. On one food database's twenty-two affected products, ozone
   depletion was computed at three to six per cent of the value that database
   publishes. Formulas without `//` are unchanged, and every cache rebuilds
-  itself from its source on the next load. One evaluator reads every formula
-  the engine meets, so the same comment now ends an EcoSpold 2
-  `mathematicalRelation` and a scoring set's weighting formula, where `a//b` is
-  `a` rather than the error it used to be.
+  itself from its source on the next load.
+- A formula is now read in the language it was written in, and the two the
+  engine meets no longer borrow each other's punctuation. The comment above is
+  SimaPro's, because that program is written in Delphi; an EcoSpold 2
+  `mathematicalRelation` and the formulas someone writes in a scoring set have
+  no line comment at all, and used to be read as though they did, so
+  `total = "cch + acd // and the rest"` quietly became `cch` and a weighted sum
+  lost every term after the slashes. Those two now refuse a `//` instead of
+  truncating at it. They also separate two arguments of a function with a
+  comma, which is what someone writing a scoring set types: `min(a, b)` used to
+  fail and blame `min` for being an unknown variable, and now reads. Every
+  entry point of the evaluator asks which language it is reading, so neither
+  can inherit the other's edges again.
 - A file an EcoSpold directory offers and the reader cannot read now stops the
   load instead of disappearing from it. Such a file used to be a warning in
   passing and a dataset silently absent, and the load then described a complete

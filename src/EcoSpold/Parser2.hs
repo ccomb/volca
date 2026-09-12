@@ -615,9 +615,11 @@ environment: the dataset's @\<parameter\>@ variables plus every exchange's own
 
 The stored amount always stays authoritative. EcoSpold2 sources carry
 pre-evaluated amounts, and this evaluator only supports a subset of the
-formula language (no @UnitConversion@, no cross-dataset @Ref@) with
-SimaPro-flavoured semantics, so its result serves as a consistency check, not
-a replacement. Divergences are expected in real EcoSpold2 databases
+formula language (no @UnitConversion@, no cross-dataset @Ref@), so its result
+serves as a consistency check, not a replacement. It reads that subset as this
+language writes it and not as SimaPro does: a @\/\/@ has no meaning here, so a
+relation carrying one is counted unevaluable rather than cut short at it.
+Divergences are expected in real EcoSpold2 databases
 (system-model exports rescale amounts without updating the copied formulas),
 so nothing is logged: the outcome is recorded on the activity for the
 database quality report.
@@ -642,7 +644,7 @@ checkFormulas params pairs = case checked of
         amountsAgreedOn $
             M.toList params
                 ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
-    checked = [(ex, rel, Expr.evaluate env (Expr.normalizeExpr '.' rel)) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
+    checked = [(ex, rel, Expr.evaluate Expr.Arithmetic env rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
     example (ex, rel, v) =

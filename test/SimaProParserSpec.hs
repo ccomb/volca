@@ -10,7 +10,8 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Loader (defaultLoadOptions, getReferenceProductUUID, loadSimaProCSV)
-import Expr (collectIdentifiers, evaluate, isExpression, normalizeExpr)
+import Expr (Dialect (..), collectIdentifiers, isExpression, normalizeExpr)
+import qualified Expr
 import SimaPro.Parser (
     BioExchangeRow (..),
     Located (..),
@@ -583,97 +584,97 @@ spec = do
             map exchangeAmount undeclared `shouldBe` [3]
     describe "SimaPro expression evaluator" $ do
         it "evaluates numeric literals" $ do
-            evaluate M.empty "42" `shouldBe` Right 42.0
-            evaluate M.empty "3.14" `shouldBe` Right 3.14
+            Expr.evaluate SimaPro M.empty "42" `shouldBe` Right 42.0
+            Expr.evaluate SimaPro M.empty "3.14" `shouldBe` Right 3.14
 
         it "evaluates arithmetic" $ do
-            evaluate M.empty "2+3" `shouldBe` Right 5.0
-            evaluate M.empty "10-4" `shouldBe` Right 6.0
-            evaluate M.empty "3*4" `shouldBe` Right 12.0
-            evaluate M.empty "10/4" `shouldBe` Right 2.5
+            Expr.evaluate SimaPro M.empty "2+3" `shouldBe` Right 5.0
+            Expr.evaluate SimaPro M.empty "10-4" `shouldBe` Right 6.0
+            Expr.evaluate SimaPro M.empty "3*4" `shouldBe` Right 12.0
+            Expr.evaluate SimaPro M.empty "10/4" `shouldBe` Right 2.5
 
         it "evaluates parenthesized expressions" $ do
-            evaluate M.empty "(2+3)*4" `shouldBe` Right 20.0
-            evaluate M.empty "2*(3+4)" `shouldBe` Right 14.0
+            Expr.evaluate SimaPro M.empty "(2+3)*4" `shouldBe` Right 20.0
+            Expr.evaluate SimaPro M.empty "2*(3+4)" `shouldBe` Right 14.0
 
         it "evaluates variables" $ do
             let env = M.fromList [("Qm", 20.53), ("Qb", 1.0)]
-            evaluate env "Qm" `shouldBe` Right 20.53
-            evaluate env "Qb" `shouldBe` Right 1.0
+            Expr.evaluate SimaPro env "Qm" `shouldBe` Right 20.53
+            Expr.evaluate SimaPro env "Qb" `shouldBe` Right 1.0
 
         it "evaluates complex expressions with variables" $ do
             let env = M.fromList [("Qb", 1.0), ("DMb", 0.82), ("Qm", 20.53), ("DMm", 0.118)]
             -- Butter allocation formula: (Qb*DMb/(Qb*DMb+Qm*DMm))*100
-            let result = evaluate env "(Qb*DMb/(Qb*DMb+Qm*DMm))*100"
+            let result = Expr.evaluate SimaPro env "(Qb*DMb/(Qb*DMb+Qm*DMm))*100"
             case result of
                 Right v -> v `shouldSatisfy` (\x -> abs (x - 25.29) < 0.1)
                 Left e -> expectationFailure $ "Evaluation failed: " ++ e
 
         it "evaluates yield correction chains" $ do
             let env = M.fromList [("weight_kg", 0.25), ("yield1", 0.95), ("yield2", 0.90)]
-            let result = evaluate env "weight_kg/yield1/yield2"
+            let result = Expr.evaluate SimaPro env "weight_kg/yield1/yield2"
             case result of
                 Right v -> v `shouldSatisfy` (\x -> abs (x - 0.2924) < 0.001)
                 Left e -> expectationFailure $ "Evaluation failed: " ++ e
 
         it "evaluates power operator" $ do
-            evaluate M.empty "2^3" `shouldBe` Right 8.0
-            evaluate M.empty "3^2" `shouldBe` Right 9.0
+            Expr.evaluate SimaPro M.empty "2^3" `shouldBe` Right 8.0
+            Expr.evaluate SimaPro M.empty "3^2" `shouldBe` Right 9.0
 
         -- Regression: SimaPro writes a scale factor as a signed power of ten.
         -- The exponent used to be parsed by the power rule itself, which knows
         -- numbers but not signs, so the '-' failed the whole expression and the
         -- amount fell back to something else entirely.
         it "evaluates a signed exponent" $ do
-            evaluate M.empty "10^-6" `shouldEvalTo` 1.0e-6
-            evaluate M.empty "10^+3" `shouldEvalTo` 1000.0
-            evaluate M.empty "1*10^-3*50" `shouldEvalTo` 0.05
-            evaluate M.empty "2^-2" `shouldEvalTo` 0.25
+            Expr.evaluate SimaPro M.empty "10^-6" `shouldEvalTo` 1.0e-6
+            Expr.evaluate SimaPro M.empty "10^+3" `shouldEvalTo` 1000.0
+            Expr.evaluate SimaPro M.empty "1*10^-3*50" `shouldEvalTo` 0.05
+            Expr.evaluate SimaPro M.empty "2^-2" `shouldEvalTo` 0.25
 
         it "keeps exponentiation right-associative and below unary minus" $ do
             -- Reading the exponent through the unary rule must not flatten the
             -- tower nor take the sign away from the operand in front of it.
             -- 512 rather than 64 is the whole point: a flattened tower would be
             -- (2^3)^2, and no rounding tolerance can hide that difference.
-            evaluate M.empty "2^3^2" `shouldEvalTo` 512.0
-            evaluate M.empty "-2^2" `shouldEvalTo` (-4.0)
-            evaluate M.empty "2^-3^2" `shouldEvalTo` (2 ** (-9))
+            Expr.evaluate SimaPro M.empty "2^3^2" `shouldEvalTo` 512.0
+            Expr.evaluate SimaPro M.empty "-2^2" `shouldEvalTo` (-4.0)
+            Expr.evaluate SimaPro M.empty "2^-3^2" `shouldEvalTo` (2 ** (-9))
 
         it "accepts a signed exponent as syntax, not only as a value" $ do
             -- `isExpression` runs a parallel parser that takes no environment,
             -- so it has to learn the same shape or the cell reads as prose.
-            isExpression ',' "10^-6" `shouldBe` True
-            isExpression ',' "(38-15)*4185*30/0,9*10^-6" `shouldBe` True
+            isExpression SimaPro (normalizeExpr ',' "10^-6") `shouldBe` True
+            isExpression SimaPro (normalizeExpr ',' "(38-15)*4185*30/0,9*10^-6") `shouldBe` True
 
         it "evaluates unary minus" $ do
-            evaluate M.empty "-5" `shouldBe` Right (-5.0)
-            evaluate M.empty "-(2+3)" `shouldBe` Right (-5.0)
+            Expr.evaluate SimaPro M.empty "-5" `shouldBe` Right (-5.0)
+            Expr.evaluate SimaPro M.empty "-(2+3)" `shouldBe` Right (-5.0)
 
         it "rejects unknown variables" $ do
-            evaluate M.empty "xyz" `shouldSatisfy` isLeft
+            Expr.evaluate SimaPro M.empty "xyz" `shouldSatisfy` isLeft
 
         -- Regression: SimaPro exports drop the integer part of a decimal, and
         -- Agribalyse sums a pesticide mix in place — "0,45+0,247+,067". The
         -- last term made the whole expression unparseable, and the amount
         -- silently became its leading number: 0.45 where the file says 0.764.
         it "evaluates decimals written without their integer part" $ do
-            evaluate M.empty ".067" `shouldBe` Right 0.067
-            evaluate M.empty "0.45+0.247+.067" `shouldBe` Right (0.45 + 0.247 + 0.067)
-            evaluate M.empty ".5*2" `shouldBe` Right 1.0
-            evaluate M.empty "-.5" `shouldBe` Right (-0.5)
-            evaluate M.empty "(.25+.75)*4" `shouldBe` Right 4.0
-            evaluate M.empty ".5e1" `shouldBe` Right 5.0
+            Expr.evaluate SimaPro M.empty ".067" `shouldBe` Right 0.067
+            Expr.evaluate SimaPro M.empty "0.45+0.247+.067" `shouldBe` Right (0.45 + 0.247 + 0.067)
+            Expr.evaluate SimaPro M.empty ".5*2" `shouldBe` Right 1.0
+            Expr.evaluate SimaPro M.empty "-.5" `shouldBe` Right (-0.5)
+            Expr.evaluate SimaPro M.empty "(.25+.75)*4" `shouldBe` Right 4.0
+            Expr.evaluate SimaPro M.empty ".5e1" `shouldBe` Right 5.0
 
         it "still rejects a point that is not part of a number" $ do
-            evaluate M.empty "." `shouldSatisfy` isLeft
-            evaluate M.empty "1+." `shouldSatisfy` isLeft
-            evaluate M.empty ".+1" `shouldSatisfy` isLeft
+            Expr.evaluate SimaPro M.empty "." `shouldSatisfy` isLeft
+            Expr.evaluate SimaPro M.empty "1+." `shouldSatisfy` isLeft
+            Expr.evaluate SimaPro M.empty ".+1" `shouldSatisfy` isLeft
 
         it "reads a literal in an expression exactly as it reads it alone" $ do
             -- Not 'read'/'L.float' rounding: both paths go through readAmount,
             -- so a literal keeps its value when an operator is put next to it.
-            evaluate M.empty "0.0000010897906999999999"
-                `shouldBe` evaluate M.empty "0.0000010897906999999999*1"
+            Expr.evaluate SimaPro M.empty "0.0000010897906999999999"
+                `shouldBe` Expr.evaluate SimaPro M.empty "0.0000010897906999999999*1"
 
         -- Regression: Agribalyse Emmental defines the dry-matter param as "Dmper"
         -- but references "DMper" in the allocation formula. SimaPro treats parameter
@@ -681,8 +682,8 @@ spec = do
         -- whole activity shows zero impacts.
         it "looks up variables case-insensitively" $ do
             let env = M.fromList [("Dmper", 5.0), ("Qper", 60530841.0)]
-            evaluate env "Qper*DMper" `shouldBe` Right (60530841.0 * 5.0)
-            evaluate env "qper*dmper" `shouldBe` Right (60530841.0 * 5.0)
+            Expr.evaluate SimaPro env "Qper*DMper" `shouldBe` Right (60530841.0 * 5.0)
+            Expr.evaluate SimaPro env "qper*dmper" `shouldBe` Right (60530841.0 * 5.0)
 
         -- Regression: a packaging dataset corrects a plastic weight by two process
         -- yields and types "weight_PET_g//process1_yield/process2_yield". SimaPro,
@@ -691,19 +692,31 @@ spec = do
         -- amounts under it at zero, and the packaging went missing from the result.
         it "stops at a // comment, as SimaPro does" $ do
             let env = M.fromList [("weight_PET_g", 9.29), ("process1_yield", 0.946), ("process2_yield", 0.997)]
-            evaluate env "weight_PET_g//process1_yield/process2_yield" `shouldBe` Right 9.29
-            evaluate env "weight_PET_g/process1_yield" `shouldBe` Right (9.29 / 0.946)
-            evaluate env "1+2 // and the rest is a note" `shouldBe` Right 3.0
+            Expr.evaluate SimaPro env "weight_PET_g//process1_yield/process2_yield" `shouldBe` Right 9.29
+            Expr.evaluate SimaPro env "weight_PET_g/process1_yield" `shouldBe` Right (9.29 / 0.946)
+            Expr.evaluate SimaPro env "1+2 // and the rest is a note" `shouldBe` Right 3.0
 
         it "rejects an expression that is only a comment" $
-            evaluate M.empty "// nothing but a note" `shouldSatisfy` isLeft
+            Expr.evaluate SimaPro M.empty "// nothing but a note" `shouldSatisfy` isLeft
 
         -- What a formula names and what it computes have to be the same list,
         -- or a scoring breakdown shows a variable the score never read.
         it "collects no identifier the evaluation does not reach" $ do
-            collectIdentifiers '.' "(a)//b" `shouldBe` ["a"]
-            collectIdentifiers '.' "a//b" `shouldBe` ["a"]
-            collectIdentifiers '.' "a+b" `shouldBe` ["a", "b"]
+            collectIdentifiers SimaPro "(a)//b" `shouldBe` ["a"]
+            collectIdentifiers SimaPro "a//b" `shouldBe` ["a"]
+            collectIdentifiers Arithmetic "a+b" `shouldBe` ["a", "b"]
+
+        -- A scoring set's formulas and an EcoSpold 2 mathematicalRelation are
+        -- not written in SimaPro, and used to be read as if they were: "//" cut
+        -- a weighted sum short, and the comma SimaPro spells ";" made the
+        -- evaluator call a function name an unknown variable.
+        it "reads a formula of the other dialect in its own terms" $ do
+            let env = M.fromList [("cch", 3.0), ("acd", 4.0)]
+            Expr.evaluate Arithmetic env "cch + acd" `shouldBe` Right 7.0
+            Expr.evaluate Arithmetic env "cch //+ acd" `shouldSatisfy` isLeft
+            Expr.evaluate Arithmetic env "min(cch,acd)" `shouldBe` Right 3.0
+            Expr.evaluate SimaPro env "min(cch;acd)" `shouldBe` Right 3.0
+            Expr.evaluate SimaPro env "cch //+ acd" `shouldBe` Right 3.0
 
         it "normalizes comma decimal separator" $ do
             normalizeExpr ',' "0,82" `shouldBe` "0.82"
