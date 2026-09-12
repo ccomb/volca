@@ -98,17 +98,17 @@ type LCAAPI =
                     :> QueryParam "group_by" Text
                     :> QueryParam "aggregate" Text
                     :> Get '[JSON] Aggregation
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" Text :> QueryParam "exclude-long-term" Bool :> Get '[JSON] LCIABatchResult
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" Text :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIABatchResult
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" Text :> Capture "methodId" Text :> QueryParam "top-flows" Int :> Get '[JSON] LCIAResult
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" Text :> Capture "methodId" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIAResult
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "sensitivity" :> Capture "collection" Text :> Capture "methodId" Text :> ReqBody '[JSON] SensitivityRequest :> Post '[JSON] SensitivityResponse
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> Get '[JSON] LCIABatchResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIABatchResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "top-flows" Int :> Get '[JSON] LCIAResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIAResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "sensitivity" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> ReqBody '[JSON] SensitivityRequest :> Post '[JSON] SensitivityResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] InventoryExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] SupplyChainResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> Get '[JSON] ConsumersResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> Get '[JSON] Value
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" Text :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" Text :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> QueryParam "role" Text :> Get '[JSON] [ActivitySummary]
                 :<|> "methods" :> Get '[JSON] [MethodSummary]
@@ -116,14 +116,14 @@ type LCAAPI =
                 :<|> "method" :> Capture "methodId" Text :> "factors" :> Get '[JSON] [MethodFactorAPI]
                 :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "mapping" :> Get '[JSON] MappingStatus
                 :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "flow-mapping" :> Get '[JSON] FlowCFMapping
-                :<|> "db" :> Capture "dbName" Text :> "method-collection" :> Capture "collection" Text :> "coverage" :> Get '[JSON] CollectionCoverage
+                :<|> "db" :> Capture "dbName" Text :> "method-collection" :> Capture "collection" DM.CollectionName :> "coverage" :> Get '[JSON] CollectionCoverage
                 :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "characterization" :> QueryParam "flow" Text :> QueryParam "limit" Int :> Get '[JSON] CharacterizationResult
                 :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "explain-cf" :> Capture "flowId" Text :> Get '[JSON] ExplainCFResult
                 :<|> "db" :> Capture "dbName" Text :> "flows" :> QueryParam "q" Text :> QueryParam "lang" Text :> QueryParam "kind" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults FlowSearchResult)
                 :<|> "db" :> Capture "dbName" Text :> "search-counts" :> QueryParam "q" Text :> QueryParam "sort" Text :> QueryParam "exact" Bool :> Get '[JSON] SearchCountsAPI
                 :<|> "db" :> Capture "dbName" Text :> "activities" :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "exact" Bool :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults ActivitySummary)
                 :<|> "db" :> Capture "dbName" Text :> "classifications" :> Get '[JSON] [ClassificationSystem]
-                :<|> "db" :> Capture "dbName" Text :> "impacts" :> Capture "collection" Text :> QueryParam "top-flows" Int :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] BatchImpactsRequest :> Post '[JSON] BatchImpactsResponse
+                :<|> "db" :> Capture "dbName" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "top-flows" Int :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] BatchImpactsRequest :> Post '[JSON] BatchImpactsResponse
                 -- Database management endpoints
                 :<|> "db" :> Get '[JSON] DatabaseListResponse
                 -- Load/Unload/Delete endpoints
@@ -878,12 +878,11 @@ routes (via thin where-aliases) and by API.BatchImpacts.
 activityLCIABatchH ::
     Text ->
     Text ->
-    Text ->
+    DM.CollectionName ->
     Maybe SubstitutionRequest ->
     LongTermMode ->
     AppM LCIABatchResult
-activityLCIABatchH dbName processIdText collectionNameText mSub ltMode = do
-    let collectionName = DM.CollectionName collectionNameText
+activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     (actProcessId, activity) <- resolveOrThrow db processIdText
@@ -898,7 +897,7 @@ activityLCIABatchH dbName processIdText collectionNameText mSub ltMode = do
     when (isNothing mSub) $
         liftIO $ do
             reportProgress Info $
-                "[LCIA batch] " <> T.unpack collectionNameText <> " for " <> T.unpack (activityName activity)
+                "[LCIA batch] " <> T.unpack (DM.unCollectionName collectionName) <> " for " <> T.unpack (activityName activity)
             reportProgress Info $
                 "  Inventory: "
                     <> show invSize
@@ -944,20 +943,19 @@ by API.BatchImpacts.
 -}
 batchImpactsH ::
     Text ->
-    Text ->
+    DM.CollectionName ->
     Maybe Int ->
     LongTermMode ->
     BatchImpactsRequest ->
     AppM BatchImpactsResponse
-batchImpactsH dbName collectionNameText topFlowsParam ltMode req = do
-    let collectionName = DM.CollectionName collectionNameText
+batchImpactsH dbName collectionName topFlowsParam ltMode req = do
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
-    collection <- case M.lookup collectionNameText loadedCollections of
+    collection <- case M.lookup (DM.unCollectionName collectionName) loadedCollections of
         Just mc -> pure mc
         Nothing ->
-            throwError err404{errBody = collectionNotLoadedBody collectionNameText (M.keys loadedCollections)}
+            throwError err404{errBody = collectionNotLoadedBody (DM.unCollectionName collectionName) (M.keys loadedCollections)}
     let resolved =
             [ (pidText, Service.resolveScorable db pidText)
             | pidText <- birProcessIds req
@@ -1009,7 +1007,7 @@ batchImpactsH dbName collectionNameText topFlowsParam ltMode req = do
             "[batch-impacts] "
                 <> T.unpack dbName
                 <> " / "
-                <> T.unpack collectionNameText
+                <> T.unpack (DM.unCollectionName collectionName)
                 <> ": "
                 <> show (length valid)
                 <> " activities"
@@ -1049,8 +1047,8 @@ computedQualityReportH dbName mCollection mLimit = do
     (db, _solver) <- requireDatabaseByName dbName
     loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
     collection <- case (mCollection, M.keys loadedCollections) of
-        (Just c, _) -> pure c -- an unknown name answers 404 in batchImpactsH below
-        (Nothing, [only]) -> pure only
+        (Just c, _) -> pure (DM.CollectionName c) -- an unknown name answers 404 in batchImpactsH below
+        (Nothing, [only]) -> pure (DM.CollectionName only)
         (Nothing, []) ->
             throwError err400{errBody = "No method collection loaded - the computed checks judge scores, so they need one"}
         (Nothing, several) ->
@@ -1102,7 +1100,7 @@ computedQualityReportH dbName mCollection mLimit = do
             | e <- concatMap birResults responses
             , Just act <- [M.lookup (bieProcessId e) entriesByPid]
             ]
-    pure (DBHandlers.computedQualityReportToAPI mLimit (CQ.computedQualityReport dbName collection scored))
+    pure (DBHandlers.computedQualityReportToAPI mLimit (CQ.computedQualityReport dbName (DM.unCollectionName collection) scored))
 
 {- | The same two reports as a downloadable file. They answer the question the
 JSON answers, in the shape the person asking it works in: a spreadsheet, or a
@@ -1727,9 +1725,8 @@ getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam fnam
 {- | LCIA single-method core. GET passes a top-flows param and logs;
 POST carries substitutions instead and skips logging.
 -}
-activityLCIACore :: Text -> Text -> Text -> Text -> Maybe Int -> Maybe SubstitutionRequest -> AppM LCIAResult
-activityLCIACore dbName processIdText collectionNameText methodIdText topFlowsParam mSub = do
-    let collectionName = DM.CollectionName collectionNameText
+activityLCIACore :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe SubstitutionRequest -> AppM LCIAResult
+activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam mSub = do
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     method <- loadMethodInCollection collectionName methodIdText
@@ -1740,20 +1737,19 @@ activityLCIACore dbName processIdText collectionNameText methodIdText topFlowsPa
     when (isNothing mSub) $ liftIO $ logLCIAResult result method
     pure result
 
-getActivityLCIA :: Text -> Text -> Text -> Text -> Maybe Int -> AppM LCIAResult
+getActivityLCIA :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> AppM LCIAResult
 getActivityLCIA dbName processIdText collectionName methodIdText topFlowsParam =
     activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam Nothing
 
-postActivityLCIA :: Text -> Text -> Text -> Text -> SubstitutionRequest -> AppM LCIAResult
+postActivityLCIA :: Text -> Text -> DM.CollectionName -> Text -> SubstitutionRequest -> AppM LCIAResult
 postActivityLCIA dbName processIdText collectionName methodIdText subReq =
     activityLCIACore dbName processIdText collectionName methodIdText Nothing (Just subReq)
 
 {- | Sensitivity sweep: rank-1 perturbations on the root scaling, scored
 through the cross-DB graph (regional CFs on dep DBs still apply).
 -}
-postActivitySensitivity :: Text -> Text -> Text -> Text -> SensitivityRequest -> AppM SensitivityResponse
-postActivitySensitivity dbName processIdText collectionNameText methodIdText senReq = do
-    let collectionName = DM.CollectionName collectionNameText
+postActivitySensitivity :: Text -> Text -> DM.CollectionName -> Text -> SensitivityRequest -> AppM SensitivityResponse
+postActivitySensitivity dbName processIdText collectionName methodIdText senReq = do
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     requireFullyLinked dbName db
@@ -1803,11 +1799,11 @@ postActivitySensitivity dbName processIdText collectionNameText methodIdText sen
             mapConcurrently (buildEntry baselineLcia) perResults
     pure SensitivityResponse{srBaseline = baselineLcia, srPerturbed = perturbed}
 
-getActivityLCIABatch :: Text -> Text -> Text -> Maybe Bool -> AppM LCIABatchResult
+getActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> AppM LCIABatchResult
 getActivityLCIABatch dbName processIdText collectionName mExcludeLT =
     activityLCIABatchH dbName processIdText collectionName Nothing (longTermModeFromExclude (fromMaybe False mExcludeLT))
 
-postActivityLCIABatch :: Text -> Text -> Text -> Maybe Bool -> SubstitutionRequest -> AppM LCIABatchResult
+postActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> SubstitutionRequest -> AppM LCIABatchResult
 postActivityLCIABatch dbName processIdText collectionName mExcludeLT subReq =
     activityLCIABatchH dbName processIdText collectionName (Just subReq) (longTermModeFromExclude (fromMaybe False mExcludeLT))
 
@@ -1896,88 +1892,86 @@ getActivityPathTo dbName processIdText targetParam = do
             throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
         Right val -> return val
 
-getContributingFlows :: Text -> Text -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
-getContributingFlows dbName processIdText collectionNameText methodIdText limitParam mExcludeLT =
-    let collectionName = DM.CollectionName collectionNameText
-     in withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
-            dbManager <- asks aeDbManager
-            let lim = fromMaybe 20 limitParam
-                ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
-            unitCfg <- liftIO $ getMergedUnitConfig dbManager
-            (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-            inventory <- applyLongTermMode mFlows ltMode <$> inventoryWithDeps dbName db sharedSolver actProcessId
-            tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
-            let score = loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables)
-                (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
-                contribs = sortOn (\(_, _, c) -> negate (abs c)) rawContribs
-                topFlows =
-                    [ FlowContributionEntry
-                        { fcoFlowName = bfName f
-                        , fcoContribution = c
-                        , fcoSharePct = if score /= 0 then c / score * 100 else 0
-                        , fcoFlowId = UUID.toText (bfId f)
-                        , fcoCategory = bfCompartmentName f
-                        , fcoCompartment = bfCompartmentSub f
-                        , fcoCfValue = cfVal
-                        , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
-                        }
-                    | (f, cfVal, c) <- take lim contribs
-                    ]
-            liftIO $
-                unless (null unknownUuids) $
-                    reportProgress Warning $
-                        "[contributing-flows "
-                            <> T.unpack (methodName method)
-                            <> "] "
-                            <> show (length unknownUuids)
-                            <> " inventory flow UUID(s) absent from merged FlowDB. Samples: "
-                            <> show (take 3 unknownUuids)
-            return
-                ContributingFlowsResult
-                    { cfrMethod = methodName method
-                    , cfrUnit = methodUnit method
-                    , cfrTotalScore = score
-                    , cfrTopFlows = topFlows
+getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
+getContributingFlows dbName processIdText collectionName methodIdText limitParam mExcludeLT =
+    withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
+        dbManager <- asks aeDbManager
+        let lim = fromMaybe 20 limitParam
+            ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
+        unitCfg <- liftIO $ getMergedUnitConfig dbManager
+        (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        inventory <- applyLongTermMode mFlows ltMode <$> inventoryWithDeps dbName db sharedSolver actProcessId
+        tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
+        let score = loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables)
+            (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
+            contribs = sortOn (\(_, _, c) -> negate (abs c)) rawContribs
+            topFlows =
+                [ FlowContributionEntry
+                    { fcoFlowName = bfName f
+                    , fcoContribution = c
+                    , fcoSharePct = if score /= 0 then c / score * 100 else 0
+                    , fcoFlowId = UUID.toText (bfId f)
+                    , fcoCategory = bfCompartmentName f
+                    , fcoCompartment = bfCompartmentSub f
+                    , fcoCfValue = cfVal
+                    , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
                     }
+                | (f, cfVal, c) <- take lim contribs
+                ]
+        liftIO $
+            unless (null unknownUuids) $
+                reportProgress Warning $
+                    "[contributing-flows "
+                        <> T.unpack (methodName method)
+                        <> "] "
+                        <> show (length unknownUuids)
+                        <> " inventory flow UUID(s) absent from merged FlowDB. Samples: "
+                        <> show (take 3 unknownUuids)
+        return
+            ContributingFlowsResult
+                { cfrMethod = methodName method
+                , cfrUnit = methodUnit method
+                , cfrTotalScore = score
+                , cfrTopFlows = topFlows
+                }
 
-getContributingActivities :: Text -> Text -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
-getContributingActivities dbName processIdText collectionNameText methodIdText limitParam mExcludeLT =
-    let collectionName = DM.CollectionName collectionNameText
-     in withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
-            dbManager <- asks aeDbManager
-            let lim = fromMaybe 10 limitParam
-                ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
-            requireFullyLinked dbName db
-            unitCfg <- liftIO $ getMergedUnitConfig dbManager
-            (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-            tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
-            eContribs <-
-                liftIO $
-                    SharedSolver.crossDBProcessContributions
-                        unitCfg
-                        mUnits
-                        mFlows
-                        (DM.mkDepSolverLookup dbManager)
-                        db
-                        dbName
-                        sharedSolver
-                        actProcessId
-                        tables
-                        ltMode
-            case eContribs of
-                Left err -> throwError err422{errBody = BSL.fromStrict $ T.encodeUtf8 err}
-                Right contributions -> do
-                    let score = sum (M.elems contributions)
-                        sorted = sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
-                        top = take lim sorted
-                    rows <- liftIO $ mapM (mkCrossDBContrib dbManager dbName mFlows mUnits score) top
-                    return
-                        ContributingActivitiesResult
-                            { carMethod = methodName method
-                            , carUnit = methodUnit method
-                            , carTotalScore = score
-                            , carActivities = rows
-                            }
+getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
+getContributingActivities dbName processIdText collectionName methodIdText limitParam mExcludeLT =
+    withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
+        dbManager <- asks aeDbManager
+        let lim = fromMaybe 10 limitParam
+            ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
+        requireFullyLinked dbName db
+        unitCfg <- liftIO $ getMergedUnitConfig dbManager
+        (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
+        eContribs <-
+            liftIO $
+                SharedSolver.crossDBProcessContributions
+                    unitCfg
+                    mUnits
+                    mFlows
+                    (DM.mkDepSolverLookup dbManager)
+                    db
+                    dbName
+                    sharedSolver
+                    actProcessId
+                    tables
+                    ltMode
+        case eContribs of
+            Left err -> throwError err422{errBody = BSL.fromStrict $ T.encodeUtf8 err}
+            Right contributions -> do
+                let score = sum (M.elems contributions)
+                    sorted = sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
+                    top = take lim sorted
+                rows <- liftIO $ mapM (mkCrossDBContrib dbManager dbName mFlows mUnits score) top
+                return
+                    ContributingActivitiesResult
+                        { carMethod = methodName method
+                        , carUnit = methodUnit method
+                        , carTotalScore = score
+                        , carActivities = rows
+                        }
 
 getFlowDetail :: Text -> Text -> AppM FlowDetail
 getFlowDetail dbName flowIdText = do
@@ -2105,16 +2099,15 @@ Distinct across methods, because they overlap — every climate-change variant
 characterizes the same gases — so this number cannot be recovered from the
 per-method mapping statuses.
 -}
-getCollectionCoverage :: Text -> Text -> AppM CollectionCoverage
-getCollectionCoverage dbName collectionNameText = do
-    let collectionName = DM.CollectionName collectionNameText
+getCollectionCoverage :: Text -> DM.CollectionName -> AppM CollectionCoverage
+getCollectionCoverage dbName collectionName = do
     dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
     (methods, _, _, _) <- loadCollection collectionName
     tablesList <- liftIO $ mapM (DM.mapMethodToTablesCached dbManager dbName collectionName db) methods
     return
         CollectionCoverage
-            { ccvCollection = collectionNameText
+            { ccvCollection = DM.unCollectionName collectionName
             , ccvDbName = dbName
             , ccvTotalFlows = fromIntegral (dbBiosphereCount db)
             , ccvCharacterizedFlows = S.size (S.unions (map (`characterizedFlowIds` dbBioFlows db) tablesList))
@@ -2269,7 +2262,7 @@ getClassifications dbName = do
     (db, _) <- requireDatabaseByName dbName
     return $ Service.getClassifications db
 
-postImpactsBatch :: Text -> Text -> Maybe Int -> Maybe Bool -> BatchImpactsRequest -> AppM BatchImpactsResponse
+postImpactsBatch :: Text -> DM.CollectionName -> Maybe Int -> Maybe Bool -> BatchImpactsRequest -> AppM BatchImpactsResponse
 postImpactsBatch dbName collectionName topFlowsParam mExcludeLT =
     batchImpactsH dbName collectionName topFlowsParam (longTermModeFromExclude (fromMaybe False mExcludeLT))
 
