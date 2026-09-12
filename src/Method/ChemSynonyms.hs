@@ -120,13 +120,9 @@ expandedTokens cs name =
 splitCSV :: Char -> Text -> [Text]
 splitCSV delim = go [] T.empty False
   where
-    go acc cur _ t
-        | T.null t = reverse (cur : acc)
-    go acc cur inQuotes t =
-        let !c = T.head t
-            !rest = T.tail t
-         in case c of
-                '"' -> go acc cur (not inQuotes) rest
-                _
-                    | c == delim && not inQuotes -> go (cur : acc) T.empty False rest
-                    | otherwise -> go acc (T.snoc cur c) inQuotes rest
+    go acc cur inQuotes t = case T.uncons t of
+        Nothing -> reverse (cur : acc)
+        Just ('"', rest) -> go acc cur (not inQuotes) rest
+        Just (c, rest)
+            | c == delim && not inQuotes -> go (cur : acc) T.empty False rest
+            | otherwise -> go acc (T.snoc cur c) inQuotes rest

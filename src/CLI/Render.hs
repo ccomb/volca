@@ -193,7 +193,7 @@ formatTable :: ([Text], [[Text]]) -> String
 formatTable ([], _) = ""
 formatTable (headers, rows) =
     let allRows = map (map T.unpack) (headers : rows)
-        widths = map (maximum . map length) (transpose (map (map (take maxColWidth)) allRows))
+        widths = map (foldl' max 0 . map length) (transpose (map (map (take maxColWidth)) allRows))
         padRow = zipWith (\w c -> take maxColWidth c ++ replicate (w - length (take maxColWidth c)) ' ') widths
         sep = intercalate "+" (map (\w -> replicate (w + 2) '-') widths)
         fmtRow r = "  " ++ intercalate " | " (padRow r)

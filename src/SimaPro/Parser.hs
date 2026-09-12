@@ -72,6 +72,7 @@ import Progress (ProgressLevel (..), reportProgress)
 import SubstanceRegistry (CASNumber (..), NormName (..), casBindings, normalizeCAS)
 import SynonymDB (normalizeName)
 import Text.Printf (printf)
+import Text.Read (readMaybe)
 import Types
 import qualified UnitConversion
 
@@ -325,7 +326,7 @@ instance NFData WorkerResult
 parseHeaderLine :: BS.ByteString -> Maybe (BS.ByteString, BS.ByteString)
 parseHeaderLine line
     | BS8.isPrefixOf "{" line && BS8.isSuffixOf "}" line =
-        let content = BS8.init (BS8.tail line)
+        let content = BS.dropEnd 1 (BS.drop 1 line)
          in case BS8.breakSubstring ": " content of
                 (key, rest) | not (BS.null rest) -> Just (BS8.strip key, BS8.strip (BS.drop 2 rest))
                 _ -> Just (BS8.strip content, "")
@@ -339,7 +340,7 @@ updateConfigFromHeader cfg key value = case BS8.map toLower key of
     "methods" -> cfg{spFileType = "methods"}
     "product stages" -> cfg{spFileType = "product stages"}
     "csv separator" -> cfg{spDelimiter = parseDelimiter value}
-    "decimal separator" -> cfg{spDecimal = if BS.null value then ',' else BS8.head value}
+    "decimal separator" -> cfg{spDecimal = maybe ',' fst (BS8.uncons value)}
     "short date format" -> cfg{spDateFormat = localDecodeBS value}
     _ -> cfg
   where
@@ -475,7 +476,7 @@ splitCSV delim bs =
                 { Csv.decDelimiter = fromIntegral (fromEnum delim)
                 }
      in case Csv.decodeWith opts Csv.NoHeader (BL.fromStrict clean) of
-            Right rows | not (V.null rows) -> V.toList (V.head rows)
+            Right rows | Just (row, _) <- V.uncons rows -> V.toList row
             _ -> BS8.split delim clean -- fallback to naive on parse error
 
 -- | Parse a parameter row: name;value_or_expression;...
@@ -953,7 +954,7 @@ extractLocation name =
                     | isGeoCode loc ->
                         Just (T.strip (T.dropWhileEnd (== '/') before), loc)
                 _ -> go (T.dropWhileEnd (== '/') before)
-    isGeoCode t = T.length t >= 2 && isUpper (T.head t)
+    isGeoCode t = T.length t >= 2 && maybe False (isUpper . fst) (T.uncons t)
 
 -- | Resolve a parameterized amount: try expression evaluation, fall back to numeric parse
 resolveAmount :: M.Map Text Double -> Text -> Double -> Double
@@ -1291,7 +1292,7 @@ parsePedigreePrefix raw =
                             _ -> (Nothing, nonEmptyText trimmed)
   where
     readDigit txt = case T.unpack (T.strip txt) of
-        s | all (`elem` ("0123456789" :: String)) s && not (null s) -> Just (read s)
+        s | all (`elem` ("0123456789" :: String)) s -> readMaybe s
         _ -> Nothing
     -- After the closing paren SimaPro emits e.g. ",", ", ", ",. ", ";" before
     -- the comment proper. Strip leading separators and whitespace.
@@ -1712,7 +1713,4 @@ parseSimaProCSV unitCfg path = do
   where
     -- Strip Windows \r from ByteString (fast, often no-op)
     stripCR :: BS.ByteString -> BS.ByteString
-    stripCR bs
-        | BS.null bs = bs
-        | BS8.last bs == '\r' = BS8.init bs
-        | otherwise = bs
+    stripCR bs = fromMaybe bs (BS.stripSuffix "\r" bs)
