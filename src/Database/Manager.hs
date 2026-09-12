@@ -262,7 +262,6 @@ import Types (
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
-    blockerReason,
     computeMinimalSelectedDeps,
     crossDBBySource,
     crossDBRedundantSources,
@@ -274,8 +273,10 @@ import Types (
     flowClosure,
     initializeRuntimeFields,
     parseAllocationKey,
+    reasonsOf,
     toSimpleDatabase,
     unresolvedCount,
+    upDemands,
  )
 import qualified UnitConversion
 
@@ -3298,14 +3299,18 @@ rankMissingProducts blocked dangling =
     sortOn
         (Down . upDemands . snd)
         ( M.toList blocked
-            <> [(name, UnresolvedProduct{upDemands = cnt, upBlocker = NoNameMatch}) | (name, cnt) <- M.toList dangling]
+            <> [(name, UnresolvedProduct (M.singleton NoNameMatch cnt)) | (name, cnt) <- M.toList dangling]
         )
 
--- | Project one ranked missing product onto its wire shape.
-blockerToMissingSupplier :: (Text, UnresolvedProduct) -> MissingSupplier
-blockerToMissingSupplier (name, unresolved) =
-    let reason = blockerReason (upBlocker unresolved)
-     in MissingSupplier name (upDemands unresolved) Nothing (brReason reason) (brDetail reason)
+{- | Project one ranked missing product onto its wire shape: one row per reason
+it was refused for, biggest first, so a product blocked two ways is read as two
+and never as one of them carrying the other's demands.
+-}
+missingSuppliersOf :: (Text, UnresolvedProduct) -> [MissingSupplier]
+missingSuppliersOf (name, unresolved) =
+    [ MissingSupplier name n Nothing (brReason reason) (brDetail reason)
+    | (reason, n) <- reasonsOf (upBlockers unresolved)
+    ]
 
 {- | Missing-supplier list for a staged database: rich blockers from the
 linking stats plus dangling background links a partial import leaves behind
@@ -3347,7 +3352,10 @@ setupInfoFrom SetupSource{..} =
         , dsiInternalLinks = lcInternalLinks ssCounts
         , dsiCrossDBLinks = lcCrossDBLinks ssCounts
         , dsiUnresolvedLinks = lcUnresolvedLinks ssCounts
-        , dsiMissingSuppliers = take 10 (map blockerToMissingSupplier ssMissing)
+        , -- The ten worst products, every reason each was refused for: capping
+          -- the rows instead would drop the later reasons of the last product,
+          -- which is the collapse this list exists to avoid.
+          dsiMissingSuppliers = concatMap missingSuppliersOf (take 10 ssMissing)
         , dsiDependencies = ssDependencies
         , dsiIsReady = isNothing (notReadyReason ssCounts)
         , dsiUnknownUnits = S.toList (cdlUnknownUnits ssStats)

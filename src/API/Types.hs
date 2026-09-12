@@ -38,6 +38,7 @@ import Servant.API.ContentTypes (MimeRender (..), MimeUnrender (..), OctetStream
 import Types (
     BioDirection (..),
     BiosphereFlow (..),
+    BlockerReason (..),
     Compartment (..),
     DocSection (..),
     Exchange,
@@ -964,15 +965,22 @@ data GapConsumerAPI = GapConsumerAPI
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped GapConsumerAPI)
 
 {- | One supplier gap, aggregated per (product name, location, unit) so
-@demandSum@ never mixes units. @reason@ carries the stable blocker code
-('Types.blockerReason'), plus @dangling_source_identity@ for inputs whose
-named source activity no dependency ships, and @unlinked_waste_input@ for
-treatment-side waste inputs with no internal producer.
+@demandSum@ never mixes units. @reasons@ carries every stable blocker code the
+product was refused under ('Types.blockerReason'), plus
+@dangling_source_identity@ for inputs whose named source activity no dependency
+ships, and @unlinked_waste_input@ for treatment-side waste inputs with no
+internal producer. @reason@ and @detail@ are the first of them, kept so a client
+written before @reasons@ still decodes; what they answer moves all the same, and
+they cannot be made not to. @reason@ used to name whichever blocker the linking
+runs merged first and now names the most demanded, and @detail@ is left out
+where the refusals under one code disagree on it, having carried one of them
+before. A product refused two ways is the ordinary case: read @reasons@.
 -}
 data GapEntryAPI = GapEntryAPI
     { gaeName :: Text
     , gaeLocation :: Text
     , gaeUnit :: Text
+    , gaeReasons :: [BlockerReason]
     , gaeReason :: Text
     , gaeDetail :: Maybe Text
     , gaeEdges :: Int

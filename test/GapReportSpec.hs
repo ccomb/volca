@@ -11,6 +11,7 @@ input ('GapWasteInput'). The report must count edges exactly, aggregate per
 -}
 module GapReportSpec (spec) where
 
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import Data.UUID (UUID)
@@ -38,6 +39,7 @@ import Database.Loader (
 import SynonymDB (emptySynonymDB)
 import Types (
     Activity (..),
+    BlockerReason (..),
     Exchange (..),
     GeographyPolicy (..),
     LinkBlocker (..),
@@ -47,6 +49,7 @@ import Types (
     TechRole (..),
     TechnosphereFlow (..),
     Unit (..),
+    UnresolvedProduct (..),
     WasteFlow (..),
     noProperties,
  )
@@ -254,7 +257,7 @@ spec = do
                     geDemandSum e `shouldBe` 7.0
                     geLocation e `shouldBe` "FR"
                     geUnit e `shouldBe` "kg"
-                    geReason e `shouldBe` GapBlocked NoNameMatch
+                    geReason e `shouldBe` GapBlocked (NE.singleton (BlockerReason "no_name_match" Nothing))
 
         it "names the top consumers most-demanding first" $
             case entryFor "flour" of
@@ -289,6 +292,39 @@ spec = do
         it "returns everything without a limit" $
             length (graGaps (gapReportToAPI Nothing report)) `shouldBe` 3
 
+    describe "a product refused two ways" $ do
+        -- The linker records the reasons per product name. An entry of that
+        -- product has to carry both: naming one of them attributes the other's
+        -- demands to a cause that did not raise them.
+        let refusedBy blockers =
+                stats
+                    { cdlUnresolvedProducts =
+                        M.insert "flour" (UnresolvedProduct blockers) (cdlUnresolvedProducts stats)
+                    }
+            entriesOf refused =
+                filter ((== "flour") . gaeName) (graGaps (gapReportToAPI Nothing (gapReportForStaged "consumer" consumerDB refused)))
+            flourEntry = entriesOf (refusedBy (M.fromList [(NoNameMatch, 2), (UnitIncompatible "m3" "kg", 1)]))
+
+        it "lists every reason on the entry" $
+            map gaeReasons flourEntry
+                `shouldBe` [
+                               [ BlockerReason "no_name_match" Nothing
+                               , BlockerReason "unit_incompatible" (Just "m3 vs kg")
+                               ]
+                           ]
+
+        it "keeps the singular reason as the first of them" $
+            map (\e -> (gaeReason e, gaeDetail e)) flourEntry `shouldBe` [("no_name_match", Nothing)]
+
+        -- What the singular pair costs a client that still reads it: one cause
+        -- met at three locations is one reason, and no single location
+        -- describes it, so the detail the old field used to carry - whichever
+        -- location merged first - is gone rather than misleading.
+        it "leaves the singular detail out when the refusals disagree on it" $ do
+            let entry = entriesOf (refusedBy (M.fromList [(LocationUnavailable loc, 1) | loc <- ["FR", "DE", "IT"]]))
+            map gaeReasons entry `shouldBe` [[BlockerReason "location_unavailable" Nothing]]
+            map (\e -> (gaeReason e, gaeDetail e)) entry `shouldBe` [("location_unavailable", Nothing)]
+
     describe "alias integration" $ do
         it "surfaces a missing designated target as its blocker in the report" $ do
             -- A relink mapping redirects flour to a supplier nobody ships:
@@ -299,7 +335,7 @@ spec = do
                     relinkSimpleDatabase [supplierIndexed] emptySynonymDB defaultUnitConfig M.empty GeoGlobal aliases consumerDB
                 r = gapReportForStaged "consumer" consumerDB aliasStats
             case filter ((== "flour") . geFlowName) (grGaps r) of
-                [e] -> geReason e `shouldBe` GapBlocked (AliasTargetMissing "no such product" Nothing)
+                [e] -> geReason e `shouldBe` GapBlocked (NE.singleton (BlockerReason "alias_target_missing" (Just "no such product")))
                 other -> expectationFailure ("expected one flour entry, got: " <> show other)
 
     describe "partial coverage" $ do

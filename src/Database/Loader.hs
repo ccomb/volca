@@ -485,6 +485,11 @@ History of manual bumps:
      only that file sizes is converted where it used to be left as written.
      Nothing changes type, so a cache written just before this would pass the
      fingerprint and keep the unconverted amount.
+- 36: an unsupplied product records how many demands each reason refused, where
+     it recorded a total and the first reason. The linking stats travel inside
+     the payload, so an old cache holds a count and a single blocker where the
+     decoder now reads a map, and every field after it would be read at the
+     wrong offset.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -492,7 +497,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 35
+     in hi `xor` lo `xor` 36
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -2183,8 +2188,13 @@ collectStagedDanglingProductNames db links =
 cross-DB linking.
 -}
 data GapReason
-    = -- | Nil-link input the attribute matcher could not place, with its blocker.
-      GapBlocked !LinkBlocker
+    = {- | Nil-link input the attribute matcher could not place, with every
+      reason its product was refused for ('Types.reasonsOf'). The reasons
+      alone, not the counts beside them: those counts are per product name, and
+      an entry is one (name, location, unit), so a count carried here would
+      credit one location with demands raised at another.
+      -}
+      GapBlocked !(NE.NonEmpty BlockerReason)
     | {- | Non-nil source identity no dependency ships, and no attribute match
       rescued it — a partial import referencing activities it doesn't carry.
       -}
@@ -2279,9 +2289,9 @@ gapEdgesWith hasProducer db links stats =
 ('isSupplierDemand'), hence 'Nothing'. A missing flow entry doesn't hide the
 edge: the flow UUID stands in for the name so the report stays countable.
 
-'cdlUnresolvedProducts' records one blocker per flow /name/, while the report
-keys entries by (name, location, unit) — two same-named entries at different
-locations therefore share that blocker even when the underlying causes differ.
+'cdlUnresolvedProducts' records reasons per flow /name/, while the report keys
+entries by (name, location, unit) — two same-named entries at different
+locations therefore carry the same reasons, the union of what refused either.
 -}
 mkGapEdge ::
     SimpleDatabase ->
@@ -2295,11 +2305,17 @@ mkGapEdge db stats actUUID prodUUID ex = case ex of
         let name = flowNameOr tfName (sdbTechFlows db)
             reason
                 | claimsAnActivityUUID (exchangeSupplierClaim ex) = GapDanglingIdentity
-                | otherwise = GapBlocked (maybe NoNameMatch upBlocker (M.lookup name (cdlUnresolvedProducts stats)))
+                | otherwise = GapBlocked (reasonsFor name)
          in Just (edge name reason)
     WasteExchange{} -> Just (edge (flowNameOr wfName (sdbWasteFlows db)) GapWasteInput)
     BiosphereExchange{} -> Nothing
   where
+    -- A name the linker never recorded a refusal for is a name it matched
+    -- nowhere, which is what 'NoNameMatch' says.
+    reasonsFor :: T.Text -> NE.NonEmpty BlockerReason
+    reasonsFor name =
+        fromMaybe (NE.singleton (blockerReason NoNameMatch)) $
+            NE.nonEmpty . map fst . reasonsOf . upBlockers =<< M.lookup name (cdlUnresolvedProducts stats)
     flowNameOr nameOf flows =
         maybe (UUID.toText (exchangeFlowId ex)) nameOf (M.lookup (exchangeFlowId ex) flows)
     edge name reason =
@@ -2606,7 +2622,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                 UnitIncompatible{} -> []
                 AliasTargetMissing{} -> []
          in mempty
-                { cdlUnresolvedProducts = M.singleton (tfName flow) UnresolvedProduct{upDemands = 1, upBlocker = blocker}
+                { cdlUnresolvedProducts = M.singleton (tfName flow) (UnresolvedProduct (M.singleton blocker 1))
                 , cdlLocationUnresolved = unresolved
                 }
 findExchangeCrossDBLink _ _ _ BiosphereExchange{} = mempty
@@ -2714,7 +2730,7 @@ reportCrossDBLinkingStats nActivities stats = do
                     "  - %s (%d activities) — %s"
                     (T.unpack name)
                     (upDemands unresolved)
-                    (showBlocker (upBlocker unresolved))
+                    (showReasons (upBlockers unresolved))
         when (length missing > 20) $
             reportProgress Warning $
                 printf "  ... and %d more" (length missing - 20)
@@ -2791,11 +2807,18 @@ reportCrossDBLinkingStats nActivities stats = do
                     (T.unpack saSourceDatabase)
                     (T.unpack saChosen)
 
-showBlocker :: LinkBlocker -> String
-showBlocker NoNameMatch = "Not found"
-showBlocker UnitIncompatible{uiQueryUnit = q, uiSupplierUnit = s} = printf "Unit: %s vs %s" (T.unpack q) (T.unpack s)
-showBlocker (LocationUnavailable loc) = printf "Location: %s" (T.unpack loc)
-showBlocker LocationRejectedByPolicy{lrRequested = req, lrBestCandidate = act, lrBestKind = kind} =
-    printf "Rejected by policy: %s → %s (%s)" (T.unpack req) (T.unpack act) (T.unpack (locationKindCode kind))
-showBlocker (AliasTargetMissing name mLoc) =
-    printf "Mapping target not found: %s%s" (T.unpack name) (maybe "" ((" @ " <>) . T.unpack) mLoc)
+{- | Every reason a product was refused, biggest first, on one line. A lone
+reason is written bare: the line already states the product's demand total, and
+repeating it after the only reason that can account for it says nothing.
+Several are each followed by the share of the total they refused, which is the
+whole point of keeping them apart. Same words as the page and the API, so a
+reader moving between them recognises what they read.
+-}
+showReasons :: M.Map LinkBlocker Int -> String
+showReasons blockers = case reasonsOf blockers of
+    [(reason, _)] -> showReason reason
+    counted -> intercalate ", " [printf "%s (%d)" (showReason reason) n | (reason, n) <- counted]
+  where
+    showReason :: BlockerReason -> String
+    showReason BlockerReason{brReason = code, brDetail = detail} =
+        T.unpack (code <> maybe "" (" " <>) detail)

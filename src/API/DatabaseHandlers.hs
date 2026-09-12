@@ -149,6 +149,7 @@ import Control.Monad.Reader (asks)
 import Data.Aeson (Value)
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
@@ -244,7 +245,6 @@ import Types (
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
-    blockerReason,
     getUnitNameForBioFlow,
     parseAllocationKey,
     processRefText,
@@ -356,13 +356,14 @@ gapReportToAPI mLimit r =
         }
   where
     entryToAPI e =
-        let reason = gapReason (Loader.geReason e)
+        let first :| others = gapReasons (Loader.geReason e)
          in GapEntryAPI
                 { gaeName = Loader.geFlowName e
                 , gaeLocation = Loader.geLocation e
                 , gaeUnit = Loader.geUnit e
-                , gaeReason = brReason reason
-                , gaeDetail = brDetail reason
+                , gaeReasons = first : others
+                , gaeReason = brReason first
+                , gaeDetail = brDetail first
                 , gaeEdges = Loader.geEdges e
                 , gaeConsumers = Loader.geConsumers e
                 , gaeDemandSum = Loader.geDemandSum e
@@ -376,10 +377,11 @@ gapReportToAPI mLimit r =
             , gcaLocation = Loader.gcLocation c
             , gcaEdges = Loader.gcEdges c
             }
-    gapReason gr = case gr of
-        Loader.GapBlocked blocker -> blockerReason blocker
-        Loader.GapDanglingIdentity -> BlockerReason "dangling_source_identity" Nothing
-        Loader.GapWasteInput -> BlockerReason "unlinked_waste_input" Nothing
+    gapReasons :: Loader.GapReason -> NonEmpty BlockerReason
+    gapReasons gr = case gr of
+        Loader.GapBlocked reasons -> reasons
+        Loader.GapDanglingIdentity -> BlockerReason "dangling_source_identity" Nothing :| []
+        Loader.GapWasteInput -> BlockerReason "unlinked_waste_input" Nothing :| []
 
 {- | Dataset-soundness report for a loaded or staged database: the structural
 defects a score can't reveal. The methodological counterpart of the
