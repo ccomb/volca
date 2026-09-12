@@ -490,6 +490,10 @@ History of manual bumps:
      the payload, so an old cache holds a count and a single blocker where the
      decoder now reads a map, and every field after it would be read at the
      wrong offset.
+- 37: a SimaPro formula stops at '//', which that program reads as a comment,
+     where the expression parser used to refuse the whole line and leave every
+     amount under it at zero. Nothing changes type, so a cache written just
+     before this would pass the fingerprint and keep the zeros.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -497,7 +501,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 36
+     in hi `xor` lo `xor` 37
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

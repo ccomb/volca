@@ -186,6 +186,21 @@
   wait. The files themselves are unchanged, to the byte.
 
 ### Fixed
+- A SimaPro formula now stops at `//`, the way SimaPro itself stops there.
+  SimaPro is a Delphi program and its formula parser keeps Pascal's line
+  comment, so `weight_g//yield1/yield2` is the weight and the two yields are a
+  note. The reader here refused the whole formula instead: the parameter never
+  entered the block's environment, and every amount that referred to it fell
+  back to zero. Where that parameter was the weight of a packaging material,
+  the material, its forming and its transport all left the result while the
+  end-of-life credit for the same material stayed, and the packaging came out
+  negative. On one food database's twenty-two affected products, ozone
+  depletion was computed at three to six per cent of the value that database
+  publishes. Formulas without `//` are unchanged, and every cache rebuilds
+  itself from its source on the next load. One evaluator reads every formula
+  the engine meets, so the same comment now ends an EcoSpold 2
+  `mathematicalRelation` and a scoring set's weighting formula, where `a//b` is
+  `a` rather than the error it used to be.
 - A file an EcoSpold directory offers and the reader cannot read now stops the
   load instead of disappearing from it. Such a file used to be a warning in
   passing and a dataset silently absent, and the load then described a complete
