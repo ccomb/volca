@@ -197,7 +197,10 @@
   negative. On one food database's twenty-two affected products, ozone
   depletion was computed at three to six per cent of the value that database
   publishes. Formulas without `//` are unchanged, and every cache rebuilds
-  itself from its source on the next load.
+  itself from its source on the next load. One evaluator reads every formula
+  the engine meets, so the same comment now ends an EcoSpold 2
+  `mathematicalRelation` and a scoring set's weighting formula, where `a//b` is
+  `a` rather than the error it used to be.
 - A file an EcoSpold directory offers and the reader cannot read now stops the
   load instead of disappearing from it. Such a file used to be a warning in
   passing and a dataset silently absent, and the load then described a complete

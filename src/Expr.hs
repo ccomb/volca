@@ -1,7 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Expression evaluator.
-Supports arithmetic (+, -, *, /, ^), variables, parentheses, and common functions.
+Supports arithmetic (+, -, *, /, ^), variables, parentheses, common functions,
+and a @\/\/@ line comment, which is where an expression ends.
+
+The language is SimaPro's, and the comment is Pascal's because that program is
+written in Delphi. Three other callers read their formulas with this evaluator
+all the same - an EcoSpold 2 @mathematicalRelation@, a scoring set's weighting
+and its computed variables - so the comment applies to them too, and @a\/\/b@
+there is @a@ rather than the error it used to be.
 -}
 module Expr (
     evaluate,
@@ -199,11 +206,17 @@ collectIdentifiers decimalSep input =
 pCollect :: Parser [Text]
 pCollect = catMaybes <$> many pToken
 
+{- | One token, or one character of whatever this is not meant to collect.
+
+Even that one character goes through 'lexeme', so a comment opening after it is
+skipped here exactly as it is skipped when the expression is evaluated. Without
+it, @(a)\/\/b@ would be read as naming @b@, which the evaluation never sees.
+-}
 pToken :: Parser (Maybe Text)
 pToken =
     try (Just <$> pIdentTok)
         <|> (Nothing <$ try (lexeme pNumber))
-        <|> (Nothing <$ anySingle)
+        <|> (Nothing <$ lexeme anySingle)
 
 pIdentTok :: Parser Text
 pIdentTok = lexeme (T.pack <$> ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_')))

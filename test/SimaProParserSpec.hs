@@ -10,7 +10,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Loader (defaultLoadOptions, getReferenceProductUUID, loadSimaProCSV)
-import Expr (evaluate, isExpression, normalizeExpr)
+import Expr (collectIdentifiers, evaluate, isExpression, normalizeExpr)
 import SimaPro.Parser (
     BioExchangeRow (..),
     Located (..),
@@ -697,6 +697,13 @@ spec = do
 
         it "rejects an expression that is only a comment" $
             evaluate M.empty "// nothing but a note" `shouldSatisfy` isLeft
+
+        -- What a formula names and what it computes have to be the same list,
+        -- or a scoring breakdown shows a variable the score never read.
+        it "collects no identifier the evaluation does not reach" $ do
+            collectIdentifiers '.' "(a)//b" `shouldBe` ["a"]
+            collectIdentifiers '.' "a//b" `shouldBe` ["a"]
+            collectIdentifiers '.' "a+b" `shouldBe` ["a", "b"]
 
         it "normalizes comma decimal separator" $ do
             normalizeExpr ',' "0,82" `shouldBe` "0.82"
