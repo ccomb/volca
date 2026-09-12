@@ -22,8 +22,11 @@
   unit. The load log writes the reasons on one line, each with its share; the
   setup report's missing-supplier list names such a product once per reason,
   biggest first; and a gap entry carries them all in a new `reasons` field. Its
-  `reason` and `detail` still carry the first of them for clients written before
-  that field, and are dropped in 0.13.0. Wire revision 24. Two demands refused
+  `reason` and `detail` stay so a client written before that field still
+  decodes, and are dropped in 0.13.0. What those two answer moves all the same:
+  `reason` named whichever cause the linking runs merged first and now names the
+  most demanded one, and `detail` is left out where the refusals under one cause
+  disagree on it, having carried one of them before. Wire revision 24. Two demands refused
   at two different locations are one reason counted twice, not two reasons, so
   a product demanded all over the map stays one line per cause; which locations
   were asked for is what the unresolved-location list already answers. The

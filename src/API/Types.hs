@@ -969,9 +969,12 @@ data GapConsumerAPI = GapConsumerAPI
 product was refused under ('Types.blockerReason'), plus
 @dangling_source_identity@ for inputs whose named source activity no dependency
 ships, and @unlinked_waste_input@ for treatment-side waste inputs with no
-internal producer. @reason@ and @detail@ are the first of them, kept for
-clients written before @reasons@ existed; a product refused two ways is the
-ordinary case, so read @reasons@.
+internal producer. @reason@ and @detail@ are the first of them, kept so a client
+written before @reasons@ still decodes; what they answer moves all the same, and
+they cannot be made not to. @reason@ used to name whichever blocker the linking
+runs merged first and now names the most demanded, and @detail@ is left out
+where the refusals under one code disagree on it, having carried one of them
+before. A product refused two ways is the ordinary case: read @reasons@.
 -}
 data GapEntryAPI = GapEntryAPI
     { gaeName :: Text

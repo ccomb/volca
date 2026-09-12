@@ -296,15 +296,14 @@ spec = do
         -- The linker records the reasons per product name. An entry of that
         -- product has to carry both: naming one of them attributes the other's
         -- demands to a cause that did not raise them.
-        let twoWays =
+        let refusedBy blockers =
                 stats
                     { cdlUnresolvedProducts =
-                        M.insert
-                            "flour"
-                            (UnresolvedProduct (M.fromList [(NoNameMatch, 2), (UnitIncompatible "m3" "kg", 1)]))
-                            (cdlUnresolvedProducts stats)
+                        M.insert "flour" (UnresolvedProduct blockers) (cdlUnresolvedProducts stats)
                     }
-            flourEntry = filter ((== "flour") . gaeName) (graGaps (gapReportToAPI Nothing (gapReportForStaged "consumer" consumerDB twoWays)))
+            entriesOf refused =
+                filter ((== "flour") . gaeName) (graGaps (gapReportToAPI Nothing (gapReportForStaged "consumer" consumerDB refused)))
+            flourEntry = entriesOf (refusedBy (M.fromList [(NoNameMatch, 2), (UnitIncompatible "m3" "kg", 1)]))
 
         it "lists every reason on the entry" $
             map gaeReasons flourEntry
@@ -316,6 +315,15 @@ spec = do
 
         it "keeps the singular reason as the first of them" $
             map (\e -> (gaeReason e, gaeDetail e)) flourEntry `shouldBe` [("no_name_match", Nothing)]
+
+        -- What the singular pair costs a client that still reads it: one cause
+        -- met at three locations is one reason, and no single location
+        -- describes it, so the detail the old field used to carry - whichever
+        -- location merged first - is gone rather than misleading.
+        it "leaves the singular detail out when the refusals disagree on it" $ do
+            let entry = entriesOf (refusedBy (M.fromList [(LocationUnavailable loc, 1) | loc <- ["FR", "DE", "IT"]]))
+            map gaeReasons entry `shouldBe` [[BlockerReason "location_unavailable" Nothing]]
+            map (\e -> (gaeReason e, gaeDetail e)) entry `shouldBe` [("location_unavailable", Nothing)]
 
     describe "alias integration" $ do
         it "surfaces a missing designated target as its blocker in the report" $ do
