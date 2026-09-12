@@ -339,6 +339,7 @@ test-suite lca-tests
                      , CLISpec
                      , CLIRenderSpec
                      , ResourcesDriftSpec
+                     , CollectionParamSpec
                      , RoutesSpec
                      , ScoringKeySpec
                      , NumericEdgesSpec

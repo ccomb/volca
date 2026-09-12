@@ -558,10 +558,10 @@ extractLocationSuffix name =
                 (cleaned, Just candidate)
             | otherwise -> (name, Nothing)
   where
-    isLocationCode t
-        | T.length t < 2 || T.length t > 6 = False
-        | otherwise =
-            let firstC = T.head t
-                rest = T.unpack (T.tail t)
-             in isAsciiUpper firstC
-                    && all (\c -> isAsciiUpper c || isAsciiLower c || c == '-') rest
+    isLocationCode t = case T.uncons t of
+        Nothing -> False
+        Just (firstC, rest) ->
+            T.length t >= 2
+                && T.length t <= 6
+                && isAsciiUpper firstC
+                && T.all (\c -> isAsciiUpper c || isAsciiLower c || c == '-') rest

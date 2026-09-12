@@ -4,6 +4,16 @@ name: HLint
 # build matrix, mirroring the Format workflow. hlint auto-discovers .hlint.yaml
 # at the repo root, so the baselined exceptions there apply. The version comes
 # from versions.env so a new hlint release can't silently redden CI.
+#
+# Two runs because the partial-function ban covers src and app and stops there,
+# and hlint reads one configuration per invocation. `--hint` replaces the
+# auto-discovered file rather than adding to it, so .hlint-partials.yaml is
+# self-contained; its header says why the ban lives in a file of its own.
+#
+# `--only` is what keeps the second run to the ban. Without it, replacing the
+# config also drops its baselines while keeping every built-in hint, so run 2
+# would be a second default-hint pass with no exemptions: a bracket baselined
+# in .hlint.yaml for a src module would pass run 1 and fail run 2.
 
 on:
   pull_request:
@@ -27,3 +37,5 @@ jobs:
           version: ${{ env.HLINT_VERSION }}
       - name: Lint src, app, test
         run: hlint src app test
+      - name: Refuse partial functions in src and app
+        run: hlint --hint=.hlint-partials.yaml --only="Avoid restricted function" src app

@@ -47,7 +47,7 @@ splitRow delim bs =
         opts = Csv.defaultDecodeOptions{Csv.decDelimiter = fromIntegral (fromEnum delim)}
         decode = map (TE.decodeUtf8With TEE.lenientDecode)
      in case Csv.decodeWith opts Csv.NoHeader (BL.fromStrict clean) of
-            Right rows | not (V.null rows) -> decode (V.toList (V.head rows))
+            Right rows | Just (row, _) <- V.uncons rows -> decode (V.toList row)
             _ -> decode (BC.split delim clean)
 
 {- | Join cells into one row, quoting any cell that contains the delimiter, a

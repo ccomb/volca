@@ -24,6 +24,7 @@ import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (IOMode (..), hFlush, openFile, stdout)
 import System.Process (CreateProcess (..), ProcessHandle, StdStream (..), createProcess, proc)
+import Text.Read (readMaybe)
 
 -- | REPL session state
 data ReplState = ReplState
@@ -192,8 +193,8 @@ extractPort url =
     case reverse $ takeWhile (/= ':') $ reverse url of
         portStr
             | all (`elem` ("0123456789" :: String)) portStr
-            , not (null portStr) ->
-                read portStr
+            , Just port <- readMaybe portStr ->
+                port
         _ -> 8080 -- fallback to config default
 
 -- | Poll until the server responds, with dot progress

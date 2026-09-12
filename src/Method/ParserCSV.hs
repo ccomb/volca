@@ -44,6 +44,7 @@ import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
 import Data.List (elemIndex, zip4)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -248,9 +249,7 @@ extractMethodology = go
 
 -- | Strip trailing carriage return (Windows CRLF line endings).
 stripCR :: BS.ByteString -> BS.ByteString
-stripCR bs
-    | not (BS.null bs) && BS.last bs == 0x0D = BS.init bs
-    | otherwise = bs
+stripCR bs = fromMaybe bs (BS.stripSuffix "\r" bs)
 
 -- | Strip UTF-8 BOM if present (common in Windows-created CSV files).
 stripBOM :: BS.ByteString -> BS.ByteString

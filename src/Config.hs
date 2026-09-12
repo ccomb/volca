@@ -71,7 +71,7 @@ module Config (
 import Builtin (BuiltinTable (..), DataVersion (..), builtinDataVersion, builtinName)
 import Control.Monad (forM_, unless, when)
 import Data.Indexing (repeated)
-import Data.List (find, isPrefixOf)
+import Data.List (find, isPrefixOf, isSuffixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isNothing)
@@ -889,7 +889,7 @@ redirectIntoDataDir (Just dataDir) p
   where
     joinSlash d r
         | null d = r
-        | last d == '/' || last d == '\\' = d ++ r
+        | any (`isSuffixOf` d) ["/", "\\"] = d ++ r
         | otherwise = d ++ "/" ++ r
 
 {- | What a path in a configuration file points at.
