@@ -64,10 +64,12 @@ readable Arithmetic = T.strip . normalizeExpr '.'
 
 {- | Evaluate an expression of the given dialect, with variable substitution.
 
-Variable lookup is case-insensitive in every dialect: SimaPro sources mix the
-casing of one name freely (a parameter defined as @Dmper@ and referenced as
-@DMper@), and the two others hand over an environment whose keys are folded
-already, so folding here is what makes their lookups land.
+Variable lookup is case-insensitive in every dialect. SimaPro needs it, mixing
+the casing of one name freely - a parameter defined as @Dmper@ and referenced
+as @DMper@ - and the other two are served rather than harmed by it: an
+EcoSpold 2 environment arrives folded already, and a scoring set writes its own
+variable names on both sides of the formula. Two names that differ only in case
+are therefore one name, and an environment stating both keeps one of them.
 -}
 evaluate :: Dialect -> M.Map Text Double -> Text -> Either String Double
 evaluate dialect env input =
@@ -230,17 +232,12 @@ collectIdentifiers dialect input =
 pCollect :: Parser [Text]
 pCollect = catMaybes <$> many pToken
 
-{- | One token, or one character of whatever this is not meant to collect.
-
-Even that one character goes through 'lexeme', so a comment opening after it is
-skipped here exactly as it is skipped when the expression is evaluated. Without
-it, @(a)\/\/b@ would be read as naming @b@, which the evaluation never sees.
--}
+-- | One token, or one character of whatever this is not meant to collect.
 pToken :: Parser (Maybe Text)
 pToken =
     try (Just <$> pIdentTok)
         <|> (Nothing <$ try (lexeme pNumber))
-        <|> (Nothing <$ lexeme anySingle)
+        <|> (Nothing <$ anySingle)
 
 pIdentTok :: Parser Text
 pIdentTok = lexeme (T.pack <$> ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_')))
