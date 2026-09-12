@@ -1,16 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Expression evaluator.
-Supports arithmetic (+, -, *, /, ^), variables, parentheses, common functions,
-and a @\/\/@ line comment, which is where an expression ends.
+{- | Expression evaluator: arithmetic (+, -, *, \/, ^), variables, parentheses
+and a few functions, over formulas written in more than one language.
 
-The language is SimaPro's, and the comment is Pascal's because that program is
-written in Delphi. Three other callers read their formulas with this evaluator
-all the same - an EcoSpold 2 @mathematicalRelation@, a scoring set's weighting
-and its computed variables - so the comment applies to them too, and @a\/\/b@
-there is @a@ rather than the error it used to be.
+One grammar reads them all, because they agree on everything an expression is
+made of. Where they disagree is at the edges, and a 'Dialect' says which set of
+edges a formula was written against: every entry point asks for one, so no
+formula is read in a language nobody chose for it.
 -}
 module Expr (
+    Dialect (..),
     evaluate,
     normalizeExpr,
     isExpression,
@@ -32,15 +31,48 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = Parsec Void Text
 
-{- | Evaluate a SimaPro expression with variable substitution.
-All expressions must be pre-normalized via 'normalizeExpr' (decimal = '.', arg separator = ';').
-Variable lookup is case-insensitive to match SimaPro semantics: Agribalyse and other
-databases freely mix casing (e.g. param defined as @Dmper@, referenced as @DMper@).
+{- | The language a formula was written in.
+
+Two, because two are what the callers actually have. A third belongs here the
+day a third language is read, and not before.
 -}
-evaluate :: M.Map Text Double -> Text -> Either String Double
-evaluate env input =
+data Dialect
+    = {- | SimaPro's own, as its Delphi formula parser reads it: @\/\/@ opens a
+      comment and the expression ends there. Its text reaches the evaluator
+      already through 'normalizeExpr', which is where the file's decimal
+      separator is known.
+      -}
+      SimaPro
+    | {- | Arithmetic with no comment and a comma between two arguments: an
+      EcoSpold 2 @mathematicalRelation@, and the formulas someone writes in
+      a scoring set. Neither language has a line comment, so a @\/\/@ in one
+      of them is a mistake and reads as one.
+      -}
+      Arithmetic
+    deriving (Eq, Show)
+
+{- | Bring a formula to the one form the grammar reads.
+
+Cutting a comment off as text rather than skipping it in the lexer is what lets
+one grammar serve both dialects, and it also keeps 'collectIdentifiers' and
+'evaluate' looking at the very same characters. Per line, because a formula
+that spans two of them ends its comment at the first.
+-}
+readable :: Dialect -> Text -> Text
+readable SimaPro = T.strip . T.intercalate "\n" . map (fst . T.breakOn "//") . T.lines
+readable Arithmetic = T.strip . normalizeExpr '.'
+
+{- | Evaluate an expression of the given dialect, with variable substitution.
+
+Variable lookup is case-insensitive in every dialect: SimaPro sources mix the
+casing of one name freely (a parameter defined as @Dmper@ and referenced as
+@DMper@), and the two others hand over an environment whose keys are folded
+already, so folding here is what makes their lookups land.
+-}
+evaluate :: Dialect -> M.Map Text Double -> Text -> Either String Double
+evaluate dialect env input =
     let envCI = M.mapKeys T.toLower env
-     in case parse (sc *> pExpr envCI <* eof) "" (T.strip input) of
+     in case parse (sc *> pExpr envCI <* eof) "" (readable dialect input) of
             Left err -> Left (errorBundlePretty err)
             Right val -> Right val
 
@@ -50,17 +82,9 @@ normalizeExpr '.' = T.map (\c -> if c == ',' then ';' else c)
 normalizeExpr ',' = T.map (\c -> if c == ',' then '.' else c)
 normalizeExpr _ = id
 
-{- | Whitespace, and the rest of a line once @\/\/@ opens a comment.
-
-SimaPro is a Delphi program and its formula parser keeps Pascal's line comment,
-so @weight_PET_g\/\/process1_yield\/process2_yield@ is the weight and nothing
-else: the two yields are commented out, and the number the author meant to
-divide is the number that goes into the result. Reading @\/\/@ as a division
-gives a different result, and reading it as an error gives none at all, which is
-how the amounts under it became zero.
--}
+-- | Whitespace consumer. A comment, where a dialect has one, is gone before this runs.
 sc :: Parser ()
-sc = L.space space1 (L.skipLineComment "//") empty
+sc = L.space space1 empty empty
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
@@ -187,17 +211,17 @@ pFunc2 name f env = try $ do
 Does NOT evaluate — accepts any variable name without needing an environment.
 Used to detect allocation fields vs waste type descriptions in SimaPro CSV.
 -}
-isExpression :: Char -> Text -> Bool
-isExpression decimalSep input =
-    isRight $ parse (sc *> pSynExpr <* eof) "" (T.strip (normalizeExpr decimalSep input))
+isExpression :: Dialect -> Text -> Bool
+isExpression dialect input =
+    isRight $ parse (sc *> pSynExpr <* eof) "" (readable dialect input)
 
 {- | Collect all variable identifiers referenced in an expression.
 Built-in function names (abs, sqrt, log, exp, ln, min, max) are excluded.
 Returns the empty list if the expression cannot be tokenized.
 -}
-collectIdentifiers :: Char -> Text -> [Text]
-collectIdentifiers decimalSep input =
-    case parse (sc *> pCollect <* eof) "" (T.strip (normalizeExpr decimalSep input)) of
+collectIdentifiers :: Dialect -> Text -> [Text]
+collectIdentifiers dialect input =
+    case parse (sc *> pCollect <* eof) "" (readable dialect input) of
         Right names -> filter (`notElem` reservedFuncs) names
         Left _ -> []
   where

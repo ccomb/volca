@@ -2408,7 +2408,7 @@ computeAllScoringSets scoringSets rawScoreMap = do
     -- Intermediate helpers (consumed by `computed` but not referenced in any
     -- `scores.*` formula) are hidden from the breakdown.
     toIndicators ss e =
-        let displayed = S.fromList (concatMap (Expr.collectIdentifiers '.') (M.elems (ssScores ss)))
+        let displayed = S.fromList (concatMap (Expr.collectIdentifiers Expr.Arithmetic) (M.elems (ssScores ss)))
             names = ssLabels ss <> ssVariables ss
          in M.mapWithKey
                 ( \var val ->

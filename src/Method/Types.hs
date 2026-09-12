@@ -260,7 +260,7 @@ computeFormulaScores ss rawScores = do
     scores <-
         M.traverseWithKey
             ( \scoreName formula ->
-                case Expr.evaluate nwEnv formula of
+                case Expr.evaluate Expr.Arithmetic nwEnv formula of
                     Left err ->
                         Left $
                             "Score '"
@@ -287,7 +287,7 @@ resolveComputed env formulas = foldl step (Right env) sorted
     sorted = sortOn (T.length . snd) (M.toList formulas)
     step (Left err) _ = Left err
     step (Right currentEnv) (varName, formula) =
-        case Expr.evaluate currentEnv formula of
+        case Expr.evaluate Expr.Arithmetic currentEnv formula of
             Left err ->
                 Left $
                     "Computed variable '"

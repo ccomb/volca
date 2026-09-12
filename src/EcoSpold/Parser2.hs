@@ -642,7 +642,7 @@ checkFormulas params pairs = case checked of
         amountsAgreedOn $
             M.toList params
                 ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
-    checked = [(ex, rel, Expr.evaluate env (Expr.normalizeExpr '.' rel)) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
+    checked = [(ex, rel, Expr.evaluate Expr.Arithmetic env rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
     example (ex, rel, v) =

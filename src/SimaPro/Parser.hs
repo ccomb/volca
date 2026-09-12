@@ -547,7 +547,8 @@ Uses the Megaparsec expression parser syntactically — accepts any identifier w
 needing parameter values. Waste type descriptions ("All waste types") fail to parse.
 -}
 isAllocationField :: SimaProConfig -> BS.ByteString -> Bool
-isAllocationField cfg bs = Expr.isExpression (spDecimal cfg) (decodeBS (BS8.strip bs))
+isAllocationField cfg bs =
+    Expr.isExpression Expr.SimaPro (Expr.normalizeExpr (spDecimal cfg) (decodeBS (BS8.strip bs)))
 
 -- | Parse a technosphere exchange row (ByteString input, Text output)
 
@@ -964,7 +965,7 @@ resolveAmount env raw fallback
 
 -- | A number, or an expression over the parameter environment. Nothing: neither.
 resolveExpr :: M.Map Text Double -> Text -> Maybe Double
-resolveExpr env raw = readAmount raw <|> either (const Nothing) Just (Expr.evaluate env raw)
+resolveExpr env raw = readAmount raw <|> either (const Nothing) Just (Expr.evaluate Expr.SimaPro env raw)
 
 {- | Every raw amount in a block that 'resolveAmount' will replace with its
 lenient fallback: not a number, and not an expression the block's parameter
@@ -1005,7 +1006,7 @@ buildParamEnv inputGroups calcGroups =
     )
   where
     evalParam acc (name, rawVal) =
-        either (const acc) (\v -> M.insert name v acc) (Expr.evaluate acc rawVal)
+        either (const acc) (\v -> M.insert name v acc) (Expr.evaluate Expr.SimaPro acc rawVal)
     evalToFixpoint acc params =
         let acc' = foldl' evalParam acc params
          in if M.size acc' == M.size acc then acc' else evalToFixpoint acc' params
