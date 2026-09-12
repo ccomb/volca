@@ -684,6 +684,20 @@ spec = do
             evaluate env "Qper*DMper" `shouldBe` Right (60530841.0 * 5.0)
             evaluate env "qper*dmper" `shouldBe` Right (60530841.0 * 5.0)
 
+        -- Regression: a packaging dataset corrects a plastic weight by two process
+        -- yields and types "weight_PET_g//process1_yield/process2_yield". SimaPro,
+        -- a Delphi program, reads "//" as Pascal's line comment and keeps the
+        -- weight; the yields never apply. Refusing the expression instead left the
+        -- amounts under it at zero, and the packaging went missing from the result.
+        it "stops at a // comment, as SimaPro does" $ do
+            let env = M.fromList [("weight_PET_g", 9.29), ("process1_yield", 0.946), ("process2_yield", 0.997)]
+            evaluate env "weight_PET_g//process1_yield/process2_yield" `shouldBe` Right 9.29
+            evaluate env "weight_PET_g/process1_yield" `shouldBe` Right (9.29 / 0.946)
+            evaluate env "1+2 // and the rest is a note" `shouldBe` Right 3.0
+
+        it "rejects an expression that is only a comment" $
+            evaluate M.empty "// nothing but a note" `shouldSatisfy` isLeft
+
         it "normalizes comma decimal separator" $ do
             normalizeExpr ',' "0,82" `shouldBe` "0.82"
             normalizeExpr ',' "Qb*0,5" `shouldBe` "Qb*0.5"
