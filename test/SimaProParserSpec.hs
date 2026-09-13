@@ -665,6 +665,15 @@ spec = do
                 `shouldBe` Left (Expr.Unreadable "unknown function UnitConversion")
             Expr.describeRefusal (Expr.Unresolved ("a" :| ["b"])) `shouldBe` "unknown variables a, b"
 
+        -- Backtracking out of the call around it would read "sqrt" as a variable
+        -- and refuse at its parenthesis, losing the function that was missing.
+        it "says a function is unknown inside the arguments of a known one" $
+            Expr.evaluate Arithmetic M.empty "sqrt(UnitConversion(1, 'kg', 'm3'))"
+                `shouldBe` Left (Expr.Unreadable "unknown function UnitConversion")
+
+        it "lists an unresolved name once however the formula spells it" $
+            Expr.evaluate Arithmetic M.empty "DMper * Dmper" `shouldBe` Left (Expr.Unresolved ("DMper" :| []))
+
         -- Regression: SimaPro exports drop the integer part of a decimal, and
         -- Agribalyse sums a pesticide mix in place – "0,45+0,247+,067". The
         -- last term made the whole expression unparseable, and the amount

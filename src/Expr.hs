@@ -29,6 +29,7 @@ import Control.Monad (mfilter, when)
 import Data.Bifunctor (first)
 import Data.Char (isDigit)
 import Data.Either (isRight)
+import Data.Function (on)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -113,7 +114,7 @@ are therefore one name, and an environment stating both keeps one of them.
 evaluate :: Dialect -> M.Map Text Double -> Text -> Either Refusal Double
 evaluate dialect env input = do
     formula <- readFormula dialect input
-    first (Unresolved . NE.nub) (resolve (M.mapKeys T.toLower env) formula)
+    first (Unresolved . NE.nubBy ((==) `on` T.toLower)) (resolve (M.mapKeys T.toLower env) formula)
 
 readFormula :: Dialect -> Text -> Either Refusal Formula
 readFormula dialect = first (Unreadable . refusalReason) . parse (sc *> pFormula <* eof) "" . readable dialect
@@ -262,13 +263,16 @@ was missing.
 pCall :: Parser Formula
 pCall = choice (map (uncurry pCall1) functions1 <> map (uncurry pCall2) functions2 <> [pUnknownCall])
 
+{- | Only the name and its opening parenthesis are tried: past them the text is
+committed to the call, so a refusal inside the arguments is the one reported
+rather than lost to a backtrack that rereads the name as a variable.
+-}
 pCall1 :: Text -> (Double -> Double) -> Parser Formula
-pCall1 name f = try $ lexeme (string name) *> between (symbol "(") (symbol ")") (Apply1 f <$> pFormula)
+pCall1 name f = try (lexeme (string name) *> symbol "(") *> (Apply1 f <$> pFormula) <* symbol ")"
 
 pCall2 :: Text -> (Double -> Double -> Double) -> Parser Formula
-pCall2 name f = try $ do
-    _ <- lexeme (string name)
-    _ <- symbol "("
+pCall2 name f = do
+    _ <- try (lexeme (string name) *> symbol "(")
     x <- pFormula
     _ <- symbol ";"
     y <- pFormula
