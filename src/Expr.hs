@@ -20,6 +20,8 @@ import Amount (readAmount)
 import Control.Monad (void, when)
 import Data.Char (isDigit)
 import Data.Either (isRight)
+import Data.List (intercalate)
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
@@ -75,8 +77,17 @@ evaluate :: Dialect -> M.Map Text Double -> Text -> Either String Double
 evaluate dialect env input =
     let envCI = M.mapKeys T.toLower env
      in case parse (sc *> pExpr envCI <* eof) "" (readable dialect input) of
-            Left err -> Left (errorBundlePretty err)
+            Left err -> Left (refusalReason err)
             Right val -> Right val
+
+{- | Why the parser refused a formula, on one line: what it met and what it
+expected. The position and the caret 'errorBundlePretty' draws are left out,
+since they point into the normalised text, which is not the one the file
+carries.
+-}
+refusalReason :: ParseErrorBundle Text Void -> String
+refusalReason bundle = case bundleErrors bundle of
+    err :| _ -> intercalate "; " (lines (parseErrorTextPretty err))
 
 -- | Normalize expression text so decimal is always '.' and function arg separator is always ';'.
 normalizeExpr :: Char -> Text -> Text
@@ -182,7 +193,7 @@ pVariable env = do
     name <- lexeme $ T.pack <$> ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_'))
     case M.lookup (T.toLower name) env of
         Just val -> pure val
-        Nothing -> fail $ "Unknown variable: " ++ T.unpack name
+        Nothing -> fail $ "unknown variable " ++ T.unpack name
 
 pFunc :: M.Map Text Double -> Parser Double
 pFunc env =

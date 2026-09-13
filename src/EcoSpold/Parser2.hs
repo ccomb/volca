@@ -624,8 +624,8 @@ Divergences are expected in real EcoSpold2 databases
 so nothing is logged: the outcome is recorded on the activity for the
 database quality report.
 -}
-checkFormulas :: M.Map Text Double -> [(Exchange, ExchangeFormula)] -> Maybe FormulaCheck
-checkFormulas params pairs = case checked of
+checkFormulas :: M.Map Text Double -> S.Set Text -> [(Exchange, ExchangeFormula)] -> Maybe FormulaCheck
+checkFormulas params struckParams pairs = case checked of
     [] -> Nothing
     _ ->
         Just
@@ -638,15 +638,27 @@ checkFormulas params pairs = case checked of
                 }
   where
     unevaluable :: [Text]
-    unevaluable = [rel | (_, rel, Left _) <- checked]
+    unevaluable = [refusal rel err | (_, rel, Left err) <- checked]
     -- A <parameter> and an exchange variableName share one space of names, so
     -- both go in together and a name they disagree on is as unreadable as one
     -- two exchanges disagree on.
     env :: M.Map Text Double
-    env =
-        amountsAgreedOn $
-            M.toList params
-                ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
+    env = amountsAgreedOn declarations
+    declarations :: [(Text, Double)]
+    declarations = M.toList params ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
+    -- Names the file gives more than one amount: the parameters struck before
+    -- this runs, and whatever 'amountsAgreedOn' left unbound.
+    ambiguous :: S.Set Text
+    ambiguous = S.map T.toLower struckParams <> S.difference (S.fromList (map (T.toLower . fst) declarations)) (M.keysSet env)
+    ambiguousIn :: Text -> [Text]
+    ambiguousIn rel = S.toList (S.fromList [n | n <- Expr.collectIdentifiers Expr.Arithmetic rel, S.member (T.toLower n) ambiguous])
+    -- The evaluator reads an ambiguous name as unknown, which the file
+    -- contradicts: it declares that name, more than once.
+    refusal :: Text -> String -> Text
+    refusal rel err =
+        "\"" <> rel <> "\": " <> case ambiguousIn rel of
+            [] -> T.pack err
+            names -> "different amounts declared for " <> T.intercalate ", " names
     checked = [(ex, rel, Expr.evaluate Expr.Arithmetic env rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
@@ -1085,7 +1097,7 @@ parseWithXeno xmlContent = do
             -- value, so it is not one of the dataset's parameters.
             params = M.withoutKeys (psParams st) (psAmbiguousParams st)
             paramExprs = M.withoutKeys (psParamExprs st) (psAmbiguousParams st)
-            formulaCheck = checkFormulas params pairs
+            formulaCheck = checkFormulas params (psAmbiguousParams st) pairs
             -- Apply cutoff strategy to exchanges
             activity =
                 Activity

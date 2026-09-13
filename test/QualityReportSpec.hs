@@ -471,9 +471,9 @@ spec = do
         -- read is the only thing saying this dataset uses more of the format
         -- than the evaluator reads.
         it "flags an activity whose formulas only failed to evaluate" $ do
-            let fc = FormulaCheck{fcEvaluated = 0, fcDivergent = 0, fcUnevaluable = 7, fcDivergentExample = Nothing, fcUnevaluableExample = Just "missing_var * 2"}
+            let fc = FormulaCheck{fcEvaluated = 0, fcDivergent = 0, fcUnevaluable = 7, fcDivergentExample = Nothing, fcUnevaluableExample = Just "\"missing_var * 2\": unknown variable missing_var"}
                 check = qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc}))
-            details check `shouldBe` ["7 formula(s) could not be evaluated (e.g. \"missing_var * 2\")"]
+            details check `shouldBe` ["7 formula(s) could not be evaluated (e.g. \"missing_var * 2\": unknown variable missing_var)"]
             severities check `shouldBe` [InfoSev]
             qcApplicable check `shouldBe` True
 

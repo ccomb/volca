@@ -2373,7 +2373,7 @@ results. Keyed by method NAME, which is unique per collection – not by
 'lrCategory', which for ILCD methods is the coarse damage class (e.g. all four
 "Climate change-*" methods share category "Climate change"; the three freshwater
 ecotoxicity methods share "Aquatic eco-toxicity"). Keying by category collapses
-such methods and breaks single-score resolution ("Unknown variable: …"). For
+such methods and breaks single-score resolution ("unknown variable …"). For
 SimaPro-adapted methods name == category, so their scoring is unchanged.
 -}
 rawScoreMapByName :: [LCIAResult] -> M.Map Text Double

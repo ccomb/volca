@@ -192,9 +192,13 @@
   their stored amount, so a dataset none of whose formulas could be read, and
   where nothing could therefore disagree, looked the same as one whose formulas
   all agree. Such a dataset now reads `7 formula(s) could not be evaluated (e.g.
-  "missing_var * 2")`, naming one of those formulas as the dataset writes it,
-  at the same Info severity: the stored amounts are still the ones used. A
-  database cache written before this is rebuilt on its next load.
+  "missing_var * 2": unknown variable missing_var)`, naming one of those
+  formulas as the dataset writes it and why it could not be read; a variable
+  the file declares with two different amounts is named as such rather than as
+  unknown. Same Info severity: the stored amounts are still the ones used. A
+  database cache written before this is rebuilt on its next load. A scoring-set
+  formula that cannot be evaluated also gives that one-line reason now, in
+  place of the parser's four-line report.
 - A Brightway Excel exchange row that carries a formula now says so in the load
   log. The format lets a row state both an `amount` and the `formula` that
   produces it; the reader took the amount and never looked at the formula, so
