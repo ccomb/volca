@@ -39,22 +39,17 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel da
 
 ## Performance
 
-Measured on Ecoinvent 3.12 (26 533 activities), on a 24-core x86_64 machine.
-The figures are rounded hard on purpose: what carries from one machine to
-another is the order of magnitude and the ratio between two rows, not the
-number itself. Fewer cores cost most on the rows that solve; reading the cache
-is bound by the disk and the decompression, so it moves the least.
+Measured on Ecoinvent 3.12 (26 533 activities). The figures are rounded hard on
+purpose: what carries from one machine to another is the order of magnitude and
+the ratio between two rows, never the number itself.
 
 | Phase | Ecoinvent 3.12 |
 |---|---|
-| First load, read from the publisher's files | tens of seconds |
-| Later loads, read from the cache written beside them | a second or two |
+| First load, reading the publisher's files | tens of seconds |
+| Later loads, reading the cache written beside them | a second or two |
 | First computation after a load, which pays the factorisation | seconds |
 | Later computations (inventory, impact score) | a fraction of a second |
-| Computation of a modified process (upstream substitution) | a fraction of a second |
-| Scoring every activity of the database under one method | a couple of minutes |
-| Memory held while the database is loaded | around 8 GB |
-| Memory held at the peak of scoring all of them | around 25 GB |
+| Scoring every activity of the database under one method | minutes |
 
 The factorisation is computed at the first computation, never at startup, and
 kept for the lifetime of the server. The first request after a load therefore
@@ -63,6 +58,12 @@ the cache, and every request after that reuses it.
 
 Scoring many activities goes through one multi-RHS solve rather than one solve
 per activity, which is why a whole database is minutes rather than hours.
+
+Memory is not a fixed cost per database. The runtime holds one allocation area
+per core and returns memory to the system lazily, so the same database looks
+heavier on a machine with many cores and memory to spare, and is collected
+harder on a small one. What a loaded database has to hold is well under what
+the process shows at its peak.
 
 ---
 
