@@ -59,11 +59,11 @@ the cache, and every request after that reuses it.
 Scoring many activities goes through one multi-RHS solve rather than one solve
 per activity, which is why a whole database is minutes rather than hours.
 
-Memory is not a fixed cost per database. The runtime holds one allocation area
-per core and returns memory to the system lazily, so the same database looks
-heavier on a machine with many cores and memory to spare, and is collected
-harder on a small one. What a loaded database has to hold is well under what
-the process shows at its peak.
+Memory is not a fixed cost per database. The collector copies, so it keeps room
+to copy into and hands it back to the system lazily: the process holds two to
+three times what the loaded database itself has to hold, and it holds it longer
+on a machine with memory to spare than on a small one. Size a machine on the
+peak, not on what the data weighs.
 
 ---
 
