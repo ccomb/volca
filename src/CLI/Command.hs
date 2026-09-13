@@ -493,7 +493,13 @@ ignored) plus the explicit @--add@ ProcessIds, sparing @--keep@.
 executeDbDeleteActivities :: OutputFormat -> DatabaseManager -> DbDeleteArgs -> IO ()
 executeDbDeleteActivities fmt manager args = do
     let classFilters = case (ddaClassSystem args, ddaClassValue args) of
-            (Just sys, Just val) -> [(sys, val, ddaExact args)]
+            (Just sys, Just val) ->
+                [ Types.ClassificationFilter
+                    { Types.clfSystem = sys
+                    , Types.clfValue = val
+                    , Types.clfMatch = if ddaExact args then Types.MatchExact else Types.MatchContains
+                    }
+                ]
             _ -> []
     result <-
         deleteActivitiesInDB

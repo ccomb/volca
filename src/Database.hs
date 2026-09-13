@@ -377,7 +377,7 @@ applyStructuredFilters ::
     -- | product
     Maybe Text ->
     -- | classification filters
-    [(Text, Text, Bool)] ->
+    [ClassificationFilter] ->
     -- | exactMatch (geo and product filters become case-insensitive equality)
     Bool ->
     [(ProcessId, Activity)] ->
@@ -430,11 +430,10 @@ applyStructuredFilters geographies db geoParam productParam classFilters exactMa
                         ]
 
         classFiltered =
-            let groups = M.fromListWith (++) [(sys, [(val, isExact)]) | (sys, val, isExact) <- classFilters]
-                matchOne v (q, isExact) =
-                    if isExact
-                        then T.toLower q == T.toLower v
-                        else T.isInfixOf (T.toLower q) (T.toLower v)
+            let groups = M.fromListWith (++) [(sys, [(val, match)]) | ClassificationFilter{clfSystem = sys, clfValue = val, clfMatch = match} <- classFilters]
+                matchOne v (q, match) = case match of
+                    MatchExact -> T.toLower q == T.toLower v
+                    MatchContains -> T.isInfixOf (T.toLower q) (T.toLower v)
                 applyGroup acc (sys, pairs) =
                     [ (pid, a)
                     | (pid, a) <- acc
@@ -449,7 +448,7 @@ applyStructuredFilters geographies db geoParam productParam classFilters exactMa
 Non-BM25 path: name filter is substring AND-of-tokens on activity name only.
 Returns (ProcessId, Activity) pairs so callers don't need to re-scan for ProcessId.
 -}
-findActivitiesByFields :: Geographies -> Database -> Maybe Text -> Maybe Text -> Maybe Text -> [(Text, Text, Bool)] -> Bool -> [(ProcessId, Activity)]
+findActivitiesByFields :: Geographies -> Database -> Maybe Text -> Maybe Text -> Maybe Text -> [ClassificationFilter] -> Bool -> [(ProcessId, Activity)]
 findActivitiesByFields geographies db nameParam geoParam productParam classFilters exactMatch =
     applyStructuredFilters
         geographies

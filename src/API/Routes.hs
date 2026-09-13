@@ -1147,8 +1147,8 @@ scoringChunk = 512
 -- Pure helpers shared by handlers
 -- ---------------------------------------------------------------------------
 
--- | Parse "System=Value[:exact]" into (system, value, isExact).
-parseClassFilter :: Text -> Maybe (Text, Text, Bool)
+-- | Parse "System=Value[:exact]" into a filter.
+parseClassFilter :: Text -> Maybe ClassificationFilter
 parseClassFilter raw =
     let (sys, rest) = T.breakOn "=" raw
      in if T.null rest
@@ -1156,23 +1156,23 @@ parseClassFilter raw =
             else
                 let valAndMode = T.drop 1 rest
                     (val, mode) = T.breakOn ":" valAndMode
-                    isExact = T.drop 1 mode == "exact"
-                 in Just (T.strip sys, T.strip val, isExact)
+                    match = if T.drop 1 mode == "exact" then MatchExact else MatchContains
+                 in Just ClassificationFilter{clfSystem = T.strip sys, clfValue = T.strip val, clfMatch = match}
 
--- | Merge preset-derived and explicit (system, value, exact) classification filters.
+-- | Merge preset-derived and explicit classification filters.
 mergeClassFilters ::
     [Config.ClassificationPreset] ->
     Maybe Text ->
     [Text] ->
     [Text] ->
     [Text] ->
-    Either Text [(Text, Text, Bool)]
+    Either Text [ClassificationFilter]
 mergeClassFilters presets presetParam systems values modes =
     (++ explicit) <$> Config.expandClassificationPreset presets presetParam
   where
     explicit =
         zipWith3
-            (\s v m -> (s, v, m == "exact"))
+            (\s v m -> ClassificationFilter{clfSystem = s, clfValue = v, clfMatch = if m == "exact" then MatchExact else MatchContains})
             systems
             values
             (modes ++ repeat "contains")

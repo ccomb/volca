@@ -239,6 +239,8 @@ import Types (
     AllocationKey (..),
     BiosphereFlow (..),
     BlockerReason (..),
+    ClassificationFilter (..),
+    ClassificationMatch (..),
     Database (..),
     GeographyPolicy (..),
     ProcessRef (..),
@@ -572,7 +574,10 @@ deleteActivitiesHandler :: Text -> DeleteSelectionRequest -> AppM DeleteSelectio
 deleteActivitiesHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
-    let classFilters = [(dcfSystem f, dcfValue f, dcfExact f) | f <- dsqClassifications req]
+    let classFilters =
+            [ ClassificationFilter{clfSystem = dcfSystem f, clfValue = dcfValue f, clfMatch = if dcfExact f then MatchExact else MatchContains}
+            | f <- dsqClassifications req
+            ]
         -- A present-but-blank filter (e.g. JSON "name":"") is no filter at all.
         -- Collapse it to Nothing so name candidates fall back to "all activities"
         -- instead of a BM25/full-scan path that yields zero (index present) or all

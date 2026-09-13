@@ -59,7 +59,7 @@ import qualified Service
 import qualified Service.Aggregate as Agg
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached, crossDBProcessContributions)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount)
 
 -- ---------------------------------------------------------------------------
 -- JSON-RPC 2.0 types
@@ -740,21 +740,24 @@ callListPresets presets rid =
 @classification_value@ args (honouring @classification_match@). Shared by the
 search, consumers, and supply-chain handlers.
 -}
-explicitClassFilter :: KeyMap Value -> [(Text, Text, Bool)]
+explicitClassFilter :: KeyMap Value -> [ClassificationFilter]
 explicitClassFilter args = case (textArg "classification" args, textArg "classification_value" args) of
-    (Just sys, Just val) -> [(sys, val, isExact)]
+    (Just sys, Just val) -> [ClassificationFilter{clfSystem = sys, clfValue = val, clfMatch = match}]
     _ -> []
   where
-    isExact = textArg "classification_match" args `elem` [Just "equals", Just "exact"]
+    match :: ClassificationMatch
+    match
+        | textArg "classification_match" args `elem` [Just "equals", Just "exact"] = MatchExact
+        | otherwise = MatchContains
 
 -- | The @preset@ argument expanded, as every tool advertising that parameter must.
-presetFilters :: [ClassificationPreset] -> KeyMap Value -> Either Text [(Text, Text, Bool)]
+presetFilters :: [ClassificationPreset] -> KeyMap Value -> Either Text [ClassificationFilter]
 presetFilters presets args = expandClassificationPreset presets (textArg "preset" args)
 
 {- | Preset filters (looked up by @preset@ name) followed by the explicit
 filter. Shared by the search and consumers handlers.
 -}
-classificationFilters :: [ClassificationPreset] -> KeyMap Value -> Either Text [(Text, Text, Bool)]
+classificationFilters :: [ClassificationPreset] -> KeyMap Value -> Either Text [ClassificationFilter]
 classificationFilters presets args = (++ explicitClassFilter args) <$> presetFilters presets args
 
 callSearchActivities :: Geographies -> [ClassificationPreset] -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
@@ -1037,8 +1040,8 @@ callAggregate dbManager presets rid args (db, solver) =
                 else
                     let valAndMode = T.drop 1 rest
                         (val, mode) = T.breakOn ":" valAndMode
-                        isExact = T.drop 1 mode == "exact"
-                     in Just (T.strip sys, T.strip val, isExact)
+                        match = if T.drop 1 mode == "exact" then MatchExact else MatchContains
+                     in Just ClassificationFilter{clfSystem = T.strip sys, clfValue = T.strip val, clfMatch = match}
 
 callGetPathTo :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetPathTo rid args (db, solver) = runTool rid $ do

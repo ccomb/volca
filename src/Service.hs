@@ -53,7 +53,7 @@ data ActivityFilterCore = ActivityFilterCore
     { afcName :: Maybe Text
     , afcLocation :: Maybe Text
     , afcProduct :: Maybe Text
-    , afcClassifications :: [(Text, Text, Bool)] -- (system, value, isExact)
+    , afcClassifications :: [ClassificationFilter]
     , afcLimit :: Maybe Int
     , afcOffset :: Maybe Int
     , afcSort :: Maybe Text
@@ -122,13 +122,12 @@ emptyFlowSearchResults = toJSON (SearchResults ([] :: [FlowSearchResult]) 0 0 50
 Semantics: OR within the same classification system, AND across different systems.
 This matches the documented behaviour in volca.toml classification-presets.
 -}
-matchClassifications :: Activity -> [(Text, Text, Bool)] -> Bool
+matchClassifications :: Activity -> [ClassificationFilter] -> Bool
 matchClassifications activity filters =
-    let groups = M.fromListWith (++) [(sys, [(val, isExact)]) | (sys, val, isExact) <- filters]
-        matchOne v (q, isExact) =
-            if isExact
-                then T.toLower q == T.toLower v
-                else T.isInfixOf (T.toLower q) (T.toLower v)
+    let groups = M.fromListWith (++) [(sys, [(val, match)]) | ClassificationFilter{clfSystem = sys, clfValue = val, clfMatch = match} <- filters]
+        matchOne v (q, match) = case match of
+            MatchExact -> T.toLower q == T.toLower v
+            MatchContains -> T.isInfixOf (T.toLower q) (T.toLower v)
         applyGroup acc (sys, pairs) =
             acc && case M.lookup sys (activityClassification activity) of
                 Just v -> any (matchOne v) pairs

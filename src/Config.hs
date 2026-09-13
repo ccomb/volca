@@ -86,7 +86,7 @@ import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
 import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldOpt, getFieldOptWith, getFieldWith)
-import Types (AllocationKey (..), GeographyPolicy (..), parseAllocationKey)
+import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), GeographyPolicy (..), parseAllocationKey)
 
 -- | A single classification filter entry (system + value)
 data ClassificationEntry = ClassificationEntry
@@ -105,18 +105,22 @@ data ClassificationPreset = ClassificationPreset
     }
     deriving (Show, Eq, Generic)
 
-{- | Expand a preset name into the (system, value, exact) triples every query
-surface filters with.
+{- | Expand a preset name into the filters every query surface applies. A mode
+other than @exact@ reads as containment.
 
 A name no configured preset carries is an error, never an empty filter list: a
 preset narrows a query, so dropping it silently answers with the whole database
 where the caller asked for a slice of it.
 -}
-expandClassificationPreset :: [ClassificationPreset] -> Maybe Text -> Either Text [(Text, Text, Bool)]
+expandClassificationPreset :: [ClassificationPreset] -> Maybe Text -> Either Text [ClassificationFilter]
 expandClassificationPreset _ Nothing = Right []
 expandClassificationPreset presets (Just name) =
     case filter ((== name) . cpName) presets of
-        p : _ -> Right [(ceSystem e, ceValue e, ceMode e == "exact") | e <- cpFilters p]
+        p : _ ->
+            Right
+                [ ClassificationFilter{clfSystem = ceSystem e, clfValue = ceValue e, clfMatch = if ceMode e == "exact" then MatchExact else MatchContains}
+                | e <- cpFilters p
+                ]
         [] -> Left (unknownPresetMessage presets name)
 
 -- | Why a preset name did not resolve, naming what this instance does carry.

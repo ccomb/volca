@@ -60,6 +60,8 @@ import Types (
     Activity,
     BioFlowDB,
     BiosphereFlow (..),
+    ClassificationFilter (..),
+    ClassificationMatch (..),
     CrossDBLink (..),
     Database (..),
     ExchangeKind (..),
@@ -104,9 +106,6 @@ exchangeTypeScopeError scope mKind = case mKind of
 data AggregateFn = AggSum | AggCount | AggShare
     deriving (Eq, Show)
 
--- | A typed classification filter entry: (system, value, isExact).
-type ClassEntry = (Text, Text, Bool)
-
 data AggregateParams = AggregateParams
     { apScope :: AggScope
     , apIsInput :: Maybe Bool -- only for ScopeDirect
@@ -114,7 +113,7 @@ data AggregateParams = AggregateParams
     , apFilterName :: Maybe Text -- case-insensitive substring
     , apFilterNameNot :: [Text] -- case-insensitive substrings (exclude-list)
     , apFilterUnit :: Maybe Text -- exact unit name
-    , apFilterClassifications :: [ClassEntry]
+    , apFilterClassifications :: [ClassificationFilter]
     , apFilterTargetName :: Maybe Text -- ScopeDirect technosphere / ScopeConsumption (supplier)
     , apFilterConsumer :: Maybe Text -- only ScopeConsumption – case-insensitive substring
     , apFilterConsumerNot :: [Text] -- only ScopeConsumption – exclude-list
@@ -436,12 +435,11 @@ filterRow p r =
             Just actual -> actual == want
             Nothing -> True -- row lacks the attribute → don't exclude
     classOk = all classMatches (apFilterClassifications p)
-    classMatches (sys, val, isExact) = case M.lookup sys (rowClassifications r) of
+    classMatches ClassificationFilter{clfSystem = sys, clfValue = val, clfMatch = match} = case M.lookup sys (rowClassifications r) of
         Nothing -> False
-        Just v ->
-            if isExact
-                then ci val == ci v
-                else contains val v
+        Just v -> case match of
+            MatchExact -> ci val == ci v
+            MatchContains -> contains val v
 
 -- | Extract the group key for one row.
 groupKey :: Text -> AggRow -> Text

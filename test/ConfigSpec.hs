@@ -48,6 +48,7 @@ import System.FilePath (normalise)
 import TOML (getArrayOf, getFieldWith)
 import qualified TOML
 import Test.Hspec
+import Types (ClassificationFilter (..), ClassificationMatch (..))
 
 serverOn :: Text -> ServerConfig
 serverOn host =
@@ -207,7 +208,10 @@ spec = do
                     }
         it "expands a configured preset into its filters" $
             expandClassificationPreset [raw] (Just "raw")
-                `shouldBe` Right [("AGB", "Agriculture", True), ("AGB", "Food", False)]
+                `shouldBe` Right
+                    [ ClassificationFilter{clfSystem = "AGB", clfValue = "Agriculture", clfMatch = MatchExact}
+                    , ClassificationFilter{clfSystem = "AGB", clfValue = "Food", clfMatch = MatchContains}
+                    ]
 
         it "filters nothing when no preset was asked for" $
             expandClassificationPreset [raw] Nothing `shouldBe` Right []

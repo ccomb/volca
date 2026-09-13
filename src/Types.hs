@@ -808,6 +808,25 @@ data Activity = Activity
     }
     deriving (Generic, NFData, Store)
 
+-- | How a filter's value is compared with the one an activity carries, both lowercased.
+data ClassificationMatch
+    = -- | The whole value.
+      MatchExact
+    | -- | The value as a substring of the activity's.
+      MatchContains
+    deriving (Eq, Show)
+
+{- | Narrows a query to the activities whose 'activityClassification' under
+'clfSystem' matches 'clfValue'. Never serialised: each surface reads its own
+spelling of the mode into 'clfMatch'.
+-}
+data ClassificationFilter = ClassificationFilter
+    { clfSystem :: !Text
+    , clfValue :: !Text
+    , clfMatch :: !ClassificationMatch
+    }
+    deriving (Eq, Show)
+
 {- | The source block one process came out of, as a listing needs to know it.
 
 'sbName' is for comparing, never for reading: every process of one block
