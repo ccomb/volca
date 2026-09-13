@@ -25,7 +25,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Matrix (Demand (..), DepDemands, accumulateDepDemands, depDemandsToVector)
-import Method.Mapping (CF (..), CFUnit (..), MethodTables (..), inventoryContributions)
+import Method.Mapping (CF (..), CFUnit (..), FlowContribution (..), MethodTables (..), inventoryContributions)
 import qualified Method.Mapping as Mapping
 import Method.Types (CFFamily (..), FlowDirection (..), MethodCF (..))
 import SharedSolver (
@@ -247,7 +247,7 @@ spec = do
 
         it "characterizes dep-DB flows when the merged flowDB is supplied" $ do
             let (contribs, unknowns) = inventoryContributions defaultUnitConfig unitDB mergedFlowDB inventory tables
-                namesWithContrib = [(bfName f, c) | (f, _, c) <- contribs]
+                namesWithContrib = [(bfName f, c) | FlowContribution{fcFlow = f, fcContribution = c} <- contribs]
             -- uuidGone remains unknown (it's in no flowDB at all); uuidRoot and
             -- uuidDep should both produce contributions.
             unknowns `shouldBe` [uuidGone]
@@ -255,7 +255,7 @@ spec = do
             lookup "Methane, biogenic" namesWithContrib `shouldBe` Just 27.0 -- 1.0 kg * CF 27.0
         it "matches computeLCIAScoreFromTables when no UUIDs are unknown" $ do
             let (contribs, _) = inventoryContributions defaultUnitConfig unitDB mergedFlowDB (M.delete uuidGone inventory) tables
-                sumContribs = sum [c | (_, _, c) <- contribs]
+                sumContribs = sum (map fcContribution contribs)
                 score = Mapping.loScore (Mapping.computeLCIAScoreFromTables defaultUnitConfig unitDB mergedFlowDB (M.delete uuidGone inventory) tables)
             abs (sumContribs - score) < 1e-9 `shouldBe` True
 

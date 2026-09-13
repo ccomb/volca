@@ -760,7 +760,7 @@ spec = do
                 (contribs, unknowns) =
                     inventoryContributions defaultUnitConfig unitDB flowDB inventory tables
             unknowns `shouldBe` []
-            map (\(_, _, c) -> c) contribs `shouldBe` [0.0]
+            map fcContribution contribs `shouldBe` [0.0]
 
     describe "convertForCharacterization" $ do
         -- Each row encodes a (flowUnit, cfUnit, qty) → expected mapping under a

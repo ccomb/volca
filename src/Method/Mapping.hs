@@ -59,6 +59,7 @@ module Method.Mapping (
     computeLCIAScoreWithDiagnostics,
     findUncharacterized,
     findSimilarCFs,
+    FlowContribution (..),
     inventoryContributions,
     processContributionsFromTables,
     lookupCFForFlow,
@@ -2810,15 +2811,28 @@ flowToCFOutcome unitConfig unitDB energyDensities mflow cfu qty =
         mDensity = mflow >>= \f -> lookupEnergyDensity energyDensities (bfName f)
      in energyAwareOutcome unitConfig flowUnit cfu mDensity qty
 
+{- | What one characterised flow brings to a score. The factor and the
+contribution are both 'Double', and every answer listing contributing flows
+publishes the two side by side: named, neither can be read in the other's
+place.
+-}
+data FlowContribution = FlowContribution
+    { fcFlow :: !BiosphereFlow
+    , fcFactor :: !Double
+    -- ^ The characterisation factor, as the method states it.
+    , fcContribution :: !Double
+    -- ^ Factor times inventory amount, in the method's unit.
+    }
+
 {- | Per-flow contributions over an 'Inventory', keyed by flow UUID (possibly
 cross-DB-merged). Walks the inventory directly (not the mappings) so any
 flow with a matchable CF contributes – including flows from dep DBs that
 don't appear in the root-DB method mapping.
 
 Returns @(contributions, unknownUuids)@:
-  * @contributions@ – @[(flow, cfValue, contributionInMethodUnit)]@
-    for every non-zero inventory entry whose UUID resolves in 'flowDB'
-    AND whose (name, medium, subcompartment) matches a CF.
+  * @contributions@ – one 'FlowContribution' for every non-zero inventory
+    entry whose UUID resolves in 'flowDB' AND whose (name, medium,
+    subcompartment) matches a CF.
   * @unknownUuids@ – non-zero inventory UUIDs with no record in 'flowDB'.
     Callers should surface these (per the "no silent errors" rule): a
     missing record means the merged metadata is incomplete for this
@@ -2834,7 +2848,7 @@ inventoryContributions ::
     BioFlowDB ->
     Inventory ->
     MethodTables ->
-    ([(BiosphereFlow, Double, Double)], [UUID])
+    ([FlowContribution], [UUID])
 inventoryContributions unitConfig unitDB flowDB inventory tables =
     M.foldlWithKey' step ([], []) inventory
   where
@@ -2852,7 +2866,8 @@ inventoryContributions unitConfig unitDB flowDB inventory tables =
                 Nothing -> (contribs, unknowns) -- no CF match – legitimately uncharacterized
                 Just found@(CF cfVal _) ->
                     let !contribution = convertAndMultiply unitConfig unitDB (mtEnergyDensities tables) (Just flow) found qty
-                     in ((flow, cfVal, contribution) : contribs, unknowns)
+                        !row = FlowContribution flow cfVal contribution
+                     in (row : contribs, unknowns)
 
 {- | Per-process LCIA contributions for one DB + one method, driven by
 'MethodTables' + a merged 'BioFlowDB'. Mirrors

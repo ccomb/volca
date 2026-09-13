@@ -49,7 +49,7 @@ import Control.Monad (mfilter, unless)
 import qualified Data.List as L
 import Matrix (applyBiosphereMatrix)
 import qualified Method.Explain as Explain
-import Method.Mapping (LCIAOutcome (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), applyLongTermMode, computeLCIAScoreAuto, computeLCIAScoreFromTables, computeMappingStats, defaultUncharacterizedOpts, inventoryContributions, longTermModeFromExclude)
+import Method.Mapping (FlowContribution (..), LCIAOutcome (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), applyLongTermMode, computeLCIAScoreAuto, computeLCIAScoreFromTables, computeMappingStats, defaultUncharacterizedOpts, inventoryContributions, longTermModeFromExclude)
 import qualified Method.Mapping as Mapping
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Network.HTTP.Types.Header (RequestHeaders, hAccept, hAllow, hHost)
@@ -1178,7 +1178,7 @@ data ImpactsResult = ImpactsResult
     {- ^ The method's tables, for annotating each contributing flow with how
     its factor was found. Shared with the manager's cache, not a copy.
     -}
-    , irContribs :: ![(BiosphereFlow, Double, Double)]
+    , irContribs :: ![FlowContribution]
     -- ^ Sorted descending by absolute contribution.
     , irUnknownUuids :: ![UUID.UUID]
     , irFunctionalUnit :: !Text
@@ -1228,7 +1228,7 @@ runImpactsRequest dbManager args req = do
     let stats = computeMappingStats mappings
         baseOutcome = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
         (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
-        contribs = L.sortOn (\(_, _, c) -> negate (abs c)) rawContribs
+        contribs = L.sortOn (negate . abs . fcContribution) rawContribs
         functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits (raActivity ra)
     -- Diagnostics path: opt-in via include_diagnostics. Skips the suggester
     -- work entirely when not requested, so the hot path stays bit-identical
@@ -1281,7 +1281,7 @@ callGetImpacts dbManager mBaseUrl rid args =
             contribs = irContribs ir
             topFlows = take topN contribs
             webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/impacts/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
-            hasNeg = any (\(_, _, c) -> c < 0) contribs
+            hasNeg = any ((< 0) . fcContribution) contribs
             unknownUuids = irUnknownUuids ir
         liftIO $
             unless (null unknownUuids) $
@@ -1324,7 +1324,7 @@ callGetImpacts dbManager mBaseUrl rid args =
                                     , "match_kind" .= Explain.flowMatchKind (irTables ir) (bfId f)
                                     , "flow_unit" .= getUnitNameForBioFlow mUnits f
                                     ]
-                               | (f, cfVal, c) <- topFlows
+                               | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- topFlows
                                ]
                         ]
                             ++ webUrlPair
@@ -1511,11 +1511,11 @@ callCompareImpacts dbManager rid args =
     -- Contributions gathered on the key the two sides are compared by. The rows
     -- arrive largest first, so the first of a key keeps its spelling for
     -- display while the total is what the comparison ranks and reports.
-    alignContribs :: [(BiosphereFlow, Double, Double)] -> M.Map (Text, Text, Text) (BiosphereFlow, Double)
+    alignContribs :: [FlowContribution] -> M.Map (Text, Text, Text) (BiosphereFlow, Double)
     alignContribs contribs =
         M.fromListWith
             (\(_, cNew) (f, cOld) -> (f, cOld + cNew))
-            [(flowKey f, (f, c)) | (f, _, c) <- contribs]
+            [(flowKey f, (f, c)) | FlowContribution{fcFlow = f, fcContribution = c} <- contribs]
 
     -- The n flows contributing most on that key. Ranking single rows instead
     -- would leave out a flow whose rows each fall outside the window while
@@ -2013,9 +2013,9 @@ callGetContributingFlows dbManager mBaseUrl rid args =
         let outcome = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
             score = loScore outcome
             (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
-            contribs = L.sortOn (\(_, _, c) -> negate (abs c)) rawContribs
+            contribs = L.sortOn (negate . abs . fcContribution) rawContribs
             top = take lim contribs
-            hasNeg = any (\(_, _, c) -> c < 0) contribs
+            hasNeg = any ((< 0) . fcContribution) contribs
         diagnosticsFields <-
             if fromMaybe False (boolArg "include_diagnostics" args)
                 then do
@@ -2067,7 +2067,7 @@ callGetContributingFlows dbManager mBaseUrl rid args =
                                 , "cf_value" .= cfVal
                                 , "match_kind" .= Explain.flowMatchKind tables (bfId f)
                                 ]
-                           | (f, cfVal, c) <- top
+                           | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- top
                            ]
                     ]
                         ++ webUrlPair
