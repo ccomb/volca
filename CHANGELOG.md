@@ -186,6 +186,14 @@
   wait. The files themselves are unchanged, to the byte.
 
 ### Fixed
+- A Brightway Excel exchange row that carries a formula now says so in the load
+  log. The format lets a row state both an `amount` and the `formula` that
+  produces it; the reader took the amount and never looked at the formula, so
+  an amount the writing tool had not recomputed loaded as though it were
+  current, and nothing said a formula was there. The formula is still not
+  evaluated: it is written in Python, which no evaluator here reads, and reading
+  it in another language would be wrong rather than incomplete. Each activity
+  now warns once, with the number of its rows that carry one.
 - A SimaPro formula now stops at `//`, the way SimaPro itself stops there.
   SimaPro is a Delphi program and its formula parser keeps Pascal's line
   comment, so `weight_g//yield1/yield2` is the weight and the two yields are a

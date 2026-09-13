@@ -11,7 +11,7 @@ header, biosphere categories (with @::@), and within-file supplier linking.
 -}
 module BrightwayExcelSpec (spec) where
 
-import BrightwayExcel.Parser (CellValue (..), parseBrightwayExcel, parseSheetXml, skippedSheetWarning, splitCategories)
+import BrightwayExcel.Parser (CellValue (..), parseBrightwayExcel, parseSheetXml, sheetToActivities, skippedSheetWarning, splitCategories)
 import Codec.Archive.Zip (addEntryToArchive, emptyArchive, fromArchive, toEntry)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (chr, ord)
@@ -155,6 +155,20 @@ spec = describe "BrightwayExcel.Parser" $ do
                     let irrigation = listToMaybe [ex | ex <- inputExchanges cotton, flowName techDB ex == Just "water, irrigation"]
                     fmap techAmount irrigation `shouldBe` Just 3.2
 
+    -- The format's formulas are Python, which no evaluator here reads, so the
+    -- amount column is all that is taken; a row carrying a formula has to say so.
+    describe "a formula on an exchange row" $ do
+        it "is reported once per activity, and the stated amount is kept" $ do
+            (acts, warnings) <- readSheet (formulaSheet (CT "mass * 2") (CT "mass / 4"))
+            filter (T.isInfixOf "formula") warnings
+                `shouldBe` ["activity 'Widget manufacturing': exchange rows whose formula is ignored (not evaluated): 2; each is read from its amount column"]
+            widget <- requireActivity acts "Widget manufacturing"
+            map techAmount (inputExchanges widget) `shouldBe` [1.0]
+
+        it "says nothing when the formula column is there but empty" $ do
+            (_, warnings) <- readSheet (formulaSheet CE CE)
+            filter (T.isInfixOf "formula") warnings `shouldBe` []
+
     describe "loadDatabase dispatch" $
         it "resolves within-file technosphere links" $
             withFixture $ \path -> do
@@ -271,6 +285,14 @@ directionOf bioDB acts name =
 -- Fixture workbook (generated in-memory)
 -- ---------------------------------------------------------------------------
 
+-- | The activities one worksheet reads to, with every warning they raised.
+readSheet :: [[Cell]] -> IO ([Activity], [Text])
+readSheet cells = case parseSheetXml Nothing (TE.encodeUtf8 (sheetXml cells)) of
+    Left err -> fail (T.unpack err)
+    Right rows -> do
+        let outs = sheetToActivities defaultUnitConfig rows
+        pure ([a | (a, _, _, _, _) <- outs], concat [ws | (_, _, _, _, ws) <- outs])
+
 withWorkbook :: BL.ByteString -> (FilePath -> IO a) -> IO a
 withWorkbook bytes action =
     withSystemTempFile "brightway-fixture.xlsx" $ \path h -> do
@@ -322,6 +344,23 @@ twiceAgreeingSheet = map keepGLO twiceStatedSheet
     keepGLO :: [Cell] -> [Cell]
     keepGLO [CT "location", CT _] = [CT "location", CT "GLO"]
     keepGLO row = row
+
+{- | A block whose exchange table has a @formula@ column, filled on its
+technosphere and biosphere rows with the two cells given.
+-}
+formulaSheet :: Cell -> Cell -> [[Cell]]
+formulaSheet inputFormula emissionFormula =
+    [ [CT "Activity", CT "Widget manufacturing"]
+    , [CT "production amount", CN 1]
+    , [CT "reference product", CT "widget"]
+    , [CT "location", CT "GLO"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Exchanges"]
+    , [CT "name", CT "amount", CT "reference product", CT "location", CT "unit", CT "categories", CT "type", CT "formula"]
+    , [CT "Widget manufacturing", CN 1, CT "widget", CT "GLO", CT "kilogram", CE, CT "production", CE]
+    , [CT "Steel production", CN 1, CT "steel", CT "GLO", CT "kilogram", CE, CT "technosphere", inputFormula]
+    , [CT "Carbon dioxide, fossil", CN 0.5, CE, CT "GLO", CT "kilogram", CT "air", CT "biosphere", emissionFormula]
+    ]
 
 -- | A single-activity worksheet (standard column order) for multi-sheet tests.
 activitySheet :: Text -> Text -> [[Cell]]
