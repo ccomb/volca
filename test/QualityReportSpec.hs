@@ -487,6 +487,19 @@ spec = do
             qcOffenders (qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc})))
                 `shouldBe` []
 
+        -- Alphabetically "apple" comes first; a report cut to its first line
+        -- must still show the divergence a maker can act on.
+        it "lists divergences before datasets whose formulas only could not be evaluated" $ do
+            let unreadable = FormulaCheck{fcEvaluated = 0, fcDivergent = 0, fcUnevaluable = 7, fcExample = Nothing}
+                diverging = FormulaCheck{fcEvaluated = 1, fcDivergent = 1, fcUnevaluable = 0, fcExample = Nothing}
+                db =
+                    dbOf
+                        [ ((actA, prodA), (mkActivity "apple" [reference breadFlow]){activityFormulaCheck = Just unreadable})
+                        , ((actB, prodB), (mkActivity "bread" [reference flourFlow]){activityFormulaCheck = Just diverging})
+                        ]
+            details (qrFormulaConsistency (qualityReport "testdb" db))
+                `shouldBe` ["1 of 1 evaluable formula(s) disagree with the stored amount", "7 formula(s) could not be evaluated"]
+
         it "is not applicable to a database without any formula" $
             qcApplicable (qrFormulaConsistency (reportOf (mkActivity "bread" [reference breadFlow])))
                 `shouldBe` False

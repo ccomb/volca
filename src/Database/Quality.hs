@@ -248,7 +248,7 @@ qualityReport dbName db =
         , qrSuspiciousAmounts = QualityCheck True (worstFirst amountOffenders)
         , qrMissingMetadata = QualityCheck True (worstFirst metadataOffenders)
         , qrUndeclaredGeography = QualityCheck True (worstFirst geographyOffenders)
-        , qrFormulaConsistency = QualityCheck formulaApplicable (worstFirst formulaOffenders)
+        , qrFormulaConsistency = QualityCheck formulaApplicable formulaOffenders
         , qrTruncatedNameCollisions = QualityCheck True (worstFirst truncationOffenders)
         , qrMissingPedigree = QualityCheck pedigreeApplicable (worstFirst pedigreeOffenders)
         , qrUnconsumedProducts = QualityCheck True (worstFirst unconsumedOffenders)
@@ -480,16 +480,23 @@ qualityReport dbName db =
     -- exports – allocation rescales amounts without updating the copied
     -- formulas – hence Info: the stored amounts stay authoritative, this only
     -- tells a maker where their own formulas and amounts drifted apart.
-    -- A formula the evaluator could not read is a finding too, at the same
-    -- severity: it costs no number, but it is the one place a dataset using
-    -- more of the format than this reader understands says so, and when none
-    -- of its formulas evaluated there is no divergence to carry the count.
+    -- A formula the evaluator could not judge is a finding too, at the same
+    -- severity: it costs no number, but the count is the only place the report
+    -- says so, whether the formula uses more of the format than this reader
+    -- understands or names a variable no single declaration binds. When none of
+    -- a dataset's formulas evaluated, there is no divergence to carry the count.
+    -- Divergences come first: they are what a maker acts on, and a report cut
+    -- to its first lines must not lose them behind datasets that were only
+    -- unreadable, which is why this list is not passed through 'worstFirst'.
     -- 'False' applicability means no dataset carried a formula at all.
     formulaApplicable = any (isJust . activityFormulaCheck) acts
-    formulaOffenders =
+    formulaOffenders = foldMap (worstFirst . formulaOffendersWhere) [(> 0) . fcDivergent, (== 0) . fcDivergent]
+    formulaOffendersWhere :: (FormulaCheck -> Bool) -> [QualityOffender]
+    formulaOffendersWhere keep =
         [ offender InfoSev key act Nothing (T.intercalate "; " parts)
         | (key, act) <- entries
         , Just fc <- [activityFormulaCheck act]
+        , keep fc
         , let parts = formulaFindings fc
         , not (null parts)
         ]
