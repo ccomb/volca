@@ -991,10 +991,9 @@ buildDemandVectorFromIndex activityIndex rootProcessId =
 Pre-compute matrix factorization for concurrent inventory calculations.
 
 This function builds the (I - A) system matrix from technosphere triplets and
-pre-computes the LU factorization during server startup. The resulting
-MatrixFactorization can be stored in the Database for fast concurrent solves.
-
-Performance: ~3s factorization time for full Ecoinvent, saves 2.9s per inventory request
+factorizes it. Loading a database does not call it: 'SharedSolver' asks for the
+factorization at the first solve and keeps it for the lifetime of the server, so
+the first request after a load pays it and every later one reuses it.
 -}
 precomputeMatrixFactorization :: Text -> [(Int, Int, Double)] -> Int -> IO MatrixFactorization
 precomputeMatrixFactorization dbName techTriples n = withMVar mumpsFactorizationMutex $ \_ -> do
