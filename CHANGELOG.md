@@ -203,6 +203,21 @@
   evaluated: it is written in Python, which no evaluator here reads, and reading
   it in another language would be wrong rather than incomplete. Each activity
   now warns once, with the number of its rows that carry one.
+- An extracted energy carrier whose name states its energy content is now
+  characterized by what the method charges for a unit of energy, and no longer
+  by the factor of whichever resource shares its first word. A method file that
+  names `Uranium` but not `Uranium ore, 1.11 GJ per kg` was serving the ore the
+  factor of uranium metal, 560 000 MJ per kilo against the 1 110 the flow's own
+  name states, a factor of five hundred on that line. It reached a published
+  result: a kilo of farmed fish came out three percent over the value published
+  for it under the same method and the same source, and the surplus was that
+  single flow. A method that prices a unit of energy lends that price, whatever
+  substance is being priced, which is the one number it can lend a substance it
+  never names; a method that prices its carriers by the mass lends nothing, and
+  the flow scores zero as it does for a tool that matches factors by name. A
+  method whose energy lines disagree is ambiguous and lends nothing either. The
+  explanation of such a factor used to promise a price per unit of energy in one
+  sentence and print a factor per kilo in the next, which is what let this stand.
 - A SimaPro formula now stops at `//`, the way SimaPro itself stops there.
   SimaPro is a Delphi program and its formula parser keeps Pascal's line
   comment, so `weight_g//yield1/yield2` is the weight and the two yields are a

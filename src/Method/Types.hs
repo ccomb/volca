@@ -42,6 +42,7 @@ module Method.Types (
     buildEnergyDensityMapFromCSV,
     energyDensityMapSize,
     parseEnergyDensitySuffix,
+    isEnergyUnit,
     lookupEnergyDensity,
 
     -- * Region-suffixed flow names
@@ -493,14 +494,21 @@ parseEnergyDensitySuffix name =
         (left, rest)
             | Just after <- T.stripPrefix (T.pack " per ") rest
             , (eunit : nTok : baseRev) <- reverse (T.words left)
-            , isJouleUnit eunit
+            , isEnergyUnit eunit
             , Just n <- readMaybe (T.unpack nTok)
             , (nativeUnit : _) <- T.words after ->
                 Just (cleanBase (reverse baseRev), EnergyDensity n eunit nativeUnit)
         _ -> Nothing
   where
-    isJouleUnit u = T.toUpper u `elem` map T.pack ["KJ", "MJ", "GJ", "TJ"]
     cleanBase ws = T.dropWhileEnd (\c -> c == ',' || c == ' ') (T.unwords ws)
+
+{- | A unit of the joule family, spelled as a method line or a flow name spells
+it. Deliberately literal: an expression a result is written in
+(@"MJ, net calorific value"@, @"kg CO2 eq"@) is not one, which is what keeps a
+column header from being read as the quantity its factors are written per.
+-}
+isEnergyUnit :: Text -> Bool
+isEnergyUnit u = T.toUpper u `elem` map T.pack ["KJ", "MJ", "GJ", "TJ"]
 
 {- | The density for a flow name, following the same cascade of names the CF
 lookup follows: the curated map under the flow's own name, then under its

@@ -153,7 +153,7 @@ spec = do
                     (matchIn "MJ" RungEnergyResource (Just ByName))
                     (EnergyBridged (EnergyDensity 18.0 "MJ" "kg") DensityForward)
                 )
-                `shouldBe` [ "No factor carries this flow's name. The flow is an energy resource, so its family's factor per unit of energy, from \"Methane, fossil\", applies."
+                `shouldBe` [ "No factor carries this flow's name. The flow is an extracted energy carrier and its name states its energy content, so what the method charges for one unit of energy, from \"Methane, fossil\", applies to that content."
                            , "This flow holds 18.0 MJ per kg, which carries the amount from kg to MJ."
                            , "The factor applied is 29.8 per MJ."
                            ]

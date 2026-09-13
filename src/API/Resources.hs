@@ -453,9 +453,10 @@ description r = case r of
         \compartment), 'cas_number' (a factor for the same substance by CAS), \
         \'subcompartment_blind' (the factor is the same in every \
         \subcompartment), 'region_base_name' (the base substance, the name's \
-        \region suffix being untagged by the method), 'energy_content' (the \
-        \family factor per unit of energy, bridged by the flow's calorific \
-        \value), 'ore_base_element' (the base element of a graded ore). \
+        \region suffix being untagged by the method), 'energy_content' (what \
+        \the method charges for a unit of energy, applied to the content the \
+        \flow's own name states), 'ore_base_element' (the base element of a \
+        \graded ore). \
         \'steps_tried' lists the rungs tried before that one, including any \
         \refused by a subcompartment veto. 'match.unitConversion' names the \
         \bridge that carried the amount onto the factor's basis: 'same_unit', \
