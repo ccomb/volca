@@ -590,8 +590,9 @@ description r = case r of
         \geography the source never declared, read off the dataset name \
         \(SimaPro writes 'Unspecified' in whole databases) or filled in by the \
         \loader; stored \
-        \amounts that disagree with the formulas documenting them \
-        \(mathematicalRelation, checked at parse time), distinct names \
+        \amounts that disagree with the formulas documenting them, and \
+        \formulas the engine could not evaluate (mathematicalRelation, \
+        \checked at parse time), distinct names \
         \that merge under SimaPro's 80-character truncation, exchanges \
         \without the pedigree scores their database otherwise carries, \
         \reference products nothing in the database consumes (expected for \

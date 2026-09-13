@@ -8,7 +8,8 @@ score can't reveal: processes without exactly one reference exchange,
 coproduct allocation that doesn't sum to 100%, entries duplicated outright,
 products two activities both declare,
 amounts that aren't finite, missing metadata, stored amounts that disagree
-with the formulas documenting them, distinct names that merge under
+with the formulas documenting them and formulas this reader cannot
+evaluate, distinct names that merge under
 SimaPro's 80-character truncation, exchanges without the pedigree scores
 their database otherwise carries, reference products nothing in the
 database consumes, inputs no reference product in the database supplies,
@@ -479,25 +480,29 @@ qualityReport dbName db =
     -- exports – allocation rescales amounts without updating the copied
     -- formulas – hence Info: the stored amounts stay authoritative, this only
     -- tells a maker where their own formulas and amounts drifted apart.
-    -- Datasets whose formulas merely could not be evaluated are not findings;
+    -- A formula the evaluator could not read is a finding too, at the same
+    -- severity: it costs no number, but it is the one place a dataset using
+    -- more of the format than this reader understands says so, and when none
+    -- of its formulas evaluated there is no divergence to carry the count.
     -- 'False' applicability means no dataset carried a formula at all.
     formulaApplicable = any (isJust . activityFormulaCheck) acts
     formulaOffenders =
-        [ offender InfoSev key act Nothing (formulaDetail fc)
+        [ offender InfoSev key act Nothing (T.intercalate "; " parts)
         | (key, act) <- entries
         , Just fc <- [activityFormulaCheck act]
-        , fcDivergent fc > 0
+        , let parts = formulaFindings fc
+        , not (null parts)
         ]
-    formulaDetail fc =
-        T.pack (show (fcDivergent fc))
+    formulaFindings :: FormulaCheck -> [Text]
+    formulaFindings fc =
+        [ T.pack (show (fcDivergent fc))
             <> " of "
             <> T.pack (show (fcEvaluated fc))
             <> " evaluable formula(s) disagree with the stored amount"
             <> maybe "" (\e -> " (e.g. " <> e <> ")") (fcExample fc)
-            <> ( if fcUnevaluable fc > 0
-                    then "; " <> T.pack (show (fcUnevaluable fc)) <> " more could not be evaluated"
-                    else ""
-               )
+        | fcDivergent fc > 0
+        ]
+            <> [T.pack (show (fcUnevaluable fc)) <> " formula(s) could not be evaluated" | fcUnevaluable fc > 0]
 
     -- Incomplete rather than wrong, hence Info – except a missing location or an
     -- unknown unit, which change how the entry links and converts.

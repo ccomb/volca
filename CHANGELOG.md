@@ -186,6 +186,13 @@
   wait. The files themselves are unchanged, to the byte.
 
 ### Fixed
+- The quality report's formula consistency check now lists an EcoSpold 2
+  dataset whose formulas could not be evaluated. The load already counted them,
+  but the report only showed that count beside formulas that disagreed with
+  their stored amount, so a dataset none of whose formulas could be read, and
+  where nothing could therefore disagree, looked the same as one whose formulas
+  all agree. Such a dataset now reads "7 formula(s) could not be evaluated", at
+  the same Info severity: the stored amounts are still the ones used.
 - A Brightway Excel exchange row that carries a formula now says so in the load
   log. The format lets a row state both an `amount` and the `formula` that
   produces it; the reader took the amount and never looked at the formula, so

@@ -464,14 +464,28 @@ spec = do
             let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 12, fcUnevaluable = 3, fcExample = Just "\"a*2\" evaluates to 5.0 but the dataset stores 4.0"}
                 check = qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc}))
             details check
-                `shouldBe` ["12 of 30 evaluable formula(s) disagree with the stored amount (e.g. \"a*2\" evaluates to 5.0 but the dataset stores 4.0); 3 more could not be evaluated"]
+                `shouldBe` ["12 of 30 evaluable formula(s) disagree with the stored amount (e.g. \"a*2\" evaluates to 5.0 but the dataset stores 4.0); 3 formula(s) could not be evaluated"]
             severities check `shouldBe` [InfoSev]
 
-        it "passes an activity whose formulas only failed to evaluate" $ do
+        -- Nothing evaluated, so nothing diverged: the count of what could not be
+        -- read is the only thing saying this dataset uses more of the format
+        -- than the evaluator reads.
+        it "flags an activity whose formulas only failed to evaluate" $ do
             let fc = FormulaCheck{fcEvaluated = 0, fcDivergent = 0, fcUnevaluable = 7, fcExample = Nothing}
                 check = qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc}))
-            qcOffenders check `shouldBe` []
+            details check `shouldBe` ["7 formula(s) could not be evaluated"]
+            severities check `shouldBe` [InfoSev]
             qcApplicable check `shouldBe` True
+
+        it "flags unevaluable formulas beside ones that all agree, without a divergence count" $ do
+            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 0, fcUnevaluable = 2, fcExample = Nothing}
+            details (qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc})))
+                `shouldBe` ["2 formula(s) could not be evaluated"]
+
+        it "passes an activity whose formulas all evaluate and agree" $ do
+            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 0, fcUnevaluable = 0, fcExample = Nothing}
+            qcOffenders (qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc})))
+                `shouldBe` []
 
         it "is not applicable to a database without any formula" $
             qcApplicable (qrFormulaConsistency (reportOf (mkActivity "bread" [reference breadFlow])))
