@@ -52,6 +52,8 @@ import Types (
     Activity (..),
     AllocationKey (..),
     BuildInputs (..),
+    ClassificationFilter (..),
+    ClassificationMatch (..),
     Database (..),
     Exchange (..),
     GeographyPolicy (..),
@@ -214,7 +216,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 deleteActivitiesInDB
                     manager
                     "edit-me"
-                    emptyDelete{drClassifications = [("category", "food", False)], drKeep = [foodA]}
+                    emptyDelete{drClassifications = [ClassificationFilter{clfSystem = "category", clfValue = "food", clfMatch = MatchContains}], drKeep = [foodA]}
             case r of
                 Left err -> expectationFailure ("deleteActivitiesInDB failed: " <> show err)
                 Right deleted -> do
@@ -234,7 +236,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 deleteActivitiesInDB
                     manager
                     "edit-me-2"
-                    emptyDelete{drClassifications = [("category", "food", False)], drKeep = ["not-a-real-process-id"]}
+                    emptyDelete{drClassifications = [ClassificationFilter{clfSystem = "category", clfValue = "food", clfMatch = MatchContains}], drKeep = ["not-a-real-process-id"]}
             case r of
                 Left _ -> pure ()
                 Right _ -> expectationFailure "expected unknown keep id to fail"
@@ -257,7 +259,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 deleteActivitiesInDB
                     manager
                     "base"
-                    emptyDelete{drClassifications = [("category", "food", False)]}
+                    emptyDelete{drClassifications = [ClassificationFilter{clfSystem = "category", clfValue = "food", clfMatch = MatchContains}]}
             case r of
                 Left err -> err `shouldSatisfy` isInfixOf "still required by"
                 Right _ -> expectationFailure "expected delete to be refused while a dependent is loaded"
@@ -288,7 +290,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 deleteActivitiesInDB
                     manager
                     "by-ids-2"
-                    emptyDelete{drIds = Just [foodA], drClassifications = [("category", "food", False)]}
+                    emptyDelete{drIds = Just [foodA], drClassifications = [ClassificationFilter{clfSystem = "category", clfValue = "food", clfMatch = MatchContains}]}
             case r of
                 Left err -> err `shouldSatisfy` isInfixOf "cannot be combined"
                 Right _ -> expectationFailure "expected ids+filter to be refused"

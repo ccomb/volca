@@ -110,6 +110,7 @@ import qualified Search.BM25 as BM25
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches)
 import Types (
     AllocationKey,
+    ClassificationFilter,
     Database (..),
     ProcessId,
     allocationKeyText,
@@ -878,7 +879,7 @@ filteredProcessIds ::
     Maybe Text -> -- name
     Maybe Text -> -- location
     Maybe Text -> -- product
-    [(Text, Text, Bool)] -> -- classification (system, value, isExact)
+    [ClassificationFilter] -> -- classification
     Bool -> -- exact name match
     [ProcessId]
 filteredProcessIds geographies db nameP geoP prodP classFilters exactMatch =
@@ -911,7 +912,7 @@ data DeleteRequest = DeleteRequest
     { drName :: Maybe Text
     , drLocation :: Maybe Text
     , drProduct :: Maybe Text
-    , drClassifications :: [(Text, Text, Bool)]
+    , drClassifications :: [ClassificationFilter]
     , drExactName :: Bool
     , drKeep :: [Text]
     , drExtra :: [Text]
