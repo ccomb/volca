@@ -1640,7 +1640,7 @@ spec = do
             length acts `shouldBe` 5
             S.size (S.fromList (map generateActivityUUID acts)) `shouldBe` 1
             S.fromList (map activityName acts) `shouldBe` S.singleton "Multi-coproduct refinery"
-            length (filter exchangeIsReference (concatMap exchanges acts)) `shouldBe` 5
+            length (concatMap (filter exchangeIsReference . exchanges) acts) `shouldBe` 5
 
         it "scales the shared input by each product's share, so the five columns restore 1 kg" $ do
             db <- loadMultiCoproductCSV
