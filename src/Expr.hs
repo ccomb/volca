@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Expression evaluator: arithmetic (+, -, *, \/, ^), variables, parentheses
@@ -7,21 +8,29 @@ One grammar reads them all, because they agree on everything an expression is
 made of. Where they disagree is at the edges, and a 'Dialect' says which set of
 edges a formula was written against: every entry point asks for one, so no
 formula is read in a language nobody chose for it.
+
+A formula is read into a 'Formula' first and given values second. The two steps
+fail for two reasons a reader acts on differently, text that is not a formula
+and a formula naming something without a value, and every such name is only
+known once the whole formula has been read.
 -}
 module Expr (
     Dialect (..),
+    Refusal (..),
     evaluate,
+    describeRefusal,
     normalizeExpr,
     isExpression,
     collectIdentifiers,
 ) where
 
 import Amount (readAmount)
-import Control.Monad (void, when)
+import Control.Monad (mfilter, when)
+import Data.Bifunctor (first)
 import Data.Char (isDigit)
 import Data.Either (isRight)
-import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
@@ -53,6 +62,34 @@ data Dialect
       Arithmetic
     deriving (Eq, Show)
 
+-- | Why a formula has no value.
+data Refusal
+    = {- | The text does not read as a formula: what the parser met and what it
+      expected, on one line.
+      -}
+      Unreadable Text
+    | {- | It reads, but these names have no value: each once, in the order the
+      formula uses them.
+      -}
+      Unresolved (NonEmpty Text)
+    deriving (Eq, Show)
+
+-- | A refusal as a reader is told it.
+describeRefusal :: Refusal -> Text
+describeRefusal = \case
+    Unreadable reason -> reason
+    Unresolved (name :| []) -> "unknown variable " <> name
+    Unresolved names -> "unknown variables " <> T.intercalate ", " (NE.toList names)
+
+{- | A formula as read, before any name in it is looked up. An operator is kept
+as the function it computes, since 'resolve' is the only reader of the tree.
+-}
+data Formula
+    = Literal Double
+    | Name Text
+    | Apply1 (Double -> Double) Formula
+    | Apply2 (Double -> Double -> Double) Formula Formula
+
 {- | Bring a formula to the one form the grammar reads.
 
 Cutting a comment off as text rather than skipping it in the lexer is what lets
@@ -73,21 +110,37 @@ EcoSpold 2 environment arrives folded already, and a scoring set writes its own
 variable names on both sides of the formula. Two names that differ only in case
 are therefore one name, and an environment stating both keeps one of them.
 -}
-evaluate :: Dialect -> M.Map Text Double -> Text -> Either String Double
-evaluate dialect env input =
-    let envCI = M.mapKeys T.toLower env
-     in case parse (sc *> pExpr envCI <* eof) "" (readable dialect input) of
-            Left err -> Left (refusalReason err)
-            Right val -> Right val
+evaluate :: Dialect -> M.Map Text Double -> Text -> Either Refusal Double
+evaluate dialect env input = do
+    formula <- readFormula dialect input
+    first (Unresolved . NE.nub) (resolve (M.mapKeys T.toLower env) formula)
+
+readFormula :: Dialect -> Text -> Either Refusal Formula
+readFormula dialect = first (Unreadable . refusalReason) . parse (sc *> pFormula <* eof) "" . readable dialect
+
+{- | The value of a formula, or every name in it without one. All of them rather
+than the first: a reader who fixes one would otherwise learn of the next only
+on the following load.
+-}
+resolve :: M.Map Text Double -> Formula -> Either (NonEmpty Text) Double
+resolve env = \case
+    Literal x -> Right x
+    Name name -> maybe (Left (name :| [])) Right (M.lookup (T.toLower name) env)
+    Apply1 f a -> f <$> resolve env a
+    Apply2 f a b -> case (resolve env a, resolve env b) of
+        (Right x, Right y) -> Right (f x y)
+        (Left missing, Right _) -> Left missing
+        (Right _, Left missing) -> Left missing
+        (Left missing, Left more) -> Left (missing <> more)
 
 {- | Why the parser refused a formula, on one line: what it met and what it
 expected. The position and the caret 'errorBundlePretty' draws are left out,
 since they point into the normalised text, which is not the one the file
 carries.
 -}
-refusalReason :: ParseErrorBundle Text Void -> String
+refusalReason :: ParseErrorBundle Text Void -> Text
 refusalReason bundle = case bundleErrors bundle of
-    err :| _ -> intercalate "; " (lines (parseErrorTextPretty err))
+    err :| _ -> T.intercalate "; " (T.lines (T.pack (parseErrorTextPretty err)))
 
 -- | Normalize expression text so decimal is always '.' and function arg separator is always ';'.
 normalizeExpr :: Char -> Text -> Text
@@ -105,31 +158,33 @@ lexeme = L.lexeme sc
 symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
--- | Precedence-climbing expression parser
-pExpr :: M.Map Text Double -> Parser Double
-pExpr = pAddSub
+-- | Precedence-climbing formula parser
+pFormula :: Parser Formula
+pFormula = pAddSub
 
-pAddSub :: M.Map Text Double -> Parser Double
-pAddSub env = pMulDiv env >>= go
+pAddSub :: Parser Formula
+pAddSub = pMulDiv >>= go
   where
+    go :: Formula -> Parser Formula
     go acc =
-        (symbol "+" *> pMulDiv env >>= go . (acc +))
-            <|> (symbol "-" *> pMulDiv env >>= go . (acc -))
+        (symbol "+" *> pMulDiv >>= go . Apply2 (+) acc)
+            <|> (symbol "-" *> pMulDiv >>= go . Apply2 (-) acc)
             <|> pure acc
 
-pMulDiv :: M.Map Text Double -> Parser Double
-pMulDiv env = pUnary env >>= go
+pMulDiv :: Parser Formula
+pMulDiv = pUnary >>= go
   where
+    go :: Formula -> Parser Formula
     go acc =
-        (symbol "*" *> pUnary env >>= go . (acc *))
-            <|> (symbol "/" *> pUnary env >>= go . (acc /))
+        (symbol "*" *> pUnary >>= go . Apply2 (*) acc)
+            <|> (symbol "/" *> pUnary >>= go . Apply2 (/) acc)
             <|> pure acc
 
-pUnary :: M.Map Text Double -> Parser Double
-pUnary env =
-    (symbol "-" *> (negate <$> pUnary env))
-        <|> (symbol "+" *> pUnary env)
-        <|> pPower env
+pUnary :: Parser Formula
+pUnary =
+    (symbol "-" *> (Apply1 negate <$> pUnary))
+        <|> (symbol "+" *> pUnary)
+        <|> pPower
 
 {- | Exponentiation, right-associative and binding tighter than @*@ and @/@.
 
@@ -138,18 +193,18 @@ may carry a sign. SimaPro writes scale factors that way – @1*10^-3*50@ – and
 without it the @-@ met 'pPrimary', which knows numbers but not signs, and the
 whole expression failed.
 -}
-pPower :: M.Map Text Double -> Parser Double
-pPower env = do
-    base <- pPrimary env
-    (symbol "^" *> ((base **) <$> pUnary env)) <|> pure base
+pPower :: Parser Formula
+pPower = do
+    base <- pPrimary
+    (symbol "^" *> (Apply2 (**) base <$> pUnary)) <|> pure base
 
-pPrimary :: M.Map Text Double -> Parser Double
-pPrimary env =
+pPrimary :: Parser Formula
+pPrimary =
     choice
-        [ between (symbol "(") (symbol ")") (pExpr env)
-        , pFunc env
-        , pNumber
-        , pVariable env
+        [ between (symbol "(") (symbol ")") pFormula
+        , pCall
+        , Literal <$> pNumber
+        , Name <$> pIdentTok
         ]
 
 {- | A numeric literal, tokenized here and read by 'readAmount'.
@@ -187,58 +242,59 @@ pNumberToken = try $ do
         digits <- takeWhile1P (Just "digit") isDigit
         pure (T.cons marker (sign <> digits))
 
--- | Look up a variable in the pre-lowercased env. Case-insensitive by construction.
-pVariable :: M.Map Text Double -> Parser Double
-pVariable env = do
-    name <- lexeme $ T.pack <$> ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_'))
-    case M.lookup (T.toLower name) env of
-        Just val -> pure val
-        Nothing -> fail $ "unknown variable " ++ T.unpack name
+-- | The functions the grammar knows, by the name a formula calls them with.
+functions1 :: [(Text, Double -> Double)]
+functions1 = [("abs", abs), ("sqrt", sqrt), ("log", log), ("exp", exp), ("ln", log)]
 
-pFunc :: M.Map Text Double -> Parser Double
-pFunc env =
-    choice
-        [ pFunc1 "abs" abs env
-        , pFunc1 "sqrt" sqrt env
-        , pFunc1 "log" log env
-        , pFunc1 "exp" exp env
-        , pFunc1 "ln" log env
-        , pFunc2 "min" min env
-        , pFunc2 "max" max env
-        ]
+functions2 :: [(Text, Double -> Double -> Double)]
+functions2 = [("min", min), ("max", max)]
 
-pFunc1 :: Text -> (Double -> Double) -> M.Map Text Double -> Parser Double
-pFunc1 name f env = try $ lexeme (string name) *> between (symbol "(") (symbol ")") (f <$> pExpr env)
+functionNames :: [Text]
+functionNames = map fst functions1 <> map fst functions2
 
-pFunc2 :: Text -> (Double -> Double -> Double) -> M.Map Text Double -> Parser Double
-pFunc2 name f env = try $ do
+{- | A function applied to its arguments.
+
+A name directly followed by an opening parenthesis is a call even when no
+function goes by that name, and it is refused by that name: read as a variable
+instead, the refusal would land on the parenthesis and never say which function
+was missing.
+-}
+pCall :: Parser Formula
+pCall = choice (map (uncurry pCall1) functions1 <> map (uncurry pCall2) functions2 <> [pUnknownCall])
+
+pCall1 :: Text -> (Double -> Double) -> Parser Formula
+pCall1 name f = try $ lexeme (string name) *> between (symbol "(") (symbol ")") (Apply1 f <$> pFormula)
+
+pCall2 :: Text -> (Double -> Double -> Double) -> Parser Formula
+pCall2 name f = try $ do
     _ <- lexeme (string name)
     _ <- symbol "("
-    x <- pExpr env
+    x <- pFormula
     _ <- symbol ";"
-    y <- pExpr env
+    y <- pFormula
     _ <- symbol ")"
-    pure (f x y)
+    pure (Apply2 f x y)
 
-{- | Check if text is syntactically a valid expression (number, variable, or formula).
-Does NOT evaluate – accepts any variable name without needing an environment.
+pUnknownCall :: Parser Formula
+pUnknownCall = do
+    name <- try (mfilter (`notElem` functionNames) pIdentTok <* lookAhead (symbol "("))
+    fail ("unknown function " <> T.unpack name)
+
+{- | Whether the text reads as a formula, whatever the names in it.
 Used to detect allocation fields vs waste type descriptions in SimaPro CSV.
 -}
 isExpression :: Dialect -> Text -> Bool
-isExpression dialect input =
-    isRight $ parse (sc *> pSynExpr <* eof) "" (readable dialect input)
+isExpression dialect = isRight . readFormula dialect
 
 {- | Collect all variable identifiers referenced in an expression.
-Built-in function names (abs, sqrt, log, exp, ln, min, max) are excluded.
+Built-in function names are excluded.
 Returns the empty list if the expression cannot be tokenized.
 -}
 collectIdentifiers :: Dialect -> Text -> [Text]
 collectIdentifiers dialect input =
     case parse (sc *> pCollect <* eof) "" (readable dialect input) of
-        Right names -> filter (`notElem` reservedFuncs) names
+        Right names -> filter (`notElem` functionNames) names
         Left _ -> []
-  where
-    reservedFuncs = ["abs", "sqrt", "log", "exp", "ln", "min", "max"]
 
 pCollect :: Parser [Text]
 pCollect = catMaybes <$> many pToken
@@ -252,53 +308,3 @@ pToken =
 
 pIdentTok :: Parser Text
 pIdentTok = lexeme (T.pack <$> ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_')))
-
--- Syntax-only parsers: mirror pExpr structure but discard values, accept any identifier
-pSynExpr :: Parser ()
-pSynExpr = pSynAddSub
-
-pSynAddSub :: Parser ()
-pSynAddSub = pSynMulDiv >> go
-  where
-    go = (symbol "+" *> pSynMulDiv >> go) <|> (symbol "-" *> pSynMulDiv >> go) <|> pure ()
-
-pSynMulDiv :: Parser ()
-pSynMulDiv = pSynUnary >> go
-  where
-    go = (symbol "*" *> pSynUnary >> go) <|> (symbol "/" *> pSynUnary >> go) <|> pure ()
-
-pSynUnary :: Parser ()
-pSynUnary = (symbol "-" *> pSynUnary) <|> (symbol "+" *> pSynUnary) <|> pSynPower
-
-pSynPower :: Parser ()
-pSynPower = pSynPrimary >> ((symbol "^" *> pSynUnary) <|> pure ())
-
-pSynPrimary :: Parser ()
-pSynPrimary =
-    choice
-        [ between (symbol "(") (symbol ")") pSynExpr
-        , pSynFunc
-        , void pNumber
-        , pSynIdent
-        ]
-
-pSynIdent :: Parser ()
-pSynIdent = void (lexeme ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_')))
-
-pSynFunc :: Parser ()
-pSynFunc =
-    choice
-        [ pSynFunc1 "abs"
-        , pSynFunc1 "sqrt"
-        , pSynFunc1 "log"
-        , pSynFunc1 "exp"
-        , pSynFunc1 "ln"
-        , pSynFunc2 "min"
-        , pSynFunc2 "max"
-        ]
-
-pSynFunc1 :: Text -> Parser ()
-pSynFunc1 name = try $ lexeme (string name) *> between (symbol "(") (symbol ")") pSynExpr
-
-pSynFunc2 :: Text -> Parser ()
-pSynFunc2 name = try $ void (lexeme (string name) *> symbol "(" *> pSynExpr *> symbol ";" *> pSynExpr *> symbol ")")

@@ -266,7 +266,7 @@ computeFormulaScores ss rawScores = do
                             "Score '"
                                 <> T.unpack scoreName
                                 <> "': "
-                                <> err
+                                <> T.unpack (Expr.describeRefusal err)
                     Right val -> Right val
             )
             (ssScores ss)
@@ -293,7 +293,7 @@ resolveComputed env formulas = foldl step (Right env) sorted
                     "Computed variable '"
                         <> T.unpack varName
                         <> "': "
-                        <> err
+                        <> T.unpack (Expr.describeRefusal err)
             Right val -> Right $ M.insert varName val currentEnv
 
 {- | Compartment normalization map.
