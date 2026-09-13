@@ -20,9 +20,9 @@ import qualified Types as VT
 mkUUID :: Integer -> UUID
 mkUUID n = UUID.fromWords64 (fromIntegral n) 0
 
--- A resource CF (the generic per-MJ fossil-resource-use factor).
-resourceCF :: Text -> Double -> MethodCF
-resourceCF name val =
+-- A method line for an extracted resource, written per `unit`.
+resourceCFIn :: Text -> Text -> Double -> MethodCF
+resourceCFIn unit name val =
     MethodCF
         { mcfFlowRef = mkUUID 1
         , mcfFlowName = name
@@ -30,12 +30,16 @@ resourceCF name val =
         , mcfValue = val
         , mcfCompartment = Just (Compartment "resource" "" "")
         , mcfCAS = Nothing
-        , mcfUnit = "MJ"
+        , mcfUnit = unit
         , mcfConsumerLocation = Nothing
         }
 
-mkFlow :: Integer -> Text -> BiosphereFlow
-mkFlow i name =
+-- The common case: a price per unit of energy.
+resourceCF :: Text -> Double -> MethodCF
+resourceCF = resourceCFIn "MJ"
+
+mkFlowIn :: Medium -> Integer -> Text -> BiosphereFlow
+mkFlowIn medium i name =
     BiosphereFlow
         { bfId = mkUUID i
         , bfName = name
@@ -43,41 +47,47 @@ mkFlow i name =
         , bfSynonyms = M.empty
         , bfCAS = Nothing
         , bfSubstanceId = Nothing
-        , bfCompartment = Just (VT.Compartment NaturalResource Nothing)
+        , bfCompartment = Just (VT.Compartment medium Nothing)
         }
 
--- Tables where "Coal, hard" carries the generic resource CF (1 per MJ), and the
--- engine knows coal is an energy resource (an energy_density entry).
+mkFlow :: Integer -> Text -> BiosphereFlow
+mkFlow = mkFlowIn NaturalResource
+
+tablesOf :: EnergyDensityMap -> [MethodCF] -> MethodTables
+tablesOf eds cfs =
+    buildMethodTables OtherCFFamily M.empty eds [(cf, Just (mkFlow 1 (mcfFlowName cf), ByName)) | cf <- cfs]
+
+-- Tables where the method prices a unit of energy, the way both the JRC's own
+-- fossil method and its SimaPro adaptation do.
 coalTables :: EnergyDensityMap -> MethodTables
-coalTables eds =
-    buildMethodTables OtherCFFamily M.empty eds [(resourceCF "Coal, hard" 1.0, Just (mkFlow 1 "Coal, hard", ByName))]
+coalTables eds = tablesOf eds [resourceCF "Coal, hard" 1.0]
 
 coalDensity :: EnergyDensityMap
 coalDensity = M.singleton (normalizeName "Coal, hard") (EnergyDensity 18.01 "MJ" "kg")
 
--- Two coal-family resources with DISAGREEING generic CFs, both known to the
--- engine: the family factor is ambiguous, so the fallback must not guess.
-disagreeingCoalTables :: MethodTables
-disagreeingCoalTables =
-    buildMethodTables
-        OtherCFFamily
+-- Two energy lines that do not agree: the method has been asked what a unit of
+-- energy costs and has not answered, so nothing is lent.
+disagreeingTables :: MethodTables
+disagreeingTables =
+    tablesOf
         M.empty
-        ( M.fromList
-            [ (normalizeName "Coal, hard", EnergyDensity 18 "MJ" "kg")
-            , (normalizeName "Coal, brown", EnergyDensity 8 "MJ" "kg")
-            ]
-        )
-        [ (resourceCF "Coal, hard" 1.0, Just (mkFlow 1 "Coal, hard", ByName))
-        , (resourceCF "Coal, brown" 2.0, Just (mkFlow 2 "Coal, brown", ByName))
-        , -- A bare base-element CF too: the ore-grade base-name fallback must
-          -- not grab it for a density variant the family refusal just dropped.
-          (resourceCF "Coal" 5.0, Just (mkFlow 3 "Coal", ByName))
+        [ resourceCF "Coal, hard" 1.0
+        , resourceCF "Coal, brown" 2.0
         ]
 
--- Borrowed raw CF (the density is applied later by convertAndMultiply).
+{- | A method that prices its energy carriers by the mass, as the SimaPro EF 3.1
+adaptation prices uranium: 560 GJ in a kilo of metal. A kilo of ore holds 1.11,
+so this factor belongs to that substance and to no other.
+-}
+byTheMassTables :: MethodTables
+byTheMassTables = tablesOf M.empty [resourceCFIn "kg" "Uranium" 560000.0]
+
+borrowedBy :: MethodTables -> Text -> Maybe Double
+borrowedBy tables flowName =
+    fmap cfValue (lookupCFForFlow tables (mkUUID 99) (Just (mkFlow 99 flowName)))
+
 borrowFor :: EnergyDensityMap -> Text -> Maybe Double
-borrowFor eds flowName =
-    fmap cfValue (lookupCFForFlow (coalTables eds) (mkUUID 99) (Just (mkFlow 99 flowName)))
+borrowFor eds = borrowedBy (coalTables eds)
 
 spec :: Spec
 spec = do
@@ -93,15 +103,19 @@ spec = do
         it "ignores a name with no 'per'" $
             parseEnergyDensitySuffix "Methane, fossil" `shouldBe` Nothing
 
-    describe "energy-resource CF fallback in the score lookup" $ do
-        it "borrows the resource-family CF for an energy-density variant" $
+    describe "what a density-suffixed flow is lent" $ do
+        it "is the method's price for a unit of energy" $
             borrowFor coalDensity "Coal, 18 MJ per kg" `shouldBe` Just 1.0
-        it "borrows it for the higher-energy variant too (density differs, CF is the family's)" $
+        it "is that same price whatever the name's density (which is applied downstream)" $
             borrowFor coalDensity "Coal, 29.3 MJ per kg" `shouldBe` Just 1.0
-        it "does NOT borrow when the resource family is unknown to the engine" $
-            borrowFor M.empty "Coal, 18 MJ per kg" `shouldBe` Nothing
-        it "does NOT borrow when same-family CFs disagree (ambiguous, never guesses)" $
-            fmap cfValue (lookupCFForFlow disagreeingCoalTables (mkUUID 99) (Just (mkFlow 99 "Coal, 18 MJ per kg")))
-                `shouldBe` Nothing
-        it "does NOT fill a non-energy name" $
+        it "is lent without the engine knowing a density for that resource: the name states one" $
+            borrowFor M.empty "Coal, 18 MJ per kg" `shouldBe` Just 1.0
+        it "is nothing when the method's energy lines disagree" $
+            borrowedBy disagreeingTables "Coal, 18 MJ per kg" `shouldBe` Nothing
+        it "is nothing when the method prices its carriers by the mass, not by the energy" $
+            borrowedBy byTheMassTables "Uranium ore, 1.11 GJ per kg" `shouldBe` Nothing
+        it "is nothing for a name that states no energy content" $
             borrowFor coalDensity "Water, per capita" `shouldBe` Nothing
+        it "is nothing for an emission: only an extracted carrier is one" $
+            fmap cfValue (lookupCFForFlow (coalTables coalDensity) (mkUUID 98) (Just (mkFlowIn Air 98 "Coal, 18 MJ per kg")))
+                `shouldBe` Nothing

@@ -25,7 +25,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Matrix (Demand (..), DepDemands, accumulateDepDemands, depDemandsToVector)
-import Method.Mapping (CF (..), CFUnit (..), FlowContribution (..), MethodTables (..), inventoryContributions)
+import Method.Mapping (CF (..), CFUnit (..), EnergyPrice (..), FlowContribution (..), MethodTables (..), inventoryContributions)
 import qualified Method.Mapping as Mapping
 import Method.Types (CFFamily (..), FlowDirection (..), MethodCF (..))
 import SharedSolver (
@@ -226,6 +226,7 @@ spec = do
                     , mtCFFamily = OtherCFFamily
                     , mtSeaWaterCFs = Mapping.MethodSilentOnSeaWater
                     , mtCompartmentMap = M.empty
+                    , mtEnergyPrice = NoEnergyLines
                     , mtEnergyDensities = M.empty
                     , mtResolution = M.empty
                     , mtJudged = S.empty

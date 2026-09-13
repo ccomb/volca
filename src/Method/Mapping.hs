@@ -33,6 +33,8 @@ module Method.Mapping (
     cfFamily,
     SeaWaterCFs (..),
     MethodTables (..),
+    EnergyPrice (..),
+    energyPriceOf,
     MethodIndex (..),
     LCIAOutcome (..),
     UncharacterizedFlow (..),
@@ -860,6 +862,17 @@ data MethodTables = MethodTables
     compartments at query time, so both sides converge to the same
     canonical form. Empty map = identity, no normalization.
     -}
+    , mtEnergyPrice :: !EnergyPrice
+    {- ^ What this method charges for one unit of energy. The JRC's fossil
+    method is six lines, all @1@ per MJ; the SimaPro adaptation of the same
+    method writes six @"Energy, from …"@ lines, also all @1@ per MJ.
+
+    It is the whole of what a density-suffixed flow needs: its name states its
+    energy content, the method states what a unit of energy costs, and the
+    bridge multiplies the two. Nothing is matched by name, which is what keeps
+    @"Uranium ore, 1.11 GJ per kg"@ from being served the factor of uranium
+    metal on the strength of a shared first word.
+    -}
     , mtEnergyDensities :: !EnergyDensityMap
     {- ^ Normalized flow name → physical content per native flow unit (a
     calorific value in MJ/kg, a mass density in m³/kg). Lets a CF denominated
@@ -1389,6 +1402,46 @@ cfMediumSub cmap cf = do
     medium <- mediumKey normMedRaw
     pure (Just medium, Subcompartment normSub)
 
+{- | Whether a method says what one unit of energy costs, and what it costs.
+
+The three cases are kept apart because they are three different answers to a
+flow that asks: a method that prices no energy at all is silent, one whose
+energy lines disagree has been asked and could not answer, and only the third
+lends anything. Collapsing the first two would report a disagreement as an
+absence.
+-}
+data EnergyPrice
+    = -- | No line of this method is written per unit of energy.
+      NoEnergyLines
+    | -- | Several are, and they do not agree – so the method has not said.
+      EnergyLinesDisagree
+    | -- | The price every such line agrees on.
+      EnergyPriced !TableEntry
+    deriving (Eq, Show)
+
+{- | What the method charges for one unit of energy: the value its lines written
+in a joule unit agree on ('mtEnergyPrice').
+
+Agreement decides, as everywhere else a value is taken from more than one line:
+picking one of two disagreeing lines would be a guess. The unit is read
+literally ('isEnergyUnit'), so a table carrying the expression its results are
+written in rather than the quantity its factors are written per (@"MJ, net
+calorific value"@) states no price and gets none.
+-}
+energyPriceOf :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> EnergyPrice
+energyPriceOf mappings = case priced of
+    [] -> NoEnergyLines
+    e : rest
+        | all ((== teCF e) . teCF) rest -> EnergyPriced e
+        | otherwise -> EnergyLinesDisagree
+  where
+    priced :: [TableEntry]
+    priced =
+        [ TableEntry (CF (mcfValue cf) (CFUnit (mcfUnit cf))) (BuildProvenance (snd <$> mflow) cf)
+        | (cf, mflow) <- mappings
+        , isEnergyUnit (mcfUnit cf)
+        ]
+
 buildMethodTables :: CFFamily -> CompartmentMap -> EnergyDensityMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> MethodTables
 buildMethodTables methodFamily cmap energyDensities mappings =
     MethodTables
@@ -1580,6 +1633,7 @@ buildMethodTables methodFamily cmap energyDensities mappings =
         , mtCFFamily = methodFamily
         , mtSeaWaterCFs = seaWaterCFs
         , mtCompartmentMap = cmap
+        , mtEnergyPrice = energyPriceOf mappings
         , mtEnergyDensities = energyDensities
         , mtResolution = M.empty -- filled alongside 'mtBroadcast'
         , mtJudged = S.empty -- filled alongside 'mtBroadcast'
@@ -2487,34 +2541,26 @@ cascadeTrail tables flowDB fid =
              in M.lookup (bname, baseMed, normSub) (mtExactCF tables)
                     <|> M.lookup (bname, baseMed) (mtFallbackCF tables)
 
-        -- An energy-resource flow whose name encodes its density ("Coal, 18 MJ per
-        -- kg") borrows the CF of its resource family (coal/oil/gas/uranium…) – the
-        -- generic per-MJ resource CF. The density itself is applied downstream by
-        -- 'convertAndMultiply', which name-parses the same suffix, so here we only
-        -- return the base CF. The resource family is resolved through the known
-        -- energy resources ('mtEnergyDensities'), so an unknown resource never
-        -- borrows a CF.
+        -- An extracted energy carrier whose name states its content ("Coal, 18 MJ
+        -- per kg", "Uranium ore, 1.11 GJ per kg") is characterized by what the
+        -- method charges for a unit of energy ('mtEnergyPrice'), and the content
+        -- its own name states carries it there: 'convertAndMultiply' name-parses
+        -- the same suffix downstream, so only the price is returned here.
         --
-        -- Borrow only when the family's resolving CFs agree (the generic
-        -- per-MJ factor). If "Coal, hard" and "Coal, brown" disagree the
-        -- family CF is ambiguous ('RungAmbiguous'), so drop rather than pick
-        -- one arbitrarily by Map order – same "never guess" rule as
-        -- 'agreedValue'.
-        energyOutcome = case parseEnergyDensitySuffix (bfName flow) of
-            Nothing -> RungNotApplicable
-            Just (base, _) ->
-                let fam = firstWord (normalizeName base)
-                    candidates =
-                        [ cf
-                        | rname <- M.keys (mtEnergyDensities tables)
-                        , firstWord rname == fam
-                        , Just cf <- [resourceCF (SR.NormName rname)]
-                        ]
-                 in case candidates of
-                        [] -> RungMiss
-                        e : rest
-                            | all ((== teCF e) . teCF) rest -> RungHit e
-                            | otherwise -> RungAmbiguous
+        -- Nothing is matched by name. An earlier rule read the family off the
+        -- first word and handed over that family's factor whatever it was written
+        -- per, which served "Uranium ore" the factor of uranium metal – 560 000 MJ
+        -- per kg against the 1 110 its name states, a flow scored five hundred
+        -- times over. A price is the only thing a method can lend a substance it
+        -- never names, because it is the one number that does not depend on which
+        -- substance is being priced.
+        energyOutcome
+            | baseMed /= Just NaturalResource = RungNotApplicable
+            | isNothing (parseEnergyDensitySuffix (bfName flow)) = RungNotApplicable
+            | otherwise = case mtEnergyPrice tables of
+                NoEnergyLines -> RungMiss
+                EnergyLinesDisagree -> RungAmbiguous
+                EnergyPriced e -> RungHit e
 
         resourceCF rname =
             M.lookup (rname, baseMed, normSub) (mtExactCF tables)
@@ -2540,8 +2586,6 @@ cascadeTrail tables flowDB fid =
             , not (T.null rest) =
                 plain (resourceCF (SR.NormName (normalizeName base)))
             | otherwise = RungNotApplicable
-
-        firstWord = T.takeWhile (/= ' ') . T.strip
 
 {- | The first rung that answers, and with what – the score path's view of
 'cascadeTrail'.
