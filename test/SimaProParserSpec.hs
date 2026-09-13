@@ -653,6 +653,12 @@ spec = do
         it "rejects unknown variables" $ do
             Expr.evaluate SimaPro M.empty "xyz" `shouldSatisfy` isLeft
 
+        -- A quality finding quotes the reason beside the formula, on one line.
+        it "says on one line why it refused a formula" $ do
+            Expr.evaluate Arithmetic M.empty "missing_var * 2" `shouldBe` Left "unknown variable missing_var"
+            Expr.evaluate Arithmetic (M.fromList [("a", 1)]) "a > 2"
+                `shouldBe` Left "unexpected '>'; expecting '*', '+', '-', '/', '^', or end of input"
+
         -- Regression: SimaPro exports drop the integer part of a decimal, and
         -- Agribalyse sums a pesticide mix in place – "0,45+0,247+,067". The
         -- last term made the whole expression unparseable, and the amount

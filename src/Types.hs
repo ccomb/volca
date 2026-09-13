@@ -741,7 +741,7 @@ data FormulaCheck = FormulaCheck
     , fcDivergentExample :: !(Maybe Text)
     -- ^ One divergent example, pre-rendered for display
     , fcUnevaluableExample :: !(Maybe Text)
-    -- ^ One formula that could not be evaluated, as the dataset writes it
+    -- ^ One formula that could not be evaluated and why, pre-rendered for display
     }
     deriving (Generic, NFData, Store)
 

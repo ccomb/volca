@@ -8,6 +8,7 @@ import qualified Data.Map as M
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -258,7 +259,7 @@ spec = describe "per-exchange comments" $ do
                         fcDivergent fc `shouldBe` 1
                         fcUnevaluable fc `shouldBe` 1
                         fcDivergentExample fc `shouldBe` Just "\"fuel_input * 2 + production\" evaluates to 5.0 but the dataset stores 4.0"
-                        fcUnevaluableExample fc `shouldBe` Just "missing_var * 2"
+                        fcUnevaluableExample fc `shouldBe` Just "\"missing_var * 2\": unknown variable missing_var"
 
         -- A variable two declarations claim with two amounts names no value.
         -- Binding whichever was read last would make the check answer on a coin
@@ -280,6 +281,16 @@ spec = describe "per-exchange comments" $ do
                         fcUnevaluable fc `shouldBe` 3
                         fcEvaluated fc `shouldBe` 1
                         fcDivergent fc `shouldBe` 0
+                        -- The evaluator alone would call "shared" unknown;
+                        -- the file declares it, twice.
+                        fcUnevaluableExample fc `shouldBe` Just "\"shared\": different amounts declared for shared"
+
+        -- Two <parameter> declarations are struck before the check runs, so the
+        -- check has to be told which names they were.
+        it "says a parameter declared twice is why its formula could not be judged" $
+            withDataset (TE.encodeUtf8 (T.replace "mathematicalRelation=\"shared\"" "" (TE.decodeUtf8 twiceDeclaredXml))) $ \ParsedDataset{pdActivity = act} ->
+                fmap fcUnevaluableExample (activityFormulaCheck act)
+                    `shouldBe` Just (Just "\"twice\": different amounts declared for twice")
 
         -- A <parameter> and an exchange variableName share one space of names.
         -- Letting the parameter win would report a divergence against an amount
@@ -937,9 +948,12 @@ twiceDeclaredXml =
     \</ecoSpold>\n"
 
 withTwiceDeclaredFixture :: (ParsedDataset -> IO ()) -> IO ()
-withTwiceDeclaredFixture k = withSystemTempDirectory "es2-twice" $ \dir -> do
+withTwiceDeclaredFixture = withDataset twiceDeclaredXml
+
+withDataset :: BS.ByteString -> (ParsedDataset -> IO ()) -> IO ()
+withDataset xml k = withSystemTempDirectory "es2-dataset" $ \dir -> do
     let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
-    BS.writeFile path twiceDeclaredXml
+    BS.writeFile path xml
     result <- streamParseActivityAndFlowsFromFile path
     case result of
         Left err -> expectationFailure $ "Parse failed: " ++ err
