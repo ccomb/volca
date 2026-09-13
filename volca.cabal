@@ -308,6 +308,7 @@ test-suite lca-tests
                      , MCPDispatchSpec
                      , MCPStreamSpec
                      , BatchImpactsSpec
+                     , FlowContributionSpec
                      , MCPEnrichSpec
                      , MCPColumnarSpec
                      , NormalizeSpec

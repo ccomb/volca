@@ -47,7 +47,7 @@ import qualified GHC.Stats
 import qualified Impact
 import Matrix (Inventory, Vector)
 import qualified Method.Explain as Explain
-import Method.Mapping (BuildProvenance (..), CF (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), applyLongTermMode, characterizedFlowIds, computeLCIAScoreFromTables, computeLCIAScoreSetFromTables, computeMappingStats, inventoryContributions, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
+import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), applyLongTermMode, characterizedFlowIds, computeLCIAScoreFromTables, computeLCIAScoreSetFromTables, computeMappingStats, inventoryContributions, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
 import Method.Types (DamageCategory (..), Method (..), MethodCF (..), MethodCollection (..), NormWeightSet (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
 import qualified Method.Types as MT
@@ -736,7 +736,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
     buildResult unitCfg mFlows mUnits inventory tables stats score = do
         let functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
             (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
-            contribs = sortOn (\(_, _, c) -> negate (abs c)) rawContribs
+            contribs = sortOn (negate . abs . fcContribution) rawContribs
             topContribs = take topFlows contribs
             topContributors =
                 [ FlowContributionEntry
@@ -749,7 +749,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
                     , fcoCfValue = cfVal
                     , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
                     }
-                | (f, cfVal, c) <- topContribs
+                | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- topContribs
                 ]
         unless (null unknownUuids) $
             reportProgress Warning $
@@ -833,7 +833,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                     tables <- DM.mapMethodToTablesCached dbManager dbName collectionName db method
                     let (rawContribs, _unknownUuids) =
                             inventoryContributions unitCfg mUnits mFlows inventory tables
-                        sorted = sortOn (\(_, _, c) -> negate (abs c)) rawContribs
+                        sorted = sortOn (negate . abs . fcContribution) rawContribs
                         top = take topFlows sorted
                     pure
                         [ FlowContributionEntry
@@ -846,7 +846,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                             , fcoCfValue = cfVal
                             , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
                             }
-                        | (f, cfVal, c) <- top
+                        | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- top
                         ]
             pure $
                 enrichWithNW dcLookup mNW $
@@ -1907,7 +1907,7 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
         let score = loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables)
             (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
-            contribs = sortOn (\(_, _, c) -> negate (abs c)) rawContribs
+            contribs = sortOn (negate . abs . fcContribution) rawContribs
             topFlows =
                 [ FlowContributionEntry
                     { fcoFlowName = bfName f
@@ -1919,7 +1919,7 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
                     , fcoCfValue = cfVal
                     , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
                     }
-                | (f, cfVal, c) <- take lim contribs
+                | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- take lim contribs
                 ]
         liftIO $
             unless (null unknownUuids) $
