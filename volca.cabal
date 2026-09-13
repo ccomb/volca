@@ -345,6 +345,7 @@ test-suite lca-tests
                      , ScoringKeySpec
                      , NumericEdgesSpec
                      , AggregateSpec
+                     , ClassificationFilterSpec
                      , CopySpec
                      , DeriveSpec
                      , SourceBlockSpec
