@@ -230,7 +230,7 @@ several names into one element separated by @;@, double-encodes entities
 (@&amp;#039;@, @&amp;lt;@), and sometimes glues two names with the spaced literal
 label @" othernames "@ in place of a @;@. Fully decode first
 ('decodeXmlEntitiesFull') so an entity's own @;@ is not mistaken for a separator,
-then split on @;@ and on the word-bounded @" othernames "@ pseudo-delimiter — the
+then split on @;@ and on the word-bounded @" othernames "@ pseudo-delimiter – the
 surrounding spaces keep a name that merely contains the substring intact.
 -}
 splitIlcdSynonyms :: Text -> [Text]

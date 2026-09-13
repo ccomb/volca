@@ -122,7 +122,7 @@ host = "127.0.0.1"
 # name = "EF-3.1"
 # path = "DBs/EF-v3.1.zip"
 
-# "Plain indicators" — a small, license-clean method that counts raw physical
+# "Plain indicators" – a small, license-clean method that counts raw physical
 # quantities through the supply chain (land occupied, water used, fossil CO2,
 # methane, primary energy, waste heat, cadmium), each an LCIA category whose
 # factors are all 1.0. Rule-derived, not copied from any licensed workbook, so it
@@ -164,7 +164,7 @@ description = "Raw physical quantities counted through the supply chain (CF=1.0)
 #   filters                  List of { system, value, mode } classification pairs (mode: "exact" or "contains")
 #                            AND across different systems, OR within same system
 
-# Example preset for Agribalyse — uncomment to activate:
+# Example preset for Agribalyse – uncomment to activate:
 #
 # [[classification-presets]]
 # name = "transformed"

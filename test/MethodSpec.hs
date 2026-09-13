@@ -118,14 +118,14 @@ spec = do
                 lookupSynonymGroup db "co2" `shouldNotBe` Nothing
                 lookupSynonymGroup db "ch4" `shouldNotBe` Nothing
 
-            it "does not pollute unrelated pairs — CO2 and CH4 are in separate groups" $ do
+            it "does not pollute unrelated pairs – CO2 and CH4 are in separate groups" $ do
                 let db = buildFromPairs [("CO2", "Carbon dioxide"), ("CH4", "Methane")]
                 lookupSynonymGroup db "co2" `shouldNotBe` lookupSynonymGroup db "ch4"
 
             it "closes a high-degree hub into one class instead of silently dropping it" $ do
                 -- A hub paired with 51 names closes into a single 52-member class.
                 -- The old star topology silently dropped such hubs; the registry
-                -- takes the honest closure — bad hub data surfaces as an oversized
+                -- takes the honest closure – bad hub data surfaces as an oversized
                 -- class in validation, and genuinely-broader relations belong in the
                 -- typed-edge layer, not as SameAs.
                 let pairs = map (("hub",) . T.pack . show) [1 .. 51 :: Int]
@@ -735,7 +735,7 @@ spec = do
 
         it "drops a factor whose value cell is not a clean number" $ do
             -- "NaN" would poison every score it touches; "1,23" once imported
-            -- as 1.0 (the parser stopped at the comma) — a silently truncated
+            -- as 1.0 (the parser stopped at the comma) – a silently truncated
             -- value. Both must be dropped, never imported as something else.
             let csv =
                     BC.unlines
@@ -982,11 +982,11 @@ spec = do
         it "keeps region-suffixed water CFs name-regionalized (no consumer-location)" $ do
             -- A SimaPro AWARE water flow carries its region in the flow name
             -- ("…, CH"): each region is a distinct elementary flow with its own
-            -- CF, matched by name/UUID — NOT consumer-location regionalized.
+            -- CF, matched by name/UUID – NOT consumer-location regionalized.
             -- Extracting the suffix into 'mcfConsumerLocation' routed the flow
             -- through the activity-location dispatch, which fell back to the
             -- region-less default (42.95) for every region instead of CH's 1.34
-            -- — a ~54x water over-count on hydro-heavy supply chains.
+            -- – a ~54x water over-count on hydro-heavy supply chains.
             let csv =
                     BC.pack $
                         unlines

@@ -65,7 +65,7 @@ only where the text is afterwards split on @;@ (ILCD synonyms).
 -- @&amp;@ is resolved LAST (leftmost in the composition runs last), the exact
 -- inverse of the writers escaping @&@ FIRST. Resolving it first would turn an
 -- escaped literal @"&lt;"@ (written as @"&amp;lt;"@) back into @"<"@ instead of
--- @"&lt;"@ — a silent round-trip corruption for entity-like text.
+-- @"&lt;"@ – a silent round-trip corruption for entity-like text.
 decodeXmlEntities :: Text -> Text
 decodeXmlEntities =
     T.replace "&amp;" "&"
@@ -82,7 +82,7 @@ iterating to a fixed point. The ILCD flow data double-encodes entities
 @&#039;@ / @&lt;@, 'decodeNumericRefs' (composed in here, NOT on the general read
 path) resolves @&#039;@ to its character, and repeating until stable finishes the
 named half. Use this only on free text afterwards split on @;@ (ILCD synonyms),
-where a surviving entity's own @;@ would be taken for a separator — not on the
+where a surviving entity's own @;@ would be taken for a separator – not on the
 general read path, where it would collapse an escaped literal that
 'decodeXmlEntities' deliberately preserves.
 -}
@@ -93,8 +93,8 @@ decodeXmlEntitiesFull = go
         let t' = decodeNumericRefs (decodeXmlEntities t)
          in if t' == t then t else go t'
 
-{- | Decode every XML numeric character reference in a text — decimal @&#NNN;@
-and hex @&#xHH;@ — to its character, via 'numericRefChar'. A malformed or
+{- | Decode every XML numeric character reference in a text – decimal @&#NNN;@
+and hex @&#xHH;@ – to its character, via 'numericRefChar'. A malformed or
 out-of-range reference is left verbatim rather than crashing.
 -}
 decodeNumericRefs :: Text -> Text
@@ -110,8 +110,8 @@ decodeNumericRefs t =
                         _ ->
                             before <> "&#" <> decodeNumericRefs (T.drop 2 rest)
 
-{- | Decode the body of a single XML numeric character reference — the text
-between @&#@ and @;@ — to its character. Decimal by default, hexadecimal when
+{- | Decode the body of a single XML numeric character reference – the text
+between @&#@ and @;@ – to its character. Decimal by default, hexadecimal when
 prefixed @x@/@X@. 'Nothing' on a malformed or out-of-range value (no partial
 'chr' on bad input); 'Integer' parsing avoids overflow on absurdly long digit
 runs. Shared with "BrightwayExcel.Parser".
@@ -190,7 +190,7 @@ distributeFiles n xs =
 zeros trimmed but at least one fractional digit kept. This is the canonical
 amount format for the EcoSpold/ILCD/Brightway writers and the exact inverse of
 'Amount.readAmount': through that correctly-rounded reader every finite 'Double'
-— subnormals included — re-parses to the same value. Fixed-point is also the
+– subnormals included – re-parses to the same value. Fixed-point is also the
 form these exchange formats and their external readers expect. The writers'
 export guards reject any amount that does not re-parse, which now leaves only the
 non-finite @Infinity@/@NaN@.

@@ -2,7 +2,7 @@ name: pyvolca release
 
 # Tag-driven publish to PyPI. Trigger: push of `pyvolca-v*` tags.
 # Uses PyPI Trusted Publishing (OIDC, no API tokens to rotate).
-# The CI test workflow (pyvolca.yml) is unchanged — this is purely the
+# The CI test workflow (pyvolca.yml) is unchanged – this is purely the
 # publish step.
 
 on:
@@ -74,7 +74,7 @@ jobs:
           name: pyvolca-dist
           path: dist
       - name: Publish to PyPI
-        # Trusted Publishing — configure once in PyPI project settings:
+        # Trusted Publishing – configure once in PyPI project settings:
         # https://pypi.org/manage/project/pyvolca/settings/publishing/
         # Pinned to a tagged release of the official action; bump cautiously.
         uses: pypa/gh-action-pypi-publish@release/v1

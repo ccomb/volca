@@ -66,7 +66,7 @@ buildInterningTables activityMap =
     indexed = [(pid, k, act) | (pid, (k, act)) <- zip [0 ..] (M.toAscList activityMap)]
 
 {- | Reference-product output unit for each activity (empty when the activity
-has no produced reference exchange — same fallback as the previous inline
+has no produced reference exchange – same fallback as the previous inline
 expression).
 -}
 buildSupplierRefUnits :: UnitDB -> V.Vector Activity -> V.Vector Text
@@ -91,7 +91,7 @@ collectBioFlowOrder activities =
 reference output normalize by 1.0 instead of a near-zero denominator. Guards on
 magnitude, not sign: a waste-treatment reference is a NEGATIVE production (e.g.
 -1 kg of the treated waste), and that sign must be preserved through the
-normalization — collapsing it to 1.0 silently flips the activity's inventory.
+normalization – collapsing it to 1.0 silently flips the activity's inventory.
 -}
 safeDenom :: Double -> Double
 safeDenom f = if abs f > 1e-15 then f else 1.0
@@ -252,7 +252,7 @@ techTriple unitConfig unitDB lkp supplierRefUnits actCount normFactor j consumer
             value = sign * v / safeDenom normFactor
          in [SparseTriple idx j value | v /= 0, idx /= j]
 
-{- | Biosphere sparse triplets. No unit conversion or producer cascade — each
+{- | Biosphere sparse triplets. No unit conversion or producer cascade – each
 biosphere exchange maps directly to its row via 'collectBioFlowOrder'.
 -}
 buildBioTriples :: V.Vector UUID -> InterningTables -> VU.Vector SparseTriple

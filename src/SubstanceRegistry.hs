@@ -1,18 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-{- | Canonical flow registry — foundation.
+{- | Canonical flow registry – foundation.
 
 This module owns the entity-resolution core of the canonical flow registry:
 given undirected @SameAs@ assertions between flow identities, it computes the
-equivalence classes (connected components / transitive closure) — the "set of
+equivalence classes (connected components / transitive closure) – the "set of
 sets" that unifies a substance's many names across nomenclatures (ILCD,
 ecoinvent, SimaPro, BAFU).
 
 Identity is currently resolved by name pairs (see "SynonymDB"). The typed,
 provenanced edge layer (Subsumes / ProxyFor split-ratios, and CAS/UUID anchor
 nodes that fuse a substance's names across sources) builds on top of this
-closure primitive — none of which changes the primitive itself.
+closure primitive – none of which changes the primitive itself.
 -}
 module SubstanceRegistry (
     -- * Closure primitive
@@ -64,7 +64,7 @@ reachable through those pairs: @A↔B@ and @B↔C@ ⟹ one class @{A,B,C}@.
 Only identities that appear in at least one pair are returned; an isolated
 identity has no class here. Order within and across classes is unspecified.
 
-Computed via 'Data.Graph' connected components — linear in vertices + edges, so
+Computed via 'Data.Graph' connected components – linear in vertices + edges, so
 it scales to the hundreds of thousands of pairs a method's auto-extracted
 synonyms produce. (A hand-rolled persistent-'Map' union-find without path
 compression did not: it went quadratic on long chains and stalled method load
@@ -110,7 +110,7 @@ newtype ClassId = ClassId Int
     deriving (Eq, Ord, Show)
 
 {- | How a source identifies a substance occurrence. CAS and UUID are /global/
-anchors — the same value from any source is the same node, which is exactly what
+anchors – the same value from any source is the same node, which is exactly what
 makes the CAS bridge fall out of closure for free (two flows sharing a CAS share
 the node, no edge needed). A bare name collides across sources, so 'ByName' is
 scoped by its 'SourceId'.
@@ -137,7 +137,7 @@ equivalence classes; 'Subsumes' (broader ⊃ narrower, weighted) and 'ProxyFor'
 'DistinctFrom' is recorded negative evidence that blocks accidental closure.
 
 The weight lives inside 'Subsumes' and the factor inside 'ProxyFor', so a
-'SameAs' can never carry a scale — that would contradict "identical".
+'SameAs' can never carry a scale – that would contradict "identical".
 -}
 data Relation
     = SameAs
@@ -189,7 +189,7 @@ classesFromEdges edges = ClassResult classes conflicts
 
 {- | Name→CAS identities asserted by @SameAs@ edges that link a name anchor to
 a CAS anchor (in either direction). CAS is a /global/ anchor, so the binding
-applies to a flow of that name in any source — the edge's 'SourceId' is
+applies to a flow of that name in any source – the edge's 'SourceId' is
 provenance, not a gate (mirroring how the @ProxyFor@ fan-out matches names
 globally). A name bound to two distinct CAS is a data conflict, returned in the
 second component rather than silently resolved (the first wins, but the caller
@@ -213,8 +213,8 @@ identically whichever source stated it.
 
 A CAS number is @registry-group-check@: a registry number of two to seven
 digits, a two-digit group, and a single check digit. Only the registry number
-is ever zero-padded — ecoinvent writes @001309-36-0@ where the canonical form
-is @1309-36-0@ — so only its leading zeros come off. The other two segments are
+is ever zero-padded – ecoinvent writes @001309-36-0@ where the canonical form
+is @1309-36-0@ – so only its leading zeros come off. The other two segments are
 fixed-width and keep theirs: formaldehyde is @50-00-0@, never @50-0-0@.
 
 Anything that is not three dash-separated segments is passed through stripped;
@@ -242,7 +242,7 @@ nonEmptyCAS cas
 {- | The key a CAS anchors on, or 'Nothing' when the text states no CAS.
 
 Both sides of the CAS bridge build their key through here, so a flow and a
-method factor meet whichever source spelled the padding — which is the whole
+method factor meet whichever source spelled the padding – which is the whole
 point of canonicalizing, and does not happen if either side keys on the raw
 string. A placeholder never becomes a key at all, so unrelated substances
 cannot collide on one.
@@ -252,7 +252,7 @@ casKey = fmap CASNumber . nonEmptyCAS
 
 {- | Fold name→CAS pairs into bindings under the registry's conflict rule: the
 first binding of a name wins, and a later pair binding the same name to a
-/different/ CAS comes back as a conflict for the caller to report — never
+/different/ CAS comes back as a conflict for the caller to report – never
 resolved silently.
 -}
 casBindings :: [(NormName, CASNumber)] -> (Map NormName CASNumber, [(NormName, (CASNumber, CASNumber))])
@@ -287,12 +287,12 @@ from_keytype,from_source,from_key,to_keytype,to_source,to_key,relation,scale
   sources, so its @source@ is required.
 * @relation@ ∈ @sameas@ | @subsumes@ | @proxyfor@ | @distinctfrom@. @scale@ holds
   the 'Subsumes' split weight in @(0,1]@ or the non-zero 'ProxyFor' conversion
-  factor, and must be empty for @sameas@/@distinctfrom@ — a scale on an identity
+  factor, and must be empty for @sameas@/@distinctfrom@ – a scale on an identity
   would contradict it.
 
 Keys pass through the injected 'KeyNormalizers' (names and CAS; injected to
 avoid a module cycle). Every malformed row is surfaced as a @Left@ carrying its
-line number — nothing is dropped.
+line number – nothing is dropped.
 -}
 parseSubstanceEdges :: KeyNormalizers -> BL.ByteString -> Either Text [SubstanceEdge]
 parseSubstanceEdges norms csvData =

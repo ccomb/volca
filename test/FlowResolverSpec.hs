@@ -118,7 +118,7 @@ spec = do
                 let texts = map llText afterCache
                 any ("z-first-edition.xml" `isInfixOf`) texts `shouldBe` True
 
-    -- parseFlowXML — well-formed elementary flow
+    -- parseFlowXML – well-formed elementary flow
     -- -----------------------------------------------------------------------
     describe "parseFlowXML" $ do
         it "extracts UUID and baseName from minimal flow XML" $ do
@@ -245,7 +245,7 @@ flowWithSynonyms =
     \</flowInformation>\
     \</flowDataSet>"
 
--- Synonym text carrying a DOUBLE-encoded apostrophe (@&amp;#039;@) — the form
+-- Synonym text carrying a DOUBLE-encoded apostrophe (@&amp;#039;@) – the form
 -- the ILCD flow data actually uses. The @&amp;@ must decode first to expose
 -- @&#039;@, which then decodes to a real apostrophe; otherwise the half-decoded
 -- @&#039;@ reaches the ';'-split and truncates the second synonym into the

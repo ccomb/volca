@@ -129,7 +129,7 @@ parseRegistryCSV csvData =
 
 {- | Build a SynonymDB from CSV content. Each row declares two names as
 @SameAs@ (see 'buildFromPairs'/'buildFromEdges'); the optional third column
-restricts the bridge to one flow direction. Curation metadata is dropped —
+restricts the bridge to one flow direction. Curation metadata is dropped –
 it constrains what the registry may assert, not how matching behaves.
 -}
 buildFromCSV :: BL.ByteString -> Either String SynonymDB
@@ -145,12 +145,12 @@ buildFromPairs raws = buildFromEdges [SynEdge a b BridgeBoth | (a, b) <- raws]
 {- | Build a SynonymDB from directed @SameAs@ edges.
 
 Names are normalized, then grouped into equivalence classes by transitive
-closure (connected components) — the "set of sets" of the canonical flow
+closure (connected components) – the "set of sets" of the canonical flow
 registry. A↔B and B↔C therefore land A, B and C in one class. The top-level
 tables are the UNION closure (all directions), so direction-agnostic consumers
 see today's behavior. When any edge is directional, two extra views are
 materialized ('SynViews'): the input view closes @both ∪ input@, the output view
-@both ∪ output@ — the matching layer picks one by the CF's direction.
+@both ∪ output@ – the matching layer picks one by the CF's direction.
 
 Closure is taken honestly, with no silent degree cap; an implausibly large class
 surfaces through 'oversizedClasses' (the loader warns) rather than being silently
@@ -159,11 +159,11 @@ dropped.
 buildFromEdges :: [SynEdge] -> SynonymDB
 buildFromEdges = buildFromNormalizedEdges . normalizeEdges
 
-{- | Build from edges whose endpoints already carry 'normalizeName''s output —
+{- | Build from edges whose endpoints already carry 'normalizeName''s output –
 the invariant every built DB's 'synEdges' satisfies. 'mergeSynonymDBs'
 re-closes through HERE, not 'buildFromEdges':
-'normalizeName' is not idempotent (a suffix exposed by punctuation removal —
-@"Zinc in ground,"@ → @"zinc in ground"@ → @"zinc"@ — strips only on a second
+'normalizeName' is not idempotent (a suffix exposed by punctuation removal –
+@"Zinc in ground,"@ → @"zinc in ground"@ → @"zinc"@ – strips only on a second
 pass), so re-normalizing stored edges would key the rebuilt tables away from
 the single-pass normalization every lookup applies.
 -}
@@ -182,7 +182,7 @@ buildFromNormalizedEdges es =
     edgesFor dir = filter (\e -> seDir e == BridgeBoth || seDir e == dir)
     -- Views are terminal: nothing re-closes them (merging reads the TOP-level
     -- 'synEdges'), so a view's own edge list is dead weight in memory and in
-    -- the serialized cache — store the lookup tables only.
+    -- the serialized cache – store the lookup tables only.
     viewTables = clearEdges . buildTables
     clearEdges t = t{synEdges = []}
 
@@ -217,7 +217,7 @@ edge, so an untyped duplicate of that exact pair (e.g. a merged auto-extracted
 @freshwater = water…@ row) cannot silently reopen a curated one-way bridge in
 the other view. The guard is pair-local only: an untyped transitive chain
 between the same endpoints (@a=x@, @x=b@) still re-links them in the closed
-view — 'reopenedBridges' detects that residue so the loader can surface it.
+view – 'reopenedBridges' detects that residue so the loader can surface it.
 -}
 demoteDuplicates :: [SynEdge] -> [SynEdge]
 demoteDuplicates es =
@@ -227,7 +227,7 @@ demoteDuplicates es =
     directedPairs = S.fromList [key e | e <- es, seDir e /= BridgeBoth]
 
 {- | Number name classes into the bidirectional lookup tables, closed from the
-given edges. The result's 'synViews' is 'AllBoth' — 'buildFromEdges' attaches
+given edges. The result's 'synViews' is 'AllBoth' – 'buildFromEdges' attaches
 directional views when needed (a view is itself an 'AllBoth' table).
 -}
 buildTables :: [SynEdge] -> SynonymDB
@@ -253,7 +253,7 @@ fromClassMaps nameToId idToNames =
         }
 
 {- | Star edges for a set of name classes: connect each class's members to its
-first member. Their transitive closure is exactly the classes — enough to
+first member. Their transitive closure is exactly the classes – enough to
 re-close the relation. 'buildFromPairs' overrides this with the original pairs,
 for a faithful induced-subgraph restriction: a star centred on a node that the
 restriction later drops would lose links the original topology preserves.
@@ -356,8 +356,8 @@ synonymCount = M.size . synNameToId
 
 {- | Synonym classes with more than @maxSize@ members, computed straight from
 the raw pairs. Transitive closure has no degree cap (a hub no longer silently
-truncates at 50), so an implausibly large class — a junk hub that fused
-unrelated substances through one bad pair — must be surfaced rather than
+truncates at 50), so an implausibly large class – a junk hub that fused
+unrelated substances through one bad pair – must be surfaced rather than
 silently polluting the synonym fan-out. The loader warns on whatever this
 returns; an empty result means the closure stayed plausible.
 -}
@@ -381,7 +381,7 @@ reopenedBridges db = filter voided (synEdges db)
         BridgeInput -> linkedIn (outputView db) e
         BridgeOutput -> linkedIn (inputView db) e
     -- Endpoints are already normalized ('normalizeEdges'), so probe the tables
-    -- directly — 'lookupSynonymGroup' would re-normalize, and 'normalizeName'
+    -- directly – 'lookupSynonymGroup' would re-normalize, and 'normalizeName'
     -- is not idempotent.
     linkedIn v e =
         ((==) <$> M.lookup (seA e) (synNameToId v) <*> M.lookup (seB e) (synNameToId v))
@@ -389,13 +389,13 @@ reopenedBridges db = filter voided (synEdges db)
 
 {- | Drop synonym pairs whose synonym (the second element) is carried by more
 than @maxFlows@ distinct base names (the first element). An over-frequent
-"synonym" is a classification label or stop-word — e.g. @"organic"@ (carried by
-thousands of flows), @"inorganic"@, @"petroleum product"@ — not a true synonym,
+"synonym" is a classification label or stop-word – e.g. @"organic"@ (carried by
+thousands of flows), @"inorganic"@, @"petroleum product"@ – not a true synonym,
 which is ~1:1 with a substance and binds a handful of names at most.
 
 Counting is directional and on normalized names, so a real flow that merely HAS
 many synonyms (high out-degree, e.g. @"acetaminophen"@ with its trade names) is
-never touched — only a name that ACTS as a synonym for many distinct flows is.
+never touched – only a name that ACTS as a synonym for many distinct flows is.
 Returns the kept pairs and the excluded tokens with their flow counts
 (descending), so the caller can surface the exclusion list, not drop it silently.
 -}
@@ -408,16 +408,16 @@ excludeOverFrequentSynonyms maxFlows pairs = (kept, excluded)
     kept = [p | (p, _, ns) <- normed, not (ns `M.member` overFrequent)]
     excluded = sortOn (negate . snd) (M.toList overFrequent)
 
-{- | Is this name an obvious non-synonym — a REACH/ILCD dossier placeholder
+{- | Is this name an obvious non-synonym – a REACH/ILCD dossier placeholder
 (@"not available"@, @"unknown"@, @"active matter"@, an ECHA id stub), or a bare
-database identifier (a PubChem CID, an @"ENT 27164"@ registry number) — rather
+database identifier (a PubChem CID, an @"ENT 27164"@ registry number) – rather
 than a substance name? These survive 'excludeOverFrequentSynonyms' (each is
 carried by few flows) yet act as cut-vertices that fuse unrelated substances
 through long chains, so they are dropped by string shape instead of frequency.
 (@"ENT 27164"@ and @"ENT 27,164"@ both normalize to @"ent 27164"@, fusing carbon
 tetrachloride and carbofuran through one shared dossier number.)
 
-Deliberately conservative — it matches only forms that no real substance name
+Deliberately conservative – it matches only forms that no real substance name
 takes. A name carrying letters survives, so @"mixture"@ and digit-heavy names are
 kept (@"toluenediisocyanate (mixture)"@, @"pcb-1254"@, @"carbon 14"@); only an
 all-digit token or a known registry prefix followed by digits is dropped. The
@@ -483,8 +483,8 @@ normalizeName = normalizeNameWith True
 
 {- | 'normalizeName' minus the unit-suffix strip: @"Gas, natural\/m3"@ keeps its
 @\/m3@. The strip lets a unit variant borrow its base resource's CF, but it also
-collapses a method's own per-unit rows (@\/kg@ vs @\/m3@ — same substance,
-different densities) onto one key — this variant is the lookup key when those
+collapses a method's own per-unit rows (@\/kg@ vs @\/m3@ – same substance,
+different densities) onto one key – this variant is the lookup key when those
 rows must stay apart.
 -}
 normalizeNameKeepUnit :: Text -> Text
@@ -522,7 +522,7 @@ normalizeNameWith stripUnits name =
 
 {- | Unit suffixes that 'normalizeName' strips. SimaPro bakes a flow's unit into
 its name (e.g. @"Gas, natural/m3"@); dropping the suffix lets a unit variant
-share the registry node — and thus the CF — of its base resource.
+share the registry node – and thus the CF – of its base resource.
 
 MUST be lowercase: 'normalizeName' lowercases before it strips, so an uppercase
 entry would never fire. Extending this list is the fix when 'uncoveredUnitSuffixes'
@@ -533,7 +533,7 @@ unitSuffixes = ["/kg", "/m3", "/sm3"]
 
 {- | Flow names that will silently miss CF matching because they carry a trailing
 @"/unit"@ for a real unit 'unitSuffixes' does not strip. Grouped by the offending
-unit (each value lists example flow names) so a load-time warning is actionable —
+unit (each value lists example flow names) so a load-time warning is actionable –
 add @"/unit"@ to 'unitSuffixes'. Empty when coverage is complete.
 
 The unit test is supplied by the caller (@UnitConversion.isKnownUnit cfg@), so this

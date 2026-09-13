@@ -56,9 +56,9 @@ else
 fi
 
 # Parallelism preamble shared by every LINK_MODE.
-# Lives in cabal.project.local (not cabal.project) so that Docker builds —
+# Lives in cabal.project.local (not cabal.project) so that Docker builds –
 # which copy only volca.cabal + mumps-hs/ into the build context and write a
-# minimal cabal.project without `packages: .` machinery — still get jobs +
+# minimal cabal.project without `packages: .` machinery – still get jobs +
 # RTS allocation area + per-module GHC parallelism.
 #
 # shared / executable-dynamic sit here for the same reason: they apply to
@@ -115,8 +115,8 @@ EOF
         # executable is genuinely portable across Linux distros.
         #
         # Alpine packages ship LAPACK/BLAS as shared libs only (no .a), so
-        # OpenBLAS — which bundles both BLAS and LAPACK in a single static
-        # archive — must be built from source and pointed at via OPENBLAS_LIB_DIR.
+        # OpenBLAS – which bundles both BLAS and LAPACK in a single static
+        # archive – must be built from source and pointed at via OPENBLAS_LIB_DIR.
         : "${OPENBLAS_LIB_DIR:?OPENBLAS_LIB_DIR is required for musl mode (path to libopenblas.a)}"
         case "$(uname -m)" in
             x86_64|amd64) QUADMATH_FLAG="-optl-lquadmath" ;;
@@ -134,7 +134,7 @@ EOF
         # kernels have large auto-arrays that overflow 128 KB on the first
         # BLAS3 call inside MUMPS factorization (SIGSEGV / exit 139).
         # Setting it at link time covers every pthread the binary creates
-        # — RTS capabilities and OpenBLAS workers alike — without patching
+        # – RTS capabilities and OpenBLAS workers alike – without patching
         # OpenBLAS source. (An earlier attempt to sed the stack size into
         # OpenBLAS's blas_server.c was a no-op: the relevant block sits
         # under #ifdef NEED_STACKATTR, which blas_server.c #undef's
@@ -172,7 +172,7 @@ EOF
         # OpenBLAS comes from the same source build musl mode uses, not from Homebrew:
         # the bottled libopenblas.a is the OpenMP variant, whose __kmpc_* / omp_*
         # references only the dylib resolved on its own. Building it with USE_OPENMP=0
-        # settles that instead of adding libomp — one more Homebrew dependency to keep
+        # settles that instead of adding libomp – one more Homebrew dependency to keep
         # out of the shipped binary.
         #
         # x86_64 keeps the dynamic link, and the Homebrew dependency with it, because
@@ -183,7 +183,7 @@ EOF
         BREW_PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
         # Homebrew gcc lays out libgfortran/libquadmath under lib/gcc/<major>/
         GFORTRAN_LIB_DIR=$(ls -d "${BREW_PREFIX}/Cellar/gcc/"*/lib/gcc/*/ 2>/dev/null | sort -V | tail -1)
-        : "${GFORTRAN_LIB_DIR:?Could not locate Homebrew gcc libgfortran — install with: brew install gcc}"
+        : "${GFORTRAN_LIB_DIR:?Could not locate Homebrew gcc libgfortran – install with: brew install gcc}"
         GFORTRAN_LIB_DIR="${GFORTRAN_LIB_DIR%/}"
         DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:?MACOSX_DEPLOYMENT_TARGET must be set (source versions.env)}"
         # MUMPS arrives as .a either way; only how BLAS and the Fortran runtime
@@ -199,10 +199,10 @@ EOF
         DARWIN_TAIL_FLAGS="-optl-lpthread -optl-lm -optl-mmacosx-version-min=${DEPLOYMENT_TARGET} -optl-Wl,-dead_strip_dylibs"
 
         if [[ "$(uname -m)" == "arm64" ]]; then
-            : "${OPENBLAS_LIB_DIR:?OPENBLAS_LIB_DIR is required for darwin arm64 (path to a libopenblas.a built with USE_OPENMP=0 — see .github/actions/setup-haskell-env)}"
+            : "${OPENBLAS_LIB_DIR:?OPENBLAS_LIB_DIR is required for darwin arm64 (path to a libopenblas.a built with USE_OPENMP=0 – see .github/actions/setup-haskell-env)}"
             # Ordered dependent-before-dependency: openblas calls into libgfortran, which
             # calls into libquadmath. libgcc.a comes last and is located by asking the
-            # compiler driver rather than guessing its Cellar layout — gcc keeps it under
+            # compiler driver rather than guessing its Cellar layout – gcc keeps it under
             # lib/gcc/<major>/gcc/<triple>/<major>/, not next to libgfortran.a. It resolves
             # the emutls/soft-arithmetic symbols libgfortran.a leaves undefined.
             DARWIN_STATIC_LIBS=(
@@ -265,11 +265,11 @@ EOF
         # it here keeps the per-caller code to LINK_MODE=windows.
         if [[ -z "${MSYS2_LIB_DIR:-}" ]]; then
             MSYS2_LIB_DIR=$(cygpath -m /ucrt64/lib)
-            : "${MSYS2_LIB_DIR:?cygpath -m /ucrt64/lib returned empty — is MSYS2 ucrt64 installed?}"
+            : "${MSYS2_LIB_DIR:?cygpath -m /ucrt64/lib returned empty – is MSYS2 ucrt64 installed?}"
         fi
         if [[ -z "${GCC_LIB_DIR:-}" ]]; then
             GCC_LIB_DIR=$(find /ucrt64/lib/gcc/x86_64-w64-mingw32 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1)
-            : "${GCC_LIB_DIR:?Could not locate GCC lib dir under /ucrt64/lib/gcc/x86_64-w64-mingw32 — install mingw-w64-ucrt-x86_64-gcc}"
+            : "${GCC_LIB_DIR:?Could not locate GCC lib dir under /ucrt64/lib/gcc/x86_64-w64-mingw32 – install mingw-w64-ucrt-x86_64-gcc}"
             GCC_LIB_DIR=$(cygpath -m "$GCC_LIB_DIR")
         fi
         # Cabal + clang on Windows want forward-slash drive-letter paths

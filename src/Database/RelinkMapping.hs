@@ -7,22 +7,22 @@ A consumer database often carries background inputs named after one database
 while the replacement dependency names the same activities differently. A
 curated CSV maps the source (consumer) input-flow name to the target supplier
 activity name, so the cross-DB matcher resolves the link even though the raw
-names differ. A row preempts the direct name cascade — the curator's
+names differ. A row preempts the direct name cascade – the curator's
 designation always wins over a coincidental direct match.
 
 The CSV is header-based (cassava 'decodeByName'). Recognized columns:
 
-  * @source@ (or @source_name@ / @from@) — required: the consumer's input flow name
-  * @target@ (or @target_name@ / @to@)  — required: the supplier activity name
-  * @source_location@ (or @source_geo@) — optional: restrict the row to demands
+  * @source@ (or @source_name@ / @from@) – required: the consumer's input flow name
+  * @target@ (or @target_name@ / @to@)  – required: the supplier activity name
+  * @source_location@ (or @source_geo@) – optional: restrict the row to demands
     at this exact location code; a row without one applies at any location, and
     an exact (name, location) row wins over the name-only row for the same name
-  * @target_location@ (or @target_geo@) — optional: pin the supplier to this
+  * @target_location@ (or @target_geo@) – optional: pin the supplier to this
     exact location code, bypassing the geography policy; when nothing supplies
     the target name there, the relink reports 'Types.AliasTargetMissing' rather
     than silently falling back
 
-Unit-incompatible or consumed-nowhere outcomes are not silently dropped — they
+Unit-incompatible or consumed-nowhere outcomes are not silently dropped – they
 surface through the relink's 'CrossDBLinkingStats' (unresolved products carry
 a 'LinkBlocker') and through the returned 'RelinkResult'.
 -}
@@ -54,7 +54,7 @@ import Database.Manager (DatabaseManager, RelinkResult, relinkDatabaseWithMappin
 
 {- | One row of the alias mapping. The source location scopes the row to
 demands at that exact code; the target location pins the designated supplier
-— see the module header for the full semantics.
+– see the module header for the full semantics.
 -}
 data AliasRow = AliasRow
     { arSource :: !Text

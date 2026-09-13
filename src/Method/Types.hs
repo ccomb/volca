@@ -224,7 +224,7 @@ data ScoringSet = ScoringSet
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
 {- | Result of evaluating a ScoringSet against raw LCIA results.
-Both maps carry the same numeric scale — the display multiplier has been applied.
+Both maps carry the same numeric scale – the display multiplier has been applied.
 -}
 data ScoringEvaluation = ScoringEvaluation
     { seNwEnv :: !(M.Map Text Double)
@@ -335,7 +335,7 @@ buildCompartmentMapFromCSV csvData =
 {- | Normalize a compartment using the mapping.
 
 Tries the full @(medium, sub, qualifier)@ key first. On miss, falls back to a
-medium-only key — so a single CSV entry like @"Emissions to air,,,air,,"@
+medium-only key – so a single CSV entry like @"Emissions to air,,,air,,"@
 covers every @(emissions to air, *, *)@ variant by remapping just the medium
 and preserving the original sub/qualifier. Returns the input unchanged if
 neither key resolves; callers can use that as a "no rule for this
@@ -362,7 +362,7 @@ USEtox toxicity methods (ecotoxicity in CTUe, human toxicity in CTUh) model a
 surface-freshwater fate only, so their medium-level CFs must not reach a
 groundwater emission; every other family (e.g. nutrients in kg P eq) keeps
 characterizing groundwater, since phosphate migrates to surface water.
-Classified once from 'methodUnit' — the individual CF units can't carry the
+Classified once from 'methodUnit' – the individual CF units can't carry the
 distinction (the SimaPro-adapted collection stores every CF unit as the flow
 unit, @"kg"@).
 -}
@@ -382,7 +382,7 @@ sea, read off its own factor lines.
 
 A category that writes even one sea-water factor has an opinion about the sea,
 and the engine defers to it entirely: its medium-level ("unspecified") factor is
-kept away from a sea emission so that the explicit line scores — in freshwater
+kept away from a sea emission so that the explicit line scores – in freshwater
 ecotoxicity that line is an explicit near-zero, and a freshwater factor reaching
 the sea instead would overstate the emission by twenty orders of magnitude.
 
@@ -399,8 +399,8 @@ data SeaWaterCFs = MethodDeclaresSeaWater | MethodSilentOnSeaWater
 
 instance NFData SeaWaterCFs
 
-{- | Physical content of a flow per native unit — a calorific value (MJ per kg
-of coal) or a mass density (m³ per kg of water) — used to characterize a CF
+{- | Physical content of a flow per native unit – a calorific value (MJ per kg
+of coal) or a mass density (m³ per kg of water) – used to characterize a CF
 denominated in that target unit against an inventory flow given in another
 dimension (kg, Sm3, …).
 
@@ -429,7 +429,7 @@ already use for CF matching.
 type EnergyDensityMap = M.Map Text EnergyDensity
 
 {- | Build an 'EnergyDensityMap' from CSV content.
-CSV columns (with header): @flow_name, value, target_unit, native_unit@ — e.g.
+CSV columns (with header): @flow_name, value, target_unit, native_unit@ – e.g.
 @Coal, hard,18.01,MJ,kg@. Keys are normalized at parse time so the union of
 active CSVs and the read-path lookups agree. Each row is validated: a
 non-positive value or a missing unit is a load error, never a silently inert or
@@ -474,9 +474,9 @@ buildEnergyDensityMapFromCSV csvData =
 energyDensityMapSize :: EnergyDensityMap -> Int
 energyDensityMapSize = M.size
 
-{- | Parse a flow name that encodes an energy density as a suffix —
+{- | Parse a flow name that encodes an energy density as a suffix –
 @"Coal, 18 MJ per kg"@, @"Gas, natural, 35 MJ per m3"@, @"Uranium, 2291 GJ per
-kg"@ — into @(base substance name, density)@. The value and energy unit are
+kg"@ – into @(base substance name, density)@. The value and energy unit are
 taken verbatim (@332 GJ@), leaving the GJ→MJ conversion to the unit machinery
 downstream. The @per {unit}@ denominator becomes the density's native unit, so
 the conversion can bring the flow's quantity into the unit the density is
@@ -509,7 +509,7 @@ name itself encodes (@"Coal, 18 MJ per kg"@).
 
 The region rung is what keeps the two lookups on the same key. A
 region-suffixed flow is lent the base substance's CF (see
-'extractLocationSuffix'), and that CF carries the base substance's unit — so if
+'extractLocationSuffix'), and that CF carries the base substance's unit – so if
 the density is only ever looked up under the full name, the flow ends up
 holding a factor of a dimension it cannot be converted to and nothing to bridge
 with, and scores 0. Stripping here exactly as the CF lookup strips there is the

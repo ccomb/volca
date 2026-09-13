@@ -153,7 +153,7 @@ spec = do
             db <- loadWithIndex
             let rootPid = 0 :: ProcessId
             supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
-            -- "produc" is a stem of "production" — both Y and Z pass.
+            -- "produc" is a stem of "production" – both Y and Z pass.
             let entries = scrSupplyChain (buildWithName db rootPid supplyVec (Just "produc"))
             length entries `shouldBe` 2
 

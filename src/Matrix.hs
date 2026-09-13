@@ -127,7 +127,7 @@ database therefore amortize one triangular descent/remontée across all
 in-flight demands rather than queuing behind each other.
 
 The MUMPS handle stays single-threaded (its mutable RHS/SOL workspace is the
-real reason concurrent solves on a shared handle are unsafe — not MUMPS_SEQ
+real reason concurrent solves on a shared handle are unsafe – not MUMPS_SEQ
 per se), but request *latency under contention* drops because K simultaneous
 requests collapse into one solve.
 -}
@@ -163,7 +163,7 @@ mumpsFactorizationMutex = unsafePerformIO $ newMVar ()
 Fortran modules with SAVE'd state that two concurrent @mumps_solve@ calls
 corrupt even when each call targets its own factorized handle. The FFI
 import is annotated @safe@ (see mumps-hs FFI), so the GHC runtime is free
-to schedule multiple OS threads inside MUMPS at once — exactly the race
+to schedule multiple OS threads inside MUMPS at once – exactly the race
 the SAVE'd state can't survive. Empirically this manifests as a silent
 SIGKILL mid-solve when several DBs' coalescing workers run @mumpsSolveMulti@
 concurrently. Holding this mutex around the FFI call serializes those
@@ -197,7 +197,7 @@ readSolveCounter = readIORef solveCounter
 ends, so a solve begun moments before an idle deadline is not cut off in
 flight, and a long chain of solves keeps the deadline moving throughout.
 The count is silent between the two moves, so a single solve that alone
-outlasts the whole timeout is still cut off mid-flight — a ceiling that
+outlasts the whole timeout is still cut off mid-flight – a ceiling that
 stands far above real work, since solves take seconds and timeouts minutes.
 -}
 countingSolve :: IO a -> IO a
@@ -223,7 +223,7 @@ spawnCoalescingSolver solver n = do
 {- | Submit a batch of demand vectors to the worker and block until the
 solution comes back. Throws if the solver has been shut down (csAlive
 flipped before we managed to enqueue) or if the underlying MUMPS call
-raises — caller decides whether to fall back.
+raises – caller decides whether to fall back.
 -}
 submitBatch :: CoalescingSolver -> [Vector] -> IO [Vector]
 submitBatch _ [] = pure []
@@ -438,7 +438,7 @@ solveSparseLinearSystemWithFactorizationMulti factorization demandVecs = countin
             reportMatrixOperation $
                 "No cached factorization for '"
                     ++ T.unpack dbId
-                    ++ "' — batch falling back to per-demand solve"
+                    ++ "' – batch falling back to per-demand solve"
             mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs
         Just cs -> do
             reportMatrixOperation $ "Multi-RHS solve for '" ++ T.unpack dbId ++ "' (k=" ++ show k ++ ")"
@@ -448,7 +448,7 @@ solveSparseLinearSystemWithFactorizationMulti factorization demandVecs = countin
                     reportMatrixOperation $
                         "Multi-RHS solve failed ("
                             ++ show (e :: SomeException)
-                            ++ ") — falling back to per-demand solve"
+                            ++ ") – falling back to per-demand solve"
                     mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs
                 )
 
@@ -472,7 +472,7 @@ Equivalent to @mapM (computeInventoryMatrix db)@ but all k scaling vectors come
 from one MUMPS call against the cached factorization, and biosphere matrix
 application runs in parallel across the resulting scaling vectors.
 
-The caller must supply a 'MatrixFactorization' — typically obtained from
+The caller must supply a 'MatrixFactorization' – typically obtained from
 'SharedSolver.ensureFactorization'. There is no lazy fallback: falling back
 would re-factorize per demand vector (~2 s each on Ecoinvent), defeating
 the point of batching.
@@ -660,16 +660,16 @@ the same amount. So @perturb = [(i, Δ)]@ at @col = j@ encodes
 
 == Encoding common changes
 
-* __Single matrix entry__ @A_ij -= Δ@ — @col = j@, @perturb = [(i, Δ)]@.
+* __Single matrix entry__ @A_ij -= Δ@ – @col = j@, @perturb = [(i, Δ)]@.
 * __Symmetric supplier swap__ at consumer @j@ (drop @old@ at coefficient
-  @a@, add @new@ at the same amount) — @col = j@,
+  @a@, add @new@ at the same amount) – @col = j@,
   @perturb = [(old, +a), (new, -a)]@. The @+a@ on @old@ subtracts @a@
   from @A_(old,j)@ (was @a@, becomes @0@); the @-a@ on @new@ adds @a@
   to @A_(new,j)@ (was @0@, becomes @a@).
-* __Asymmetric cross-DB substitution__ where one side lives in a dep DB —
+* __Asymmetric cross-DB substitution__ where one side lives in a dep DB –
   pass only the root-side entry; the dep-side change is carried by a
   virtual 'CrossDBLink'.
-* __No-op__ — @perturb = []@ returns @x@ unchanged (bypasses the
+* __No-op__ – @perturb = []@ returns @x@ unchanged (bypasses the
   singularity check).
 
 Returns @Left@ if the update is singular (@|1 + v^T·z| < epsilon@), which
@@ -736,7 +736,7 @@ applyShermanMorrisonV x v z =
 {- | Rank-1 update for a __global__ supplier substitution: replace activity
 @A@ by @B@ in every consumer that sources from @A@, in one solve. @u@ is the
 supplier-axis perturbation (@e_A - κ·e_B@ within a DB, or @e_A@ alone when
-@B@ lives in a dependency DB); @v@ is the consumer-axis projection — @A@'s
+@B@ lives in a dependency DB); @v@ is the consumer-axis projection – @A@'s
 technosphere row (its coefficient at each consumer). The single back-sub
 @z = inv(I-A)·u@ replaces the @N@ solves an edge-by-edge expansion needs.
 
@@ -764,7 +764,7 @@ Batched 'perturbA': computes z_k = inv(I-A) * u_k for every non-empty
 perturbation in __one__ MUMPS multi-RHS solve, then applies the
 Sherman-Morrison formula per-k in pure Haskell.
 
-This is the right entry point for sensitivity sweeps — the per-perturbation
+This is the right entry point for sensitivity sweeps – the per-perturbation
 back-substitution is the only thing that touches the global MUMPS lock, so
 batching collapses N serialized back-subs into one chunked multi-RHS call
 (see 'solveSparseLinearSystemWithFactorizationMulti').
@@ -821,7 +821,7 @@ so the caller can solve each dependency database in one multi-RHS batch.
 The division by the consumer's normalization factor matches the convention
 of 'dbTechnosphereTriples' (entries are already divided by the producer's
 refAmount). 'cdlCoefficient' is the raw exchange amount per ref-unit of the
-consumer, while the scaling vector is in per-kg units — so we re-scale
+consumer, while the scaling vector is in per-kg units – so we re-scale
 before accumulating.
 -}
 accumulateDepDemands ::
@@ -836,7 +836,7 @@ what-if substitution that re-routes a consumer to a dep-DB supplier).
 Negative 'cdlCoefficient' is allowed: it cancels a static link at the
 same supplier key because the inner 'M.unionWith mergeEntry' sums
 amounts. A 0-net entry remains in the map and becomes a zero in
-'depDemandsToVector' — silently dropped is never correct (it would
+'depDemandsToVector' – silently dropped is never correct (it would
 hide a bug); a zero is.
 -}
 accumulateDepDemandsWith ::
@@ -906,7 +906,7 @@ the dependency database.
 Each entry's consumer-side exchange unit is converted to the supplier's
 reference-product unit via 'convertUnit', mirroring the internal technosphere
 path in 'Database.buildDatabaseWithMatrices'. Fails with 'Left' on an unknown
-unit pair — we never silently use raw values when units are incompatible.
+unit pair – we never silently use raw values when units are incompatible.
 
 Suppliers whose @(actUUID, prodUUID)@ does not resolve in the dep DB are
 silently dropped (they've already been accepted as cross-DB links; a missing
@@ -991,10 +991,9 @@ buildDemandVectorFromIndex activityIndex rootProcessId =
 Pre-compute matrix factorization for concurrent inventory calculations.
 
 This function builds the (I - A) system matrix from technosphere triplets and
-pre-computes the LU factorization during server startup. The resulting
-MatrixFactorization can be stored in the Database for fast concurrent solves.
-
-Performance: ~3s factorization time for full Ecoinvent, saves 2.9s per inventory request
+factorizes it. Loading a database does not call it: 'SharedSolver' asks for the
+factorization at the first solve and keeps it for the lifetime of the server, so
+the first request after a load pays it and every later one reuses it.
 -}
 precomputeMatrixFactorization :: Text -> [(Int, Int, Double)] -> Int -> IO MatrixFactorization
 precomputeMatrixFactorization dbName techTriples n = withMVar mumpsFactorizationMutex $ \_ -> do

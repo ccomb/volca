@@ -152,7 +152,7 @@ spec = describe "Search.BM25" $ do
         retrieved `shouldContain` [0]
         retrieved `shouldContain` [1]
 
-    it "does not index location — query 'FR' does not match FR-located activity" $ do
+    it "does not index location – query 'FR' does not match FR-located activity" $ do
         -- Location is a structured filter (geoParam), not a ranking signal.
         -- An activity whose name doesn't contain 'FR' must not score on 'FR'
         -- even if its location is 'FR'.

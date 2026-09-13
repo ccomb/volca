@@ -215,7 +215,7 @@ pidOf :: UUID -> UUID -> Text
 pidOf a p = UUID.toText a <> "_" <> UUID.toText p
 
 {- | A one-activity database whose mercury input carries the given CAS (or
-none), for the CAS check — its own registry so other fixtures stay CAS-free.
+none), for the CAS check – its own registry so other fixtures stay CAS-free.
 -}
 casDbWith :: Maybe Text -> SimpleDatabase
 casDbWith cas =
@@ -313,7 +313,7 @@ spec = do
             qcOffenders (qrAllocationSums (qualityReport "testdb" db)) `shouldBe` []
 
         it "flags a block where only some coproducts carry a percentage, without judging its sum" $ do
-            -- The 60% alone is neither a good sum nor a bad one — the missing
+            -- The 60% alone is neither a good sum nor a bad one – the missing
             -- percentage is the defect, so it gets its own warning instead of
             -- a misdiagnosed danger.
             let db = dbOf [((actA, prodA), allocated "block" (Just 60) (Just "b1")), ((actA, prodB), allocated "block" Nothing (Just "b1"))]
@@ -654,12 +654,12 @@ spec = do
         it "flags an entry whose BOD5 exceeds its COD" $ do
             let act = mkActivity "effluent" [reference breadFlow, mkBio kgUnit bod5Flow 5, mkBio kgUnit codFlow 3]
                 check = qrOxygenDemandOrder (reportOf act)
-            details check `shouldBe` ["BOD5 (5.000) exceeds COD (3.000) in this entry — the biological oxygen demand cannot exceed the chemical"]
+            details check `shouldBe` ["BOD5 (5.000) exceeds COD (3.000) in this entry – the biological oxygen demand cannot exceed the chemical"]
             severities check `shouldBe` [WarningSev]
 
         it "flags an entry whose DOC exceeds its TOC" $
             details (qrOxygenDemandOrder (reportOf (mkActivity "leachate" [reference breadFlow, mkBio kgUnit docFlow 2, mkBio kgUnit tocFlow 1])))
-                `shouldBe` ["DOC (2.000) exceeds TOC (1.000) in this entry — the dissolved organic carbon cannot exceed the total"]
+                `shouldBe` ["DOC (2.000) exceeds TOC (1.000) in this entry – the dissolved organic carbon cannot exceed the total"]
 
         it "passes an entry whose BOD5 is below its COD" $
             qcOffenders (qrOxygenDemandOrder (reportOf (mkActivity "effluent" [reference breadFlow, mkBio kgUnit bod5Flow 2, mkBio kgUnit codFlow 5])))

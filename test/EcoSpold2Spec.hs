@@ -149,7 +149,7 @@ spec = describe "per-exchange comments" $ do
     -- The byte-level fuzzing inputs are the ones the parser actually sees in
     -- the wild when an upload is truncated or a file is mis-extended.
     -- -----------------------------------------------------------------------
-    describe "malformed input — returns Left without crashing" $ do
+    describe "malformed input – returns Left without crashing" $ do
         let runOnBytes bytes = withSystemTempDirectory "es2-bad" $ \dir -> do
                 let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
                 BS.writeFile path bytes
@@ -221,7 +221,7 @@ spec = describe "per-exchange comments" $ do
     -- mathematicalRelation formulas: <parameter> variables plus exchange
     -- variableNames form a dataset-local environment; an exchange's
     -- mathematicalRelation is checked against it as a consistency control.
-    -- The stored amount always stays authoritative — the check's outcome is
+    -- The stored amount always stays authoritative – the check's outcome is
     -- recorded on the activity for the quality report, never logged, never
     -- changes a number, never crashes.
     -- -----------------------------------------------------------------------

@@ -1,9 +1,9 @@
-# weeder configuration — finds unused exports and dead modules that `-Wall` cannot see
+# weeder configuration – finds unused exports and dead modules that `-Wall` cannot see
 # (it only catches unused *local* binds and imports, never unused *exports*).
 #
 # weeder reads `.hie` files, and HIE format is GHC-version-specific, so weeder
 # must be built with the same GHC as the project. Generate HIE for every
-# component (lib + exe + test) so cross-component use is visible — the
+# component (lib + exe + test) so cross-component use is visible – the
 # exe and the test suite both define a module named `Main`, so let cabal write
 # HIE into each component's own build tree rather than a shared -hiedir (a shared
 # dir makes the two Main.hie collide and hides the real entry point):
@@ -12,8 +12,8 @@
 #   weeder --hie-directory dist-weeder +RTS -K512m -RTS
 # (the larger RTS stack avoids a stack-overflow segfault on the big modules).
 #
-# `roots` keeps legitimate entry points — and exports consumed only outside this
-# repository — from being reported as dead.
+# `roots` keeps legitimate entry points – and exports consumed only outside this
+# repository – from being reported as dead.
 
 roots = [
   "^Main\\.main$",       # executable entry point
@@ -40,7 +40,7 @@ roots = [
   "^Types\\.(flowKindUnitId|searchProductsByLocation|lookupTechFlow|lookupBioFlow)$",
   "^UnitConversion\\.(newUnknownUnitTracker|warnIfUnknownUnit|getUnknownUnits)$",
 
-  # Database-export writers — one entry point per output format. Exported so any
+  # Database-export writers – one entry point per output format. Exported so any
   # client can serialise a loaded database; not all are exercised in-repo yet.
   "^BrightwayExcel\\.Writer\\.writeBrightwayExcel$",
   "^SimaPro\\.Writer\\.writeSimaProCSV$",

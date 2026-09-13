@@ -4,7 +4,7 @@ VoLCA is licensed under the Apache License, Version 2.0 (see [LICENSE](LICENSE))
 This document inventories the third-party software bundled with, or linked into,
 a VoLCA distribution. See also [NOTICE](NOTICE) for the abridged summary.
 
-## MUMPS 5.8.1 — CeCILL-C
+## MUMPS 5.8.1 – CeCILL-C
 
 The MUMPS sequential sparse direct solver is statically linked into the VoLCA
 binary via the `mumps-hs` FFI bindings.
@@ -20,25 +20,25 @@ binary via the `mumps-hs` FFI bindings.
 The MUMPS distribution embeds two further components covered by their own
 licenses:
 
-### PORD — public domain
+### PORD – public domain
 
 Ordering library by Jürgen Schulze, included in `MUMPS_5.8.1/PORD/`. Released
 into the public domain.
 
-### AMD variants and `*_TRUNCATED_RRQR` — BSD 3-Clause
+### AMD variants and `*_TRUNCATED_RRQR` – BSD 3-Clause
 
 Approximate Minimum Degree ordering and rank-revealing QR variants distributed
 with MUMPS. BSD 3-Clause license; copyright held by the respective authors as
 declared in the source headers.
 
-## BLAS / LAPACK — BSD 3-Clause
+## BLAS / LAPACK – BSD 3-Clause
 
 Linked at runtime as system shared libraries; not redistributed by VoLCA.
 
 - **License**: BSD 3-Clause. Full text: <https://www.netlib.org/lapack/LICENSE.txt>
 - **Upstream**: <https://www.netlib.org/lapack/>
 
-## mumps-hs — Apache-2.0
+## mumps-hs – Apache-2.0
 
 Haskell FFI bindings to MUMPS, maintained inside this repository
 (`mumps-hs/`). Apache-2.0; copyright Christophe Combelles. See

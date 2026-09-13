@@ -52,12 +52,12 @@ pyvolca/dist/
 .direnv/
 .ghc.environment.*
 
-# local secrets / credentials — restores the safety the old blanket `.*` rule
+# local secrets / credentials – restores the safety the old blanket `.*` rule
 # gave, without re-ignoring the dot-config we now track on purpose.
 .env*
 .netrc
 
-# agent scratch — todo/lesson notes written under .claude/ during a session
+# agent scratch – todo/lesson notes written under .claude/ during a session
 .claude/tasks/
 
 # debug stuff

@@ -1,6 +1,6 @@
 name: Format
 
-# Gate PRs on fourmolu formatting. Fast, build-independent — runs in parallel
+# Gate PRs on fourmolu formatting. Fast, build-independent – runs in parallel
 # with the heavy build matrix rather than after it. fourmolu version comes from
 # versions.env so CI, the .githooks/pre-commit hook, and Claude Code's
 # PostToolUse hook all format identically.

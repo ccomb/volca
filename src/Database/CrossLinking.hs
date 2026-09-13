@@ -122,7 +122,7 @@ data IndexedDatabase = IndexedDatabase
     , idbBySynonymGroup :: !(M.Map Int [SupplierEntry]) -- Synonym group ID → suppliers
     , idbWasteTreatmentByFlowUUID :: !(M.Map UUID [SupplierEntry])
     {- ^ Waste flow UUID → activities whose reference product is that waste
-    (treatment activities). Strict-matched only — no synonym, no scoring.
+    (treatment activities). Strict-matched only – no synonym, no scoring.
     -}
     , idbWasteTreatmentByCanonicalName :: !(M.Map Text [SupplierEntry])
     {- ^ normalizeText (wfName) → same set, for the name-based fallback when
@@ -215,14 +215,14 @@ data LinkingContext = LinkingContext
     the curated designation is a stronger statement of intent than a
     generic name match, otherwise a row could be silently overridden by a
     coincidental direct hit. Keys match the raw (un-normalized) flow name
-    plus the demand's effective location — see 'lookupAlias'.
+    plus the demand's effective location – see 'lookupAlias'.
     'emptyAliasMap' disables the feature (the common case).
     -}
     }
 
 {- | Alias source key: consumer flow name plus optional consumer location.
 A row with a location applies only to demands at that exact location code
-(no hierarchy — the curator writes the code as it appears in the data); a
+(no hierarchy – the curator writes the code as it appears in the data); a
 row without one applies at any location.
 -}
 data AliasKey = AliasKey
@@ -232,7 +232,7 @@ data AliasKey = AliasKey
     deriving (Show, Eq, Ord)
 
 {- | Designated supplier of an alias row: product/activity name, optionally
-pinned to an exact location code. A pinned location is honoured literally —
+pinned to an exact location code. A pinned location is honoured literally –
 the matcher links there bypassing the geography policy and score threshold,
 and reports 'AliasTargetMissing' when nothing supplies that name there.
 Without a pinned location the geography policy chooses among the name's
@@ -421,8 +421,8 @@ indexByActivityProduct entries =
     M.fromList [((seActivityUUID e, seProductUUID e), e) | (_, e) <- entries]
 
 {- | Index supplier entries by their @(activity name, product name)@ pair, both
-normalized. Unlike the UUID index above the key does not determine the value —
-one activity name can be borne by several location variants — so the entries
+normalized. Unlike the UUID index above the key does not determine the value –
+one activity name can be borne by several location variants – so the entries
 stay in a list and the geography policy chooses among them as it does for a
 product-name match.
 -}
@@ -550,7 +550,7 @@ buildSupplierEntriesFromDB db =
 {- | Locations under which an activity should be indexed as a supplier.
 
 Always includes 'activityLocation'. Adds the reference exchange's
-'techLocation' when it is non-empty and distinct — this surfaces SimaPro
+'techLocation' when it is non-empty and distinct – this surfaces SimaPro
 products whose Products row declares a wider geographic scope than the
 enclosing Process name (typically WFLDB: process @ /CH, product @ /GLO).
 
@@ -579,12 +579,12 @@ buildWasteTreatmentEntriesFromDB db =
 {- | Outcome of a strict cross-DB waste-treatment lookup.
 
 The matcher is intentionally narrow: it succeeds only when the dataset
-author has provided an explicit alignment (same flow UUID, or — as a
-fallback — byte-exact normalized flow name) and exactly one database in
+author has provided an explicit alignment (same flow UUID, or – as a
+fallback – byte-exact normalized flow name) and exactly one database in
 the pool offers a candidate. Two databases offering a match resolves to
 'WasteAmbiguous', never to a first-wins auto-pick. There is no synonym
 graph, no compound-name extraction, no location widening, and no scoring
-threshold — those would cross from honoring explicit intent into
+threshold – those would cross from honoring explicit intent into
 fabricating links.
 -}
 data WasteTreatmentMatch
@@ -595,7 +595,7 @@ data WasteTreatmentMatch
     | WasteNoMatch
 
 {- | Strict cross-DB waste-treatment lookup. Honors author-provided alignment
-only — see 'WasteTreatmentMatch' for the semantics.
+only – see 'WasteTreatmentMatch' for the semantics.
 
 Resolution order: flow UUID first, then byte-exact normalized name. Within
 each tier, a match is accepted iff exactly one database in 'lcIndexedDatabases'
@@ -668,7 +668,7 @@ This is the fast O(1) lookup version
 findSupplierInIndexedDBs :: LinkingContext -> SupplierQuery -> CrossDBLinkResult
 findSupplierInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, sqSupplierActivity = supplierActivity, sqLocation = location, sqUnit = unit} =
     -- An alias row preempts the direct cascade: the curator's designation is
-    -- a stronger statement of intent than a generic name match — otherwise a
+    -- a stronger statement of intent than a generic name match – otherwise a
     -- row answering "which supplier replaces this input?" could be silently
     -- overridden by a coincidental direct hit. A name with no row resolves
     -- exactly as it would without any mapping.
@@ -736,12 +736,12 @@ findSupplierInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = produc
 
     -- The curator designated (name, location): link there directly. Unit
     -- compatibility still applies; the geography policy and score threshold
-    -- do not (and no 'UpperLocationUsed' warning — the widening is
+    -- do not (and no 'UpperLocationUsed' warning – the widening is
     -- deliberate). A designated location nothing supplies is a loud
     -- curated-mapping error, never a silent fallback to the generic cascade.
     -- The stored score still rates the supplier against the consumer's own
     -- location, so a pinned cross-location link can carry a score below the
-    -- threshold — expected, since the designation overrode the ranking.
+    -- threshold – expected, since the designation overrode the ranking.
     designatedAt targetName targetLoc candidates =
         case filter ((== targetLoc) . seLocation . snd) candidates of
             [] -> CrossDBNotLinked (AliasTargetMissing targetName (Just targetLoc))
@@ -763,7 +763,7 @@ findSupplierInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = produc
                 let unitCompatible = filter (\(_, se) -> unitsAreCompatible lcUnitConfig unit (seUnit se)) allCandidates
                  in if null unitCompatible
                         then
-                            -- All candidates failed unit check — report the first supplier's unit
+                            -- All candidates failed unit check – report the first supplier's unit
                             CrossDBNotLinked UnitIncompatible{uiQueryUnit = unit, uiSupplierUnit = seUnit firstSe}
                         else
                             -- Filter candidates geographically via policy, then rank survivors
@@ -801,7 +801,7 @@ findSupplierInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = produc
     {- Distinct suppliers of the winner's /own/ database that tie its score.
     Which of them wins is whichever the ranking returned, so the demand has not
     been answered, only closed: say so instead of letting it pass. Cheap because
-    a tie is rare — the list is walked only to count the winners. -}
+    a tie is rare – the list is walked only to count the winners. -}
     sameDatabaseTies :: CrossDBCandidate -> [CrossDBCandidate] -> [LinkWarning]
     sameDatabaseTies winner scored =
         [ AmbiguousSupplier (cdbActivityName winner) tied
@@ -872,7 +872,7 @@ findSupplierInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = produc
     -- For the rejected-by-policy case, find the best candidate that *would*
     -- have been accepted under 'GeoGlobal' but is rejected here, so we can
     -- report it to the user. Returns Nothing if even GeoGlobal would reject
-    -- (e.g. narrowing only) — caller falls back to LocationUnavailable.
+    -- (e.g. narrowing only) – caller falls back to LocationUnavailable.
     rejectionReason :: Text -> [(Text, SupplierEntry)] -> Maybe (Text, LocationKind)
     rejectionReason queryLoc candidates =
         let permissive =
@@ -909,12 +909,12 @@ findSupplierInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = produc
 the indexed databases. An EcoSpold2 input's @(activityLinkId, flowId)@ is
 exactly the supplier's @(activityUUID, referenceProductUUID)@ key, so this is
 how a partial import resolves its background references with no name/location
-guessing — the dataset author's own disambiguation, honoured verbatim.
+guessing – the dataset author's own disambiguation, honoured verbatim.
 
 Returns every database that ships the identical activity+product, in the order
 of the indexed-database list. Callers take the head as the supplier and the
 remaining database names as tied alternatives (for minimal-dependency
-pre-selection). Empty when no loaded dependency provides this exact identity —
+pre-selection). Empty when no loaded dependency provides this exact identity –
 the cross-version case, where the caller falls back to attribute matching.
 -}
 findSupplierByActivityProduct :: [IndexedDatabase] -> UUID -> UUID -> [(SupplierEntry, Text)]
@@ -955,7 +955,7 @@ matchLocation hier queryLoc candidateLoc
     | queryLoc == candidateLoc = 30 -- Exact
     | isSubregionOf hier queryLoc candidateLoc = 20 -- Widening (FR→GLO, FR→RER)
     | candidateLoc `elem` placelessLocations = 10 -- Global fallback
-    | isSubregionOf hier candidateLoc queryLoc = 0 -- Narrowing (GLO→FR) — blocked
+    | isSubregionOf hier candidateLoc queryLoc = 0 -- Narrowing (GLO→FR) – blocked
     | otherwise = 5 -- Unrelated
 
 {- | Classify a candidate location relative to the requested one. Pure
@@ -999,7 +999,7 @@ acceptableLocation policy hier queryLoc candidateLoc
         (UnrelatedLoc, _) -> Nothing
   where
     -- candidate is more specific than query, but not when candidate is a
-    -- placeless code (GLO/RoW/Unspecified) — those are wider, not narrower
+    -- placeless code (GLO/RoW/Unspecified) – those are wider, not narrower
     isNarrowing =
         queryLoc /= candidateLoc
             && candidateLoc `notElem` placelessLocations
@@ -1012,7 +1012,7 @@ isSubregionOf hier child parent =
         Just parents -> parent `elem` parents
         Nothing -> False
 
-{- | Placeless codes: wider than any region — a valid global fallback,
+{- | Placeless codes: wider than any region – a valid global fallback,
 never a narrowing target.
 -}
 placelessLocations :: [Location]
@@ -1023,7 +1023,7 @@ Maps a location code to its parent regions
 
 The floor, not the table: a configuration that names no geographies file gets
 this. Every shipped configuration points at @data/geographies.csv@, which is
-where a location belongs — it covers the whole ecoinvent vocabulary, this
+where a location belongs – it covers the whole ecoinvent vocabulary, this
 covers the handful of regions needed to start up without it.
 -}
 locationHierarchy :: M.Map Location [Location]

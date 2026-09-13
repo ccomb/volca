@@ -19,7 +19,7 @@
 
 # fourmolu's `single-constraint-parens: always` writes `(HasCallStack) =>`, which hlint
 # reads as a redundant bracket. The formatter wins, so silence the lint on these
-# helpers — both carry the constraint so a failed assertion points at its call site
+# helpers – both carry the constraint so a failed assertion points at its call site
 # rather than at the helper.
 - ignore: {name: "Redundant bracket", within: [SimaProParserSpec.findByName, SimaProParserSpec.shouldEvalTo]}
 

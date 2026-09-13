@@ -88,7 +88,7 @@ spec = do
             case res of
                 Left (MatrixError msg) ->
                     msg `shouldSatisfy` T.isInfixOf "unloaded database"
-                Left _ -> pure () -- any Left is acceptable — consumer PID won't resolve in SAMPLE.min3 either
+                Left _ -> pure () -- any Left is acceptable – consumer PID won't resolve in SAMPLE.min3 either
                 Right _ -> expectationFailure "expected Left when dep DB is absent"
 
     describe "inventoryWithSubsAndDeps (Phase 2 integration)" $ do

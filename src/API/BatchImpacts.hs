@@ -9,7 +9,7 @@ The wrappers delegate to 'activityLCIABatchH' and 'batchImpactsH' via
 to a domain-shaped 'BatchError'. The "Collection not loaded" /
 "Database not loaded" body prefixes are imported from "API.Routes"
 ('collectionNotLoadedPrefix', 'databaseNotLoadedPrefix') so the two
-ends share a single source of truth — drift one and the build breaks
+ends share a single source of truth – drift one and the build breaks
 here.
 -}
 module API.BatchImpacts (
@@ -95,7 +95,7 @@ runBatchImpacts ::
     Text ->
     -- | method collection name
     Text ->
-    -- | per-(activity, method) top contributors (default 0 — see batchImpactsH)
+    -- | per-(activity, method) top contributors (default 0 – see batchImpactsH)
     Maybe Int ->
     -- | whether to keep or drop delayed long-term emissions
     LongTermMode ->

@@ -2,7 +2,7 @@
 
 {- | Counting a method's reach into a database honestly: 'characterizedFlowIds'
 probes every database flow with the same lookup scoring uses, so a flow
-covered through a fallback counts — where the build-side mappings, which
+covered through a fallback counts – where the build-side mappings, which
 resolve each factor to at most one flow, would miss it.
 -}
 module CharacterizedFlowsSpec (spec) where
@@ -62,7 +62,7 @@ methane = mkFlow 3 "Methane" Nothing
 bioFlows :: BioFlowDB
 bioFlows = M.fromList [(bfId f, f) | f <- [ammoniaUrban, ammoniaRural, methane]]
 
--- One ammonia factor, resolved at build time to the urban flow ONLY — the
+-- One ammonia factor, resolved at build time to the urban flow ONLY – the
 -- build side pairs each factor with at most one flow.
 ammoniaTables :: MethodTables
 ammoniaTables =

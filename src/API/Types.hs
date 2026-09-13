@@ -88,7 +88,7 @@ apiFlowId (ApiWasteFlow f) = wfId f
 apiFlowId (ApiUnresolvedFlow uuid) = uuid
 
 {- | Best-effort name for display. For unresolved flows we return the
-@<unresolved flow UUID>@ sentinel — the same shape already used by
+@<unresolved flow UUID>@ sentinel – the same shape already used by
 'ExchangeWithUnit'.
 -}
 apiFlowName :: ApiFlow -> Text
@@ -135,7 +135,7 @@ instance FromJSON ApiFlow where
             "unresolved" -> ApiUnresolvedFlow <$> o .: "id"
             other -> fail $ "ApiFlow.kind must be \"technosphere\", \"biosphere\", \"waste\", or \"unresolved\", got: " <> T.unpack other
 
-{- | Manual schema for ApiFlow — discriminated by 'kind' so OpenAPI consumers
+{- | Manual schema for ApiFlow – discriminated by 'kind' so OpenAPI consumers
 see a real tagged union instead of a generic Either.
 -}
 instance ToSchema ApiFlow where
@@ -232,7 +232,7 @@ data ActivitySummary = ActivitySummary
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ActivitySummary)
 
--- | Consumer result — ActivitySummary enriched with BFS depth from the queried supplier
+-- | Consumer result – ActivitySummary enriched with BFS depth from the queried supplier
 data ConsumerResult = ConsumerResult
     { crProcessId :: Text
     , crActivityName :: Text
@@ -538,8 +538,8 @@ data MethodDetail = MethodDetail
     deriving (ToJSON, ToSchema) via (Stripped MethodDetail)
 
 {- | Characterization factor for API response. A method routinely carries
-several CFs sharing one flow name — same substance emitted to air vs. water,
-or one regionalized CF per location — so the distinguishing axes
+several CFs sharing one flow name – same substance emitted to air vs. water,
+or one regionalized CF per location – so the distinguishing axes
 (compartment, location, unit) travel with each row instead of leaving
 consumers with apparent duplicates.
 -}
@@ -598,7 +598,7 @@ data ContributingFlowsResult = ContributingFlowsResult
 
 -- | A single activity's contribution to an LCIA score
 data ActivityContribution = ActivityContribution
-    { acProcessId :: Text -- "activityUUID_productUUID" — usable as API process_id
+    { acProcessId :: Text -- "activityUUID_productUUID" – usable as API process_id
     , acActivityName :: Text -- e.g. "electricity production, nuclear"
     , acProductName :: Text -- e.g. "electricity, medium voltage"
     , acLocation :: Text -- e.g. "FR"
@@ -674,7 +674,7 @@ data LCIABatchResult = LCIABatchResult
     , lbrScoringIndicators :: M.Map Text (M.Map Text ScoringIndicator)
     -- ^ Scoring set name → (variable name → indicator). One row per scoring variable.
     , lbrCutoffWaste :: [CutoffWasteFlow]
-    {- ^ Orphan waste exchanges on the scored activity — flows the dataset author
+    {- ^ Orphan waste exchanges on the scored activity – flows the dataset author
     left unmodelled. They contribute 0 to the score; surfacing them lets
     consumers see what's excluded rather than silently undercounting.
     -}
@@ -689,7 +689,7 @@ excludes it; this record makes that exclusion visible.
 -}
 data CutoffWasteFlow = CutoffWasteFlow
     { cwfFlowId :: UUID
-    {- ^ Waste flow UUID — lets consumers programmatically address the
+    {- ^ Waste flow UUID – lets consumers programmatically address the
     cut-off (e.g. to propose a treatment activity that would close it).
     -}
     , cwfFlowName :: Text
@@ -754,8 +754,8 @@ data FlowCFEntry = FlowCFEntry
 distinct emission and resource flows that at least one of its methods
 resolves a factor for, probed with the same lookup scoring uses.
 
-Distinct is the point. A collection's methods overlap heavily — every
-climate-change variant characterizes the same gases — so summing per-method
+Distinct is the point. A collection's methods overlap heavily – every
+climate-change variant characterizes the same gases – so summing per-method
 figures counts a flow once per method that reaches it, and no sum of the
 per-method mapping statuses can recover this number.
 -}
@@ -938,11 +938,11 @@ data RelinkResponse = RelinkResponse
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped RelinkResponse)
 
 {- | Request body for the relink endpoint. Both fields absent (an empty @{}@
-body) means a plain relink — re-resolve links within the existing pin. Both
+body) means a plain relink – re-resolve links within the existing pin. Both
 present switches to mapping mode: relink against @rmrDepDb@ using the inline
 name→name supplier-alias CSV in @rmrMappingCsv@ (sent inline so the client can
 forward a local file without the server needing filesystem access). Supplying
-exactly one is rejected — they are only meaningful together.
+exactly one is rejected – they are only meaningful together.
 -}
 data RelinkRequest = RelinkRequest
     { rmrDepDb :: Maybe Text
@@ -993,7 +993,7 @@ data GapEntryAPI = GapEntryAPI
 
 {- | Supplier-gap report of a database: everything still unsupplied after
 internal resolution and cross-DB linking, aggregated and ranked by demanding
-edges — the work list for switching or completing a background dependency.
+edges – the work list for switching or completing a background dependency.
 -}
 data GapReportAPI = GapReportAPI
     { graDbName :: Text
@@ -1011,7 +1011,7 @@ data GapReportAPI = GapReportAPI
 -- | One dataset-soundness finding: where it was found, and what is wrong.
 data QualityOffenderAPI = QualityOffenderAPI
     { qoaSeverity :: Severity
-    , qoaProcessId :: Text -- "activityUUID_productUUID" — usable as API process_id
+    , qoaProcessId :: Text -- "activityUUID_productUUID" – usable as API process_id
     , qoaActivityName :: Text
     , qoaLocation :: Text
     , qoaProductName :: Maybe Text
@@ -1021,7 +1021,7 @@ data QualityOffenderAPI = QualityOffenderAPI
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped QualityOffenderAPI)
 
 {- | One check of the quality report. @offenderCount@ always covers the whole
-finding list, so a list capped by @limit@ stays countable — never a silent cap.
+finding list, so a list capped by @limit@ stays countable – never a silent cap.
 @applicable@ is 'False' when the database carries nothing the check could judge,
 which is not the same as passing it.
 -}
@@ -1090,7 +1090,7 @@ data BridgedFlowAPI = BridgedFlowAPI
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped BridgedFlowAPI)
 
 {- | The database flows that bridge to one factor. @methodName@ is the name the
-method carries for the substance — the name each bridged flow should be renamed
+method carries for the substance – the name each bridged flow should be renamed
 to for the database to score in an exact-name tool.
 -}
 data BridgeGroupAPI = BridgeGroupAPI
@@ -1105,7 +1105,7 @@ data BridgeGroupAPI = BridgeGroupAPI
 @totalFlows@ is the honest reach; @bridgeGroups@ is the subset reached only
 through a bridge (empty means every scored flow matches by its exact name).
 @bridgeGroupCount@ always covers the whole list, so a list capped by @limit@
-stays countable — never a silent cap.
+stays countable – never a silent cap.
 -}
 data CollectionBridgesAPI = CollectionBridgesAPI
     { cvcCollection :: Text
@@ -1158,7 +1158,7 @@ data DeleteClassFilter = DeleteClassFilter
 
 {- | Request for delete-by-selection. Two exclusive selection modes: the
 filter fields select the whole matching set (pagination ignored), or @dsqIds@
-names the set exactly — the filter fields must then be absent. @dsqKeep@
+names the set exactly – the filter fields must then be absent. @dsqKeep@
 spares selected process ids and @dsqExtra@ adds ones the selection missed.
 Process ids are the canonical @activityUUID_productUUID@ strings the UI/CLI
 carry, not matrix indices.
@@ -1168,7 +1168,7 @@ carry, not matrix indices.
 process that supplies it.
 
 @tiProvider@ is a @process_id@ (@activityUUID_productUUID@, or a bare activity
-UUID when that activity has a single product) — the same currency the read
+UUID when that activity has a single product) – the same currency the read
 endpoints hand out. The flow follows from the supplier, so it is never stated
 separately. @tiUnit@ defaults to the supplier's own reference unit; stating
 another one is allowed as long as it converts.
@@ -1269,8 +1269,8 @@ data ActivityWriteResponse = ActivityWriteResponse
 {- | Which lines of an inventory an edit addresses.
 
 @esKind@ is @input@, @waste@ or @biosphere@: the first two name their provider
-by process id, the third names its flow by identity. The product side — the
-reference product, coproducts, a treatment's reference input — has no kind
+by process id, the third names its flow by identity. The product side – the
+reference product, coproducts, a treatment's reference input – has no kind
 here, because changing those changes what the activity /is/, not what it
 consumes.
 
@@ -1302,8 +1302,8 @@ three: what makes sense on an addition cannot be sent on a removal and back
 again. They apply in the order they are listed here, so an edit that drops one
 supplier and adds another is never ambiguous about which happened first.
 
-Added lines are resolved exactly as written ones are — same provider lookup,
-same unit rules — because an inventory should not be able to tell how a line
+Added lines are resolved exactly as written ones are – same provider lookup,
+same unit rules – because an inventory should not be able to tell how a line
 got there.
 -}
 data ExchangeEditRequest = ExchangeEditRequest
@@ -1316,7 +1316,7 @@ data ExchangeEditRequest = ExchangeEditRequest
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ExchangeEditRequest)
 
-{- | A list left unstated is a list of nothing — a document that only removes
+{- | A list left unstated is a list of nothing – a document that only removes
 a line should not have to say four times that it does nothing else. The
 assistant tool already reads its arguments this way.
 -}
@@ -1392,7 +1392,7 @@ data UploadResponse = UploadResponse
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped UploadResponse)
 
--- | Supply chain response — all upstream activities with scaling factors
+-- | Supply chain response – all upstream activities with scaling factors
 data SupplyChainResponse = SupplyChainResponse
     { scrRoot :: ActivitySummary
     , scrTotalActivities :: Int
@@ -1446,7 +1446,7 @@ newtype SubstitutionRequest = SubstitutionRequest
 {- | Scope of a supplier substitution.
 
 * 'OneEdge' carries the consumer 'ProcessId' ref and replaces the supplier
-  on that single technosphere edge — the historical per-edge behaviour.
+  on that single technosphere edge – the historical per-edge behaviour.
 * 'AllConsumers' replaces @from@ by @to@ on __every__ consumer that sources
   from @from@, as one rank-1 update. @from@ must live in the root DB.
 
@@ -1516,8 +1516,8 @@ instance ToSchema Substitution where
 removes the link entirely. The kernel passes @a * delta@ to 'perturbA'.
 -}
 data Perturbation = Perturbation
-    { perConsumer :: Text -- Consumer ProcessId (column j of A) — root DB only in V1
-    , perSupplier :: Text -- Supplier ProcessId (row i of A) — root DB only in V1
+    { perConsumer :: Text -- Consumer ProcessId (column j of A) – root DB only in V1
+    , perSupplier :: Text -- Supplier ProcessId (row i of A) – root DB only in V1
     , perDelta :: Double -- Relative perturbation of A_ij (1 + delta)
     , perLabel :: Maybe Text -- Optional label for response correlation
     }
@@ -1576,14 +1576,14 @@ data SensitivityResponse = SensitivityResponse
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped SensitivityResponse)
 
-{- | Name of the request-level "root" database — the DB extracted from the
+{- | Name of the request-level "root" database – the DB extracted from the
 URL path and the implicit target of any bare 'ProcessId' (one without the
 @"dbName::"@ qualifier).
 
 The newtype exists so that the recursive substitution walker cannot
 accidentally confuse the *root* DB (where bare refs are resolved, per the
 'Substitution' docstring) with the *current* DB being visited during the
-descent — they are different concepts and were previously both plain
+descent – they are different concepts and were previously both plain
 'Text', which caused a real bug where bare consumers were retried in
 every dep DB.
 -}
@@ -1591,7 +1591,7 @@ newtype RootDb = RootDb {unRootDb :: Text}
     deriving (Eq, Show)
 
 {- | Name of the database currently being visited by the recursive
-substitution walker — distinct from 'RootDb' precisely so that the
+substitution walker – distinct from 'RootDb' precisely so that the
 @thisDb@/@rootDb@ argument pair cannot be silently swapped.
 -}
 newtype ThisDb = ThisDb {unThisDb :: Text}
@@ -1968,7 +1968,7 @@ instance ToSchema UploadChunk where
 {- | Translate the request activities into authoring inputs. Shared by the
 HTTP endpoints and the command line, which read the same JSON document.
 
-What can fail here is only shape — a biosphere line that names its flow in
+What can fail here is only shape – a biosphere line that names its flow in
 two ways at once or in none, a direction that is neither of the two, a flow
 introduced without the unit that is part of its identity; every value is the
 validator's to judge. Complaints accumulate across the whole batch and name
@@ -2035,7 +2035,7 @@ toBio be = case (bioFlowRef be, bioDirection (beDirection be)) of
 order the request lists them. Shared by the HTTP endpoint, the command line and
 the assistant tool, which all read the same document.
 
-What can fail here is only shape — a selector naming its provider where its
+What can fail here is only shape – a selector naming its provider where its
 kind names a flow, a kind that is none of the three. Whether a selector reaches
 anything is the domain's to judge, and its complaints accumulate the same way,
 so a request is fixed in one round trip whichever layer refused it.

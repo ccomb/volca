@@ -44,7 +44,7 @@ Any cell that moves outside this rule is a regression to investigate.
 - `jq`, `curl`, GNU `diff` available locally.
 - The volca server running on `:8080` (or adjust `BASE` below).
 
-## Step 1 — capture the pre-fix baseline
+## Step 1 – capture the pre-fix baseline
 
 Check out the parent of PR #41's first commit, rebuild, run the server:
 
@@ -71,7 +71,7 @@ while read pid; do
 done < pids.txt
 ```
 
-## Step 2 — capture the post-fix output
+## Step 2 – capture the post-fix output
 
 ```bash
 git checkout fix/cross-db-regional-lcia
@@ -84,7 +84,7 @@ while read pid; do
 done < pids.txt
 ```
 
-## Step 3 — diff and classify
+## Step 3 – diff and classify
 
 Extract `(pid, methodId, score)` triples and join:
 
@@ -119,10 +119,10 @@ For every line in `moved.tsv`, verify:
 3. The score change is **positive** (the fix recovers the missing
    contribution, never zeros a previously-correct score).
 
-Any moved cell failing one of these rules is a regression — bisect the
+Any moved cell failing one of these rules is a regression – bisect the
 PR commits to find which one introduced it.
 
-## Step 4 — record the result
+## Step 4 – record the result
 
 Add a comment on PR #41 with:
 

@@ -8,7 +8,7 @@ The 'computeRegionalizedLCIAScore' fast path is a dot product
 'rawWeights' from that DB's biosphere triples, 'scalingVec' from that DB's
 activity columns. So when a root-DB activity consumes a dep-DB activity,
 the dep DB's emissions are present in the merged 'Inventory' but invisible
-to the regional path — its regional CFs were never queried.
+to the regional path – its regional CFs were never queried.
 
 This spec uses the synthetic two-DB fixture from
 'CrossDBRegionalLCIAFixture'. The "broken" case shows the root-only score
@@ -56,7 +56,7 @@ spec = describe "cross-DB regional LCIA" $ do
         -- Today's contract: computeLCIAScoreAuto is handed the ROOT db's
         -- scaling vector and the ROOT db's MethodTables. The merged
         -- Inventory containing F=1 kg is passed too, but the regional path
-        -- ignores it — score = rawWeights_root · scaling_root = 0.
+        -- ignores it – score = rawWeights_root · scaling_root = 0.
         rootSolver <- mkSolverFromDb rootDb "root"
         depSolver <- mkSolverFromDb depDb "dep"
         let depLookup name =
@@ -78,7 +78,7 @@ spec = describe "cross-DB regional LCIA" $ do
                 M.lookup flowUUID inv `shouldBe` Just 1.0
                 -- The bug surface: the regional path scored against root
                 -- tables/scaling alone returns 0 (or, depending on how the
-                -- caller invokes it, the wrong number — never 5).
+                -- caller invokes it, the wrong number – never 5).
                 let rootScaling = case [s | (n, _, s) <- NE.toList (SS.csScalings sol), n == "root"] of
                         (s : _) -> s
                         [] -> U.empty
@@ -128,7 +128,7 @@ spec = describe "cross-DB regional LCIA" $ do
     it "NEW path: a dep-DB integrity error fails the whole sum, never undercounts" $ do
         -- Same solve as the 5.0 case, but the dep DB's tables carry a
         -- genuine integrity error (regional CFs present, precomputed
-        -- weights absent — the stale-cache shape). Summing the healthy
+        -- weights absent – the stale-cache shape). Summing the healthy
         -- root alone would silently return 0 instead of 5; the sum must
         -- refuse instead.
         rootSolver <- mkSolverFromDb rootDb "root"
@@ -167,7 +167,7 @@ spec = describe "cross-DB regional LCIA" $ do
     it "NEW path: tainted dep-DB column contributes 0; root contribution survives" $ do
         -- Same DBs, but the method only has CF[F, FR]. The dep DB's DE
         -- activity is regionalized in the method (F appears in regional
-        -- CFs) but no CF resolves at DE / parents / broadcast — that's a
+        -- CFs) but no CF resolves at DE / parents / broadcast – that's a
         -- tainted column, and it carries scaling 1. The precomputed
         -- weights leave it at 0 (a coverage gap, not an integrity error),
         -- so the dep DB scores Right 0 and the cross-DB sum stays Right.

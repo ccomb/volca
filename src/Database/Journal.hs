@@ -11,7 +11,7 @@ those files: the edits are appended to a journal beside them, and loading the
 database means reading the sources (or the matrix cache) and then replaying
 that journal over them.
 
-The alternative — rewriting the sources in their own format after every edit —
+The alternative – rewriting the sources in their own format after every edit –
 only works for a format that records process identity in the files themselves.
 EcoSpold 1 does not: its flow identifiers are derived from the position of a
 dataset in the file, and any writer that renumbers them moves every identity
@@ -244,8 +244,8 @@ readJournal home = do
 
 The distinction is what keeps the last-line exception honest. A line that is
 not JSON at all is a write that was cut short. A line that is complete JSON
-says something definite, and if this engine cannot read what it says — a
-version it does not know, an operation it has no verb for — that is a refusal
+says something definite, and if this engine cannot read what it says – a
+version it does not know, an operation it has no verb for – that is a refusal
 wherever the line sits, including at the end. Otherwise a newer engine's
 entries, which are exactly the ones at the end of the file, would be dropped
 as debris.
@@ -359,7 +359,7 @@ fnv1a = BS.foldl' step 14695981039346656037
 line seeing the result of the ones before it.
 
 The context carries the database to start from ('acDb'), the dependencies
-suppliers are resolved against, and the units amounts are judged in — the same
+suppliers are resolved against, and the units amounts are judged in – the same
 context authoring uses, because a replay validates exactly what authoring
 validated. That is deliberate: a supplier that has since vanished from a
 dependency fails here rather than landing as a dangling link.
@@ -423,8 +423,8 @@ applyOp ctx = \case
 
 {- | The one failure a journal exists to make impossible to miss: the same
 description no longer minting the identity it was recorded under. Everything
-that points at a process id — a script, a saved score, another database's
-links — would follow the old one.
+that points at a process id – a script, a saved score, another database's
+links – would follow the old one.
 -}
 drift :: [Text] -> [Text] -> Text
 drift recorded minted =

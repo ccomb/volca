@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Parser for the openLCA JSON-LD schema (https://greendelta.github.io/olca-schema)
-restricted to 'ImpactCategory' / 'ImpactFactor' — the shape that encodes a
+restricted to 'ImpactCategory' / 'ImpactFactor' – the shape that encodes a
 regionalized LCIA method.
 
 Top-level shape:
@@ -30,7 +30,7 @@ name when absent.
 
 Each 'ImpactFactor' becomes a single 'MethodCF':
 
-* @flow.\@id@ → 'mcfFlowRef' (UUID — deterministic match against DB flow UUIDs)
+* @flow.\@id@ → 'mcfFlowRef' (UUID – deterministic match against DB flow UUIDs)
 * @flow.name@ → 'mcfFlowName' (kept for display + name-based fallback matching)
 * @flow.cas@ → 'mcfCAS' (when present)
 * @flow.flowType == \"ELEMENTARY_FLOW\"@ controls whether we carry a compartment.
@@ -39,13 +39,13 @@ Each 'ImpactFactor' becomes a single 'MethodCF':
 * @value@ → 'mcfValue'
 * @unit.name@ → 'mcfUnit'
 * 'mcfDirection' comes from the factor's own @direction@ field when present,
-  else the flow's category path, else the document's — see 'factorDirection'.
+  else the flow's category path, else the document's – see 'factorDirection'.
 
 Optional fields ignored at this stage but trivial to wire later:
 
-* @formula@ — parametric CFs (we'd need an evaluator)
-* @uncertainty@ — distribution → Monte Carlo support
-* @flowProperty@ — we currently rely on @unit@ only
+* @formula@ – parametric CFs (we'd need an evaluator)
+* @uncertainty@ – distribution → Monte Carlo support
+* @flowProperty@ – we currently rely on @unit@ only
 
 Other openLCA top-level types ('Process', 'Flow', 'ImpactMethod', etc.) are not
 recognized by 'isOlcaImpactCategoryJson'; the auto-detection in
@@ -160,7 +160,7 @@ compartments (e.g. Agribalyse has 3 flows literally named
 parseCompartment :: KM.KeyMap Value -> Maybe Compartment
 parseCompartment flow = do
     catName <- categoryPath flow
-    -- A path that was only the tree root leaves no segments — no compartment.
+    -- A path that was only the tree root leaves no segments – no compartment.
     case dropTreeRoot (T.splitOn "/" catName) of
         [] -> Nothing
         (med0 : rest) ->
@@ -177,8 +177,8 @@ dropTreeRoot (root : rest)
 dropTreeRoot segs = segs
 
 {- | The flow's category path. The olca schema carries it as a plain string
-on the flow Ref (@"Elementary flows/Emission to air/unspecified"@) — the
-form a genuine openLCA export uses — while VoLCA's own exports write a
+on the flow Ref (@"Elementary flows/Emission to air/unspecified"@) – the
+form a genuine openLCA export uses – while VoLCA's own exports write a
 Category Ref object whose @name@ holds the same path.
 -}
 categoryPath :: KM.KeyMap Value -> Maybe Text
@@ -188,16 +188,16 @@ categoryPath flow =
 
 {- | Direction of one factor, most specific signal first:
 
-1. the factor's own @direction@ field — not in the olca schema (openLCA
+1. the factor's own @direction@ field – not in the olca schema (openLCA
    ignores it on import) but written by VoLCA's own exporter, so a VoLCA
    archive round-trips its directions exactly;
-2. the flow's category path — openLCA files carry no per-factor direction
+2. the flow's category path – openLCA files carry no per-factor direction
    at all, but the path names the boundary side: a resource segment
-   (@resource/…@, @Raw materials@, @Land use@) means Input — the same
-   spellings the columnar-CSV parser reads — and an emission segment
+   (@resource/…@, @Raw materials@, @Land use@) means Input – the same
+   spellings the columnar-CSV parser reads – and an emission segment
    (@Emission to air/…@) means Output. A CF resolved against the wrong
    synonym view silently loses direction-specific bridges;
-3. the document-level @ImpactCategory.direction@ (olca schema v2) — the
+3. the document-level @ImpactCategory.direction@ (olca schema v2) – the
    category's overall orientation, for flows whose category path says
    nothing either way;
 4. 'Output', since the vast majority of environmental CFs are emissions.

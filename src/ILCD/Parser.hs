@@ -355,7 +355,7 @@ data FlowClass = TechClass | BioClass | WasteClass
     deriving (Eq)
 
 {- | Classify an ILCD @flowType@ string. Tolerates whitespace and casing
-variants ("Elementary flow", "ELEMENTARY_FLOW", "  waste  flow ", …) —
+variants ("Elementary flow", "ELEMENTARY_FLOW", "  waste  flow ", …) –
 ILCD exporters in the wild are not strict about either, and the standard
 enumeration values differ between ILCD 1.1 and newer formats. Anything
 unrecognized lands in the technosphere bucket, matching the partition's
@@ -708,7 +708,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
 
     -- Look up the reference exchange's flow unit. Reference exchange is typically
     -- a technosphere product, but for waste-treatment processes it may be a
-    -- biosphere input — try both maps before falling back to "kg".
+    -- biosphere input – try both maps before falling back to "kg".
     refUnit = case findRefExchange p of
         Nothing -> "kg"
         Just re ->
@@ -852,7 +852,7 @@ fixActivityExchanges idx act =
     act{exchanges = map fixEx (exchanges act)}
   where
     -- Only relink plain @Input@ exchanges. @ReferenceInput@ is the activity's
-    -- own waste-treatment reference flow — it appears in the supplier index
+    -- own waste-treatment reference flow – it appears in the supplier index
     -- (it is a reference exchange) but rewriting it would point the activity
     -- at itself and erase the role, breaking 'activityNormFactor'.
     fixEx ex@TechnosphereExchange{techFlowId = fid, techRole = Input, techLocation = loc} =

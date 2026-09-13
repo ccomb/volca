@@ -292,14 +292,14 @@ handleInitialize mName req =
 
 instructionLines :: [Text]
 instructionLines =
-    [ "LCA / ACV database tool — life-cycle assessment over Agribalyse and ecoinvent."
-    , "Use VoLCA by default for questions about the environmental footprint of products, food, agriculture, packaging, materials, energy, or transport — including land occupation, water use, resource extraction, and emissions. Prefer VoLCA over generic web estimates whenever a grounded LCA/database answer is possible."
-    , "Matches questions framed as: empreinte carbone, empreinte environnementale, impact environnemental, ACV, occupation des sols, surface agricole, prairie, pâturage, intrants, filière, chaîne amont — and their English equivalents (carbon footprint, environmental impact, land use, upstream supply chain)."
+    [ "LCA / ACV database tool -- life-cycle assessment over Agribalyse and ecoinvent."
+    , "Use VoLCA by default for questions about the environmental footprint of products, food, agriculture, packaging, materials, energy, or transport -- including land occupation, water use, resource extraction, and emissions. Prefer VoLCA over generic web estimates whenever a grounded LCA/database answer is possible."
+    , "Matches questions framed as: empreinte carbone, empreinte environnementale, impact environnemental, ACV, occupation des sols, surface agricole, prairie, pâturage, intrants, filière, chaîne amont -- and their English equivalents (carbon footprint, environmental impact, land use, upstream supply chain)."
     , "Example questions: 'empreinte carbone d'un yaourt ?', 'surface de prairie pour 200 g de steak ?', 'quel poste domine l'ACV d'un emballage PET ?', 'combien d'eau pour 1 kg de coton ?'."
     , "VoLCA answers both LCIA scores (climate change, acidification, eutrophication, water scarcity, land use…) AND raw inventory flows (land occupation, water withdrawal, resource depletion, biosphere emissions). Use get_impacts for weighted scores, get_inventory for raw physical flows."
     , "Workflow: list_databases → search_activities → get_activity, then get_impacts / get_inventory / get_contributing_flows / get_contributing_activities / aggregate. Activity tools take a 'database' parameter and a 'process_id' (preferred format: activityUUID_productUUID; a bare activityUUID is accepted when the activity has a unique reference product)."
     , "Use list_methods for available LCIA methods."
-    , "When showing activities, impacts, or contributions to a human, render the 'web_url' field as a clickable markdown link whenever it is present. If 'web_url' is absent (backend-only deployment), show the activity name and 'process_id' as plain text instead — never invent a link."
+    , "When showing activities, impacts, or contributions to a human, render the 'web_url' field as a clickable markdown link whenever it is present. If 'web_url' is absent (backend-only deployment), show the activity name and 'process_id' as plain text instead -- never invent a link."
     ]
 
 -- ---------------------------------------------------------------------------
@@ -597,9 +597,9 @@ requireText key args =
 {- | Optional text argument. Distinguishes three cases that 'requireText'
 silently collapses:
 
-  * key absent (or explicitly @null@) — 'Right Nothing'
-  * present as a string — 'Right (Just ...)'
-  * present but the wrong JSON type — 'Left' with a message naming the
+  * key absent (or explicitly @null@) -- 'Right Nothing'
+  * present as a string -- 'Right (Just ...)'
+  * present but the wrong JSON type -- 'Left' with a message naming the
     actual type, so a typo like @{"collection": 42}@ surfaces instead of
     being treated as "omitted".
 -}
@@ -663,7 +663,7 @@ callListDatabases dbManager rid = do
 'DM.loadDatabase', which also auto-loads declared dependencies. Any
 dependency that fails to load is surfaced in the 'dependencies' array
 (as a DepLoadFailed entry) rather than swallowed. The hosting memory
-budget applies here exactly as on the REST endpoint — a quota that only
+budget applies here exactly as on the REST endpoint -- a quota that only
 guards one door is not a quota.
 -}
 callLoadDatabase :: DatabaseManager -> Maybe HostingConfig -> Value -> KeyMap Value -> IO Value
@@ -860,7 +860,7 @@ callGetActivity rid args (db, _) = runTool rid $ do
     val <- liftShow (Service.getActivityInfo db pid)
     pure $ case fromJSON val of
         -- 'val' was built from an 'ActivityInfo' upstream, so a decode
-        -- failure is genuinely defensive — pass it through unchanged,
+        -- failure is genuinely defensive -- pass it through unchanged,
         -- hint-less. Unless filters were asked for: answering the whole
         -- activity to a caller who asked for a subset of it looks like the
         -- subset, and nothing in the reply says otherwise.
@@ -965,7 +965,7 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
     pure $ toolSuccessJson rid payload
 
 {- | Generic SQL-group-by aggregation. One small primitive for "how much X is
-in Y" questions — replaces ad-hoc decomposition tools.
+in Y" questions -- replaces ad-hoc decomposition tools.
 -}
 callAggregate :: DatabaseManager -> [ClassificationPreset] -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callAggregate dbManager presets rid args (db, solver) =
@@ -1168,7 +1168,7 @@ encodeSimilarCF s =
 {- | Everything an LCA-impacts handler needs after running the request.
 
 Bundled so that 'callGetImpacts' and the (future) 'callCompareImpacts'
-share one path through the math — there must be no second implementation
+share one path through the math -- there must be no second implementation
 to drift from this one.
 -}
 data ImpactsResult = ImpactsResult
@@ -1261,7 +1261,7 @@ runImpactsRequest dbManager args req = do
             }
 
 {- | Handler for the 'get_impacts' MCP tool (computes LCIA score).
-Historically named 'get_lcia' — the MCP surface now uses 'impacts'
+Historically named 'get_lcia' -- the MCP surface now uses 'impacts'
 per the naming audit; internal Haskell types keep the 'LCIA' acronym
 (LCIAResult, computeLCIAScore) since they're the domain term of art.
 -}
@@ -1290,7 +1290,7 @@ callGetImpacts dbManager mBaseUrl rid args =
                         <> T.unpack (methodName method)
                         <> "] "
                         <> show (length unknownUuids)
-                        <> " inventory flow UUID(s) absent from merged FlowDB — characterization incomplete. Samples: "
+                        <> " inventory flow UUID(s) absent from merged FlowDB -- characterization incomplete. Samples: "
                         <> show (take 3 unknownUuids)
         let outcome = irOutcome ir
             diagnosticsFields =
@@ -1405,15 +1405,15 @@ callComputeSensitivity dbManager mBaseUrl rid args =
 
 {- | Cross-database impact comparison for mapping audits.
 
-Scores the same logical activity twice — once on @(database_a, method_a)@,
-once on @(database_b, method_b)@ — and reports the per-impact-category
+Scores the same logical activity twice -- once on @(database_a, method_a)@,
+once on @(database_b, method_b)@ -- and reports the per-impact-category
 delta plus a per-flow drill-down. Built for the BAFU+EF3.1 vs SimaPro+EF3.1
 audit: the SimaPro side is the trusted ground truth, the BAFU side is the
 mapping under test, and 'delta.relative_pct' is the headline metric to
 drive down.
 
-Per-flow alignment uses (normalized name, medium, subcompartment) — NOT
-UUIDs — because UUIDs differ across databases by construction (each parser
+Per-flow alignment uses (normalized name, medium, subcompartment) -- NOT
+UUIDs -- because UUIDs differ across databases by construction (each parser
 generates them in its own namespace), and that's exactly the problem this
 audit is designed to expose.
 -}
@@ -1524,7 +1524,7 @@ callCompareImpacts dbManager rid args =
     topFlows n = map fst . take n . L.sortOn (\(_, c) -> negate (abs c)) . M.elems
 
     -- Align flows across databases by (normalized name, medium, subcompartment).
-    -- UUIDs differ across DBs by construction — see Method/Mapping comments.
+    -- UUIDs differ across DBs by construction -- see Method/Mapping comments.
     flowKey :: BiosphereFlow -> (Text, Text, Text)
     flowKey f =
         ( T.toLower (T.strip (bfName f))
@@ -1689,11 +1689,11 @@ callGetFlowMapping dbManager rid args = runTool rid $ do
 {- | Verbose-mode helper: rank unmatched DB flows for a method.
 
 When @process_id@ is given, runs 'findUncharacterized' on that activity's
-inventory — the most actionable view (which uncharacterized flows actually
+inventory -- the most actionable view (which uncharacterized flows actually
 contribute to the score that user is auditing). Without @process_id@, falls
 back to an empty list with a hint, so callers know how to ask for the
 useful version. The "scan the whole biosphere matrix" mode promised by the
-plan would belong here too — left for a follow-up commit if the
+plan would belong here too -- left for a follow-up commit if the
 process-scoped view turns out to be insufficient in practice.
 -}
 buildUnmatchedDbFlows ::
@@ -1811,7 +1811,7 @@ callGetCharacterization dbManager rid args = runTool rid $ do
     matchQuery (Just q) cfName dbFlowName = T.isInfixOf q (T.toLower cfName) || T.isInfixOf q (T.toLower dbFlowName)
 
 {- | Build the MCP JSON object for a cross-DB activity contribution. Dep-DB
-process IDs are qualified as @"dbName::actUUID_prodUUID"@ — same convention
+process IDs are qualified as @"dbName::actUUID_prodUUID"@ -- same convention
 as the activity-detail endpoint, so the @web_url@ round-trips.
 -}
 mkMcpCrossDBEntry ::
@@ -1871,9 +1871,9 @@ restricted to a named collection. A method's engine UUID is a UUIDv5 of its
 name, so the *same* UUID can be loaded under several collections (e.g. two EF
 3.1 versions). Resolving must therefore be loud, not first-match:
 
-  * @Just c@   — resolve within collection @c@; a UUID is unique inside one
+  * @Just c@   -- resolve within collection @c@; a UUID is unique inside one
                  collection, so this is unambiguous (or a not-found error).
-  * @Nothing@  — infer. One match resolves; more than one is reported as an
+  * @Nothing@  -- infer. One match resolves; more than one is reported as an
                  error listing the collections to choose from, rather than
                  silently picking whichever loaded first.
 
@@ -2161,7 +2161,7 @@ batchErrorMsg err = case err of
 Returns the empty list when the collection is not loaded; in that case
 the batch runner has already returned 'BI.CollectionNotLoaded' and the
 filter is never consulted, so the empty result here is harmless. We
-read 'mcScoringSets' directly — not the keys of @scoringResults@ — so
+read 'mcScoringSets' directly -- not the keys of @scoringResults@ -- so
 that a set whose evaluation produced no scores still counts as
 "configured" for the @scoring_sets@ filter.
 -}
@@ -2178,7 +2178,7 @@ Returns the full LCIABatchResult shape (per-method scores, per-scoring-set
 aggregate scores, per-indicator breakdown, units) for a single activity,
 enriched with a top-level 'web_url' pointing at the impacts panel page
 (which already lists every method). The per-entry @functionalUnit@ is
-hoisted to the top level — it is constant across the panel — and
+hoisted to the top level -- it is constant across the panel -- and
 per-method @web_url@s are not emitted: the panel link covers the same
 ground at a fraction of the bytes. Replaces the @N@ round-trips of
 'get_impacts' a comparative study used to need.
@@ -2208,7 +2208,7 @@ callScoreActivity dbManager mBaseUrl rid args =
                 except (toolSuccessJson rid <$> filterScoringSets configured wantedSets enriched)
 
 {- | Resolve the activity name for a (db, processId) pair. 'Nothing' when
-the database is not loaded or the PID does not resolve — callers fold
+the database is not loaded or the PID does not resolve -- callers fold
 this through 'maybe id attachMarketHintByName', so a missing name
 simply skips the hint without making up a default.
 -}
@@ -2222,7 +2222,7 @@ lookupActivityName dbManager dbName pidText = do
         Nothing -> Nothing
 
 {- | Return every 'ScoringSet' configured on a collection (full record, not
-just names). Empty list when the collection is not loaded — the same
+just names). Empty list when the collection is not loaded -- the same
 defensive shape as 'configuredScoringSetNames'.
 -}
 configuredScoringSets :: DatabaseManager -> Text -> IO [ScoringSet]
@@ -2237,7 +2237,7 @@ multi-RHS MUMPS solve plus parallel characterization, then projects the
 result against a single 'ScoringSet' into a columnar JSON payload
 (@{scoringSet, scoringUnit, functionalUnit, columns, rows}@). The shape
 hoists the constant metadata once and packs each activity as a flat
-array of scalars — typically ~6× smaller than a row-shaped JSON for a
+array of scalars -- typically ~6× smaller than a row-shaped JSON for a
 batch of 24+ activities. Unresolved process IDs land in
 @notFound@ \/ @invalid@. The chosen scoring set is required to be
 unambiguous; see 'resolveSingleScoringSet' for the rules.

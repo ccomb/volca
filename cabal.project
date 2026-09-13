@@ -10,7 +10,7 @@ program-options
 
 -- Binary-size reduction: emit one section per top-level symbol in every
 -- package, then have the linker drop sections nothing references at exe link.
--- Both halves are required — split-sections without dead-section stripping is
+-- Both halves are required – split-sections without dead-section stripping is
 -- dead weight. The platform-specific linker flag lives in volca.cabal's
 -- executable stanza (Apple ld doesn't understand --gc-sections; uses
 -- -dead_strip instead). Forces a one-time rebuild of the cabal store (the

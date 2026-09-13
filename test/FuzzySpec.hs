@@ -100,7 +100,7 @@ spec = describe "Search.Fuzzy" $ do
 
     it "applies length ratio guard on prefix matches" $ do
         -- "elect" (5 chars) should not match a 25-char token
-        -- (ratio > 3 — 25/5 = 5). Only the shorter candidate passes.
+        -- (ratio > 3 – 25/5 = 5). Only the shorter candidate passes.
         let idx =
                 indexOfNames
                     [ "electroencephalography used in diagnosis"

@@ -40,13 +40,13 @@ data SynEdge = SynEdge
 
 {- | Direction-restricted views of a 'SynonymDB', precomputed at build time.
 
-'AllBoth' is the common case — no directed edge exists, so the input and output
+'AllBoth' is the common case – no directed edge exists, so the input and output
 views both coincide with the union tables; no view is materialized (zero cost
 for large untyped sets). 'DirectedViews' holds the closure of @both ∪ input@ and
 of @both ∪ output@ separately, because a direction restriction can SPLIT a group
-(@a-b [input]@, @b-c [both]@ ⇒ input {a,b,c} but output {b,c}) — a split that the
+(@a-b [input]@, @b-c [both]@ ⇒ input {a,b,c} but output {b,c}) – a split that the
 union tables cannot recover at lookup time. Views are terminal: their own
-'synViews' is 'AllBoth' and their 'synEdges' is empty — nothing re-closes a
+'synViews' is 'AllBoth' and their 'synEdges' is empty – nothing re-closes a
 view, so only its lookup tables are materialized (and serialized).
 -}
 data SynViews
@@ -60,7 +60,7 @@ data SynViews
 - @synIdToNames@: group ID → all names in that group (union closure)
 - @synEdges@: the normalized 'SynEdge's the classes were closed from, kept so the
   relation can be re-closed on a restricted node set (an induced subgraph on the
-  used flow names) at fan-out time — a closed class cannot be re-split once its
+  used flow names) at fan-out time – a closed class cannot be re-split once its
   internal edges are gone.
 - @synViews@: direction-restricted views (see 'SynViews'). The top-level tables
   stay the union closure so direction-agnostic consumers are unchanged; the

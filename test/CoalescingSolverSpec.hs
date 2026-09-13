@@ -49,8 +49,8 @@ spec = do
     -- gate-MVar start, but the assertion is inherently scheduler-dependent
     -- (a 3×3 solve completes faster than the next thread submits on fast
     -- runners like macOS arm64, leaving zero coalescence). The correctness
-    -- invariants — concurrent results match the oracle, multi-RHS demuxes
-    -- in order, mixed single+batch is consistent — are covered by the
+    -- invariants – concurrent results match the oracle, multi-RHS demuxes
+    -- in order, mixed single+batch is consistent – are covered by the
     -- describe blocks around this comment. Coalescence remains a perf
     -- claim; its regression gate belongs in a dedicated benchmark, not in
     -- a CI correctness suite where timing flakiness is a liability.
@@ -161,7 +161,7 @@ addVec :: Vector -> Vector -> Vector
 addVec = U.zipWith (+)
 
 {- | Cold-path oracle: assemble (I-A) and solve from scratch via MUMPS.
-Bypasses the worker entirely — what we compare against.
+Bypasses the worker entirely – what we compare against.
 -}
 oracleSolve :: Database -> Vector -> IO Vector
 oracleSolve db demand =

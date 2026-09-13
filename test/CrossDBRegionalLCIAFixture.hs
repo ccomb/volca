@@ -5,8 +5,8 @@
 Two databases linked by a 'CrossDBLink' such that the only biosphere
 emission with a regional CF lives in the dep DB. Reused by:
 
-* 'CrossDBRegionalLCIASpec'   — the original gap-and-fix spec
-* 'CrossDBRegionalLCIASubsSpec' — substitution path parity / fan-out
+* 'CrossDBRegionalLCIASpec'   – the original gap-and-fix spec
+* 'CrossDBRegionalLCIASubsSpec' – substitution path parity / fan-out
 
 Topology built by 'mkRegionalFixture':
 
@@ -121,7 +121,7 @@ emptyIndexes = Indexes M.empty M.empty M.empty M.empty
 * @bioTriples@: (flowRow=0, activityCol, value) sparse entries to emit on
   the single biosphere flow @flowUUID@. Empty for DBs that emit nothing.
 
-The technosphere matrix is left empty — the MUMPS layer adds the identity
+The technosphere matrix is left empty – the MUMPS layer adds the identity
 on each diagonal so (I - 0)·x = d trivially yields x = d.
 -}
 mkDB :: Int -> [Text] -> [(Int, Double)] -> Database

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Canonical, deterministic EcoSpold2 serializer — the inverse of
+{- | Canonical, deterministic EcoSpold2 serializer – the inverse of
 'EcoSpold.Parser2'.
 
 Given a 'SimpleDatabase' (the natural writer input: activities keyed by
@@ -26,8 +26,8 @@ properties). Those are either omitted or synthesised from the stable UUIDs, so
 a parse→write→parse cycle is a fixed point.
 
 The contract is fixed-point over the parser's /image/, not @parse(write(x)) == x@
-for an arbitrary 'SimpleDatabase'. The parser normalises as it reads — e.g. it
-trims surrounding whitespace from text nodes — so a value that never came from a
+for an arbitrary 'SimpleDatabase'. The parser normalises as it reads – e.g. it
+trims surrounding whitespace from text nodes – so a value that never came from a
 parse (a name padded with leading spaces) is outside the round-trip's domain;
 @parse(write(parse(s))) == parse(s)@ is what holds.
 -}
@@ -116,18 +116,18 @@ re-encode.
   * __Reference inputs.__ A treatment activity's 'ReferenceInput' is written as
     @inputGroup 5@, but no ES2 inputGroup re-parses to 'ReferenceInput' (the
     parser yields 'Input'), so the reference designation is silently lost on
-    re-parse — the activity loses its reference product. ES2 has no encoding for
+    re-parse – the activity loses its reference product. ES2 has no encoding for
     it, so reject rather than corrupt.
 
   * __Unresolvable units.__ The @\<unitName\>@ line is resolved from 'sdbUnits';
     an exchange whose @unitId@ is absent from the registry would emit no
-    @\<unitName\>@, which the parser re-reads as the @UNKNOWN_UNIT@ placeholder —
+    @\<unitName\>@, which the parser re-reads as the @UNKNOWN_UNIT@ placeholder –
     a silent unit downgrade. Reject rather than lose the unit.
 
   * __Unresolvable flows.__ A flow's name, compartment, CAS and synonyms are all
     resolved from the flow registries; an exchange whose flow id is absent emits
     a bare exchange that re-parses with the flow's UUID string as its name and
-    /no compartment/ — a silent identity and compartment downgrade. Symmetric to
+    /no compartment/ – a silent identity and compartment downgrade. Symmetric to
     the unit case: reject rather than corrupt.
 
   * __Non-round-tripping amounts.__ A defensive check that the written decimal
@@ -348,7 +348,7 @@ sortExchanges = sortOn exchangeSortKey
 {- | Sort key: (kindRank, not-reference, flowUUID). @not-reference@ sorts the
 reference product/input ahead of the others within a kind. The flow UUID is the
 tiebreaker; 'sortOn' is stable, so two exchanges sharing a key keep their input
-order and are both emitted — never collapsed (a 'Map' keyed on this would have
+order and are both emitted – never collapsed (a 'Map' keyed on this would have
 silently dropped a duplicate biosphere/technosphere line, undercounting the
 inventory).
 -}
@@ -410,7 +410,7 @@ renderTechnosphere env ex =
 {- | Waste exchange → @intermediateExchange@ tagged with the
 @By-product classification = Waste@ classification. The
 @waIsInput@ flag picks the group so direction round-trips: an input takes
-@inputGroup 5@ (from technosphere), an output the @outputGroup 2@ (by-product) —
+@inputGroup 5@ (from technosphere), an output the @outputGroup 2@ (by-product) –
 the only output groups EcoSpold2 defines for an intermediate exchange besides the
 reference @0@. A waste output shares group @2@ with an ordinary coproduct; it is
 the @Waste@ classification, not the group number, that re-routes it to a

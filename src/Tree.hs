@@ -44,7 +44,7 @@ data TreeConfig = TreeConfig
 
 {- | What one technosphere input points at: the row that supplies it, or a
 declared activity link no row satisfies. An input declaring no link at all is
-'Nothing' — the SimaPro shape, resolved by product flow elsewhere, which this
+'Nothing' – the SimaPro shape, resolved by product flow elsewhere, which this
 traversal has always skipped.
 -}
 type ChildTarget = Either UUID (ProcessId, Activity)

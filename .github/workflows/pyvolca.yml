@@ -62,7 +62,7 @@ jobs:
         # invokes `volca dump-openapi` to compare against the in-tree
         # wrapper list. If no such run exists yet (fresh fork, never
         # merged to main), the fixture returns None and the drift tests
-        # skip themselves — this step exits 0 so the PR is not blocked.
+        # skip themselves – this step exits 0 so the PR is not blocked.
         working-directory: ${{ github.workspace }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -76,7 +76,7 @@ jobs:
             --json databaseId \
             --jq '.[0].databaseId // empty')
           if [[ -z "$RUN_ID" ]]; then
-            echo "::warning::No successful build.yml run on main yet — drift tests will skip themselves."
+            echo "::warning::No successful build.yml run on main yet – drift tests will skip themselves."
             exit 0
           fi
           echo "Downloading engine artefact from build.yml run $RUN_ID."
@@ -101,7 +101,7 @@ jobs:
 
       - name: Verify package builds and metadata is valid
         # Catches regressions in pyproject.toml that would block PyPI
-        # upload — license expression, content-type, missing fields, etc.
+        # upload – license expression, content-type, missing fields, etc.
         run: |
           pip install build twine
           python -m build

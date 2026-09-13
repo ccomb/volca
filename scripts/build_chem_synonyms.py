@@ -52,7 +52,7 @@ HTTP_TIMEOUT = 20
 # Word boundaries protect against false positives in random text.
 CAS_RE = re.compile(r"\b\d{2,7}-\d{2}-\d\b")
 
-# Surface files most likely to contain CAS — keeps the scan fast on large trees.
+# Surface files most likely to contain CAS – keeps the scan fast on large trees.
 SCANNED_SUFFIXES = {".xml", ".csv", ".spold", ".txt"}
 
 # A synonym longer than this is almost always junk (full sentence, structure

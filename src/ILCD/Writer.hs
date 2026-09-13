@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {- | Serialize a VoLCA 'Database'/'SimpleDatabase' to an ILCD process-dataset
-package — the inverse of "ILCD.Parser".
+package – the inverse of "ILCD.Parser".
 
 The output is a canonical, deterministic ILCD directory tree (and, optionally,
 a zip of it) with four subdirectories:
@@ -19,7 +19,7 @@ Determinism is the contract:
 * every Map/Set-derived list is sorted by key before emission;
 * every 'Double' is formatted through one fixed formatter ('formatDouble');
 * the only volatile field an ILCD reader/writer round-trip could disagree on
-  — the export timestamp / generator string — is /omitted/ entirely unless a
+  – the export timestamp / generator string – is /omitted/ entirely unless a
   caller passes one explicitly via 'WriteOptions'. We never inject @now@, so
   @write (parse (write d)) == write d@ holds byte-for-byte.
 
@@ -117,7 +117,7 @@ ilcdExportNamespace =
 sharedActivityUUIDs :: SimpleDatabase -> S.Set UUID
 sharedActivityUUIDs db = S.fromList (repeated [actUUID | (actUUID, _) <- M.keys (sdbActivities db)])
 
-{- | The @common:UUID@ — and the filename — of one exported process dataset.
+{- | The @common:UUID@ – and the filename – of one exported process dataset.
 
 ILCD keys a process by a single dataset UUID, one process per file. An activity
 UUID shared by several @(activity, product)@ entries therefore cannot name them
@@ -128,7 +128,7 @@ pair instead; an unshared activity UUID passes through unchanged.
 That condition is what makes the mapping a fixed point of @parse . write@: the
 parser reads @common:UUID@ back as the activity UUID, and every re-imported
 process is single-output, so a second export reproduces the first byte for byte.
-Deriving unconditionally would not — @UUID5(UUID5(a,p),p) /= UUID5(a,p)@.
+Deriving unconditionally would not – @UUID5(UUID5(a,p),p) /= UUID5(a,p)@.
 -}
 ilcdProcessUUID :: S.Set UUID -> (UUID, UUID) -> UUID
 ilcdProcessUUID sharedActUUIDs (actUUID, prodUUID)
@@ -140,7 +140,7 @@ ilcdProcessUUID sharedActUUIDs (actUUID, prodUUID)
 {- | One warning per activity whose products 'ilcdProcessUUID' spreads over
 several process datasets. Every product is kept, but ILCD has no way to say
 the datasets came from one activity, so a re-import yields independent
-single-output activities — the grouping is the one thing the export loses,
+single-output activities – the grouping is the one thing the export loses,
 and the caller deserves to hear about it rather than discover it on re-import.
 Empty when every activity UUID is unique.
 -}
@@ -214,7 +214,7 @@ distinct one, so each product becomes its own process dataset.
 
 * /Empty classification levels./ 'classificationBlock' joins levels with @"/"@
   and the parser splits on it, dropping empty parts. A value with an empty level
-  — @""@ (key vanishes), or @"a//b"@ \/ @"a/"@ (collapses to @"a/b"@ \/ @"a"@) —
+  – @""@ (key vanishes), or @"a//b"@ \/ @"a/"@ (collapses to @"a/b"@ \/ @"a"@) –
   therefore does not round-trip.
 
 * /Amounts that do not re-parse./ The written decimal must re-parse to the same
@@ -344,7 +344,7 @@ allFlows db =
 --------------------------------------------------------------------------------
 
 {- | Render one ILCD process dataset for an activity, under the dataset UUID
-'ilcdProcessUUID' assigned it — not necessarily the activity's own UUID, which
+'ilcdProcessUUID' assigned it – not necessarily the activity's own UUID, which
 several products may share. The reference exchange gets @dataSetInternalID@
 matching @referenceToReferenceFlow@; remaining exchanges follow in their list
 order, so the parser reads them back in the same order it would re-serialize.
@@ -403,8 +403,8 @@ exchangeXML i ex =
     direction = if exchangeIsInput ex then "Input" else "Output"
 
 {- | Per-exchange @<location>@, which the parser reads back into the exchange's
-location field. Omitted when empty — the common case, since ILCD geography lives
-at the process level — so it never perturbs the byte-stable round-trip.
+location field. Omitted when empty – the common case, since ILCD geography lives
+at the process level – so it never perturbs the byte-stable round-trip.
 -}
 locationBlock :: Text -> [Text]
 locationBlock loc

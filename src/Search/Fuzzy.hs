@@ -2,9 +2,9 @@
 
 Pipeline per query token:
   1. If the token is already in the BM25 vocabulary, include it at weight 1.0.
-  2. Edit-distance candidates (weight 0.5) — typos and orthographic variants
+  2. Edit-distance candidates (weight 0.5) – typos and orthographic variants
      (e.g. trellis ↔ treillis).
-  3. Prefix-coverage candidates (weight 0.7) — stems like "elec" →
+  3. Prefix-coverage candidates (weight 0.7) – stems like "elec" →
      "electricity". Run alongside edit-distance, not as a fallback: a short
      query like "elec" can have unrelated edit-distance hits ("alec",
      "elect") that would otherwise mask its real intent (the stem).
@@ -34,7 +34,7 @@ import qualified Data.Vector.Unboxed.Mutable as VUM
 
 import Search.BM25.Types (BM25Index (..))
 
--- Tunable constants (not wired to config — see plan thresholds section).
+-- Tunable constants (not wired to config – see plan thresholds section).
 fuzzyWeight, prefixWeight :: Double
 fuzzyWeight = 0.5
 prefixWeight = 0.7

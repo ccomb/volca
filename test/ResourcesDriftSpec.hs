@@ -30,7 +30,7 @@ import API.Routes (volcaOpenApi)
 with every parameter name it accepts.
 
 servant-openapi3 hangs both query parameters and path captures on the
-operation — its @addParam@ writes @allOperations . parameters@ — and never
+operation – its @addParam@ writes @allOperations . parameters@ – and never
 fills a path item's own parameter list, so reading the operation reads all of
 them.
 -}
@@ -62,7 +62,7 @@ published spec for nobody. Three separate causes, none of them a typo:
     every route diverges.
   * __Body fields are not parameters at all.__ @substitutions@, @remove@,
     @set_amounts@ and the rest travel in a @ReqBody@, which has no
-    @parameters@ entry to enrich. The registry has no way to say so — a
+    @parameters@ entry to enrich. The registry has no way to say so – a
     'R.Param' records a name and a JSON-Schema type, not where the value rides.
   * __Query parameters disagree on spelling.__ @exclude_long_term@ against
     @exclude-long-term@, @query@ against @q@, @max_depth@ against @max-depth@.

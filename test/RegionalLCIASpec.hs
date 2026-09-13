@@ -137,7 +137,7 @@ mkDB locsAndEmissions =
             }
 
 -- Build a method mapping with one regional CF per (location, value), all on
--- the same flow F. ByName so 'mtUuidCF' stays empty — exactly mirrors how
+-- the same flow F. ByName so 'mtUuidCF' stays empty – exactly mirrors how
 -- EF method CFs (whose UUIDs differ from the database flow UUIDs) get
 -- resolved in production: regional cells fill 'mtRegionalizedCF', but the
 -- universal broadcast for F remains empty unless a non-regional CF is added.

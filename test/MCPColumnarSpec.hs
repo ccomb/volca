@@ -3,7 +3,7 @@
 {- | Pure-function tests for "API.MCP.Columnar".
 
 The columnar projection is the heart of the @score_activities@ MCP
-tool — it decides which keys land at the top level, which columns each
+tool – it decides which keys land at the top level, which columns each
 row carries, and how the dominant indicator is shaped. Every branch is
 covered here so a wire-shape regression fails fast, independently of
 the live server.
@@ -184,7 +184,7 @@ spec = do
                 Just (Array rs) -> V.toList rs `shouldBe` [pidARow, pidBRow]
                 other -> expectationFailure ("expected rows array, got " <> show other)
 
-    describe "toColumnarBatch (heterogeneous FU — the silent-misrepresentation fix)" $ do
+    describe "toColumnarBatch (heterogeneous FU – the silent-misrepresentation fix)" $ do
         let bir =
                 BatchImpactsResponse
                     { birResults =
@@ -260,7 +260,7 @@ spec = do
                     other -> expectationFailure ("expected one row, got " <> show other)
                 other -> expectationFailure ("expected rows array, got " <> show other)
 
-    describe "toColumnarBatch (no frontend bundled — Nothing baseUrl)" $ do
+    describe "toColumnarBatch (no frontend bundled – Nothing baseUrl)" $ do
         let bir =
                 BatchImpactsResponse
                     { birResults =
@@ -313,7 +313,7 @@ spec = do
             KM.lookup (fromText "rows") km `shouldBe` Just (Array (V.fromList []))
 
     describe "dominantIndicatorCell" $ do
-        -- The indicator's siCategory is its display name — it rides along as
+        -- The indicator's siCategory is its display name – it rides along as
         -- 'label' so clients never have to show the raw variable key.
         let inds = M.fromList [("a", ScoringIndicator "a" 1.0), ("b", ScoringIndicator "Big impact" 9.0)]
 

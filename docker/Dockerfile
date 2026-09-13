@@ -13,7 +13,7 @@
 #   file dist/volca       # → "statically linked", "ELF 64-bit"
 #   ldd dist/volca        # → "not a dynamic executable"
 
-# ALPINE_VERSION is the single source of truth — set in versions.env and
+# ALPINE_VERSION is the single source of truth – set in versions.env and
 # passed by docker/docker-build.sh. No default here on purpose: a stale
 # fallback is exactly how OPENBLAS_VERSION drifted out of sync before.
 ARG ALPINE_VERSION
@@ -59,7 +59,7 @@ COPY build-mumps.sh /tmp/
 
 # Build OpenBLAS from source. Alpine's `lapack-dev` / `blas-dev` ship .so
 # only, so a static link can't resolve `-llapack` / `-lblas`. OpenBLAS
-# bundles both BLAS and LAPACK into a single libopenblas.a — one source
+# bundles both BLAS and LAPACK into a single libopenblas.a – one source
 # build replaces both.
 #
 # Knobs:
@@ -71,7 +71,7 @@ COPY build-mumps.sh /tmp/
 #                          Zen, Zen3, …); pick at runtime. For LCA
 #                          workloads MUMPS factorization is heavy on
 #                          dense BLAS3 (dgemm, dtrsm) on frontal
-#                          matrices — hardware-tuned kernels matter:
+#                          matrices – hardware-tuned kernels matter:
 #                          AVX-512 / Zen-tuned routines run 30–80 %
 #                          faster than the AVX2 baseline. The ~13 MB
 #                          binary cost compresses well under UPX.
@@ -194,14 +194,14 @@ RUN mkdir -p /build/output \
     # -Wl,-z,stack-size=8388608 (see gen-cabal-config.sh, LINK_MODE=musl)
     # bakes an 8 MiB PT_GNU_STACK header into the ELF; musl reads it at
     # startup as __default_stacksize. If a future linker-flag refactor
-    # drops it — or UPX strips it — every pthread falls back to musl's
+    # drops it – or UPX strips it – every pthread falls back to musl's
     # hardcoded 128 KB and OpenBLAS DYNAMIC_ARCH Fortran workers SIGSEGV
     # on the first BLAS3 call inside MUMPS factorization (exit 139).
     # Fail the build loudly here rather than rediscover it from a
     # production crash log a third time.
     && { STACK_MEMSZ=$(readelf -l /build/output/volca | grep -A1 GNU_STACK | tail -n1 | awk '{print $2}'); \
          echo "$STACK_MEMSZ" | grep -qE '^0x0*800000$' \
-         || { echo "ERROR: PT_GNU_STACK MemSiz=$STACK_MEMSZ on shipped binary, expected 8 MiB (0x800000) — musl default pthread stack would fall back to 128 KB; OpenBLAS workers will SIGSEGV in MUMPS factorization. See PR #60/#61."; exit 1; }; } \
+         || { echo "ERROR: PT_GNU_STACK MemSiz=$STACK_MEMSZ on shipped binary, expected 8 MiB (0x800000) – musl default pthread stack would fall back to 128 KB; OpenBLAS workers will SIGSEGV in MUMPS factorization. See PR #60/#61."; exit 1; }; } \
     && file /build/output/volca
 
 # Stage 2: small runtime image. The volca binary is fully static (no libc

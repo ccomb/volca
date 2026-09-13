@@ -527,7 +527,7 @@ executeDbDeleteActivities fmt manager args = do
 {- | Write new activities into a database, read from a JSON file.
 
 The file is the same document the HTTP endpoint accepts
-(@{"activities": [...]}@), and the refusals are the same ones — the command
+(@{"activities": [...]}@), and the refusals are the same ones – the command
 line and the server share the whole of authoring above the primitives, so
 neither can allow what the other forbids.
 -}

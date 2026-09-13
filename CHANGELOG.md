@@ -1343,7 +1343,7 @@
   assistant all take the same short list: lines to remove, lines to restate,
   lines to add. This reaches activities that writing could not. An activity a
   database file brought in has an identity its parser minted, so no description
-  addresses it — and a description could not carry back its classification,
+  addresses it – and a description could not carry back its classification,
   synonyms, parameters, pedigree or coproducts anyway. Naming only what changes
   leaves all of that exactly as it was. A line is named the way you already
   read it: an input by its provider, a waste output by its treatment, an
@@ -1437,7 +1437,7 @@
   its format requires and nothing undid it on the way back, which on Windows
   meant a nested data path that resolved to nothing.
 - An amount written as a signed power of ten is read instead of refused.
-  SimaPro writes a scale factor that way — `1*10^-3*50` — and the engine
+  SimaPro writes a scale factor that way – `1*10^-3*50` – and the engine
   understood `10^3` but not `10^-6`: the exponent was read by the
   exponentiation rule itself, which knows numbers but not signs, so the minus
   failed the whole expression and the amount fell back to whatever the cell
@@ -1453,7 +1453,7 @@
 - An emission to the sea is now characterized by an impact category that writes
   no sea-water factor of its own. A method file spells out a subcompartment only
   when its factor differs from the medium-level ("unspecified") one, so a
-  category with nothing different to say about the sea writes nothing at all —
+  category with nothing different to say about the sea writes nothing at all –
   and the engine was reading that silence as a refusal. Marine eutrophication is
   that case in EF 3.1: it writes no subcompartment line anywhere, because the
   JRC original gives it one and the same factor for fresh water, unspecified
@@ -1467,8 +1467,8 @@
 - A SimaPro amount cell the engine cannot read is now zero and warned about,
   instead of the number the cell happens to begin with. The reader used to stop
   at the first character that is not part of a number and keep what it had, so
-  `1,5 kg` became 1.5 and `124902,34825322*1/Qp` — an expression whose parameter
-  went missing — became a hundred and twenty-five thousand. An amount that is
+  `1,5 kg` became 1.5 and `124902,34825322*1/Qp` – an expression whose parameter
+  went missing – became a hundred and twenty-five thousand. An amount that is
   wrong by orders of magnitude and looks ordinary is the hardest kind to find;
   the import now names the cell it could not read and the value it used.
 - A SimaPro amount written as a sum is now added up. An exporter may state a
@@ -1476,7 +1476,7 @@
   The reader wanted a digit before every decimal point, so one such term made
   the whole expression unreadable and the amount silently became the number it
   began with: 0.45 where the file says 0.764. In Agribalyse 3.2 this fell on
-  the pesticide emission mixes — the shares of a mix stopped adding up to the
+  the pesticide emission mixes – the shares of a mix stopped adding up to the
   kilogram they divide, and the freshwater ecotoxicity of the cereal crops
   built on them came out about 10% low. And when an amount really cannot be
   read, the import now says so: a warning names the process, the text it could
@@ -1493,7 +1493,7 @@
 ### Added
 - A quality report says what is malformed in a database, a question no score
   answers: an entry with two reference products, or coproducts allocated to
-  90%, still computes — it just computes something wrong in silence.
+  90%, still computes – it just computes something wrong in silence.
   `GET /api/v1/db/{db}/quality-report` and the `get_quality_report` MCP tool
   run five structural checks: exactly one reference exchange per entry,
   coproduct percentages summing to 100 (±0.5 for source rounding), duplicate
@@ -1503,7 +1503,7 @@
   list while `offenderCount` still covers all of it. A check with nothing to
   judge reports `applicable: false` rather than a passing zero. The report is
   a structural scan needing no matrices, so it answers on a staged database
-  as well as a loaded one — which is when it is most worth reading.
+  as well as a loaded one – which is when it is most worth reading.
 - An instance can declare itself read-only. `read_only = true` in `[hosting]`
   makes it answer every analysis request and refuse every state change:
   loading and unloading, uploads, deletes, copies, relinks, dependency edits,
@@ -1515,7 +1515,7 @@
 - The `[hosting]` quotas now bound what a caller may keep. `max_uploads` caps
   how many databases of their own a caller holds, and `max_loaded_uploads` how
   many of those sit in memory at once; a copy spends the same budget as an
-  upload. Both count uploaded databases only — the databases the config
+  upload. Both count uploaded databases only – the databases the config
   declares are what an uploaded inventory links against, so counting those
   would forbid the very thing uploading is for. Negative means unlimited, and
   where there is no `[hosting]` section at all (local runs, the CLI, the
@@ -1525,17 +1525,17 @@
   substance starting with `!` takes its flows back out of the patterns declared
   for the same impact category. Some open families hold members that do not
   belong to the quantity the category counts, and no set of prefixes separates
-  them — `Occupation, industrial area, benthos` is the sea floor and shares its
+  them – `Occupation, industrial area, benthos` is the sea floor and shares its
   prefix with a real factory yard. Writing the family out as a list instead
   would be the stale, per-database list that patterns exist to avoid. An
   exception that matches nothing is announced at load time, like a pattern that
   matches nothing. Exporting such a method to SimaPro, openLCA or ILCD leaves
-  the exception rows out — those formats have no way to say "except this", and a
+  the exception rows out – those formats have no way to say "except this", and a
   row written as a flow would characterize exactly what it removes; VoLCA's own
   CSV keeps them and reads them back.
 - The quality report now says when a geography was never declared. Nearly every
   process of some SimaPro databases leaves the `Geography` field at
-  `Unspecified` — 97% of Agribalyse 3.2 — and the only geography left is the
+  `Unspecified` – 97% of Agribalyse 3.2 – and the only geography left is the
   code inside the dataset name (`… {FR}`, `…//[RER]`, `…/CN U`). VoLCA reads
   it, which is what makes those databases usable, but the result is a reading of
   a name and not a declaration, and downstream the two are the same text. An
@@ -1544,15 +1544,15 @@
   entry, so a maintainer can see how much of a database's geography is source
   data before treating it as such.
 - A warning now reports factor lines that match a flow but cannot be
-  converted into its unit — a per-kilogram factor against a flow measured in
+  converted into its unit – a per-kilogram factor against a flow measured in
   cubic metres, for instance. Refusing such a factor is correct (the
   dimensions do not agree), but the refusal used to be invisible: the flow
   simply scored zero, indistinguishable from a flow the method does not
   cover. Each affected method now says at load time how many flows are
-  affected and names samples — for its global factors and its regionalized
-  ones alike — so a silent undercount of this kind can no longer hide.
+  affected and names samples – for its global factors and its regionalized
+  ones alike – so a silent undercount of this kind can no longer hide.
 - The database quality report now flags exchange amounts too small to have
-  been measured. Below 1e-27 — whatever the unit — a value is smaller than
+  been measured. Below 1e-27 – whatever the unit – a value is smaller than
   anything an instrument can produce (a hydrogen atom weighs 1.7e-27 kg), so
   it is a residue of computation wearing the costume of data. An ordinary
   exchange this small is a warning; a reference exchange this small is a
@@ -1561,8 +1561,8 @@
 
 - A characterization-coverage report tells database maintainers which flow
   names a method scores only through a name bridge. When a database names a
-  substance differently from the method that characterizes it — `Bromomethane`
-  versus `Methane, bromo-, Halon 1001`, say — VoLCA still scores the flow by
+  substance differently from the method that characterizes it – `Bromomethane`
+  versus `Methane, bromo-, Halon 1001`, say – VoLCA still scores the flow by
   matching on a synonym or CAS number. A tool that matches factors by their
   exact name, as many downstream consumers do, has no such bridge and scores
   that flow as zero without warning. The report lists each bridged flow grouped
@@ -1573,22 +1573,22 @@
 - Method collections can be exported as an ILCD LCIA-method package (`ilcd`):
   a zip of one method dataset per impact category plus the flow datasets they
   reference (`lciamethods/` + `flows/`), which loads straight back. It carries
-  the most metadata of any of the method export formats — methodology,
+  the most metadata of any of the method export formats – methodology,
   description, per-factor direction, location and CAS all round-trip natively,
-  the way a real EF package does. What ILCD's method profile cannot hold — a
+  the way a real EF package does. What ILCD's method profile cannot hold – a
   per-factor flow unit (it stores one reference unit per method), damage
-  categories, normalization/weighting sets and formula scoring sets — is
+  categories, normalization/weighting sets and formula scoring sets – is
   reported in export warnings, never dropped silently. Available through
   `POST /api/v1/method-collections/{name}/export` with `{"format": "ilcd"}`,
   `volca method export NAME --format ilcd`, and pyvolca's
   `export_method_collection(name, fmt="ilcd")`.
 - The quality report flags individual allocation percentages outside the
   0-100% range, alongside the existing check that a block's percentages sum to
-  100. A single factor can be out of range — a negative share, or more than the
-  whole — while the block total still lands on 100.
+  100. A single factor can be out of range – a negative share, or more than the
+  whole – while the block total still lands on 100.
 - The quality report validates flow CAS numbers by their check digit: a CAS
-  registry number confirms itself, so a corrupt one — which silently breaks
-  the name-to-CAS bridge that matches flows across databases — is flagged. The
+  registry number confirms itself, so a corrupt one – which silently breaks
+  the name-to-CAS bridge that matches flows across databases – is flagged. The
   zero-padded and canonical spellings both pass.
 - The quality report flags oxygen-demand and organic-carbon measures recorded
   in a physically impossible order: within one entry BOD5 must not exceed COD,
@@ -1598,24 +1598,24 @@
 - The quality report checks that land transformation balances within each
   activity: the areas transformed *to* a use must match the areas transformed
   *from* another, since a parcel changed into one state was changed out of
-  another. A gap beyond one percent — a dropped or mistyped line — is flagged,
+  another. A gap beyond one percent – a dropped or mistyped line – is flagged,
   compared per unit so only comparable areas are summed.
 - A computed-checks report joins the structural quality report:
   `GET /db/{db}/computed-quality-report` and the `get_computed_quality_report`
   MCP tool score every entry of a loaded database against a method collection
   and report per-category score outliers (median/MAD on a log scale within
-  (category, reference-unit) groups — a mg-read-as-kg slip lands three orders
+  (category, reference-unit) groups – a mg-read-as-kg slip lands three orders
   of magnitude out), entries whose every score is zero, and negative category
   scores (info: avoided-production credits and waste treatment produce them
-  legitimately). Separate from the structural report on purpose — that one
+  legitimately). Separate from the structural report on purpose – that one
   stays identical on staged and loaded databases; this one needs the matrices
   and a loaded method collection.
 - The quality report flags distinct activity names that merge under
-  SimaPro's 80-character name truncation — each colliding name gets its own
+  SimaPro's 80-character name truncation – each colliding name gets its own
   finding, so an export bound for SimaPro can be repaired before the names
   collapse into one process there.
 - The quality report counts the exchanges that carry no pedigree scores, per
-  entry — only in databases that carry pedigree scores at all, so formats
+  entry – only in databases that carry pedigree scores at all, so formats
   that cannot publish them are not drowned in noise.
 - The quality report lists the entries whose reference product nothing in
   the database consumes. Informational by nature: expected for a final
@@ -1630,7 +1630,7 @@
   reported in export warnings. The openLCA reader now also picks up the
   document-level `category` field as the impact category's group label,
   and method files load in a deterministic order on every machine.
-- Method collections can be exported as columnar CSV — one column per
+- Method collections can be exported as columnar CSV – one column per
   impact category, one row per substance: the file you open in a
   spreadsheet. `POST /api/v1/method-collections/{name}/export` with
   `{"format": "csv"}`, `volca method export NAME --format csv`, or
@@ -1642,7 +1642,7 @@
   need, read back by the parser and emitted by the writer: optional `cas`
   and `unit` key columns (real methods mix kg, m3 and MJ flows inside one
   category), and a `top/sub/qualifier` compartment path so subcompartment
-  distinctions survive — in EF 3.1, nine factors out of ten are
+  distinctions survive – in EF 3.1, nine factors out of ten are
   subcompartment-specific. Legacy files parse exactly as before, and
   quoted fields now work in these files too.
 - Method collections can now be exported as SimaPro method CSV, the inverse
@@ -1654,9 +1654,9 @@
   example an ILCD Environmental Footprint package) can be handed to a
   SimaPro user. Regionalized factors are written as name-suffixed substances
   (`Water, FR`) and land occupation/transformation factors under the `Raw`
-  compartment — the conventions SimaPro method files use themselves; whatever
-  the format cannot carry — a factor without a compartment, a factor whose
-  direction the compartment column cannot express, formula scoring sets — is
+  compartment – the conventions SimaPro method files use themselves; whatever
+  the format cannot carry – a factor without a compartment, a factor whose
+  direction the compartment column cannot express, formula scoring sets – is
   listed in the export warnings instead of being dropped silently.
 - A collection-coverage endpoint:
   `GET /db/{db}/method-collection/{collection}/coverage` reports how many of
@@ -1690,14 +1690,14 @@
   load at once their lines used to interleave in one anonymous stream, so a
   page following one load would show another's progress. Each line of
   `GET /api/v1/logs` and of the `/api/v1/logs/stream` SSE feed is now a
-  `{db, text}` object — `db` names the database whose operation emitted the
+  `{db, text}` object – `db` names the database whose operation emitted the
   line, or is null for lines that belong to no particular one. The terminal
   output is unchanged.
 
 ### Fixed
 - Parametric coal flows no longer score zero energy. A flow carrying its
-  calorific value in its name — `Coal, 26.4 MJ per kg`, `Coal, brown, 8 MJ per
-  kg` — recovers an energy factor through its family, but coal splits into
+  calorific value in its name – `Coal, 26.4 MJ per kg`, `Coal, brown, 8 MJ per
+  kg` – recovers an energy factor through its family, but coal splits into
   hard and brown and the fallback rightly refuses to pick between the two, so
   every parametric coal variant contributed nothing to fossil resource use
   without saying so. Four registry rows now attach each variant to its own
@@ -1705,8 +1705,8 @@
   so the rows change which factor is found, never the energy accounted for.
 - A classification preset that does not resolve is now refused instead of
   quietly filtering nothing. Asking a server for its raw agricultural products
-  by a preset name it does not carry — a typo, or a config that never declared
-  it — used to answer with every activity in the database, which reads like a
+  by a preset name it does not carry – a typo, or a config that never declared
+  it – used to answer with every activity in the database, which reads like a
   result. The refusal names the presets the instance does carry. The MCP
   `aggregate` and `get_supply_chain` tools had a second form of the same
   problem: both advertise a `preset` parameter and neither ever read it, so
@@ -1716,7 +1716,7 @@
   ocean and the sea floor alongside fields and roads. Anything fed from the sea
   was reported as standing on it: one aggregated fish-meal process declares 679
   m²·year of `Occupation, sea and ocean`, and a farmed trout came out at 388
-  m²·year of land — it now reads 0.87. A land crop is barely touched, since all
+  m²·year of land – it now reads 0.87. A land crop is barely touched, since all
   it loses is the water a cargo ship crossed on its behalf: across Agribalyse's
   455 farm-gate products the median change is −0.004%, an apricot orchard goes
   from 6.96202 to 6.96198, and nothing anywhere rises. Sea, seabed and benthic
@@ -1724,14 +1724,14 @@
   being a real surface somebody flooded.
 - A region-tagged flow now gets the density that goes with the factor it
   borrows. When a method has no line for `Water, SERC`, VoLCA lends it the line
-  written for `Water` — but that line can be denominated per kilogram while the
+  written for `Water` – but that line can be denominated per kilogram while the
   flow is measured in cubic metres, and the density that bridges the two was
   only ever looked up under the flow's full name, region tag included. The tag
   was stripped to find the factor and not to find the density, so the flow ended
   up holding a factor of a dimension it could not reach, and scored nothing.
   Both lookups now strip it the same way.
-- A density is now read in both directions. It relates two dimensions — mass to
-  energy for a calorific value, mass to volume for a density proper — and a flow
+- A density is now read in both directions. It relates two dimensions – mass to
+  energy for a calorific value, mass to volume for a density proper – and a flow
   can meet a factor from either side of it, but only one side was handled: a
   flow in kilograms against a per-cubic-metre factor converted, while the same
   substance in cubic metres against a per-kilogram factor scored zero. A
@@ -1740,7 +1740,7 @@
 - A SimaPro activity is now placed by the location its producer wrote down,
   rather than by one guessed from a name. SimaPro cuts its "Process name"
   field at 80 characters, which on a long name takes the `{FR}` tag off the
-  end and leaves only a slash the name has for its own reasons — so
+  end and leaves only a slash the name has for its own reasons – so
   "Bresaola … Already packed - PP/PE | No preparation" was filed under Peru,
   PE being the plastic. Reading a slash off the end of a name is how the
   WFLDB convention states a location and still works, but it is a reading of
@@ -1749,14 +1749,14 @@
   "locations" that named no place: `PE` where it meant polyethylene,
   `F-Organic`, `F-Org(Farrrowin` and `Mid-western`. Names stop being cut
   short too, which separates 39 pairs of activities that until now shared one
-  identity. Databases whose names really do end in a location — WFLDB, which
-  relies on it 1876 times — are unaffected.
+  identity. Databases whose names really do end in a location – WFLDB, which
+  relies on it 1876 times – are unaffected.
 - Locations the databases actually use now have a place in the geography
   hierarchy. `data/geographies.csv` listed 91 codes; the databases use several
   hundred, so a Kenyan, Ukrainian or Brazilian-state activity had no wider
   location at all and its characterisation factors fell straight through to the
   global average with nothing said. The table now covers ecoinvent's whole
-  vocabulary — every country in its UN subregion and continent, every province
+  vocabulary – every country in its UN subregion and continent, every province
   and grid inside the country it belongs to, and the regional aggregates the
   databases name. Containment comes from Natural Earth's public-domain country
   polygons rather than from hand-written guesses; codes whose membership is a
@@ -1765,17 +1765,17 @@
   nearer regional factor always wins over the global average.
 - A location whose name contains a comma is no longer cut in half. The
   geographies file was split on commas without regard for quoting, so
-  `Europe, Western` — the location of 863 Agribalyse activities — parsed as a
+  `Europe, Western` – the location of 863 Agribalyse activities – parsed as a
   code called `Europe` followed by a stray field, and matched nothing. The file
   now goes through a real CSV reader and is decoded as UTF-8 whatever the
-  system locale; a file it cannot read — bad quoting, bad encoding, duplicated
-  codes — is reported instead of being quietly replaced by the built-in
+  system locale; a file it cannot read – bad quoting, bad encoding, duplicated
+  codes – is reported instead of being quietly replaced by the built-in
   fallback table.
 
 - A method's own per-unit factor lines no longer cancel each other. SimaPro
-  names can bake the unit into the flow name — "Gas, natural/m3" and
+  names can bake the unit into the flow name – "Gas, natural/m3" and
   "Gas, natural/kg" are the same substance declared in two units, with two
-  densities — and name normalization collapses both onto one key, where a
+  densities – and name normalization collapses both onto one key, where a
   single winner was crowned. The flow declared in the losing unit then read a
   dimensionally incompatible factor whose unit conversion silently zeroed its
   score: on a real SimaPro database, natural gas contributed nothing to
@@ -1786,7 +1786,7 @@
 - The CAS bridge no longer guesses when one CAS number covers factor lines
   with different values. Water is the canonical case: every water flow shares
   one CAS, but a water-use method values each region differently and
-  deliberately leaves rain, ocean and turbined water out — bridging them all
+  deliberately leaves rain, ocean and turbined water out – bridging them all
   to one arbitrary line (the world-average factor) made water scores explode
   on databases whose flows carry CAS numbers. Such a CAS class is now left to
   name matching alone; a CAS that identifies a single factor value still
@@ -1794,35 +1794,35 @@
   flow cannot pick up a regional factor instead, and a flow that names its
   own region keeps that region's value rather than the consuming activity's.
   Region-located factor lines and subcompartment variants keep working as
-  before — their variance is dispatched by location or arbitrated to the
+  before – their variance is dispatched by location or arbitrated to the
   medium-level default, not guessed.
 - Flows from a SimaPro CSV database now carry their CAS numbers. The parser
   used to leave every flow's CAS empty, so a characterization factor that
   could only reach its flow by CAS never matched on a SimaPro-sourced
-  database. The CAS now comes from the file's own substance registry — the
-  trailing blocks that list every substance with its CAS — filling about 89%
+  database. The CAS now comes from the file's own substance registry – the
+  trailing blocks that list every substance with its CAS – filling about 89%
   of biosphere flows on a real export, so methods can match these flows by
   CAS instead of relying on name and synonym matching alone. A database
   cached before this change rebuilds its cache once on the next load, so
   already-imported databases pick the CAS up too instead of serving the
   old CAS-less flows forever.
 - openLCA JSON-LD method files now load with the right factor directions,
-  compartments, and reference unit — including files openLCA itself
+  compartments, and reference unit – including files openLCA itself
   exported. Such files carry no per-factor direction, so every factor used
-  to default to output — a resource factor (water withdrawal, land
+  to default to output – a resource factor (water withdrawal, land
   occupation) then matched against the wrong synonym view and could
   silently miss its flow. The direction now comes from the flow's category
   path (`resource/…`, `Raw materials`, `Land use` → input; `Emission to …`
   → output), or from the impact category's own direction when the path
   says nothing either way; a factor that states its direction explicitly
   is untouched. The parser also reads the olca-schema spellings a genuine
-  export uses — the category path as a plain string on the flow reference
-  (its `Elementary flows` root is dropped) and `refUnit` — where it
+  export uses – the category path as a plain string on the flow reference
+  (its `Elementary flows` root is dropped) and `refUnit` – where it
   previously only understood its own exporter's shape and silently lost
   the compartment and reference unit.
 - Numbers in columnar CSV method files and normalization/weighting CSV
   files now parse exactly. The previous number parser drifted in the last
-  decimal (`1.2227e-3` came back as `1.2227000000000002e-3`) — every such
+  decimal (`1.2227e-3` came back as `1.2227000000000002e-3`) – every such
   characterization or normalization factor was off by one ulp. A malformed
   value (`1,23` once imported as `1.0`, truncated at the comma) or a
   non-finite one (`NaN`) is now rejected instead of imported as a wrong
@@ -1834,7 +1834,7 @@
 - SimaPro CSV rows with quoted fields now parse correctly in files with
   Windows (CRLF) line endings. The carriage return left at the end of each
   line made the CSV reader give up and fall back to a naive split, which tore
-  a quoted field apart at the separator it contains — a substance or category
+  a quoted field apart at the separator it contains – a substance or category
   name like `"Ecotoxicity; freshwater"` landed in the wrong columns.
 - The free-text comment on a SimaPro Products row (Agribalyse uses it for
   modelling notes such as edible fraction and raw-to-cooked ratios) now
@@ -1849,8 +1849,8 @@
   on every exchange comment, and the SimaPro writer encodes line breaks back
   the same way on export.
 - The per-method `uniqueDbFlowsMatched` figure on the mapping-status endpoint
-  now counts every database flow the method actually characterizes — probed
-  with the same lookup scoring uses — instead of only the flows a factor
+  now counts every database flow the method actually characterizes – probed
+  with the same lookup scoring uses – instead of only the flows a factor
   resolved to directly. The old count missed every flow reached through a
   fallback (a factor covering a substance across many compartments counted as
   one flow), under-reporting a method's real reach several-fold on typical
@@ -1863,7 +1863,7 @@
   breaks: every wire change in this release is additive, and existing clients
   keep working (pyvolca 0.8.x prints at most an upgrade hint). The revision
   exists so a client can tell whether the engine understands the new delete
-  `ids` selection — an older engine would silently ignore the unknown key and
+  `ids` selection – an older engine would silently ignore the unknown key and
   treat the request as an empty filter, i.e. "everything", which is exactly
   the kind of guess a destructive operation must never make.
 
@@ -1875,11 +1875,11 @@
   substring matches.
 - The `name=` filter on the supply-chain and consumers endpoints (REST and
   MCP) now filters. A name matching nothing previously disabled the filter
-  and returned every entry — with a matching `filteredActivities` count — so
+  and returned every entry – with a matching `filteredActivities` count – so
   a caller could not tell "no match" from "no filter". It now returns an
   empty result.
 - A scoring integrity error (a regionalized score whose tables are internally
-  inconsistent — mismatched lengths, absent weights) now fails the request
+  inconsistent – mismatched lengths, absent weights) now fails the request
   with a 500 instead of silently scoring the category 0. A consumer could not
   tell that 0 from a real score. Coverage gaps are unaffected: an unmapped
   flow still contributes nothing and is reported as before. In sensitivity
@@ -1900,7 +1900,7 @@
   processes, on the API (`"ids": [...]`) and the CLI (repeatable `--id`).
   Previously the only selection mode was a filter, so deleting a known list
   of processes required a deliberately unsatisfiable filter plus the `extra`
-  list. `ids` cannot be combined with filter fields — an ambiguous request
+  list. `ids` cannot be combined with filter fields – an ambiguous request
   is refused, not guessed at.
 - EcoSpold 2 `mathematicalRelation` formulas are now read. Dataset
   `<parameter>` variables are kept on the activity (value and raw formula),
@@ -1916,10 +1916,10 @@
   explicit `--config` path that does not exist still fails loudly.
 - Each factor listed by `GET /method/{id}/factors` now carries its
   compartment, location, and unit. A method routinely holds several factors
-  for one substance name — emitted to air vs. water, or one per region — and
+  for one substance name – emitted to air vs. water, or one per region – and
   without these fields such rows looked like duplicates.
 - The `aggregate` primitive gains a `consumption` scope that answers "how much
-  of X is consumed across the whole upstream chain" — total electricity or
+  of X is consumed across the whole upstream chain" – total electricity or
   heat feeding a product, grass eaten by cattle. Each row is one scaled
   consumer→supplier link, so filtering by the consuming activity
   (`filter_consumer`, `filter_consumer_not`) avoids the double counting that
@@ -1931,7 +1931,7 @@
   location applies only to demands at that exact location (an exact row wins
   over a name-only row for the same name). A row with a target location
   designates the supplier literally: the link goes to that name at that
-  location, bypassing the geography policy — so "a French process consuming
+  location, bypassing the geography policy – so "a French process consuming
   Swiss cement: replace it with the French cement?" is answered row by row in
   the mapping. When nothing supplies the designated target, the relink
   reports a new `alias_target_missing` blocker (visible in the linking stats
@@ -1961,11 +1961,11 @@
   replace the matched characterization factors every time the collection
   loads. A patch selects factors by impact category, flow name or prefix,
   CAS number, or subcompartment, and is re-applied to the freshly parsed
-  source file on each load — so reloading never compounds it. A patch that
+  source file on each load – so reloading never compounds it. A patch that
   matches no factor is reported at load time instead of being silently
   ignored.
-- Bulk impact scoring — the `POST /db/{db}/impacts/{collection}` endpoint and
-  the `score_activities` MCP tool — can now exclude long-term emissions, as
+- Bulk impact scoring – the `POST /db/{db}/impacts/{collection}` endpoint and
+  the `score_activities` MCP tool – can now exclude long-term emissions, as
   scoring a single activity already could.
 
 ### Changed
@@ -1974,14 +1974,14 @@
   ≥ v0.9.1 and refuses older ones with a clear message; an older pyvolca gets a
   warning telling it to upgrade.
 - Database exports download as raw bytes instead of base64-encoded JSON,
-  matching how uploads already work — a third less data on the wire and far
+  matching how uploads already work – a third less data on the wire and far
   less memory on both ends for big files. Any export approximation warnings
   now travel in the `X-Volca-Export-Warnings` response header.
 
 ### Fixed
 - Emissions to immediate groundwater are characterized again in ecotoxicity and
   human toxicity, inheriting the method's unspecified-water factor exactly like
-  releases to a river or a lake. They previously scored zero — on a witness
+  releases to a river or a lake. They previously scored zero – on a witness
   concrete process a single iron-ion flow was worth about 10% of the freshwater
   ecotoxicity score. Long-term groundwater keeps its explicit zero.
 - Two flow-name synonym bridges (`Flupyrsulfuron-methyl sodium ↔
@@ -1995,7 +1995,7 @@
   activity.
 - Exporting a large database to a zipped format (ILCD, EcoSpold 2) no longer
   stalls. The time spent packing the archive grew with the square of the number
-  of files, so a full Agribalyse ILCD export — some fifty thousand files —
+  of files, so a full Agribalyse ILCD export – some fifty thousand files –
   exhausted memory and never returned.
 
 ## [0.9.0] - 2026-07-06
@@ -2006,15 +2006,15 @@ carried no external users is gone, and a database can be loaded or unloaded from
 every surface rather than only at start-up.
 
 ### Added
-- A database can be loaded and unloaded from every surface — the REST API, the
-  MCP server, the CLI, and the web UI — not only at server start-up.
+- A database can be loaded and unloaded from every surface – the REST API, the
+  MCP server, the CLI, and the web UI – not only at server start-up.
 - Scoring-set breakdowns can show a human-readable name for computed indicators
   (for example "Ecotoxicity, freshwater" instead of the raw key `etf`), via an
   optional `[methods.scoring.labels]` table in the scoring configuration. A
   label naming an unknown scoring variable is rejected when the configuration
   loads instead of being silently ignored.
-- Scoring can optionally exclude long-term emissions — those a method releases
-  beyond its time horizon — so results line up with inventories that account for
+- Scoring can optionally exclude long-term emissions – those a method releases
+  beyond its time horizon – so results line up with inventories that account for
   them separately.
 - A characterization method can be loaded from a bare `.csv` file, not only a
   zip archive; an unsupported file type now fails with a clear message instead
@@ -2028,7 +2028,7 @@ every surface rather than only at start-up.
   a region-fallback chain for water flows, sub-compartment gating, a generalized
   density bridge, an ore-grade resource fallback, and a preference for the
   verbatim flow name when unit-suffixed homonyms collide. Many products that
-  previously scored short — pesticide-heavy processes especially — are now
+  previously scored short – pesticide-heavy processes especially – are now
   characterized.
 - Auto-extracted flow synonyms are an opt-in candidate set rather than always
   applied, so the shipped mapping rests on the curated bridges.
@@ -2039,20 +2039,20 @@ every surface rather than only at start-up.
 - Water no longer collapses across regions: SimaPro factors are treated as
   name-regionalized rather than keyed on the consumer location.
 - An unspecified chromium emission is treated as trivalent, and elemental metal
-  emissions bridge to their ionic toxicity factor — correcting large human
+  emissions bridge to their ionic toxicity factor – correcting large human
   toxicity over-counts.
 - EcoSpold 1 flow identity now includes the sub-category, and a SimaPro
   name-less multi-product block stays a single activity instead of splitting.
 
 ### Removed
-- The plugin framework — its eight-handle registry, the `/analyze` REST
-  endpoint, and the `plugin list` CLI command — is gone. It carried a single
+- The plugin framework – its eight-handle registry, the `/analyze` REST
+  endpoint, and the `plugin list` CLI command – is gone. It carried a single
   built-in implementation and no external users; flow-to-factor mapping is now a
   plain internal cascade.
 
 ### Performance
 - Method tables are built once, off the request path, with a parallelized
-  cascade and synonym-group memoization — a large speedup on the first scoring
+  cascade and synonym-group memoization – a large speedup on the first scoring
   after a database loads.
 
 ## [0.8.1] - 2026-06-24
@@ -2061,7 +2061,7 @@ every surface rather than only at start-up.
 - Aggregate single scores (e.g. a PEF score) now compute correctly on JRC ILCD
   method collections such as EF 3.1. They previously failed with `Unknown
   variable` whenever a collection held several methods sharing one coarse
-  damage category — for EF 3.1 the four climate-change methods, the freshwater
+  damage category – for EF 3.1 the four climate-change methods, the freshwater
   ecotoxicity methods, and the resource-depletion methods each collapsed
   together, so their per-method scoring variables could not resolve.
   SimaPro-adapted methods were never affected.
@@ -2069,8 +2069,8 @@ every surface rather than only at start-up.
 ## [0.8.0] - 2026-06-24
 
 ### Added
-- A loaded database can be exported to any of the five supported formats —
-  SimaPro CSV, EcoSpold 1, EcoSpold 2, ILCD, and Brightway Excel — from both the
+- A loaded database can be exported to any of the five supported formats –
+  SimaPro CSV, EcoSpold 1, EcoSpold 2, ILCD, and Brightway Excel – from both the
   API and the CLI, so a database can be moved between tools or re-saved after edits.
 - A loaded database can be edited in place: copy it under a new name, delete a
   filtered selection of activities, or relink it against a dependency through a
@@ -2157,7 +2157,7 @@ miscounts into explicit errors.
 
 ### Fixed
 - Characterization no longer silently returns zero on a compartment,
-  subcompartment, or unit mismatch — the gap is surfaced instead of undercounted.
+  subcompartment, or unit mismatch – the gap is surfaced instead of undercounted.
 - Regionalized LCIA returns a partial score on tainted columns rather than
   failing the whole computation.
 - SimaPro: sign preserved on substitution (Materials/fuels) exchanges, reference

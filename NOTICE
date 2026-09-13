@@ -1,4 +1,4 @@
-VoLCA — Life Cycle Assessment engine
+VoLCA – Life Cycle Assessment engine
 Copyright (c) 2024-present Christophe Combelles and contributors
 
 Licensed under the Apache License, Version 2.0 (see LICENSE).
@@ -10,23 +10,23 @@ runtime endpoint /api/v1/licenses.
 
 The notable third-party components are:
 
-  * MUMPS 5.8.1 (sequential sparse direct solver) — CeCILL-C
+  * MUMPS 5.8.1 (sequential sparse direct solver) – CeCILL-C
     https://mumps-solver.org/
 
-  * mumps-hs (Haskell FFI bindings to MUMPS) — Apache-2.0
+  * mumps-hs (Haskell FFI bindings to MUMPS) – Apache-2.0
 
-  * PORD (ordering library bundled with MUMPS) — public domain
+  * PORD (ordering library bundled with MUMPS) – public domain
 
   * AMD ordering routines and *_TRUNCATED_RRQR variants (bundled with MUMPS)
-    — BSD 3-Clause
+    – BSD 3-Clause
 
-  * BLAS, LAPACK (linked at runtime) — BSD 3-Clause
+  * BLAS, LAPACK (linked at runtime) – BSD 3-Clause
 
-  * Numerous Haskell libraries — predominantly BSD 3-Clause and MIT
+  * Numerous Haskell libraries – predominantly BSD 3-Clause and MIT
     (full table in THIRD_PARTY_LICENSES.md)
 
 ==============================================================================
-MUMPS — required CeCILL-C copyright notice
+MUMPS – required CeCILL-C copyright notice
 ==============================================================================
 
 MUMPS is a software application for the direct solution of large sparse

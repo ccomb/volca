@@ -150,7 +150,7 @@ withLogScope scope action = do
                 action
 
 {- | Capture the calling thread's log scope as a wrapper for worker actions.
-Scopes are per-thread, so a forked worker starts unscoped — wrapping its action
+Scopes are per-thread, so a forked worker starts unscoped – wrapping its action
 with what this returns keeps its lines attributed to the same database.
 -}
 inheritLogScope :: IO (IO a -> IO a)

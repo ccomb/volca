@@ -48,7 +48,7 @@ data ScoredEntry = ScoredEntry
     , seProductName :: !(Maybe Text)
     , seRefUnit :: !Text
     {- ^ Unit of the reference product. Scores are per reference unit, so only
-    entries sharing it are comparable — a kg of wheat and a kWh of power
+    entries sharing it are comparable – a kg of wheat and a kWh of power
     legitimately live orders of magnitude apart.
     -}
     , seScores :: ![CategoryScore]
@@ -91,7 +91,7 @@ computedQualityReport dbName collection entries =
         , cqProcessCount = length entries
         , -- Every outlier shares one severity, so the generic worst-first order
           -- would fall back to names; the maintainer wants the wildest
-          -- deviation on top — that is where the unit slip sits.
+          -- deviation on top – that is where the unit slip sits.
           cqScoreOutliers = QualityCheck True (map fst (sortOn (Down . snd) outlierOffenders))
         , cqZeroScores = QualityCheck True (worstFirst zeroOffenders)
         , cqNegativeScores = QualityCheck True (worstFirst negativeOffenders)
@@ -118,7 +118,7 @@ computedQualityReport dbName collection entries =
         | otherwise = do
             m <- median ls
             mad <- median (map (abs . subtract m) ls)
-            -- A zero MAD means half the group is identical — a degenerate
+            -- A zero MAD means half the group is identical – a degenerate
             -- norm that would flag any honest variation, so judge nothing.
             if mad > 0 then Just (m, 1.4826 * mad) else Nothing
 
@@ -157,14 +157,14 @@ computedQualityReport dbName collection entries =
     -- nothing in it is characterized. Either way the entry contributes
     -- nothing to any assessment, which its maker should know.
     zeroOffenders =
-        [ offender WarningSev e "every category score is zero — the inventory is empty or nothing in it is characterized"
+        [ offender WarningSev e "every category score is zero – the inventory is empty or nothing in it is characterized"
         | e <- entries
         , not (null (seScores e))
         , all ((== 0) . csScore) (seScores e)
         ]
 
     -- Negative scores are legitimate where avoided-production credits or
-    -- waste treatment dominate — hence Info, a place to look, not a verdict.
+    -- waste treatment dominate – hence Info, a place to look, not a verdict.
     negativeOffenders =
         [ offender InfoSev e $
             T.pack (show (length negs))
@@ -174,7 +174,7 @@ computedQualityReport dbName collection entries =
                 <> fmtScore (csScore s)
                 <> " "
                 <> csUnit s
-                <> ") — expected for avoided-production credits and waste treatment"
+                <> ") – expected for avoided-production credits and waste treatment"
         | e <- entries
         , let negs = filter ((< 0) . csScore) (seScores e)
         , s : _ <- [sortOn csScore negs]
