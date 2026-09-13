@@ -738,8 +738,10 @@ data FormulaCheck = FormulaCheck
     -- ^ Evaluated to a value different from the stored amount (beyond float tolerance)
     , fcUnevaluable :: !Int
     -- ^ Not evaluable (unsupported functions, external references)
-    , fcExample :: !(Maybe Text)
+    , fcDivergentExample :: !(Maybe Text)
     -- ^ One divergent example, pre-rendered for display
+    , fcUnevaluableExample :: !(Maybe Text)
+    -- ^ One formula that could not be evaluated, as the dataset writes it
     }
     deriving (Generic, NFData, Store)
 

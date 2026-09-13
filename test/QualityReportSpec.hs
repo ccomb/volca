@@ -461,7 +461,7 @@ spec = do
 
     describe "formula consistency check" $ do
         it "flags an activity whose formulas diverge, with counts and the example" $ do
-            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 12, fcUnevaluable = 3, fcExample = Just "\"a*2\" evaluates to 5.0 but the dataset stores 4.0"}
+            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 12, fcUnevaluable = 3, fcDivergentExample = Just "\"a*2\" evaluates to 5.0 but the dataset stores 4.0", fcUnevaluableExample = Nothing}
                 check = qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc}))
             details check
                 `shouldBe` ["12 of 30 evaluable formula(s) disagree with the stored amount (e.g. \"a*2\" evaluates to 5.0 but the dataset stores 4.0); 3 formula(s) could not be evaluated"]
@@ -471,27 +471,27 @@ spec = do
         -- read is the only thing saying this dataset uses more of the format
         -- than the evaluator reads.
         it "flags an activity whose formulas only failed to evaluate" $ do
-            let fc = FormulaCheck{fcEvaluated = 0, fcDivergent = 0, fcUnevaluable = 7, fcExample = Nothing}
+            let fc = FormulaCheck{fcEvaluated = 0, fcDivergent = 0, fcUnevaluable = 7, fcDivergentExample = Nothing, fcUnevaluableExample = Just "missing_var * 2"}
                 check = qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc}))
-            details check `shouldBe` ["7 formula(s) could not be evaluated"]
+            details check `shouldBe` ["7 formula(s) could not be evaluated (e.g. \"missing_var * 2\")"]
             severities check `shouldBe` [InfoSev]
             qcApplicable check `shouldBe` True
 
         it "flags unevaluable formulas beside ones that all agree, without a divergence count" $ do
-            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 0, fcUnevaluable = 2, fcExample = Nothing}
+            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 0, fcUnevaluable = 2, fcDivergentExample = Nothing, fcUnevaluableExample = Nothing}
             details (qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc})))
                 `shouldBe` ["2 formula(s) could not be evaluated"]
 
         it "passes an activity whose formulas all evaluate and agree" $ do
-            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 0, fcUnevaluable = 0, fcExample = Nothing}
+            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 0, fcUnevaluable = 0, fcDivergentExample = Nothing, fcUnevaluableExample = Nothing}
             qcOffenders (qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc})))
                 `shouldBe` []
 
         -- Alphabetically "apple" comes first; a report cut to its first line
         -- must still show the divergence a maker can act on.
         it "lists divergences before datasets whose formulas only could not be evaluated" $ do
-            let unreadable = FormulaCheck{fcEvaluated = 0, fcDivergent = 0, fcUnevaluable = 7, fcExample = Nothing}
-                diverging = FormulaCheck{fcEvaluated = 1, fcDivergent = 1, fcUnevaluable = 0, fcExample = Nothing}
+            let unreadable = FormulaCheck{fcEvaluated = 0, fcDivergent = 0, fcUnevaluable = 7, fcDivergentExample = Nothing, fcUnevaluableExample = Nothing}
+                diverging = FormulaCheck{fcEvaluated = 1, fcDivergent = 1, fcUnevaluable = 0, fcDivergentExample = Nothing, fcUnevaluableExample = Nothing}
                 db =
                     dbOf
                         [ ((actA, prodA), (mkActivity "apple" [reference breadFlow]){activityFormulaCheck = Just unreadable})

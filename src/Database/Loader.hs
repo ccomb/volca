@@ -494,6 +494,10 @@ History of manual bumps:
      where the expression parser used to refuse the whole line and leave every
      amount under it at zero. Nothing changes type, so a cache written just
      before this would pass the fingerprint and keep the zeros.
+- 38: the formula check keeps one formula it could not evaluate. The field sits
+     inside a record the fingerprint does not look into, so an old cache would
+     pass it and every field after the new one would be read at the wrong
+     offset.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -501,7 +505,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 37
+     in hi `xor` lo `xor` 38
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

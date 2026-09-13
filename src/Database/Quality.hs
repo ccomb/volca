@@ -506,10 +506,16 @@ qualityReport dbName db =
             <> " of "
             <> T.pack (show (fcEvaluated fc))
             <> " evaluable formula(s) disagree with the stored amount"
-            <> maybe "" (\e -> " (e.g. " <> e <> ")") (fcExample fc)
+            <> forExample (fcDivergentExample fc)
         | fcDivergent fc > 0
         ]
-            <> [T.pack (show (fcUnevaluable fc)) <> " formula(s) could not be evaluated" | fcUnevaluable fc > 0]
+            <> [ T.pack (show (fcUnevaluable fc))
+                    <> " formula(s) could not be evaluated"
+                    <> forExample ((\f -> "\"" <> f <> "\"") <$> fcUnevaluableExample fc)
+               | fcUnevaluable fc > 0
+               ]
+    forExample :: Maybe Text -> Text
+    forExample = maybe "" (\e -> " (e.g. " <> e <> ")")
 
     -- Incomplete rather than wrong, hence Info – except a missing location or an
     -- unknown unit, which change how the entry links and converts.
