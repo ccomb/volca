@@ -653,12 +653,18 @@ checkFormulas params struckParams pairs = case checked of
     ambiguousIn :: Text -> [Text]
     ambiguousIn rel = S.toList (S.fromList [n | n <- Expr.collectIdentifiers Expr.Arithmetic rel, S.member (T.toLower n) ambiguous])
     -- The evaluator reads an ambiguous name as unknown, which the file
-    -- contradicts: it declares that name, more than once.
+    -- contradicts: it declares that name, more than once. With those names
+    -- given a stand-in value, whatever the evaluator still refuses is the
+    -- formula's other reason, and both are given.
     refusal :: Text -> String -> Text
-    refusal rel err =
-        "\"" <> rel <> "\": " <> case ambiguousIn rel of
-            [] -> T.pack err
-            names -> "different amounts declared for " <> T.intercalate ", " names
+    refusal rel err = "\"" <> rel <> "\": " <> T.intercalate "; " (if null reasons then [T.pack err] else reasons)
+      where
+        reasons :: [Text]
+        reasons =
+            either (pure . T.pack) (const []) (Expr.evaluate Expr.Arithmetic standIns rel)
+                <> ["different amounts declared for " <> T.intercalate ", " names | let names = ambiguousIn rel, not (null names)]
+    standIns :: M.Map Text Double
+    standIns = M.union env (M.fromSet (const 1) ambiguous)
     checked = [(ex, rel, Expr.evaluate Expr.Arithmetic env rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]

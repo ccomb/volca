@@ -292,6 +292,13 @@ spec = describe "per-exchange comments" $ do
                 fmap fcUnevaluableExample (activityFormulaCheck act)
                     `shouldBe` Just (Just "\"twice\": different amounts declared for twice")
 
+        -- The evaluator stops at "shared" first; blaming only that would hide
+        -- what still stops the formula once the file declares it once.
+        it "gives what else stops a formula beside a name declared twice" $
+            withDataset (TE.encodeUtf8 (T.replace "mathematicalRelation=\"shared\"" "mathematicalRelation=\"shared * unknown_thing\"" (TE.decodeUtf8 twiceDeclaredXml))) $ \ParsedDataset{pdActivity = act} ->
+                fmap fcUnevaluableExample (activityFormulaCheck act)
+                    `shouldBe` Just (Just "\"shared * unknown_thing\": unknown variable unknown_thing; different amounts declared for shared")
+
         -- A <parameter> and an exchange variableName share one space of names.
         -- Letting the parameter win would report a divergence against an amount
         -- the dataset never agreed on, where the two other shapes of the same
