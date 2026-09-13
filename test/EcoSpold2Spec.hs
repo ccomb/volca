@@ -257,7 +257,8 @@ spec = describe "per-exchange comments" $ do
                         fcEvaluated fc `shouldBe` 1
                         fcDivergent fc `shouldBe` 1
                         fcUnevaluable fc `shouldBe` 1
-                        fcExample fc `shouldBe` Just "\"fuel_input * 2 + production\" evaluates to 5.0 but the dataset stores 4.0"
+                        fcDivergentExample fc `shouldBe` Just "\"fuel_input * 2 + production\" evaluates to 5.0 but the dataset stores 4.0"
+                        fcUnevaluableExample fc `shouldBe` Just "missing_var * 2"
 
         -- A variable two declarations claim with two amounts names no value.
         -- Binding whichever was read last would make the check answer on a coin
@@ -288,7 +289,7 @@ spec = describe "per-exchange comments" $ do
             withTwiceDeclaredFixture $ \ParsedDataset{pdActivity = act} ->
                 case activityFormulaCheck act of
                     Nothing -> expectationFailure "expected a FormulaCheck on the activity"
-                    Just fc -> fcExample fc `shouldBe` Nothing
+                    Just fc -> fcDivergentExample fc `shouldBe` Nothing
 
         it "logs the parameter two declarations disagree on" $ do
             (since, _) <- getLogLines 0

@@ -8,7 +8,8 @@ score can't reveal: processes without exactly one reference exchange,
 coproduct allocation that doesn't sum to 100%, entries duplicated outright,
 products two activities both declare,
 amounts that aren't finite, missing metadata, stored amounts that disagree
-with the formulas documenting them, distinct names that merge under
+with the formulas documenting them and formulas this reader cannot
+evaluate, distinct names that merge under
 SimaPro's 80-character truncation, exchanges without the pedigree scores
 their database otherwise carries, reference products nothing in the
 database consumes, inputs no reference product in the database supplies,
@@ -247,7 +248,7 @@ qualityReport dbName db =
         , qrSuspiciousAmounts = QualityCheck True (worstFirst amountOffenders)
         , qrMissingMetadata = QualityCheck True (worstFirst metadataOffenders)
         , qrUndeclaredGeography = QualityCheck True (worstFirst geographyOffenders)
-        , qrFormulaConsistency = QualityCheck formulaApplicable (worstFirst formulaOffenders)
+        , qrFormulaConsistency = QualityCheck formulaApplicable formulaOffenders
         , qrTruncatedNameCollisions = QualityCheck True (worstFirst truncationOffenders)
         , qrMissingPedigree = QualityCheck pedigreeApplicable (worstFirst pedigreeOffenders)
         , qrUnconsumedProducts = QualityCheck True (worstFirst unconsumedOffenders)
@@ -479,25 +480,42 @@ qualityReport dbName db =
     -- exports – allocation rescales amounts without updating the copied
     -- formulas – hence Info: the stored amounts stay authoritative, this only
     -- tells a maker where their own formulas and amounts drifted apart.
-    -- Datasets whose formulas merely could not be evaluated are not findings;
+    -- A formula the evaluator could not judge is a finding too, at the same
+    -- severity: it costs no number, but the count is the only place the report
+    -- says so, whether the formula uses more of the format than this reader
+    -- understands or names a variable no single declaration binds. When none of
+    -- a dataset's formulas evaluated, there is no divergence to carry the count.
+    -- Divergences come first: they are what a maker acts on, and a report cut
+    -- to its first lines must not lose them behind datasets that were only
+    -- unreadable, which is why this list is not passed through 'worstFirst'.
     -- 'False' applicability means no dataset carried a formula at all.
     formulaApplicable = any (isJust . activityFormulaCheck) acts
-    formulaOffenders =
-        [ offender InfoSev key act Nothing (formulaDetail fc)
+    formulaOffenders = foldMap (worstFirst . formulaOffendersWhere) [(> 0) . fcDivergent, (== 0) . fcDivergent]
+    formulaOffendersWhere :: (FormulaCheck -> Bool) -> [QualityOffender]
+    formulaOffendersWhere keep =
+        [ offender InfoSev key act Nothing (T.intercalate "; " parts)
         | (key, act) <- entries
         , Just fc <- [activityFormulaCheck act]
-        , fcDivergent fc > 0
+        , keep fc
+        , let parts = formulaFindings fc
+        , not (null parts)
         ]
-    formulaDetail fc =
-        T.pack (show (fcDivergent fc))
+    formulaFindings :: FormulaCheck -> [Text]
+    formulaFindings fc =
+        [ T.pack (show (fcDivergent fc))
             <> " of "
             <> T.pack (show (fcEvaluated fc))
             <> " evaluable formula(s) disagree with the stored amount"
-            <> maybe "" (\e -> " (e.g. " <> e <> ")") (fcExample fc)
-            <> ( if fcUnevaluable fc > 0
-                    then "; " <> T.pack (show (fcUnevaluable fc)) <> " more could not be evaluated"
-                    else ""
-               )
+            <> forExample (fcDivergentExample fc)
+        | fcDivergent fc > 0
+        ]
+            <> [ T.pack (show (fcUnevaluable fc))
+                    <> " formula(s) could not be evaluated"
+                    <> forExample ((\f -> "\"" <> f <> "\"") <$> fcUnevaluableExample fc)
+               | fcUnevaluable fc > 0
+               ]
+    forExample :: Maybe Text -> Text
+    forExample = maybe "" (\e -> " (e.g. " <> e <> ")")
 
     -- Incomplete rather than wrong, hence Info – except a missing location or an
     -- unknown unit, which change how the entry links and converts.

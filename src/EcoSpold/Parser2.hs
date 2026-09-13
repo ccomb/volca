@@ -632,10 +632,13 @@ checkFormulas params pairs = case checked of
             FormulaCheck
                 { fcEvaluated = length evaluated
                 , fcDivergent = length divergent
-                , fcUnevaluable = length [() | (_, _, Left _) <- checked]
-                , fcExample = listToMaybe (map example divergent)
+                , fcUnevaluable = length unevaluable
+                , fcDivergentExample = listToMaybe (map example divergent)
+                , fcUnevaluableExample = listToMaybe unevaluable
                 }
   where
+    unevaluable :: [Text]
+    unevaluable = [rel | (_, rel, Left _) <- checked]
     -- A <parameter> and an exchange variableName share one space of names, so
     -- both go in together and a name they disagree on is as unreadable as one
     -- two exchanges disagree on.
