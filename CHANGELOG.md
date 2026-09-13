@@ -197,10 +197,9 @@
   it that has no value, not only the first, a call to a function the evaluator
   does not know, or a variable the file declares with two different amounts,
   named as such rather than as unknown. Same Info severity: the stored amounts
-  are still the ones used. A
-  database cache written before this is rebuilt on its next load. A scoring-set
-  formula that cannot be evaluated also gives that one-line reason now, in
-  place of the parser's four-line report.
+  are still the ones used. A database cache written before this is rebuilt on
+  its next load. A scoring-set formula that cannot be evaluated also gives that
+  one-line reason now, in place of the parser's four-line report.
 - A Brightway Excel exchange row that carries a formula now says so in the load
   log. The format lets a row state both an `amount` and the `formula` that
   produces it; the reader took the amount and never looked at the formula, so
