@@ -5,7 +5,7 @@
 Core claim: a global swap @from → to@ is a single Sherman-Morrison rank-1
 update that equals solving the technosphere matrix with @from@'s row
 relocated onto @to@. We prove it by comparing the rank-1 result against a
-fresh factorization of the relocated matrix - NOT against an edge-by-edge
+fresh factorization of the relocated matrix – NOT against an edge-by-edge
 expansion, which (using the cached factorization per edge) is only an
 approximation of the simultaneous swap.
 
@@ -126,7 +126,7 @@ spec = do
     describe "substitutionUnitFactor (κ guard)" $
         it "κ = 1 for identical units, Left for incompatible reference products" $ do
             db <- loadSampleDatabase "SAMPLE.units"
-            -- electricity is in MJ, steel in kg - energy vs mass, no conversion.
+            -- electricity is in MJ, steel in kg – energy vs mass, no conversion.
             case (activityByInfix db "electricity generation", activityByInfix db "steel production") of
                 (Just elec, Just steel) -> do
                     substitutionUnitFactor defaultUnitConfig db (Swap elec steel) `shouldSatisfy` isLeft

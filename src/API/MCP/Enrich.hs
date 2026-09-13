@@ -6,7 +6,7 @@ single-activity handlers that need a @web_url@ deep link, a slimmer
 panel, a scoring-set filter, or a market-activity hint.
 
 The columnar batch projection for @score_activities@ lives in
-"API.MCP" - it works on typed records, not raw 'Value's, so it does not
+"API.MCP" -- it works on typed records, not raw 'Value's, so it does not
 fit this module's "pure JSON munging" remit.
 
 Every traversal goes through 'overObject' / 'overArray', the single
@@ -51,7 +51,7 @@ import qualified Data.Vector as V
 import Network.URI (escapeURIString, isUnreserved)
 
 -- ---------------------------------------------------------------------------
--- Value combinators - single point of exhaustive Aeson pattern matching
+-- Value combinators -- single point of exhaustive Aeson pattern matching
 -- ---------------------------------------------------------------------------
 
 {- | Apply 'f' to the contents of a JSON Object; pass any other 'Value'
@@ -132,7 +132,7 @@ addWebUrlMaybe = maybe id addWebUrl
 their response via @object (fields ++ extras)@.
 
 Yields @["web_url" .= base <> path]@ when a base URL is configured and
-@[]@ otherwise - keeping the "drop the field when no frontend" invariant
+@[]@ otherwise -- keeping the "drop the field when no frontend" invariant
 in one place rather than fanning out a 'case' at every emission site.
 -}
 webUrlField :: Maybe Text -> Text -> [Pair]
@@ -181,7 +181,7 @@ construction (one panel = one activity = one functional unit), so the
 lifted copy carries the same information at a fraction of the bytes.
 
 A missing @results@, an empty @results@, or a first entry without a
-@functionalUnit@ all pass through cleanly - nothing is invented.
+@functionalUnit@ all pass through cleanly -- nothing is invented.
 -}
 hoistFunctionalUnit :: KeyMap Value -> KeyMap Value
 hoistFunctionalUnit km = case firstFunctionalUnit km of
@@ -206,8 +206,8 @@ to the scoring-set names in 'requested'.
 
 'configured' is the authoritative list of scoring-set names defined on
 the method collection (e.g. @map ssName . mcScoringSets@). Validation
-runs against it - not against the keys actually present in
-@scoringResults@ - so:
+runs against it -- not against the keys actually present in
+@scoringResults@ -- so:
 
   * A configured scoring set whose evaluation produced no scores (and
     is therefore absent from @scoringResults@) is still accepted by
@@ -268,7 +268,7 @@ adjustKey k f km =
 
 {- | Case-insensitive test for the @"market for "@ naming convention used
 across ecoinvent and SimaPro-imported databases. A market activity is an
-aggregated supplier mix, not a source ICV - a caller asking for raw
+aggregated supplier mix, not a source ICV -- a caller asking for raw
 inventory probably wants the upstream producers instead.
 -}
 isMarketActivityName :: Text -> Bool
@@ -280,7 +280,7 @@ marketHintObject =
     object
         [ "kind" .= ("market_activity" :: Text)
         , "message"
-            .= ( "This is a 'market for ...' activity - an aggregated supplier mix, \
+            .= ( "This is a 'market for ...' activity -- an aggregated supplier mix, \
                  \not a source ICV. Call get_activity to inspect its technosphere \
                  \inputs (the actual producers)." ::
                     Text

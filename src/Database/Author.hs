@@ -8,7 +8,7 @@ Description : Turning authored activity descriptions into database rows
 
 Importing a database is tolerant: a supplier link that resolves to nothing is
 warned about and dropped ('Database.MatrixBuild.findProducer'), because the
-alternative - refusing a 20 000-dataset file over one bad row - helps nobody.
+alternative – refusing a 20 000-dataset file over one bad row – helps nobody.
 Authoring is the opposite situation. The author is present, the batch is small,
 and every defect is fixable on the spot, so this module refuses instead of
 repairing: an unresolvable supplier, an impossible unit conversion, a
@@ -19,7 +19,7 @@ Identity is deterministic. An authored activity is addressed by
 @(activityUUID, productUUID)@ like every other process, and both halves are
 UUID5-minted from what the author wrote (see 'authoredNamespace'), never from
 a counter or a clock. Authoring the same description twice therefore yields
-the same key - which is what makes "write this activity again with one number
+the same key – which is what makes "write this activity again with one number
 changed" a replace rather than a silent duplicate.
 
 The product UUID keys on name *and* unit. Two activities that both produce
@@ -29,14 +29,14 @@ flows, because they are. That makes "one flow UUID carrying two different
 units" unrepresentable rather than merely unlikely.
 
 Scope: one reference product per authored activity. Coproducts and allocation
-are a later phase, and the types here do not pretend to support them - an
+are a later phase, and the types here do not pretend to support them – an
 'AuthoredActivity' has exactly one product field group, not a list.
 
 Editing an imported activity is the other half ('applyExchangeEdits'). A row
 that came in from a database file cannot be re-authored: its identity was
 minted by whichever parser read it, so re-describing it addresses a different
 row. And even if it could be addressed, a description cannot carry back what
-it never expressed - classification, synonyms, parameters, pedigree,
+it never expressed – classification, synonyms, parameters, pedigree,
 coproducts. So adjusting an imported inventory names the lines to change and
 leaves everything else exactly as it was.
 -}
@@ -130,7 +130,7 @@ mintAuthored = UUID5.generateNamed authoredNamespace . BS.unpack . TE.encodeUtf8
 authoredActivityUUID :: Text -> Text -> UUID
 authoredActivityUUID name location = mintAuthored ["activity", name, location]
 
-{- | Product half of the process key. Keyed on unit as well as name - see the
+{- | Product half of the process key. Keyed on unit as well as name – see the
 module header on why @milk@ in @kg@ and @milk@ in @l@ are two flows.
 -}
 authoredProductUUID :: Text -> Text -> UUID
@@ -157,7 +157,7 @@ reading an inventory writes the names it shows, so the alternative would have
 them mint a twin of a curated flow, uncharacterized and scoring as zero.
 
 There is deliberately no technosphere counterpart. A technosphere input always
-names a *supplier* - a product that something in scope produces - so the flow
+names a *supplier* – a product that something in scope produces – so the flow
 is whatever that supplier's process key already says it is. Authoring therefore
 never mints a technosphere flow from words: the activity's own product is
 minted from the activity, and a supplier living in a dependency has its product
@@ -173,7 +173,7 @@ data FlowRef
 
 @ati*@ / @aw*@ carry a @process_id@ in the same currency the API and the UI
 speak (@activityUUID_productUUID@, or a bare activity UUID when the activity
-has a single product), never a matrix index - those renumber on every edit.
+has a single product), never a matrix index – those renumber on every edit.
 
 'AuthoredWasteOutput' is a waste this activity generates and hands to a
 treatment process: the provider is the treatment activity, exactly as a
@@ -225,8 +225,8 @@ data AuthorContext = AuthorContext
     }
 
 {- | An authored activity that the database can accept, with the vocabulary it
-brings along. The caller inserts the flows and the activity together -
-'Database.Edit.insertActivities' does - so the activity never lands referring
+brings along. The caller inserts the flows and the activity together –
+'Database.Edit.insertActivities' does – so the activity never lands referring
 to a flow nothing declares.
 -}
 data ResolvedInsert = ResolvedInsert
@@ -248,7 +248,7 @@ one complaint ten times. Each message names the activity it belongs to.
 
 Warnings ('snd' of the success case) never block. Today the only one is a
 biosphere flow new to the database, which by construction no characterization
-factor matches by UUID - it may still be reached by name, so it is a caution
+factor matches by UUID – it may still be reached by name, so it is a caution
 and not a refusal.
 
 Whether the key may already exist is not decided here: this function does not
@@ -353,7 +353,7 @@ buildActivity a unitLabel exchangeList =
         }
 
 {- | How a complaint names the line it is about. What an author can act on is
-which supplier or which flow, not a position in a list - an API caller may not
+which supplier or which flow, not a position in a list – an API caller may not
 even have sent the exchanges as one list.
 -}
 describeExchange :: AuthoredExchange -> Text
@@ -365,7 +365,7 @@ describeExchange ex = case ex of
 
 {- | An amount that can carry information: finite, and not zero. A zero
 exchange is not a measurement of nothing, it is a line that should not have
-been written - and it would divide into a zero normalization factor.
+been written – and it would divide into a zero normalization factor.
 -}
 isUsableAmount :: Double -> Bool
 isUsableAmount x = not (isNaN x) && not (isInfinite x) && x /= 0
@@ -384,7 +384,7 @@ amountCheck amount =
 {- | Which line of an inventory an edit is about.
 
 A technosphere input names its provider, a waste output names the treatment it
-hands the waste to, a biosphere exchange names its flow - the same currency an
+hands the waste to, a biosphere exchange names its flow – the same currency an
 author writes in ('AuthoredExchange'). What is missing is missing on purpose:
 the reference product and any coproduct carry the activity's identity and its
 allocation, and a reference input belongs to the treatment that consumes it.
@@ -400,8 +400,8 @@ data ExchangeSelector
     deriving (Eq, Show)
 
 {- | One change to an activity's inventory. Edits apply in the order given, so
-removing a line and then setting its amount is refused - by then it matches
-nothing - rather than quietly reordered into something that works.
+removing a line and then setting its amount is refused – by then it matches
+nothing – rather than quietly reordered into something that works.
 -}
 data ExchangeEdit
     = RemoveExchange ExchangeSelector
@@ -429,7 +429,7 @@ data EditedActivity = EditedActivity
 them.
 
 Only 'exchanges' changes. Classification, synonyms, parameters, allocation,
-native type, pedigree on the lines left alone - all carried through as they
+native type, pedigree on the lines left alone – all carried through as they
 were, which is the whole point: an imported activity can be adjusted without
 being re-described as something a description can express.
 
@@ -582,8 +582,8 @@ isWasteOutputTo key = \case
 
 {- | A provider named either way the engine accepts one. Matched against the
 link the exchange already carries rather than resolved in the database, so a
-provider living in a dependency - or one that has gone missing since the
-import - is still addressable.
+provider living in a dependency – or one that has gone missing since the
+import – is still addressable.
 -}
 data ProviderKey = ProviderPair UUID UUID | ProviderActivity UUID
 
@@ -702,7 +702,7 @@ resolveLinked ctx provider amount mUnit build =
 with it. A provider with a produced reference output gets the conversion
 check; a provider whose only reference is an input (a treatment process) gets
 an exact-match rule instead, because 'Database.MatrixBuild.techTriple' never
-converts into a reference input - a mismatched unit would land as a wrong raw
+converts into a reference input – a mismatched unit would land as a wrong raw
 number, not as a conversion.
 -}
 unitError :: AuthorContext -> Supplier -> Text -> Maybe Text
@@ -721,8 +721,8 @@ unitError ctx sup stated
     | otherwise = conversionError ctx stated (supProducedUnit sup)
 
 {- | The unit a value must be stated in before it can enter the technosphere
-matrix. Mirrors 'Database.MatrixBuild.techTriple' exactly - same emptiness
-guards, same conversion table - so a batch that validates here cannot fail the
+matrix. Mirrors 'Database.MatrixBuild.techTriple' exactly – same emptiness
+guards, same conversion table – so a batch that validates here cannot fail the
 rebuild afterwards for a reason authoring could have named first.
 -}
 conversionError :: AuthorContext -> Text -> Text -> Maybe Text
@@ -903,7 +903,7 @@ data Supplier = Supplier
     -}
     , supAnyRefUnit :: Text
     {- ^ unit of the first reference exchange either way, used only to default
-    an omitted unit - a treatment provider has no produced unit to borrow.
+    an omitted unit – a treatment provider has no produced unit to borrow.
     -}
     , supHome :: SupplierHome
     -- ^ which database the provider was found in, and what has to be copied out of it.
@@ -913,7 +913,7 @@ data Supplier = Supplier
 database to adopt.
 
 'Dependency' carries the product flow that database declares for the provider
-and the name of the unit that flow is stated in over there - or nothing, when
+and the name of the unit that flow is stated in over there – or nothing, when
 that database names a process whose product flow it never declared. That is a
 malformed database rather than an impossible one, so it is a state here and
 'adoptTechFlow' says which of the two it is.
@@ -1000,8 +1000,8 @@ A link into a dependency carries the *flow's* unit, not the exchange's
 ('Database.Loader.findExchangeCrossDBLink' reads it off the flow), and
 'Matrix.depDemandsToVector' then converts the raw amount from that unit. So an
 exchange stated in anything else enters the matrix as a number in the wrong
-unit - two tonnes of a product recorded in kilograms would be demanded as two
-kilograms - where the same exchange to a local supplier is converted. Refuse
+unit – two tonnes of a product recorded in kilograms would be demanded as two
+kilograms – where the same exchange to a local supplier is converted. Refuse
 and name the unit to restate in, exactly as a biosphere amount is.
 -}
 dependencyUnitError :: AuthorContext -> Supplier -> Text -> Maybe Text

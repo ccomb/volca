@@ -81,7 +81,7 @@ data IntermediateData = IntermediateData
     , idOutputGroup :: !Text
     , idActivityLinkId :: !Text
     , idSynonyms :: !(M.Map Text (S.Set Text))
-    , idComment :: !(Maybe (Text, Text)) -- (xml:lang, comment text) - English wins
+    , idComment :: !(Maybe (Text, Text)) -- (xml:lang, comment text) – English wins
     , idClassifications :: !(M.Map Text Text) -- per-exchange classifications (e.g. By-product classification → Waste)
     , idVariableName :: !Text -- variableName attribute (referencable from other formulas in the dataset)
     , idMathRel :: !Text -- mathematicalRelation attribute (formula defining the amount)
@@ -324,7 +324,7 @@ ecoSpoldSpecialActivityTypeLabel = \case
     n -> "Unknown (code " <> T.pack (show n) <> ")"
 
 -- ============================================================================
--- SAX state combinators (pure, allocation-neutral - inlined into the fold)
+-- SAX state combinators (pure, allocation-neutral – inlined into the fold)
 -- ============================================================================
 
 -- | Concatenated, entity-decoded text accumulated since the element opened.
@@ -743,7 +743,7 @@ parseWithXeno xmlContent = do
                     st{psPendingProperty = (psPendingProperty st){ppyAmount = readAmount (bsToText value)}}
                 | otherwise = st
             -- xml:lang on the currently-open <comment>; remembered until closeTag.
-            -- Attribute order is not significant for entity ref selection - we
+            -- Attribute order is not significant for entity ref selection – we
             -- only need the lang at close-time.
             withLang st
                 | pathAt 0 "comment" state && isElement name "xml:lang" = st{psPendingCommentLang = bsToText value}
@@ -888,7 +888,7 @@ parseWithXeno xmlContent = do
                             -- activity: it is itself waste (negative amount, outputGroup="0") yet it
                             -- IS the reference product. Diverting it to the waste axis leaves the
                             -- activity with no reference product, so 'applyCutoffStrategy' rejects it
-                            -- and the whole dataset is dropped - silently severing every input that
+                            -- and the whole dataset is dropped – silently severing every input that
                             -- links into the treatment subsystem.
                             refOnWasteAxis = isWasteFlow && not isReferenceProduct
                             newRefUnit =
@@ -909,7 +909,7 @@ parseWithXeno xmlContent = do
                     | Just amount <- edAmount edata ->
                         let (finalInputGroup, finalOutputGroup) = resolveGroups (edInputGroup edata) (edOutputGroup edata) state
                             -- A missing compartment becomes 'Nothing', not an empty 'Compartment ""'
-                            -- sentinel - the latter used to silently collide with method-side empty mediums.
+                            -- sentinel – the latter used to silently collide with method-side empty mediums.
                             -- A medium the reader cannot place is reported and the
                             -- compartment dropped, rather than carried as a string
                             -- nothing downstream can bucket.

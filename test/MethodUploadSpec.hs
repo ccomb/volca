@@ -51,7 +51,7 @@ miniImpactCategoryJson =
             , "}"
             ]
 
--- | A minimal ILCD LCIA method dataset - only the root element matters here.
+-- | A minimal ILCD LCIA method dataset – only the root element matters here.
 miniLciaMethodXml :: BL.ByteString
 miniLciaMethodXml =
     BLC.pack $
@@ -61,7 +61,7 @@ miniLciaMethodXml =
             , "</LCIAMethodDataSet>"
             ]
 
--- | An openLCA Process document - must NOT be picked up as a method.
+-- | An openLCA Process document – must NOT be picked up as a method.
 miniProcessJson :: BL.ByteString
 miniProcessJson =
     BLC.pack "{ \"@type\": \"Process\", \"name\": \"not a method\" }"

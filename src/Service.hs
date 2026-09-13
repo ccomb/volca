@@ -46,7 +46,7 @@ import UnitConversion (UnitConfig, convertUnit)
 
 {- | Fields shared by every activity-oriented endpoint (search, supply chain,
 consumers). Split out from the endpoint-specific filters so each filter
-type carries exactly the knobs it can act on - no more "ignored in this
+type carries exactly the knobs it can act on – no more "ignored in this
 mode" comments.
 -}
 data ActivityFilterCore = ActivityFilterCore
@@ -85,7 +85,7 @@ data SupplyChainFilter = SupplyChainFilter
     }
 
 {- | Filter for reverse-walk (/consumers). Adds a depth cap but no
-'minQuantity' - scaling factors are meaningless in the reverse direction.
+'minQuantity' – scaling factors are meaningless in the reverse direction.
 -}
 data ConsumerFilter = ConsumerFilter
     { cnfCore :: !ActivityFilterCore
@@ -330,7 +330,7 @@ convertToInventoryExport db bioFlowDB unitDB processId rootActivity inventory =
         InventoryExport metadata flowDetails statistics
 
 {- | Determine if a biosphere flow represents resource extraction based on its
-compartment. Now type-restricted to BiosphereFlow - technosphere can't reach
+compartment. Now type-restricted to BiosphereFlow – technosphere can't reach
 this code path at compile time.
 -}
 isResourceExtraction :: BiosphereFlow -> Bool
@@ -600,7 +600,7 @@ convertToTreeExport db maxDepth tree =
      in TreeExport metadata nodes edges
 
 {- | Post-filter a TreeExport by name: keep matching nodes plus all their ancestors up to root.
-Uses the enParentId chain already stored in each ExportNode - no extra graph traversal.
+Uses the enParentId chain already stored in each ExportNode – no extra graph traversal.
 -}
 filterTreeExport :: NamePattern -> TreeExport -> TreeExport
 filterTreeExport pat export =
@@ -655,7 +655,7 @@ isInputLinkTo _ WasteExchange{} = False
 {- | Build one 'GraphEdge' from a sparse technosphere triple. Returns 'Nothing'
 when either endpoint is outside the projected subgraph (i.e. below cutoff) or
 the triple itself is zero. When the supplier flow can't be resolved we still
-emit the edge - with sentinel name/unit - so the gap is debuggable instead of
+emit the edge – with sentinel name/unit – so the gap is debuggable instead of
 silently dropped.
 -}
 mkGraphEdgeFromTriple ::
@@ -683,7 +683,7 @@ mkGraphEdgeFromTriple db nodeIdMap (SparseTriple row col value)
         pure $ GraphEdge src tgt (realToFrac value) uName flowName
 
 {- | 'GraphNode' for one significant activity. Out-of-bounds 'ProcessId's get a
-sentinel node rather than crashing - preserves the project's "no silent
+sentinel node rather than crashing – preserves the project's "no silent
 errors, no silent successes" stance.
 -}
 mkGraphNode :: Database -> Int -> (ProcessId, Double) -> GraphNode
@@ -754,7 +754,7 @@ getFlowUsageCount db flowUUID =
 lookup is resolved against the appropriate side (tech vs bio) and wrapped
 in 'ApiFlow' to preserve the discriminator for downstream JSON encoders.
 An exchange whose flow UUID resolves on neither side becomes an
-'ApiUnresolvedFlow' entry rather than being silently dropped - so the
+'ApiUnresolvedFlow' entry rather than being silently dropped – so the
 consumer never sees a shorter list than the activity actually carries.
 -}
 getActivityFlowSummaries :: Database -> Activity -> [FlowSummary]
@@ -868,7 +868,7 @@ bm25Retrieve db queryText = do
 
 {- | Set of ProcessIds whose name fuzzy-matches the query, using the same
 semantics as @/activities@ BM25 search. @Nothing@ means the retrieval could
-not run - no BM25 index (only bare test fixtures; production DBs always
+not run – no BM25 index (only bare test fixtures; production DBs always
 carry one) or a query whose fuzzy expansion is empty. What that means is
 the caller's call: 'nameFilterSet' treats a present-but-unmatchable query
 as \"reject every pid\", never as \"no filter\".
@@ -1076,12 +1076,12 @@ crossDBResolvedFlowIds db activity =
                 , cdlConsumerFlowId link /= UUID.nil
                 ]
 
-{- | Build the list of orphan waste exchanges on an activity - waste flows the
+{- | Build the list of orphan waste exchanges on an activity – waste flows the
 dataset author left unmodelled (no in-database link to a treatment activity,
 and no explicit cross-DB match either). These contribute 0 to LCIA scores;
 surfacing them lets consumers see what is excluded rather than silently
 undercounting. Waste exchanges already routed to another database via
-'dbCrossDBLinks' are excluded - they do contribute to the score and are
+'dbCrossDBLinks' are excluded – they do contribute to the score and are
 therefore not cut-offs.
 -}
 buildCutoffWaste :: Database -> Activity -> [CutoffWasteFlow]
@@ -1176,7 +1176,7 @@ convertActivityForAPI db processId activity =
             }
 
 {- | Resolved target activity for a technosphere or waste exchange. Either all
-three fields are present (Just TargetRef) or none (Nothing) - the formerly
+three fields are present (Just TargetRef) or none (Nothing) – the formerly
 correlated triple of Maybes can no longer drift apart.
 -}
 data TargetRef = TargetRef
@@ -1232,7 +1232,7 @@ resolveByLinkedProducer db ex = linkedProducer db ex >>= targetOf db
 
 {- | Resolve the target activity (if any) for one exchange. Technosphere broken
 links (linkId set but unresolvable) do NOT fall through to the product-flow
-path - that matches the original behaviour. Use '<|>' to chain fallbacks only
+path – that matches the original behaviour. Use '<|>' to chain fallbacks only
 where the original code did. Every linked arm resolves the way the matrix
 routes it; a waste output is the one that stops there, with no fallback to the
 activity UUID, because a link it cannot route is a treatment this database does
@@ -1320,7 +1320,7 @@ toExchangeWithUnit ::
     Exchange ->
     ExchangeWithUnit
 toExchangeWithUnit db links exchange =
-    -- Surface the raw UUID when the flow does not resolve - a clear failure
+    -- Surface the raw UUID when the flow does not resolve – a clear failure
     -- the consumer can debug, not a silent "unknown".
     let unresolvedName = unresolvedFlowName (exchangeFlowId exchange)
         (flowName, compartment) = fromMaybe (unresolvedName, Nothing) (resolveFlow db exchange)
@@ -1377,7 +1377,7 @@ functionalUnitOf flows units activity = "1.00 " <> prodUnit <> " of " <> prodNam
 {- | Build an 'ActivitySummary' from a (ProcessId, Activity) pair. Encapsulates
 the reference-product + allocation + native-type projection shared by
 search results, supply-chain entries, inventory metadata, and exchange-target
-navigation. Uses @dbUnits db@ for the unit DB - callers needing a merged
+navigation. Uses @dbUnits db@ for the unit DB – callers needing a merged
 cross-DB unit DB build the record by hand.
 -}
 mkActivitySummary :: Database -> ProcessId -> Activity -> ActivitySummary
@@ -1602,7 +1602,7 @@ resolveTargetSummary db links exchange = case exchange of
 {- | Detailed exchanges with filtering. Resolves cross-DB technosphere inputs
 (SimaPro pattern: no @activityLinkId@, the supplier lives in a dep DB
 via 'dbCrossDBLinks') by synthesizing an 'ActivitySummary' with a qualified
-pid @"dbName::actUUID_prodUUID"@ - same convention the @/activity/{pid}@
+pid @"dbName::actUUID_prodUUID"@ – same convention the @/activity/{pid}@
 endpoint uses.
 
 A missing flow row used to drop the exchange entirely. We now surface an
@@ -1804,7 +1804,7 @@ instance Monoid Collected where
 
 {- | Collect filtered supply-chain entries + edges from a single DB's scaling
 vector. Applies @minQuantity@, name/location/product/class/maxDepth filters,
-BFS depth assignment, and upstream-count accumulation - but deliberately
+BFS depth assignment, and upstream-count accumulation – but deliberately
 does NOT sort, limit, or offset. Callers merge collections from multiple
 databases and then apply sorting/pagination once on the combined list.
 
@@ -1875,7 +1875,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
         -- BM25/fuzzy membership set for afcName, computed once per request so
         -- /supply-chain matches whatever /activities already found for the
         -- same query. Nothing ⇒ no effective filter (absent, blank, or DB
-        -- without a BM25 index - only bare test fixtures hit that last case).
+        -- without a BM25 index – only bare test fixtures hit that last case).
         mNameSet = nameFilterSet db (afcName core)
         nameMatchesPid pid = maybe True (IS.member (fromIntegral pid)) mNameSet
 
@@ -2084,7 +2084,7 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup rootDb ro
 solve the induced dep demand and collect entries\/edges from the dep DB
 (filtered by the same 'SupplyChainFilter' as the root). Returns
 @(total_active_count, filtered_entries, edges)@ summed across all reached
-dep DBs at this depth and deeper. No pagination here - that's applied once
+dep DBs at this depth and deeper. No pagination here – that's applied once
 at the top level on the merged list.
 -}
 walkDepLevels ::
@@ -2236,7 +2236,7 @@ getReferenceProductAmount activity =
 
 {- | Root-only scaling vector: solve @(I-A)x = d@. Substitutions are applied by
 the cross-DB applicator ('applySubstitutionsAt', via
-'computeScalingVectorWithSubstitutionsCrossDB'), never here - this path is only
+'computeScalingVectorWithSubstitutionsCrossDB'), never here – this path is only
 ever called with an empty list. A non-empty list is a programmer error, surfaced
 loudly rather than silently mishandled (the previous in-place applicator used a
 'defaultUnitConfig' and could never see the merged unit table).
@@ -2265,7 +2265,7 @@ A positive entry in @perturb@ adds @u·e_col^T@ to @(I-A)@, which decreases
 @A_ij@; we negate to flip the convention so @delta=+0.05@ means \"+5%\".
 
 Per-perturbation errors (missing technosphere link, singular update,
-cross-DB qualified id in V1) are returned alongside the perturbation -
+cross-DB qualified id in V1) are returned alongside the perturbation –
 they do not abort the sweep. Only the baseline solve and the global
 process-id resolution can fail at the outer 'ServiceError' level.
 
@@ -2323,7 +2323,7 @@ resolveSpec db p = do
             let deltaAbs = -(a * perDelta p)
              in Right (fromIntegral consumerPid, [(fromIntegral supplierPid, deltaAbs)])
 
--- V1: root-DB only - qualified "db::pid" is rejected per perturbation
+-- V1: root-DB only – qualified "db::pid" is rejected per perturbation
 resolveRootOnly :: Database -> Text -> Either Text ProcessId
 resolveRootOnly db t
     | "::" `T.isInfixOf` t =
@@ -2341,7 +2341,7 @@ resolveRootOnly db t
 consumers from the __root__ technosphere row, so @from@ must live in the
 root DB. Reject a dep-qualified @from@ up front rather than letting the
 per-level filter route it to a dep level (or silently drop it when that dep
-is never visited). Per-edge ('OneEdge') subs are unaffected - they keep
+is never visited). Per-edge ('OneEdge') subs are unaffected – they keep
 their existing cross-DB freedom.
 -}
 globalFromMustLiveInRoot :: RootDb -> [Substitution] -> Either ServiceError ()
@@ -2360,12 +2360,12 @@ globalFromMustLiveInRoot rootDb subs =
 
 {- | What-if inventory with substitutions applied at every DB level of the
 dep graph. Substitutions are filtered at each level by
-'applySubstitutionsAt' - a sub whose consumer lives in a dep DB is
+'applySubstitutionsAt' – a sub whose consumer lives in a dep DB is
 applied when the recursion reaches that dep DB's solver, not at root.
 
 This generalizes the root-only path: substitutions in @subFrom@/@subTo@
 may live in any loaded database (qualified as @"dbName::pid"@), and a
-'OneEdge' consumer may also be qualified - the filter finds the right
+'OneEdge' consumer may also be qualified – the filter finds the right
 level. Global ('AllConsumers') subs are anchored at their root @from@.
 -}
 inventoryWithSubsAndDeps ::
@@ -2440,7 +2440,7 @@ validateAnchorDbs depLookup rootDbObj rootDb subs = do
 
 {- | BFS the loaded portion of the dep-DB DAG from @rootDbName@. Returns
 the set of DB names that are statically reachable via 'dbCrossDBLinks'
-chains (including unloaded leaves - 'validateAnchorDbs' distinguishes
+chains (including unloaded leaves – 'validateAnchorDbs' distinguishes
 loaded-but-unreachable from unloaded).
 -}
 reachableDepDbs ::
@@ -2552,7 +2552,7 @@ resolveDepWithSubs unitCfg depLookup rootDb perRootDepDemands allSubs depth depD
 
 Solves the root scaling vector then delegates to 'applySubstitutionsAt'
 against the root DB. Keeps the \"consumer must live in root\" guard
-because supply-chain renders only the root technosphere graph - a
+because supply-chain renders only the root technosphere graph – a
 dep-DB consumer sub would be silently ignored here, so we surface it as
 an error (the inventory/LCIA path lifts this restriction via
 'goWithSubsAndDeps').
@@ -2675,7 +2675,7 @@ technosphereRow db supplier =
         , row == supplierIdx
         ]
 
-{- | The replaced supplier's row, or 'Left' when it is consumed nowhere - a
+{- | The replaced supplier's row, or 'Left' when it is consumed nowhere – a
 global substitution on such an activity is vacuous, never a silent no-op.
 -}
 requireConsumers :: Database -> ProcessId -> Either ServiceError [(Int, Double)]
@@ -2701,7 +2701,7 @@ many reference units of @to@'s product equal one of @from@'s, so the
 coefficient @a@ (in @from@'s unit) becomes @a·κ@ on @to@. Identical units
 give @κ = 1@ (matching the per-edge path, which assumes same-unit
 suppliers). 'Left' when the two reference products are dimensionally
-incompatible - never a silently wrong coefficient.
+incompatible – never a silently wrong coefficient.
 -}
 substitutionUnitFactor :: UnitConfig -> Database -> Swap -> Either ServiceError Double
 substitutionUnitFactor unitCfg db (Swap fromPid toPid) = do
@@ -2730,24 +2730,24 @@ planGlobalWithinDB unitCfg db swap@(Swap fromPid toPid) = do
 
 {- | Apply all substitutions whose consumer lives in @thisDbName@ to the
 given scaling vectors. Substitutions whose consumer lives elsewhere are
-skipped at this level - they'll match at the DB where their consumer
+skipped at this level – they'll match at the DB where their consumer
 lives during the recursive traversal in 'goWithSubsAndDeps'.
 
 Classifies each sub by where its old/new suppliers live relative to
 @thisDbName@:
 
-* Case A - both in this DB: symmetric rank-1 update @[(old,+a),(new,-a)]@.
-* Case B - old in this DB, new elsewhere: asymmetric root update
+* Case A – both in this DB: symmetric rank-1 update @[(old,+a),(new,-a)]@.
+* Case B – old in this DB, new elsewhere: asymmetric root update
   @[(old,+a)]@ plus a virtual @CrossDBLink@ routing demand @+a@ to the
   other-DB supplier.
-* Case C - old elsewhere, new in this DB: asymmetric root update
+* Case C – old elsewhere, new in this DB: asymmetric root update
   @[(new,-a_norm)]@ plus a virtual @CrossDBLink@ with negative coefficient
   that cancels the existing static link.
-* Case D - both elsewhere: no matrix change; two virtual @CrossDBLink@
+* Case D – both elsewhere: no matrix change; two virtual @CrossDBLink@
   entries (@-a@ on the old supplier, @+a@ on the new).
 
 Missing dep DBs, unresolved qualified PIDs, and Case-C without a matching
-static link surface as 'MatrixError' (no silent fallback - the caller
+static link surface as 'MatrixError' (no silent fallback – the caller
 maps to 422).
 -}
 applySubstitutionsAt ::
@@ -2846,7 +2846,7 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
         Right $ RankOneUpdate cPid [(fromIntegral toPid, -aNorm)] [cancel]
     -- Case D: re-route demand between two other DBs; this-DB x unchanged.
     -- Unlike Case B, the new-link coefficient is the *raw* static value,
-    -- not aNorm*normFactor - we're forwarding what the cancelled link carried.
+    -- not aNorm*normFactor – we're forwarding what the cancelled link carried.
     planUpdate sub cPid (Elsewhere fromRef) (Elsewhere toRef) = do
         s <- requireStatic sub cPid fromRef
         let aRaw = cdlCoefficient s
@@ -2949,7 +2949,7 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
 
 {- | Build a synthesized 'CrossDBLink' for a what-if substitution targeting a
 dep-DB supplier. Mirrors the fields a real (load-time) link would have so
-'accumulateDepDemandsWith' handles it identically - including the raw→refUnit
+'accumulateDepDemandsWith' handles it identically – including the raw→refUnit
 conversion in 'depDemandsToVector' (we set the exchange unit to the supplier's
 own reference-product unit so no conversion is needed).
 -}
@@ -2985,7 +2985,7 @@ mkVirtualLink rootDb consumerPid DepRef{drDbName = depDbName, drDb = depDb, drPi
             }
 
 {- | Find the static 'CrossDBLink' matching @(rootConsumer, depDbName, depSupplierUUIDs)@.
-Returns 'Nothing' if no link exists - caller surfaces as 422 rather than
+Returns 'Nothing' if no link exists – caller surfaces as 422 rather than
 silently no-op.
 -}
 findStaticCrossDBLink :: Database -> ProcessId -> Text -> ProcessRef -> Maybe CrossDBLink

@@ -217,7 +217,7 @@ parseStringList raw =
     ]
 
 {- | Parse a format string to a DatabaseFormat.
-Inverse of 'formatMetaToml''s writer below - every slug it can write is read back
+Inverse of 'formatMetaToml''s writer below – every slug it can write is read back
 here. An unrecognized slug reads as 'UnknownFormat' rather than dropping the whole
 collection, since the format is re-detected from the files anyway.
 -}

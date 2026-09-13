@@ -88,7 +88,7 @@ data SharedSolver = SharedSolver
     -- ^ Database name (for solver cache key)
     }
 
--- | Create a shared solver. No factorization happens here - deferred to first solve.
+-- | Create a shared solver. No factorization happens here – deferred to first solve.
 createSharedSolver :: Text -> [(Int, Int, Double)] -> Int -> IO SharedSolver
 createSharedSolver dbName techTriples activityCount = do
     reportProgress Info $ "Creating shared solver for '" ++ show dbName ++ "' (factorization deferred)"
@@ -124,7 +124,7 @@ solveWithSharedSolver solver (Demand demandVector) =
                     >>= either fallback pure
   where
     fallback e = do
-        reportProgress Solver $ "Factorization failed: " ++ show (e :: SomeException) ++ " - using fallback solver"
+        reportProgress Solver $ "Factorization failed: " ++ show (e :: SomeException) ++ " – using fallback solver"
         solveSparseLinearSystem (solverTechTriples solver) (solverActivityCount solver) demandVector
 
 -- | Read the cached factorization without solving. Returns Nothing until the first solve.
@@ -150,7 +150,7 @@ solveMultiWithSharedSolver solver demandVecs = do
 
 {- | Compute the scaling vector for @pid@, routing through the shared solver's
 lazy factorization cache. Same shape as 'Matrix.computeScalingVector' but
-amortizes factorization across every call in a server's lifetime - the
+amortizes factorization across every call in a server's lifetime – the
 right default for endpoint handlers.
 -}
 computeScalingVectorCached :: Database -> SharedSolver -> ProcessId -> IO (Either Text Vector)
@@ -182,14 +182,14 @@ type DepSolverLookup = Text -> IO (Maybe (Database, SharedSolver))
 'Inventory' plus the per-DB scaling vectors that produced it.
 
 The scaling vectors are needed by the regionalized LCIA path, which scores
-each DB's biosphere triples against THAT DB's scaling - a sum across all
+each DB's biosphere triples against THAT DB's scaling – a sum across all
 DBs reached at request time, not a single dot product against the root.
 Without per-DB scalings, dep-DB regional CFs are silently invisible
 (the merged 'Inventory' has the emissions but lost the per-activity
 location context the regional CF lookup needs).
 
 'csScalings' lists every DB visited (root first, then dep DBs in BFS
-order - both the order and the recursion depth follow the same dep-graph
+order – both the order and the recursion depth follow the same dep-graph
 walk that built 'csInventory'). The list is non-empty: the root entry
 ('rootDbName', root 'Database', root scaling) is always added by the
 top-level solve; dep entries are appended as the recursion fans out.
@@ -217,7 +217,7 @@ every level of the dependency DAG:
 
 * Root DB: one multi-RHS solve for the K root demand vectors.
 * For each dependency DB reached via 'dbCrossDBLinks', the K supplier-demand
-  maps become K dense demand vectors - one multi-RHS solve on that DB.
+  maps become K dense demand vectors – one multi-RHS solve on that DB.
 * Recurse into the dep DB's own cross-DB links (Agribalyse → Ecoinvent, etc.).
 * Sum local + all dep contributions per root by 'M.unionWith (+)'.
 
@@ -286,14 +286,14 @@ goWithDeps unitConfig depLookup db dbName solver demands depth = do
     goWithDepsFromScalings unitConfig depLookup db dbName [] scalings depth
 
 {- | Propagate pre-computed root scalings into the dep-DB graph. Same body as
-the dep-propagation half of 'goWithDeps' but skips the root solve - the
+the dep-propagation half of 'goWithDeps' but skips the root solve – the
 caller supplies the root scaling vectors (e.g. after a Sherman-Morrison
 substitution update) and an optional list of synthesized 'CrossDBLink'
 entries to fold into 'accumulateDepDemands' at this level only.
 
 Extra links are applied at the root DB only; recursive calls into dep DBs
 use their static 'dbCrossDBLinks'. Supporting nested substitutions would
-require threading per-DB extras through 'resolveDep' - out of scope.
+require threading per-DB extras through 'resolveDep' – out of scope.
 
 Each returned 'CrossDBSolution' is built bottom-up: the current DB
 contributes its @(dbName, db, scaling)@ entry, then dep DBs append theirs
@@ -337,7 +337,7 @@ goWithDepsFromScalings unitConfig depLookup db dbName extraLinks scalings depth 
                             -- Each dep returns @[Maybe CrossDBSolution]@ of
                             -- length K. Absent-dep entries (depLookup
                             -- returned Nothing) are 'Nothing' and drop out
-                            -- of the merge - an absent dep contributes
+                            -- of the merge – an absent dep contributes
                             -- nothing to inventory or csScalings.
                             let perRootDepSols = map catMaybes (transpose depSolsByDb)
                              in Right $

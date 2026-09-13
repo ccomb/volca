@@ -27,7 +27,7 @@ jobs:
   # required-check list does not honour `paths-ignore`: a workflow that
   # never runs leaves the check pending, blocking merge forever. The
   # only safe way to skip the build is to keep the job running and
-  # short-circuit every step inside it - that is what `skip=true`
+  # short-circuit every step inside it – that is what `skip=true`
   # signals to the matrix below.
   preflight:
     name: Detect pyvolca-only diff
@@ -46,7 +46,7 @@ jobs:
           fi
           base='${{ github.event.pull_request.base.sha }}'
           head='${{ github.event.pull_request.head.sha }}'
-          # Compare via API instead of a heavyweight fetch - we only need
+          # Compare via API instead of a heavyweight fetch – we only need
           # filenames. Empty list (e.g. compare across unrelated histories)
           # falls through to skip=false to stay on the safe side.
           changed=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${base}...${head}" --jq '.files[].filename' 2>/dev/null || true)
@@ -58,7 +58,7 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::pyvolca-only diff - build matrix will report success without compiling."
+            echo "::notice::pyvolca-only diff – build matrix will report success without compiling."
           fi
 
   # Single source of truth for toolchain pins. Each downstream job
@@ -84,9 +84,9 @@ jobs:
     needs: [preflight, versions]
     runs-on: ${{ matrix.runner }}
     # Linux jobs run in an Alpine container so the released binary links
-    # against musl libc - truly portable across distros (vs. glibc-static,
+    # against musl libc – truly portable across distros (vs. glibc-static,
     # which leaks dlopen/getaddrinfo and forces ABI-specific shims). Windows/macOS
-    # keep running on the bare runner - GH macOS hosts cannot run containers,
+    # keep running on the bare runner – GH macOS hosts cannot run containers,
     # and Windows uses MSYS2 instead of a Linux container. Empty string ⇒
     # no container; GHA accepts that idiom for conditionally-containerized jobs.
     container: ${{ matrix.os == 'linux' && needs.versions.outputs.alpine || '' }}
@@ -112,7 +112,7 @@ jobs:
             runner: macos-15
             os: macos
           # Intel macOS via GitHub's last x86_64 hosted label. GitHub retires
-          # x86_64 macOS entirely in Aug 2027 - migrate to arm64-only or a
+          # x86_64 macOS entirely in Aug 2027 – migrate to arm64-only or a
           # self-hosted Intel runner before then.
           - name: macos-intel
             runner: macos-15-intel
@@ -128,7 +128,7 @@ jobs:
         libgfortran-5.dll libquadmath-0.dll libgcc_s_seh-1.dll
         libwinpthread-1.dll libstdc++-6.dll libgomp-1.dll libopenblas.dll
       # Skip the brew formula refresh and post-install cleanup on every
-      # invocation - the runner image is ephemeral, the disk savings
+      # invocation – the runner image is ephemeral, the disk savings
       # do not matter, and the refresh alone can add 30-60s.
       HOMEBREW_NO_AUTO_UPDATE: '1'
       HOMEBREW_NO_INSTALL_CLEANUP: '1'
@@ -139,11 +139,11 @@ jobs:
       # Surfaces the no-op in the job log when the preflight has decided
       # this is a pyvolca-only PR. Every step below is gated on
       # `needs.preflight.outputs.skip != 'true'` so the job lands as
-      # "success" with no real work done - satisfies the four required
+      # "success" with no real work done – satisfies the four required
       # `build / <platform>` checks without paying the cold compile.
-      - name: Pyvolca-only PR - skipping Haskell build
+      - name: Pyvolca-only PR – skipping Haskell build
         if: needs.preflight.outputs.skip == 'true'
-        # POSIX `sh` here - bash is not preinstalled in the Alpine container
+        # POSIX `sh` here – bash is not preinstalled in the Alpine container
         # used by the Linux matrix rows, and this skip step runs before
         # setup-haskell-env (which apk-installs bash) had a chance to run.
         shell: sh
@@ -162,7 +162,7 @@ jobs:
       - if: needs.preflight.outputs.skip != 'true'
         uses: actions/checkout@v4
 
-      # POSIX `sh` here - bash isn't preinstalled in the Alpine container
+      # POSIX `sh` here – bash isn't preinstalled in the Alpine container
       # we now use for Linux jobs (setup-haskell-env apk-installs it below).
       # All the work these two steps do is POSIX-compatible already.
       - name: Read pinned versions
@@ -170,7 +170,7 @@ jobs:
         if: needs.preflight.outputs.skip != 'true'
         shell: sh
         run: |
-          # `./` so dash (Ubuntu /bin/sh) doesn't PATH-search for the file -
+          # `./` so dash (Ubuntu /bin/sh) doesn't PATH-search for the file –
           # POSIX `.` builtin only skips PATH when the operand contains a slash.
           # Alpine's BusyBox ash is more lenient but the slash form works for both.
           . ./versions.env
@@ -199,7 +199,7 @@ jobs:
       # MUMPS sourcing has three layers, tried in order:
       #
       #  1. Download a prebuilt archive from the matching `mumps-prebuilt-*`
-      #     GH Release. This is the fast path - populated once per
+      #     GH Release. This is the fast path – populated once per
       #     (MUMPS_VERSION, MUMPS_PREBUILT_REVISION) tuple by
       #     `prebuild-mumps.yml`, downloaded in ~5 s here. Everyone benefits
       #     including cold-cache runs.
@@ -207,7 +207,7 @@ jobs:
       #     hashFiles('build-mumps.sh')). Salvages a previous source build
       #     within the 7-day cache eviction window if step 1 missed.
       #  3. Source build via `build-mumps.sh` (build.sh's existing fallback).
-      #     Only runs if both 1 and 2 missed - typically right after a
+      #     Only runs if both 1 and 2 missed – typically right after a
       #     MUMPS_VERSION/REVISION bump where the prebuilt release does not
       #     exist yet.
       #
@@ -233,7 +233,7 @@ jobs:
               if out=$(gh release view "$tag" -R "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' 2>/dev/null); then
                 printf '%s\n' "$out"; return 0
               fi
-              echo "::notice::Querying release $tag failed (attempt $attempt/3) - retrying in 4s" >&2
+              echo "::notice::Querying release $tag failed (attempt $attempt/3) – retrying in 4s" >&2
               sleep 4
             done
             return 1
@@ -253,12 +253,12 @@ jobs:
           # against a release that had it). Retry the query; only a *successful*
           # query with the asset missing is a real miss.
           if ! assets=$(gh_list_assets "$TAG"); then
-            echo "::warning::Could not query release $TAG after retries (API error or release absent) - falling back to source build (or cache)."
+            echo "::warning::Could not query release $TAG after retries (API error or release absent) – falling back to source build (or cache)."
             echo "populated=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if ! grep -qx "$ASSET" <<<"$assets"; then
-            echo "::warning::Prebuilt MUMPS asset $ASSET (tag $TAG) absent on the release - falling back to source build (or cache). Trigger prebuild-mumps.yml to populate."
+            echo "::warning::Prebuilt MUMPS asset $ASSET (tag $TAG) absent on the release – falling back to source build (or cache). Trigger prebuild-mumps.yml to populate."
             echo "populated=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -296,7 +296,7 @@ jobs:
       #   1. Download from the matching `cabal-store-prebuilt-*` GH Release
       #      (~30 s). Populated by `prebuild-cabal-store.yml` once per
       #      (volca.cabal+mumps-hs.cabal+cabal.project, GHC, REV) tuple.
-      #      Carries only ~/.cabal/store - dist-newstyle is per-PR and
+      #      Carries only ~/.cabal/store – dist-newstyle is per-PR and
       #      always rebuilt incrementally on top.
       #   2. Existing actions/cache restore (~/.cabal/store + dist-newstyle).
       #      Salvages a previous source build within the 7-day window.
@@ -311,14 +311,14 @@ jobs:
         run: |
           source versions.env
           # Retry `gh release view` so a transient API hiccup isn't read as a
-          # missing asset (see the MUMPS step above - kept identical here).
+          # missing asset (see the MUMPS step above – kept identical here).
           gh_list_assets() {
             local tag="$1" out
             for attempt in 1 2 3; do
               if out=$(gh release view "$tag" -R "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' 2>/dev/null); then
                 printf '%s\n' "$out"; return 0
               fi
-              echo "::notice::Querying release $tag failed (attempt $attempt/3) - retrying in 4s" >&2
+              echo "::notice::Querying release $tag failed (attempt $attempt/3) – retrying in 4s" >&2
               sleep 4
             done
             return 1
@@ -339,12 +339,12 @@ jobs:
           # platform's asset may be missing from an existing release. Missing
           # asset → fall through to the source build instead of failing here.
           if ! assets=$(gh_list_assets "$TAG"); then
-            echo "::warning::Could not query release $TAG after retries (API error or release absent) - falling back to source build (or cache)."
+            echo "::warning::Could not query release $TAG after retries (API error or release absent) – falling back to source build (or cache)."
             echo "populated=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if ! grep -qx "$ASSET" <<<"$assets"; then
-            echo "::warning::Cabal-store prebuilt asset $ASSET (tag $TAG) absent on the release - falling back to source build (or cache). Trigger prebuild-cabal-store.yml to populate."
+            echo "::warning::Cabal-store prebuilt asset $ASSET (tag $TAG) absent on the release – falling back to source build (or cache). Trigger prebuild-cabal-store.yml to populate."
             echo "populated=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -373,7 +373,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           # GHCup-installed cabal on Windows uses C:\cabal\store, not the
-          # MSYS2 ~/.cabal/store path. Listing both is safe - actions/cache
+          # MSYS2 ~/.cabal/store path. Listing both is safe – actions/cache
           # silently skips paths that do not exist on the running OS.
           path: |
             ~/.cabal/store
@@ -382,11 +382,11 @@ jobs:
           key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}-v2
           # Two-level fallback: same GHC first (object files reusable), then
           # any GHC for the same matrix entry (cabal will re-resolve and
-          # rebuild the deps closure but reuse what it can - better than
+          # rebuild the deps closure but reuse what it can – better than
           # full cold). Don't widen beyond matrix.name: cabal stores are not
           # cross-OS / cross-arch compatible.
           # Bumped to -v2: previous caches were built with cabal using XDG
-          # paths, while we now force CABAL_DIR=~/.cabal - the dist-newstyle
+          # paths, while we now force CABAL_DIR=~/.cabal – the dist-newstyle
           # plan would reference paths cabal can no longer resolve.
           restore-keys: |
             cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}-
@@ -491,11 +491,11 @@ jobs:
             fi
           done
           if [[ -n "$missing" ]]; then
-            echo "::error::MSYS2 no longer ships:$missing - the release zip would be missing runtime the binary loads."
+            echo "::error::MSYS2 no longer ships:$missing – the release zip would be missing runtime the binary loads."
             exit 1
           fi
           if [[ ! -d /ucrt64/share/licenses ]]; then
-            echo "::error::/ucrt64/share/licenses missing - the release zip cannot carry the runtime DLLs' licence texts."
+            echo "::error::/ucrt64/share/licenses missing – the release zip cannot carry the runtime DLLs' licence texts."
             exit 1
           fi
           echo "OK: every runtime DLL present, and $(find /ucrt64/share/licenses -type f | wc -l) licence file(s) available to ship."
@@ -503,7 +503,7 @@ jobs:
       - name: Verify static MUMPS link (Linux)
         # Regression guard: the shipped tarball must not depend on
         # libdmumps_seq.so / libmumps_common_seq.so / libpord_seq.so /
-        # libmpiseq_seq.so at runtime - end users would have to apt-install
+        # libmpiseq_seq.so at runtime – end users would have to apt-install
         # libmumps-seq separately, which breaks the standalone-binary UX.
         # Catches the case where build-mumps.sh (or someone's local edit)
         # introduces dynamic MUMPS deps, including any future variant that
@@ -518,7 +518,7 @@ jobs:
           upx -d /tmp/volca-ldd-check >/dev/null 2>&1 || true
           deps=$(ldd /tmp/volca-ldd-check 2>/dev/null | grep -E 'libdmumps_seq|libmumps_common_seq|libpord_seq|libmpiseq_seq|libscotch' || true)
           if [[ -n "$deps" ]]; then
-            echo "::error::Binary has dynamic MUMPS/Scotch dependencies - static link regressed:"
+            echo "::error::Binary has dynamic MUMPS/Scotch dependencies – static link regressed:"
             echo "$deps"
             exit 1
           fi
@@ -527,10 +527,10 @@ jobs:
       - name: Optimize macOS binary (strip + ad-hoc sign)
         # Tests above ran on the unstripped binary because UPX'd Mach-O on
         # arm64 is killed at fork by the kernel even after ad-hoc re-sign
-        # (an upstream UPX 5.x / arm64 limitation - not something we can
+        # (an upstream UPX 5.x / arm64 limitation – not something we can
         # work around). Now that tests are done, strip + re-sign the binary
         # so the uploaded artifact is meaningfully smaller. Then verify it
-        # still launches before upload - if a future UPX path is re-enabled
+        # still launches before upload – if a future UPX path is re-enabled
         # in build.sh and breaks the binary, this catches it loudly.
         if: needs.preflight.outputs.skip != 'true' && matrix.os == 'macos'
         run: |
@@ -544,7 +544,7 @@ jobs:
         # the shipped tarball must load on a Mac with no Homebrew. A binary
         # linked against /opt/homebrew (or /usr/local on Intel) aborts at dyld
         # with "Library not loaded", which `--version` on this runner cannot
-        # catch - the build machine has the formulas installed.
+        # catch – the build machine has the formulas installed.
         #
         # Only /usr/lib and /System/Library are guaranteed present on a stock
         # macOS, so anything else in LC_LOAD_DYLIB is a dependency the user
@@ -560,7 +560,7 @@ jobs:
           foreign=$(otool -L "$VOLCA_BIN" | tail -n +2 | awk '{print $1}' \
             | grep -vE '^(/usr/lib/|/System/Library/)' || true)
           if [[ -n "$foreign" ]]; then
-            echo "::error::Binary depends on dylibs absent from a stock macOS - static link regressed:"
+            echo "::error::Binary depends on dylibs absent from a stock macOS – static link regressed:"
             echo "$foreign"
             exit 1
           fi
@@ -602,14 +602,14 @@ jobs:
         # 1. dist-newstyle (volca's own object files) is built fresh by
         #    every run and is in the cache path. Skipping Save means
         #    every same-hash PR rebuilds volca's own modules from
-        #    scratch instead of incrementally - kills the "only
+        #    scratch instead of incrementally – kills the "only
         #    recompile our own code" property.
         # 2. The cache also serves as fallback for PRs whose cabal
         #    config hash doesn't match any existing prebuilt release.
         #    Without saving on the prebuilt-win path, main's own runs
         #    leave no cache for those PRs to inherit.
         #
-        # Skipping when an exact cache key already hit is still right -
+        # Skipping when an exact cache key already hit is still right –
         # actions/cache/save with an existing key is a no-op (logs a
         # warning) but we save the tar/upload work anyway.
         #
@@ -627,7 +627,7 @@ jobs:
 
       - name: Package release tarball
         if: needs.preflight.outputs.skip != 'true' && inputs.release
-        # Same `cabal list-bin` trick the macOS optimize step uses - handles
+        # Same `cabal list-bin` trick the macOS optimize step uses – handles
         # both opt/build and build paths regardless of optimization level.
         run: |
           [[ -f /d/ghcup/env ]] && source /d/ghcup/env
@@ -637,7 +637,7 @@ jobs:
           mkdir staging
           cp "$VOLCA_BIN" staging/
           # OpenBLAS is BSD-3, whose binary-redistribution clause asks for the
-          # copyright notice to travel with the artifact - true on every platform,
+          # copyright notice to travel with the artifact – true on every platform,
           # statically linked or not. On Windows the file also covers the GCC
           # runtime DLLs copied below.
           cp THIRD-PARTY-LICENSES.md staging/
@@ -645,7 +645,7 @@ jobs:
             # volca.exe links the MSYS2 ucrt64 runtime dynamically (gen-cabal-config.sh's
             # windows mode). Those DLLs sit on the build machine's PATH but nowhere on a
             # user's, so a zip holding only volca.exe fails at load with
-            # "libgfortran-5.dll introuvable". Ship them beside the binary - Windows
+            # "libgfortran-5.dll introuvable". Ship them beside the binary – Windows
             # searches the .exe's own directory first. The per-PR check above has
             # already confirmed each one exists; re-checked here so an absence can
             # never turn into a silent partial zip.
@@ -657,7 +657,7 @@ jobs:
               fi
             done
             if [[ -z "$UCRT_BIN" ]]; then
-              echo "::error::MSYS2 ucrt64 not found - cannot bundle the runtime DLLs the binary needs."
+              echo "::error::MSYS2 ucrt64 not found – cannot bundle the runtime DLLs the binary needs."
               exit 1
             fi
             for dll in $WINDOWS_RUNTIME_DLLS; do
@@ -671,7 +671,7 @@ jobs:
             # installs each package's own texts under share/licenses, so copy those
             # rather than transcribing them into the repo and letting them rot.
             if [[ ! -d "$UCRT_BIN/../share/licenses" ]]; then
-              echo "::error::$UCRT_BIN/../share/licenses missing - cannot ship the DLLs' licence texts."
+              echo "::error::$UCRT_BIN/../share/licenses missing – cannot ship the DLLs' licence texts."
               exit 1
             fi
             cp -r "$UCRT_BIN/../share/licenses" staging/licenses
@@ -710,7 +710,7 @@ jobs:
           name: volca-${{ matrix.name }}
           path: ${{ env.ARTIFACT_PATH }}
           if-no-files-found: error
-          # Short retention - release.yml's publish job downloads them
+          # Short retention – release.yml's publish job downloads them
           # within minutes. They are also attached to the GH Release as
           # the durable copy.
           retention-days: 7

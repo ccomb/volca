@@ -2,7 +2,7 @@
 
 {- | Tests for "Service.Aggregate".
 
-Exercised end-to-end against SAMPLE.min3 - a three-step chain where
+Exercised end-to-end against SAMPLE.min3 – a three-step chain where
 activity X consumes 0.6 kg of product Y per kg of product X, and Y
 consumes 0.4 kg of product Z per kg of Y, so the scaling vector for one
 kg of X is (1, 0.6, 0.24). ScopeDirect needs no MUMPS solve; the other
@@ -28,7 +28,7 @@ import Types (CrossDBLink (..), Database (..), ExchangeKind (..), processIdToTex
 import qualified Types
 import qualified UnitConversion as UC
 
--- A no-op DepSolverLookup - SAMPLE.min3 has no cross-DB deps.
+-- A no-op DepSolverLookup – SAMPLE.min3 has no cross-DB deps.
 noDeps :: SS.DepSolverLookup
 noDeps _ = pure Nothing
 
@@ -86,8 +86,8 @@ shouldBeCloseTo actual expected =
     actual `shouldSatisfy` (\x -> abs (x - expected) < 1e-9)
 
 {- | SAMPLE.min3 loaded twice: the root copy gains one synthetic bridge
-link - activity Y consumes 0.5 unit of the dep copy's product Y per unit
-output - so a single aggregate call exercises internal edges, the bridge
+link – activity Y consumes 0.5 unit of the dep copy's product Y per unit
+output – so a single aggregate call exercises internal edges, the bridge
 edge, and dep-DB internal edges at once. Scalings: root (1, 0.6, 0.24),
 bridge demand 0.5 × 0.6 = 0.3, dep (0, 0.3, 0.12).
 -}
@@ -125,7 +125,7 @@ spec = do
         -- These tests pin the documented defaults because flipping any of
         -- them changes the public API behaviour (every HTTP endpoint that
         -- starts from emptyAggregateParams inherits these). They're not
-        -- testing the data constructor - they're guarding the *chosen*
+        -- testing the data constructor – they're guarding the *chosen*
         -- defaults.
         it "defaults the aggregate function to AggSum (not AggCount or AggShare)" $
             Agg.apAggregate direct `shouldBe` Agg.AggSum
@@ -144,7 +144,7 @@ spec = do
 
         it "counts every direct exchange of the activity when no filter is applied" $ do
             -- Invariant: with no filter, the aggregate must enumerate exactly
-            -- the activity's own exchanges - same number, nothing dropped or
+            -- the activity's own exchanges – same number, nothing dropped or
             -- duplicated. The DB fixture defines the ground truth.
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db direct
@@ -190,7 +190,7 @@ spec = do
 
         it "aggCount on a group equals the number of rows in that group" $ do
             -- The audit found no test wired aggCount into the contract.
-            -- Counts are integers, aggQuantity is a sum - distinct fields.
+            -- Counts are integers, aggQuantity is a sum – distinct fields.
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db direct{Agg.apGroupBy = Just "unit"}
             -- The sum of per-bucket counts equals the global filtered count.
@@ -345,7 +345,7 @@ spec = do
 
         it "filtering on a substring nobody emits returns the empty aggregate" $ do
             -- A real semantic invariant: a name-filter that matches nothing
-            -- must produce 0 count, 0 total, no groups - no silent fallback.
+            -- must produce 0 count, 0 total, no groups – no silent fallback.
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db biosphere{Agg.apFilterName = Just "definitely-not-emitted-here"}
             API.aggFilteredCount agg `shouldBe` 0

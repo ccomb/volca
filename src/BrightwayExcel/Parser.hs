@@ -5,7 +5,7 @@
 
 The layout is the one produced and consumed by Brightway's @bw2io@ @ExcelImporter@:
 a single (or multiple) worksheet holding a linear stream of blocks separated by
-blank rows -
+blank rows –
 
 @
 Database              <database name>
@@ -157,7 +157,7 @@ validFirstCell rows = case listToMaybe rows >>= textAt 0 of
 
 {- | Warn when a worksheet that /carries data/ is dropped because its first cell
 (A1) is blank. Brightway ignores the whole sheet on a blank A1, so a mistyped
-or shifted header silently loses every activity below it - surface it instead.
+or shifted header silently loses every activity below it – surface it instead.
 The deliberate @"skip"@ sentinel and genuinely empty sheets are left silent.
 -}
 skippedSheetWarning :: (Text, [Row]) -> Maybe Text
@@ -405,7 +405,7 @@ The /reference/ product is normalized to its canonical base unit at ingest (e.g.
 @g@ → @kg@, scaling the amount), exactly like the SimaPro importer. This makes
 the importer non-injective on the reference unit: a database whose reference unit
 is non-canonical does not satisfy @parse (write d) == d@. The writer's contract
-is instead fixed-point over the parser's /image/ - once a database has been
+is instead fixed-point over the parser's /image/ – once a database has been
 parsed (so its reference unit is canonical), @parse (write d) == d@ holds. A
 coproduct row is left in its stated unit (no canonicalization), so it round-trips
 verbatim.

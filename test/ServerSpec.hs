@@ -24,7 +24,7 @@ import Test.Hspec
 
 {- | Find the volca executable in the build directory.
 
-Prefer the VOLCA_EXE env var when set - build.sh exports it after
+Prefer the VOLCA_EXE env var when set – build.sh exports it after
 `cabal list-bin` so the test does not have to spawn cabal again. The
 fallback to `cabal list-bin exe:volca` keeps `cabal test` from the
 project root working without extra setup. The shell-out path is the
@@ -129,7 +129,7 @@ waitForReady mgr remaining = do
 Returns the exit code if it exited within budget, 'Nothing' otherwise.
 Budget is in 200ms ticks.
 
-Why: shutdown is asynchronous - the endpoint returns immediately and the
+Why: shutdown is asynchronous – the endpoint returns immediately and the
 RTS finishes teardown some hundreds of ms later. A fixed sleep is racy
 on slow CI runners; polling lets the test pass as soon as the process
 actually exits and bounds the worst case at a clear upper limit.
@@ -231,7 +231,7 @@ serverSpecs = do
                     -- then poll the *process* (not the socket) for exit.
                     -- Budget: 6s of polling after a 2s quiet window covers
                     -- generous CI scheduling slop.
-                    threadDelay 2200000 -- 2.2s - let the 2s timer fire
+                    threadDelay 2200000 -- 2.2s – let the 2s timer fire
                     mCode <- waitForExit ph 30
                     mCode `shouldBe` Just ExitSuccess
 

@@ -138,7 +138,7 @@ spec = do
 
         it "leaves mcfCompartment Nothing when the flow has no category" $ do
             -- The mini fixture has no category fields, so Compartment must
-            -- stay 'Nothing' - the matcher falls back to the legacy name-only
+            -- stay 'Nothing' – the matcher falls back to the legacy name-only
             -- path. Regression gate against the disambiguation breaking
             -- non-openLCA / non-Agribalyse methods that ship without category.
             bytes <- BS.readFile "test-data/olca-schema-mini/impact-category-mini.json"
@@ -215,7 +215,7 @@ spec = do
 
         it "an emission category path beats the document-level direction" $
             -- A water-use category oriented Input at the document level still
-            -- has release factors filed under Emission to water - they must
+            -- has release factors filed under Emission to water – they must
             -- stay Output.
             factorDirections (directionDoc "\"direction\":\"INPUT\"," "" "Emission to water/unspecified")
                 `shouldBe` Right [Output]

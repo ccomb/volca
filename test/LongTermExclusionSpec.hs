@@ -15,7 +15,7 @@ track the engine's actual behaviour rather than a re-implementation:
     UUID is not evidence of long-term);
   * the "long-term" marker is matched case-insensitively across spellings;
   * scoring the filtered inventory drops by exactly the long-term flow's
-    contribution - the immediate flow's score is untouched.
+    contribution – the immediate flow's score is untouched.
 -}
 module LongTermExclusionSpec (spec) where
 

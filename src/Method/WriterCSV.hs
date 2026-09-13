@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Writer for the columnar CSV method format - the exact inverse of
+{- | Writer for the columnar CSV method format – the exact inverse of
 "Method.ParserCSV". One file, one column per impact category, one row per
 distinct (substance, compartment, CAS, flow unit): the spreadsheet view of
 a method collection.
@@ -15,7 +15,7 @@ where the two formats share a limitation):
 * a regionalized CF is written as a name-suffixed substance (@Water, FR@);
 * the compartment cell is the @top/sub/qualifier@ path the parser reads
   back exactly, so subcompartment distinctions survive;
-* flow direction is not a column - the parser re-derives it from the
+* flow direction is not a column – the parser re-derives it from the
   compartment (resource and land media → input). A CF whose direction
   disagrees is reported in the warnings;
 * duplicate factors for one key in one category (they exist in real method
@@ -74,7 +74,7 @@ type RowKey = (Text, Text, Text, Text)
 
 {- | Every cell is emitted stripped: the parser strips what it reads, so
 surrounding whitespace (it occurs in real source data, e.g. a CAS written
-@\" 5595-10-8\"@) could never survive a round-trip - it is identifier noise,
+@\" 5595-10-8\"@) could never survive a round-trip – it is identifier noise,
 not information.
 -}
 rowKey :: MethodCF -> RowKey
@@ -128,7 +128,7 @@ sharedMethodology ms = case S.toList (S.fromList (map methodMethodology ms)) of
 
 {- | The parser derives direction from the compartment cell (resource and
 land media → input, everything else → output). Report the factors whose
-recorded direction would come back different - bounded to a count and a few
+recorded direction would come back different – bounded to a count and a few
 examples, a real method can disagree tens of thousands of times.
 -}
 directionWarnings :: [Method] -> [Text]
@@ -163,7 +163,7 @@ lossWarnings mc =
   where
     descriptions = mapMaybe methodDescription (mcMethods mc)
     -- Count only the methodologies actually stated: an absent one is not a
-    -- distinct methodology, but it does block the shared comment - so any
+    -- distinct methodology, but it does block the shared comment – so any
     -- stated methodology is lost whenever 'sharedMethodology' finds none.
     lostMethodologies = case sharedMethodology (mcMethods mc) of
         Just _ -> 0

@@ -7,7 +7,7 @@ plain cross-DB path.
 
 Before this commit, the subs path returned only the merged 'Inventory'
 and 'API.Routes.postActivityLCIA' wrapped a root-only 'CrossDBSolution'
-around it - silently regressing regional scores on cross-DB recipes
+around it – silently regressing regional scores on cross-DB recipes
 whenever substitutions were involved. Two cases:
 
 * Empty substitution list: solution must match the plain path bit-for-bit

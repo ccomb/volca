@@ -30,7 +30,7 @@ spec = describe "extractFromILCDFlows" $ do
     it "drops a name shared by a CAS-less flow and a CAS-bearing flow (absence is its own identity)" $ do
         -- "shared ion" is carried by an element flow with no CAS and by a salt flow
         -- with a CAS. The two cannot be proven the same substance, so the bridge is
-        -- dropped rather than fused - even though only one side carries a CAS.
+        -- dropped rather than fused – even though only one side carries a CAS.
         let flows =
                 M.fromList
                     [ (uuidA, mkFlow "Sodium" Nothing ["shared ion"])

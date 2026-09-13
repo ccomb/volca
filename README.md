@@ -1,6 +1,6 @@
 # VoLCA
 
-**VoLCA** is a Life Cycle Assessment engine that turns LCA databases into inspectable, queryable answers - fast.
+**VoLCA** is a Life Cycle Assessment engine that turns LCA databases into inspectable, queryable answers – fast.
 
 It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel databases, builds supply chain dependency trees, computes life cycle inventories using sparse matrix algebra, and applies characterization methods for impact assessment. Everything runs in-memory against your own data.
 
@@ -8,8 +8,8 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel da
 
 - **Browse** activities and flows across multiple databases
 - **Explore** supply chain trees, force-directed dependency graphs, downstream consumers, shortest-path routing, and supply chain analysis by sector classification
-- **Compute** life cycle inventories (LCI) and impact scores (LCIA) - single method or whole collection - with per-flow and per-activity contribution breakdowns
-- **What-if substitutions** - swap an upstream activity (or a cross-database supplier) and recompute inventory and impacts in a single call
+- **Compute** life cycle inventories (LCI) and impact scores (LCIA) – single method or whole collection – with per-flow and per-activity contribution breakdowns
+- **What-if substitutions** – swap an upstream activity (or a cross-database supplier) and recompute inventory and impacts in a single call
 - **Normalize and weight** LCIA results with Raw / Normalized / Weighted view toggle; compute a single-score in Pt when normalization-weighting data is available
 - **Map** method characterization factors to database flows with a 4-step cascade (UUID → name → synonym → CAS) and coverage statistics
 - **Link** databases across nomenclatures (e.g., a sector database referencing Agribalyse)
@@ -20,10 +20,10 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel da
 ## Key Features
 
 - **Multiple database formats**: EcoSpold2 (.spold), EcoSpold1 (.xml), SimaPro CSV, ILCD process datasets, Brightway Excel (.xlsx)
-- **Archive support**: Load databases directly from .zip, .7z, .gz, or .xz archives - no manual extraction
-- **Cross-database linking**: Resolve supplier references across databases, with configurable dependencies and topological load ordering. EcoSpold2 inputs link to a loaded background by exact `activityLinkId` identity (so a partial import resolves against its matching release), falling back to attribute matching - flagged as approximate - when the background is a different release
-- **Cross-DB what-if substitutions**: Swap an upstream activity at any depth - including suppliers in dependency databases - and recompute inventory and impacts through one endpoint
-- **LCIA method collections**: Load ILCD method packages (ZIP or directory), SimaPro method CSV exports, openLCA JSON-LD impact categories, or tabular CSV from config; export any loaded collection back as SimaPro method CSV, columnar CSV (one column per impact category - the spreadsheet view), an openLCA JSON-LD zip, or an ILCD method package zip
+- **Archive support**: Load databases directly from .zip, .7z, .gz, or .xz archives – no manual extraction
+- **Cross-database linking**: Resolve supplier references across databases, with configurable dependencies and topological load ordering. EcoSpold2 inputs link to a loaded background by exact `activityLinkId` identity (so a partial import resolves against its matching release), falling back to attribute matching – flagged as approximate – when the background is a different release
+- **Cross-DB what-if substitutions**: Swap an upstream activity at any depth – including suppliers in dependency databases – and recompute inventory and impacts through one endpoint
+- **LCIA method collections**: Load ILCD method packages (ZIP or directory), SimaPro method CSV exports, openLCA JSON-LD impact categories, or tabular CSV from config; export any loaded collection back as SimaPro method CSV, columnar CSV (one column per impact category – the spreadsheet view), an openLCA JSON-LD zip, or an ILCD method package zip
 - **Normalization and weighting**: Batch LCIA computes normalized and weighted scores per category and a single aggregated score (Pt) when NW data is present in the method collection
 - **Contribution analysis**: Per-flow and per-activity contributions to any LCIA score, ranked by share
 - **Flow mapping engine**: 4-step matching cascade (UUID → name → synonym → CAS) with per-strategy coverage statistics
@@ -87,7 +87,7 @@ The CLI is a lightweight HTTP client that connects to a running server (~0.2s pe
 # Start server (loads databases into memory once)
 volca --config volca.toml server --port 8080
 
-# In another terminal - all commands talk to the server via HTTP
+# In another terminal – all commands talk to the server via HTTP
 volca --config volca.toml activities --name "electricity" --geo "FR"
 volca --config volca.toml --db agribalyse inventory "12345678-..."
 volca --config volca.toml --db agribalyse impacts "12345678-..." --method METHOD_UUID
@@ -127,8 +127,8 @@ A TOML config file enables multi-database setups, method collections, and refere
 port = 8080
 host = "127.0.0.1"             # interface to listen on; "0.0.0.0" answers the
                                # network over IPv4, "::" over IPv6
-password = "mysecret"          # optional - omit to disable auth
-name = "lab-archive"           # optional - how this server introduces itself over MCP
+password = "mysecret"          # optional – omit to disable auth
+name = "lab-archive"           # optional – how this server introduces itself over MCP
 
 [[databases]]
 name = "agribalyse-3.2"
@@ -180,7 +180,7 @@ path = "DBs/EF-v3.1.zip"      # ILCD method package (ZIP or directory)
 #
 # global-methods = ["Water use", ...] de-regionalizes the named methods:
 # their region-tagged CFs are dropped so the method's global (unlocated)
-# CF is the single answer - for matching references that flattened
+# CF is the single answer – for matching references that flattened
 # spatial factors. A name matching no method logs a warning.
 #
 # Optional patches adjust matched characterization factors at load time.
@@ -220,14 +220,14 @@ filters = [{ system = "ISIC", value = "01", mode = "contains" }]  # mode: exact 
 
 `max_uploads` bounds how many databases of their own a caller may keep, and
 `max_loaded_uploads` how many of those may sit in memory at once. Both count
-only uploaded databases - the ones the config declares are what an uploaded
+only uploaded databases – the ones the config declares are what an uploaded
 inventory links against, so counting them would forbid the very thing
 uploading is for. A copy spends the same budget as an upload. Negative means
 unlimited; with no `[hosting]` section (local, CLI, desktop) neither applies.
 
 `read_only = true` makes the instance answer every analysis request and refuse
 every state change: loading and unloading, uploads, deletes, copies, relinks,
-dependency edits - and `POST /api/v1/shutdown` and `/api/v1/idle-timeout/{n}`,
+dependency edits – and `POST /api/v1/shutdown` and `/api/v1/idle-timeout/{n}`,
 which decide how long the process lives. Refusals are `403` on REST and tool
 errors on MCP; nothing is silently ignored. This is what makes a single
 instance safe to put in front of many unrelated callers, none of whom should be
@@ -238,7 +238,7 @@ a client can say so before attempting a change.
 
 The `depends` field ensures dependency databases load first and their flows are available for cross-database linking. Setting `load = true` on a database transitively loads all its dependencies.
 
-A database's dependency set is **pinned**: it is seeded automatically when the database is first staged (the minimal set of supplier databases needed to resolve its links), and from then on it is authoritative. A plain `relink` re-resolves links *within* the pinned set only - it never silently adds another loaded database. Edit the pin explicitly with `add-dependency` / `remove-dependency`, then `finalize`; the new set is written to the matrix cache and reused on every later open. This is how you restrict a consumer (e.g. an inventory built against a single Agribalyse version) to exactly the supplier databases it should depend on, even while other versions stay loaded for other consumers. (The one exception is a *mapping* relink - `relink` with a `depDb` and an alias CSV - which pins that chosen dependency in-memory if it isn't already, so a `copy → delete → relink` pipeline composes in one pass; links to the other pinned dependencies are preserved, not dropped.)
+A database's dependency set is **pinned**: it is seeded automatically when the database is first staged (the minimal set of supplier databases needed to resolve its links), and from then on it is authoritative. A plain `relink` re-resolves links *within* the pinned set only – it never silently adds another loaded database. Edit the pin explicitly with `add-dependency` / `remove-dependency`, then `finalize`; the new set is written to the matrix cache and reused on every later open. This is how you restrict a consumer (e.g. an inventory built against a single Agribalyse version) to exactly the supplier databases it should depend on, even while other versions stay loaded for other consumers. (The one exception is a *mapping* relink – `relink` with a `depDb` and an alias CSV – which pins that chosen dependency in-memory if it isn't already, so a `copy → delete → relink` pipeline composes in one pass; links to the other pinned dependencies are preserved, not dropped.)
 
 ---
 
@@ -331,7 +331,7 @@ GET    /api/v1/logs?since=                                               Server 
 POST   /api/v1/auth                                                      Login (returns session cookie)
 ```
 
-Per-exchange data on inventory and impact responses includes `exComment` - the free-text comment (`generalComment` / `<comment>`) attached to each exchange in the source dataset, when present.
+Per-exchange data on inventory and impact responses includes `exComment` – the free-text comment (`generalComment` / `<comment>`) attached to each exchange in the source dataset, when present.
 
 The `impacts/{collection}` response includes per-category `normalizedScore` and `weightedScore` fields (when normalization-weighting data is present in the method collection), plus a `singleScore` sum in Pt.
 
@@ -339,8 +339,8 @@ The `impacts/{collection}` response includes per-category `normalizedScore` and 
 
 The full OpenAPI 3.0 specification is served at runtime:
 
-- **`GET /api/v1/openapi.json`** - machine-readable spec (for code generation, tooling)
-- **`GET /api/v1/docs`** - Swagger UI (interactive browser)
+- **`GET /api/v1/openapi.json`** – machine-readable spec (for code generation, tooling)
+- **`GET /api/v1/docs`** – Swagger UI (interactive browser)
 
 Use these to build your own frontend, generate a typed client, or explore the API interactively.
 
@@ -362,7 +362,7 @@ Configure it in your MCP client:
 }
 ```
 
-Available tools - auto-derived at runtime from the single resource registry (`src/API/Resources.hs`) shared with the REST API and OpenAPI spec, so the three *served* surfaces never drift. This table is a hand-written copy; `volca dump-mcp-tools` prints the authoritative list:
+Available tools – auto-derived at runtime from the single resource registry (`src/API/Resources.hs`) shared with the REST API and OpenAPI spec, so the three *served* surfaces never drift. This table is a hand-written copy; `volca dump-mcp-tools` prints the authoritative list:
 
 | Tool | Description |
 |------|-------------|
@@ -409,7 +409,7 @@ Authentication uses the same password as the REST API.
 ### Modes of Operation
 
 ```bash
-# Start server (loads databases - run once)
+# Start server (loads databases – run once)
 volca --config volca.toml server --port 8080
 
 # Single HTTP command (connects to running server, ~0.2s)
@@ -439,7 +439,7 @@ volca inventory "12345678-..."
 # Impact assessment (--method takes a method UUID, not a file path)
 volca impacts "12345678-..." --method METHOD_UUID
 
-# Matrix export (Ecoinvent universal format - runs locally, not via HTTP)
+# Matrix export (Ecoinvent universal format – runs locally, not via HTTP)
 volca export-matrices ./output_dir
 ```
 
@@ -522,51 +522,51 @@ volca method delete ef-31                        # delete
 | **Search** | | |
 | Search activities | `GET /db/{db}/activities?name=&geo=&product=&preset=&classification=` | `activities --name --geo --product` |
 | Search flows | `GET /db/{db}/flows?q=&lang=&kind=` | `flows --query --lang` |
-| Classifications | `GET /db/{db}/classifications` | - |
-| Classification presets | `GET /classification-presets` | - |
+| Classifications | `GET /db/{db}/classifications` | – |
+| Classification presets | `GET /classification-presets` | – |
 | **Analysis** | | |
 | Activity details | `GET /db/{db}/activity/{id}` | `activity ID` |
-| Supply chain tree | `GET /db/{db}/activity/{id}/tree` | - |
-| Supply chain (flat) | `GET\|POST /db/{db}/activity/{id}/supply-chain` | - |
-| Supply chain graph | `GET /db/{db}/activity/{id}/graph?cutoff=` | - |
-| Downstream consumers | `GET /db/{db}/activity/{id}/consumers` | - |
-| Path to target | `GET /db/{db}/activity/{id}/path-to?target=` | - |
-| Aggregate | `GET /db/{db}/activity/{id}/aggregate` | - |
+| Supply chain tree | `GET /db/{db}/activity/{id}/tree` | – |
+| Supply chain (flat) | `GET\|POST /db/{db}/activity/{id}/supply-chain` | – |
+| Supply chain graph | `GET /db/{db}/activity/{id}/graph?cutoff=` | – |
+| Downstream consumers | `GET /db/{db}/activity/{id}/consumers` | – |
+| Path to target | `GET /db/{db}/activity/{id}/path-to?target=` | – |
+| Aggregate | `GET /db/{db}/activity/{id}/aggregate` | – |
 | Life cycle inventory | `GET\|POST /db/{db}/activity/{id}/inventory` | `inventory ID` |
-| LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | - |
+| LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | – |
 | LCIA single method | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}/{methodId}` | `impacts ID --method METHOD_UUID` |
-| LCIA batch over many activities | `POST /db/{db}/impacts/{collection}` | - |
-| Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | - |
-| Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | - |
+| LCIA batch over many activities | `POST /db/{db}/impacts/{collection}` | – |
+| Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | – |
+| Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | – |
 | Flow details | `GET /db/{db}/flow/{flowId}` | `flow FLOW_ID` |
 | Flow activities | `GET /db/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
 | **Flow Mapping** | | |
 | Mapping coverage | `GET /db/{db}/method/{id}/mapping` | `flow-mapping METHOD_UUID` |
 | Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` |
-| Characterization for flow | `GET /db/{db}/method/{id}/characterization?flow=` | - |
+| Characterization for flow | `GET /db/{db}/method/{id}/characterization?flow=` | – |
 | Unmatched CFs | included in mapping response | `flow-mapping METHOD_UUID --unmatched` |
-| Uncharacterized flows | - | `flow-mapping METHOD_UUID --uncharacterized` |
+| Uncharacterized flows | – | `flow-mapping METHOD_UUID --uncharacterized` |
 | **Quality** | | |
 | Dataset soundness | `GET /db/{db}/quality-report[.csv]` | `quality-report [--limit N]` |
 | Computed checks | `GET /db/{db}/computed-quality-report[.csv]` | `computed-quality-report [--collection NAME]` |
 | **Database Management** | | |
 | List databases | `GET /db` | `database` |
 | Upload database | `POST /db/upload` | `database upload FILE --name NAME` |
-| Load / unload | `POST /db/{name}/(load\|unload)` | - (use config `load = true`) |
+| Load / unload | `POST /db/{name}/(load\|unload)` | – (use config `load = true`) |
 | Relink / finalize | `POST /db/{name}/(relink\|finalize)` | `database relink DB --to DEP --mapping CSV` |
-| Setup / dependencies | `GET /db/{name}/setup`, `POST .../{add,remove}-dependency/{dep}`, `POST .../set-data-path` | - |
+| Setup / dependencies | `GET /db/{name}/setup`, `POST .../{add,remove}-dependency/{dep}`, `POST .../set-data-path` | – |
 | Copy database | `POST /db/{name}/copy/{newName}` | `database copy SRC NEW_NAME` |
-| Re-key database | `POST /db/{name}/derive/{newName}?allocation=` | - |
+| Re-key database | `POST /db/{name}/derive/{newName}?allocation=` | – |
 | Delete activities (by filter or ids) | `POST /db/{name}/delete` | `database delete-activities DB [filters\|--id …]` |
 | Export database | `POST /db/{name}/export` | `database export DB --format FMT --out FILE` |
 | Delete database | `DELETE /db/{name}` | `database delete NAME` |
 | **Method Management** | | |
 | List methods | `GET /methods` | `methods` |
-| Method details | `GET /method/{id}` | - |
-| Method factors | `GET /method/{id}/factors` | - |
+| Method details | `GET /method/{id}` | – |
+| Method factors | `GET /method/{id}/factors` | – |
 | List collections | `GET /method-collections` | `method` |
 | Upload collection | `POST /method-collections/upload` | `method upload FILE --name NAME` |
-| Load / unload collection | `POST /method-collections/{name}/(load\|unload)` | - |
+| Load / unload collection | `POST /method-collections/{name}/(load\|unload)` | – |
 | Delete collection | `DELETE /method-collections/{name}` | `method delete NAME` |
 | Export collection (SimaPro CSV, columnar CSV, openLCA JSON-LD, or ILCD method package) | `POST /method-collections/{name}/export` | `method export NAME --format simapro --out FILE` |
 | **Reference Data** | | |
@@ -574,15 +574,15 @@ volca method delete ef-31                        # delete
 | Compartment mappings | `GET /compartment-mappings` (+ load/unload/upload/delete) | `compartment-mappings` |
 | Units | `GET /units` (+ load/unload/upload/delete) | `units` |
 | **Matrix Export** | | |
-| Universal format | - | `export-matrices DIR` (local only) |
-| Debug matrices | - | `debug-matrices ID --output FILE` (local only) |
+| Universal format | – | `export-matrices DIR` (local only) |
+| Debug matrices | – | `debug-matrices ID --output FILE` (local only) |
 | **Server** | | |
-| Version / stats / hosting / logs | `GET /version`, `/stats`, `/hosting`, `/logs?since=` | - |
-| Stop server | - | `stop` |
-| REPL | - | `repl` |
-| Login | `POST /auth` | - |
+| Version / stats / hosting / logs | `GET /version`, `/stats`, `/hosting`, `/logs?since=` | – |
+| Stop server | – | `stop` |
+| REPL | – | `repl` |
+| Login | `POST /auth` | – |
 
-All API routes are prefixed with `/api/v1/`. A dash (-) means the feature is only available in one interface.
+All API routes are prefixed with `/api/v1/`. A dash (–) means the feature is only available in one interface.
 
 ---
 
@@ -613,10 +613,10 @@ Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/), then:
 
 `build.sh` also accepts:
 
-- `--clean` / `--all` - discard `dist-newstyle/` before building
-- `--coverage` - run tests with coverage and emit an HTML report
-- `--static` - produce a statically-linked binary (Linux only)
-- `--no-optimize` - skip `strip` and UPX. Use this when downstream
+- `--clean` / `--all` – discard `dist-newstyle/` before building
+- `--coverage` – run tests with coverage and emit an HTML report
+- `--static` – produce a statically-linked binary (Linux only)
+- `--no-optimize` – skip `strip` and UPX. Use this when downstream
   tooling needs to rewrite the binary's dynamic load commands
   (`dylibbundler`, `install_name_tool` for the macOS `.app`).
 
@@ -684,7 +684,7 @@ into `deps/mumps/` (cached across runs).
 3. Install [GHCup](https://www.haskell.org/ghcup/) for the compiler toolchain
 4. Run:
    ```bash
-   ./build.sh            # Same script as Linux/macOS - builds MUMPS from source
+   ./build.sh            # Same script as Linux/macOS – builds MUMPS from source
    ```
 
 ### Docker
@@ -717,7 +717,7 @@ Tests cover matrix construction (sign convention), inventory calculation (golden
 
 ## License & third-party software
 
-VoLCA is licensed under the **Apache License 2.0** - see [LICENSE](LICENSE).
+VoLCA is licensed under the **Apache License 2.0** – see [LICENSE](LICENSE).
 
 Third-party components bundled with or linked into VoLCA are inventoried in
 [NOTICE](NOTICE) and [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). The

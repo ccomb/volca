@@ -72,7 +72,7 @@ emission of one substance to two subcompartments (e.g. a leachate to both
 @river@ and @groundwater, long-term@) is two distinct flows with distinct
 environmental fates and distinct characterization factors. Dropping subCategory
 collapsed them onto one UUID, so the matrix summed their amounts into a single
-row carrying whichever subcompartment label happened to win the flow-map merge -
+row carrying whichever subcompartment label happened to win the flow-map merge –
 silently scoring gated groundwater/ocean mass at a surface-freshwater CF (or the
 reverse). Keying on the full compartment keeps each subcompartment a separate row
 scored at its own CF.
@@ -834,7 +834,7 @@ foldEcoSpold1 :: BS.ByteString -> Either String ParseState
 foldEcoSpold1 =
     first show . X.fold onOpenTag onAttribute onEndOpen onText onCloseTag onText initialParseState
 
--- | Xeno SAX parser for EcoSpold1 - first dataset in the file.
+-- | Xeno SAX parser for EcoSpold1 – first dataset in the file.
 parseWithXeno :: BS.ByteString -> Either String ParsedDataset
 parseWithXeno xmlContent = do
     finalState <- foldEcoSpold1 xmlContent

@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | EcoSpold1 export writer - the canonical re-emitter for "EcoSpold.Parser1".
+{- | EcoSpold1 export writer – the canonical re-emitter for "EcoSpold.Parser1".
 
 Serializes a 'Database' / 'SimpleDatabase' back to the EcoSpold1 XML format
 (Ecoinvent 2.x, @http://www.EcoInvent.org/EcoSpold01@). The output is
@@ -24,7 +24,7 @@ __canonical and deterministic__:
     technosphere or biosphere row the mapping below names, and it is that shape
     which is stable from then on. This is fixed-point stability of the writer's own
     canonical form, __not__ reproduction of the UUIDs of an arbitrary parsed
-    source file - that source carried its own numbering, which the writer does
+    source file – that source carried its own numbering, which the writer does
     not preserve;
   * a /linked/ technosphere input is the one exception. Its @number@ attribute
     carries the /supplier's/ dataset number (so the loader can re-link it by
@@ -32,8 +32,8 @@ __canonical and deterministic__:
     bare re-parse drops it and the next write falls back to the positional
     index. Byte-stability of a linked input therefore relies on the full
     loader re-resolving the link (by supplier name/location) rather than on a
-    direct 'SimpleDatabase' round-trip. The semantic round-trip - flow name,
-    amount, role, unit - is preserved either way;
+    direct 'SimpleDatabase' round-trip. The semantic round-trip – flow name,
+    amount, role, unit – is preserved either way;
   * exchange numbers come from the flow, not from the position in the dataset;
   * attributes appear in a fixed order, classification maps are sorted by
     key, numbers use a fixed textual form, and there is no insignificant
@@ -190,8 +190,8 @@ writeActivities opts techs bios wastes units activities =
 
 {- | Canonical export order: sorted by @(activityName, location)@ so dataset
 numbers (and thus flow UUIDs) are reproducible regardless of the source Map's
-ordering. Each activity is paired with the stored activity UUID - the first
-component of its 'sdbActivities' key - that a technosphere input's
+ordering. Each activity is paired with the stored activity UUID – the first
+component of its 'sdbActivities' key – that a technosphere input's
 'techActivityLinkId' points at. Shared by the writer and
 'checkEcoSpold1Exportable'.
 -}
@@ -202,7 +202,7 @@ orderedActivities =
 
 {- | Map each exported row to the dataset number it is assigned in canonical
 order. A technosphere input names its supplier by the pair 'techActivityLinkId'
-plus 'techFlowId' - the supplier row's 'sdbActivities' key - and the parser reads
+plus 'techFlowId' – the supplier row's 'sdbActivities' key – and the parser reads
 the input's @number@ attribute back as that supplier dataset number
 ('EcoSpold.Parser1.closeExchange'). Keying by the stored UUIDs rather than
 re-deriving them lets a link resolve whatever namespace the source format minted
@@ -249,14 +249,14 @@ emit silently wrong data:
   * __Dangling supplier links.__ The format names a supplier from a
     technosphere input's @number@ attribute, which the parser reads as the
     supplier's dataset number. The writer can only re-emit that number when the
-    supplier row the link names - the (activity, product) pair - is itself being
+    supplier row the link names – the (activity, product) pair – is itself being
     exported (present in 'supplierNumberIndex'). A linked input naming a pair
     absent from the database would otherwise force a positional index the parser
     would misread as a different supplier.
 
   * __Reference inputs.__ EcoSpold1 has no marker for a reference /input/, so
     the writer would emit @outputGroup 0@ and the parser would read it back as
-    a reference product - a direction flip.
+    a reference product – a direction flip.
 
   * __Waste outputs naming a treatment.__ The format names a supplier only
     from an input's @number@ attribute, so the link of a waste /output/ cannot
@@ -265,7 +265,7 @@ emit silently wrong data:
 
   * __Waste-marker collision.__ A biosphere flow whose compartment name is
     @"Final waste flows"@ would re-import under compartment @"waste"@, because
-    the parser reads that category as the marker of a final waste flow - a
+    the parser reads that category as the marker of a final waste flow – a
     silent change of the compartment a method characterizes it under. Rejected.
 
   * __Missing flows / units.__ An exchange whose flow or unit is absent from
@@ -306,7 +306,7 @@ checkEcoSpold1Exportable db =
                         <> consumer
                         <> "\": the format has no marker for it, so the writer would emit"
                         <> " outputGroup 0 and the parser would read it back as a reference"
-                        <> " product - a direction flip from input to output."
+                        <> " product – a direction flip from input to output."
     checkLinkedWasteOutputs =
         case linkedWasteOutputs of
             [] -> Right ()
@@ -468,7 +468,7 @@ datasetAttrs opts num =
 as @generalComment@.
 
 Note: @generalComment@ is a single ES1 attribute, so paragraph cardinality
-does not round-trip - the joined text survives, but 'Parser1' reads it back
+does not round-trip – the joined text survives, but 'Parser1' reads it back
 as a one-element 'activityDescription' regardless of how many paragraphs went in.
 -}
 refFunctionAttrs :: Activity -> Text
@@ -508,8 +508,8 @@ EcoSpold1 export observed here does and what lets a consumer name its supplier.
 A technosphere input the loader resolved carries its supplier's dataset number
 ('EcoSpold.Parser1.closeExchange' reads it back as the supplier link), so the
 two agree on one number for one product; a resolved waste input does the same,
-being written as a technosphere input. Everything else - co-products,
-biosphere, waste outputs, and unlinked inputs - carries the number its flow was
+being written as a technosphere input. Everything else – co-products,
+biosphere, waste outputs, and unlinked inputs – carries the number its flow was
 given once for the whole export ('flowNumberIndex').
 
 'checkEcoSpold1Exportable' guarantees any resolved link's (activity, product)
@@ -591,7 +591,7 @@ groupElement ex = case ex of
 -- ----------------------------------------------------------------------------
 
 {- | The four flow-derived attribute values the parser stored on a flow:
-name, category, subCategory, CAS. Positional - always consumed as a whole.
+name, category, subCategory, CAS. Positional – always consumed as a whole.
 -}
 data FlowFields = FlowFields !Text !Text !Text !(Maybe Text)
 
@@ -600,7 +600,7 @@ flow's compartment becomes category/subCategory; a technosphere flow has no
 category; a waste flow takes the shape of the row it is written in, blank for
 an input (a technosphere row) and 'Waste' for an output (a biosphere
 row, which is the compartment the parser reads back). A UUID absent from its
-table yields empty/Nothing - never a crash.
+table yields empty/Nothing – never a crash.
 -}
 flowFields :: Resolvers -> Exchange -> FlowFields
 flowFields res ex = case ex of

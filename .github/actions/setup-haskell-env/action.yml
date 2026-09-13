@@ -1,5 +1,5 @@
 name: Setup Haskell build environment
-description: MSYS2/apt/brew toolchain + GHCup install (with optional cache restore on Unix). Caller adds the matching cache-save step - composite actions cannot defer steps until after the caller's downstream work.
+description: MSYS2/apt/brew toolchain + GHCup install (with optional cache restore on Unix). Caller adds the matching cache-save step – composite actions cannot defer steps until after the caller's downstream work.
 
 inputs:
   matrix-os:      { required: true,  description: linux | windows | macos }
@@ -9,7 +9,7 @@ inputs:
   cache-ghcup:    { required: false, default: 'false', description: Restore GHCup install from actions/cache on Linux/macOS. }
 
 outputs:
-  ghcup-cache-hit: { description: Output of actions/cache/restore - empty when cache-ghcup is false. , value: "${{ steps.cache.outputs.cache-hit }}" }
+  ghcup-cache-hit: { description: Output of actions/cache/restore – empty when cache-ghcup is false. , value: "${{ steps.cache.outputs.cache-hit }}" }
   ghcup-cache-key: { description: Primary cache key for the matching save step.,                     value: "${{ steps.cache.outputs.cache-primary-key }}" }
 
 runs:
@@ -35,7 +35,7 @@ runs:
     # C:\cabal -> D:\cabal junction. C: is a slow Azure managed disk
     # (~4k IOPS); D: is local temp (~83k IOPS). Junction (vs. CABAL_DIR
     # override) keeps the prebuilt cabal-store tarball working unchanged
-    # - its .conf files have absolute C:\cabal\store\... paths baked in.
+    # – its .conf files have absolute C:\cabal\store\... paths baked in.
     - name: Redirect C:\cabal to D:\cabal (Windows)
       if: inputs.matrix-os == 'windows' && inputs.ghc-version != ''
       shell: cmd
@@ -62,7 +62,7 @@ runs:
         source /d/ghcup/env
         ghc --version && cabal --version && cabal update
 
-    # Alpine containers run as root and have no apt/sudo - install everything
+    # Alpine containers run as root and have no apt/sudo – install everything
     # via apk. Mirrors the package list from docker/Dockerfile.musl, the only
     # other place we build volca against musl. `*-static` packages ship the
     # .a variants required by `executable-static`. github-cli is needed for
@@ -114,10 +114,10 @@ runs:
     # that meet in the same place: Alpine's lapack-dev / blas-dev ship .so only,
     # so a static link can't resolve -llapack / -lblas; and Homebrew's
     # libopenblas.a is the OpenMP variant, which leaves __kmpc_* / omp_*
-    # undefined unless libomp is linked too - a dependency the dylib used to
+    # undefined unless libomp is linked too – a dependency the dylib used to
     # carry silently and a static link cannot. USE_OPENMP=0 removes the question
     # rather than answering it: OpenBLAS threads through pthreads instead.
-    # OpenBLAS bundles both BLAS and LAPACK into a single libopenblas.a - one
+    # OpenBLAS bundles both BLAS and LAPACK into a single libopenblas.a – one
     # source build replaces both. Knobs match docker/Dockerfile.musl so the CI
     # binary is bit-for-bit comparable to the Docker image one.
     #
@@ -181,13 +181,13 @@ runs:
         path: ~/.ghcup
         # -v5: the saved tree is now slimmed (see the trim at the end of the
         # install step). Old -v4 snapshots are the full ~2-3 GB tree whose
-        # restore times out on macOS - bumping forces a fresh lean save.
+        # restore times out on macOS – bumping forces a fresh lean save.
         key: ghcup-${{ inputs.matrix-name }}-ghc${{ inputs.ghc-version }}-v5
 
     # Bootstrap or restore GHCup into ~/.ghcup. We avoid haskell-actions/setup
     # because it symlinks to the runner's preinstalled /usr/local/.ghcup,
     # leaving ~/.ghcup empty of cacheable bytes. We also wipe the runner's
-    # façade ~/.ghcup symlinks before install - otherwise tar archives the
+    # façade ~/.ghcup symlinks before install – otherwise tar archives the
     # ~200-byte symlink shells, not the targets. GHCUP_INSTALL_BASE_PREFIX
     # override pins install to ~/.ghcup (runner image defaults it to
     # /usr/local globally) and is also needed for `ghcup set` on warm runs.
@@ -199,7 +199,7 @@ runs:
       run: |
         export GHCUP_INSTALL_BASE_PREFIX="$HOME"
         # Pin CABAL_DIR=~/.cabal so legacy paths win regardless of
-        # cabal version / runner-image XDG defaults - otherwise ubuntu's
+        # cabal version / runner-image XDG defaults – otherwise ubuntu's
         # pre-created ~/.config/cabal/config redirects the store under
         # XDG_STATE_HOME and the cached ~/.cabal/store gets bypassed.
         # Both `export` (for the cabal commands later in this step) and
@@ -228,19 +228,19 @@ runs:
         echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
         "$HOME/.ghcup/bin/ghc" --numeric-version
         # ~/.cabal/packages (Hackage index) lives outside ~/.ghcup, so
-        # always refresh - cold installs need it, warm runs need a
+        # always refresh – cold installs need it, warm runs need a
         # current view for the solver.
         "$HOME/.ghcup/bin/cabal" update
         # Slim ~/.ghcup before the caller caches it. The full tree (~2-3 GB,
         # tens of thousands of small files) was overflowing the actions/cache
         # macOS restore timeout, so every run fell back to a cold 4-5 min GHC
-        # reinstall - defeating the cache entirely. None of the removed bytes
+        # reinstall – defeating the cache entirely. None of the removed bytes
         # are needed to *build* a non-profiled binary:
         #   cache/   ghcup's downloaded install tarballs (already unpacked)
         #   tmp/     leftover unpack scratch dirs
         #   share/doc GHC's bundled HTML/PDF documentation
         #   *.p_o / *_p.a  profiling objects/libs (CI never builds profiled)
-        # Runs on warm restores too - a near-noop, since the saved tree is
+        # Runs on warm restores too – a near-noop, since the saved tree is
         # already slim. Best-effort: missing paths must not fail the build.
         rm -rf "$HOME/.ghcup/cache" "$HOME/.ghcup/tmp" || true
         rm -rf "$HOME/.ghcup/ghc/$GHC_VER/share/doc" || true

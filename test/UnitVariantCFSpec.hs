@@ -2,7 +2,7 @@
 
 {- | A SimaPro name can bake the flow's unit into the name ("Gas, natural\/m3").
 'normalizeName' strips that suffix so a lone variant can borrow its base
-resource's CF - but when the method itself ships one row PER unit variant
+resource's CF – but when the method itself ships one row PER unit variant
 (\/kg 43.1 vs \/m3 34.5: same substance, different densities), the collapsed
 name key crowns a single winner and the losing variant's flow reads a
 dimensionally incompatible CF, whose unit conversion silently zeroes the score.
@@ -70,7 +70,7 @@ kgFlow = mkFlow 1 "Gas, natural/kg"
 m3Flow = mkFlow 2 "Gas, natural/m3"
 
 -- The method ships one row per unit variant. The /kg row UUID-matched its flow;
--- the /m3 row name-matched - after suffix collapse both compete for the one
+-- the /m3 row name-matched – after suffix collapse both compete for the one
 -- "gas natural" name key, which is exactly the failure this spec pins.
 perUnitTables :: MethodTables
 perUnitTables =
@@ -96,7 +96,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
     it "keeps the base-row ride for a variant the method has no row for" $ do
         -- Method knows only the base substance: a suffixed flow still borrows
         -- its CF through the suffix-stripping collapse (the reason the strip
-        -- exists) - the variant table must not get in the way.
+        -- exists) – the variant table must not get in the way.
         let baseOnly =
                 buildMethodTables
                     OtherCFFamily
@@ -125,7 +125,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
         -- /m3 factor at no particular subcompartment and a DIFFERENT factor for
         -- the bare name at "in water"; the flow is /m3 emitted in water, so the
         -- two rows key apart and 'agreedValue' never sees the disagreement.
-        -- Before this table the sub-exact row answered - right subcompartment,
+        -- Before this table the sub-exact row answered – right subcompartment,
         -- wrong unit, hence 0 after conversion. The unit-matched row wins now:
         -- a factor that scores beats one that cannot.
         let subExact =
@@ -143,7 +143,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
         -- emission is a foreign medium and must not borrow the freshwater
         -- factor, unit-matched or not.
         --
-        -- The gate applies because this method names the sea somewhere - one
+        -- The gate applies because this method names the sea somewhere – one
         -- row, for another substance, is enough. Deliberate: a method that
         -- distinguishes the sea at all is trusted to have meant its silence on
         -- the substances it left out, and the engine does not extrapolate for

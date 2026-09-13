@@ -11,7 +11,7 @@ __name__ + compartment. AWARE's resource-side CF names ("freshwater",
 names ("Water, river", "Water, cooling, …"), so the positive consumption
 side is left uncharacterized, while the emission "Water" flow (name
 coincides) keeps its negative CF. A net water consumer therefore scores
-__negative__ - the opposite sign of the published value.
+__negative__ – the opposite sign of the published value.
 
 The fixtures drive the real mapper + table build + scoring, so they track
 the engine's true behaviour rather than a hand-modelled approximation.
@@ -19,7 +19,7 @@ the engine's true behaviour rather than a hand-modelled approximation.
 The second group reproduces the broadcast-table pollution defect of
 regionalized methods: location-specific CF rows used to land in the
 name-keyed broadcast tables ('mtExactCF' / 'mtFallbackCF') alongside the
-global row, where one arbitrary location's value won the key - a
+global row, where one arbitrary location's value won the key – a
 water-abundant region's 0 erased the global credit, and a high-scarcity
 region's factor inflated the global charge. Broadcast tables must hold
 only non-regionalized CFs.
@@ -167,7 +167,7 @@ buildTables :: IO MethodTables
 buildTables = buildTablesFor awareMethod
 
 -- ---------------------------------------------------------------------------
--- Fixture: fossil vs biogenic methane - CAS must NOT cross the name split
+-- Fixture: fossil vs biogenic methane – CAS must NOT cross the name split
 -- ---------------------------------------------------------------------------
 
 -- Both methane flows share CAS 74-82-8 and medium air; only their name carries
@@ -196,7 +196,7 @@ carbonFlows = M.fromList [(bfId f, f) | f <- [methaneNonFossil, methaneFossil]]
 
 -- Biogenic-climate-style method: the CF is named "methane (biogenic)" and
 -- carries CAS 74-82-8. ecoinvent's "Methane, non-fossil" reaches it only via
--- the curated synonym below - fossil methane must stay out.
+-- the curated synonym below – fossil methane must stay out.
 biogenicMethaneMethod :: Method
 biogenicMethaneMethod =
     Method
@@ -364,7 +364,7 @@ buildFallbackTables = do
 acrCAS :: Text
 acrCAS = "107-13-1"
 
--- An ecoinvent flow reached only via CAS (its name matches no CF - the JRC
+-- An ecoinvent flow reached only via CAS (its name matches no CF – the JRC
 -- method even misspells it), whose CFs diverge wildly by subcompartment:
 -- indoor air is 100x the unspecified value.
 acrFlow :: BiosphereFlow
@@ -398,8 +398,8 @@ acrCtx =
         }
 
 -- Regionalized analogue of 'acrMethod': both CFs carry a location, so they
--- land in 'mtRegionalCasCF' rather than 'mtCasCF'. Same divergence - indoor
--- air is 100x the unspecified value - at one location.
+-- land in 'mtRegionalCasCF' rather than 'mtCasCF'. Same divergence – indoor
+-- air is 100x the unspecified value – at one location.
 acrRegionalMethod :: Method
 acrRegionalMethod =
     Method
@@ -429,7 +429,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
         tables <- buildTables
         -- "Water, river" shares CAS 7732-18-5 and is a water resource. Its
         -- ecoinvent name ("water river") matches no AWARE CF name, and the CAS
-        -- bridge resolved a single flow at build time - so before the CAS
+        -- bridge resolved a single flow at build time – so before the CAS
         -- read-path fallback it was uncharacterized. Now it is reached by its
         -- own CAS + medium.
         M.member (bfId river) (mtBroadcast tables) `shouldBe` True
@@ -462,7 +462,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
             -- The CF pinned "Methane, non-fossil" by synonym, so it is name-
             -- discriminated and never enters the CAS broadcast table. Fossil
             -- methane shares CAS 74-82-8 but is a distinct variant the method
-            -- excludes - it must stay uncharacterized, not inherit +27.
+            -- excludes – it must stay uncharacterized, not inherit +27.
             M.member (bfId methaneFossil) (mtBroadcast tables) `shouldBe` False
 
     describe "regionalized rows stay out of the global tables" $ do
@@ -484,7 +484,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
         it "vetoes the CAS bridge when name-regionalized rows disagree with the default (parser path)" $ do
             -- End-to-end through the real parser: 'parseCFRow' leaves
             -- 'mcfConsumerLocation' Nothing for SimaPro CFs (the region lives
-            -- in the flow name), so location cannot dispatch the variance -
+            -- in the flow name), so location cannot dispatch the variance –
             -- the CH and IN rows disagree with the region-less default at one
             -- (CAS, medium, sub). No single value stands for the CAS then:
             -- broadcasting the region-less default used to stamp the
@@ -533,7 +533,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
 
         it "an explicit (long-term) factor takes precedence over the fallback" $ do
             -- Mercury to "unspecified (long-term)" must resolve to its own 0
-            -- factor, not the (nonzero) unspecified fallback - so a method that
+            -- factor, not the (nonzero) unspecified fallback – so a method that
             -- deliberately zeroes long-term emissions is honoured.
             tables <- buildFallbackTables
             M.lookup (bfId mercuryLongTerm) (mtBroadcast tables) `shouldBe` Just 0
@@ -554,7 +554,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
         it "the regional bridge keeps the unspecified value per location too" $ do
             -- FR carries both the indoor (100) and the unspecified (1) CF; the
             -- regionalized bridge must keep the medium-level default, not the
-            -- niche max - same rule as the non-regional 'mtCasCF'.
+            -- niche max – same rule as the non-regional 'mtCasCF'.
             mappings <- mapMethodFlows acrCtx acrRegionalMethod
             let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
             M.lookup (CASNumber acrCAS, Just Air) (mtRegionalCasCF tables)

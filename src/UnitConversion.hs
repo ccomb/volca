@@ -308,7 +308,7 @@ canonicalUnitFor cfg written = tableSpelling cfg written >>= flip M.lookup (ucCa
 
 {- | Convert an amount to the canonical base unit of its dimension.
 Returns '(canonicalUnitName, convertedAmount)'. 'Nothing' if the input unit is
-unknown or its dimension has no base unit defined - callers must surface this
+unknown or its dimension has no base unit defined – callers must surface this
 as a load-time failure (no silent fallback).
 -}
 normalizeToCanonical :: UnitConfig -> Text -> Double -> Maybe (Text, Double)

@@ -5,7 +5,7 @@ Module      : Database.Rebuild
 Description : How a changed activity set becomes a database again (pure)
 
 Editing a database is two things: deciding what changes, which is effectful
-(the registry, the files, the solver - "Database.Edit"), and turning the
+(the registry, the files, the solver – "Database.Edit"), and turning the
 changed activity set back into a 'Database', which is not. This module is the
 second half, and nothing here touches the manager or the disk.
 
@@ -90,7 +90,7 @@ Steps, all pure:
      occupies in 'dbProcessIdTable', validating that every requested
      'ProcessId' exists (no silent skip).
   2. Drop those keys; for every surviving activity, UNLINK any technosphere /
-     waste exchange whose @(activityLink, flow)@ pointed at a deleted key -
+     waste exchange whose @(activityLink, flow)@ pointed at a deleted key –
      clear its activity link and clear the stale process link.
   3. Rebuild interning tables, indexes, matrices and the product index from
      the surviving activity map via the shared loader builders.
@@ -110,7 +110,7 @@ deleteActivitiesWith unitConfig pids db = do
         else rebuildFromActivities unitConfig db unlinkedMap
 
 {- | Resolve each requested 'ProcessId' to its @(activityUUID, productUUID)@ key.
-Every id must be in range - an out-of-range id is a caller error, surfaced as
+Every id must be in range – an out-of-range id is a caller error, surfaced as
 'Left' rather than silently ignored. The result is a 'Set' so membership tests
 during unlinking are @O(log n)@.
 -}
@@ -216,7 +216,7 @@ data WriteIntent = Insert | Replace
 {- | Add authored activities to a database and rebuild everything that depends
 on them.
 
-Every key must be absent - 'Database.Author' mints identity from the activity's
+Every key must be absent – 'Database.Author' mints identity from the activity's
 own name, location, product and unit, so a key that already exists means the
 author is re-describing something the database already holds and wants
 'replaceActivities' instead.

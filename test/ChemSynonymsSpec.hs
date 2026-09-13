@@ -34,7 +34,7 @@ spec = do
 
         it "expands a formula token to the full substance's token set" $ do
             -- "CO2" alone should pick up "carbon" and "dioxide" from the
-            -- substance's other synonyms - the exact failure mode pure
+            -- substance's other synonyms – the exact failure mode pure
             -- tokenization can never solve.
             let toks = expandedTokens cs "CO2"
             toks `shouldSatisfy` ("carbon" `S.member`)
@@ -50,7 +50,7 @@ spec = do
             expandedTokens cs "carbon dioxide" `shouldBe` expandedTokens cs "Carbon Dioxide"
 
         it "leaves unrelated names alone" $ do
-            -- Methane is in the snapshot but unrelated to oil - the suggestion
+            -- Methane is in the snapshot but unrelated to oil – the suggestion
             -- engine relies on this isolation so candidates don't bleed.
             let toks = expandedTokens cs "Crude oil"
             toks `shouldNotSatisfy` ("methane" `S.member`)

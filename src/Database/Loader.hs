@@ -379,7 +379,7 @@ History of manual bumps:
      consistency outcome, surfaced by the database quality report). Old
      caches miss the field and would fail mid-decode.
 - 11: SimaPro flow CAS now backfilled from the export's own substance
-     registry at parse time - a value change with no type change, so the
+     registry at parse time – a value change with no type change, so the
      fingerprint alone would accept old caches. Caches built before the
      backfill keep every SimaPro biosphere flow CAS-less, and the method
      CAS bridge silently never fires on them.
@@ -392,7 +392,7 @@ History of manual bumps:
      is positional, so decoding them would misread every field after it.
 - 14: EcoSpold1 flow UUID no longer carries the dataset a flow was read from,
      so one substance is one flow across the export. Old caches hold one flow
-     per (dataset, substance) pair - a value change with no type change, which
+     per (dataset, substance) pair – a value change with no type change, which
      the fingerprint alone would accept.
 - 15: Activity record gained activityDocumentation (the provenance a dataset
      states about itself: published source, technology, review). Old caches
@@ -528,8 +528,8 @@ generateActivityUUIDFromActivity act =
 
 Publishers that keep this identifier stable across releases (it survives a
 rename, which a name-derived UUID does not) let two versions of a database be
-compared dataset by dataset. Files named any other way - ecoinvent's EcoSpold1
-exports are numbered, not identified - yield 'Nothing' and keep the minted
+compared dataset by dataset. Files named any other way – ecoinvent's EcoSpold1
+exports are numbered, not identified – yield 'Nothing' and keep the minted
 UUID.
 -}
 datasetUUIDFromPath :: FilePath -> Maybe UUID.UUID
@@ -1278,7 +1278,7 @@ unit. This mirrors the builder's own rule exactly (see 'Database.MatrixBuild'):
 a conversion is needed only when the two units differ and both are non-empty,
 and it must then succeed. So a link is safe when the units are identical, when
 either side is empty, or when they are dimensionally compatible. Forming any
-other link would abort the whole load - better to leave the input unlinked.
+other link would abort the whole load – better to leave the input unlinked.
 -}
 linkUnitsCompatible :: UC.UnitConfig -> T.Text -> T.Text -> Bool
 linkUnitsCompatible unitConfig consumerUnit supplierUnit =
@@ -1292,7 +1292,7 @@ Inputs and non-reference outputs (coproducts / avoided-production credits)
 are eligible for relinking. A candidate is accepted only if its
 reference-product unit is dimensionally compatible with the consumer exchange
 ('linkUnitsCompatible'); an incompatible candidate is skipped rather than
-forming a link the matrix builder cannot convert - which would otherwise abort
+forming a link the matrix builder cannot convert – which would otherwise abort
 the whole load.
 
 An input that names the activity it buys from is honoured first: a product name
@@ -1337,7 +1337,7 @@ fixExchangeLinkByName unitConfig unitDB idx techFlowDb consumerName ex@Technosph
                                     }
                                 )
             Nothing ->
-                -- Flow not in technosphere map - shouldn't happen but be safe
+                -- Flow not in technosphere map – shouldn't happen but be safe
                 (ex, mempty{usTotalLinks = 1, usMissingLinks = 1})
     | otherwise = (ex, mempty) -- Reference products: nothing to relink
 fixExchangeLinkByName _ _ _ _ _ ex@BiosphereExchange{} = (ex, mempty)
@@ -1846,7 +1846,7 @@ loadDatabaseWithCrossDBLinking opts otherIndexes synonymDB locationHier policy p
             unless (S.null unknownUnits) $
                 reportProgress Warning $
                     printf
-                        "%d unknown unit(s): %s - add to the [[units]] CSV file"
+                        "%d unknown unit(s): %s – add to the [[units]] CSV file"
                         (S.size unknownUnits)
                         (T.unpack $ T.intercalate ", " $ map (\u -> "\"" <> u <> "\"") $ S.toList unknownUnits)
             case unitRefusals verdict of
@@ -1988,12 +1988,12 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig locationHier policy 
             -- The links will be stored in the Database.dbCrossDBLinks field later
             return (db, stats')
 
-{- | Inputs that demand a supplier - the exact set the matrix builder tries to
+{- | Inputs that demand a supplier – the exact set the matrix builder tries to
 resolve in 'Database.MatrixBuild.techTriple'.
 
 Biosphere flows need no supplier. Reference exchanges sit on the diagonal of
 @(I-A)@ and are skipped by the matrix builder, so a treatment process's
-'ReferenceInput' is a self-edge, not a supplier demand - counting it would drag
+'ReferenceInput' is a self-edge, not a supplier demand – counting it would drag
 completeness below 100% for a perfectly solvable database. Waste *outputs* are
 generated, not demanded; only waste/technosphere *inputs* remain.
 
@@ -2019,7 +2019,7 @@ namesASupplier ex =
         && not (exchangeIsReference ex)
 
 {- | True when a staged input resolves to a producer activity present in the
-same database - the @(activityLinkId, flowId)@ branch of
+same database – the @(activityLinkId, flowId)@ branch of
 'Database.MatrixBuild.findProducer'.
 
 The process-link branch is deliberately omitted: a 'ProcessId' is an interned
@@ -2030,8 +2030,8 @@ directly, honouring both branches.
 
 An absent @activityLinkId@ (SimaPro inputs awaiting cross-DB linking, or a genuine
 orphan) is never an internal producer. A *non-nil* link to an activity absent
-from this database - e.g. a partial EcoSpold2 import that references ecoinvent
-background activities it doesn't ship - is unresolved too: the matrix builder
+from this database – e.g. a partial EcoSpold2 import that references ecoinvent
+background activities it doesn't ship – is unresolved too: the matrix builder
 silently drops such an exchange, so it must count as unlinked rather than
 masquerade as a resolved internal link.
 -}
@@ -2043,8 +2043,8 @@ hasInternalProducer db ex =
 
 {- | Re-resolve the cross-DB links of a 'SimpleDatabase' against the given
 dependencies, optionally aliasing supplier names. Unlike
-'fixActivityLinksWithCrossDB' this always recomputes - a relink must re-resolve
-already-linked exchanges, e.g. to apply a new alias map - and threads @aliases@
+'fixActivityLinksWithCrossDB' this always recomputes – a relink must re-resolve
+already-linked exchanges, e.g. to apply a new alias map – and threads @aliases@
 into 'lcSupplierAliases', so a staged relink behaves exactly like the loaded one.
 -}
 relinkSimpleDatabase ::
@@ -2070,7 +2070,7 @@ relinkSimpleDatabase indexedDbs synonymDB unitConfig locationHier policy aliases
         stats = findAllCrossDBLinks ctx (sdbTechFlows db) (sdbWasteFlows db) (sdbUnits db) (sdbActivities db)
      in stats{cdlTotalInputs = countTotalTechInputs db}
 
-{- | Product names of technosphere demands with no resolved internal producer -
+{- | Product names of technosphere demands with no resolved internal producer –
 the supplier gaps surfaced on the setup page. Covers both nil-link inputs and
 non-nil links whose target activity is absent (partial EcoSpold2 imports).
 -}
@@ -2097,7 +2097,7 @@ countUnlinkedExchanges db =
         , not (hasInternalProducer db ex)
         ]
 
--- | Count total supplier demands - the completeness denominator.
+-- | Count total supplier demands – the completeness denominator.
 countTotalTechInputs :: SimpleDatabase -> Int
 countTotalTechInputs db =
     length
@@ -2144,7 +2144,7 @@ tallyDangling covered inputs =
 @activityLinkId@ inputs that 'findProducer' cannot resolve against the
 database's own process lookup (the matrix builder silently drops them) *and*
 that no cross-DB link supplies. The loaded-path counterpart that names the
-supplier gaps a partial EcoSpold2 import leaves behind - distinct from nil-link
+supplier gaps a partial EcoSpold2 import leaves behind – distinct from nil-link
 inputs, the cross-DB candidates already tracked in the linking stats.
 
 Sharing 'findProducer' keeps this honest with the matrix: an input the matrix
@@ -2200,7 +2200,7 @@ data GapReason
       -}
       GapBlocked !(NE.NonEmpty BlockerReason)
     | {- | Non-nil source identity no dependency ships, and no attribute match
-      rescued it - a partial import referencing activities it doesn't carry.
+      rescued it – a partial import referencing activities it doesn't carry.
       -}
       GapDanglingIdentity
     | {- | Waste input (treatment side): never a cross-DB demand, so an
@@ -2209,7 +2209,7 @@ data GapReason
       GapWasteInput
     deriving (Show, Eq)
 
--- | One consumer edge left unsupplied - the unit of the supplier-gap report.
+-- | One consumer edge left unsupplied – the unit of the supplier-gap report.
 data GapEdge = GapEdge
     { gapFlowName :: !T.Text
     , gapLocation :: !T.Text
@@ -2294,7 +2294,7 @@ gapEdgesWith hasProducer db links stats =
 edge: the flow UUID stands in for the name so the report stays countable.
 
 'cdlUnresolvedProducts' records reasons per flow /name/, while the report keys
-entries by (name, location, unit) - two same-named entries at different
+entries by (name, location, unit) – two same-named entries at different
 locations therefore carry the same reasons, the union of what refused either.
 -}
 mkGapEdge ::
@@ -2335,7 +2335,7 @@ mkGapEdge db stats actUUID prodUUID ex = case ex of
             , gapReason = reason
             }
 
--- | Consumers shown per gap entry - the tail is countable via 'geConsumers'.
+-- | Consumers shown per gap entry – the tail is countable via 'geConsumers'.
 topConsumerCap :: Int
 topConsumerCap = 20
 
@@ -2432,7 +2432,7 @@ Bundled so the per-activity / per-exchange matchers keep short signatures.
 
 @lsOwnKeys@ lets the per-exchange matcher tell a non-nil link that resolves
 *internally* (the matrix builder handles it) from a dangling one that needs a
-cross-DB supplier - so we never emit a redundant cross-DB link for an input
+cross-DB supplier – so we never emit a redundant cross-DB link for an input
 already satisfied in place.
 -}
 data LinkScan = LinkScan
@@ -2474,11 +2474,11 @@ Technosphere inputs that need a supplier (nil-link, or a non-nil
 'activityLinkId' to an activity this database does not ship) resolve via a
 cascade:
 
-1. __Exact source identity__ - @(activityLinkId, flowId)@ matched verbatim in a
+1. __Exact source identity__ – @(activityLinkId, flowId)@ matched verbatim in a
    dependency ('findSupplierByActivityProduct'). The same-release case; the
    dataset author's own disambiguation, no guessing. Nil-link inputs skip this
    tier (they carry no identity).
-2. __Attribute matching__ - name / location / unit scoring
+2. __Attribute matching__ – name / location / unit scoring
    ('findSupplierInIndexedDBs'), the matcher every other cross-link uses. It
    narrows on the supplier activity the source named, where it named one apart
    from the product, before falling back to the product name alone.
@@ -2487,12 +2487,12 @@ cascade:
    recorded in 'cdlAttributeFallbacks' for the consumer to verify.
 
 A link whose target resolves in the internal matrix would be double-counted by
-a cross-DB link too, so 'resolvesInternally' gates it out - mirroring
+a cross-DB link too, so 'resolvesInternally' gates it out – mirroring
 'Database.MatrixBuild.findProducer': a populated process link, or a non-nil
 @activityLinkId@ whose @(linkId, flowId)@ key is one of this database's own
 ('lsOwnKeys'). Waste outputs take the same gate, then a strict matcher chosen by
-their link - 'findWasteTreatmentByActivity' when they name a treatment,
-'findWasteTreatmentAcrossDatabases' when they name none - with no synonym and
+their link – 'findWasteTreatmentByActivity' when they name a treatment,
+'findWasteTreatmentAcrossDatabases' when they name none – with no synonym and
 no widening in either.
 -}
 findExchangeCrossDBLink ::
@@ -2571,7 +2571,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                         | UpperLocationUsed req actLoc kind <- cdlrWarnings result
                         ]
                     -- Non-nil input matched only by attributes: its named source
-                    -- activity was in no dependency - flag the cross-version risk.
+                    -- activity was in no dependency – flag the cross-version risk.
                     attrFallbacks =
                         [ AttributeFallback
                             { afProduct = tfName flow
@@ -2635,7 +2635,7 @@ findExchangeCrossDBLink _ _ _ BiosphereExchange{} = mempty
 -- Multi-DB matches stay orphan as 'cdlWasteAmbiguous'. Which matcher applies
 -- follows the link: an output that names its treatment is matched on that
 -- identity, one that names none on the flow itself. Neither falls back on the
--- other - substituting a treatment found by name for the one the author named
+-- other – substituting a treatment found by name for the one the author named
 -- would link the waste to an activity nobody asked for.
 -- Waste inputs (treatment side) are left alone: they have no clean LCA
 -- semantic as a cross-DB demand.
@@ -2649,7 +2649,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows 
                     -- has a negative-output reference ('seRefSign' = -1),
                     -- an ILCD one a positive 'ReferenceInput' (+1). The
                     -- consumer's waste-output amount is positive, so we
-                    -- carry the treatment's sign into the coefficient -
+                    -- carry the treatment's sign into the coefficient –
                     -- without it a negative-reference background treatment
                     -- scores the treated waste's burden with a flipped sign.
                     !crossLink =
@@ -2731,7 +2731,7 @@ reportCrossDBLinkingStats nActivities stats = do
         forM_ (take 20 missing) $ \(name, unresolved) ->
             reportProgress Warning $
                 printf
-                    "  - %s (%d activities) - %s"
+                    "  - %s (%d activities) – %s"
                     (T.unpack name)
                     (upDemands unresolved)
                     (showReasons (upBlockers unresolved))
@@ -2769,19 +2769,19 @@ reportCrossDBLinkingStats nActivities stats = do
         forM_ uniqueUnresolved $ \LocationUnresolved{luProduct, luRequested, luReason} ->
             reportProgress Warning $
                 printf
-                    "  - %s [%s] - %s"
+                    "  - %s [%s] – %s"
                     (T.unpack luProduct)
                     (T.unpack luRequested)
                     (T.unpack luReason)
 
     -- Attribute fallbacks: source-identity inputs matched by attributes because
-    -- no dependency shipped the exact activity - a likely cross-version stitch.
+    -- no dependency shipped the exact activity – a likely cross-version stitch.
     let !uniqueAttrFallbacks = deduplicateAttributeFallbacks (cdlAttributeFallbacks stats)
         !nAttrFallbacks = length uniqueAttrFallbacks
     when (nAttrFallbacks > 0) $ do
         reportProgress Warning $
             printf
-                "%d background link(s) matched by attributes, not source identity - verify the dependency is the same source release"
+                "%d background link(s) matched by attributes, not source identity – verify the dependency is the same source release"
                 nAttrFallbacks
         forM_ uniqueAttrFallbacks $ \AttributeFallback{afProduct, afRequested, afMatched, afSourceDatabase} ->
             reportProgress Warning $

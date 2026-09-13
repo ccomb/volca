@@ -18,7 +18,7 @@ the engine's actual behaviour:
   * a flow declared in a *different but compatible* unit (tonne) is converted
     into the density's native unit first, so 1 t scores 1000 × 26.4;
   * a flow whose unit is *dimensionally incompatible* with the native unit (m3
-    vs kg) scores 0 - refuse a wrong basis rather than multiply blindly;
+    vs kg) scores 0 – refuse a wrong basis rather than multiply blindly;
   * the SAME flow WITHOUT a density still yields 0 (no regression);
   * a same-dimension pair (mass flow + mass CF) is untouched by the machinery.
 Plus the CSV reader: it keys by normalized name and rejects malformed rows.
@@ -114,7 +114,7 @@ energyCF =
         , mcfConsumerLocation = Nothing
         }
 
--- A same-dimension CF (mass, kg) on the same flow - the control: the
+-- A same-dimension CF (mass, kg) on the same flow – the control: the
 -- energy-density machinery must not perturb it.
 massCF :: MethodCF
 massCF = energyCF{mcfValue = 3.0, mcfUnit = "kg"}
@@ -142,12 +142,12 @@ volumeCF = energyCF{mcfFlowRef = waterId, mcfFlowName = "Water", mcfValue = 42.9
 volumeResultCF :: MethodCF
 volumeResultCF = volumeCF{mcfUnit = "m3-world equivalents"}
 
--- A per-kilogram water CF - the shape a non-regionalized method takes when it
+-- A per-kilogram water CF – the shape a non-regionalized method takes when it
 -- writes water deprivation against a mass basis instead of a volume one.
 waterMassCF :: MethodCF
 waterMassCF = volumeCF{mcfValue = -0.042955, mcfUnit = "kg"}
 
--- Mass density of water: 0.001 m³ per kg - same shape as a calorific value.
+-- Mass density of water: 0.001 m³ per kg – same shape as a calorific value.
 waterDensities :: EnergyDensityMap
 waterDensities = M.fromList [(normalizeName "Water", EnergyDensity 0.001 "m3" "kg")]
 
@@ -168,7 +168,7 @@ tablesFor flow densities cf =
      in fillBroadcastVector unitConfig unitDB fdb raw
 
 {- | Tables where the CF is name-matched to the __base__ substance while the
-inventory holds a __region-suffixed__ flow - the situation a non-regionalized
+inventory holds a __region-suffixed__ flow – the situation a non-regionalized
 method meets in a regionalized database, and the only one that exercises the
 region rung of both the CF lookup and the density lookup.
 -}
@@ -255,7 +255,7 @@ spec = do
     -- than in a unit. The three cases above have to come out the same, because
     -- the factor is the same factor: what the result is expressed in says
     -- nothing about what it is written per. This is also what says the row may
-    -- not simply leave data/units.csv - take it away and the first case stops
+    -- not simply leave data/units.csv – take it away and the first case stops
     -- bridging and scores the kilogram under a per-cubic-metre factor.
     describe "The same factor written as a result expression" $ do
         it "bridges a kg flow exactly as the per-m3 spelling does" $ do
@@ -309,7 +309,7 @@ spec = do
         -- The defect this whole arm exists for. The CF lookup lends "Water,
         -- SERC" the base "Water" factor, which is written per kilogram; the
         -- flow is in m³. Scoring it needs the region rung of the CF lookup, the
-        -- region rung of the density lookup, and the inverse bridge - remove
+        -- region rung of the density lookup, and the inverse bridge – remove
         -- any one of the three and this returns 0.
         it "characterizes a region-tagged m3 flow through the base per-kg CF" $ do
             let base = waterFlowIn uidM3

@@ -20,7 +20,7 @@ spec =
 
 -- Every tool entry must be an object carrying 'name' and 'inputSchema', and
 -- every property in its inputSchema must be a well-formed JSON Schema node.
--- In particular, arrays must declare 'items' - OpenAI's MCP validator rejects
+-- In particular, arrays must declare 'items' – OpenAI's MCP validator rejects
 -- the whole tool otherwise.
 checkTool :: Value -> Expectation
 checkTool (Object o) = do

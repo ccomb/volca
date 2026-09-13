@@ -3,7 +3,7 @@
 {- | Regression gate for the geography cascade defined in
 @data/geographies.csv@. The cascade is the chain of fallback locations
 that the LCIA matcher walks when a CF for the requested location is
-absent - a missing edge silently demotes a location to the legacy
+absent – a missing edge silently demotes a location to the legacy
 global behavior.
 -}
 module GeographiesSpec (spec) where
@@ -36,7 +36,7 @@ spec = do
         it "RoW cascades to GLO (commit 7df7921)" $ do
             -- Before this fix, RoW had an empty parents column, so any
             -- "Rest of World" CF lookup failed instead of falling back to
-            -- the global value - silently underestimating impact for every
+            -- the global value – silently underestimating impact for every
             -- ecoinvent activity whose location is RoW.
             geos <- table
             case M.lookup "RoW" geos of
@@ -81,7 +81,7 @@ spec = do
             -- meaningless: two locations on it would each be accepted as a
             -- fallback for the other, in both directions. Checked
             -- transitively, not just for mutual pairs. GLO and RoW are the
-            -- deliberate exception - they are the same breadth.
+            -- deliberate exception – they are the same breadth.
             geos <- table
             let parentsOf c = maybe [] snd (M.lookup c geos)
                 ancestors c = go [] (parentsOf c)
@@ -101,7 +101,7 @@ spec = do
         it "GLO and RoW close every parents list" $ do
             -- The regionalized CF cascade walks the parents in order and
             -- stops at the first factor it finds, so a parent listed after
-            -- the global codes could never beat the global average - exactly
+            -- the global codes could never beat the global average – exactly
             -- the fallback the nearer parents exist to improve on.
             geos <- table
             let placeless = ["GLO", "RoW"] :: [Text]
@@ -163,7 +163,7 @@ spec = do
         it "offers the country-plus-territories aggregate to the bare country" $ do
             -- Same shape as the Canada / "Canada without Quebec" correction:
             -- "France, including overseas territories" is wider than FR, so
-            -- the aggregate is a fallback for France - never the reverse.
+            -- the aggregate is a fallback for France – never the reverse.
             hier <- hierarchy
             acceptableLocation GeoParent hier (Location "FR") (Location "France, including overseas territories")
                 `shouldBe` Just ParentLoc

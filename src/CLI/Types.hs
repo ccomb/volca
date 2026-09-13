@@ -126,7 +126,7 @@ data DbWriteArgs = DbWriteArgs
 
 {- | Arguments for the commands that address one activity by identity:
 @database replace-activity@ and @database edit-exchanges@. As 'DbWriteArgs',
-plus the process id, and a file holding one document rather than a batch -
+plus the process id, and a file holding one document rather than a batch –
 which document depends on the command, and each reads the same JSON its HTTP
 endpoint does.
 -}

@@ -60,7 +60,7 @@ parseSimaProMethodCSVBytes raw =
 Checks for the {SimaPro...} header on line 1 and a method-type marker on
 line 2.  SimaPro localises the file-type keyword: English "{methods}",
 French "{méthodes}", German/Dutch "{methoden}", Italian "{metodi}",
-Spanish "{métodos}" - all start with the ASCII prefix "{m" or "{M}".
+Spanish "{métodos}" – all start with the ASCII prefix "{m" or "{M}".
 Database exports use "{processes}", "{products}", etc., which do not.
 -}
 isSimaProMethodCSV :: BS.ByteString -> Bool
@@ -266,8 +266,8 @@ buildMethod methodology name unit factors =
 -- Line parsers
 -- ============================================================================
 
-{- | A line that begins a new section. "End" is deliberately not a marker - it
-only closes the current block - so the reading stages handle it inline.
+{- | A line that begins a new section. "End" is deliberately not a marker – it
+only closes the current block – so the reading stages handle it inline.
 -}
 data Marker = MImpactCat | MDamageCat | MNWSet
 
@@ -299,8 +299,8 @@ parseCFRow cfg line =
                 -- consumer-location regionalized. So the CF resolves by full
                 -- name/UUID and 'mcfConsumerLocation' stays 'Nothing'. Setting
                 -- it routed region-tagged flows into the consumer-location
-                -- dispatch, which resolves C[f, loc(activity)] and - the flow's
-                -- region living in its name, not the activity's location -
+                -- dispatch, which resolves C[f, loc(activity)] and – the flow's
+                -- region living in its name, not the activity's location –
                 -- fell back to the region-less default (AWARE water 42.95 for
                 -- every region instead of e.g. CH's 1.34, a ~54x over-count).
                 !cfUnitT = decodeBS (BS8.strip cfUnit)

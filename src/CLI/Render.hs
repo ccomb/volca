@@ -8,7 +8,7 @@ sat inside the HTTP client and could only be reached with one running.
 @--format csv@ flattens an array of objects into a header row plus one row per
 element. A response often carries several arrays, and nothing can guess which
 one was meant, so @--jsonpath@ names it as a dotted field path over the /wire/
-names - @results@, @activity.exchanges@ - not the Haskell record fields, whose
+names – @results@, @activity.exchanges@ – not the Haskell record fields, whose
 lowercase prefix "API.JsonOptions" strips on the way out. When the response
 carries exactly one array, or is itself one, the path is unnecessary.
 
@@ -59,8 +59,8 @@ utf8 = TLE.encodeUtf8 . TL.fromStrict
 fromUtf8 :: BL.ByteString -> Text
 fromUtf8 = TL.toStrict . TLE.decodeUtf8
 
-{- | The rows @--format csv@ should flatten: the array the path names, or -
-when there is no path - the response itself if it is an array, or its single
+{- | The rows @--format csv@ should flatten: the array the path names, or –
+when there is no path – the response itself if it is an array, or its single
 array field. Ambiguity is refused rather than guessed at.
 -}
 csvRows :: Maybe Text -> Value -> Either Text [Value]

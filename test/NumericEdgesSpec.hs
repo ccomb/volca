@@ -2,8 +2,8 @@
 
 {- | Pure numeric edge cases for the matrix pipeline.
 
-These exercise the *pure* helpers in "Matrix" - the ones that run without
-touching MUMPS - so we can keep them in the fast unit-test tier. The
+These exercise the *pure* helpers in "Matrix" – the ones that run without
+touching MUMPS – so we can keep them in the fast unit-test tier. The
 MUMPS-backed paths are already covered by MatrixConstructionSpec /
 CoalescingSolverSpec via the per-database loaders.
 -}
@@ -35,7 +35,7 @@ spec = do
 
         it "silently skips out-of-bound column indices (defensive, no crash)" $ do
             -- A triple referencing j=5 on a 2-wide vector is dropped, not crashed.
-            -- This documents the boundary behaviour - it's defensive, not 'lossy
+            -- This documents the boundary behaviour – it's defensive, not 'lossy
             -- on real data': the caller guarantees j < length(x) by construction.
             let m = [(0, 0, 1.0), (0, 5, 99.0)]
                 y = applySparseMatrix m 1 (U.fromList [7.0, 8.0])

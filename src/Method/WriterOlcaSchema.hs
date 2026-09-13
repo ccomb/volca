@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Writer for LCIA methods as openLCA JSON-LD - the exact inverse of
+{- | Writer for LCIA methods as openLCA JSON-LD – the exact inverse of
 'Method.Parser.OlcaSchema'. Each method becomes one @ImpactCategory@
 document, named @lcia_categories/\<method-uuid\>.json@ (the olca-schema
 archive layout, which the loader's directory scan finds again on
@@ -8,12 +8,12 @@ re-import). The caller packs the entries into a zip.
 
 What round-trips exactly: the method UUID, name, category label,
 description, reference unit, and per-factor flow UUID/name/CAS, value,
-unit, direction (@INPUT@/@OUTPUT@ is native here - no compartment
+unit, direction (@INPUT@/@OUTPUT@ is native here – no compartment
 heuristic), and location code. Entries are sorted by file name so a
 loaded-then-re-exported archive is byte-identical.
 
 Projection (documented, no warning): a compartment qualifier folds into
-the subcompartment - the category path @medium/sub/qualifier@ reads back
+the subcompartment – the category path @medium/sub/qualifier@ reads back
 as @(medium, \"sub\/qualifier\")@, the same fold the SimaPro writer applies
 to long-term.
 
@@ -60,7 +60,7 @@ entryPath :: Method -> FilePath
 entryPath m = "lcia_categories/" <> UUID.toString (methodId m) <> ".json"
 
 {- | One @ImpactCategory@ document. Keys the parser reads nothing from when
-empty (description, unit, CAS, …) are omitted rather than emitted blank -
+empty (description, unit, CAS, …) are omitted rather than emitted blank –
 the parser treats an empty string as absent, so both spellings read back
 the same and only one of them is canonical.
 -}

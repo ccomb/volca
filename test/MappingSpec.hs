@@ -77,7 +77,7 @@ gKgUnitConfig =
         )
 
 {- | UnitConfig whose mass dimension has NO canonical base (g only, no kg at
-factor 1.0), so 'normalizeToCanonical' fails - exercises the result-expression
+factor 1.0), so 'normalizeToCanonical' fails – exercises the result-expression
 branch's hard-fail to 0.
 -}
 gOnlyUnitConfig :: UnitConfig
@@ -264,7 +264,7 @@ spec = do
     describe "expandSynonymMappings direction" $ do
         -- The water withdrawal bridge "freshwater" → resource flow applies to an
         -- INPUT (withdrawal) CF only. An OUTPUT (release) CF named "freshwater"
-        -- must not fan out onto the resource flow through it - else a release
+        -- must not fan out onto the resource flow through it – else a release
         -- inherits a withdrawal scarcity factor (wrong sign/magnitude).
         let synDB = buildFromEdges [SynEdge "freshwater" "Water, unspecified natural origin" BridgeInput]
             resourceFlow fid = mkFlow fid "Water, unspecified natural origin" NaturalResource Nothing
@@ -286,7 +286,7 @@ spec = do
         -- A curated chain routinely pivots through an alias that names no loaded
         -- flow: "Energy, from coal" = "hard coal" = "Coal, hard", where only the
         -- endpoints are flow or CF names. The fan-out must follow the closure
-        -- through that pivot - requiring every intermediate to be a flow or CF
+        -- through that pivot – requiring every intermediate to be a flow or CF
         -- name silently cut the whole coal family out of energy accounting.
         let synDB =
                 buildFromEdges
@@ -308,7 +308,7 @@ spec = do
     describe "directionExcludedCFs" $ do
         -- An unmapped CF whose name matches through the UNION synonym tables but
         -- not through its own direction's view was excluded by the direction
-        -- restriction alone - e.g. a parser defaulted the direction when the
+        -- restriction alone – e.g. a parser defaulted the direction when the
         -- method carried none. The loader surfaces these so the loss is
         -- distinguishable from a genuinely uncharacterized flow.
         let synDB = buildFromEdges [SynEdge "freshwater" "Water, unspecified natural origin" BridgeInput]
@@ -662,8 +662,8 @@ spec = do
         -- "groundwater, long-term" carries an explicit zero), so SimaPro
         -- subcompartment semantics apply: an implicit sub inherits the
         -- unspecified CF. The USEtox gate must therefore block only the
-        -- LONG-TERM groundwater fate - otherwise the method's explicit zero
-        -- would be bypassed via the CAS bridge - and never the immediate one.
+        -- LONG-TERM groundwater fate – otherwise the method's explicit zero
+        -- would be bypassed via the CAS bridge – and never the immediate one.
         cmap <- runIO $ do
             csv <- BL.readFile "data/compartments.csv"
             either (fail . ("compartments.csv: " <>)) pure (buildCompartmentMapFromCSV csv)
@@ -703,7 +703,7 @@ spec = do
             -- the same emissions. compartments.csv must map the immediate one
             -- to surface water (inherits the wildcard CF, like the SimaPro
             -- spelling) and the long-term one to "groundwater, long-term"
-            -- (explicit zero wins, CAS bridge blocked) - otherwise the same
+            -- (explicit zero wins, CAS bridge blocked) – otherwise the same
             -- emission scores differently depending on the source database.
             -- Uses the shipped CSV so the mapping itself is pinned.
             scoreVia cmap USEtoxFamily "Iron, ion" Nothing "ground-" `shouldReturn` 2108.5
@@ -766,8 +766,8 @@ spec = do
         -- Each row encodes a (flowUnit, cfUnit, qty) → expected mapping under a
         -- specific UnitConfig. Semantic groups: pass-through (units match, or no
         -- flow unit), refuse cross-dimension injection (→ 0), apply the factor
-        -- when both units are known, and - when the CF unit is a result
-        -- expression unknown to the UnitConfig - normalize the flow to its
+        -- when both units are known, and – when the CF unit is a result
+        -- expression unknown to the UnitConfig – normalize the flow to its
         -- canonical base unit (a kg flow is unchanged; a g flow scales to kg), or
         -- hard-fail to 0 when that dimension defines no canonical base.
         let cases =
@@ -953,7 +953,7 @@ spec = do
 
     describe "zeroedMatchedCFs (matched CF the flow's unit cannot reach)" $ do
         -- kg is a mass and m3 a volume: no conversion path between them, so a
-        -- kg-denominated CF matched by an m3 flow is refused and scores 0 -
+        -- kg-denominated CF matched by an m3 flow is refused and scores 0 –
         -- exactly the silent undercount this scan exists to surface.
         let cfg =
                 mkUnitConfig
@@ -1334,7 +1334,7 @@ spec = do
             mappings <- mapMethodFlows ctx method
             let expanded = expandSynonymMappings synDB (byName allFlows) mappings
                 ids = map (fmap (bfId . fst) . snd)
-            -- The bridge really does hand the excluded flow back - without this
+            -- The bridge really does hand the excluded flow back – without this
             -- the test below would pass on an expansion that never reached it.
             ids expanded `shouldSatisfy` elem (Just (bfId occBenthos))
             ids (dropExcludedMappings (filter isExclusionCF (methodFactors method)) expanded)

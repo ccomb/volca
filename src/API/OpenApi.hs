@@ -32,7 +32,7 @@ import qualified Version
 {- | Orphan schema instance forward declaration for the login request body.
 The real type lives in "API.Routes"; this is defined there and re-imported
 here would create a cycle. Instead, the instance is declared adjacent to
-the type in "API.Routes" - see 'instance ToSchema LoginRequest' there.
+the type in "API.Routes" – see 'instance ToSchema LoginRequest' there.
 -}
 
 -- Aeson Value: used for untyped JSON endpoints (logs, version, stats, hosting)
@@ -51,7 +51,7 @@ instance ToSchema Value where
 -- enum matching the lowercase wire codes; the records via Stripped).
 instance ToSchema DatabaseSetupInfo where declareNamedSchema = genericDeclareNamedSchema strippedSchemaOptions
 
--- API.Types - every record type uses strippedSchemaOptions so the generated
+-- API.Types – every record type uses strippedSchemaOptions so the generated
 -- OpenAPI spec matches the wire JSON keys produced by API.JsonOptions.stripLowerPrefix.
 -- ToSchema (SearchResults a) standalone-derived in API.Types via Stripped.
 -- ToSchema for ApiFlow, NodeType, EdgeType, FlowRole now derived next to
@@ -64,7 +64,7 @@ instance ToSchema DatabaseSetupInfo where declareNamedSchema = genericDeclareNam
 -- PerturbedEntry's custom schema moved to API.Types alongside its data decl.
 
 -- ToSchema for NativeActivityType lives alongside its ToJSON/FromJSON
--- siblings in src/API/Types.hs - moved out of this module so DerivingVia
+-- siblings in src/API/Types.hs – moved out of this module so DerivingVia
 -- clauses for record types that contain a NativeActivityType field
 -- (ActivitySummary, ActivityForAPI) can resolve the instance at API.Types
 -- compile time without forming a circular dependency on API.OpenApi.

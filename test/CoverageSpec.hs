@@ -4,7 +4,7 @@
 mappings, does it surface exactly the flows scored only through a name bridge,
 grouped under the name the method itself uses?
 
-The fixtures build the mapping tuples directly - @collectionBridges@ is a pure
+The fixtures build the mapping tuples directly – @collectionBridges@ is a pure
 fold over them, so no database or method tables are needed.
 -}
 module CoverageSpec (spec) where
@@ -76,7 +76,7 @@ spec = describe "Method.Coverage.collectionBridges" $ do
 
     it "excludes a flow bridged by one factor but exact-named by another" $ do
         -- The same flow name matches factor B by name, so an exact-name tool
-        -- would score it too - not a silent zero. Must not be reported.
+        -- would score it too – not a silent zero. Must not be reported.
         let cfA = cfNamed "Bromomethane" Nothing
             cfB = cfNamed "Methane, bromo-, Halon 1001" Nothing
             f = flowNamed 1 "Methane, bromo-, Halon 1001" Nothing

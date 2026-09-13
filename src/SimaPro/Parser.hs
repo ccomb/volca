@@ -286,8 +286,8 @@ data ParseAcc = ParseAcc
 -- Global parameter bundle
 -- ============================================================================
 
-{- | Parameters declared outside any single process block - database- and
-project-level Input/Calculated params - threaded into every block's evaluation
+{- | Parameters declared outside any single process block – database- and
+project-level Input/Calculated params – threaded into every block's evaluation
 environment. The 'Monoid' instance merges the params each parallel worker
 collected from its own chunk.
 -}
@@ -383,8 +383,8 @@ detectSection line = case BS8.strip line of
 {- | Classify a section header, resolving the two names a SimaPro file reuses
 for both a process section and a trailing substance-registry block. Inside a
 @Process@…@End@ pair the process meaning wins; in the file trailer (no open
-process) @Emissions to soil@ - and the registry-only @Raw materials@ /
-@Airborne emissions@ / @Waterborne emissions@ - introduce the substance
+process) @Emissions to soil@ – and the registry-only @Raw materials@ /
+@Airborne emissions@ / @Waterborne emissions@ – introduce the substance
 registry, a @name;unit;cas;comment@ list of every substance with its CAS.
 The trailer's @Final waste flows@ block collides too but is deliberately left
 to its process-section reading: every one of its rows leaves the CAS column
@@ -445,7 +445,7 @@ decodeBS = TE.decodeUtf8With TEE.lenientDecode
 cell holds anything else.
 
 The whole cell has to be the number. Reading it up to the first character that
-is not part of one used to turn @0,45+0,247+,067@ into 0.45 - a number of the
+is not part of one used to turn @0,45+0,247+,067@ into 0.45 – a number of the
 right order of magnitude, wrong by a third, indistinguishable from a real one
 downstream. An amount cell that is not a literal is an expression, and
 'resolveAmount' evaluates it; one that is neither is surfaced by
@@ -467,7 +467,7 @@ splitCSV delim bs =
     -- trailing CR makes cassava's incremental parser wait for the LF of a
     -- CRLF and fail with "not enough input" at end of line (observably, its
     -- success even varies with the optimization level), silently degrading
-    -- every CRLF row to the naive split below - which tears quoted fields
+    -- every CRLF row to the naive split below – which tears quoted fields
     -- apart. Strip it before parsing: it is line-terminator residue, never
     -- field data.
     let clean = BS8.dropWhileEnd (== '\r') bs
@@ -543,7 +543,7 @@ parseProductRow cfg line =
             _ -> Nothing
 
 {- | Check if a ByteString field is a valid expression (number, variable, or formula).
-Uses the Megaparsec expression parser syntactically - accepts any identifier without
+Uses the Megaparsec expression parser syntactically – accepts any identifier without
 needing parameter values. Waste type descriptions ("All waste types") fail to parse.
 -}
 isAllocationField :: SimaProConfig -> BS.ByteString -> Bool
@@ -842,7 +842,7 @@ generateFlowUUID name compartment =
 The inventory parser ('bioRowToExchange') and the method CF parser
 ('Method.ParserSimaPro') both feed flow UUIDs through 'generateFlowUUID'.
 They MUST agree on the compartment string or a CF will never match its
-inventory flow by UUID - the lookup falls through to the slower name-based
+inventory flow by UUID – the lookup falls through to the slower name-based
 cascade, and any CF whose canonical entry is keyed on a different medium is
 silently dropped.
 
@@ -878,11 +878,11 @@ generateUnitUUID unitName =
 
 {- | How a location was read out of a SimaPro name. (Not to be confused with
 'Types.LocationSource', which says whether an activity's location was declared
-at all - every reading here is an inferred one by that measure.)
+at all – every reading here is an inferred one by that measure.)
 
 A tag is a location the producer wrote down. A slash suffix is a guess made by
 cutting the name, and names end in a slash for reasons that have nothing to do
-with geography - in "Already packed - PP/PE", PE is a plastic, not Peru. So the
+with geography – in "Already packed - PP/PE", PE is a plastic, not Peru. So the
 ordering here says a tag beats a suffix, wherever each of the two sits.
 -}
 data NameReading
@@ -909,7 +909,7 @@ Handles three forms:
 The first two preserve the full name (the tag is informational); the WFLDB
 form strips at the slash because the geo code is a true suffix.
 
-Nothing when the name states no location - callers keep the name they passed in
+Nothing when the name states no location – callers keep the name they passed in
 rather than a shortened one.
 -}
 extractLocation :: Text -> Maybe Located
@@ -1041,7 +1041,7 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
     processReading = extractLocation pbName
 
     -- The Geography field, when the producer filled it in. It outranks anything
-    -- read out of a name, being the one place meant to hold a location - a name
+    -- read out of a name, being the one place meant to hold a location – a name
     -- reading is recorded as such below, for the quality report.
     statedLocation = mfilter ((/= "unspecified") . T.toLower) (nonEmptyText pbLocation)
 
@@ -1536,12 +1536,12 @@ parseWorkerLines cfg ls =
             }
 
 {- | Fill empty biosphere-flow CAS from the @(name, CAS)@ pairs a SimaPro
-export lists in its trailing substance registry. Holes only - reuses
+export lists in its trailing substance registry. Holes only – reuses
 'fillBioFlowCAS', so a CAS the flow already carries is never overwritten. Name
 and CAS are canonicalized the same way the runtime registry bridge is
 ('normalizeName' / 'normalizeCAS'), so a filled CAS keys the same as one the
 method side resolved. A registry binding one name to two different CAS follows
-the runtime registry's rule - the first wins - and the conflicts come back for
+the runtime registry's rule – the first wins – and the conflicts come back for
 the caller to report. A no-op when the file had no registry.
 -}
 fillCASFromRegistry :: [(Text, Text)] -> BioFlowDB -> (BioFlowDB, [(NormName, (CASNumber, CASNumber))])
@@ -1636,7 +1636,7 @@ parseSimaProCSV unitCfg path = do
 
     reportProgress Info $ printf "Parsing with %d parallel workers" numWorkers
 
-    -- Parse chunks in parallel - each worker folds its contiguous range
+    -- Parse chunks in parallel – each worker folds its contiguous range
     results <- mapConcurrently (evaluate . force . parseWorkerLines cfg) workerChunks
     let allBlocks = concatMap wrBlocks results
         globalParams = foldMap wrParams results
@@ -1668,7 +1668,7 @@ parseSimaProCSV unitCfg path = do
         allWasteFlows = concatMap (\(_, _, _, wf, _) -> wf) converted
         allUnits = concatMap (\(_, _, _, _, u) -> u) converted
 
-    -- Build deduplicated maps - UUID disjointness across kinds is guaranteed
+    -- Build deduplicated maps – UUID disjointness across kinds is guaranteed
     -- by construction: a technosphere flow hashes with an empty compartment, an
     -- elementary one with the compartment of the section it came from.
     let unitDB = M.fromList [(unitId u, u) | u <- allUnits]

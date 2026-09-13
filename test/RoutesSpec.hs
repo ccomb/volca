@@ -228,7 +228,7 @@ routeSpecs = do
 
     describe "version + tooling dumps" $ do
         it "GET /api/v1/version returns a JSON object carrying a 'version' field" $ \b -> do
-            -- Body must be a JSON object with the documented 'version' key -
+            -- Body must be a JSON object with the documented 'version' key –
             -- anything else (HTML error page, empty body, wrong wrapper) is a
             -- regression that 'body length > 0' would silently accept.
             resp <- doGet b "/api/v1/version"
@@ -264,7 +264,7 @@ routeSpecs = do
         it "GET /api/v1/openapi.json returns an OpenAPI 3 document with 'paths'" $ \b -> do
             -- The OpenAPI spec is served at /api/v1/openapi.json (not /openapi).
             -- We check the actual contract (openapi+paths keys), not the byte
-            -- length - Swagger UI would break in the same way a missing 'paths'
+            -- length – Swagger UI would break in the same way a missing 'paths'
             -- would, while a 'body length > 100' assertion would pass on any
             -- random JSON-shaped payload.
             resp <- doGet b "/api/v1/openapi.json"
@@ -299,7 +299,7 @@ routeSpecs = do
     describe "method-not-allowed" $ do
         it "GET /api/v1/db/X returns 405 (only DELETE is defined on /db/{name})" $ \b -> do
             -- Documents the current API surface: /db/{name} accepts DELETE,
-            -- not GET - so Servant rightly answers 405 for GET.
+            -- not GET – so Servant rightly answers 405 for GET.
             resp <- doGet b "/api/v1/db/no-such-db"
             statusCode (responseStatus resp) `shouldBe` 405
 

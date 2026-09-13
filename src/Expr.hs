@@ -123,7 +123,7 @@ pUnary env =
 {- | Exponentiation, right-associative and binding tighter than @*@ and @/@.
 
 The exponent goes through 'pUnary' rather than straight back to 'pPower', so it
-may carry a sign. SimaPro writes scale factors that way - @1*10^-3*50@ - and
+may carry a sign. SimaPro writes scale factors that way – @1*10^-3*50@ – and
 without it the @-@ met 'pPrimary', which knows numbers but not signs, and the
 whole expression failed.
 -}
@@ -147,7 +147,7 @@ The integer part is optional. SimaPro exports drop it: Agribalyse writes the
 cereal fungicide mix as @0,45+0,247+,067@, whose last term normalizes to
 @.067@. Megaparsec's 'L.float' requires a digit before the point, so one such
 term used to fail the /whole/ expression, and the caller then fell back to
-reading the leading number - 0.45 where the file says 0.764.
+reading the leading number – 0.45 where the file says 0.764.
 
 Handing the token to 'readAmount' also makes a literal inside an expression
 round exactly as the same literal does on its own.
@@ -210,7 +210,7 @@ pFunc2 name f env = try $ do
     pure (f x y)
 
 {- | Check if text is syntactically a valid expression (number, variable, or formula).
-Does NOT evaluate - accepts any variable name without needing an environment.
+Does NOT evaluate – accepts any variable name without needing an environment.
 Used to detect allocation fields vs waste type descriptions in SimaPro CSV.
 -}
 isExpression :: Dialect -> Text -> Bool

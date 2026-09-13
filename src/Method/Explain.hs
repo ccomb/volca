@@ -313,7 +313,7 @@ provenanceSentence provenance = case bpStrategy provenance of
 {- | The factor as applied, so the sentence stands on its own. The bridge says
 which side of the factor its unit sits on: usually the unit is the basis the
 factor is per ("per kg"), but under 'NormalizedToBase' it is a result
-expression ("kg CO2 eq") - what the factor yields per base unit - and
+expression ("kg CO2 eq") – what the factor yields per base unit – and
 "per kg CO2 eq" would read the factor backwards.
 -}
 factorSentence :: UnitBridge -> CFMatch -> Text

@@ -60,7 +60,7 @@ filterSpec = describe "Database.filterByName" $ do
 
     it "keeps everything the words reach once the punctuation is dropped" $
         -- No name carries "carbon dioxide fossil" as typed, so the closest
-        -- tier is the one carrying every word - both of them, the caller
+        -- tier is the one carrying every word – both of them, the caller
         -- reading the two names it gets back.
         kept "carbon dioxide fossil" carbonFlows
             `shouldBe` ["Carbon dioxide, fossil", "Carbon dioxide, non-fossil, resource correction"]
@@ -237,7 +237,7 @@ sortByName =
         }
 
 {- | The seven Agribalyse 3.2 flows, in the UUID order the database yields
-them - deliberately not the order they should come out in.
+them – deliberately not the order they should come out in.
 -}
 deltamethrins :: [FlowKind]
 deltamethrins =

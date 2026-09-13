@@ -3,13 +3,13 @@
 {- | Offline lint of the curated flow-name registry (@data/flows.csv@).
 
 The registry asserts substance identities that the LCIA matcher applies
-blindly, so these checks constrain what the file may SAY, at commit time -
+blindly, so these checks constrain what the file may SAY, at commit time –
 a bad bridge fails CI here instead of silently corrupting scores:
 
 * every equivalence class stays plausibly small (a large closure means an
-  ambiguous bridge fused unrelated substances - the junk-hub failure mode);
+  ambiguous bridge fused unrelated substances – the junk-hub failure mode);
 * no class fuses distinct carbon-origin qualifiers (fossil, biogenic,
-  land-use-change) - those are different flows with different CFs by design;
+  land-use-change) – those are different flows with different CFs by design;
 * CAS metadata, where provided, is well-formed (check digit) and consistent
   within a class (one class = one substance = one CAS).
 -}
@@ -64,7 +64,7 @@ spec = do
                 -- variant's own calorific value is parsed from its name at
                 -- conversion time, so sharing the family class is safe. Coal is
                 -- the one family split in two (hard/brown), so each variant must
-                -- land in the right half - and only there.
+                -- land in the right half – and only there.
                 it "bridges every parametric coal variant into its family's energy chain" $ do
                     let hard = classOf "Energy, from coal"
                         brown = classOf "Energy, from coal, brown"

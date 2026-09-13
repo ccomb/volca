@@ -2,7 +2,7 @@
 against a given LCIA method collection.
 
 A score tells you a flow is characterized; it does not tell you /how/ it was
-reached. VoLCA's matcher bridges a name difference - it will score a flow named
+reached. VoLCA's matcher bridges a name difference – it will score a flow named
 @"Methane, bromo-, Halon 1001"@ off a factor the method lists under
 @"Bromomethane"@, because a synonym or CAS number links the two. A tool that
 matches factors by their exact name has no such bridge: it scores that flow as
@@ -13,8 +13,8 @@ through a name bridge, grouped by the factor they bridge to (the name the
 method itself uses, i.e. the rename target). It is the coverage a raw score
 hides, seen from the side of an exact-name consumer.
 
-The heavy lifting - cascading a factor to a flow and recording which strategy
-won - already happens in 'Method.Mapping'. This module is a pure fold over that
+The heavy lifting – cascading a factor to a flow and recording which strategy
+won – already happens in 'Method.Mapping'. This module is a pure fold over that
 result: partition the reached flows into exact-name and bridge-only, keep the
 bridge-only ones, group them.
 -}
@@ -49,7 +49,7 @@ data CoverageReport = CoverageReport
 
 {- | One collection's coverage of the database. 'cbCharacterizedFlows' of
 'cbTotalFlows' is the honest reach (name matches /and/ bridges); 'cbGroups' is
-the subset reached only through a bridge - empty means every scored flow
+the subset reached only through a bridge – empty means every scored flow
 matches by its exact name.
 -}
 data CollectionBridges = CollectionBridges
@@ -61,7 +61,7 @@ data CollectionBridges = CollectionBridges
     deriving (Show, Eq)
 
 {- | The database flows that bridge to one factor. 'bgMethodName' is the name
-the method carries for the substance - the name each bridged flow should be
+the method carries for the substance – the name each bridged flow should be
 renamed to for the database to score in an exact-name tool.
 -}
 data BridgeGroup = BridgeGroup

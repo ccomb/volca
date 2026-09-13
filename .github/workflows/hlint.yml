@@ -1,6 +1,6 @@
 name: HLint
 
-# Gate PRs on hlint. Fast, build-independent - runs in parallel with the heavy
+# Gate PRs on hlint. Fast, build-independent – runs in parallel with the heavy
 # build matrix, mirroring the Format workflow. hlint auto-discovers .hlint.yaml
 # at the repo root, so the baselined exceptions there apply. The version comes
 # from versions.env so a new hlint release can't silently redden CI.

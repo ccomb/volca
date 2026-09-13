@@ -204,7 +204,7 @@ spec = do
             map snd results `shouldBe` [Right 0.0, Right 0.0]
 
         it "inventory UUIDs absent from both broadcast and flowDB contribute 0" $ do
-            -- A UUID that exists nowhere - no broadcast row, no flowDB entry -
+            -- A UUID that exists nowhere – no broadcast row, no flowDB entry –
             -- still scores zero because the per-method cascade fallback also
             -- misses it (nothing for 'lookupCascadeCF' to anchor against).
             let fidIn = mkUuid 100
@@ -235,7 +235,7 @@ spec = do
             -- were not in the root flowDB at 'fillBroadcastVector' time, so
             -- they have no row in 'btMat' and miss 'btUuidIndex'.
             -- The CF table itself ('mtUuidCF', built from the full mapping
-            -- set) still resolves them - that's the per-method 'fastScore'
+            -- set) still resolves them – that's the per-method 'fastScore'
             -- fallback ('lookupCascadeCF'). Before the cascade fallback in
             -- the batched walker, those flows silently scored zero. This
             -- test pins the equivalence.
@@ -343,7 +343,7 @@ spec = do
         -- True and forced every method (regional or not) down the slow
         -- per-method walk. The partition restores the batched matvec for
         -- the non-regional half while keeping per-method dispatch for the
-        -- regional half - and crucially, the merged result list must come
+        -- regional half – and crucially, the merged result list must come
         -- back in caller order, not partition order.
         it "merges batched + regional scores in caller order, bit-identical to mono-method" $ do
             let fid1 = mkUuid 100
@@ -455,12 +455,12 @@ spec = do
                     ]
                 tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
                 regio = mtRegionalizedCF tables
-            -- Pre-fix: this was (0.0, "kg") - clobbered by cfOcean. The
+            -- Pre-fix: this was (0.0, "kg") – clobbered by cfOcean. The
             -- filter drops (cfOcean, flowUns) so the wildcard cfUns survives.
             M.lookup (fidUns, Location "FR") regio `shouldBe` Just (CF 3.0 (CFUnit "kg"))
             -- The ocean flow legitimately receives the ocean CF (and the
             -- wildcard cfUns also matches, but cfOcean writes last so its
-            -- explicit zero stays - that's the intended modeller behaviour).
+            -- explicit zero stays – that's the intended modeller behaviour).
             M.lookup (fidOcean, Location "FR") regio `shouldBe` Just (CF 0.0 (CFUnit "kg"))
 
         it "treats CFs with empty / (unspecified) subcomp as wildcards" $ do
@@ -529,8 +529,8 @@ spec = do
         it "does not let a wildcard CF reach a sea/ocean flow (foreign medium)" $ do
             -- A freshwater CF must not characterize a sea-water release via the
             -- regionalized wildcard. The method says so itself: EF writes a
-            -- sea-water factor of its own, and that line - not the freshwater
-            -- one - is what a release to the sea gets.
+            -- sea-water factor of its own, and that line – not the freshwater
+            -- one – is what a release to the sea gets.
             let fid = mkUuid 130
                 uidKg = mkUuid 200
                 flowOcean =
@@ -579,7 +579,7 @@ spec = do
         it "does not let a wildcard CF reach a long-term groundwater flow for a USEtox method" $ do
             -- The USEtox gate is scoped to LONG-TERM groundwater: EF methods
             -- zero "groundwater, long-term" explicitly, so the surface CF must
-            -- not sneak back in via the regionalized wildcard - same rule as
+            -- not sneak back in via the regionalized wildcard – same rule as
             -- the non-regional cascade gate. An IMMEDIATE groundwater emission
             -- inherits the unspecified CF (SimaPro subcompartment semantics;
             -- EF exports leave it implicit on purpose). A non-USEtox (e.g.

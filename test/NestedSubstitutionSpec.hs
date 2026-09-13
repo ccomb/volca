@@ -49,7 +49,7 @@ spec = do
         it "skips subs whose consumer is qualified to another DB" $ do
             -- Regression gate: the per-level filter must not touch subs that
             -- belong to a different level. This is the mechanism that makes
-            -- nested substitutions work - applying a sub at the wrong level
+            -- nested substitutions work – applying a sub at the wrong level
             -- would be silent miscounting.
             db <- loadSampleDatabase "SAMPLE.min3"
             solver <- mkSolver db "root"
@@ -111,7 +111,7 @@ spec = do
         it "skips bare consumer subs when walker is in a dep DB" $ do
             -- Regression gate: bare 'subConsumer' means root DB only (per the
             -- Substitution docstring). Before this fix, the per-level filter
-            -- used 'thisDbName' as the parseSubRef default - so bare consumers
+            -- used 'thisDbName' as the parseSubRef default – so bare consumers
             -- were treated as living in EVERY DB the walker visited, and the
             -- subsequent resolve in a dep DB failed with a spurious not-found.
             db <- loadSampleDatabase "SAMPLE.min3"
@@ -334,7 +334,7 @@ mkSolver db name =
 dep-level Case-A substitution. Finds the first off-diagonal technosphere
 entry (consumer != supplier) and a third distinct activity to act as the
 replacement. Tests fail loudly (via undefined-less error-out) if the
-sample DB doesn't have one - but SAMPLE.min3 / SAMPLE.min4 both do.
+sample DB doesn't have one – but SAMPLE.min3 / SAMPLE.min4 both do.
 -}
 pickDepSubPids :: Database -> (ProcessId, ProcessId, ProcessId)
 pickDepSubPids = pickSubPids

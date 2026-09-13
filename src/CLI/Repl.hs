@@ -130,7 +130,7 @@ runRepl mgr rc globalOpts cfgFile = do
 
     cleanupServer _stateRef = pure ()
 
--- Server cleanup is handled by idle timeout - the server shuts itself down
+-- Server cleanup is handled by idle timeout – the server shuts itself down
 -- after replIdleTimeoutSeconds of inactivity. This keeps the server warm
 -- if the user opens another REPL session quickly.
 
@@ -152,7 +152,7 @@ ensureServer mgr rc globalOpts cfgFile = do
             putStrLn " ready."
             return (Just ph)
 
--- | Ping the server (try without auth - any HTTP response means it's up)
+-- | Ping the server (try without auth – any HTTP response means it's up)
 isServerAlive :: Manager -> RemoteConfig -> IO Bool
 isServerAlive mgr rc = do
     let noAuth = rc{rcAuth = Nothing}

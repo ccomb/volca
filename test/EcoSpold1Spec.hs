@@ -597,7 +597,7 @@ spec = do
             generateUnitUUID "kg" `shouldNotBe` generateUnitUUID "m3"
 
     -- -----------------------------------------------------------------------
-    -- parseWithXeno - parsing inline XML
+    -- parseWithXeno – parsing inline XML
     -- -----------------------------------------------------------------------
     describe "parseWithXeno" $ do
         it "returns Left for invalid XML" $
@@ -725,7 +725,7 @@ spec = do
                 Right ParsedDataset{pdWarnings = warns} -> warns `shouldBe` []
 
     -- -----------------------------------------------------------------------
-    -- parseAllWithXeno - multi-dataset
+    -- parseAllWithXeno – multi-dataset
     -- -----------------------------------------------------------------------
     describe "parseAllWithXeno" $ do
         it "returns Left for invalid XML" $

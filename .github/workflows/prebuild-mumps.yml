@@ -4,7 +4,7 @@ name: Prebuild MUMPS
 # (MUMPS_VERSION, MUMPS_PREBUILT_REVISION) tuple and attaches the result
 # to a GH Release tagged `mumps-prebuilt-<version>-r<rev>`. Subsequent
 # normal CI runs (`_build-matrix.yml`) then download from that release
-# instead of compiling MUMPS from source - eliminating the 8–17 minute
+# instead of compiling MUMPS from source – eliminating the 8–17 minute
 # cold-cache MUMPS compile from every PR/release run.
 #
 # When to trigger:
@@ -13,7 +13,7 @@ name: Prebuild MUMPS
 #     so the new build replaces the previous cached one)
 #
 # The release tag is derived from versions.env, so the same revision
-# cannot be uploaded twice - re-running on an existing tag fails fast
+# cannot be uploaded twice – re-running on an existing tag fails fast
 # in the publish job.
 
 on:
@@ -61,7 +61,7 @@ jobs:
           - name: macos-arm64
             runner: macos-15
             os: macos
-          # Intel macOS - GitHub's last x86_64 hosted label (retires Aug 2027).
+          # Intel macOS – GitHub's last x86_64 hosted label (retires Aug 2027).
           - name: macos-intel
             runner: macos-15-intel
             os: macos
@@ -84,7 +84,7 @@ jobs:
         with:
           matrix-os: ${{ matrix.os }}
           matrix-name: ${{ matrix.name }}
-          # ghc-version='' skips every Cabal/GHC/OpenBLAS step - we
+          # ghc-version='' skips every Cabal/GHC/OpenBLAS step – we
           # only build the MUMPS solver here, never invoke cabal.
 
       - name: Read pinned MUMPS version
@@ -98,7 +98,7 @@ jobs:
         env:
           MUMPS_VERSION: ${{ steps.versions.outputs.mumps }}
         run: |
-          # Per-platform BLAS hints - mirror what build.sh chooses for the
+          # Per-platform BLAS hints – mirror what build.sh chooses for the
           # source-build fallback path so the prebuilt archives are bit-for-bit
           # what an in-CI source build would produce.
           if [[ "$RUNNER_OS" == "Windows" ]]; then

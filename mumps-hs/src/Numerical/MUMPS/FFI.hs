@@ -15,7 +15,7 @@ module Numerical.MUMPS.FFI (
 import Foreign.C.Types (CDouble (..), CInt (..))
 import Foreign.Ptr (Ptr)
 
--- | Opaque C struct - never allocated from Haskell
+-- | Opaque C struct – never allocated from Haskell
 data MumpsSolverC
 
 foreign import ccall unsafe "mumps_create"

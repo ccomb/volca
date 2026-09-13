@@ -54,7 +54,7 @@ spec = do
         -- maxDepth limiting
         -- -----------------------------------------------------------------------
         describe "maxDepth" $ do
-            it "depth=1 - Y becomes a TreeLoop (depth limit)" $ do
+            it "depth=1 – Y becomes a TreeLoop (depth limit)" $ do
                 tree <- treeFromSample "SAMPLE.min3" sampleMin3ActivityX 1
                 case tree of
                     TreeNode _ _ [TreeChild{childSubtree = child}] ->
@@ -63,13 +63,13 @@ spec = do
                             _ -> expectationFailure "Expected TreeLoop for Y at depth 1"
                     _ -> expectationFailure "Expected TreeNode for X"
 
-            it "depth=0 - root X itself is a TreeLoop" $ do
+            it "depth=0 – root X itself is a TreeLoop" $ do
                 tree <- treeFromSample "SAMPLE.min3" sampleMin3ActivityX 0
                 case tree of
                     TreeLoop{} -> return ()
                     _ -> expectationFailure "Expected TreeLoop for X at maxDepth=0"
 
-            it "depth=2 - Z becomes a TreeLoop at depth 2" $ do
+            it "depth=2 – Z becomes a TreeLoop at depth 2" $ do
                 tree <- treeFromSample "SAMPLE.min3" sampleMin3ActivityX 2
                 case tree of
                     TreeNode _ _ [TreeChild{childSubtree = TreeNode _ _ [TreeChild{childSubtree = leaf}]}] ->

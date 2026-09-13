@@ -22,7 +22,7 @@ outside the 0-100% range, and amounts too small to have been measured.
 
 Every check is a pure scan over a 'SimpleDatabase', so the report is
 identical on a staged database (parsed, matrices not built) and on a loaded
-one - a maker can read it before committing to a build.
+one – a maker can read it before committing to a build.
 -}
 module Database.Quality (
     QualityOffender (..),
@@ -87,7 +87,7 @@ data QualityOffender = QualityOffender
     }
     deriving (Show, Eq)
 
-{- | The outcome of one check. Offenders are sorted worst-first and complete -
+{- | The outcome of one check. Offenders are sorted worst-first and complete –
 capping for display happens at the wire boundary, not here.
 -}
 data QualityCheck = QualityCheck
@@ -100,7 +100,7 @@ data QualityCheck = QualityCheck
     deriving (Show, Eq)
 
 {- | Soundness report of a database: one named field per check. Named fields
-rather than a list keyed by codes - the field name /is/ the check's identity,
+rather than a list keyed by codes – the field name /is/ the check's identity,
 so neither this module nor its consumers can misspell one.
 -}
 data QualityReport = QualityReport
@@ -186,7 +186,7 @@ formatAmount :: Double -> Text
 formatAmount x = T.pack (showGFloat (Just 3) x "")
 
 {- | True when @name@ begins with @prefix@ and the prefix ends on a word
-boundary - the next character is absent or non-alphanumeric. So @"COD"@ matches
+boundary – the next character is absent or non-alphanumeric. So @"COD"@ matches
 @"COD, Chemical Oxygen Demand"@ but not a longer token that merely starts with
 the same letters.
 -}
@@ -226,7 +226,7 @@ physicalBalanceTolerance = 0.01
 A hydrogen atom weighs 1.7e-27 kg, so a mass under 1e-27 is less than one atom;
 the same figure in joules sits eight orders below a single visible photon, and a
 count of items is quantised at one. Whatever the unit, nothing is measured this
-small - an amount under the floor is a residue of computation (an underflow, a
+small – an amount under the floor is a residue of computation (an underflow, a
 conversion through a zero, an allocation of nothing) wearing the costume of
 data. Set far below the smallest real trace amounts in any inventory, so the
 check accuses only what no instrument could have produced.
@@ -307,7 +307,7 @@ qualityReport dbName db =
     allocationOffenders = concatMap allocationGroupOffenders (M.elems allocationGroups)
 
     -- A block whose every coproduct carries a percentage is judged on its sum.
-    -- A block where only some do is its own defect - the sum means nothing
+    -- A block where only some do is its own defect – the sum means nothing
     -- until the missing percentages are restored, so reporting it as a bad sum
     -- would misdiagnose. A block where none do is simply unallocated: nothing
     -- to judge.
@@ -341,7 +341,7 @@ qualityReport dbName db =
 
     -- A single allocation factor outside 0–100% is wrong on its own terms: a
     -- coproduct cannot take a negative share or more than the whole. Distinct
-    -- from the sums check, which judges the block total - a factor can be out
+    -- from the sums check, which judges the block total – a factor can be out
     -- of range while its block still happens to sum to 100. NaN is left to the
     -- sums check, which already reports it as a bad total.
     allocationRangeOffenders =
@@ -362,7 +362,7 @@ qualityReport dbName db =
         ]
 
     -- Same name, same place, same product, twice: one of them is stale. Entries
-    -- without exactly one reference are skipped - check 1 already reports them,
+    -- without exactly one reference are skipped – check 1 already reports them,
     -- and grouping them by a missing product would invent duplicates.
     referenceProductName act = case filter exchangeIsReference (exchanges act) of
         [ex] -> Just (fromMaybe (UUID.toText (exchangeFlowId ex)) (techOrWasteFlowName (exchangeFlowId ex)))
@@ -448,7 +448,7 @@ qualityReport dbName db =
     -- Not a rounding complaint: at this magnitude the value is a computational
     -- residue that reads as data, and it survives every copy of the dataset
     -- until someone looks. An ordinary exchange this small distorts nothing in
-    -- a score - it just isn't true - hence Warning. A reference exchange is
+    -- a score – it just isn't true – hence Warning. A reference exchange is
     -- what normalization divides by: dividing by ~1e-37 scales every other
     -- amount in the process by its reciprocal (a negative one flips their
     -- signs too), the near-zero cousin of the zero-reference case above,
@@ -476,8 +476,8 @@ qualityReport dbName db =
 
     -- The parse-time mathematicalRelation check (EcoSpold2): formulas that
     -- re-evaluate away from the amount they document. Expected in system-model
-    -- exports - allocation rescales amounts without updating the copied
-    -- formulas - hence Info: the stored amounts stay authoritative, this only
+    -- exports – allocation rescales amounts without updating the copied
+    -- formulas – hence Info: the stored amounts stay authoritative, this only
     -- tells a maker where their own formulas and amounts drifted apart.
     -- Datasets whose formulas merely could not be evaluated are not findings;
     -- 'False' applicability means no dataset carried a formula at all.
@@ -499,7 +499,7 @@ qualityReport dbName db =
                     else ""
                )
 
-    -- Incomplete rather than wrong, hence Info - except a missing location or an
+    -- Incomplete rather than wrong, hence Info – except a missing location or an
     -- unknown unit, which change how the entry links and converts.
     metadataOffenders =
         concat
@@ -520,7 +520,7 @@ qualityReport dbName db =
     -- of entire databases, so their geography survives only in names like
     -- "… {FR}"; an EcoSpold dataset with no geography is filled in with "GLO".
     -- Both are usable and neither was declared, and downstream the two are the
-    -- same text - hence Info, and hence a count: a maker reads it before
+    -- same text – hence Info, and hence a count: a maker reads it before
     -- treating the geography as source data.
     geographyOffenders =
         [ offender InfoSev key act Nothing detail
@@ -535,7 +535,7 @@ qualityReport dbName db =
             | T.null (T.strip loc) -> Just "the source declares no geography"
             | otherwise -> Just ("the source declares no geography; \"" <> loc <> "\" stands in for it")
 
-    -- Names that only differ beyond SimaPro's cap become one name on export -
+    -- Names that only differ beyond SimaPro's cap become one name on export –
     -- the over-grouping the allocation check above tolerates at parse time
     -- turns into data loss on the way out. One finding per distinct name, each
     -- anchored to one of its entries, so every colliding name stays navigable.
@@ -559,7 +559,7 @@ qualityReport dbName db =
         ]
 
     -- Pedigree scores travel on the data lines of formats that publish them
-    -- (SimaPro today). A database without a single one has nothing to judge -
+    -- (SimaPro today). A database without a single one has nothing to judge –
     -- flagging every exchange of a format that can't carry them would be
     -- noise, not a finding. Reference exchanges are definitional rather than
     -- measured, so they are not counted.
@@ -578,7 +578,7 @@ qualityReport dbName db =
         ]
 
     -- A product is in use when some data line takes it in: an ordinary
-    -- technosphere input, or a waste line on either side - a producer's
+    -- technosphere input, or a waste line on either side – a producer's
     -- waste output is exactly what exercises a treatment's reference input.
     -- Product lines are production and an avoided product is a substitution, not use;
     -- reference lines define their own entry. Cross-database consumers are
@@ -638,7 +638,7 @@ qualityReport dbName db =
     -- Land transformation is conserved: a parcel changed into one use was
     -- changed out of another, so within an activity the "Transformation, to …"
     -- areas must match the "Transformation, from …" areas. A gap means one side
-    -- was dropped or mistyped. Compared per unit - only same-unit areas add -
+    -- was dropped or mistyped. Compared per unit – only same-unit areas add –
     -- though in practice these flows are all m². A database with no such flow
     -- has nothing to judge.
     landBalanceApplicable = not (all (M.null . transformationByUnit) acts)
@@ -679,7 +679,7 @@ qualityReport dbName db =
     -- dissolved organic carbon a fraction of the total: BOD5 ≤ COD and
     -- DOC ≤ TOC, always. A reversed pair is a measurement or transcription
     -- error, not a modelling choice. Compared only where both members are
-    -- present - a lone measure has nothing to be out of order with. These
+    -- present – a lone measure has nothing to be out of order with. These
     -- flows are reported in kilograms across every format, so the per-activity
     -- sums are directly comparable.
     oxygenApplicable = any (any (maybe False isOxygenName . bioFlowName . exchangeFlowId) . exchanges) acts
@@ -692,14 +692,14 @@ qualityReport dbName db =
         , detail <- oxygenViolations act
         ]
     oxygenViolations act =
-        [ "BOD5 (" <> formatAmount bod <> ") exceeds COD (" <> formatAmount cod <> ") in this entry - the biological oxygen demand cannot exceed the chemical"
+        [ "BOD5 (" <> formatAmount bod <> ") exceeds COD (" <> formatAmount cod <> ") in this entry – the biological oxygen demand cannot exceed the chemical"
         | let bod = oxygenSum "BOD5" act
         , let cod = oxygenSum "COD" act
         , bod > 0
         , cod > 0
         , bod - cod > physicalBalanceTolerance * cod
         ]
-            <> [ "DOC (" <> formatAmount doc <> ") exceeds TOC (" <> formatAmount toc <> ") in this entry - the dissolved organic carbon cannot exceed the total"
+            <> [ "DOC (" <> formatAmount doc <> ") exceeds TOC (" <> formatAmount toc <> ") in this entry – the dissolved organic carbon cannot exceed the total"
                | let doc = oxygenSum "DOC" act
                , let toc = oxygenSum "TOC" act
                , doc > 0
@@ -711,7 +711,7 @@ qualityReport dbName db =
     -- and breaks the name→CAS bridge that matches flows across databases. One
     -- finding per distinct flow, anchored to the lowest-addressed entry that
     -- uses it so it stays navigable. Flows the registry lists but no activity
-    -- uses are inert and left out - the report scans what activities carry.
+    -- uses are inert and left out – the report scans what activities carry.
     allFlowCas =
         [(tfId f, tfName f, cas) | f <- M.elems (sdbTechFlows db), Just cas <- [tfCAS f]]
             <> [(bfId f, bfName f, cas) | f <- M.elems (sdbBioFlows db), Just cas <- [bfCAS f]]
