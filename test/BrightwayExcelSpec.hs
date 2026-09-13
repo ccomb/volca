@@ -176,9 +176,7 @@ spec = describe "BrightwayExcel.Parser" $ do
                     Left err -> expectationFailure (T.unpack err)
                     Right db -> do
                         let links =
-                                mapMaybe
-                                    inputLink
-                                    (concatMap exchanges (M.elems (sdbActivities db)))
+                                concatMap (mapMaybe inputLink . exchanges) (M.elems (sdbActivities db))
                         -- Widget consumes the file's own "electricity, high voltage";
                         -- the name-based pass must resolve that supplier.
                         any (/= UUID.nil) links `shouldBe` True
