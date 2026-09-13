@@ -203,7 +203,6 @@
   evaluated: it is written in Python, which no evaluator here reads, and reading
   it in another language would be wrong rather than incomplete. Each activity
   now warns once, with the number of its rows that carry one.
-- A SimaPro formula now stops at `//`, the way SimaPro itself stops there.
 - An extracted energy carrier whose name states its energy content is now
   characterized by what the method charges for a unit of energy, and no longer
   by the factor of whichever resource shares its first word. A method file that
@@ -219,6 +218,7 @@
   method whose energy lines disagree is ambiguous and lends nothing either. The
   explanation of such a factor used to promise a price per unit of energy in one
   sentence and print a factor per kilo in the next, which is what let this stand.
+- A SimaPro formula now stops at `//`, the way SimaPro itself stops there.
   SimaPro is a Delphi program and its formula parser keeps Pascal's line
   comment, so `weight_g//yield1/yield2` is the weight and the two yields are a
   note. The reader here refused the whole formula instead: the parameter never

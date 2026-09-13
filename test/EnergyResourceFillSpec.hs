@@ -38,6 +38,10 @@ resourceCFIn unit name val =
 resourceCF :: Text -> Double -> MethodCF
 resourceCF = resourceCFIn "MJ"
 
+-- A method line for an emission, written per `unit`.
+emissionCFIn :: Text -> Text -> Double -> MethodCF
+emissionCFIn unit name val = (resourceCFIn unit name val){mcfCompartment = Just (Compartment "air" "" "")}
+
 mkFlowIn :: Medium -> Integer -> Text -> BiosphereFlow
 mkFlowIn medium i name =
     BiosphereFlow
@@ -82,6 +86,13 @@ so this factor belongs to that substance and to no other.
 byTheMassTables :: MethodTables
 byTheMassTables = tablesOf M.empty [resourceCFIn "kg" "Uranium" 560000.0]
 
+{- | An indicator of waste heat released: joules, but on the emission side. It
+says what a joule leaving the system counts as, never what taking one out of
+the ground costs.
+-}
+heatReleasedTables :: MethodTables
+heatReleasedTables = tablesOf coalDensity [emissionCFIn "MJ" "Heat, waste" 1.0]
+
 borrowedBy :: MethodTables -> Text -> Maybe Double
 borrowedBy tables flowName =
     fmap cfValue (lookupCFForFlow tables (mkUUID 99) (Just (mkFlow 99 flowName)))
@@ -114,6 +125,8 @@ spec = do
             borrowedBy disagreeingTables "Coal, 18 MJ per kg" `shouldBe` Nothing
         it "is nothing when the method prices its carriers by the mass, not by the energy" $
             borrowedBy byTheMassTables "Uranium ore, 1.11 GJ per kg" `shouldBe` Nothing
+        it "is nothing when the method's joules are emitted, not extracted" $
+            borrowedBy heatReleasedTables "Coal, 18 MJ per kg" `shouldBe` Nothing
         it "is nothing for a name that states no energy content" $
             borrowFor coalDensity "Water, per capita" `shouldBe` Nothing
         it "is nothing for an emission: only an extracted carrier is one" $

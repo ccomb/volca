@@ -863,9 +863,11 @@ data MethodTables = MethodTables
     canonical form. Empty map = identity, no normalization.
     -}
     , mtEnergyPrice :: !EnergyPrice
-    {- ^ What this method charges for one unit of energy. The JRC's fossil
-    method is six lines, all @1@ per MJ; the SimaPro adaptation of the same
-    method writes six @"Energy, from …"@ lines, also all @1@ per MJ.
+    {- ^ What this method charges for one unit of energy taken out of the
+    ground. An ILCD fossil-resource method states it on the carriers themselves,
+    declared in MJ; a SimaPro adaptation of the same method states it on
+    @"Energy, from …"@ lines. Both write @1@ per MJ, an indicator of primary
+    energy counting the joule it finds.
 
     It is the whole of what a density-suffixed flow needs: its name states its
     energy content, the method states what a unit of energy costs, and the
@@ -1419,27 +1421,57 @@ data EnergyPrice
       EnergyPriced !TableEntry
     deriving (Eq, Show)
 
-{- | What the method charges for one unit of energy: the value its lines written
-in a joule unit agree on ('mtEnergyPrice').
+-- | The factor a method line states, with the unit it states it in.
+cfOf :: MethodCF -> CF
+cfOf cf = CF (mcfValue cf) (CFUnit (mcfUnit cf))
 
-Agreement decides, as everywhere else a value is taken from more than one line:
-picking one of two disagreeing lines would be a guess. The unit is read
-literally ('isEnergyUnit'), so a table carrying the expression its results are
-written in rather than the quantity its factors are written per (@"MJ, net
+{- | A method line as a table holds it: its factor, and which database flow the
+build resolved it to.
+-}
+entryOf :: MethodCF -> Maybe (BiosphereFlow, MatchStrategy) -> TableEntry
+entryOf cf mflow = TableEntry (cfOf cf) (BuildProvenance (snd <$> mflow) cf)
+
+{- | The one value a group of entries agrees on, or nothing where they disagree.
+
+The never-guess rule, in the one place every table that needs it reads it: a
+key several rows answer is only answered when they answer alike. Agreement is
+judged on the CF alone; the surviving entry's provenance is the first row's,
+the values being equal and which line authored the survivor presentation
+detail.
+-}
+agreedValue :: [TableEntry] -> Maybe TableEntry
+agreedValue entries = case entries of
+    v : rest | all ((== teCF v) . teCF) rest -> Just v
+    _ -> Nothing
+
+{- | What the method charges for one unit of energy taken out of the ground: the
+value its extraction lines written in a joule unit agree on ('mtEnergyPrice').
+
+Extraction is half the question and the unit is the other half. A method may
+count joules on both sides of a system - an indicator of waste heat emitted is
+written in MJ as surely as one of primary energy extracted - and only the lines
+about extraction say what taking a joule out of the ground costs. The rung this
+serves fires for an extracted flow, so the lines it reads are held to the same
+medium; otherwise an indicator counting heat released would charge a seam of
+coal for the energy it contains.
+
+Agreement decides the rest, as everywhere else a value is taken from more than
+one line: picking one of two disagreeing lines would be a guess. The unit is
+read literally ('isEnergyUnit'), so a table carrying the expression its results
+are written in rather than the quantity its factors are written per (@"MJ, net
 calorific value"@) states no price and gets none.
 -}
-energyPriceOf :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> EnergyPrice
-energyPriceOf mappings = case priced of
+energyPriceOf :: CompartmentMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> EnergyPrice
+energyPriceOf cmap mappings = case priced of
     [] -> NoEnergyLines
-    e : rest
-        | all ((== teCF e) . teCF) rest -> EnergyPriced e
-        | otherwise -> EnergyLinesDisagree
+    entries -> maybe EnergyLinesDisagree EnergyPriced (agreedValue entries)
   where
     priced :: [TableEntry]
     priced =
-        [ TableEntry (CF (mcfValue cf) (CFUnit (mcfUnit cf))) (BuildProvenance (snd <$> mflow) cf)
+        [ entryOf cf mflow
         | (cf, mflow) <- mappings
         , isEnergyUnit (mcfUnit cf)
+        , Just (Just NaturalResource, _) <- [cfMediumSub cmap cf]
         ]
 
 buildMethodTables :: CFFamily -> CompartmentMap -> EnergyDensityMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> MethodTables
@@ -1633,7 +1665,7 @@ buildMethodTables methodFamily cmap energyDensities mappings =
         , mtCFFamily = methodFamily
         , mtSeaWaterCFs = seaWaterCFs
         , mtCompartmentMap = cmap
-        , mtEnergyPrice = energyPriceOf mappings
+        , mtEnergyPrice = energyPriceOf cmap mappings
         , mtEnergyDensities = energyDensities
         , mtResolution = M.empty -- filled alongside 'mtBroadcast'
         , mtJudged = S.empty -- filled alongside 'mtBroadcast'
@@ -1641,21 +1673,8 @@ buildMethodTables methodFamily cmap energyDensities mappings =
         , mtRegionalActivityWeights = Nothing -- fill via 'fillRegionalActivityWeights' for regional fast path
         }
   where
-    cfOf cf = CF (mcfValue cf) (CFUnit (mcfUnit cf))
-
-    entryOf cf mflow = TableEntry (cfOf cf) (BuildProvenance (snd <$> mflow) cf)
-
     -- The Bool rode along only for 'preferBetter''s raw-name rank.
     dropRank = M.map fst
-
-    -- All subcompartments of a (name, medium) agree on the CF ⇒ the sub is
-    -- irrelevant; keep that common value. Disagreement ⇒ Nothing (ambiguous).
-    -- Agreement is judged on the CF alone; the surviving entry's provenance
-    -- is the first row's – the values are equal, which method line authored
-    -- the survivor is presentation detail.
-    agreedValue vus = case vus of
-        v : rest | all ((== teCF v) . teCF) rest -> Just v
-        _ -> Nothing
 
     -- (CAS, medium) keys the CAS bridge must not serve: two rows agreeing on
     -- (CAS, medium, subcompartment) but not on the factor value prove the
@@ -2435,7 +2454,8 @@ data RungOutcome
       -}
       RungVetoed !VetoReason
     | {- | Several candidates disagree and the rung refuses to pick one by Map
-      order (energy-family disagreement) – the "never guess" rule.
+      order (the method's energy lines naming no single price) – the "never
+      guess" rule.
       -}
       RungAmbiguous
     deriving (Eq, Show)
@@ -2576,7 +2596,7 @@ cascadeTrail tables flowDB fid =
         -- grade-bearing variants – every ore-grade name encodes its grade as a
         -- percentage – so an ordinary comma-qualified resource ("Water, salt,
         -- ocean", "Coal, 18 MJ per kg") never borrows the base CF, and in
-        -- particular an ambiguity the energy-family rung refused to resolve
+        -- particular a carrier the energy rung refused for want of a price
         -- stays unresolved. Self-scoping and last in the cascade: 'resourceCF'
         -- returns Nothing when the base element has no CF in the method.
         oreGradeOutcome
