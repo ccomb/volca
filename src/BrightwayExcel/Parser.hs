@@ -369,6 +369,11 @@ rawToActivity cfg ra =
             ++ [ "activity '" <> raName ra <> "': parameters section ignored (not supported)"
                | raHasParams ra
                ]
+            -- The format's formulas are Python, which no evaluator here reads.
+            ++ [ "activity '" <> raName ra <> "': exchange rows whose formula is ignored (not evaluated): " <> T.pack (show n) <> "; each is read from its amount column"
+               | let n = length (filter (M.member "formula") fieldRows)
+               , n > 0
+               ]
             ++ [ "activity '" <> raName ra <> "': multiple production rows; coproducts are emitted without allocation"
                | length prodRows > 1
                ]
