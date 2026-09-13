@@ -39,18 +39,30 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel da
 
 ## Performance
 
-All figures measured on Ecoinvent 3.12 (26 533 activities) on a 4-core machine.
+Measured on Ecoinvent 3.12 (26 533 activities), on a 24-core x86_64 machine.
+The figures are rounded hard on purpose: what carries from one machine to
+another is the order of magnitude and the ratio between two rows, not the
+number itself. Fewer cores cost most on the rows that solve; reading the cache
+is bound by the disk and the decompression, so it moves the least.
 
-| Phase | Cold start | Hot start |
-|---|---|---|
-| Startup (read all 26 533 EcoSpold files from disk) | ~50 s | - |
-| Hot startup - load from cache | - | ~3.7 s |
-| First computation after startup (inventory, impact score)¹ | ~90 ms | ~8.5 s |
-| Next computations (inventory, impact score) | ~85 ms | ~85 ms |
-| Batch of 200 computations | ~19 s total (10/sec) | ~19 s total (10/sec) |
-| Computation of a modified process (upstream process substitution) | ~120 ms | ~110 ms |
+| Phase | Ecoinvent 3.12 |
+|---|---|
+| First load, read from the publisher's files | tens of seconds |
+| Later loads, read from the cache written beside them | a second or two |
+| First computation after a load, which pays the factorisation | seconds |
+| Later computations (inventory, impact score) | a fraction of a second |
+| Computation of a modified process (upstream substitution) | a fraction of a second |
+| Scoring every activity of the database under one method | a couple of minutes |
+| Memory held while the database is loaded | around 8 GB |
+| Memory held at the peak of scoring all of them | around 25 GB |
 
-¹ The matrix factorisation is deferred to the first computation and cached for the lifetime of the server. All subsequent requests reuse it.
+The factorisation is computed at the first computation, never at startup, and
+kept for the lifetime of the server. The first request after a load therefore
+pays it whichever way the database was read, from the publisher's files or from
+the cache, and every request after that reuses it.
+
+Scoring many activities goes through one multi-RHS solve rather than one solve
+per activity, which is why a whole database is minutes rather than hours.
 
 ---
 
