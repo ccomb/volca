@@ -6,7 +6,7 @@ on cross-DB recipes.
 'postActivitySensitivity' used to project the perturbed root scaling
 through 'applyBiosphereMatrix db x' (root-only), then wrap the result in
 a root-only 'CrossDBSolution'. The dep-DB emissions induced by the
-perturbed root scaling were silently dropped — same under-count as the
+perturbed root scaling were silently dropped - same under-count as the
 plain cross-DB path had before PR #41.
 
 The fix is to thread the perturbed root scaling through

@@ -160,7 +160,7 @@ spec = do
 
         -- A method loaded from ILCD writes its factor in the result expression
         -- ("kg CO2 eq"): the factor yields that much per base unit, so the
-        -- sentence must not read "per kg CO2 eq" — that is the factor backwards.
+        -- sentence must not read "per kg CO2 eq" - that is the factor backwards.
         it "states a result-expression factor on the flow's base unit" $
             renderResolution (Characterized (matchIn "kg CO2 eq" RungExactName (Just ByName)) (NormalizedToBase "kg"))
                 `shouldBe` [ "The factor line \"Methane, fossil\" matches this flow's name and compartment."
@@ -214,7 +214,7 @@ spec = do
 
         -- Bridges, refusals and vetoes reach clients the same way the rungs
         -- do, so they earn the same guarantee. The lists are spelled out
-        -- because these constructors carry fields — a new one still cannot
+        -- because these constructors carry fields - a new one still cannot
         -- ship unnamed ('bridgeName' and friends match exhaustively), only
         -- undocumented, which is exactly what this pins.
         it "documents every bridge, refusal and veto name in the tool description" $ do

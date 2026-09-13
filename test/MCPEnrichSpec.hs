@@ -253,7 +253,7 @@ spec = do
                         `shouldBe` Just (object ["PEF" .= object []])
                 _ -> expectationFailure "expected an Object"
 
-    describe "PR #79 — slimLCIAPanel NaN-score edge case" $ do
+    describe "PR #79 - slimLCIAPanel NaN-score edge case" $ do
         let panelWithNaNScore =
                 object
                     [ "results"

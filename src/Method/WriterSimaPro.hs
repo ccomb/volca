@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | SimaPro method CSV writer — the inverse of "Method.ParserSimaPro".
+{- | SimaPro method CSV writer - the inverse of "Method.ParserSimaPro".
 
 Serializes an in-memory 'MethodCollection' to a SimaPro @{methods}@ CSV
 export: one file-level method whose impact categories, damage categories and
@@ -14,13 +14,13 @@ Collections imported from other formats (ILCD, openLCA, tabular CSV) are
 projected onto SimaPro's conventions rather than dropped:
 
   * a regionalized CF (@'mcfConsumerLocation' = Just loc@) becomes a
-    name-suffixed substance row (@\"Water, FR\"@) — the representation the
+    name-suffixed substance row (@\"Water, FR\"@) - the representation the
     SimaPro-adapted method distributions themselves use;
   * a compartment qualifier folds into the subcompartment column
     (@\"groundwater, long-term\"@), SimaPro's own encoding of long-term;
   * the land media (@land occupation@, @land transformation@) file under
     SimaPro's @Raw@ compartment, where every SimaPro method distribution
-    keeps its occupation and transformation flows — the from/to semantics
+    keeps its occupation and transformation flows - the from/to semantics
     (and hence the flow's direction) live in the flow name there, so these
     rows are exempt from the direction check below;
   * the CAS number is zero-padded back to SimaPro's 6-digit first segment.
@@ -88,7 +88,7 @@ serializeSimaProMethodCSV cfg collectionName mc = do
 silent corruption on re-import: no impact categories at all, a non-finite
 value (its literal would re-import as a parse failure or a wrong number), or
 a line break inside a field (the parser splits on physical lines before CSV
-parsing, so quoting cannot save it — same rule as the process writer).
+parsing, so quoting cannot save it - same rule as the process writer).
 -}
 checkMethodExportable :: MethodCollection -> Either Text ()
 checkMethodExportable mc
@@ -125,7 +125,7 @@ checkMethodExportable mc
     checkNamed label (n, v) = noLineBreak "impact category name" n *> finite (label <> " for '" <> n <> "'") v
 
 {- | The NW-set name is written verbatim on its own line, and the parser takes
-the first non-blank line after the marker as the name — a blank name would
+the first non-blank line after the marker as the name - a blank name would
 promote the following section keyword (@Normalization@) to the set's name and
 silently drop that section's factors on re-import.
 -}
@@ -146,7 +146,7 @@ finite label v
     | otherwise = Right ()
 
 {- | The file-level @Name@ line is read back verbatim as one physical line, and
-the parser scans method-level metadata for section markers — a name that /is/
+the parser scans method-level metadata for section markers - a name that /is/
 a marker would derail the state machine, so it is rejected rather than
 written.
 -}
@@ -221,7 +221,7 @@ data CFIssue
     = -- | No compartment: emitted with empty compartment columns.
       NoCompartment !Text
     | {- | Direction contradicts the compartment column, which is what SimaPro
-      derives direction from — a re-import flips it.
+      derives direction from - a re-import flips it.
       -}
       DirectionLost !Text
 
@@ -336,7 +336,7 @@ issueWarnings issues =
          in [ label
                 <> ": "
                 <> T.pack (show (length distinct))
-                <> " — e.g. "
+                <> " - e.g. "
                 <> T.intercalate ", " (take 5 distinct)
             | not (null distinct)
             ]

@@ -501,7 +501,7 @@ apiPut :: Manager -> RemoteConfig -> String -> Value -> IO (Either String Value)
 apiPut mgr rc path body = apiRequest mgr rc "PUT" path (Just body)
 
 {- | Send a JSON file as the request body. The activities a user writes live in
-a file, not on the command line, and the server owns what is valid — so the
+a file, not on the command line, and the server owns what is valid - so the
 client forwards the document rather than judging it twice. A file that is not
 JSON at all is caught here, where the path can be named.
 -}

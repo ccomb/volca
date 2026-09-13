@@ -124,7 +124,7 @@ spec = describe "projectRegionalResourceFlows" $ do
                     }
         runWith [baseFlow, frFlowSubbed] `shouldContain` [frProjection]
 
-    it "dedups colliding located CFs deterministically — higher value wins, order-independent" $ do
+    it "dedups colliding located CFs deterministically - higher value wins, order-independent" $ do
         let cfLo = mkLocatedCF "river water" 6.98 (Just "FR")
             cfHi = mkLocatedCF "river water" 9.99 (Just "FR")
             frFlow = mkResourceFlow 14 "Water, river, FR"

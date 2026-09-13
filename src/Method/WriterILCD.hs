@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Serialize a 'MethodCollection' to an ILCD LCIA-method package — the inverse
+{- | Serialize a 'MethodCollection' to an ILCD LCIA-method package - the inverse
 of "Method.Parser" (method XML) and "Method.FlowResolver" (flow XML).
 
 The output is a deterministic ILCD directory tree, packed into a zip by
@@ -14,7 +14,7 @@ The output is a deterministic ILCD directory tree, packed into a zip by
 "Method.Parser" reads a method's UUID, name, methodology, impact category,
 description, reference unit and its factors (flow ref, direction, value,
 per-factor location). Each factor's flow name, compartment and CAS are /not/ in
-the method file — the reader recovers them from the sibling @flows\/@ directory
+the method file - the reader recovers them from the sibling @flows\/@ directory
 via "Method.FlowResolver", exactly as it does for a native EF package. So we
 emit both: the method files carry the factor values, and one flow file per
 distinct flow UUID carries that flow's name, compartment and CAS. This is why
@@ -25,7 +25,7 @@ Determinism is the contract, matching the other method writers:
 
 * factors within a method are emitted in a fixed key order;
 * one flow file per UUID (the export refuses a collection where one UUID carries
-  two different flow definitions — 'checkIlcdMethodExportable');
+  two different flow definitions - 'checkIlcdMethodExportable');
 * every 'Double' is formatted through 'ILCD.Writer.formatDouble', the exact
   inverse of the correctly-rounded 'Amount.readAmount' the reader now uses, so
   every finite factor value round-trips and a re-export is byte-identical.
@@ -37,7 +37,7 @@ weighting sets and formula scoring sets. Methodology and description /do/
 round-trip natively, unlike the CSV and openLCA writers.
 
 The compartment qualifier folds into the subcompartment, as in the SimaPro and
-openLCA writers — ILCD's flow categorization has no separate qualifier axis.
+openLCA writers - ILCD's flow categorization has no separate qualifier axis.
 -}
 module Method.WriterILCD (
     serializeIlcdMethodEntries,
@@ -321,7 +321,7 @@ compartmentBlock (Just c) =
 is the projected compartment. Level 0/1 name the medium, level 2 (when a
 subcompartment exists) carries it. @air@/@water@/@soil@ use the "Emissions to …"
 phrasing, @natural resource@ uses "Resources", any other medium is emitted
-verbatim (and reads back lower-cased) — 'checkIlcdMethodExportable' refuses a
+verbatim (and reads back lower-cased) - 'checkIlcdMethodExportable' refuses a
 medium whose inverse would not match.
 -}
 compartmentCategories :: Compartment -> [Text]
@@ -349,7 +349,7 @@ projectCompartment (Compartment medium sub qual) =
 --------------------------------------------------------------------------------
 
 {- | What the ILCD method profile cannot carry, counted rather than dropped in
-silence. Methodology and description are omitted — they round-trip natively.
+silence. Methodology and description are omitted - they round-trip natively.
 -}
 lossWarnings :: MethodCollection -> [Text]
 lossWarnings mc =

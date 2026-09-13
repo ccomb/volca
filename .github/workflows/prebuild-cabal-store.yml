@@ -11,14 +11,14 @@ name: Prebuild cabal store
 #
 # Trigger after:
 #   * Bumping a Haskell dep version in volca.cabal / mumps-hs.cabal /
-#     cabal.project — the hash changes, so the new tag is a separate
+#     cabal.project - the hash changes, so the new tag is a separate
 #     release; older branches still resolve to the previous prebuilt.
 #   * Bumping GHC_VERSION in versions.env (different tag).
 #   * Bumping CABAL_PREBUILT_REVISION (forces rebuild at the same hash+GHC,
 #     e.g. after a runner-image update changes glibc and binaries no
 #     longer load).
 #
-# Build inputs include the prebuilt MUMPS from `prebuild-mumps.yml` —
+# Build inputs include the prebuilt MUMPS from `prebuild-mumps.yml` -
 # that release must exist before this workflow can succeed.
 
 on:
@@ -47,7 +47,7 @@ jobs:
     needs: versions
     runs-on: ${{ matrix.runner }}
     # Linux jobs prebuild the cabal store in Alpine so the cached
-    # ~/.cabal/store is linked against musl libc — matches what
+    # ~/.cabal/store is linked against musl libc - matches what
     # _build-matrix.yml consumes. See _build-matrix.yml for context.
     container: ${{ matrix.os == 'linux' && needs.versions.outputs.alpine || '' }}
     strategy:
@@ -66,7 +66,7 @@ jobs:
           - name: macos-arm64
             runner: macos-15
             os: macos
-          # Intel macOS — GitHub's last x86_64 hosted label (retires Aug 2027).
+          # Intel macOS - GitHub's last x86_64 hosted label (retires Aug 2027).
           - name: macos-intel
             runner: macos-15-intel
             os: macos
@@ -84,7 +84,7 @@ jobs:
         uses: laverdet/alpine-arm64@v1
       - uses: actions/checkout@v4
 
-      # POSIX `sh` here — bash isn't preinstalled in the Alpine container
+      # POSIX `sh` here - bash isn't preinstalled in the Alpine container
       # we now use for Linux jobs (setup-haskell-env apk-installs it below).
       - name: Read pinned versions
         id: versions
@@ -188,7 +188,7 @@ jobs:
         id: meta
         # Hash inputs identical to _build-matrix.yml's cabal-store probe, so
         # content change there always implies a new prebuilt. version/synopsis/
-        # description are stripped from volca.cabal — they don't affect deps,
+        # description are stripped from volca.cabal - they don't affect deps,
         # so a release bump reuses the store. Keep this filter byte-identical
         # to the one in _build-matrix.yml.
         shell: bash
@@ -201,7 +201,7 @@ jobs:
       - uses: ./.github/actions/publish-prebuilt-release
         with:
           tag: cabal-store-prebuilt-ghc${{ steps.meta.outputs.ghc }}-${{ steps.meta.outputs.hash }}-r${{ steps.meta.outputs.rev }}
-          title: Cabal store prebuilt — GHC ${{ steps.meta.outputs.ghc }}, hash ${{ steps.meta.outputs.hash }} (revision ${{ steps.meta.outputs.rev }})
+          title: Cabal store prebuilt - GHC ${{ steps.meta.outputs.ghc }}, hash ${{ steps.meta.outputs.hash }} (revision ${{ steps.meta.outputs.rev }})
           notes: Prebuilt cabal store (~/.cabal/store) for use by _build-matrix.yml. Hash ${{ steps.meta.outputs.hash }} = first 8 chars of sha256(volca.cabal + mumps-hs/mumps-hs.cabal + cabal.project).
           asset-glob: cabal-store-*.tar.gz
           bump-hint: CABAL_PREBUILT_REVISION

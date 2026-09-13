@@ -6,7 +6,7 @@ The shape hoists batch-constant metadata (scoring set name, unit,
 functional unit when the whole batch shares one) to the top level and
 packs each activity as a flat array of scalars indexed by 'columns'.
 Trades a few bytes of header for the N×M repetition of JSON keys the
-previous row-shaped payload paid for — typically ~6× smaller for a
+previous row-shaped payload paid for - typically ~6× smaller for a
 batch of 24+ activities.
 
 Lives in its own module rather than "API.MCP.Enrich" because it works
@@ -113,13 +113,13 @@ in @lbrScoringIndicators[setName]@; missing keys land as null.
 
 With @summaryOnly = True@, the per-indicator columns collapse to a
 single @dominant_indicator@ column carrying an object
-@{key, share_pct}@ — the variable with the largest absolute share of
+@{key, share_pct}@ - the variable with the largest absolute share of
 the total. Useful for ranking large batches before drilling into one
 PID with @score_activity@.
 
 When the base URL is 'Nothing' (backend-only deployment, no Elm SPA
 bundled), the @web_url@ column is dropped from both the header and
-every row — emitting a column of dead links would be a silent lie.
+every row - emitting a column of dead links would be a silent lie.
 -}
 toColumnarBatch :: Bool -> Maybe Text -> Text -> Text -> ScoringSet -> BatchImpactsResponse -> Value
 toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
@@ -186,7 +186,7 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
                 ++ tailCells
 
 {- | Format the dominant indicator of a row as a @{key, label, share_pct}@
-object — @label@ is the indicator's display name ('siCategory'), so clients
+object - @label@ is the indicator's display name ('siCategory'), so clients
 never have to show the raw variable key. Returns 'Null' when the row has no
 total, the total is zero (share is undefined), or the indicator map is empty.
 -}

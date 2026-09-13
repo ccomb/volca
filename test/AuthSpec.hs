@@ -97,7 +97,7 @@ spec = do
             called `shouldBe` True
             code `shouldBe` 200
 
-    describe "protected /api/ routes — no credentials" $ do
+    describe "protected /api/ routes - no credentials" $ do
         it "rejects with 401 when Authorization and Cookie are absent" $ do
             (called, code) <- runAuth "GET" "/api/v1/db" []
             called `shouldBe` False

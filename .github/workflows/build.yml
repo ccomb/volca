@@ -14,7 +14,7 @@ name: Build
 # four required `build / *` checks still report success without burning
 # the ~30 min cold-cabal compile. (A `paths-ignore: pyvolca/**` here
 # would skip the workflow entirely, leaving the required checks pending
-# forever — branch protection treats missing required checks as blocked.)
+# forever - branch protection treats missing required checks as blocked.)
 
 on:
   pull_request:
@@ -23,7 +23,7 @@ on:
     branches: [main]
 
 # Cancel any older in-flight runs for the same PR when a new commit is
-# pushed. Keeps queue depth bounded — Windows cold builds are 30 min
+# pushed. Keeps queue depth bounded - Windows cold builds are 30 min
 # and there is no point burning runners on superseded code.
 concurrency:
   group: build-${{ github.head_ref || github.ref }}

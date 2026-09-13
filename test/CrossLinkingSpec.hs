@@ -149,7 +149,7 @@ spec = do
             matchProductName synDB "CO2" "carbon dioxide" `shouldSatisfy` (>= 45)
 
     -- -----------------------------------------------------------------------
-    -- isSubregionOf — additional location pairs
+    -- isSubregionOf - additional location pairs
     -- -----------------------------------------------------------------------
     describe "isSubregionOf (additional)" $ do
         it "US is a subregion of North America" $
@@ -168,7 +168,7 @@ spec = do
             isSubregionOf locationHierarchy (Location "AU") (Location "GLO") `shouldBe` True
 
     -- -----------------------------------------------------------------------
-    -- matchLocation — additional scoring cases
+    -- matchLocation - additional scoring cases
     -- -----------------------------------------------------------------------
     describe "matchLocation (additional)" $ do
         it "US consumer, NAFTA supplier scores 20 (widening)" $
@@ -181,7 +181,7 @@ spec = do
             matchLocation locationHierarchy (Location "RoW") (Location "RoW") `shouldBe` 30
 
     -- -----------------------------------------------------------------------
-    -- findSupplierInIndexedDBs — integration using SAMPLE.min3
+    -- findSupplierInIndexedDBs - integration using SAMPLE.min3
     -- -----------------------------------------------------------------------
     describe "findSupplierInIndexedDBs (SAMPLE.min3)" $ do
         it "finds 'product Y' by name and GLO location" $ do
@@ -272,7 +272,7 @@ spec = do
                 CrossDBNotLinked _ -> pendingWith "Compound name location extraction may not match"
 
     -- -----------------------------------------------------------------------
-    -- acceptableLocation — table-driven, one case per (policy, kind) cell
+    -- acceptableLocation - table-driven, one case per (policy, kind) cell
     -- -----------------------------------------------------------------------
     describe "acceptableLocation" $ do
         let hier = locationHierarchy
@@ -294,12 +294,12 @@ spec = do
                 , ("BR→GLO is global", "BR", "GLO", Nothing, Nothing, Just GlobalLoc)
                 ]
         forM_ cases $ \(label, req, cand, expExact, expParent, expGlobal) -> do
-            it (label ++ " — exact") $ acceptableLocation GeoExact hier (Location req) (Location cand) `shouldBe` expExact
-            it (label ++ " — parent") $ acceptableLocation GeoParent hier (Location req) (Location cand) `shouldBe` expParent
-            it (label ++ " — global") $ acceptableLocation GeoGlobal hier (Location req) (Location cand) `shouldBe` expGlobal
+            it (label ++ " - exact") $ acceptableLocation GeoExact hier (Location req) (Location cand) `shouldBe` expExact
+            it (label ++ " - parent") $ acceptableLocation GeoParent hier (Location req) (Location cand) `shouldBe` expParent
+            it (label ++ " - global") $ acceptableLocation GeoGlobal hier (Location req) (Location cand) `shouldBe` expGlobal
 
     -- -----------------------------------------------------------------------
-    -- findSupplierInIndexedDBs — geography_policy enforcement
+    -- findSupplierInIndexedDBs - geography_policy enforcement
     -- The SAMPLE.min3 fixture has "product Y" at GLO. Querying for FR
     -- exercises each (policy, candidate-kind) decision: GLO accepts only
     -- under GeoGlobal, and the rejection path must surface as
@@ -345,7 +345,7 @@ spec = do
                 CrossDBLinked{} -> expectationFailure "Expected rejection under GeoParent"
 
     -- -----------------------------------------------------------------------
-    -- findSupplierInIndexedDBs — two activities, one product, one location.
+    -- findSupplierInIndexedDBs - two activities, one product, one location.
     -- The background shape: "electricity, medium voltage" in GLO is the
     -- reference product of a market group and of 26 cut-off co-outputs, so the
     -- product name alone cannot say which the source meant.
@@ -403,7 +403,7 @@ spec = do
                     expectationFailure $ "Expected a synonym link but got: " ++ show reason
 
     -- -----------------------------------------------------------------------
-    -- supplierLocations & buildSupplierEntries — split-location indexing.
+    -- supplierLocations & buildSupplierEntries - split-location indexing.
     -- Guards the WFLDB case where Process name @ /CH but Products row @ /GLO:
     -- the supplier index must expose the product under both locations so a
     -- consumer requesting it at GLO can still resolve it cross-DB.

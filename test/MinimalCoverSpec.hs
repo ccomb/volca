@@ -52,7 +52,7 @@ spec = do
             computeMinimalSelectedDeps links `shouldBe` ["agribalyse-3-2", "wfldb"]
 
         it "expands beyond essentials when a tied link uses none of them" $ do
-            -- A is essential. A separate link is tied between {C, D} — neither
+            -- A is essential. A separate link is tied between {C, D} - neither
             -- A nor any essential covers it, so pick C alphabetically.
             let links =
                     [ mkLink "agribalyse-3-2" []

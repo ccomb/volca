@@ -5,7 +5,7 @@
 
 The size guard is the point of the module. @zip-archive@'s 'addEntryToArchive'
 rescans the whole entry list on each insert, so the fold it invites costs
-O(n²) — on a real ILCD package (53 508 files) that turned an export into a
+O(n²) - on a real ILCD package (53 508 files) that turned an export into a
 ten-minute timeout. Wall-clock is the only signal that separates the two
 regimes, hence the 'timeout': 30 000 entries pack in well under a second when
 linear, and take tens of seconds (or exhaust the stack) when not. The margin is

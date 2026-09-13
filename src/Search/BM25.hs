@@ -133,7 +133,7 @@ documentTokens flowDb a =
         ++ concatMap productTokens (exchanges a)
   where
     -- Index both ReferenceProduct (regular output) and ReferenceInput
-    -- (treatment-process input) — both are the activity's product for
+    -- (treatment-process input) - both are the activity's product for
     -- BM25 search purposes.
     productTokens ex
         | exchangeIsReference ex

@@ -20,7 +20,7 @@ import Version (buildTarget, gitHash, gitTag, version)
 strOpt :: String -> Maybe Char -> String -> String -> Parser String
 strOpt l ms m h = strOption (long l <> maybe mempty short ms <> metavar m <> help h)
 
--- | @optional strOpt@ — most of the global / command parsers use this.
+-- | @optional strOpt@ - most of the global / command parsers use this.
 optStrOpt :: String -> Maybe Char -> String -> String -> Parser (Maybe String)
 optStrOpt l ms m h = optional (strOpt l ms m h)
 
@@ -190,7 +190,7 @@ replaceArgsParser =
         <*> strOpt "from" Nothing "FILE" "JSON file holding the activity"
 
 {- | Exchange-edit parser: the activity addressed, and the file stating what
-changes about its inventory. This one reaches activities a rewrite cannot —
+changes about its inventory. This one reaches activities a rewrite cannot -
 the ones a database file brought in, whose identity no description mints.
 -}
 editArgsParser :: Parser DbActivityArgs

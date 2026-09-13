@@ -22,7 +22,7 @@ walk does not exist yet.
 One further gap, older than this module and not fixed by it: long-term-emission
 filtering applies to the inventory only, so the regionalized path ignores
 @exclude_long_term@. A database whose regional factors all arrive from a
-dependency now takes that path, so it stops honouring the flag — which is what
+dependency now takes that path, so it stops honouring the flag - which is what
 the dependency it mirrors already did.
 
 The dispatch below still asks the /root/ database's tables whether the method is
@@ -56,10 +56,10 @@ import qualified SharedSolver
 
 @inventory@ is passed separately from @sol@ because a caller may have filtered
 it (long-term emissions) after solving. The regionalized path reads the
-solution's scaling vectors instead, so that filtering does not reach it — see
+solution's scaling vectors instead, so that filtering does not reach it - see
 the note above.
 
-A 'Left' is a scoring integrity error — a regionalized method with a gap it
+A 'Left' is a scoring integrity error - a regionalized method with a gap it
 cannot fill. It propagates rather than collapsing to a zero the consumer could
 not tell from a real score.
 -}

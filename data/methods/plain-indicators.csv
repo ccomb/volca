@@ -1,7 +1,7 @@
 # methodology: Plain indicators
 # Raw physical quantities counted through the supply chain: every factor is
 # 1.0, so a category's score is the summed inventory quantity itself.
-# Open families (occupation, water, energy, waste heat) are wildcard rows —
+# Open families (occupation, water, energy, waste heat) are wildcard rows -
 # a trailing * matches every flow with that name prefix in the stated
 # compartment, so the database's own flow list defines the coverage and a new
 # flow is counted without touching this file. Single substances are ordinary

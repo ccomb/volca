@@ -45,7 +45,7 @@ extractFromEcoSpold2 bioFlowDB =
 
 CAS-based equivalence is deliberately NOT emitted as synonym pairs. Flows
 sharing a CAS are already matched by the CAS cascade (@mtCasCF@) at lookup time,
-so chaining same-CAS names here adds no new match — it only injects transitive
+so chaining same-CAS names here adds no new match - it only injects transitive
 bridges that fuse unrelated substances into oversized closure classes (one
 shared or blank CAS can connect hundreds of names through a single chain).
 -}

@@ -3,14 +3,14 @@
 {- | The CAS bridge ('mtCasCF') characterizes a flow the cascade could not
 match by name through a factor line sharing its CAS number. That is only
 sound when the CAS identifies one factor: a method whose lines carry
-different values at one (CAS, medium, subcompartment) — water is the
+different values at one (CAS, medium, subcompartment) - water is the
 canonical case, one CAS across regional name variants and deliberate
-exclusions like rain or turbined water — distinguishes flows by something
+exclusions like rain or turbined water - distinguishes flows by something
 the name-blind bridge cannot see, so the bridge must refuse rather than
 stamp an arbitrary value onto exactly the flows the method separated.
-This pins the refusal and its two deliberate non-voters — consumer-located
+This pins the refusal and its two deliberate non-voters - consumer-located
 rows (dispatched by the regional tables) and rows at different
-subcompartments (arbitrated to the medium-level default) — and the pairing
+subcompartments (arbitrated to the medium-level default) - and the pairing
 where located rows do end up voting: against a name-suffixed database the
 regional projection materializes them into region-less copies, and both
 CAS bridges must refuse.
@@ -72,20 +72,20 @@ spec :: Spec
 spec = describe "CAS bridge ambiguity guard" $ do
     it "refuses to bridge a CAS whose same-subcompartment lines disagree (regionalized water)" $ do
         -- The region-less default matched its flow by name; the CH variant has
-        -- no same-named flow and landed on a water flow through its CAS —
+        -- no same-named flow and landed on a water flow through its CAS -
         -- which is what arms the bridge. Their values differ at the same
         -- (CAS, medium, sub), so no single value stands for the CAS.
         let mappings =
                 [ (mkCF 1 "Water" "" water 42.955, Just (mkFlow 1 "Water" water, ByName))
                 , (mkCF 2 "Water, lake, CH" "" water 1.44, Just (mkFlow 1 "Water" water, ByCAS))
                 ]
-        -- Turbined water: same CAS, no CF of its own — deliberately excluded
+        -- Turbined water: same CAS, no CF of its own - deliberately excluded
         -- by the method, and it must stay that way.
         score mappings (mkFlow 99 "Water, turbine use" water) `shouldBe` Nothing
 
     it "an unmatched row votes: it proves the discrimination without resolving to a flow" $ do
         -- "Water, lake, AT" matches nothing in this database, but its value
-        -- still shows the method regionalizes water — the bridge must refuse.
+        -- still shows the method regionalizes water - the bridge must refuse.
         let mappings =
                 [ (mkCF 1 "Water" "" water 42.955, Just (mkFlow 1 "Water" water, ByCAS))
                 , (mkCF 2 "Water, lake, AT" "" water 1.89, Nothing)
@@ -122,7 +122,7 @@ spec = describe "CAS bridge ambiguity guard" $ do
         -- JRC-style rows (per-country values, consumer-located) meeting
         -- SimaPro-style flows (region in the name): location cannot dispatch
         -- anything there, so 'projectRegionalResourceFlows' materializes the
-        -- located rows into region-less copies — and those copies vote.
+        -- located rows into region-less copies - and those copies vote.
         -- Without their votes the lone region-less row would be unanimous,
         -- and turbine water would take the world-average factor on exactly
         -- the pairing the veto exists for.

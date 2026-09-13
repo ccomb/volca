@@ -160,7 +160,7 @@ data HostingConfig = HostingConfig
 {- | Whether this instance refuses every state-changing operation.
 
 One instance serving many unrelated callers cannot let any of them load,
-unload, upload, delete — or shut the server down — since each of those acts
+unload, upload, delete - or shut the server down - since each of those acts
 on process-wide state that all the others share. A read-only instance still
 answers every analysis question; it only declines to change anything.
 
@@ -252,7 +252,7 @@ data MethodConfig = MethodConfig
     Use when the reference distribution a collection is compared against is itself
     unregionalized (e.g. a SimaPro EF distribution that flattened the spatial
     Land-use / AWARE factors to one global value); the per-country detail is lost.
-    Requires the method to carry an unlocated default for those flows — one whose
+    Requires the method to carry an unlocated default for those flows - one whose
     CFs are *all* region-tagged would be left with none. Empty = keep every
     method's native regionalization.
     -}
@@ -279,7 +279,7 @@ data CFPatchOp
 
 {- | Selector picking which characterization factors a 'MethodPatch' touches.
 Every present field must match (conjunction); a selector with no field set
-is rejected by the decoder — a patch that would touch every CF in every
+is rejected by the decoder - a patch that would touch every CF in every
 method is almost certainly a mistake, not an intent.
 -}
 data MethodPatchMatch = MethodPatchMatch
@@ -864,7 +864,7 @@ loadConfig = loadConfigOrDefault . Just
 {- | Resolve the effective configuration: parse the file when a path is given,
 otherwise fall back to 'defaultConfig'. Both paths honour VOLCA_DATA_DIR,
 resolve relative paths against the file ('resolveConfigPaths') and run
-'validateConfig' by construction — an explicit path that does not exist
+'validateConfig' by construction - an explicit path that does not exist
 still fails loudly, while no path at all means "all defaults, no databases".
 -}
 loadConfigOrDefault :: Maybe FilePath -> IO (Either Text Config)
@@ -877,7 +877,7 @@ loadConfigOrDefault mPath = do
 Returns the input unchanged when the env var is unset, or when the path
 has no "data/" prefix. Pure: no IO. Accepts both Unix and Windows path
 separators on the prefix so configs authored on either platform work.
-The output always uses '/' — file APIs on Windows accept it, and it
+The output always uses '/' - file APIs on Windows accept it, and it
 keeps the path predictable for downstream string-based consumers.
 -}
 redirectIntoDataDir :: Maybe FilePath -> FilePath -> FilePath
@@ -909,7 +909,7 @@ data PathKind
 
 The one place that enumerates the path-bearing fields. Both rewrites below run
 through here, so a new path-bearing setting is added to this list rather than
-to each of them — a config whose @[[databases]]@ path followed the file while
+to each of them - a config whose @[[databases]]@ path followed the file while
 its @[[methods]]@ path followed the process was the bug that taught this.
 -}
 overPaths :: (PathKind -> FilePath -> FilePath) -> Config -> Config
@@ -951,7 +951,7 @@ directory. An absolute path is already unambiguous and is left alone; 'Nothing'
 Every path a config file carries is listed in 'overPaths', and nothing else
 resolves one: a config whose @[[databases]]@ path followed the file while its
 @[[methods]]@ path followed the process was the bug this replaces. Both kinds
-are resolved the same way — a reference path @VOLCA_DATA_DIR@ already made
+are resolved the same way - a reference path @VOLCA_DATA_DIR@ already made
 absolute is left alone by the @isAbsolute@ test, and one it did not touch
 (the variable unset, or naming a relative directory) still needs anchoring.
 

@@ -5,7 +5,7 @@ name: Release
 # GH Release with all platform tarballs + SHA256SUMS.
 #
 # The build is the same one PRs run, so what users download is bit-for-bit
-# what merged into main — no separate "release-only" build path that could
+# what merged into main - no separate "release-only" build path that could
 # drift.
 
 on:

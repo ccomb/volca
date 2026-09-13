@@ -1,12 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Writer for the Brightway Excel (@.xlsx@) inventory interchange format — the
+{- | Writer for the Brightway Excel (@.xlsx@) inventory interchange format - the
 inverse of "BrightwayExcel.Parser".
 
 It serializes a 'SimpleDatabase' (the natural writer input, obtained from a
 'Database' via 'toSimpleDatabase') back into the linear block-stream layout that
-@bw2io@'s @ExcelImporter@ — and our own parser — consumes:
+@bw2io@'s @ExcelImporter@ - and our own parser - consumes:
 
 @
 Database              <database name>
@@ -28,11 +28,11 @@ Water  1.6e-4                       GLO        m3     air           biosphere   
 
 The output is canonical and deterministic: activities are emitted sorted by
 @(name, location)@, exchanges in a fixed role order (reference product, then
-coproducts, then technosphere inputs, then biosphere flows — each group sorted
+coproducts, then technosphere inputs, then biosphere flows - each group sorted
 by flow name), and a single fixed @Exchanges@ column order is used regardless of
 how the source file was laid out. Numbers are rendered with 'formatAmount' so
-@1.0@ and @8.5@ are stable. The only volatile field — the workbook-level
-database name — is supplied explicitly via 'WriterConfig', so a round-trip never
+@1.0@ and @8.5@ are stable. The only volatile field - the workbook-level
+database name - is supplied explicitly via 'WriterConfig', so a round-trip never
 depends on ambient state (timestamps, tool version, machine).
 
 == Encoding
@@ -44,10 +44,10 @@ of inline-string / numeric cells, wired through @xl/workbook.xml@ and its rels,
 and announced by the OPC package manifest (@[Content_Types].xml@ and
 @_rels/.rels@) that every reader but our own parser opens the archive through.
 Inline strings (@t="inlineStr"@) are used throughout, so no shared-string table
-is needed — and the parser already resolves either form.
+is needed - and the parser already resolves either form.
 
 Byte-identical round-trips are not a goal (zip stores per-entry metadata): the
-contract proven by the spec is /logical-cell/ idempotence — re-exporting the
+contract proven by the spec is /logical-cell/ idempotence - re-exporting the
 parsed content yields the same workbook, and 'parseBrightwayExcel' of the output
 is structurally equal to the input.
 -}
@@ -155,7 +155,7 @@ best-efforts it as technosphere and 'wasteManifest' reports it.
 A biosphere exchange's 'BioDirection' is likewise never written: the parser
 re-derives it from the @categories@ compartment, reading 'Resource' only for
 'NaturalResource'. A 'Resource' flow of any other medium would round-trip as an
-'Emission' — a sign flip, since the two directions act as input vs output. Such
+'Emission' - a sign flip, since the two directions act as input vs output. Such
 a flow is rejected here too.
 
 An amount that does not re-parse to itself is rejected. The written decimal must
@@ -173,7 +173,7 @@ rewrites it as a technosphere flow (best-effort) rather than rejecting it.
 orphanWaste :: Exchange -> Bool
 orphanWaste ex = isWasteExchange ex && not (linkedWaste ex)
 
-{- | Best-effort export note for a database with /orphan/ waste exchanges —
+{- | Best-effort export note for a database with /orphan/ waste exchanges -
 waste rows that name no producer at all. Brightway has no waste
 type, so 'exchangeRow' writes each as a technosphere flow. Such an exchange never
 participates in the technosphere matrix ('Database.MatrixBuild.findProducer'
@@ -194,7 +194,7 @@ wasteManifest db = case wasteActs of
             <> (if length wasteActs == 1 then "y" else "ies")
             <> " with end-of-life waste exchanges: Brightway has no waste type, so each"
             <> " was written as a technosphere flow. These outputs carry no producer link,"
-            <> " so the inventory result is unchanged — only the waste classification is"
+            <> " so the inventory result is unchanged - only the waste classification is"
             <> " lost on re-import: "
             <> T.intercalate ", " (take 10 wasteActs)
             <> (if length wasteActs > 10 then ", … and " <> tshow (length wasteActs - 10) <> " more" else "")
@@ -231,7 +231,7 @@ checkBrightwayExportable db =
             <> " does not re-parse to the same value (a non-finite amount)."
     -- Names of activities with at least one exchange satisfying @p@. Only the
     -- first offender is ever reported, so one entry per activity (not per
-    -- exchange) is equivalent — and lets every guard share one comprehension.
+    -- exchange) is equivalent - and lets every guard share one comprehension.
     activitiesWith p =
         [activityName act | act <- M.elems (sdbActivities db), any p (exchanges act)]
     flowOffenders = activitiesWith (not . flowResolvable db)
@@ -265,7 +265,7 @@ resourceDirectionLost db = \case
     WasteExchange{} -> False
 
 {- | Whether an exchange's flow is present in the map 'exchangeRow' reads it
-from — the same per-role lookup as 'flowNameOf', so this predicts exactly the
+from - the same per-role lookup as 'flowNameOf', so this predicts exactly the
 rows the writer would drop.
 -}
 flowResolvable :: SimpleDatabase -> Exchange -> Bool
@@ -309,8 +309,8 @@ reference exchange so a parse → write round-trip reproduces them, and the
 format allows. The parser reads it back as a one-element description
 ('Data.Maybe.maybeToList'), so an activity carrying a /multi-paragraph/
 description is not a fixed point of @parse . write@ (the text survives; the
-paragraph split does not). Once parsed it has ≤1 element and round-trips exactly
-— the same "fixed-point over the parser's image" caveat the parser documents for
+paragraph split does not). Once parsed it has ≤1 element and round-trips exactly -
+the same "fixed-point over the parser's image" caveat the parser documents for
 reference-unit canonicalization.
 -}
 activityRows :: WriterConfig -> SimpleDatabase -> Activity -> [[Cell]]
@@ -334,7 +334,7 @@ activityRows cfg db act =
     refAmount = maybe 1 exchangeAmount refExchange
 
 {- | Canonical exchange order: reference product first, then coproducts, then
-ordinary technosphere inputs, then biosphere flows — each group sorted by flow
+ordinary technosphere inputs, then biosphere flows - each group sorted by flow
 name, with the flow id as a stable tiebreaker for same-named flows. Sorting by
 name keeps the exported columns legible; the id tiebreaker keeps the order total
 and deterministic, so two databases with the same content serialize identically.
@@ -359,7 +359,7 @@ isCoproduct = \case
 
 {- | Ordinary technosphere inputs only. 'ReferenceInput' is intentionally
 excluded: it already belongs to the reference group ('exchangeIsReference'),
-so matching it here too would emit the exchange twice — double-counting its
+so matching it here too would emit the exchange twice - double-counting its
 coefficient when the workbook is re-imported and duplicate (i,j) entries are
 summed. Each role thus lands in exactly one group.
 -}
@@ -389,7 +389,7 @@ isWaste = \case
     TechnosphereExchange{} -> False
     BiosphereExchange{} -> False
 
--- | A treatment process's reference input — rejected by 'checkBrightwayExportable'.
+-- | A treatment process's reference input - rejected by 'checkBrightwayExportable'.
 isReferenceInput :: Exchange -> Bool
 isReferenceInput = \case
     TechnosphereExchange{techRole = ReferenceInput} -> True
@@ -479,7 +479,7 @@ techTypeLabel = \case
 
 {- | Render a 'Compartment' to a Brightway @categories@ cell (@"air"@ or
 @"natural resource::in water"@). 'Nothing' (no compartment recorded) and an
-empty medium both become an empty cell — the inverse of 'splitCategories'.
+empty medium both become an empty cell - the inverse of 'splitCategories'.
 -}
 renderCategories :: Maybe Compartment -> Text
 renderCategories = \case

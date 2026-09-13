@@ -18,12 +18,12 @@
 #                       pass; VOLCA_OPT_LEVEL overrides that, and a build
 #                       without --test stays at -O1 because it is going to run
 #   --coverage          Run tests with coverage and generate HTML report (implies --test)
-#   --werror            Treat warnings as errors (-Werror) when compiling — the
+#   --werror            Treat warnings as errors (-Werror) when compiling - the
 #                       strict gate CI uses; -Wall-clean is a hard project rule
 #   --static            Build a statically-linked binary
 #   --no-optimize       Skip strip + UPX (preserves dylib load commands so
 #                       downstream tooling like dylibbundler / install_name_tool
-#                       can rewrite them — required for the macOS .app)
+#                       can rewrite them - required for the macOS .app)
 #   --optimize-only     Skip the entire build: just strip + UPX + (re-)sign the
 #                       binary produced by a previous run. Used in CI to ship a
 #                       small artifact AFTER tests have run on the unstripped
@@ -113,7 +113,7 @@ optimize_volca_binary() {
 
     # Skip UPX on Windows (Defender flags UPX'd .exe as malicious, breaking the
     # NSIS installer) and on macOS (UPX 5.x with --force-macos compresses arm64
-    # Mach-O fine — observed 104 M -> 48 M — but the resulting binary is killed
+    # Mach-O fine - observed 104 M -> 48 M - but the resulting binary is killed
     # by the kernel at fork with SIGKILL ("Killed: 9"), even after `codesign
     # --force --sign -` re-signs it. This is an upstream UPX/Mach-O issue, not
     # something we can paper over here. macOS arm64 still gets ad-hoc signed
@@ -133,7 +133,7 @@ optimize_volca_binary() {
         final_size=$(du -h "$bin_path" | cut -f1)
         log_success "Binary optimized: $original_size -> $stripped_size (stripped) -> $final_size (compressed)"
     else
-        log_warn "UPX compression failed — using stripped binary ($stripped_size)"
+        log_warn "UPX compression failed - using stripped binary ($stripped_size)"
     fi
 }
 
@@ -215,7 +215,7 @@ echo ""
 
 # --optimize-only: skip the entire build/test pipeline and just optimize the
 # binary produced by an earlier run. Needs `cabal` (to locate the binary),
-# `strip`, and `upx` — but none of the heavy build deps (gcc, MUMPS, ...).
+# `strip`, and `upx` - but none of the heavy build deps (gcc, MUMPS, ...).
 if [[ "$OPTIMIZE_ONLY" == "true" ]]; then
     if ! command -v cabal &>/dev/null; then
         log_error "--optimize-only requires cabal in PATH to locate the binary"
@@ -299,7 +299,7 @@ MUMPS_FOUND=false
 MUMPS_BUILT_LOCALLY=false
 LOCAL_MUMPS_DIR="$SCRIPT_DIR/deps/mumps"
 
-# Always prefer a locally-built MUMPS (deps/mumps/) — consistent version on all platforms
+# Always prefer a locally-built MUMPS (deps/mumps/) - consistent version on all platforms
 if [[ -f "$LOCAL_MUMPS_DIR/lib/libdmumps_seq.a" ]]; then
     MUMPS_FOUND=true
     MUMPS_BUILT_LOCALLY=true
@@ -363,7 +363,7 @@ if [[ "$MUMPS_FOUND" != "true" ]]; then
             log_info "gfortran not found, installing gcc via brew..."
             brew install gcc
         fi
-        # Use Homebrew openblas — works uniformly on Intel and Apple Silicon
+        # Use Homebrew openblas - works uniformly on Intel and Apple Silicon
         if ! brew --prefix openblas &>/dev/null; then
             log_info "openblas not found, installing via brew..."
             brew install openblas
@@ -473,7 +473,7 @@ elif [[ -f /etc/alpine-release ]] && { [[ "$STATIC_BUILD" == "true" ]] || [[ "$M
     # OpenBLAS-from-source. The only fully-portable Linux static path we
     # still support.
     LINK_MODE="musl"
-    : "${OPENBLAS_LIB_DIR:?OPENBLAS_LIB_DIR required for musl builds (path to libopenblas.a — build via prebuild-openblas or apk add openblas-static + headers)}"
+    : "${OPENBLAS_LIB_DIR:?OPENBLAS_LIB_DIR required for musl builds (path to libopenblas.a - build via prebuild-openblas or apk add openblas-static + headers)}"
 elif [[ "$STATIC_BUILD" == "true" ]]; then
     log_error "--static is only supported on Alpine/musl. Use the Docker build or run inside an Alpine container."
     exit 1
@@ -550,7 +550,7 @@ if [[ "$RUN_TESTS" == "true" ]]; then
     log_info "Running tests..."
     cd "$SCRIPT_DIR"
     if [[ "$COVERAGE" == "true" ]]; then
-        log_info "Coverage enabled — instrumenting code..."
+        log_info "Coverage enabled - instrumenting code..."
         cabal test --enable-coverage --test-show-details=streaming "${STRICT_OPTS[@]}"
 
         log_info "Generating coverage report..."
@@ -577,7 +577,7 @@ if [[ "$RUN_TESTS" == "true" ]]; then
                 log_warn "Could not locate HPC mix files"
             fi
         else
-            log_warn "No .tix file found — coverage report not generated"
+            log_warn "No .tix file found - coverage report not generated"
         fi
     else
         # VOLCA_TEST_OPTS forwards args to the Hspec executable. CI uses it
@@ -588,7 +588,7 @@ if [[ "$RUN_TESTS" == "true" ]]; then
             EXTRA_TEST_OPTS=(--test-options="$VOLCA_TEST_OPTS")
         fi
         # Resolve the volca exe path now and export it so test/ServerSpec.hs
-        # does not spawn its own `cabal list-bin` from inside `cabal test` —
+        # does not spawn its own `cabal list-bin` from inside `cabal test` -
         # that re-config attempt deadlocks against the parent's project lock
         # on Windows and the run hangs until the runner timeout.
         if [[ -z "${VOLCA_EXE:-}" ]]; then
@@ -614,7 +614,7 @@ echo "==========================================================================
 echo ""
 
 if [[ "$STATIC_BUILD" == "true" ]]; then
-    echo "Static build — no LD_LIBRARY_PATH needed."
+    echo "Static build - no LD_LIBRARY_PATH needed."
 fi
 echo ""
 echo "To run volca:"

@@ -325,8 +325,8 @@ extractUUIDFromURI uri =
 
 {- | Parse a characterization-factor value, returning 0 on failure.
 
-Uses the correctly-rounded 'Amount.readAmount' — the same reader the ILCD
-database importer and every export round-trip guard share — rather than
+Uses the correctly-rounded 'Amount.readAmount' - the same reader the ILCD
+database importer and every export round-trip guard share - rather than
 'Data.Text.Read.double', which is off by up to one ULP on ordinary magnitudes
 and so silently loaded CFs at a slightly wrong value.
 -}

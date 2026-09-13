@@ -22,7 +22,7 @@ BLAS_LIBS="${BLAS_LIBS:--llapack -lblas}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 
 # On macOS, Homebrew gcc installs versioned binaries (gfortran-15, gcc-15) and
-# does not symlink unsuffixed names — `gfortran` resolves to nothing, `gcc` to
+# does not symlink unsuffixed names - `gfortran` resolves to nothing, `gcc` to
 # Apple clang. Pick the highest installed version so MUMPS's Fortran sources compile.
 CC_DEFAULT="gcc"
 FC_DEFAULT="gfortran"
@@ -32,7 +32,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     BREW_PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
     if ! command -v gfortran &>/dev/null; then
         FC_DEFAULT=$(ls "${BREW_PREFIX}/bin/gfortran-"* 2>/dev/null | sort -V | tail -1)
-        : "${FC_DEFAULT:?gfortran not found — install with: brew install gcc}"
+        : "${FC_DEFAULT:?gfortran not found - install with: brew install gcc}"
     fi
     # Homebrew gcc is versioned too; Apple's /usr/bin/gcc is clang and lacks
     # Fortran-aware libraries, but its C compilation works for MUMPS's C bits.
@@ -86,7 +86,7 @@ cd "$SRCDIR"
 #   ORDERINGSF=-Dpord - activates PORD in Fortran/C code
 #   LIBSEQNEEDED     - builds the stub MPI library (libmpiseq_seq.a)
 #
-# NOTE: AR, OUTC, OUTF must have trailing spaces — MUMPS Makefiles concatenate
+# NOTE: AR, OUTC, OUTF must have trailing spaces - MUMPS Makefiles concatenate
 # these variables directly with filenames: $(AR)$@, $(OUTC)file.o, $(OUTF)file.o
 # Using printf (not heredoc) to guarantee trailing spaces are not stripped.
 printf '%s\n' \
@@ -124,7 +124,7 @@ printf '%s\n' \
     > Makefile.inc
 
 echo "[INFO] Building MUMPS ${MUMPS_VERSION} (sequential, double precision, ${JOBS} jobs)..."
-# Build prerequisites (libseq stub + PORD), then src only — skips examples
+# Build prerequisites (libseq stub + PORD), then src only - skips examples
 # which would require BLAS at link time and aren't needed for the libraries.
 make -j"$JOBS" prerequisites
 make -j"$JOBS" -C src d

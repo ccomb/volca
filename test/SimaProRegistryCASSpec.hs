@@ -4,7 +4,7 @@
 @Raw materials@ / @Airborne emissions@ / … blocks, each row
 @name;unit;cas;comment@) backfills the per-flow CAS the inventory rows omit, so
 the engine's native CAS bridge fires on a SimaPro database. This pins that the
-registry is parsed, merged across the parallel workers, and filled — and that a
+registry is parsed, merged across the parallel workers, and filled - and that a
 trailer @Emissions to soil@ block is read as the registry, not mistaken for the
 in-process emission section of the same name.
 -}
@@ -24,9 +24,9 @@ import UnitConversion (UnitConfig, defaultUnitConfig)
 {- | One process emitting four substances, then a trailer substance registry
 giving three of them a CAS. Methane and fossil CO2 are listed under the
 registry-only @Airborne emissions@ header; Cadmium under @Emissions to soil@,
-which also names an in-process section — the trailer copy must win there.
+which also names an in-process section - the trailer copy must win there.
 Dinitrogen monoxide is emitted but absent from the registry (negative case).
-A later @Waterborne emissions@ block re-binds Methane to a different CAS —
+A later @Waterborne emissions@ block re-binds Methane to a different CAS -
 the first binding must win (the file-order rule the fill promises).
 -}
 registryCSV :: BS.ByteString

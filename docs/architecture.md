@@ -3,7 +3,7 @@
 VoLCA is a Life Cycle Assessment (LCA) engine written in Haskell. It loads LCA
 databases (EcoSpold2, EcoSpold1, SimaPro CSV, ILCD, Brightway Excel), builds sparse
 technosphere/biosphere matrices, and computes life-cycle inventories (LCI) and impact
-scores (LCIA) — **entirely in memory**.
+scores (LCIA) - **entirely in memory**.
 
 The project compiles into a **single binary** (`volca`). The HTTP server is the heart
 of the system; the CLI and REPL are just thin HTTP clients.
@@ -20,7 +20,7 @@ of the system; the CLI and REPL are just thin HTTP clients.
                                    │
  ══════════════════════════════════▼══════════════ "volca server" process
    ┌─────────────────────────────────────────────────────────────────┐
-   │  EDGE      API.Auth  — session cookie, single-code login (opt.) │
+   │  EDGE      API.Auth  - session cookie, single-code login (opt.) │
    ├──────────────┬─────────────┬───────────────┬────────────────────┤
    │ API          │ MCP server  │ Static files  │ OpenAPI / licenses │
    │ /api/v1/*    │ API.MCP     │ for embedded  │ API.OpenApi        │
@@ -69,7 +69,7 @@ of the system; the CLI and REPL are just thin HTTP clients.
 | Command                   | Role                                                              |
 |---------------------------|-------------------------------------------------------------------|
 | `volca server`            | Launches the HTTP server (Warp + Servant), loads databases into memory |
-| `volca repl`              | Interactive REPL — auto-starts the server if needed               |
+| `volca repl`              | Interactive REPL - auto-starts the server if needed               |
 | `volca <command>`         | Thin CLI client: queries the server over HTTP (~0.2 s/command)    |
 | `volca dump-openapi`      | Emits the OpenAPI specification on stdout                         |
 | `volca dump-mcp-tools`    | Emits the MCP tool definitions on stdout                         |
@@ -78,7 +78,7 @@ of the system; the CLI and REPL are just thin HTTP clients.
 
 ## Two key flows
 
-### 1 — Startup / loading a database
+### 1 - Startup / loading a database
 
 `volca.toml` → `Database.Manager` → for each database: archive extraction →
 format parser → domain model → `Database.MatrixBuild` assembles the sparse **A**
@@ -89,7 +89,7 @@ with the source file.
 The cache is invalidated automatically when the schema changes. Cold vs. warm
 figures live in the README's Performance table (single source for benchmarks).
 
-### 2 — Computing an impact
+### 2 - Computing an impact
 
 HTTP request → `API.Auth` → Servant handler (`API.Routes`) → `Service` → `SharedSolver`.
 
@@ -133,7 +133,7 @@ a small amount of **mutable runtime state** (`Database.Manager` + `SharedSolver`
  │  │  DOMAIN        dbActivities : Vector Activity                       │ │
  │  │                dbBioFlows · dbTechFlows · dbUnits                   │ │
  │  │  INTERNING     dbProcessIdTable : ProcessId ↔ (activityUUID,        │ │
- │  │                productUUID)   — Int32 keys for matrix indexing      │ │
+ │  │                productUUID)   - Int32 keys for matrix indexing      │ │
  │  │  INDEXES       dbIndexes : by name / geo / flow / category          │ │
  │  │                dbBM25Index · dbProductSearchIndex   (built at load) │ │
  │  │  SPARSE        dbTechnosphereTriples → A   (activities × activities)│ │
@@ -155,7 +155,7 @@ a small amount of **mutable runtime state** (`Database.Manager` + `SharedSolver`
 
 Only the `Database` fields above the dashed line are serialised by the `Data.Store`
 cache. Runtime-only fields (factorisation, synonym DB, name/CAS indexes, BM25 index)
-are rebuilt on load — cheap compared to parsing.
+are rebuilt on load - cheap compared to parsing.
 
 ### Computation pipeline
 
@@ -222,11 +222,11 @@ lookups, so scoring itself is a fast dot product over the inventory `g`.
 
 Two mechanisms turn per-category LCIA results into comparable numbers:
 
-- **Built-in NW sets** — a method collection may ship its own
+- **Built-in NW sets** - a method collection may ship its own
   normalization/weighting data (`mcNormWeightSets`, parsed by
   `Method.ParserNW`); batch LCIA then returns Raw / Normalized / Weighted
   views and an aggregated single score (Pt).
-- **Formula-based scoring sets** — configured per collection in TOML
+- **Formula-based scoring sets** - configured per collection in TOML
   (`[[methods.scoring]]`, decoded in `Config`, stored as `mcScoringSets`).
   `Method.Types.computeFormulaScores` evaluates one against the raw
   category scores: ① bind short variables to category names, ② resolve
@@ -241,10 +241,10 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 
 ### What-if and cross-database solving
 
-- **What-if substitution** — `Matrix.perturbA` / `perturbABatch` apply an upstream
+- **What-if substitution** - `Matrix.perturbA` / `perturbABatch` apply an upstream
   activity swap to the `A` matrix and the system is re-solved, yielding a modified
   inventory and impacts in one call (~120 ms) without touching the original database.
-- **Cross-DB solving** — when a database declares `dbCrossDBLinks` (e.g. a sector
+- **Cross-DB solving** - when a database declares `dbCrossDBLinks` (e.g. a sector
   database referencing Agribalyse), the root scaling vector feeds supplier demand
   vectors into each dependency database. Each dependency runs its own multi-RHS
   solve; `SharedSolver` recurses through the dependency DAG (depth-capped at 10) and
@@ -269,7 +269,7 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 | `Database/Upload.hs`        | Database upload via the API                                         |
 | `Database/MatrixBuild.hs`   | Sparse A / B matrix construction, normalisation (all numerical work) |
 | `Database.hs`               | Composes the matrix builders, adds progress reporting               |
-| `Types.hs`                  | Domain model (Activity, Flow, Exchange, Database) — sum types        |
+| `Types.hs`                  | Domain model (Activity, Flow, Exchange, Database) - sum types        |
 | `Matrix.hs`                 | Matrix LCA computations via the MUMPS solver                        |
 | `SharedSolver.hs`           | Lazy thread-safe LU factorisation, caches, back-substitution        |
 | `mumps-hs/`                 | FFI bindings to the MUMPS direct sparse solver (Fortran)            |
@@ -289,13 +289,13 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 
 ## Structuring principles
 
-- **Pure core, effects at the edges** — parsers, the MUMPS FFI and I/O are confined;
+- **Pure core, effects at the edges** - parsers, the MUMPS FFI and I/O are confined;
   the computation is pure.
-- **Impossible states made impossible** — loading statuses, domain model and states
+- **Impossible states made impossible** - loading statuses, domain model and states
   as sum types, with no `wildcard` pattern on sums.
-- **Zero crashes** — `Either Text a` / `Maybe` propagated; no `error`, `undefined`,
+- **Zero crashes** - `Either Text a` / `Maybe` propagated; no `error`, `undefined`,
   or partial function. No silent fallback value: missing data surfaces as an explicit
   error.
-- **Simultaneous multi-database** — several databases loaded in parallel, with
+- **Simultaneous multi-database** - several databases loaded in parallel, with
   cross-nomenclature flow linking (`CrossLinking`).
-- **Schema-invalidated cache** — co-located with the source, transparent.
+- **Schema-invalidated cache** - co-located with the source, transparent.

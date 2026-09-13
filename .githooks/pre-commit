@@ -7,15 +7,15 @@ files=$(git diff --cached --name-only --diff-filter=ACM -- '*.hs')
 [ -z "$files" ] && exit 0
 
 if ! command -v fourmolu >/dev/null 2>&1; then
-    echo "pre-commit: fourmolu not on PATH — install the version from versions.env (FOURMOLU_VERSION)" >&2
+    echo "pre-commit: fourmolu not on PATH - install the version from versions.env (FOURMOLU_VERSION)" >&2
     exit 1
 fi
 
 for f in $files; do
     # A file with unstaged changes is only partially staged; `fourmolu -i` + `git add`
-    # would sweep the unstaged hunks into the commit. Skip it — the Format CI still gates.
+    # would sweep the unstaged hunks into the commit. Skip it - the Format CI still gates.
     if ! git diff --quiet -- "$f"; then
-        echo "pre-commit: $f is partially staged — not auto-formatting (run fourmolu on it yourself)" >&2
+        echo "pre-commit: $f is partially staged - not auto-formatting (run fourmolu on it yourself)" >&2
         continue
     fi
     fourmolu -i "$f" || exit 1

@@ -73,7 +73,7 @@ serializeDatabase fmt db = case fmt of
     sdb = toSimpleDatabase db
     noWarn = fmap (,[])
 
-{- | Export targets for a method collection — a space of its own, not
+{- | Export targets for a method collection - a space of its own, not
 'DatabaseFormat': most database formats carry no method writer, and method
 formats need not be database formats at all. A request naming a format
 outside this type is rejected at parse time instead of dispatching into a
@@ -116,7 +116,7 @@ serializeMethodCollection fmt name mc = case fmt of
 
 {- | Drop the exclusion rows before writing a format that has no notion of one.
 A @"!Occupation, sea*"@ row would otherwise land as a flow characterized at the
-number its value cell only ever used to name a category — the export would
+number its value cell only ever used to name a category - the export would
 characterize exactly what the exception takes out. The columnar CSV is VoLCA's
 own method format and reads the marker back, so it keeps them and round-trips.
 -}
@@ -139,7 +139,7 @@ parseExportFormat raw = case T.toLower (T.strip raw) of
     other -> Left ("unknown export format: " <> other <> " (expected simapro|ecospold1|ecospold2|ilcd|brightway)")
 
 {- | Serialize a database and write it to @path@, returning the approximation
-warnings so the caller can report them — a local export approximates exactly as
+warnings so the caller can report them - a local export approximates exactly as
 much as a remote one.
 -}
 exportDatabase :: DatabaseFormat -> Database -> FilePath -> IO (Either Text [Text])

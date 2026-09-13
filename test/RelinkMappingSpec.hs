@@ -311,7 +311,7 @@ spec = do
 
         it "applies the located row only at its location" $ do
             -- The FR row designates a target nobody ships, so an FR demand
-            -- fails loudly through the row — while a CH demand has no row in
+            -- fails loudly through the row - while a CH demand has no row in
             -- force and links normally through the cascade.
             let m = singletonAlias (AliasKey "wheat production" (Just "FR")) (AliasTarget "no such product" Nothing)
             case findSupplierInIndexedDBs (mkCtx m) (aliasQuery "wheat production" "FR" "kg") of

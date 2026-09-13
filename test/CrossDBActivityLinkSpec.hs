@@ -7,7 +7,7 @@ background activities it does not ship. These tests pin the resolution cascade
 'Database.Loader.findExchangeCrossDBLink' runs for such inputs:
 
 1. exact @(activityLinkId, flowId)@ identity against a loaded dependency;
-2. attribute matching (name/location/unit) when the exact identity is absent —
+2. attribute matching (name/location/unit) when the exact identity is absent -
    the cross-version case, flagged in 'cdlAttributeFallbacks';
 3. and that an input whose target is present *in the same database* resolves
    internally and gets no cross-DB link (no double counting).
@@ -229,7 +229,7 @@ spec = do
         it "still names a residual gap when only one of two same-product inputs is covered" $ do
             -- One activity consumes "widget" twice, from two suppliers (same
             -- flowId, different activityLinkId); neither supplier is in the
-            -- database. A single cross-DB link covers one of them — the other
+            -- database. A single cross-DB link covers one of them - the other
             -- must still be reported, not masked by the shared (act, prod, flow)
             -- triple. The engine resolves demands by (activityLinkId, flowId),
             -- so coverage is counted per occurrence, not tested for membership.

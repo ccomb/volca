@@ -1,7 +1,7 @@
 name: Publish prebuilt prerelease
 description: >-
   Tag preflight + SHA256SUMS + `gh release create` shared by the manual
-  prebuild-* workflows. Caller must declare contents:write — composite
+  prebuild-* workflows. Caller must declare contents:write - composite
   actions cannot grant their own permissions.
 
 inputs:
@@ -22,7 +22,7 @@ inputs:
     description: Env var name to mention in the duplicate-tag error.
   github-token:
     required: true
-    description: Pass secrets.GITHUB_TOKEN from the caller — composite actions cannot read secrets directly.
+    description: Pass secrets.GITHUB_TOKEN from the caller - composite actions cannot read secrets directly.
 
 runs:
   using: composite

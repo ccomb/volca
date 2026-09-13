@@ -150,12 +150,12 @@ type LCAAPI =
                 -- Delete the whole filtered set of activities (selection in JSON body)
                 :<|> "db" :> Capture "dbName" Text :> "delete" :> ReqBody '[JSON] DeleteSelectionRequest :> Post '[JSON] DeleteSelectionResponse
                 -- Write activities. POST adds to the collection, PUT rewrites the one
-                -- addressed — never both, so a mistyped identity fails instead of
+                -- addressed - never both, so a mistyped identity fails instead of
                 -- quietly becoming a duplicate of the row it meant to correct.
                 :<|> "db" :> Capture "dbName" Text :> "activities" :> ReqBody '[JSON] ActivityWriteRequest :> Post '[JSON] ActivityWriteResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> ReqBody '[JSON] ActivityInput :> Put '[JSON] ActivityWriteResponse
                 -- Change the inventory of one activity, keeping everything else it
-                -- carries — the operation a PUT cannot do for a row that came in
+                -- carries - the operation a PUT cannot do for a row that came in
                 -- from a database file rather than from a description
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "exchanges" :> ReqBody '[JSON] ExchangeEditRequest :> Post '[JSON] ExchangeEditResponse
                 -- Export a loaded database as raw bytes in the requested format;
@@ -335,7 +335,7 @@ solutionsWithDeps dbName db solver pids = do
 across every pid in that request. Carries the precomputed mapping stats
 and total mapped-flow count; combined with the precomputed broadcast
 (and regionalized activity weights) on 'MethodTables', this is enough
-to build an LCIAResult per pid in O(1) per method — no TVar reads, no
+to build an LCIAResult per pid in O(1) per method - no TVar reads, no
 per-pid cache lookups, no inventoryContributions walk.
 -}
 data MethodCtx = MethodCtx
@@ -345,7 +345,7 @@ data MethodCtx = MethodCtx
 
 {- | Build an 'ActivityContribution' row from a cross-DB contribution key
 @(depDbName, pid)@. For dep-DB rows the process ID is qualified as
-@"dbName::actUUID_prodUUID"@ — same convention as
+@"dbName::actUUID_prodUUID"@ - same convention as
 'Service.hs' (activity-detail endpoint) so the UI's existing
 cross-DB navigation handles it. Root-DB rows keep the bare @pid@ form.
 -}
@@ -421,7 +421,7 @@ instance FromJSON LoginRequest where
     parseJSON = withObject "LoginRequest" $ \v ->
         LoginRequest <$> v .: "code"
 
--- ToSchema orphan for the login request — lives here (not in API.OpenApi)
+-- ToSchema orphan for the login request - lives here (not in API.OpenApi)
 -- to avoid a circular dependency.
 instance ToSchema LoginRequest
 
@@ -457,7 +457,7 @@ damageCategoryIndex damageCats =
     M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
 
 -- ============================================================================
--- Hoisted helpers — previously in lcaServer's `where`. Lifted to top level so
+-- Hoisted helpers - previously in lcaServer's `where`. Lifted to top level so
 -- non-Servant callers (notably src/API/BatchImpacts.hs and any client of the
 -- LCIA batch pipeline outside the Servant AppM stack) can reuse them.
 --
@@ -537,7 +537,7 @@ logLCIAResult result method = do
 
 {- | Resolve a process_id text against a database, throwing the appropriate
 HTTP status. Validates the resolved ProcessId against the technosphere
-matrix index too — see Service.validateProcessIdInMatrixIndex.
+matrix index too - see Service.validateProcessIdInMatrixIndex.
 -}
 resolveOrThrow :: Database -> Text -> AppM (ProcessId, Activity)
 resolveOrThrow db processIdText = do
@@ -547,7 +547,7 @@ resolveOrThrow db processIdText = do
 
 {- | Pure mapping from a domain 'Service.ServiceError' to the HTTP error it
 surfaces as. Every constructor is a client-supplied invariant breakage, so all
-map to 4xx/422 — never 5xx. Kept pure (and separate from 'throwServiceError')
+map to 4xx/422 - never 5xx. Kept pure (and separate from 'throwServiceError')
 so the status contract is unit-testable without booting a server.
 -}
 serviceErrorToServerError :: Service.ServiceError -> ServerError
@@ -563,7 +563,7 @@ serviceErrorToServerError = \case
     -- message says why, so the caller can repair the dataset or pick another.
     Service.NotScorable msg -> err422{errBody = utf8Body msg}
     -- MatrixError covers singular Sherman-Morrison, missing technosphere links,
-    -- and cross-DB unit-conversion failures — all client-submitted invariant
+    -- and cross-DB unit-conversion failures - all client-submitted invariant
     -- breakages. Surface as 422 like the rest of the cross-DB pipeline.
     Service.MatrixError msg -> err422{errBody = utf8Body msg}
   where
@@ -670,10 +670,10 @@ batchedScoresFor dbManager _dbName collection _db sol methods = do
                 perDb
 
 {- | Resolve a method's precomputed batched score. A 'Left' here is a scoring
-integrity error (mismatched table lengths, absent weights — never a mere
+integrity error (mismatched table lengths, absent weights - never a mere
 coverage gap, see 'computeRegionalizedLCIAScore'): it must reach the caller
 as an error, never collapse to a 0 the consumer cannot tell from a real
-score. A method missing from the map is the same kind of error — the map is
+score. A method missing from the map is the same kind of error - the map is
 built from the very method list being scored.
 -}
 resolveBatchedScore :: Method -> M.Map UUID (Either Text Double) -> Either Text Double
@@ -684,7 +684,7 @@ resolveBatchedScore method scoreMap =
         Just (Right s) -> Right s
 
 {- | Surface a scoring integrity error as a 500: the collection's tables are
-inconsistent and the score is not computable — a silent 0 would be worse
+inconsistent and the score is not computable - a silent 0 would be worse
 than the failure.
 -}
 scoringError :: Text -> AppM a
@@ -722,7 +722,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
     tables <- DM.mapMethodToTablesCached dbManager dbName collection db method
     let inventory = SharedSolver.csInventory sol
     let stats = computeMappingStats mappings
-    -- A Left is a scoring integrity error (see 'resolveBatchedScore') — it
+    -- A Left is a scoring integrity error (see 'resolveBatchedScore') - it
     -- propagates instead of collapsing to a 0 the consumer can't tell from a
     -- real score. A precomputed Left arrives already labeled by
     -- 'resolveBatchedScore'; only the locally computed one is labeled here.
@@ -757,7 +757,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
                     <> T.unpack (methodName method)
                     <> "] "
                     <> show (length unknownUuids)
-                    <> " inventory flow UUID(s) absent from merged FlowDB — characterization incomplete. Samples: "
+                    <> " inventory flow UUID(s) absent from merged FlowDB - characterization incomplete. Samples: "
                     <> show (take 3 unknownUuids)
         pure $
             Right
@@ -814,7 +814,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                 <> show actPid
                 <> ": "
                 <> show (length unknownUuids)
-                <> " inventory flow UUID(s) absent from merged FlowDB — characterization incomplete. Samples: "
+                <> " inventory flow UUID(s) absent from merged FlowDB - characterization incomplete. Samples: "
                 <> show (take 3 unknownUuids)
     mUnitCfg <-
         if topFlows > 0
@@ -872,7 +872,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                 computeAllScoringSets (mcScoringSets collection) rawScoreMap
             pure (Right (mkLCIABatchResult results mNW nwSets scoringResults (mcScoringSets collection) scoringIndicators (Service.buildCutoffWaste db activity)))
 
-{- | Top-level LCIA batch entry point — AppM-returning. Used by the Servant
+{- | Top-level LCIA batch entry point - AppM-returning. Used by the Servant
 routes (via thin where-aliases) and by API.BatchImpacts.
 -}
 activityLCIABatchH ::
@@ -905,7 +905,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
                     <> showFFloat (Just 2) (realToFrac (diffUTCTime t1 t0) :: Double) ""
                     <> "s)"
             when (invSize == 0) $
-                reportProgress Info "  WARNING: inventory is empty — check matrix computation"
+                reportProgress Info "  WARNING: inventory is empty - check matrix computation"
             when (invSize > 0 && invSize <= 5) $
                 reportProgress Info $
                     "  Inventory UUIDs: " <> intercalate ", " (map UUID.toString $ M.keys inventory)
@@ -1020,7 +1020,7 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
                                 <> show (length invalid)
                                 <> " invalid)"
                    )
-                <> " — solve "
+                <> " - solve "
                 <> showFFloat (Just 2) (realToFrac (diffUTCTime t1 t0) :: Double) ""
                 <> "s, "
                 <> "total "
@@ -1035,8 +1035,8 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
             }
 
 {- | Computed quality checks over the whole catalogue: score every entry of a
-loaded database against one method collection — chunked multi-RHS solves on
-the cached factorization, warm method tables — then judge the numbers with
+loaded database against one method collection - chunked multi-RHS solves on
+the cached factorization, warm method tables - then judge the numbers with
 the pure 'Database.ComputedQuality' checks. The structural quality report
 runs on staged data too; this one needs matrices and methods, so it is a
 separate report with the same finding shape.
@@ -1079,7 +1079,7 @@ computedQualityReportH dbName mCollection mLimit = do
             (\pids -> batchImpactsH dbName collection Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = pids})
             (chunks (M.keys entriesByPid))
     -- The ids come from the catalogue itself, so nothing should be
-    -- unresolvable — but a dropped entry would silently shrink the report,
+    -- unresolvable - but a dropped entry would silently shrink the report,
     -- so any is worth a warning in the log.
     let unresolved = concatMap (\r -> birNotFound r <> birInvalid r <> birUnscorable r) responses
     unless (null unresolved) $
@@ -1220,7 +1220,7 @@ buildFlowEntry db tables uuid =
     let mFlow = M.lookup uuid (dbBioFlows db)
         -- The entry this flow actually scores with: the read-side lookup, so
         -- a flow reached via a medium-level or CAS-bridge fallback (no
-        -- single build-side CF resolved to it) still reports as covered —
+        -- single build-side CF resolved to it) still reports as covered -
         -- exactly what scoring sees. Its provenance names the method line
         -- and strategy even for fallback-covered flows, which the build-side
         -- reverse index this used to read could not.
@@ -1284,7 +1284,7 @@ loadMethodByUUID uuidText = do
 
 {- | Resolve a method by UUID *within a named collection*. Unlike
 'loadMethodByUUID' (first-match across all collections), this guarantees the
-method's CFs belong to @collectionName@ — required wherever the result keys a
+method's CFs belong to @collectionName@ - required wherever the result keys a
 collection-scoped cache, so a method's factors and its cache slot never disagree.
 -}
 loadMethodInCollection :: DM.CollectionName -> Text -> AppM Method
@@ -2098,8 +2098,8 @@ getFlowCFMapping dbName methodIdText = do
             }
 
 {- | Coverage of one database by a whole method collection, as distinct flows.
-Distinct across methods, because they overlap — every climate-change variant
-characterizes the same gases — so this number cannot be recovered from the
+Distinct across methods, because they overlap - every climate-change variant
+characterizes the same gases - so this number cannot be recovered from the
 per-method mapping statuses.
 -}
 getCollectionCoverage :: Text -> DM.CollectionName -> AppM CollectionCoverage
@@ -2369,7 +2369,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getOpenApiSpec
 
 {- | Build the scoring input map (impact method name → raw score) from LCIA
-results. Keyed by method NAME, which is unique per collection — not by
+results. Keyed by method NAME, which is unique per collection - not by
 'lrCategory', which for ILCD methods is the coarse damage class (e.g. all four
 "Climate change-*" methods share category "Climate change"; the three freshwater
 ecotoxicity methods share "Aquatic eco-toxicity"). Keying by category collapses

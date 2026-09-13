@@ -21,16 +21,16 @@ __3-row__ (explicit categories):
 
 The label row names the key columns; data columns start after them.
 @substance@ and @compartment@ are required, in that order. Two more key
-columns are recognised (in either order — this is what 'Method.WriterCSV'
+columns are recognised (in either order - this is what 'Method.WriterCSV'
 emits): @cas@ (the substance's CAS number) and @unit@ (the flow unit of
-that row, when it differs from the category unit in the header — real
+that row, when it differs from the category unit in the header - real
 methods mix kg, m3 and MJ flows inside one category).
 
 A compartment cell is either a legacy prose form (@Emissions to air@,
-@Resources@ — matched by keyword) or a @/@-separated path
+@Resources@ - matched by keyword) or a @/@-separated path
 (@water/groundwater/long-term@ = compartment, subcompartment, qualifier),
 which is what the writer emits and the only way to keep subcompartment
-distinctions — most of a real method's factors are subcompartment-specific.
+distinctions - most of a real method's factors are subcompartment-specific.
 
 One CSV file → multiple 'Method' values (one per column).
 -}

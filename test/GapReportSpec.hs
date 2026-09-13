@@ -3,7 +3,7 @@
 {- | Supplier-gap report tests.
 
 A consumer database demands four products: one satisfied internally, one
-supplied by a cross-DB background, and three genuine gaps of different kinds —
+supplied by a cross-DB background, and three genuine gaps of different kinds -
 a nil-link product the matcher can't place ('GapBlocked'), a non-nil source
 identity no dependency ships ('GapDanglingIdentity'), and an unlinked waste
 input ('GapWasteInput'). The report must count edges exactly, aggregate per

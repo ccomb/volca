@@ -68,7 +68,7 @@ type ProcessId = Int32
 
 {- | The (activity, product) pair a process is. 'ProcessId' is the matrix row
 index for that pair inside one database; a 'ProcessRef' is the pair itself,
-which is what travels — over the wire, in a @.spold@ file name, in an ILCD
+which is what travels - over the wire, in a @.spold@ file name, in an ILCD
 process identifier.
 
 Named fields rather than a bare @(UUID, UUID)@ because the two halves are
@@ -169,7 +169,7 @@ unknownMedium got =
         <> T.unpack (T.intercalate ", " (map mediumText [minBound .. maxBound]))
         <> ")"
 
-{- | Biosphere compartment — the natural medium a biosphere flow exchanges
+{- | Biosphere compartment - the natural medium a biosphere flow exchanges
 with. Present only on `BiosphereFlow`; technosphere flows have no
 compartment (their taxonomy, when meaningful, lives on the producing
 activity's `activityClassification`).
@@ -197,9 +197,9 @@ bfCompartmentSub = compartmentSub <=< bfCompartment
 {- | Direction of a biosphere exchange. Mirrors the @TechRole@ sum so the
 biosphere side also gets named variants instead of a load-bearing 'Bool'.
 
-* @Resource@ — extraction from the environment (e.g. crude oil, ore, water
+* @Resource@ - extraction from the environment (e.g. crude oil, ore, water
   withdrawal). Acts as an input to the activity.
-* @Emission@ — release into the environment (e.g. CO₂ to air, P to water).
+* @Emission@ - release into the environment (e.g. CO₂ to air, P to water).
   Acts as an output from the activity.
 -}
 data BioDirection = Resource | Emission
@@ -289,7 +289,7 @@ data Unit = Unit
     deriving (Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Unit)
 
-{- | A technosphere flow — an intermediate product that activities produce and
+{- | A technosphere flow - an intermediate product that activities produce and
 consume. Carries no compartment and no taxonomy: the product classification
 (when meaningful) lives on the producing activity's `activityClassification`.
 -}
@@ -304,7 +304,7 @@ data TechnosphereFlow = TechnosphereFlow
     deriving (Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped TechnosphereFlow)
 
-{- | A biosphere flow — an environmental exchange (resource extraction or
+{- | A biosphere flow - an environmental exchange (resource extraction or
 emission). Always carries a `Compartment` identifying the medium.
 -}
 data BiosphereFlow = BiosphereFlow
@@ -324,7 +324,7 @@ data BiosphereFlow = BiosphereFlow
     deriving (Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped BiosphereFlow)
 
-{- | A waste flow — a residual output that a process generates and which a
+{- | A waste flow - a residual output that a process generates and which a
 treatment activity may consume as its reference input. Sister type to
 'TechnosphereFlow' and 'BiosphereFlow'. Distinct from product flows so the
 UI and import logic can surface them separately, but routed to the same
@@ -332,7 +332,7 @@ technosphere matrix because the underlying calculation is identical to a
 product link.
 
 When no treatment activity is present in the loaded data, a waste output
-flow stays orphan and contributes zero impact — same cut-off semantics
+flow stays orphan and contributes zero impact - same cut-off semantics
 as an orphan product input.
 -}
 data WasteFlow = WasteFlow
@@ -346,7 +346,7 @@ data WasteFlow = WasteFlow
     deriving (Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped WasteFlow)
 
-{- | Pedigree matrix (Weidema & Wesnæs 1996) — five LCA data-quality scores
+{- | Pedigree matrix (Weidema & Wesnæs 1996) - five LCA data-quality scores
 each in 1..5 (1 = best, 5 = worst). SimaPro CSV encodes it as a prefix in the
 trailing comment column; ecoinvent/EcoSpold2 stores it as structured XML.
 -}
@@ -362,7 +362,7 @@ data Pedigree = Pedigree
 
 {- | Smart constructor: rejects out-of-range values (anything not in 1..5)
 by returning Nothing. Callers should treat Nothing as "no pedigree
-recorded" — never silently clamp.
+recorded" - never silently clamp.
 -}
 mkPedigree :: Int -> Int -> Int -> Int -> Int -> Maybe Pedigree
 mkPedigree r c t g f
@@ -679,7 +679,7 @@ getUnitNameForWasteFlow unitDB f =
 {- | Native activity-type metadata captured verbatim from the source database.
 
 Three variants matching the three supported source formats. Each variant carries
-only the fields the source format actually provides — no cross-format
+only the fields the source format actually provides - no cross-format
 normalisation, no heuristic on names. The sum type makes it impossible to
 attach (for example) an ecospold integer code to a SimaPro activity.
 
@@ -903,7 +903,7 @@ type WasteFlowDB = M.Map UUID WasteFlow
 
 {- | A parsed flow tagged with its kind. Returned by parsers when an
 @Exchange@ carries its corresponding @*Flow@ catalog entry. Distinct from
-'ApiFlow' (which is wire-shape, with an 'ApiUnresolvedFlow' fallback) —
+'ApiFlow' (which is wire-shape, with an 'ApiUnresolvedFlow' fallback) -
 parsers never produce unresolved entries.
 -}
 data ParsedFlow
@@ -958,7 +958,7 @@ flowKindCompartmentSub (TechKind _) = Nothing
 flowKindCompartmentSub (BioKind f) = bfCompartmentSub f
 flowKindCompartmentSub (WasteKind _) = Nothing
 
--- | Unit-id accessor — for unit-name lookup against the 'UnitDB'.
+-- | Unit-id accessor - for unit-name lookup against the 'UnitDB'.
 flowKindUnitId :: FlowKind -> UUID
 flowKindUnitId (TechKind f) = tfUnitId f
 flowKindUnitId (BioKind f) = bfUnitId f
@@ -1253,7 +1253,7 @@ data Database = Database
       dbTechnosphereTriples :: !(VU.Vector SparseTriple) -- A matrix: activities × activities (sparse, unboxed)
     , dbBiosphereTriples :: !(VU.Vector SparseTriple) -- B matrix: biosphere flows × activities (sparse, unboxed)
     , dbActivityIndex :: !(V.Vector Int32) -- ProcessId → matrix index mapping (direct vector indexing)
-    , dbBiosphereOrder :: !(V.Vector UUID) -- Ordered vector of biosphere flow UUIDs — B-matrix row order
+    , dbBiosphereOrder :: !(V.Vector UUID) -- Ordered vector of biosphere flow UUIDs - B-matrix row order
     , dbActivityCount :: !Int32 -- Number of activities (matrix dimension)
     , dbBiosphereCount :: !Int32 -- Number of biosphere flows (matrix dimension)
     -- Cross-database linking (serialized to cache)
@@ -1451,8 +1451,8 @@ processIdToRef db pid = refOf <$> dbProcessIdTable db V.!? fromIntegral pid
     refOf (act, prod) = ProcessRef{prActivity = act, prProduct = prod}
 
 {- | The one spelling of a process reference: @activityUUID_productUUID@.
-Everything that writes a reference — the wire, a @.spold@ file name, an ILCD
-process identifier — goes through here, so there is one place the separator
+Everything that writes a reference - the wire, a @.spold@ file name, an ILCD
+process identifier - goes through here, so there is one place the separator
 is decided.
 -}
 processRefText :: ProcessRef -> Text
@@ -1463,7 +1463,7 @@ refSeparator :: Text
 refSeparator = "_"
 
 {- | A process reference qualified by the database that holds it,
-@db::activityUUID_productUUID@ — how a cross-database supplier is named on the
+@db::activityUUID_productUUID@ - how a cross-database supplier is named on the
 wire, and what a substitution endpoint accepts back. Its reader is
 @API.Types.parseSubRef@.
 -}
@@ -1487,7 +1487,7 @@ processIdToText db pid =
 
 {- | Pure syntactic parse of a process reference. Returns the pair when the
 text has the expected shape, regardless of whether it exists in any database.
-'Nothing' is a genuine format error — callers treat a well-formed-but-absent
+'Nothing' is a genuine format error - callers treat a well-formed-but-absent
 reference as not-found, not malformed.
 -}
 parseProcessRef :: Text -> Maybe ProcessRef
@@ -1531,8 +1531,8 @@ buildFlowNameIndex bioDB =
 
 Keyed by the canonical spelling, because a flow and the method factor that
 characterizes it are read by different parsers and only one of them
-canonicalizes on the way in. A flow stating no CAS — empty, or a placeholder
-made of zeros and dashes — is left out rather than indexed under a key
+canonicalizes on the way in. A flow stating no CAS - empty, or a placeholder
+made of zeros and dashes - is left out rather than indexed under a key
 unrelated substances would share.
 -}
 buildFlowCASIndex :: BioFlowDB -> M.Map Text [BiosphereFlow]
@@ -1558,7 +1558,7 @@ addFlowNameIndexToDatabase db =
 plus those of every database it depends on.
 
 A cross-database inventory carries the dependencies' flows, so a matcher
-cascade built on the root's flows alone resolves nothing for them — the
+cascade built on the root's flows alone resolves nothing for them - the
 synonym, proxy and regional bridges all need a flow to point at. The score
 then loses whatever those bridges would have found, silently, because the
 inventory is right and only the factors are missing.
@@ -1597,7 +1597,7 @@ flowClosure root deps =
             }
 
 {- | Fill empty @bfCAS@ from registry name→CAS bindings, then rebuild the CAS
-index so the native CAS bridge fires. Holes only — a CAS the database itself
+index so the native CAS bridge fires. Holes only - a CAS the database itself
 provided is authoritative and never overwritten, which bounds any risk from a
 binding applying to a name another source uses differently. A no-op (the same
 'Database') when there are no bindings, so this never touches databases the
@@ -1608,7 +1608,7 @@ enrichBioFlowCAS bindings db
     | M.null bindings = db
     | otherwise = addFlowNameIndexToDatabase db{dbBioFlows = fillBioFlowCAS bindings (dbBioFlows db)}
 
-{- | Fill empty @bfCAS@ from name→CAS bindings (holes only) — the pure core of
+{- | Fill empty @bfCAS@ from name→CAS bindings (holes only) - the pure core of
 'enrichBioFlowCAS', over the flow map alone so it is testable without a whole
 'Database'. A flow that already carries a non-empty CAS is left untouched.
 -}
@@ -1701,7 +1701,7 @@ data LinkBlocker
         , lrBestCandidate :: !Text
         , lrBestKind :: !LocationKind
         }
-    | {- | targetName, targetLocation — a relink-mapping row designated a supplier
+    | {- | targetName, targetLocation - a relink-mapping row designated a supplier
       that no pinned dependency ships ('Nothing' when the name matches nowhere,
       'Just' the pinned location when the name exists but not there). A curated
       designation must fail loudly, never fall back to the generic cascade.
@@ -1724,8 +1724,8 @@ data AllocationProperty
 {- | How the shares of a multi-output activity are decided. Maps to TOML field
 @allocation@ on a database entry.
 
-* 'Declared'   — the shares the source states, a number or an evaluated formula.
-* 'ByProperty' — recomputed from a physical property of the products.
+* 'Declared'   - the shares the source states, a number or an evaluated formula.
+* 'ByProperty' - recomputed from a physical property of the products.
 
 A database is loaded under one key, and the same source loaded twice under two
 keys is two databases: the choice belongs to the load, because it decides the
@@ -1772,11 +1772,11 @@ parseAllocationKey raw =
 {- | Per-database knob controlling how aggressively geography may be widened when
 linking an exchange to a supplier. Maps to TOML field @geography_policy@.
 
-* 'GeoExact'  — only accept candidates with the exact same location code.
-* 'GeoParent' — also accept any ancestor that names a real region in
+* 'GeoExact'  - only accept candidates with the exact same location code.
+* 'GeoParent' - also accept any ancestor that names a real region in
                 @locationHierarchy@ (e.g. @Europe@, @RER@). Excludes @GLO@,
                 @RoW@, @Unspecified@ and unrelated locations.
-* 'GeoGlobal' — accept any candidate the linker can match (current behaviour).
+* 'GeoGlobal' - accept any candidate the linker can match (current behaviour).
 -}
 data GeographyPolicy
     = GeoExact
@@ -1825,7 +1825,7 @@ data BlockerReason = BlockerReason
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped BlockerReason)
 
-{- | The wire spelling of a 'LinkBlocker' — single source of truth shared by the
+{- | The wire spelling of a 'LinkBlocker' - single source of truth shared by the
 setup page's missing-supplier list and the supplier-gap report, so the two
 surfaces can never name the same blocker differently.
 -}
@@ -1939,7 +1939,7 @@ data LocationFallback = LocationFallback
     deriving (Show, Eq, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped LocationFallback)
 
-{- | A product whose supplier could not be linked — either because no candidate
+{- | A product whose supplier could not be linked - either because no candidate
 matched the name/unit, or because every geographic candidate was rejected by
 the database's 'GeographyPolicy'.
 -}
@@ -1981,7 +1981,7 @@ data AttributeFallback = AttributeFallback
 Their scores tie, so the ranking's winner is a choice nothing in the data made:
 in a released background database, @electricity, medium voltage@ in GLO is the reference
 product of 27 activities, and most of them are cut-off co-outputs carrying no
-burden — linking to one of those rather than the market group is off by orders
+burden - linking to one of those rather than the market group is off by orders
 of magnitude, in the quiet direction. Reported so the consumer can name the
 supplier it meant, by the activity name its source states or a relink mapping.
 -}
@@ -2199,7 +2199,7 @@ data CrossDBLink = CrossDBLink
     , cdlTiedAlternatives :: ![Text]
     {- ^ Other source databases whose best candidate matched the winner's score.
     A non-empty list means this link could equivalently be supplied from
-    another database — used to compute the minimal dependency pre-selection.
+    another database - used to compute the minimal dependency pre-selection.
     -}
     }
     deriving (Generic, NFData, Store, Show, Eq, Ord)

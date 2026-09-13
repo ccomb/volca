@@ -2,7 +2,7 @@
 
 {- | Computed-checks report tests: the log-scale outlier norm and its guard
 rails (group size, degenerate MAD, per-unit grouping), plus the zero and
-negative checks — all on hand-made scored entries.
+negative checks - all on hand-made scored entries.
 -}
 module ComputedQualitySpec (spec) where
 
@@ -36,7 +36,7 @@ cch = CategoryScore "Climate change" "kg CO2 eq"
 reportOf :: [ScoredEntry] -> ComputedQualityReport
 reportOf = computedQualityReport "testdb" "EF-3.1"
 
-{- | Honest scores spread over 10..34 — wide enough for a non-degenerate MAD,
+{- | Honest scores spread over 10..34 - wide enough for a non-degenerate MAD,
 tight enough on the log scale that none of the crowd flags itself.
 -}
 crowd :: [ScoredEntry]
@@ -81,7 +81,7 @@ spec = do
 
         it "compares entries only within their reference unit" $ do
             -- The kWh entry is huge next to the kg crowd, but it has no kg
-            -- peers to be compared with — one entry is not a norm.
+            -- peers to be compared with - one entry is not a norm.
             let power = (entry "power plant" [cch 1e6]){seRefUnit = "kWh"}
                 check = cqScoreOutliers (reportOf (crowd <> [power]))
             qcOffenders check `shouldBe` []

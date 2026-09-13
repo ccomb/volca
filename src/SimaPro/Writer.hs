@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-{- | SimaPro CSV Writer for volca — the inverse of "SimaPro.Parser".
+{- | SimaPro CSV Writer for volca - the inverse of "SimaPro.Parser".
 
 Serializes an in-memory 'Database' / 'SimpleDatabase' back to a SimaPro CSV
 export. The output is /canonical/ and /deterministic/: given the same database
@@ -15,7 +15,7 @@ Determinism is achieved by:
     leaks into the output;
   * a single fixed numeric formatter ('formatAmount') that round-trips through
     the parser's 'parseAmount' / 'Expr.normalizeExpr';
-  * pinning the only volatile header field — the SimaPro version banner — via
+  * pinning the only volatile header field - the SimaPro version banner - via
     'WriterConfig'. No export timestamp or generator line is emitted, so a
     write→parse→write cycle is stable.
 
@@ -38,10 +38,10 @@ The writer is a faithful inverse for /SimaPro-origin/ databases: a
 @parse → write → parse@ cycle preserves activities, flows, units, and the LCIA
 inventory exactly (pinned by "SimaProWriterSpec"). It writes /resolved numeric/
 amounts and only the metadata SimaPro itself carries, so a few things present in
-databases imported from /other/ formats are dropped — always score-preserving
+databases imported from /other/ formats are dropped - always score-preserving
 (the numbers that drive the matrix are kept), never silently wrong:
 
-  * parameter provenance — @Input@ / @Calculated parameters@ sections and any
+  * parameter provenance - @Input@ / @Calculated parameters@ sections and any
     per-exchange raw formula expression are flattened to their resolved
     'Double'; 'activityAllocationFormula' likewise re-parses as 'Nothing' (the
     numeric allocation percentage is preserved);
@@ -50,7 +50,7 @@ databases imported from /other/ formats are dropped — always score-preserving
   * reference- and co-product comments are dropped (SimaPro product rows carry a
     comment column, but a SimaPro parse never populates it);
   * an emission with an empty (unspecified) medium is written to
-    @Emissions to air@ and re-parses as @air@ — SimaPro has no
+    @Emissions to air@ and re-parses as @air@ - SimaPro has no
     unspecified-emission section. This shifts the flow's medium (and hence its
     generated UUID), so it is the one lossy case that can affect characterisation
     for a cross-format export; air/water/soil media and all SimaPro-origin
@@ -127,7 +127,7 @@ split the activity on re-import.
 SimaPro CSV files emissions into air / water / soil sections only. An
 emission whose compartment medium is some other non-empty value has no faithful
 section, so report it rather than silently filing it under @Emissions to air@.
-An unspecified (empty) medium is allowed — it carries no medium to lose and
+An unspecified (empty) medium is allowed - it carries no medium to lose and
 follows SimaPro's air default. Resources are bucketed by direction, not medium,
 so they never offend.
 
@@ -152,10 +152,10 @@ only for databases imported from other formats (a SimaPro parse can't produce
 them):
 
   * a pedigree-less exchange whose comment /begins/ with a @(r,c,t,g,f)@
-    quintuple — 'parsePedigreePrefix' would read it back as a 'Pedigree' and
+    quintuple - 'parsePedigreePrefix' would read it back as a 'Pedigree' and
     strip it, fabricating a data-quality score; and
   * a metadata value (activity name, location, …) equal to a SimaPro metadata
-    key — the parser checks 'isMetadataKey' before reading a value line, so it
+    key - the parser checks 'isMetadataKey' before reading a value line, so it
     would mistake the value for a new field and silently drop it.
 
 Both are rejected here rather than emitted as a row the parser misreads.
@@ -186,7 +186,7 @@ checkSimaProExportable db =
                         <> "\": it has "
                         <> T.pack (show n)
                         <> " reference products, but a faithful round-trip needs exactly"
-                        <> " one — zero would drop the whole Process block on re-import"
+                        <> " one - zero would drop the whole Process block on re-import"
                         <> " (the parser keeps a block only if it has a product), and more"
                         <> " than one would split it into separate activities."
     checkMedia =
@@ -227,7 +227,7 @@ checkSimaProExportable db =
                         <> name
                         <> "\": allocation percentage "
                         <> T.pack (show pct)
-                        <> " is not finite — the writer divides the allocation-scaled"
+                        <> " is not finite - the writer divides the allocation-scaled"
                         <> " amounts back out, so a non-finite percentage would lose"
                         <> " them on re-import."
     -- A block gives every product row a share, so an activity whose products
@@ -338,7 +338,7 @@ checkSimaProExportable db =
         ]
     hasNewline = T.any (\c -> c == '\n' || c == '\r')
     -- Every text field that lands in the output verbatim: the bare metadata
-    -- value lines (so a newline in any of them — the Type label included — is
+    -- value lines (so a newline in any of them - the Type label included - is
     -- caught), the "Category" product-column value, and all flow names.
     -- Free text never offends: 'activityMetaLines' and 'renderComment' both
     -- run 'encodeNewlines' over it first, so what this sees is already
@@ -358,11 +358,11 @@ checkSimaProExportable db =
 -- Constants
 -- ============================================================================
 
--- | Field delimiter — semicolon, matching @{CSV separator: Semicolon}@.
+-- | Field delimiter - semicolon, matching @{CSV separator: Semicolon}@.
 delim :: Text
 delim = ";"
 
--- | Line terminator — SimaPro exports use Windows CRLF.
+-- | Line terminator - SimaPro exports use Windows CRLF.
 crlf :: Text
 crlf = "\r\n"
 
@@ -381,7 +381,7 @@ enough to round-trip a 'Double'.
 A non-finite value has no parseable literal: it renders as its (non-parseable)
 @"NaN"@/@"Infinity"@ form so a re-import fails loudly rather than silently
 reading @0@. 'checkSimaProExportable' rejects non-finite amounts at the export
-boundary, so this never fires for a validated database — but the formatter
+boundary, so this never fires for a validated database - but the formatter
 stays honest for any direct caller.
 -}
 formatAmount :: Double -> Text
@@ -401,7 +401,7 @@ delimiter, a quote, or a newline, doubling embedded quotes.
 
 The newline case is kept only for parity with 'Matrix.Export.escapeCsvField':
 it never fires in practice because 'checkSimaProExportable' rejects newlines
-upstream, and quoting would not help anyway — the parser splits the file on
+upstream, and quoting would not help anyway - the parser splits the file on
 physical lines /before/ CSV parsing, so an embedded newline tears the row apart
 regardless of quoting.
 -}
@@ -646,7 +646,7 @@ data BioSec = SecRes | SecAir | SecWater | SecSoil | SecWaste
 
 {- | Output rows (@name;unit;amount;allocation;waste_type;category;comment@) for
 the technosphere outputs matching @keep@. Used for both the @Products@ section
-(references) and the @Avoided products@ section (coproducts) — the two are
+(references) and the @Avoided products@ section (coproducts) - the two are
 rendered identically but the parser routes them to different exchange roles, so
 they must be emitted under their own headers, never merged.
 -}
@@ -654,7 +654,7 @@ productLines :: (Exchange -> Bool) -> Catalogs -> Text -> [Exchange] -> [Text]
 productLines keep cats category exchs =
     let
         -- Extract the row fields in the comprehension, where the exchange is
-        -- known to be a TechnosphereExchange — so mkRow is total (no unreachable
+        -- known to be a TechnosphereExchange - so mkRow is total (no unreachable
         -- blank-row arm). Sort by (name, unit, amount) for determinism. Each
         -- row carries the share and the category its source row declared;
         -- a row that declared none takes the whole and the activity's category.
@@ -726,7 +726,7 @@ bioRowText :: Line -> Text
 bioRowText Line{..} =
     row [lName, lCompartment, lUnit, formatAmount lAmount, "Undefined", "", "", "", "", "", lComment]
 
-{- | Scale an exchange's amount by a factor — the inverse of the parser's
+{- | Scale an exchange's amount by a factor - the inverse of the parser's
 allocation scaling (see 'serializeActivity').
 -}
 scaleExchangeAmount :: Double -> Exchange -> Exchange
@@ -750,7 +750,7 @@ serializeActivity cats act@Activity{..} =
         -- them as-is would let the parser scale a second time). The reference
         -- product is never scaled, so it passes through untouched.
         -- A 0% allocation is the degenerate case: the parser scaled every shared
-        -- amount to 0, so there is nothing to divide back out — emit the stored
+        -- amount to 0, so there is nothing to divide back out - emit the stored
         -- zeros as-is and the re-import scales 0 by 0 again. 'checkSimaProExportable'
         -- still rejects a non-finite allocation, so the division below is finite.
         allocFraction = maybe 100 dsPercent (activityReferenceShare act) / 100

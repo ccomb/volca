@@ -88,7 +88,7 @@ data AggScope = ScopeDirect | ScopeSupplyChain | ScopeBiosphere | ScopeConsumpti
     deriving (Eq, Show)
 
 {- | Why a filter_exchange_type value cannot be combined with the given
-scope — 'Nothing' when the combination is legal. Shared by the REST and
+scope - 'Nothing' when the combination is legal. Shared by the REST and
 MCP surfaces so both reject identically instead of one silently
 no-opping the filter.
 -}
@@ -116,8 +116,8 @@ data AggregateParams = AggregateParams
     , apFilterUnit :: Maybe Text -- exact unit name
     , apFilterClassifications :: [ClassEntry]
     , apFilterTargetName :: Maybe Text -- ScopeDirect technosphere / ScopeConsumption (supplier)
-    , apFilterConsumer :: Maybe Text -- only ScopeConsumption — case-insensitive substring
-    , apFilterConsumerNot :: [Text] -- only ScopeConsumption — exclude-list
+    , apFilterConsumer :: Maybe Text -- only ScopeConsumption - case-insensitive substring
+    , apFilterConsumerNot :: [Text] -- only ScopeConsumption - exclude-list
     , apFilterExchangeType :: Maybe ExchangeKind -- only ScopeDirect
     , apFilterIsReference :: Maybe Bool
     , apGroupBy :: Maybe Text
@@ -302,7 +302,7 @@ rowsFromBiosphere export =
 
 {- | One row per scaled technosphere edge across the whole chain: for each
 coefficient A[supplier, consumer] whose consumer has a non-zero scaling
-s_consumer, the quantity is @coefficient × s_consumer × multiplier@ — the
+s_consumer, the quantity is @coefficient × s_consumer × multiplier@ - the
 total amount of the supplier's product consumed by that consumer for the
 functional unit. Summing filtered edges never double-counts a
 transformation chain the way summing cumulative supply-chain productions
@@ -318,7 +318,7 @@ Cross-DB bridge edges (consumer in one DB, supplier in a dependency) are
 not matrix triples; they are folded in from 'dbCrossDBLinks' with the
 same demand formula as 'Matrix.accumulateDepDemandsWith'. Their
 supplier-side fields that live in the dependency database (target name,
-classifications) are left empty rather than resolved — a classification
+classifications) are left empty rather than resolved - a classification
 or target-name filter therefore never matches a bridge edge.
 -}
 rowsFromConsumption :: Double -> NonEmpty (Text, Database, VU.Vector Double) -> [AggRow]

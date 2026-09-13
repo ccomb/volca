@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Declarative, idempotent adjustments to a freshly parsed method
-collection's characterization factors — the equivalent of a Brightway
+collection's characterization factors - the equivalent of a Brightway
 import "strategy", but expressed as data ('Config.MethodPatch') instead
 of an imperative function.
 
@@ -31,7 +31,7 @@ replaces its value with 'applyOp'; a patch with no 'mpmCategory' selector
 crosses every method in the collection.
 
 Returns the patched collection alongside, for each patch, how many CFs it
-touched — a patch that touches zero is very likely a selector typo, and
+touched - a patch that touches zero is very likely a selector typo, and
 the caller (which has a logging effect) is expected to surface that.
 -}
 applyMethodPatches :: [MethodPatch] -> MethodCollection -> (MethodCollection, [(MethodPatch, Int)])
@@ -57,7 +57,7 @@ patchMethod patch method =
 
 {- | Does this CF match the selector? Every field the selector sets must
 match (conjunction); an unset field imposes no constraint. 'category' is
-compared against the enclosing 'Method.methodName' — for a SimaPro CSV
+compared against the enclosing 'Method.methodName' - for a SimaPro CSV
 export each impact-category section is its own 'Method' whose name is
 the category (e.g. \"Resource use, fossils\"), not the collection's
 overall methodology name.
@@ -89,7 +89,7 @@ applyOp :: CFPatchOp -> Double -> Double
 applyOp (ScaleBy s) v = v * s
 applyOp (SetValueTo v) _ = v
 
-{- | Human-readable label for a patch, for log lines — its description when
+{- | Human-readable label for a patch, for log lines - its description when
 given, else a rendering of the selector and operation.
 -}
 describePatch :: MethodPatch -> T.Text

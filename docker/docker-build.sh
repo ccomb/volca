@@ -12,7 +12,7 @@
 # --platform takes a Docker platform string (linux/amd64, linux/arm64); omitted,
 # the image is built for the host architecture. The Dockerfile builds OpenBLAS,
 # MUMPS and the GHC dependency tree from source, so building a foreign
-# architecture under QEMU emulation takes hours — build on a native host of the
+# architecture under QEMU emulation takes hours - build on a native host of the
 # target architecture instead. The script warns when it detects an emulated build.
 #
 # --platform requires the `docker buildx` plugin; the default host-arch build
@@ -60,11 +60,11 @@ GIT_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "")
 source versions.env
 
 # Pick the build command. A host-arch build uses classic `docker build`, which
-# needs no plugin. `--platform` needs `docker buildx build --load` — the only
+# needs no plugin. `--platform` needs `docker buildx build --load` - the only
 # builder that honours --platform together with --load.
 if [[ -n "$PLATFORM" ]]; then
     if ! docker buildx version >/dev/null 2>&1; then
-        echo "ERROR: --platform needs 'docker buildx' — install the Docker buildx plugin." >&2
+        echo "ERROR: --platform needs 'docker buildx' - install the Docker buildx plugin." >&2
         exit 1
     fi
     DOCKER_BUILD=(docker buildx build --load --platform "$PLATFORM")

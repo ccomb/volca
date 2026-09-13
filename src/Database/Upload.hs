@@ -88,8 +88,8 @@ formatDisplayText fmt = case toJSON fmt of
     _ -> ""
 
 {- | Label for a format that was detected rather than declared.
-'Nothing' when detection failed, so a caller can say so — or fall back to its own
-guess — instead of advertising an empty format.
+'Nothing' when detection failed, so a caller can say so - or fall back to its own
+guess - instead of advertising an empty format.
 -}
 detectedFormatLabel :: DatabaseFormat -> Maybe Text
 detectedFormatLabel UnknownFormat = Nothing

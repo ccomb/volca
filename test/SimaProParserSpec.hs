@@ -426,7 +426,7 @@ parseYieldChainCSV = withSystemTempFile "yield-test.csv" $ \path handle -> do
 summed in place, and one term drops its integer part (@,067@).
 
 The three shares are a partition of one kilogram, so a truncated first term
-does not merely shrink one row — it makes the block stop summing to its own
+does not merely shrink one row - it makes the block stop summing to its own
 reference, which is what the assertions below check.
 -}
 summedAmountTestCSV :: BS.ByteString
@@ -654,7 +654,7 @@ spec = do
             Expr.evaluate SimaPro M.empty "xyz" `shouldSatisfy` isLeft
 
         -- Regression: SimaPro exports drop the integer part of a decimal, and
-        -- Agribalyse sums a pesticide mix in place — "0,45+0,247+,067". The
+        -- Agribalyse sums a pesticide mix in place - "0,45+0,247+,067". The
         -- last term made the whole expression unparseable, and the amount
         -- silently became its leading number: 0.45 where the file says 0.764.
         it "evaluates decimals written without their integer part" $ do
@@ -729,7 +729,7 @@ spec = do
         it "correctly extracts units from CSV with quoted fields" $ do
             (_, _, _, _, unitDB) <- parseTestCSV
             let unitNames = map unitName $ M.elems unitDB
-            -- Exactly these two units — no more, no less
+            -- Exactly these two units - no more, no less
             S.fromList unitNames `shouldBe` S.fromList ["kg", "foo_unit"]
 
         it "reports unknown units correctly" $ do
@@ -1014,7 +1014,7 @@ spec = do
 
         -- The whole cell has to be the number. Reading it up to the first
         -- character that is not part of one turned "0,45+0,247+,067" into
-        -- 0.45 — right order of magnitude, a third short, and nothing
+        -- 0.45 - right order of magnitude, a third short, and nothing
         -- downstream could tell it from a real amount. An expression is
         -- 'resolveAmount''s business, and a cell that is neither is reported.
         it "refuses a cell that is more than a number" $ do
@@ -1039,7 +1039,7 @@ spec = do
                         , prComment = "comment"
                         }
 
-        it "parses 6-field row (no allocation — waste treatment)" $
+        it "parses 6-field row (no allocation - waste treatment)" $
             parseProductRow defaultConfig "Waste flow;kg;1.0;All waste types;waste treatment;comment"
                 `shouldBe` Just
                     ProductRow
@@ -1275,7 +1275,7 @@ spec = do
     -- ('Method.ParserSimaPro') both hash flow UUIDs via 'generateFlowUUID'
     -- composed with 'normalizeSimaProCompartment'. These tests pin the
     -- invariant that the two call sites land on the same UUID for the same
-    -- elementary flow — the bug they prevent silently routed every regional
+    -- elementary flow - the bug they prevent silently routed every regional
     -- or '(unspecified)'-sub CF through the slower name cascade.
     -- -----------------------------------------------------------------------
     describe "CF / biosphere flow UUID alignment" $ do
@@ -1418,7 +1418,7 @@ spec = do
 
         -- A coproduct whose own name states no location inherits the reference
         -- product's tag rather than the slash guess, so the whole block stays
-        -- on one location — and therefore on one activityUUID.
+        -- on one location - and therefore on one activityUUID.
         it "keeps every coproduct of a block on the reference product's tag" $ do
             (activities, _, _, _, _) <-
                 parseProductsCSV

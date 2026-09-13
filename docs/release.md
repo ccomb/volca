@@ -11,7 +11,7 @@ parallel flow under `pyvolca-v*` tags; see `pyvolca/CHANGELOG.md`.
 | `pyvolca-v[0-9]*` | pyvolca Python package | `.github/workflows/pyvolca-release.yml` |
 
 Each workflow's trigger uses its specific glob, so neither can fire on
-the wrong tag. Release PRs are also distinct — the engine bumps
+the wrong tag. Release PRs are also distinct - the engine bumps
 `volca.cabal`, pyvolca bumps `pyvolca/pyproject.toml`, and the same
 PR should never bump both.
 
@@ -25,7 +25,7 @@ Configure once via the GitHub repo settings, then leave alone:
   `build / macos-arm64`). GitHub auto-disables the Squash/Merge button
   until they're green.
 - **Restrict who can push tags matching `v*` to maintainers.** Add a
-  rule under "Tag protection rules" — accidental tag pushes from
+  rule under "Tag protection rules" - accidental tag pushes from
   contributors otherwise trigger releases.
 - **Require linear history** (recommended). Optional: require signed
   commits.
@@ -70,7 +70,7 @@ git push origin v0.7.0
 
 `release.yml` will:
 
-1. Verify `tag == "v$(awk '/^version:/' volca.cabal)"` — fails fast if
+1. Verify `tag == "v$(awk '/^version:/' volca.cabal)"` - fails fast if
    the cabal bump was forgotten.
 2. Re-run the 4-platform build in **release mode** (`_build-matrix.yml`
    with `release: true`), packaging each platform's binary as

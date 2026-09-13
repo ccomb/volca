@@ -798,7 +798,7 @@ spec = do
             usTotalLinks summary `shouldBe` 0
 
         -- Regression: a candidate whose reference-product unit is in a different
-        -- dimension than the consumer exchange must NOT be linked — the matrix
+        -- dimension than the consumer exchange must NOT be linked - the matrix
         -- builder could not convert it, and forming the link aborts the whole
         -- load. (This is what 'delete then re-export' surfaced on real data: a
         -- piece-counted input fuzzy-matched a mass-counted survivor.)
@@ -1088,7 +1088,7 @@ spec = do
             countUnlinkedExchanges sdb `shouldBe` 0
 
     -- ---------------------------------------------------------------------
-    -- activityNormFactor — exercises every TechRole branch so the
+    -- activityNormFactor - exercises every TechRole branch so the
     -- treatment-process (ReferenceInput) case can't silently regress to
     -- the "no reference output" 1.0 fallback.
     -- ---------------------------------------------------------------------

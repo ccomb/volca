@@ -82,7 +82,7 @@ spec = do
 
         it "splits a group along direction: an input edge chained to a both edge" $ do
             -- a-b [input], b-c [both]. Input view fuses {a,b,c}; output view, missing
-            -- the a-b link, keeps only {b,c} — a split the union tables cannot recover.
+            -- the a-b link, keeps only {b,c} - a split the union tables cannot recover.
             let db = buildFromEdges [SynEdge "a" "b" BridgeInput, SynEdge "b" "c" BridgeBoth]
             groupIn db "a" `shouldBe` Just (S.fromList ["a", "b", "c"])
             groupOut db "a" `shouldBe` Nothing
@@ -112,7 +112,7 @@ spec = do
         it "loads the shipped data/flows.csv and keeps its water bridges input-only" $ do
             -- Guards the real curated registry: it must parse (3-column direction
             -- schema), and the water withdrawal bridges must reach their resource
-            -- flow only in the input view, never the output view — and no untyped
+            -- flow only in the input view, never the output view - and no untyped
             -- row may void a one-way constraint ('reopenedBridges').
             loaded <- loadFromCSVFileWithCache "data/flows.csv"
             case loaded of

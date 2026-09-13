@@ -8,7 +8,7 @@ attribution for every component we redistribute. This module exposes the
 canonical inventory as a stable JSON shape so any client (web SPA, desktop,
 MCP, pyvolca) can fetch and render it without duplicating the data.
 
-The payload is a hand-written constant — small, no IO, no partial functions.
+The payload is a hand-written constant - small, no IO, no partial functions.
 Keep it in sync with @NOTICE@ and @THIRD_PARTY_LICENSES.md@ at the repo root.
 -}
 module API.Licenses (licensesJson, licensesResponse) where

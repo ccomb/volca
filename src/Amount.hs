@@ -15,7 +15,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 {- | Parse a decimal amount to a 'Double' with correct round-to-nearest
-rounding — the exact inverse of 'EcoSpold.Common.showFFloatTrim'.
+rounding - the exact inverse of 'EcoSpold.Common.showFFloatTrim'.
 
 'Data.Text.Read.double' is /not/ correctly rounded: it can be off by up to one
 ULP on perfectly ordinary magnitudes (e.g. @"0.0000010897906999999999"@ parses
@@ -26,16 +26,16 @@ represent.
 We tokenize with attoparsec's fast 'A.scientific', which yields an /exact/
 'Data.Scientific.Scientific' (an arbitrary-precision decimal), then convert with
 @fromRational . toRational@. 'toRational' is exact and 'fromRational' is
-correctly rounded by the Report, so every finite 'Double' round-trips —
+correctly rounded by the Report, so every finite 'Double' round-trips -
 subnormals included. (We deliberately avoid 'Data.Scientific.toRealFloat', whose
 underflow/overflow short-circuits are version-dependent and can lose a subnormal
 to @0@.) An out-of-range literal like @"1e400"@ converts to 'Infinity' and is
 rejected here, alongside @NaN@, since a non-finite value is never a valid LCA
 amount and must surface rather than slip in silently.
 
-Accepts the forms 'Data.Text.Read.double' does — surrounding whitespace, a
+Accepts the forms 'Data.Text.Read.double' does - surrounding whitespace, a
 leading sign, scientific notation, and a bare leading or trailing decimal point
-(@".5"@, @"1."@) — but rejects trailing garbage (@A.endOfInput@).
+(@".5"@, @"1."@) - but rejects trailing garbage (@A.endOfInput@).
 -}
 readAmount :: Text -> Maybe Double
 readAmount t = case A.parseOnly (A.scientific <* A.endOfInput) (normalize t) of

@@ -53,8 +53,8 @@ serialize = fmap (first TE.decodeUtf8) . serializeColumnarMethodCSV
 {- | The writer sorts rows by key, so a round-trip preserves the factor
 /set/ per method, not the original order. The flow UUID is derived from the
 raw compartment cell at parse time, and the writer canonicalizes legacy
-prose cells ("Resources" → "natural resource"), so it is regenerated — not
-preserved — data; the comparison drops it and keeps everything else.
+prose cells ("Resources" → "natural resource"), so it is regenerated - not
+preserved - data; the comparison drops it and keeps everything else.
 -}
 normalize :: [Method] -> [Method]
 normalize =
@@ -197,7 +197,7 @@ spec = describe "Method.WriterCSV" $ do
 
         it "warns when a stated methodology sits next to an absent one" $ do
             -- An absent methodology is not a distinct one, but it blocks the
-            -- shared comment — the one stated methodology is still lost.
+            -- shared comment - the one stated methodology is still lost.
             let m1 = (mkMethod "A" []){methodMethodology = Just "EF"}
                 m2 = mkMethod "B" []
             case serialize (collection [m1, m2]) of

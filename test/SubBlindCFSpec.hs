@@ -61,7 +61,7 @@ spec = describe "sub-blind CF fallback" $ do
         score mappings (mkFlow 1 "Cadmium" (Just "in ground")) `shouldBe` Just 0.157
 
     it "does NOT guess when the factor varies by subcompartment (ambiguous)" $ do
-        -- Mercury differs by sub: in ground 1.0, in water 2.0 — no safe default.
+        -- Mercury differs by sub: in ground 1.0, in water 2.0 - no safe default.
         let mappings =
                 [ (mkCF 1 "Mercury" "in ground" 1.0, Just (mkFlow 1 "Mercury" (Just "in ground"), ByName))
                 , (mkCF 2 "Mercury" "in water" 2.0, Just (mkFlow 2 "Mercury" (Just "in water"), ByName))

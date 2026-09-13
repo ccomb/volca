@@ -580,7 +580,7 @@ spec = do
             -- The \r and \n exercise the &#13; / &#10; numeric entities end to
             -- end (escapeXmlAttr → parser's decodeXmlEntities), not just at the
             -- byte level the escapeXmlAttr unit test covers.
-            let nm = "Cu <ore> & «café»\r\n95% — 1\"" :: Text
+            let nm = "Cu <ore> & «café»\r\n95% - 1\"" :: Text
                 prodU = read "44444444-0000-4000-8000-000000000001" :: UUID
                 sdb = soloDb nm prodU [] M.empty M.empty M.empty
             case roundTrip sdb of

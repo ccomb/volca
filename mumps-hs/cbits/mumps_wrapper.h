@@ -10,7 +10,7 @@ typedef struct MumpsSolver MumpsSolver;
 
 /* Create a solver for an n x n system with nnz non-zeros.
  * irn, jcn are 0-indexed row/col arrays; the wrapper converts to 1-indexed.
- * The arrays are copied internally — caller retains ownership. */
+ * The arrays are copied internally - caller retains ownership. */
 MumpsSolver* mumps_create(int n, int nnz, const int* irn, const int* jcn, const double* a);
 
 /* Run symbolic analysis (ordering). Returns 0 on success, MUMPS error code on failure. */

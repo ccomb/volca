@@ -345,7 +345,7 @@ def readme_namespace() -> dict[str, Any]:
     )
     lcia_result = LCIAResult(
         method_id="EF3.1-climate-change",
-        method_name="EF v3.1 — Climate change",
+        method_name="EF v3.1 - Climate change",
         category="climate change",
         damage_category="climate",
         score=0.823,
@@ -432,7 +432,7 @@ def readme_namespace() -> dict[str, Any]:
         ),
     )
     c.get_contributing_flows.return_value = ContributingFlows(
-        method="EF v3.1 — Climate change",
+        method="EF v3.1 - Climate change",
         unit="kg CO2 eq",
         total_score=0.823,
         top_flows=[
@@ -446,7 +446,7 @@ def readme_namespace() -> dict[str, Any]:
         ],
     )
     c.get_contributing_activities.return_value = ContributingActivities(
-        method="EF v3.1 — Climate change",
+        method="EF v3.1 - Climate change",
         unit="kg CO2 eq",
         total_score=0.823,
         activities=[
@@ -461,7 +461,7 @@ def readme_namespace() -> dict[str, Any]:
         ],
     )
     c.get_characterization.return_value = CharacterizationResult(
-        method="EF v3.1 — Climate change",
+        method="EF v3.1 - Climate change",
         unit="kg CO2 eq",
         matches=1,
         shown=1,
