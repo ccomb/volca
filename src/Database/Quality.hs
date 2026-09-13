@@ -511,7 +511,7 @@ qualityReport dbName db =
         ]
             <> [ T.pack (show (fcUnevaluable fc))
                     <> " formula(s) could not be evaluated"
-                    <> forExample ((\f -> "\"" <> f <> "\"") <$> fcUnevaluableExample fc)
+                    <> forExample (fcUnevaluableExample fc)
                | fcUnevaluable fc > 0
                ]
     forExample :: Maybe Text -> Text

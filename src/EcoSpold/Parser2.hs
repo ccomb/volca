@@ -8,6 +8,7 @@ import Amount (readAmount)
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import Data.List (intercalate)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe)
 import qualified Data.Set as S
@@ -624,8 +625,8 @@ Divergences are expected in real EcoSpold2 databases
 so nothing is logged: the outcome is recorded on the activity for the
 database quality report.
 -}
-checkFormulas :: M.Map Text Double -> [(Exchange, ExchangeFormula)] -> Maybe FormulaCheck
-checkFormulas params pairs = case checked of
+checkFormulas :: M.Map Text Double -> S.Set Text -> [(Exchange, ExchangeFormula)] -> Maybe FormulaCheck
+checkFormulas params struckParams pairs = case checked of
     [] -> Nothing
     _ ->
         Just
@@ -638,15 +639,32 @@ checkFormulas params pairs = case checked of
                 }
   where
     unevaluable :: [Text]
-    unevaluable = [rel | (_, rel, Left _) <- checked]
+    unevaluable = [refusal rel refused | (_, rel, Left refused) <- checked]
     -- A <parameter> and an exchange variableName share one space of names, so
     -- both go in together and a name they disagree on is as unreadable as one
     -- two exchanges disagree on.
     env :: M.Map Text Double
-    env =
-        amountsAgreedOn $
-            M.toList params
-                ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
+    env = amountsAgreedOn declarations
+    declarations :: [(Text, Double)]
+    declarations = M.toList params ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
+    -- Names the file gives more than one amount: the parameters struck before
+    -- this runs, and whatever 'amountsAgreedOn' left unbound.
+    ambiguous :: S.Set Text
+    ambiguous = S.map T.toLower struckParams <> S.difference (S.fromList (map (T.toLower . fst) declarations)) (M.keysSet env)
+    declaredTwice :: Text -> Bool
+    declaredTwice = (`S.member` ambiguous) . T.toLower
+    refusal :: Text -> Expr.Refusal -> Text
+    refusal rel refused = "\"" <> rel <> "\": " <> reason refused
+    -- The evaluator can only call a name without a value unknown. For a name
+    -- the file declares with two amounts that is not what happened, so those
+    -- names are given apart, with what the file does say about them.
+    reason :: Expr.Refusal -> Text
+    reason = \case
+        unreadable@(Expr.Unreadable _) -> Expr.describeRefusal unreadable
+        Expr.Unresolved names ->
+            T.intercalate "; " $
+                maybe [] (pure . Expr.describeRefusal . Expr.Unresolved) (NE.nonEmpty (NE.filter (not . declaredTwice) names))
+                    <> ["different amounts declared for " <> T.intercalate ", " twice | let twice = NE.filter declaredTwice names, not (null twice)]
     checked = [(ex, rel, Expr.evaluate Expr.Arithmetic env rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
@@ -1085,7 +1103,7 @@ parseWithXeno xmlContent = do
             -- value, so it is not one of the dataset's parameters.
             params = M.withoutKeys (psParams st) (psAmbiguousParams st)
             paramExprs = M.withoutKeys (psParamExprs st) (psAmbiguousParams st)
-            formulaCheck = checkFormulas params pairs
+            formulaCheck = checkFormulas params (psAmbiguousParams st) pairs
             -- Apply cutoff strategy to exchanges
             activity =
                 Activity

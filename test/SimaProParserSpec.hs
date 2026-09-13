@@ -5,6 +5,7 @@ module SimaProParserSpec (spec) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -540,8 +541,8 @@ so. @**@ is not: it goes through the platform's @pow@, and Windows answers
 property under test is that the expression parses and reaches the right number,
 not that two libm implementations agree on its last bit.
 -}
-shouldEvalTo :: (HasCallStack) => Either String Double -> Double -> Expectation
-shouldEvalTo (Left err) _ = expectationFailure ("evaluation failed: " <> err)
+shouldEvalTo :: (HasCallStack) => Either Expr.Refusal Double -> Double -> Expectation
+shouldEvalTo (Left refused) _ = expectationFailure ("evaluation failed: " <> show refused)
 shouldEvalTo (Right got) want
     | abs (got - want) <= 1e-12 * abs want = pure ()
     | otherwise = expectationFailure (show got <> " is not within a relative 1e-12 of " <> show want)
@@ -608,14 +609,14 @@ spec = do
             let result = Expr.evaluate SimaPro env "(Qb*DMb/(Qb*DMb+Qm*DMm))*100"
             case result of
                 Right v -> v `shouldSatisfy` (\x -> abs (x - 25.29) < 0.1)
-                Left e -> expectationFailure $ "Evaluation failed: " ++ e
+                Left e -> expectationFailure $ "Evaluation failed: " ++ show e
 
         it "evaluates yield correction chains" $ do
             let env = M.fromList [("weight_kg", 0.25), ("yield1", 0.95), ("yield2", 0.90)]
             let result = Expr.evaluate SimaPro env "weight_kg/yield1/yield2"
             case result of
                 Right v -> v `shouldSatisfy` (\x -> abs (x - 0.2924) < 0.001)
-                Left e -> expectationFailure $ "Evaluation failed: " ++ e
+                Left e -> expectationFailure $ "Evaluation failed: " ++ show e
 
         it "evaluates power operator" $ do
             Expr.evaluate SimaPro M.empty "2^3" `shouldBe` Right 8.0
@@ -641,8 +642,8 @@ spec = do
             Expr.evaluate SimaPro M.empty "2^-3^2" `shouldEvalTo` (2 ** (-9))
 
         it "accepts a signed exponent as syntax, not only as a value" $ do
-            -- `isExpression` runs a parallel parser that takes no environment,
-            -- so it has to learn the same shape or the cell reads as prose.
+            -- `isExpression` takes no environment, and a cell it refuses reads
+            -- as prose, so it has to accept every shape the evaluator reads.
             isExpression SimaPro (normalizeExpr ',' "10^-6") `shouldBe` True
             isExpression SimaPro (normalizeExpr ',' "(38-15)*4185*30/0,9*10^-6") `shouldBe` True
 
@@ -652,6 +653,26 @@ spec = do
 
         it "rejects unknown variables" $ do
             Expr.evaluate SimaPro M.empty "xyz" `shouldSatisfy` isLeft
+
+        -- A formula that reads is refused with every name it could not resolve,
+        -- not only the first, so a quality finding can give them all.
+        it "says why it refused a formula" $ do
+            Expr.evaluate Arithmetic M.empty "missing_var * 2" `shouldBe` Left (Expr.Unresolved ("missing_var" :| []))
+            Expr.evaluate Arithmetic M.empty "a * b + a" `shouldBe` Left (Expr.Unresolved ("a" :| ["b"]))
+            Expr.evaluate Arithmetic (M.fromList [("a", 1)]) "a > 2"
+                `shouldBe` Left (Expr.Unreadable "unexpected '>'; expecting '*', '+', '-', '/', '^', or end of input")
+            Expr.evaluate Arithmetic M.empty "UnitConversion(1, 'kg', 'm3')"
+                `shouldBe` Left (Expr.Unreadable "unknown function UnitConversion")
+            Expr.describeRefusal (Expr.Unresolved ("a" :| ["b"])) `shouldBe` "unknown variables a, b"
+
+        -- Backtracking out of the call around it would read "sqrt" as a variable
+        -- and refuse at its parenthesis, losing the function that was missing.
+        it "says a function is unknown inside the arguments of a known one" $
+            Expr.evaluate Arithmetic M.empty "sqrt(UnitConversion(1, 'kg', 'm3'))"
+                `shouldBe` Left (Expr.Unreadable "unknown function UnitConversion")
+
+        it "lists an unresolved name once however the formula spells it" $
+            Expr.evaluate Arithmetic M.empty "DMper * Dmper" `shouldBe` Left (Expr.Unresolved ("DMper" :| []))
 
         -- Regression: SimaPro exports drop the integer part of a decimal, and
         -- Agribalyse sums a pesticide mix in place – "0,45+0,247+,067". The
@@ -1634,7 +1655,7 @@ spec = do
             length acts `shouldBe` 5
             S.size (S.fromList (map generateActivityUUID acts)) `shouldBe` 1
             S.fromList (map activityName acts) `shouldBe` S.singleton "Multi-coproduct refinery"
-            length (filter exchangeIsReference (concatMap exchanges acts)) `shouldBe` 5
+            length (concatMap (filter exchangeIsReference . exchanges) acts) `shouldBe` 5
 
         it "scales the shared input by each product's share, so the five columns restore 1 kg" $ do
             db <- loadMultiCoproductCSV
