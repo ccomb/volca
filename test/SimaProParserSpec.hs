@@ -4,6 +4,7 @@
 module SimaProParserSpec (spec) where
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
@@ -37,6 +38,7 @@ import SimaPro.Parser (
     parseTechRow,
     splitCSV,
     unitDeclarations,
+    workerRanges,
  )
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
@@ -547,8 +549,44 @@ shouldEvalTo (Right got) want
     | abs (got - want) <= 1e-12 * abs want = pure ()
     | otherwise = expectationFailure (show got <> " is not within a relative 1e-12 of " <> show want)
 
+{- | A file of @n@ blocks of the given sizes, each one @Process@ … @End@. The
+line endings are Windows', which is what a SimaPro export writes and what the
+cut has to see through.
+-}
+blocksFile :: [Int] -> BS.ByteString
+blocksFile sizes = BS.concat [block i n | (i, n) <- zip [(0 :: Int) ..] sizes]
+  where
+    block i n =
+        BS.concat $
+            ["Process\r\n", "Products\r\n"]
+                ++ ["row " <> BS8.pack (show i) <> "." <> BS8.pack (show k) <> "\r\n" | k <- [1 .. n]]
+                ++ ["End\r\n"]
+
 spec :: Spec
 spec = do
+    -- Workers read ranges of the file's bytes rather than runs of its lines,
+    -- so a cut that falls anywhere but just past an End splits a block in two
+    -- and both halves are lost.
+    describe "the ranges a file is cut into for its workers" $ do
+        let file = blocksFile [3, 40, 7, 500, 2, 90]
+
+        it "gives back the whole file, byte for byte" $
+            BS.concat (workerRanges 4 file) `shouldBe` file
+
+        it "cuts only just past an End line" $ do
+            let ranges = workerRanges 4 file
+            map (BS.isSuffixOf "End\r\n") ranges `shouldBe` map (const True) ranges
+
+        it "opens every range on the Process line of a whole block" $ do
+            let ranges = workerRanges 4 file
+            map (BS.isPrefixOf "Process\r\n") ranges `shouldBe` map (const True) ranges
+
+        it "asks for no cut at all when there is one worker" $
+            workerRanges 1 file `shouldBe` [file]
+
+        it "keeps a file of one block whole, however many workers ask for it" $
+            workerRanges 8 (blocksFile [5]) `shouldBe` [blocksFile [5]]
+
     -- The block sits at the end of the file, after every process, and states
     -- one unit per row as name;quantity;how many;reference unit.
     describe "the unit block a file carries" $ do
