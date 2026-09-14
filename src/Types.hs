@@ -400,9 +400,9 @@ data SupplierClaim
 -- | Exchange in an activity - Mirrors EcoSpold intermediateExchange/elementaryExchange structure
 data Exchange
     = TechnosphereExchange
-        { techFlowId :: !UUID -- Flow being exchanged
+        { techFlowId :: {-# UNPACK #-} !UUID -- Flow being exchanged
         , techAmount :: !Double -- Quantity exchanged
-        , techUnitId :: !UUID -- Unit of measurement
+        , techUnitId :: {-# UNPACK #-} !UUID -- Unit of measurement
         , techRole :: !TechRole -- Role within the activity
         , techActivityLinkId :: !(Maybe UUID) -- Supplier this exchange resolved to, Nothing until it does
         , techSupplierClaim :: !SupplierClaim
@@ -417,18 +417,18 @@ data Exchange
         , techProperties :: !ExchangeProperties -- Physical properties the source states of this line, the material an allocation key other than the declared one is computed from
         }
     | BiosphereExchange
-        { bioFlowId :: !UUID -- Flow being exchanged
+        { bioFlowId :: {-# UNPACK #-} !UUID -- Flow being exchanged
         , bioAmount :: !Double -- Quantity exchanged
-        , bioUnitId :: !UUID -- Unit of measurement
+        , bioUnitId :: {-# UNPACK #-} !UUID -- Unit of measurement
         , bioDirection :: !BioDirection -- 'Resource' for extraction, 'Emission' for release
         , bioLocation :: !Text -- Exchange location (EcoSpold1) or "" (EcoSpold2)
         , bioComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , bioPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
         }
     | WasteExchange
-        { waFlowId :: !UUID -- Flow being exchanged (points at a WasteFlow)
+        { waFlowId :: {-# UNPACK #-} !UUID -- Flow being exchanged (points at a WasteFlow)
         , waAmount :: !Double -- Quantity exchanged
-        , waUnitId :: !UUID -- Unit of measurement
+        , waUnitId :: {-# UNPACK #-} !UUID -- Unit of measurement
         , waIsInput :: !Bool
         {- ^ True when consumed by a treatment activity; False when generated
         by it. Waste with no treatment modelled at all is not on this axis:
