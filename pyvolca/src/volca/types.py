@@ -2404,3 +2404,229 @@ class SetAmount:
 def _drop_none(d: dict) -> dict:
     """Omit absent optional fields rather than sending explicit nulls."""
     return {k: v for k, v in d.items() if v is not None}
+
+
+# -- Comparing two activities, or two versions of a database --
+
+_LINE_KINDS = {"TechLine": "technosphere", "BioLine": "biosphere", "WasteLine": "waste"}
+_LINE_CHANGES = {"LineAdded": "added", "LineRemoved": "removed", "LineChanged": "changed"}
+_SUMMARY_FIELDS = {
+    "ActivityNameChanged": "activity_name",
+    "LocationChanged": "location",
+    "ProductNameChanged": "product_name",
+    "AllocationChanged": "allocation_percent",
+}
+_UNCOMPARED_REASONS = {"MixedUnits": "mixed_units", "SeveralFlows": "several_flows"}
+
+
+def _kind_and_role(role: dict) -> tuple[str, str]:
+    """A line's kind (technosphere, biosphere, waste) and its role within that kind."""
+    value = next(v for k, v in role.items() if k != "tag")
+    return _LINE_KINDS[role["tag"]], value
+
+
+@dataclass
+class Quantity(FromJson):
+    """The lines of one flow in one unit, as one side writes them, summed."""
+
+    amount: float
+    unit: str
+
+
+def _quantity(d: dict | None) -> "Quantity | None":
+    return None if d is None else Quantity.from_json(d)
+
+
+@dataclass
+class ExchangeChange:
+    """One line two activities disagree on.
+
+    ``kind`` is ``"technosphere"``, ``"biosphere"`` or ``"waste"``, and ``role``
+    what the line does within it: a :class:`TechRole` value, a
+    :class:`BioDirection` value, or ``"WasteInput"`` / ``"WasteOutput"``. The
+    role is part of a line, so a flow moving from input to coproduct is one
+    line removed and one added.
+
+    ``change`` is ``"added"``, ``"removed"`` or ``"changed"``. ``before`` is
+    None on an added line and ``after`` on a removed one. ``matched_on`` says
+    how a changed line was found in the other activity: ``"SameFlow"`` (the
+    same flow id) or ``"SameFlowName"`` (the same name, compartment and role
+    under another id). The flow is named as the base activity has it, or as
+    the other activity has it when the line was added.
+    """
+
+    flow_id: str
+    flow_name: str
+    compartment: Compartment | None
+    kind: str
+    role: str
+    change: str
+    before: Quantity | None
+    after: Quantity | None
+    matched_on: str | None = None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ExchangeChange":
+        kind, role = _kind_and_role(d["role"])
+        change = d["change"]
+        return cls(
+            flow_id=d["flowId"],
+            flow_name=d["flowName"],
+            compartment=Compartment.from_json(d.get("compartment")),
+            kind=kind,
+            role=role,
+            change=_LINE_CHANGES[change["tag"]],
+            before=_quantity(change.get("before")),
+            after=_quantity(change.get("after")),
+            matched_on=change.get("match"),
+        )
+
+
+@dataclass
+class UncomparedLine:
+    """A line the engine could not judge, and why.
+
+    ``reason`` is ``"mixed_units"`` when one side writes the flow in several
+    units, which no sum reads (``base_units`` and ``other_units`` list them,
+    empty on the side that lacks the line), or ``"several_flows"`` when several
+    distinct flows answer to one name on a side (``base_flows`` and
+    ``other_flows`` list their ids).
+    """
+
+    flow_name: str
+    compartment: Compartment | None
+    kind: str
+    role: str
+    reason: str
+    base_units: list[str] = field(default_factory=list)
+    other_units: list[str] = field(default_factory=list)
+    base_flows: list[str] = field(default_factory=list)
+    other_flows: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_json(cls, d: dict) -> "UncomparedLine":
+        kind, role = _kind_and_role(d["role"])
+        reason = d["reason"]
+        return cls(
+            flow_name=d["flowName"],
+            compartment=Compartment.from_json(d.get("compartment")),
+            kind=kind,
+            role=role,
+            reason=_UNCOMPARED_REASONS[reason["tag"]],
+            base_units=reason.get("baseUnits", []),
+            other_units=reason.get("otherUnits", []),
+            base_flows=reason.get("baseFlows", []),
+            other_flows=reason.get("otherFlows", []),
+        )
+
+
+@dataclass
+class SummaryChange:
+    """A field of two activities that differs.
+
+    ``field`` is ``"activity_name"``, ``"location"``, ``"product_name"`` or
+    ``"allocation_percent"``. The product's amount and unit are not among
+    them: the reference line reports those, among the exchanges.
+    """
+
+    field: str
+    before: str | float | None
+    after: str | float | None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "SummaryChange":
+        return cls(field=_SUMMARY_FIELDS[d["tag"]], before=d.get("before"), after=d.get("after"))
+
+
+@dataclass
+class ActivityComparison:
+    """Two activities side by side, as :meth:`Client.compare_activities` returns them."""
+
+    base: Activity
+    other: Activity
+    summary: list[SummaryChange]
+    exchanges: list[ExchangeChange]
+    uncompared: list[UncomparedLine]
+
+    @property
+    def identical(self) -> bool:
+        """True when nothing differs and every line could be judged."""
+        return not (self.summary or self.exchanges or self.uncompared)
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ActivityComparison":
+        return cls(
+            base=Activity.from_json(d["base"]),
+            other=Activity.from_json(d["other"]),
+            summary=[SummaryChange.from_json(s) for s in d["summary"]],
+            exchanges=[ExchangeChange.from_json(e) for e in d["exchanges"]],
+            uncompared=[UncomparedLine.from_json(u) for u in d["uncompared"]],
+        )
+
+
+@dataclass
+class ChangedActivity:
+    """A pair of activities that differ, and the rung of the cascade that paired them.
+
+    ``matched_on`` is ``"SameProcessId"``, ``"SameNames"`` (the same activity
+    and product names, case and a trailing geography aside, at the same
+    location) or ``"SameProduct"`` (the same reference product at the same
+    location, from the same kind of activity).
+    """
+
+    matched_on: str
+    comparison: ActivityComparison
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ChangedActivity":
+        return cls(matched_on=d["match"], comparison=ActivityComparison.from_json(d["comparison"]))
+
+
+@dataclass
+class AmbiguousActivities:
+    """Activities one key of a rung names on either side, too many to pair."""
+
+    matched_on: str
+    base: list[Activity]
+    other: list[Activity]
+
+    @classmethod
+    def from_json(cls, d: dict) -> "AmbiguousActivities":
+        return cls(
+            matched_on=d["match"],
+            base=[Activity.from_json(a) for a in d["base"]],
+            other=[Activity.from_json(a) for a in d["other"]],
+        )
+
+
+@dataclass
+class DatabaseComparison:
+    """Two databases side by side, as :meth:`Client.compare_databases` returns them.
+
+    The ``*_count`` fields always cover the full lists, which a ``limit`` may
+    have truncated.
+    """
+
+    added_count: int
+    removed_count: int
+    changed_count: int
+    ambiguous_count: int
+    unchanged_count: int
+    added: list[Activity]
+    removed: list[Activity]
+    changed: list[ChangedActivity]
+    ambiguous: list[AmbiguousActivities]
+
+    @classmethod
+    def from_json(cls, d: dict) -> "DatabaseComparison":
+        return cls(
+            added_count=d["addedCount"],
+            removed_count=d["removedCount"],
+            changed_count=d["changedCount"],
+            ambiguous_count=d["ambiguousCount"],
+            unchanged_count=d["unchangedCount"],
+            added=[Activity.from_json(a) for a in d["added"]],
+            removed=[Activity.from_json(a) for a in d["removed"]],
+            changed=[ChangedActivity.from_json(c) for c in d["changed"]],
+            ambiguous=[AmbiguousActivities.from_json(a) for a in d["ambiguous"]],
+        )
