@@ -11,8 +11,8 @@ concurrency:
   group: pyvolca-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
-# actions: read is required so gh-CLI can list and download artefacts
-# from main's latest build.yml run (used to wire up test_drift.py).
+# actions: read is required so gh-CLI can list and download the engine
+# artefacts build.yml uploads (used to wire up test_drift.py).
 permissions:
   contents: read
   actions: read
@@ -55,38 +55,69 @@ jobs:
         # editor LSP would show but pytest never would.
         run: pyright
 
-      - name: Download engine binary from main's latest build
-        # Pull the linux-amd64 engine artefact from the most recent
-        # successful build.yml run on main. test_drift.py's live_spec
-        # fixture finds it under <repo>/dist-newstyle/build/.../volca and
-        # invokes `volca dump-openapi` to compare against the in-tree
-        # wrapper list. If no such run exists yet (fresh fork, never
-        # merged to main), the fixture returns None and the drift tests
-        # skip themselves – this step exits 0 so the PR is not blocked.
+      - name: Download the engine this pull request builds
+        # test_drift.py's live_spec fixture finds the engine under
+        # <repo>/dist-newstyle/build/.../volca and compares its
+        # `volca dump-openapi` with the in-tree wrapper list. That engine has
+        # to be this pull request's: one that adds an operation together with
+        # its wrapper fails against main's, which does not have the operation
+        # yet. build.yml builds every pull request and uploads
+        # volca-linux-amd64, so wait for that artefact. A pull request that
+        # touches only pyvolca makes build.yml skip its compile and upload
+        # nothing; the drift tests then run against main's latest build, the
+        # engine such a change is written for. With neither (a fresh fork),
+        # the fixture returns None and the drift tests skip themselves.
         working-directory: ${{ github.workspace }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          RUN_ID=$(gh run list \
-            --workflow build.yml \
-            --branch main \
-            --status success \
-            --limit 1 \
-            --json databaseId \
-            --jq '.[0].databaseId // empty')
-          if [[ -z "$RUN_ID" ]]; then
-            echo "::warning::No successful build.yml run on main yet – drift tests will skip themselves."
-            exit 0
+          # The id of a run's volca-linux-amd64 artefact, or nothing.
+          artefact_of() {
+            gh api "repos/$REPO/actions/runs/$1/artifacts" \
+              --jq '[.artifacts[] | select(.name == "volca-linux-amd64") | .id][0] // empty'
+          }
+          ARTEFACT=""
+          STATUS=""
+          # A cold compile takes about half an hour; give it three quarters.
+          for _ in $(seq 1 90); do
+            RUN_ID=$(gh run list --workflow build.yml --commit "$HEAD_SHA" --limit 1 \
+              --json databaseId --jq '.[0].databaseId // empty')
+            if [[ -n "$RUN_ID" ]]; then
+              ARTEFACT=$(artefact_of "$RUN_ID")
+              STATUS=$(gh run view "$RUN_ID" --json status --jq .status)
+              if [[ -n "$ARTEFACT" || "$STATUS" == "completed" ]]; then
+                break
+              fi
+            fi
+            sleep 30
+          done
+          if [[ -n "$ARTEFACT" ]]; then
+            echo "Using the engine build.yml run $RUN_ID built for $HEAD_SHA."
+          elif [[ "$STATUS" == "completed" ]]; then
+            RUN_ID=$(gh run list --workflow build.yml --branch main --status success --limit 1 \
+              --json databaseId --jq '.[0].databaseId // empty')
+            if [[ -z "$RUN_ID" ]]; then
+              echo "::warning::No engine build for this pull request or on main; drift tests will skip themselves."
+              exit 0
+            fi
+            echo "This pull request built no engine; using main's build.yml run $RUN_ID."
+            ARTEFACT=$(artefact_of "$RUN_ID")
+          else
+            echo "::error::build.yml has not uploaded this pull request's engine after 45 minutes."
+            exit 1
           fi
-          echo "Downloading engine artefact from build.yml run $RUN_ID."
           # actions/upload-artifact@v4 strips the longest common parent
           # path, so the engine binary lands at <arch>/ghc-*/volca-*/...
           # rather than the dist-newstyle/build/<arch>/... that
           # conftest.py's live_spec fixture rglobs for. Recreate the
           # parent prefix so the fixture finds the binary.
           mkdir -p dist-newstyle/build
-          gh run download "$RUN_ID" --name volca-linux-amd64 --dir dist-newstyle/build
+          gh api "repos/$REPO/actions/artifacts/$ARTEFACT/zip" > engine.zip
+          unzip -q engine.zip -d dist-newstyle/build
+          rm engine.zip
           find dist-newstyle -name volca -type f -exec chmod +x {} +
 
       - name: Run tests
