@@ -83,6 +83,8 @@ data Resource
     | GetConsumers
     | CountSearchMatches
     | CompareImpacts
+    | CompareActivities
+    | CompareDatabases
     | ScoreActivity
     | ScoreActivities
     | ListScoringSets
@@ -165,6 +167,8 @@ resourceMutates r = case r of
     GetConsumers -> False
     CountSearchMatches -> False
     CompareImpacts -> False
+    CompareActivities -> False
+    CompareDatabases -> False
     ScoreActivity -> False
     ScoreActivities -> False
     ListScoringSets -> False
@@ -222,6 +226,8 @@ apiPath r = case r of
     GetConsumers -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "consumers"])
     CountSearchMatches -> Just (GET, ["db", "{dbName}", "search-counts"])
     CompareImpacts -> Nothing -- MCP-only audit tool: cross-DB diff, no canonical HTTP route
+    CompareActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "compare"])
+    CompareDatabases -> Just (GET, ["db", "{dbName}", "compare"])
     ScoreActivity -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "impacts", "{collection}"])
     ScoreActivities -> Just (POST, ["db", "{dbName}", "impacts", "{collection}"])
     ListScoringSets -> Nothing -- MCP-only: scoring sets are configuration metadata, no REST equivalent yet
@@ -272,6 +278,8 @@ mcpName r = case r of
     GetConsumers -> "get_consumers"
     CountSearchMatches -> "count_search_matches"
     CompareImpacts -> "compare_impacts"
+    CompareActivities -> "compare_activities"
+    CompareDatabases -> "compare_databases"
     ScoreActivity -> "score_activity"
     ScoreActivities -> "score_activities"
     ListScoringSets -> "list_scoring_sets"
@@ -526,6 +534,38 @@ description r = case r of
         \field is delta.relative_pct: the metric to drive down by adding \
         \synonym pairs to data/flows.csv or by regenerating the chem_synonyms \
         \snapshot."
+    CompareActivities ->
+        "LCA / ACV: compare two activities exchange by exchange: the lines one \
+        \has and the other does not, and the lines whose amount or unit differ. \
+        \The other activity may sit in another loaded database (other_database), \
+        \which is how an adapted copy is held against the dataset it was adapted \
+        \from. Lines pair on the flow identifier and role first, then on the flow \
+        \name (case and a trailing ' {GEO}' aside), compartment and role, and a \
+        \changed line says which in 'match' ('SameFlow' or 'SameFlowName'). The \
+        \role is part of a line: a flow moving from input to coproduct is one line \
+        \removed and one added. The lines of one flow in one unit are summed, so a \
+        \supplier swapped at an equal total does not show; one flow written in \
+        \several units on a side is listed under 'uncompared' rather than summed. \
+        \Amounts are equal within a relative 1e-9, and units compare by name. \
+        \'summary' lists the activity name, location, product name and \
+        \allocation share where they differ; the product's amount is reported by \
+        \its reference line. Nothing listed means the two say the same thing."
+    CompareDatabases ->
+        "LCA / ACV: compare two loaded databases, typically two versions of one: \
+        \the activities added, removed and changed, each changed one with the \
+        \exchange-level detail compare_activities gives. Activities pair in a \
+        \cascade, each rung seeing only what the rungs before it left unpaired: \
+        \'SameProcessId' (the same activityUUID_productUUID), then 'SameNames' \
+        \(the same activity and product names, case and a trailing ' {GEO}' \
+        \aside, at the same location), then 'SameProduct' (the same reference \
+        \product flow at the same location, from the same kind of activity, so the \
+        \market for a product never pairs with its production). Each changed \
+        \activity says the rung that paired it. A key several activities answer \
+        \to, on either side, pairs none of them: they are listed under 'ambiguous' \
+        \and not compared. 'database' is the base, usually the older version. The \
+        \counts always cover the full lists and limit truncates each list: pass a \
+        \limit when calling from a conversation, since two versions of a large \
+        \database differ by thousands of activities."
     ScoreActivity ->
         "LCA / ACV: compute the full LCIA panel + every configured scoring \
         \set for an activity in one call. Returns per-method impact scores, \
@@ -953,6 +993,17 @@ params r = case r of
         , Param "method_id_b" "string" Required "Method UUID for the B side"
         , Param "collection_b" "string" Optional "Method collection for the B side; needed only when method_id_b is loaded in more than one collection."
         , Param "top_flows" "integer" Optional "Per-side flow drill-down depth (default 10)"
+        ]
+    CompareActivities ->
+        [ pDatabase
+        , pProcessId
+        , Param "other_process_id" "string" Required "Process ID of the activity to compare against (activityUUID_productUUID format)"
+        , Param "other_database" "string" Optional "Loaded database holding that activity, when it is not this one"
+        ]
+    CompareDatabases ->
+        [ pDatabase
+        , Param "other_database" "string" Required "Loaded database to compare against, usually the newer version"
+        , pLimit "Max entries per list (added, removed, changed, ambiguous), in name order (default: all). The counts always cover the full lists."
         ]
     ScoreActivity ->
         [ pDatabase

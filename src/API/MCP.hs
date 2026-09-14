@@ -57,6 +57,7 @@ import Progress (ProgressLevel (Warning), reportProgress)
 import qualified Search.Normalize as Normalize
 import qualified Service
 import qualified Service.Aggregate as Agg
+import qualified Service.Compare as Compare
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached, crossDBProcessContributions)
 import qualified SharedSolver
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount)
@@ -502,6 +503,8 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "get_path_to" -> withDb dbManager rid args $ callGetPathTo rid args
     "get_consumers" -> withDb dbManager rid args $ callGetConsumers (DM.managerGeographies dbManager) presets rid args
     "compare_impacts" -> callCompareImpacts dbManager rid args
+    "compare_activities" -> withDb dbManager rid args $ callCompareActivities dbManager rid args
+    "compare_databases" -> withDb dbManager rid args $ callCompareDatabases dbManager rid args
     "score_activity" -> callScoreActivity dbManager mBaseUrl rid args
     "score_activities" -> callScoreActivities dbManager mBaseUrl rid args
     "list_scoring_sets" -> callListScoringSets dbManager rid args
@@ -1420,6 +1423,24 @@ UUIDs -- because UUIDs differ across databases by construction (each parser
 generates them in its own namespace), and that's exactly the problem this
 audit is designed to expose.
 -}
+callCompareActivities :: DatabaseManager -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callCompareActivities dbManager rid args (db, _) = runTool rid $ do
+    processId <- except (requireText "process_id" args)
+    otherProcessId <- except (requireText "other_process_id" args)
+    otherDb <- maybe (pure db) (fmap ldDatabase . requireDatabase dbManager) =<< except (optionalText "other_database" args)
+    sides <-
+        liftService $
+            Compare.Sides
+                <$> Compare.resolveProcess db processId
+                <*> Compare.resolveProcess otherDb otherProcessId
+    pure $ toolSuccessJson rid (toJSON (Compare.compareActivities sides))
+
+callCompareDatabases :: DatabaseManager -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callCompareDatabases dbManager rid args (db, _) = runTool rid $ do
+    otherDb <- ldDatabase <$> (requireDatabase dbManager =<< except (requireText "other_database" args))
+    let comparison = Compare.compareDatabases (Compare.Sides db otherDb)
+    pure $ toolSuccessJson rid (toJSON (maybe id Compare.limitComparison (intArg "limit" args) comparison))
+
 callCompareImpacts :: DatabaseManager -> Value -> KeyMap Value -> IO Value
 callCompareImpacts dbManager rid args =
     runTool rid $ do

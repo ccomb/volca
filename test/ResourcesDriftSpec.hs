@@ -76,6 +76,9 @@ knownDivergences :: [Divergence]
 knownDivergences =
     [ ("aggregate", "database")
     , ("aggregate", "process_id")
+    , ("compare_activities", "database")
+    , ("compare_activities", "process_id")
+    , ("compare_databases", "database")
     , ("compute_sensitivity", "database")
     , ("compute_sensitivity", "method_id")
     , ("compute_sensitivity", "perturbations")
