@@ -86,8 +86,8 @@ module EcoSpold.Writer1 (
     canonicalWriterOptions,
 
     -- * Writers
-    writeDatabase,
     writeSimpleDatabase,
+    writeSimpleDatabaseChunks,
 
     -- * Export boundary check
     checkEcoSpold1Exportable,
@@ -140,20 +140,37 @@ canonicalWriterOptions = WriterOptions Nothing Nothing
 -- Top-level writers
 -- ----------------------------------------------------------------------------
 
--- | Serialize a built 'Database' (via 'toSimpleDatabase').
-writeDatabase :: WriterOptions -> Database -> Either Text Text
-writeDatabase opts = writeSimpleDatabase opts . toSimpleDatabase
-
 {- | Serialize a 'SimpleDatabase'. Flow / unit names are resolved from its
 tables. Runs 'checkEcoSpold1Exportable' first and returns its 'Left' on a
 database the format cannot represent faithfully, so an unguarded caller can
 never silently emit a lossy or role-flipped file.
+
+The whole file as one value. A caller that sends it somewhere wants
+'writeSimpleDatabaseChunks' instead.
 -}
 writeSimpleDatabase :: WriterOptions -> SimpleDatabase -> Either Text Text
-writeSimpleDatabase opts sdb = do
+writeSimpleDatabase opts = fmap T.concat . writeSimpleDatabaseChunks opts
+
+{- | The same file as the pieces it can be sent in: the opening envelope, then
+one chunk per dataset, then the closing tag. @'T.concat'@ of them is what
+'writeSimpleDatabase' answers, to the byte.
+
+The pieces matter because this format has no directory to break a database up:
+one archive of aggregated inventories runs to several gigabytes of XML. Held as
+one value it is copied twice more before it reaches the socket, and the chunked
+transfer encoding writes a single chunk's length in eight hexadecimal digits, so
+a body past four gibibytes announces its length modulo 2^32 and the reader finds
+XML where the next chunk header belongs. A dataset is about a megabyte, which
+answers both.
+
+The list is produced lazily, so a caller that consumes it as it goes holds one
+dataset rather than the file.
+-}
+writeSimpleDatabaseChunks :: WriterOptions -> SimpleDatabase -> Either Text [Text]
+writeSimpleDatabaseChunks opts sdb = do
     checkEcoSpold1Exportable sdb
     pure $
-        writeActivities
+        activityChunks
             opts
             (sdbTechFlows sdb)
             (sdbBioFlows sdb)
@@ -162,27 +179,29 @@ writeSimpleDatabase opts sdb = do
             (sdbActivities sdb)
 
 {- | Serialize the database's activities against the flow / unit tables that
-resolve their exchange UUIDs. Internal: it does no export-boundary checking,
-so it is reached only through 'writeSimpleDatabase', which runs
-'checkEcoSpold1Exportable' first. Not exported, so no caller can bypass the
-guard.
+resolve their exchange UUIDs, one chunk per dataset between the envelope's two
+halves. Internal: it does no export-boundary checking, so it is reached only
+through 'writeSimpleDatabaseChunks', which runs 'checkEcoSpold1Exportable'
+first. Not exported, so no caller can bypass the guard.
 -}
-writeActivities ::
+activityChunks ::
     WriterOptions ->
     TechFlowDB ->
     BioFlowDB ->
     WasteFlowDB ->
     UnitDB ->
     ActivityMap ->
-    Text
-writeActivities opts techs bios wastes units activities =
-    T.unlines $
+    [Text]
+activityChunks opts techs bios wastes units activities =
+    T.unlines
         [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
         ]
-            ++ concat (zipWith (datasetLines opts res) [1 ..] (map snd ordered))
-            ++ ["</ecoSpold>"]
+        : zipWith dataset [1 ..] (map snd ordered)
+        ++ [T.unlines ["</ecoSpold>"]]
   where
+    dataset :: Int -> Activity -> Text
+    dataset num act = T.unlines (datasetLines opts res num act)
     res = Resolvers techs bios wastes units (supplierNumberIndex ordered) (flowNumberIndex ordered)
     -- Stable, content-derived order so dataset numbers (and thus flow UUIDs)
     -- are reproducible regardless of the source Map's ordering.

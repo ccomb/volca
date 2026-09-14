@@ -462,6 +462,20 @@ spec = do
         it "keeps a whole number parser-readable" $
             formatAmount 1.0 `shouldBe` "1.0"
 
+    describe "writeSimpleDatabaseChunks" $ do
+        it "concatenates to the file writeSimpleDatabase answers" $ do
+            sdb <- fixtureDb
+            (T.concat <$> writeSimpleDatabaseChunks canonicalWriterOptions sdb)
+                `shouldBe` writeSimpleDatabase canonicalWriterOptions sdb
+
+        it "is one chunk per dataset between the envelope's two halves" $
+            (length <$> writeSimpleDatabaseChunks canonicalWriterOptions (linkedDb supplierLink))
+                `shouldBe` Right 4
+
+        it "refuses before there is a chunk, so nothing sends half a file" $
+            writeSimpleDatabaseChunks canonicalWriterOptions (linkedDb danglingLink)
+                `shouldSatisfy` isLeft
+
     describe "writeSimpleDatabase" $ do
         it "emits a well-formed EcoSpold1 document the parser accepts" $ do
             sdb <- fixtureDb
