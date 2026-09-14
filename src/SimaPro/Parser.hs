@@ -45,7 +45,7 @@ module SimaPro.Parser (
 import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
-import Control.DeepSeq (NFData, force)
+import Control.DeepSeq (NFData, force, ($!!))
 import Control.Exception (evaluate)
 import Control.Monad (foldM, forM_, mfilter)
 import qualified Data.ByteString as BS
@@ -708,50 +708,53 @@ addFileRow cfg sec line acc = case sec of
     SecProjInputParams -> withParam $ \p -> acc{paProjInputParams = p : paProjInputParams acc}
     SecProjCalcParams -> withParam $ \p -> acc{paProjCalcParams = p : paProjCalcParams acc}
     SecSubstanceRegistry ->
-        maybe acc (\nc -> acc{paSubstanceCAS = nc : paSubstanceCAS acc}) (parseSubstanceRow cfg line)
+        placed (parseSubstanceRow cfg line) $ \nc -> acc{paSubstanceCAS = nc : paSubstanceCAS acc}
   where
     withParam :: ((Text, Text) -> ParseAcc) -> ParseAcc
-    withParam k = maybe acc k (parseParamRow cfg line)
+    withParam = placed (parseParamRow cfg line)
 
--- | Add a row to the appropriate list in the block (ByteString)
+    -- Forced as the line closes, for the reason 'addRowToBlock' gives.
+    placed :: (NFData a) => Maybe a -> (a -> ParseAcc) -> ParseAcc
+    placed parsed place = maybe acc (place $!!) parsed
+
+{- | Add a row to the appropriate list in the block (ByteString).
+
+The row is forced as its line closes. Every field of a row record is declared
+strict, but a strict field only forces to WHNF and the WHNF of @Just row@ is the
+@Just@: without this, a worker's whole range stays a graph of closures over the
+bytes it read, and the strictness written on the fields acts only when the chunk
+ends and the accumulator is forced.
+-}
 addRowToBlock :: SimaProConfig -> BlockSection -> BS.ByteString -> ProcessBlock -> ProcessBlock
 addRowToBlock cfg sec line block = case sec of
-    SecProducts -> case parseProductRow cfg line of
-        Just row -> block{pbProducts = row : pbProducts block}
-        Nothing -> block
-    SecAvoidedProducts -> case parseProductRow cfg line of
-        Just row -> block{pbAvoidedProducts = row : pbAvoidedProducts block}
-        Nothing -> block
-    SecMaterials -> case parseTechRow cfg line of
-        Just row -> block{pbMaterials = row : pbMaterials block}
-        Nothing -> block
-    SecElectricity -> case parseTechRow cfg line of
-        Just row -> block{pbElectricity = row : pbElectricity block}
-        Nothing -> block
-    SecWasteToTreatment -> case parseTechRow cfg line of
-        Just row -> block{pbWasteToTreatment = row : pbWasteToTreatment block}
-        Nothing -> block
-    SecResources -> case parseBioRow cfg line of
-        Just row -> block{pbResources = row : pbResources block}
-        Nothing -> block
-    SecEmissionsAir -> case parseBioRow cfg line of
-        Just row -> block{pbEmissionsAir = row : pbEmissionsAir block}
-        Nothing -> block
-    SecEmissionsWater -> case parseBioRow cfg line of
-        Just row -> block{pbEmissionsWater = row : pbEmissionsWater block}
-        Nothing -> block
-    SecEmissionsSoil -> case parseBioRow cfg line of
-        Just row -> block{pbEmissionsSoil = row : pbEmissionsSoil block}
-        Nothing -> block
-    SecFinalWaste -> case parseBioRow cfg line of
-        Just row -> block{pbFinalWaste = row : pbFinalWaste block}
-        Nothing -> block
-    SecInputParams -> case parseParamRow cfg line of
-        Just p -> block{pbInputParams = p : pbInputParams block}
-        Nothing -> block
-    SecCalcParams -> case parseParamRow cfg line of
-        Just p -> block{pbCalcParams = p : pbCalcParams block}
-        Nothing -> block
+    SecProducts -> withProduct $ \r -> block{pbProducts = r : pbProducts block}
+    SecAvoidedProducts -> withProduct $ \r -> block{pbAvoidedProducts = r : pbAvoidedProducts block}
+    SecMaterials -> withTech $ \r -> block{pbMaterials = r : pbMaterials block}
+    SecElectricity -> withTech $ \r -> block{pbElectricity = r : pbElectricity block}
+    SecWasteToTreatment -> withTech $ \r -> block{pbWasteToTreatment = r : pbWasteToTreatment block}
+    SecResources -> withBio $ \r -> block{pbResources = r : pbResources block}
+    SecEmissionsAir -> withBio $ \r -> block{pbEmissionsAir = r : pbEmissionsAir block}
+    SecEmissionsWater -> withBio $ \r -> block{pbEmissionsWater = r : pbEmissionsWater block}
+    SecEmissionsSoil -> withBio $ \r -> block{pbEmissionsSoil = r : pbEmissionsSoil block}
+    SecFinalWaste -> withBio $ \r -> block{pbFinalWaste = r : pbFinalWaste block}
+    SecInputParams -> withParam $ \p -> block{pbInputParams = p : pbInputParams block}
+    SecCalcParams -> withParam $ \p -> block{pbCalcParams = p : pbCalcParams block}
+  where
+    withProduct :: (ProductRow -> ProcessBlock) -> ProcessBlock
+    withProduct = placed (parseProductRow cfg line)
+
+    withTech :: (TechExchangeRow -> ProcessBlock) -> ProcessBlock
+    withTech = placed (parseTechRow cfg line)
+
+    withBio :: (BioExchangeRow -> ProcessBlock) -> ProcessBlock
+    withBio = placed (parseBioRow cfg line)
+
+    withParam :: ((Text, Text) -> ProcessBlock) -> ProcessBlock
+    withParam = placed (parseParamRow cfg line)
+
+    -- A line the section's parser makes nothing of leaves the block as it was.
+    placed :: (NFData a) => Maybe a -> (a -> ProcessBlock) -> ProcessBlock
+    placed parsed place = maybe block (place $!!) parsed
 
 -- | Set metadata field in block (ByteString key, decode value to Text)
 setMetadata :: BS.ByteString -> BS.ByteString -> ProcessBlock -> ProcessBlock
