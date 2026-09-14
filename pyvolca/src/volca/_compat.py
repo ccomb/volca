@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 24
-"""The newest wire revision this pyvolca understands (revision 24 added the
+KNOWN_WIRE = 25
+"""The newest wire revision this pyvolca understands (revision 25 added
+``compare_activities`` and ``compare_databases``, the comparison of two
+activities and of two loaded databases; revision 24 added the
 ``reasons`` a supplier-gap entry carries, every reason its product was refused
 a supplier under, where ``reason`` and ``detail`` name only the first of them,
 and made the setup report's missing-supplier list name a product once per

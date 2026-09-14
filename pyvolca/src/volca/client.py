@@ -51,6 +51,7 @@ import requests
 
 from .types import (
     Activity,
+    ActivityComparison,
     ActivityDetail,
     ActivityInput,
     AggregateOp,
@@ -66,6 +67,7 @@ from .types import (
     ConsumersResponse,
     ContributingActivities,
     ContributingFlows,
+    DatabaseComparison,
     DatabaseInfo,
     DatabaseStatus,
     Exchange,
@@ -1899,6 +1901,49 @@ class Client:
         """
         return PathResult.from_json(
             self._call("get_path_to", process_id=process_id, target=target)
+        )
+
+    # -- Comparison --
+
+    def compare_activities(
+        self,
+        process_id: str,
+        other_process_id: str,
+        *,
+        other_database: str | None = None,
+    ) -> ActivityComparison:
+        """Compare one activity with another, exchange by exchange.
+
+        ``other_database`` names the loaded database holding the other
+        activity when it is not this one, which is how an adapted copy is held
+        against the dataset it was adapted from. A result whose ``identical``
+        is True says the two activities say the same thing.
+        """
+        self._require_wire(25, "compare_activities", engine_hint="0.12.1")
+        return ActivityComparison.from_json(
+            self._call(
+                "compare_activities",
+                process_id=process_id,
+                other_process_id=other_process_id,
+                other_database=other_database,
+            )
+        )
+
+    def compare_databases(
+        self, other_database: str, *, limit: int | None = None
+    ) -> DatabaseComparison:
+        """Compare this database with another loaded one, usually its next version.
+
+        Activities pair in a cascade: the same process id, then the same names
+        at the same location, then the same reference product at the same
+        location from the same kind of activity. Each changed pair says which
+        in ``matched_on``, and a key several activities answer to is listed in
+        ``ambiguous`` rather than paired. ``limit`` keeps the first entries of
+        each list; the counts always cover them all.
+        """
+        self._require_wire(25, "compare_databases", engine_hint="0.12.1")
+        return DatabaseComparison.from_json(
+            self._call("compare_databases", other_database=other_database, limit=limit)
         )
 
     # -- Tree (SPA-only endpoint, no operationId, direct HTTP) --

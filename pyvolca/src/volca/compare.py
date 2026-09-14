@@ -3,13 +3,18 @@
 Composed from two ``/aggregate`` calls and a client-side merge. Groups by
 ``flow_id`` (UUID) by default, not by flow name, because flow names vary
 slightly across variants / locales / versions while flow IDs are stable.
+
+Replaced by :meth:`Client.compare_activities`, which compares the exchanges in
+the engine, role, unit and tolerance included, and across two databases.
 """
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ._compat import RENAMED_REMOVED_IN
 from .types import AggregateGroup
 
 if TYPE_CHECKING:
@@ -63,6 +68,14 @@ def compare_activities(
     common case for "what does this variant consume differently?". Pass
     ``is_input=None`` to include outputs as well.
     """
+    warnings.warn(
+        "volca.compare_activities() is replaced by Client.compare_activities(), "
+        "which compares the exchanges in the engine, role, unit and tolerance "
+        "included, and across two databases. volca.compare_activities() keeps "
+        f"working until pyvolca {RENAMED_REMOVED_IN} removes it.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     left = client.aggregate(
         pid_left,
         scope=scope,

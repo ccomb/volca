@@ -3,6 +3,23 @@
 ## [Unreleased]
 
 ### Added
+- The engine compares two activities, and two loaded databases, down to the
+  exchanges: `compare_activities` and `compare_databases`, on
+  `/db/{dbName}/activity/{processId}/compare` and `/db/{dbName}/compare`. A
+  client comparing two versions used to list both, fetch every shared activity
+  twice and apply rules of its own, and each client wrote them a little
+  differently. Activities now pair on their process id, then on their names at
+  the same location, then on their reference product at the same location from
+  the same kind of activity, and each pair says which: a release that
+  regenerates its identifiers, or renames an activity around a product that
+  kept its identifier, still compares activity by activity. A key several
+  activities answer to is named rather than paired. Lines pair on the flow
+  identifier and role, then on the flow name, compartment and role; a flow
+  written in several units on one side is named rather than summed. Wire
+  revision 25. pyvolca reads both as `Client.compare_activities` and
+  `Client.compare_databases`; `volca.compare_activities`, which merged two
+  `aggregate` calls on the client and keyed a line on its flow id alone, warns
+  and keeps working until pyvolca 1.0.
 - pyvolca reads what the last four wire revisions added, and stops warning that
   the engine is newer than it is. A technosphere or waste exchange carries its
   `supplier_claim`, how the source designated its supplier before linking

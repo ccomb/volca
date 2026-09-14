@@ -48,6 +48,7 @@ import Types (
     NativeProcessId (..),
     Pedigree,
     Severity,
+    TechRole,
     TechnosphereFlow (..),
     UUID,
     Unit,
@@ -1767,6 +1768,147 @@ data AggregationGroup = AggregationGroup
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped AggregationGroup)
+
+-- ---------------------------------------------------------------------------
+-- Comparing two activities, or two versions of a database
+-- ---------------------------------------------------------------------------
+
+-- | The lines of one flow in one unit, as one side writes them, summed.
+data Quantity = Quantity
+    { qtyAmount :: !Double
+    , qtyUnit :: !Text
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped Quantity)
+
+-- | Which side of a waste line an activity stands on.
+data WasteSide = WasteInput | WasteOutput
+    deriving (Eq, Ord, Show, Generic)
+    deriving anyclass (ToJSON, ToSchema)
+
+{- | What a line does in its activity. The kind of exchange is part of it, so
+a flow that moves from input to coproduct is one line gone and another added,
+never one line with a new amount.
+-}
+data LineRole
+    = TechLine {tlRole :: !TechRole}
+    | BioLine {blDirection :: !BioDirection}
+    | WasteLine {wlSide :: !WasteSide}
+    deriving (Eq, Ord, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped LineRole)
+
+-- | How a line was found again in the other activity.
+data LineMatch
+    = -- | The same flow identifier, in the same role.
+      SameFlow
+    | -- | The same flow name, case and a trailing geography aside, in the same compartment and role.
+      SameFlowName
+    deriving (Eq, Show, Generic)
+    deriving anyclass (ToJSON, ToSchema)
+
+data LineChange
+    = LineAdded {laAfter :: !Quantity}
+    | LineRemoved {lrBefore :: !Quantity}
+    | LineChanged {lcMatch :: !LineMatch, lcBefore :: !Quantity, lcAfter :: !Quantity}
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped LineChange)
+
+{- | One line that differs. The flow is named as the base side has it, or as
+the other side has it when the line was added.
+-}
+data ExchangeChange = ExchangeChange
+    { ecFlowId :: !UUID
+    , ecFlowName :: !Text
+    , ecCompartment :: !(Maybe Compartment)
+    , ecRole :: !LineRole
+    , ecChange :: !LineChange
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ExchangeChange)
+
+data UncomparedReason
+    = -- | One flow written in several units on a side: no sum of kg and g reads as either.
+      MixedUnits {muBaseUnits :: ![Text], muOtherUnits :: ![Text]}
+    | -- | Several distinct flows answer to one name on a side.
+      SeveralFlows {sfBaseFlows :: ![UUID], sfOtherFlows :: ![UUID]}
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped UncomparedReason)
+
+-- | A line the comparison could not judge, and why.
+data UncomparedLine = UncomparedLine
+    { ulFlowName :: !Text
+    , ulCompartment :: !(Maybe Compartment)
+    , ulRole :: !LineRole
+    , ulReason :: !UncomparedReason
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped UncomparedLine)
+
+{- | A field of the two activities that differs. The product's amount and unit
+are not among them: the reference line already says so.
+-}
+data SummaryChange
+    = ActivityNameChanged {ancBefore :: !Text, ancAfter :: !Text}
+    | LocationChanged {locBefore :: !Text, locAfter :: !Text}
+    | ProductNameChanged {pncBefore :: !Text, pncAfter :: !Text}
+    | AllocationChanged {alcBefore :: !(Maybe Double), alcAfter :: !(Maybe Double)}
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped SummaryChange)
+
+-- | Two activities side by side: nothing listed means they say the same thing.
+data ActivityComparison = ActivityComparison
+    { acmpBase :: !ActivitySummary
+    , acmpOther :: !ActivitySummary
+    , acmpSummary :: ![SummaryChange]
+    , acmpExchanges :: ![ExchangeChange]
+    , acmpUncompared :: ![UncomparedLine]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ActivityComparison)
+
+-- | The rung of the cascade that paired two activities of two databases.
+data ActivityMatch
+    = -- | The same activityUUID_productUUID.
+      SameProcessId
+    | -- | The same activity and product names, case and a trailing geography aside, at the same location.
+      SameNames
+    | -- | The same reference product flow at the same location, from the same kind of activity.
+      SameProduct
+    deriving (Eq, Ord, Show, Enum, Bounded, Generic)
+    deriving anyclass (ToJSON, ToSchema)
+
+data ChangedActivity = ChangedActivity
+    { chaMatch :: !ActivityMatch
+    , chaComparison :: !ActivityComparison
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ChangedActivity)
+
+-- | Activities one key of a rung names on either side, too many to pair.
+data AmbiguousActivities = AmbiguousActivities
+    { ambMatch :: !ActivityMatch
+    , ambBase :: ![ActivitySummary]
+    , ambOther :: ![ActivitySummary]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped AmbiguousActivities)
+
+{- | Two databases side by side. The counts always cover the full lists, which
+a limit may have truncated.
+-}
+data DatabaseComparison = DatabaseComparison
+    { dbcAddedCount :: !Int
+    , dbcRemovedCount :: !Int
+    , dbcChangedCount :: !Int
+    , dbcAmbiguousCount :: !Int
+    , dbcUnchangedCount :: !Int
+    , dbcAdded :: ![ActivitySummary]
+    , dbcRemoved :: ![ActivitySummary]
+    , dbcChanged :: ![ChangedActivity]
+    , dbcAmbiguous :: ![AmbiguousActivities]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped DatabaseComparison)
 
 -- JSON instances. Record types derive ToJSON/FromJSON/ToSchema via the
 -- API.JsonOptions.Stripped carrier, which strips the lowercase field prefix.

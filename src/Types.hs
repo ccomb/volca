@@ -178,7 +178,7 @@ data Compartment = Compartment
     { compartmentName :: !Medium
     , compartmentSub :: !(Maybe Text) -- "high. pop.", "river water", …
     }
-    deriving (Eq, Show, Generic, NFData, Store)
+    deriving (Eq, Ord, Show, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Compartment)
 
 {- | The biosphere flow's medium (air | water | soil | …), or @""@ when the
@@ -203,7 +203,7 @@ biosphere side also gets named variants instead of a load-bearing 'Bool'.
   Acts as an output from the activity.
 -}
 data BioDirection = Resource | Emission
-    deriving (Eq, Show, Generic, NFData, Store)
+    deriving (Eq, Ord, Show, Generic, NFData, Store)
     deriving anyclass (ToSchema)
 
 {- | Role of a technosphere exchange within its host activity. `ReferenceInput`
@@ -222,7 +222,7 @@ data TechRole
     | AvoidedProduct -- substitution: a product this activity displaces
     | ReferenceInput -- main input of a treatment process
     | Input -- ordinary technosphere input
-    deriving (Eq, Show, Generic, NFData, Store)
+    deriving (Eq, Ord, Show, Generic, NFData, Store)
     deriving anyclass (ToSchema)
 
 {- | What a source declares about one product output of a multi-output

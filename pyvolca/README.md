@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.11.0** speaks wire formats **2 to 24** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.11.0** speaks wire formats **2 to 25** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -262,15 +262,15 @@ for g in agg.groups[:5]:
 > *How does variant A differ from variant B? Which inputs change?*
 
 ```python
-from volca import compare_activities
-
-diff = compare_activities(c, plants[0].process_id, plants[1].process_id, scope="direct")
-print(f"  matched: {len(diff.matched)}, only-left: {len(diff.left_only)}, only-right: {len(diff.right_only)}")
-for row in diff.matched[:3]:
-    print(f"    {row.key}: {row.left:.4g} → {row.right:.4g}  (Δ={row.delta:+.4g})")
+comparison = c.compare_activities(plants[0].process_id, plants[1].process_id)
+print(f"  identical: {comparison.identical}, fields that differ: {[s.field for s in comparison.summary]}")
+for line in comparison.exchanges[:3]:
+    before = f"{line.before.amount:.4g} {line.before.unit}" if line.before else "-"
+    after = f"{line.after.amount:.4g} {line.after.unit}" if line.after else "-"
+    print(f"    {line.change} {line.flow_name}: {before} → {after}")
 ```
 
-A client-side merge over two `aggregate` calls. Groups by `flow_id` (default) so matching is stable across naming variants. Pass `scope="supply_chain"` to compare cumulative inputs instead of direct exchanges.
+The engine compares every exchange. A line pairs on its flow id and role, then on its flow name, compartment and role; amounts are equal within a relative 1e-9 and units compare by name. Pass `other_database=` to hold an activity against one in another loaded database, an adapted copy against its original for instance. `c.compare_databases("next-version")` compares two whole databases the same way, pairing their activities by process id, then by name, then by reference product, and saying which for each pair.
 
 ## Run counterfactuals (substitutions)
 
@@ -444,6 +444,26 @@ Escape hatch: call any OpenAPI operation by operationId.
 Returns the raw JSON (no dataclass wrapping). Use this for
 operations that don't have an ergonomic wrapper yet, or for new
 endpoints added after the installed pyvolca was released.
+
+##### `Client.compare_activities(process_id: str, other_process_id: str, *, other_database: str | None = None) -> ActivityComparison`
+
+Compare one activity with another, exchange by exchange.
+
+``other_database`` names the loaded database holding the other
+activity when it is not this one, which is how an adapted copy is held
+against the dataset it was adapted from. A result whose ``identical``
+is True says the two activities say the same thing.
+
+##### `Client.compare_databases(other_database: str, *, limit: int | None = None) -> DatabaseComparison`
+
+Compare this database with another loaded one, usually its next version.
+
+Activities pair in a cascade: the same process id, then the same names
+at the same location, then the same reference product at the same
+location from the same kind of activity. Each changed pair says which
+in ``matched_on``, and a key several activities answer to is listed in
+``ambiguous`` rather than paired. ``limit`` keeps the first entries of
+each list; the counts always cover them all.
 
 ##### `Client.compute_sensitivity(process_id: str, method_id: str, perturbations: list[dict], *, collection: str | None = None) -> SensitivityResult`
 
@@ -1366,6 +1386,24 @@ revision 21.
 | `block` | `str \| None` | None |
 | `block_products` | `int \| None` | None |
 
+### `ActivityComparison`
+
+Two activities side by side, as `Client.compare_activities` returns them.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `base` | `Activity` | _required_ |
+| `other` | `Activity` | _required_ |
+| `summary` | `list[SummaryChange]` | _required_ |
+| `exchanges` | `list[ExchangeChange]` | _required_ |
+| `uncompared` | `list[UncomparedLine]` | _required_ |
+
+#### Properties
+
+##### `identical`
+
+True when nothing differs and every line could be judged.
+
 ### `ActivityContribution`
 
 One upstream activity's contribution to an LCIA score.
@@ -1535,6 +1573,16 @@ was set; empty otherwise.
 | `filtered_count` | `int` | _required_ |
 | `groups` | `list[AggregateGroup]` | list() |
 
+### `AmbiguousActivities`
+
+Activities one key of a rung names on either side, too many to pair.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `matched_on` | `str` | _required_ |
+| `base` | `list[Activity]` | _required_ |
+| `other` | `list[Activity]` | _required_ |
+
 ### `BatchScores`
 
 Result of `Client.score_activities` scoring many processes at once.
@@ -1652,6 +1700,20 @@ Always False: biosphere exchanges cannot be reference flows.
 
 The reference flow defines the functional unit and is always a
 technosphere product (see `TechnosphereExchange.is_reference`).
+
+### `ChangedActivity`
+
+A pair of activities that differ, and the rung of the cascade that paired them.
+
+``matched_on`` is ``"SameProcessId"``, ``"SameNames"`` (the same activity
+and product names, case and a trailing geography aside, at the same
+location) or ``"SameProduct"`` (the same reference product at the same
+location, from the same kind of activity).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `matched_on` | `str` | _required_ |
+| `comparison` | `ActivityComparison` | _required_ |
 
 ### `CharacterizationFactor`
 
@@ -1810,6 +1872,25 @@ flows were truncated. If you need exhaustive coverage, pass a generous
 | `total_score` | `float` | _required_ |
 | `top_flows` | `list[FlowContribution]` | list() |
 
+### `DatabaseComparison`
+
+Two databases side by side, as `Client.compare_databases` returns them.
+
+The ``*_count`` fields always cover the full lists, which a ``limit`` may
+have truncated.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `added_count` | `int` | _required_ |
+| `removed_count` | `int` | _required_ |
+| `changed_count` | `int` | _required_ |
+| `ambiguous_count` | `int` | _required_ |
+| `unchanged_count` | `int` | _required_ |
+| `added` | `list[Activity]` | _required_ |
+| `removed` | `list[Activity]` | _required_ |
+| `changed` | `list[ChangedActivity]` | _required_ |
+| `ambiguous` | `list[AmbiguousActivities]` | _required_ |
+
 ### `DatabaseInfo`
 
 One entry of `Client.list_databases`.
@@ -1840,6 +1921,35 @@ older than wire revision 20.
 | `depends_on` | `list[str]` | list() |
 | `allocation` | `str \| None` | None |
 | `source` | `str \| None` | None |
+
+### `ExchangeChange`
+
+One line two activities disagree on.
+
+``kind`` is ``"technosphere"``, ``"biosphere"`` or ``"waste"``, and ``role``
+what the line does within it: a `TechRole` value, a
+`BioDirection` value, or ``"WasteInput"`` / ``"WasteOutput"``. The
+role is part of a line, so a flow moving from input to coproduct is one
+line removed and one added.
+
+``change`` is ``"added"``, ``"removed"`` or ``"changed"``. ``before`` is
+None on an added line and ``after`` on a removed one. ``matched_on`` says
+how a changed line was found in the other activity: ``"SameFlow"`` (the
+same flow id) or ``"SameFlowName"`` (the same name, compartment and role
+under another id). The flow is named as the base activity has it, or as
+the other activity has it when the line was added.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `flow_id` | `str` | _required_ |
+| `flow_name` | `str` | _required_ |
+| `compartment` | `Compartment \| None` | _required_ |
+| `kind` | `str` | _required_ |
+| `role` | `str` | _required_ |
+| `change` | `str` | _required_ |
+| `before` | `Quantity \| None` | _required_ |
+| `after` | `Quantity \| None` | _required_ |
+| `matched_on` | `str \| None` | None |
 
 ### `ExchangeSelector`
 
@@ -2310,6 +2420,15 @@ One filter triple inside a `Preset`.
 | `value` | `str` | _required_ |
 | `mode` | `MatchMode` | <MatchMode.CONTAINS: 'contains'> |
 
+### `Quantity`
+
+The lines of one flow in one unit, as one side writes them, summed.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `amount` | `float` | _required_ |
+| `unit` | `str` | _required_ |
+
 ### `ScoredActivity`
 
 One process's batch impacts inside a `BatchScores`.
@@ -2486,6 +2605,20 @@ substitution across multiple calls without aliasing risk.
 
 Serialise to the wire shape consumed by SubstitutionRequest.
 
+### `SummaryChange`
+
+A field of two activities that differs.
+
+``field`` is ``"activity_name"``, ``"location"``, ``"product_name"`` or
+``"allocation_percent"``. The product's amount and unit are not among
+them: the reference line reports those, among the exchanges.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `field` | `str` | _required_ |
+| `before` | `str \| float \| None` | _required_ |
+| `after` | `str \| float \| None` | _required_ |
+
 ### `SupplierClaim`
 
 What the source said about an exchange's supplier, before linking.
@@ -2639,6 +2772,28 @@ True for reference roles (``REFERENCE_PRODUCT`` / ``REFERENCE_INPUT``).
 
 The reference exchange is the one that defines the activity's
 functional unit, the basis the LCA result is normalised to.
+
+### `UncomparedLine`
+
+A line the engine could not judge, and why.
+
+``reason`` is ``"mixed_units"`` when one side writes the flow in several
+units, which no sum reads (``base_units`` and ``other_units`` list them,
+empty on the side that lacks the line), or ``"several_flows"`` when several
+distinct flows answer to one name on a side (``base_flows`` and
+``other_flows`` list their ids).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `flow_name` | `str` | _required_ |
+| `compartment` | `Compartment \| None` | _required_ |
+| `kind` | `str` | _required_ |
+| `role` | `str` | _required_ |
+| `reason` | `str` | _required_ |
+| `base_units` | `list[str]` | list() |
+| `other_units` | `list[str]` | list() |
+| `base_flows` | `list[str]` | list() |
+| `other_flows` | `list[str]` | list() |
 
 ### `UnmappedFlow`
 

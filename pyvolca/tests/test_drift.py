@@ -33,6 +33,8 @@ WRAPPER_OPERATIONS = [
     "aggregate",
     "get_consumers",
     "get_path_to",
+    "compare_activities",
+    "compare_databases",
     "get_inventory",
     "get_impacts",
     "list_methods",

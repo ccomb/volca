@@ -224,6 +224,7 @@ def readme_namespace() -> dict[str, Any]:
     import volca
     from volca import (
         Activity,
+        ActivityComparison,
         ActivityContribution,
         ActivityDetail,
         ActivityDiff,
@@ -491,6 +492,27 @@ def readme_namespace() -> dict[str, Any]:
     c.get_impacts.side_effect = _impacts
     c.get_impacts_batch.return_value = lcia_batch
     c.aggregate.return_value = aggregate_result
+    c.compare_activities.return_value = ActivityComparison(
+        base=activity_a,
+        other=activity_b,
+        summary=[
+            volca.SummaryChange(field="activity_name", before=activity_a.activity_name, after=activity_b.activity_name)
+        ],
+        exchanges=[
+            volca.ExchangeChange(
+                flow_id="ef-co2-fossil",
+                flow_name="Carbon dioxide, fossil",
+                compartment=Compartment(name="air"),
+                kind="biosphere",
+                role="Emission",
+                change="changed",
+                before=volca.Quantity(amount=0.41, unit="kg"),
+                after=volca.Quantity(amount=0.38, unit="kg"),
+                matched_on="SameFlow",
+            ),
+        ],
+        uncompared=[],
+    )
     c.list_databases.return_value = [
         DatabaseInfo(
             name="agribalyse-3.2",
