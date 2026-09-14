@@ -378,6 +378,8 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `get_supply_chain` | Flat upstream activity list with quantities and filters |
 | `get_consumers` | Downstream activities that consume a given activity |
 | `get_path_to` | Shortest supply-chain path from one activity to another |
+| `compare_activities` | Two activities side by side, exchange by exchange, in one database or across two |
+| `compare_databases` | Two loaded databases side by side: activities added, removed, changed and not paired, down to the exchanges |
 | `get_inventory` | LCI biosphere flows (top N by quantity) |
 | `get_impacts` | LCIA score for an activity and method (accepts substitutions) |
 | `score_activity` | Full LCIA panel + every configured scoring set for one activity (replaces N×get_impacts calls) |
