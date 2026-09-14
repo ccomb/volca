@@ -111,6 +111,11 @@ spec = describe "Service.Compare" $ do
             acmpUncompared comparison
                 `shouldBe` [UncomparedLine "Carbon dioxide, fossil" Nothing (BioLine Emission) (MixedUnits ["g", "kg"] ["kg"])]
 
+        it "reads a flow written in two units the same way on both sides as no change" $ do
+            let rows = [row 1 wheat "wheat production" [emits co2 kg 1, emits co2 gram 1]]
+            c <- compareVersions rows rows
+            dbcChangedCount c `shouldBe` 0
+
         it "finds a renumbered flow again by its name, whatever its case" $ do
             same <- compareVersions [row 1 wheat "wheat production" [emits co2 kg 1]] [row 1 wheat "wheat production" [emits co2Renumbered kg 1]]
             dbcChangedCount same `shouldBe` 0

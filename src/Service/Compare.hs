@@ -26,8 +26,9 @@ write for itself, and each client wrote them a little differently.
   is part of a line, so a flow moving from input to coproduct is one line
   removed and one added.
 * The lines of one flow in one unit are summed, which also means a supplier
-  swapped at an equal total does not show. One flow written in two units on a
-  side is named and not compared: no sum of kilograms and grams reads as
+  swapped at an equal total does not show. A flow written in several units
+  compares unit by unit when both sides write it in the same ones; otherwise it
+  is named and not compared, since no sum of kilograms and grams reads as
   either.
 * Amounts are equal within a relative 1e-9, the noise a re-export leaves in
   the last bits. Units compare by name, since one format reads a unit's
@@ -240,17 +241,21 @@ compareLines sides =
     paired :: Cascade LineMatch LineGroup
     paired = cascade lineKey [SameFlow, SameFlowName] sides
 
+{- | Two sides that write a flow in the same units, each amount close, say the
+same thing however many units that is. Otherwise the change is stated when each
+side holds one unit, and named as not compared when a side holds several.
+-}
 judgePair :: LineMatch -> Sides LineGroup -> LineVerdict
-judgePair match pair =
-    maybe
-        (Uncompared (uncomparedOn (baseSide pair) (mixedUnits (fmap unitsOf pair))))
-        judge
-        ((,) <$> singleUnit (baseSide pair) <*> singleUnit (otherSide pair))
-  where
-    judge :: (Quantity, Quantity) -> LineVerdict
-    judge (before, after)
-        | sameQuantity before after = Same
-        | otherwise = Differs (changeOn (baseSide pair) (LineChanged match before after))
+judgePair match pair
+    | sameAmounts (lgAmounts (baseSide pair)) (lgAmounts (otherSide pair)) = Same
+    | otherwise =
+        maybe
+            (Uncompared (uncomparedOn (baseSide pair) (mixedUnits (fmap unitsOf pair))))
+            (Differs . changeOn (baseSide pair) . uncurry (LineChanged match))
+            ((,) <$> singleUnit (baseSide pair) <*> singleUnit (otherSide pair))
+
+sameAmounts :: M.Map Text Double -> M.Map Text Double -> Bool
+sameAmounts base other = M.keys base == M.keys other && and (M.intersectionWith close base other)
 
 judgeRemoved :: LineGroup -> LineVerdict
 judgeRemoved line =
@@ -287,9 +292,6 @@ singleUnit line = case M.toList (lgAmounts line) of
     [(unit, amount)] -> Just Quantity{qtyAmount = amount, qtyUnit = unit}
     [] -> Nothing
     (_ : _ : _) -> Nothing
-
-sameQuantity :: Quantity -> Quantity -> Bool
-sameQuantity x y = qtyUnit x == qtyUnit y && close (qtyAmount x) (qtyAmount y)
 
 changeOn :: LineGroup -> LineChange -> ExchangeChange
 changeOn line change =
