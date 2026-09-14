@@ -203,6 +203,20 @@
   wait. The files themselves are unchanged, to the byte.
 
 ### Fixed
+- A characterization factor whose name matches no flow no longer reaches,
+  through its CAS number, a flow the flow registry files as another substance.
+  A CAS number names a molecule, and EF characterizes methane from land
+  transformation apart from fossil and biogenic methane under the same number:
+  against a database holding no land transformation methane, the land use
+  sub-category of climate change charged its factor on fossil and biogenic
+  methane instead, several hundred times what that sub-category holds for such
+  a database. The factor now stays unmatched. The registry decides what counts
+  as another substance, including where a method is less specific than the
+  database: it files an unqualified "Methane" with fossil methane, so a method
+  whose only methane row is "Methane" no longer charges a database's biogenic
+  methane, which it used to reach through the CAS number with the fossil
+  factor. A flow whose name the registry does not know still matches by CAS,
+  since nothing then says it is another substance.
 - An EcoSpold 1 export of a very large database no longer ends in a broken
   download. The file was built whole before a byte of it was sent, and copied
   again on the way to the socket, so an archive of aggregated inventories
