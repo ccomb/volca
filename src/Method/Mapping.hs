@@ -303,10 +303,32 @@ resolveCF ctx cf =
     canon ByUUID (findFlowByUUID (mcBioFlowsByUUID ctx) (mcfFlowRef cf))
         <|> canon ByName (findFlowByNameComp cmap (mcBioFlowsByName ctx) (mcfFlowName cf) (mcfCompartment cf))
         <|> canon BySynonym (findFlowBySynonymMemo ctx cf)
-        <|> canon ByCAS (mcfCAS cf >>= \cas -> findFlowByCAS cmap (mcBioFlowsByCAS ctx) cas (mcfCompartment cf))
+        <|> canon ByCAS (findFlowByCASWithinSubstance ctx cf)
   where
     cmap = mcCompartmentMap ctx
     canon strat found = found >>= \flow -> (,strat) <$> M.lookup (bfId flow) (mcBioFlowsByUUID ctx)
+
+{- | The CAS match, kept within the row's own substance. A CAS number names a
+molecule, and a method can split one molecule into substances the registry
+keeps apart: EF charges fossil methane, biogenic methane and methane from land
+transformation under the one CAS 74-82-8. A row whose name found no flow must
+not land on a flow the registry files as another substance, or the land
+transformation factor is charged on fossil methane – and, having matched by
+CAS, is broadcast by 'mtCasCF' to every methane flow of the medium. When the
+registry does not know one of the two names, nothing says they differ, and the
+CAS number is the evidence there is.
+-}
+findFlowByCASWithinSubstance :: MapContext -> MethodCF -> Maybe BiosphereFlow
+findFlowByCASWithinSubstance ctx cf =
+    mcfCAS cf >>= nonEmptyCAS >>= (`M.lookup` mcBioFlowsByCAS ctx) >>= \flows ->
+        pickByCompartment (mcCompartmentMap ctx) (filter sameSubstance flows) (mcfCompartment cf)
+  where
+    substanceOf :: Text -> Maybe Int
+    substanceOf = lookupSynonymGroup (viewFor (mcfDirection cf) (mcSynonymDB ctx))
+    sameSubstance :: BiosphereFlow -> Bool
+    sameSubstance flow = case (substanceOf (mcfFlowName cf), substanceOf (bfName flow)) of
+        (Just row, Just other) -> row == other
+        _ -> True
 
 -- | Convenience wrapper: map method CFs using the built-in cascade + DB.
 mapMethodToFlows :: CompartmentMap -> Database -> Method -> IO [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
