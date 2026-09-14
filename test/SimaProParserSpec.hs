@@ -12,6 +12,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Database.Loader (defaultLoadOptions, getReferenceProductUUID, loadSimaProCSV)
 import Expr (Dialect (..), collectIdentifiers, isExpression, normalizeExpr)
 import qualified Expr
@@ -25,6 +26,7 @@ import SimaPro.Parser (
     TechExchangeRow (..),
     defaultConfig,
     emptyProcessBlock,
+    ensureUtf8,
     extractLocation,
     fallbackAmounts,
     generateActivityUUID,
@@ -611,6 +613,16 @@ blocksFile sizes = BS.concat [block i n | (i, n) <- zip [(0 :: Int) ..] sizes]
                 ++ ["row " <> BS8.pack (show i) <> "." <> BS8.pack (show k) <> "\r\n" | k <- [1 .. n]]
                 ++ ["End\r\n"]
 
+{- | Code page 1252, positions 0x80 to 0x9F in order. Transcribed from the code
+page itself rather than from the parser, so the two are independent: the five
+positions Windows leaves undefined (0x81, 0x8D, 0x8F, 0x90, 0x9D) keep the C1
+codepoint their byte would have in Latin-1.
+-}
+windows1252High :: Text
+windows1252High =
+    "\x20AC\x0081\x201A\x0192\x201E\x2026\x2020\x2021\x02C6\x2030\x0160\x2039\x0152\x008D\x017D\x008F"
+        <> "\x0090\x2018\x2019\x201C\x201D\x2022\x2013\x2014\x02DC\x2122\x0161\x203A\x0153\x009D\x017E\x0178"
+
 spec :: Spec
 spec = do
     -- Workers read ranges of the file's bytes rather than runs of its lines,
@@ -635,6 +647,25 @@ spec = do
 
         it "keeps a file of one block whole, however many workers ask for it" $
             workerRanges 8 (blocksFile [5]) `shouldBe` [blocksFile [5]]
+
+    -- A SimaPro export states no encoding, so the bytes are asked. Every byte
+    -- has to come out the other side as the character its code page names it.
+    describe "the encoding a file arrives in" $ do
+        it "reads all 256 Windows-1252 bytes as the characters they stand for" $ do
+            let expected =
+                    T.pack (map toEnum [0x00 .. 0x7F])
+                        <> windows1252High
+                        <> T.pack (map toEnum [0xA0 .. 0xFF])
+            ensureUtf8 (BS.pack [0 .. 255]) `shouldBe` TE.encodeUtf8 expected
+
+        it "leaves bytes that are already UTF-8 alone" $ do
+            let utf8 = TE.encodeUtf8 "procédé;kg;Émissions dans l'air"
+            ensureUtf8 utf8 `shouldBe` utf8
+
+        it "repairs a C1 control a previous conversion left behind" $ do
+            -- U+0085 in otherwise valid UTF-8 is a Windows-1252 0x85 that was
+            -- read as Latin-1 somewhere upstream; it stands for an ellipsis.
+            ensureUtf8 (TE.encodeUtf8 "suite\x0085\&fin") `shouldBe` TE.encodeUtf8 "suite\x2026\&fin"
 
     -- The block sits at the end of the file, after every process, and states
     -- one unit per row as name;quantity;how many;reference unit.
