@@ -63,7 +63,7 @@ serializeDatabase fmt db = case fmt of
     SimaProCSV -> noWarn (BL.fromStrict <$> SP.serializeSimaProCSV SP.defaultWriterConfig sdb)
     -- One lazy chunk per dataset, never one value holding the file: see
     -- 'ES1.writeSimpleDatabaseChunks' for what a single chunk costs at this size.
-    EcoSpold1 -> noWarn (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeDatabaseChunks ES1.canonicalWriterOptions db)
+    EcoSpold1 -> noWarn (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
     EcoSpold2 -> noWarn (zipText <$> ES2.writeEcoSpold2 ES2.noVolatileMeta sdb)
     ILCDProcess -> (,ILCD.splitWarnings sdb) <$> ILCD.writeILCDArchive ILCD.defaultWriteOptions sdb
     BrightwayExcel -> (,BE.wasteManifest sdb) <$> BE.renderWorkbook BE.defaultWriterConfig sdb

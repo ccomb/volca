@@ -86,9 +86,7 @@ module EcoSpold.Writer1 (
     canonicalWriterOptions,
 
     -- * Writers
-    writeDatabase,
     writeSimpleDatabase,
-    writeDatabaseChunks,
     writeSimpleDatabaseChunks,
 
     -- * Export boundary check
@@ -141,14 +139,6 @@ canonicalWriterOptions = WriterOptions Nothing Nothing
 -- ----------------------------------------------------------------------------
 -- Top-level writers
 -- ----------------------------------------------------------------------------
-
--- | Serialize a built 'Database' (via 'toSimpleDatabase').
-writeDatabase :: WriterOptions -> Database -> Either Text Text
-writeDatabase opts = writeSimpleDatabase opts . toSimpleDatabase
-
--- | 'writeDatabaseChunks' for a built 'Database' (via 'toSimpleDatabase').
-writeDatabaseChunks :: WriterOptions -> Database -> Either Text [Text]
-writeDatabaseChunks opts = writeSimpleDatabaseChunks opts . toSimpleDatabase
 
 {- | Serialize a 'SimpleDatabase'. Flow / unit names are resolved from its
 tables. Runs 'checkEcoSpold1Exportable' first and returns its 'Left' on a
