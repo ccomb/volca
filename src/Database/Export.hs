@@ -61,7 +61,9 @@ serializeDatabase fmt db = case fmt of
     -- Each writer runs its own check*Exportable and returns 'Left' on a database
     -- the format cannot represent faithfully, so the guard is unskippable.
     SimaProCSV -> noWarn (BL.fromStrict <$> SP.serializeSimaProCSV SP.defaultWriterConfig sdb)
-    EcoSpold1 -> noWarn (BL.fromStrict . TE.encodeUtf8 <$> ES1.writeDatabase ES1.canonicalWriterOptions db)
+    -- One lazy chunk per dataset, never one value holding the file: see
+    -- 'ES1.writeSimpleDatabaseChunks' for what a single chunk costs at this size.
+    EcoSpold1 -> noWarn (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeDatabaseChunks ES1.canonicalWriterOptions db)
     EcoSpold2 -> noWarn (zipText <$> ES2.writeEcoSpold2 ES2.noVolatileMeta sdb)
     ILCDProcess -> (,ILCD.splitWarnings sdb) <$> ILCD.writeILCDArchive ILCD.defaultWriteOptions sdb
     BrightwayExcel -> (,BE.wasteManifest sdb) <$> BE.renderWorkbook BE.defaultWriterConfig sdb

@@ -203,6 +203,17 @@
   wait. The files themselves are unchanged, to the byte.
 
 ### Fixed
+- An EcoSpold 1 export of a very large database no longer ends in a broken
+  download. The file was built whole before a byte of it was sent, and copied
+  again on the way to the socket, so an archive of aggregated inventories
+  running to several gigabytes of XML needed several times that much memory
+  beyond the database itself. The chunked transfer encoding writes a piece's
+  length in eight hexadecimal digits, so a body past four gibibytes announced
+  its length modulo 2^32 and the reader found XML where the next length
+  belonged. The writer now produces one piece per dataset, about a megabyte
+  each, and the export sends them as it goes. A database the format cannot
+  represent is still refused before the first piece exists, so nobody receives
+  half a file.
 - The quality report's formula consistency check now lists an EcoSpold 2
   dataset whose formulas could not be evaluated. The load already counted them,
   but the report only showed that count beside formulas that disagreed with
