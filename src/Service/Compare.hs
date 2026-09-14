@@ -50,6 +50,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 
 import API.Types (
@@ -81,12 +82,15 @@ import Types (
     ProcessId,
     ProcessRef,
     UUID,
+    Unit (..),
+    UnitDB,
     exchangeAmount,
     exchangeFlowId,
     exchangeIsReference,
+    exchangeUnitId,
     flowKindCompartment,
     flowKindName,
-    getUnitNameForExchange,
+    getUnitForExchange,
     lookupExchangeFlow,
     processIdToRef,
  )
@@ -199,11 +203,20 @@ lineOf db ex =
         , lgNameKey = normalName . flowKindName <$> flow
         , lgCompartment = flowKindCompartment =<< flow
         , lgRole = roleOf ex
-        , lgAmounts = M.singleton (getUnitNameForExchange (dbUnits db) ex) (exchangeAmount ex)
+        , lgAmounts = M.singleton (unitNameOf (dbUnits db) ex) (exchangeAmount ex)
         }
   where
     flow :: Maybe FlowKind
     flow = lookupExchangeFlow db ex
+
+{- | A unit by its name, since one format reads a unit's identifier from the
+file and another mints it from the name. A unit the registry lacks has no name
+to compare by: its identifier stands in, visibly, so it neither passes for a
+real unit nor matches an unresolved unit of another identifier.
+-}
+unitNameOf :: UnitDB -> Exchange -> Text
+unitNameOf units ex =
+    maybe ("<unresolved unit " <> UUID.toText (exchangeUnitId ex) <> ">") unitName (getUnitForExchange units ex)
 
 roleOf :: Exchange -> LineRole
 roleOf TechnosphereExchange{techRole = role} = TechLine role
@@ -455,7 +468,7 @@ data Rung a = Rung
 cascade :: (Ord k) => (m -> a -> Maybe k) -> [m] -> Sides [a] -> Cascade m a
 cascade keyOf rungs start = L.foldl' (climb keyOf) (Cascade [] [] start) rungs
 
-climb :: (Ord k) => (m -> a -> Maybe k) -> Cascade m a -> m -> Cascade m a
+climb :: forall k m a. (Ord k) => (m -> a -> Maybe k) -> Cascade m a -> m -> Cascade m a
 climb keyOf acc rung =
     Cascade
         { cPairs = cPairs acc ++ map (rung,) (rPairs step)
@@ -463,6 +476,7 @@ climb keyOf acc rung =
         , cUnpaired = rLeft step
         }
   where
+    step :: Rung a
     step = pairOn (keyOf rung) (cUnpaired acc)
 
 pairOn :: forall k a. (Ord k) => (a -> Maybe k) -> Sides [a] -> Rung a

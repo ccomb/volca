@@ -84,6 +84,14 @@ spec = describe "Service.Compare" $ do
             comparison <- onlyChange c
             map ecChange (acmpExchanges comparison) `shouldBe` [LineChanged SameFlow (Quantity 1 "kg") (Quantity 1 "g")]
 
+        it "never reads a unit the registry lacks as a unit name" $ do
+            fixed <- compareVersions [row 1 wheat "wheat production" [emits co2 strayUnit 1]] [row 1 wheat "wheat production" [emits co2 kg 1]]
+            comparison <- onlyChange fixed
+            map ecChange (acmpExchanges comparison)
+                `shouldBe` [LineChanged SameFlow (Quantity 1 ("<unresolved unit " <> UUID.toText (unitId strayUnit) <> ">")) (Quantity 1 "kg")]
+            twoStrays <- compareVersions [row 1 wheat "wheat production" [emits co2 strayUnit 1]] [row 1 wheat "wheat production" [emits co2 otherStrayUnit 1]]
+            dbcChangedCount twoStrays `shouldBe` 1
+
         it "a flow changing role is one line removed and one added" $ do
             c <- compareVersions [row 1 wheat "wheat production" [takes water kg 1]] [row 1 wheat "wheat production" [emits water kg 1]]
             comparison <- onlyChange c
@@ -195,6 +203,11 @@ kg = Unit{unitId = uuid 1, unitName = "kg", unitSymbol = "kg", unitComment = ""}
 gram = Unit{unitId = uuid 2, unitName = "g", unitSymbol = "g", unitComment = ""}
 -- The same unit under another identifier, as a second format would mint it.
 kgAgain = Unit{unitId = uuid 3, unitName = "kg", unitSymbol = "kg", unitComment = ""}
+
+-- Units a line names but the registry of its database lacks.
+strayUnit, otherStrayUnit :: Unit
+strayUnit = Unit{unitId = uuid 4, unitName = "kg", unitSymbol = "kg", unitComment = ""}
+otherStrayUnit = Unit{unitId = uuid 5, unitName = "kg", unitSymbol = "kg", unitComment = ""}
 
 co2, co2Renumbered, water :: BiosphereFlow
 co2 = bioFlow 10 "Carbon dioxide, fossil"
