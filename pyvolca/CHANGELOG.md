@@ -18,22 +18,6 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
-## [Unreleased]
-
-### Added
-
-- `Client.compare_activities` and `Client.compare_databases`: the engine
-  compares two activities, or two loaded databases, down to the exchanges, and
-  says how it paired each activity and each line. They need an engine speaking
-  wire revision 25.
-
-### Deprecated
-
-- `volca.compare_activities`, the function that merged two `aggregate` calls
-  on the client. It keyed a line on its flow id alone, with no role, unit or
-  tolerance. It warns and keeps working until pyvolca 1.0; its
-  `scope="supply_chain"` is `Client.aggregate` itself.
-
 ## [0.11.0] - 2026-09-02
 
 The minor is for two additions a strict reader cannot ignore: the exchange

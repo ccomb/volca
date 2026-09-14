@@ -16,7 +16,10 @@
   activities answer to is named rather than paired. Lines pair on the flow
   identifier and role, then on the flow name, compartment and role; a flow
   written in several units on one side is named rather than summed. Wire
-  revision 25.
+  revision 25. pyvolca reads both as `Client.compare_activities` and
+  `Client.compare_databases`; `volca.compare_activities`, which merged two
+  `aggregate` calls on the client and keyed a line on its flow id alone, warns
+  and keeps working until pyvolca 1.0.
 - pyvolca reads what the last four wire revisions added, and stops warning that
   the engine is newer than it is. A technosphere or waste exchange carries its
   `supplier_claim`, how the source designated its supplier before linking
