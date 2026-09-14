@@ -488,18 +488,7 @@ closeExchange :: ParseState -> ParseState
 closeExchange state = case psContext state of
     InExchange edata
         | Just amount <- exMeanValue edata ->
-            let (exchange, parsedFlow, unit) = buildExchange (psLocation state) amount edata
-                (techs, bios) = case parsedFlow of
-                    ParsedTech tf -> (tf : psTechFlows state, psBioFlows state)
-                    ParsedBio bf -> (psTechFlows state, bf : psBioFlows state)
-             in (popElement state)
-                    { psExchanges = exchange : psExchanges state
-                    , psTechFlows = techs
-                    , psBioFlows = bios
-                    , psUnits = unit : psUnits state
-                    , psUnplacedMedia = maybe id S.insert (unplacedMedium edata parsedFlow) (psUnplacedMedia state)
-                    , psContext = Other
-                    }
+            accumulateExchange edata (buildExchange (psLocation state) amount edata) state
         | otherwise ->
             (popElement state)
                 { psUnreadableAmounts = S.insert (exName edata) (psUnreadableAmounts state)
@@ -510,6 +499,33 @@ closeExchange state = case psContext state of
     InReferenceFunction -> popPath state
     InGeography -> popPath state
     Other -> popPath state
+
+{- | File one closed exchange with the dataset being read.
+
+Matching the constructor is what forces it, and that is the point rather than a
+detail: a 'ParseState' field is strict in its list, which forces the cons cell
+and not the element, so an exchange left unevaluated here holds its whole
+'ExchangeData' (a dozen freshly decoded 'Text's) alive. Nothing reads the
+exchanges until the loader walks them, long after the file is folded, so a
+file's worth of those records is resident at once and the parse costs several
+times what its result does.
+-}
+accumulateExchange :: ExchangeData -> BuiltExchange -> ParseState -> ParseState
+accumulateExchange edata BuiltExchange{beExchange = exchange, beFlow = parsedFlow, beUnit = unit} state =
+    (popElement state)
+        { psExchanges = exchange : psExchanges state
+        , psTechFlows = techs
+        , psBioFlows = bios
+        , psUnits = unit : psUnits state
+        , psUnplacedMedia = maybe id S.insert (unplacedMedium edata parsedFlow) (psUnplacedMedia state)
+        , psContext = Other
+        }
+  where
+    techs :: [TechnosphereFlow]
+    bios :: [BiosphereFlow]
+    (techs, bios) = case parsedFlow of
+        ParsedTech tf -> (tf : psTechFlows state, psBioFlows state)
+        ParsedBio bf -> (psTechFlows state, bf : psBioFlows state)
 
 {- | Close a dataset: snapshot the completed activity and reset per-dataset
 accumulators for the next one (multi-dataset files).
@@ -553,6 +569,16 @@ unplacedMedium edata (ParsedBio flow)
     | otherwise = Nothing
 unplacedMedium _ (ParsedTech _) = Nothing
 
+{- | What reading one @\<exchange\>@ to its end yields: the exchange, the flow
+it names and the unit it is measured in. Named fields rather than a triple, and
+strict so that building one leaves nothing of the raw line behind.
+-}
+data BuiltExchange = BuiltExchange
+    { beExchange :: !Exchange
+    , beFlow :: !ParsedFlow
+    , beUnit :: !Unit
+    }
+
 {- | Build exchange, flow, and unit from exchange data.
 @activityLoc@ is the activity's location, used as a biosphere fallback.
 
@@ -565,10 +591,10 @@ medium 'Waste' whatever group it carries, so it is read as biosphere
 before the groups are consulted. Waste that does have a treatment is not
 written that way and stays on the technosphere side.
 -}
-buildExchange :: Maybe Text -> Double -> ExchangeData -> (Exchange, ParsedFlow, Unit)
+buildExchange :: Maybe Text -> Double -> ExchangeData -> BuiltExchange
 buildExchange activityLoc amount edata
-    | isBiosphere = (bioEx, ParsedBio bioFlow, unit)
-    | otherwise = (techEx, ParsedTech techFlow, unit)
+    | isBiosphere = BuiltExchange bioEx (ParsedBio bioFlow) unit
+    | otherwise = BuiltExchange techEx (ParsedTech techFlow) unit
   where
     flowId = generateFlowUUID (exNumber edata) (exName edata) category (exSubCategory edata) (exUnit edata)
     unitId = generateUnitUUID (exUnit edata)
