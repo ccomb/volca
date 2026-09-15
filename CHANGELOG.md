@@ -1,8 +1,9 @@
 # Changelog
 
-## [Unreleased]
+## [0.13.0] - 2026-09-15
 
 ### Added
+
 - The engine compares two activities, and two loaded databases, down to the
   exchanges: `compare_activities` and `compare_databases`, on
   `/db/{dbName}/activity/{processId}/compare` and `/db/{dbName}/compare`. A
@@ -30,7 +31,154 @@
   and the `source` it was derived from. The setup report's supplier
   ambiguities are documented where a reader looks for them.
 
+- An activity now reports the identifier its source file gave it, beside its
+  location: SimaPro's `Process identifier`, which on Agribalyse reads
+  `AGRIBALU000000003103728`, and the number an EcoSpold 1 dataset is published
+  under. It is what a reader copies to find the dataset back in the file it
+  came from. EcoSpold 2 and ILCD name a dataset by a UUID, which is already the
+  first half of every process id, so they report nothing new here. Wire
+  revision 22.
+- Searching a process by the identifier its source file gave it now lands on
+  that dataset alone: type a SimaPro `Process identifier` into the search and
+  you get the block it names, every product of it, and nothing that merely
+  resembles it. Half an identifier names no dataset and searches as it always
+  did, because the codes of one database share their prefix and answering half
+  the database to somebody who named one dataset would be no answer at all.
+- Searching a process by the identifier its source file gave it now brings that
+  dataset to the top: type a SimaPro `Process identifier` into the search, whole
+  or just the part that tells it apart, and the block it names comes first, all
+  of its products, ahead of the ordinary results rather than instead of them.
+  Nobody types one whole, so four characters are enough: on the SimaPro export
+  of ecoinvent 3.9.1, all 21 456 identifiers are 23 characters of which the
+  first 18 are identical, and the last five are already unique. A fragment
+  shorter than four characters is read as a word, since below that nothing ever
+  singles out a dataset.
+- A database can now be asked for another allocation key without editing the
+  configuration file: `POST /api/v1/db/{name}/derive/{newName}?allocation=wet
+  mass`, the `derive_database` tool, and `Client.derive_database` in pyvolca.
+  Until now naming a key meant writing a second `[[databases]]` entry and
+  restarting, which nobody hosting an engine can do and which cost the person
+  running one their own file. The source is untouched and both stay loadable,
+  so the two allocations of one study can be compared side by side.
+
+  This is a load, not a copy: the key decides the inventory of every process a
+  load produces, so the sources are read again. Seconds to minutes on a large
+  database, against the milliseconds a copy takes, and it answers with what a
+  load answers with.
+
+  A key that divides no block of the source is refused, naming both numbers:
+  such a load is that database under a second name, costing a second database
+  in memory and a second matrix cache on disk. So is the key the source
+  already reads under, before the load rather than after it: that duplicate is
+  the one no count of divided blocks can see, since dividing the same blocks a
+  second time divides them just as well. An unreadable key is refused with the
+  list of keys there are, never read as `declared` -- in a `meta.toml` either,
+  where it now leaves the database out of the listing and says so, rather than
+  handing back declared shares under a name promising otherwise.
+
+  A database's recorded source is the same before and after a restart: a copy
+  named none in memory and its own source's name once read back.
+
+  The key a database was divided under, and the source whose files it reads,
+  now travel with its status, so a column of shares can say whether the source
+  stated them or a property recomputed them. Wire revision 20.
+- An activity summary now names the source block the process came out of, and
+  says how many products that block holds. A listing showing the five
+  coproducts of one dairy block had no way to gather them: the process id
+  names the product, not the block it was written in. The block name is for
+  comparing
+  and never for reading, and the count is what lets a page say it is showing
+  only part of a block rather than the whole of it. Wire revision 21.
+- A flow search can name several kinds at once: `kind=biosphere,waste` keeps
+  what is exchanged with nature or discarded and nothing else, in one listing.
+  `search-counts` already answers that pair as a single number, and there was
+  no way to list it: a search box putting a count beside a tab had to show a
+  count and a table that disagreed. One name it cannot read refuses the whole
+  parameter, the way one unreadable name always did. Wire revision 19; a
+  single kind is written exactly as before.
+- A database can be divided on the mass of its products instead of on the
+  shares its source declares. A database entry names the key it is read
+  under: `allocation = "declared"` (the default, unchanged), `"dry mass"` or
+  `"wet mass"`. The Abondance cheese block, whose source divides it on dry
+  matter, gives 51 % to the cheese under its own key and 12 % under its wet
+  mass: the two are different questions, and the key says which one is being
+  answered.
+
+  A line the source states a property for is believed. Where it states none, a
+  line already written in a mass unit is its own wet mass, which is what makes
+  the key computable on the formats that carry no property table at all
+  (SimaPro, ILCD, EcoSpold 1). A dry mass is never read from an amount:
+  nothing in a wet kilogram says how much of it is water. A block the key
+  cannot weigh is not divided at all and has no column in the matrix, the same
+  refusal a block stating no share gets: asking for a key a database cannot
+  provide costs those blocks rather than inventing numbers for them.
+
+  A process with a single product output is left as its source wrote it. There
+  is nothing there to divide, and its declared share is the only statement in
+  existence about the outputs the file does not carry.
+
+  A product its source declares at 0 % stays at 0 %, and the key divides what
+  is left among the others. That zero is a modelling decision, usually a
+  residue its author took out of the block, and recomputing it into a share
+  would undo the decision without saying so.
+
+  The key belongs to the load, so the same source under two keys is two
+  databases: configure the same path twice, under two names, to compare them
+  side by side. A cache records the key it was built under and is not served
+  to a load asking for another.
+- A technosphere exchange now reports the physical properties its source
+  states of that line, the dry and wet mass (`properties`). EcoSpold 2 writes
+  them per unit of the line, so a board of 1 m3 declaring 614.4 kg of dry
+  matter per m3 is reported as 614.4 kg; a property stated in something that
+  is not a mass keeps its own unit rather than being read as kilograms, and a
+  property this engine has no field for is dropped rather than guessed at.
+  This is the material an allocation key other than the one the source
+  declares is computed from. Wire revision 18.
+
+  Every database cache is rebuilt once on the first load after this release:
+  the cached exchanges say less than the loader now reads.
+- A flow search result now reports how many activities make the flow
+  (`producerCount`), which is the number of ways the database offers to
+  produce it: one on most of a French agricultural database, up to a few
+  thousand on a large industrial one. It is absent on a flow no activity can
+  produce, rather than zero, which would be the different statement that
+  nothing makes it.
+- The activities of a flow can be asked for one side of it: `?role=producer`
+  lists the activities that make it, `?role=consumer` those that use it. The
+  route answered both at once before, which is two questions in one list.
+  Asking with no `role` still answers both. Wire revision 16.
+- An ILCD dataset that states an allocation key is now read with it. The
+  format carries a fraction per product output, which the parser dropped, so
+  a multi-output ILCD dataset had no shares to split on and was refused as
+  unallocated. Only the fraction a product allocates to itself is read: the
+  format also allows a matrix allocating one exchange to another product, and
+  a dataset written that way is still refused rather than split on a number
+  that meant something else.
+- A new route and MCP tool answer how many processes, products and flows one
+  query matches, in a single call (`db/{dbName}/search-counts?q=`,
+  `count_search_matches`). The three are disjoint and together cover the
+  database, so the counts partition what a query found: a term matching 2
+  processes and 300 flows is a substance name, not a product. A search box
+  that labels three tabs with counts no longer costs three searches per
+  keystroke. A blank query is refused rather than answered with three zeros,
+  which would read as "this database has nothing", and so is one made only of
+  punctuation, which reaches the matchers as no words at all. The counts take
+  the same `sort` and `exact` the listing will use, because those decide which
+  matcher runs and therefore how many rows there are. Wire revision 17.
+- The products of a multi-output block now each report what their share
+  would be if the allocation key were their mass (`massAllocationPercent`), beside
+  the share the source declared. Nothing is split and nothing is scored
+  differently: it is a second column to read against the first, and the
+  impact per kilo under one key over the other is the quotient of the two
+  numbers. The Abondance cheese block of a French agricultural database
+  declares 51.4 % to the cheese where its mass is 11.7 % of the block, so
+  a kilo of that cheese carries 4.4 times more under the declared key than
+  under the mass. Amounts are converted to kilograms before being summed,
+  and a block whose products are not all stated in a mass reports nothing
+  rather than a number read off mismatched units. Wire revision 15.
+
 ### Changed
+
 - A solve no longer runs OpenBLAS on a thread per core. The dense blocks a
   sparse solve hands it are too small to share out, so those threads spent the
   solve waiting for work while holding about ten cores busy. Scoring 2,000
@@ -53,7 +201,7 @@
   setup report's missing-supplier list names such a product once per reason,
   biggest first; and a gap entry carries them all in a new `reasons` field. Its
   `reason` and `detail` stay so a client written before that field still
-  decodes, and are dropped in 0.13.0. What those two answer moves all the same:
+  decodes, and are dropped in 0.14.0. What those two answer moves all the same:
   `reason` named whichever cause the linking runs merged first and now names the
   most demanded one, and `detail` is left out where the refusals under one cause
   disagree on it, having carried one of them before. Wire revision 24. Two demands refused
@@ -216,6 +364,7 @@
   wait. The files themselves are unchanged, to the byte.
 
 ### Fixed
+
 - A characterization factor whose name matches no flow no longer reaches,
   through its CAS number, a flow the flow registry files as another substance.
   A CAS number names a molecule, and EF characterizes methane from land
@@ -528,7 +677,6 @@
   because that build runs in a container without git and had nothing to
   read; the macOS and Windows binaries were already correct.
 
-### Fixed
 - Writing an activity whose supplier lives in a dependency database no longer
   produces an exchange that contributes nothing. The write was accepted, but
   the supplier's product flow was never copied into the database being
@@ -548,152 +696,51 @@
   same exchange to a local supplier is converted. It is refused, naming the
   unit to restate it in.
 
-### Added
-- An activity now reports the identifier its source file gave it, beside its
-  location: SimaPro's `Process identifier`, which on Agribalyse reads
-  `AGRIBALU000000003103728`, and the number an EcoSpold 1 dataset is published
-  under. It is what a reader copies to find the dataset back in the file it
-  came from. EcoSpold 2 and ILCD name a dataset by a UUID, which is already the
-  first half of every process id, so they report nothing new here. Wire
-  revision 22.
-- Searching a process by the identifier its source file gave it now lands on
-  that dataset alone: type a SimaPro `Process identifier` into the search and
-  you get the block it names, every product of it, and nothing that merely
-  resembles it. Half an identifier names no dataset and searches as it always
-  did, because the codes of one database share their prefix and answering half
-  the database to somebody who named one dataset would be no answer at all.
-- Searching a process by the identifier its source file gave it now brings that
-  dataset to the top: type a SimaPro `Process identifier` into the search, whole
-  or just the part that tells it apart, and the block it names comes first, all
-  of its products, ahead of the ordinary results rather than instead of them.
-  Nobody types one whole, so four characters are enough: on the SimaPro export
-  of ecoinvent 3.9.1, all 21 456 identifiers are 23 characters of which the
-  first 18 are identical, and the last five are already unique. A fragment
-  shorter than four characters is read as a word, since below that nothing ever
-  singles out a dataset.
-- A database can now be asked for another allocation key without editing the
-  configuration file: `POST /api/v1/db/{name}/derive/{newName}?allocation=wet
-  mass`, the `derive_database` tool, and `Client.derive_database` in pyvolca.
-  Until now naming a key meant writing a second `[[databases]]` entry and
-  restarting, which nobody hosting an engine can do and which cost the person
-  running one their own file. The source is untouched and both stay loadable,
-  so the two allocations of one study can be compared side by side.
+### Performance
 
-  This is a load, not a copy: the key decides the inventory of every process a
-  load produces, so the sources are read again. Seconds to minutes on a large
-  database, against the milliseconds a copy takes, and it answers with what a
-  load answers with.
-
-  A key that divides no block of the source is refused, naming both numbers:
-  such a load is that database under a second name, costing a second database
-  in memory and a second matrix cache on disk. So is the key the source
-  already reads under, before the load rather than after it: that duplicate is
-  the one no count of divided blocks can see, since dividing the same blocks a
-  second time divides them just as well. An unreadable key is refused with the
-  list of keys there are, never read as `declared` -- in a `meta.toml` either,
-  where it now leaves the database out of the listing and says so, rather than
-  handing back declared shares under a name promising otherwise.
-
-  A database's recorded source is the same before and after a restart: a copy
-  named none in memory and its own source's name once read back.
-
-  The key a database was divided under, and the source whose files it reads,
-  now travel with its status, so a column of shares can say whether the source
-  stated them or a property recomputed them. Wire revision 20.
-- An activity summary now names the source block the process came out of, and
-  says how many products that block holds. A listing showing the five
-  coproducts of one dairy block had no way to gather them: the process id
-  names the product, not the block it was written in. The block name is for
-  comparing
-  and never for reading, and the count is what lets a page say it is showing
-  only part of a block rather than the whole of it. Wire revision 21.
-- A flow search can name several kinds at once: `kind=biosphere,waste` keeps
-  what is exchanged with nature or discarded and nothing else, in one listing.
-  `search-counts` already answers that pair as a single number, and there was
-  no way to list it: a search box putting a count beside a tab had to show a
-  count and a table that disagreed. One name it cannot read refuses the whole
-  parameter, the way one unreadable name always did. Wire revision 19; a
-  single kind is written exactly as before.
-- A database can be divided on the mass of its products instead of on the
-  shares its source declares. A database entry names the key it is read
-  under: `allocation = "declared"` (the default, unchanged), `"dry mass"` or
-  `"wet mass"`. The Abondance cheese block, whose source divides it on dry
-  matter, gives 51 % to the cheese under its own key and 12 % under its wet
-  mass: the two are different questions, and the key says which one is being
-  answered.
-
-  A line the source states a property for is believed. Where it states none, a
-  line already written in a mass unit is its own wet mass, which is what makes
-  the key computable on the formats that carry no property table at all
-  (SimaPro, ILCD, EcoSpold 1). A dry mass is never read from an amount:
-  nothing in a wet kilogram says how much of it is water. A block the key
-  cannot weigh is not divided at all and has no column in the matrix, the same
-  refusal a block stating no share gets: asking for a key a database cannot
-  provide costs those blocks rather than inventing numbers for them.
-
-  A process with a single product output is left as its source wrote it. There
-  is nothing there to divide, and its declared share is the only statement in
-  existence about the outputs the file does not carry.
-
-  A product its source declares at 0 % stays at 0 %, and the key divides what
-  is left among the others. That zero is a modelling decision, usually a
-  residue its author took out of the block, and recomputing it into a share
-  would undo the decision without saying so.
-
-  The key belongs to the load, so the same source under two keys is two
-  databases: configure the same path twice, under two names, to compare them
-  side by side. A cache records the key it was built under and is not served
-  to a load asking for another.
-- A technosphere exchange now reports the physical properties its source
-  states of that line, the dry and wet mass (`properties`). EcoSpold 2 writes
-  them per unit of the line, so a board of 1 m3 declaring 614.4 kg of dry
-  matter per m3 is reported as 614.4 kg; a property stated in something that
-  is not a mass keeps its own unit rather than being read as kilograms, and a
-  property this engine has no field for is dropped rather than guessed at.
-  This is the material an allocation key other than the one the source
-  declares is computed from. Wire revision 18.
-
-  Every database cache is rebuilt once on the first load after this release:
-  the cached exchanges say less than the loader now reads.
-- A flow search result now reports how many activities make the flow
-  (`producerCount`), which is the number of ways the database offers to
-  produce it: one on most of a French agricultural database, up to a few
-  thousand on a large industrial one. It is absent on a flow no activity can
-  produce, rather than zero, which would be the different statement that
-  nothing makes it.
-- The activities of a flow can be asked for one side of it: `?role=producer`
-  lists the activities that make it, `?role=consumer` those that use it. The
-  route answered both at once before, which is two questions in one list.
-  Asking with no `role` still answers both. Wire revision 16.
-- An ILCD dataset that states an allocation key is now read with it. The
-  format carries a fraction per product output, which the parser dropped, so
-  a multi-output ILCD dataset had no shares to split on and was refused as
-  unallocated. Only the fraction a product allocates to itself is read: the
-  format also allows a matrix allocating one exchange to another product, and
-  a dataset written that way is still refused rather than split on a number
-  that meant something else.
-- A new route and MCP tool answer how many processes, products and flows one
-  query matches, in a single call (`db/{dbName}/search-counts?q=`,
-  `count_search_matches`). The three are disjoint and together cover the
-  database, so the counts partition what a query found: a term matching 2
-  processes and 300 flows is a substance name, not a product. A search box
-  that labels three tabs with counts no longer costs three searches per
-  keystroke. A blank query is refused rather than answered with three zeros,
-  which would read as "this database has nothing", and so is one made only of
-  punctuation, which reaches the matchers as no words at all. The counts take
-  the same `sort` and `exact` the listing will use, because those decide which
-  matcher runs and therefore how many rows there are. Wire revision 17.
-- The products of a multi-output block now each report what their share
-  would be if the allocation key were their mass (`massAllocationPercent`), beside
-  the share the source declared. Nothing is split and nothing is scored
-  differently: it is a second column to read against the first, and the
-  impact per kilo under one key over the other is the quotient of the two
-  numbers. The Abondance cheese block of a French agricultural database
-  declares 51.4 % to the cheese where its mass is 11.7 % of the block, so
-  a kilo of that cheese carries 4.4 times more under the declared key than
-  under the mass. Amounts are converted to kilograms before being summed,
-  and a block whose products are not all stated in a mass reports nothing
-  rather than a number read off mismatched units. Wire revision 15.
+- Scoring a whole catalogue in one request no longer holds every solution at
+  once. A solution carries a dense vector the width of the database, and the
+  handler used to solve every requested activity before building the first
+  entry, so the peak grew with the request rather than with the answer. It now
+  solves a chunk at a time and builds that chunk's entries before the next
+  solve, reusing the one cached factorisation. One database of 21,510
+  activities scored in full against fifteen categories holds 2.4GB where it
+  held 13.0GB, and the load beside it is unchanged.
+- Reading a large SimaPro CSV export costs about half what it did, in memory
+  and in time. The file is read twice rather than kept: the first pass answers
+  only what is file wide, the second converts each block where it ends and
+  drops it, and flows are collapsed as they are read. A 661MB export peaks at
+  6,202MB instead of 12,576MB and parses in 42.2 s instead of 83.3 s, which
+  brings a file that size within reach of a 16GB machine.
+- Reading an EcoSpold export no longer keeps every raw line alive until the
+  whole file has been read. Each exchange, its flow and its unit are built
+  where the line closes, so nothing of the reading survives it. A 120MB
+  EcoSpold 2 export peaks at 2,964MB instead of 7,813MB, and reads in 16.9 s
+  instead of 19.3 s.
+- Reading an ILCD package costs several gigabytes less. A package states a
+  direction and a location on every exchange, in words and codes repeated
+  millions of times over, and the reader built a fresh string for each. It now
+  holds one value per distinct answer. A package of 4,633 processes carrying
+  close to thirty million exchanges reads cold at 29,100MB where it read at
+  31,422MB, and pooling the location codes takes off about a gigabyte more, on
+  a measurement whose own spread is wide enough that only the ordering is firm:
+  the heaviest pooled read still sits below the lightest unpooled one.
+- Every database, of every format, holds less once loaded. The two identifiers
+  an exchange carries now sit in the exchange rather than behind two pointers,
+  and the location it states is one of three answers rather than a string of
+  its own. A database of 6,534,780 biosphere rows holds 3,042MB instead of
+  3,246MB; read back from its cache, the ILCD package above holds 9,285MB
+  instead of 11,190MB and is ready in 43 s instead of 61 s. The stored shape of
+  an exchange changed, so a cache written by an earlier engine is refused and
+  its source read again once, and the cache written in its place is trusted
+  from then on.
+- A large machine no longer reserves a nursery the size of a small database
+  before reading a byte. The startup script sized one capability's allocation
+  area and multiplied it by the core count, which the runtime then reserves per
+  core again, so a 24 core host reserved over nine gigabytes. The total is now
+  budgeted at a thirty-second of the machine's memory, shared between the
+  capabilities, capped at 128MB each and floored at 16MB, so a two-gigabyte
+  container is no longer handed a nursery the size of half its memory.
 
 ## [0.12.0] - 2026-09-02
 
