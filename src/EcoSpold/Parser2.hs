@@ -615,9 +615,13 @@ leaveExchange warns st =
         , psWarnings = warns ++ psWarnings st
         }
 
--- | Leave the exchange context, recording the unit it named.
+{- | Leave the exchange context, recording the unit it named. The unit is
+forced for the reason the accumulators above are: its name is read from the
+exchange's own record, so an unforced one holds that record until the loader
+walks the units.
+-}
 finishExchange :: Unit -> [String] -> ParseState -> ParseState
-finishExchange unit warns st = (leaveExchange warns st){psUnits = unit : psUnits st}
+finishExchange !unit warns st = (leaveExchange warns st){psUnits = unit : psUnits st}
 
 {- | Check exchange @mathematicalRelation@ formulas against the dataset-local
 environment: the dataset's @\<parameter\>@ variables plus every exchange's own
