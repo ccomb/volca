@@ -14,6 +14,7 @@ import qualified API.OpenApi
 import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse (..), DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionListResponse (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
+import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.STM (readTVarIO)
 import Control.DeepSeq (force)
@@ -42,6 +43,7 @@ import Database
 import qualified Database.ComputedQuality as CQ
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), MethodCollectionStatus (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
+import EcoSpold.Common (distributeFiles)
 import qualified Expr
 import GHC.Generics
 import qualified GHC.Stats
@@ -966,6 +968,19 @@ data BatchTarget = BatchTarget
     , btActivity :: !Activity
     }
 
+{- | Run an action over every element, split into one slice per capability,
+and return the results in the order of the input.
+
+One slice per capability rather than one thread per element: however large the
+request, it fans out no wider than the machine. The slices are balanced, the
+way the loaders split their files, so 25 elements on 24 capabilities still
+make 24 slices, not 13 of two.
+-}
+acrossCapabilities :: (a -> IO b) -> [a] -> IO [b]
+acrossCapabilities act xs = do
+    capabilities <- getNumCapabilities
+    concat <$> mapConcurrently (mapM act) (distributeFiles capabilities xs)
+
 {- | Solve one chunk of a batch and turn it into entries, with the time its
 solve took.
 
@@ -983,9 +998,9 @@ scoreChunk scope chunk = do
     dbManager <- asks aeDbManager
     t0 <- liftIO getCurrentTime
     sols0 <- solutionsWithDeps (bsDbName scope) (bsDb scope) (bsSolver scope) (map btProcessId chunk)
-    sols <- liftIO $ mapM (applyLongTermToSolution dbManager (bsLongTerm scope)) sols0
+    sols <- liftIO $ acrossCapabilities (applyLongTermToSolution dbManager (bsLongTerm scope)) sols0
     t1 <- liftIO getCurrentTime
-    entries <- liftIO $ mapM (entryOf dbManager) (zip chunk sols)
+    entries <- liftIO $ acrossCapabilities (entryOf dbManager) (zip chunk sols)
     pure (diffUTCTime t1 t0, entries)
   where
     {- An entry is forced where it is built. Every field of it is lazy, and the

@@ -38,6 +38,12 @@
   instead of 17 to 18 s, on 23 s of processor time instead of 190 to 220 s. The
   factorisation log line says how many threads OpenBLAS runs on, or that the
   BLAS linked is another one.
+- A batch request builds its entries on every core. Once a chunk was solved,
+  its entries were built one process after the other on a single core: 2,000
+  processes of a 28,594-activity database spent about 9 s after their solve,
+  and now spend about 2 s, for 6.8 s in all instead of 13.5 s (OpenBLAS on one
+  thread on both sides). A client no longer has to split a batch into
+  concurrent requests to use the machine.
 - A product no dependency supplies now says every reason it was refused, and how
   many demands each reason refused. It used to say one, chosen by the order the
   linking runs happened to merge in, beside the total of all of them: a product
