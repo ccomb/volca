@@ -435,7 +435,7 @@ productRowOut cfg meta isRef f =
             , techRole = if isRef then ReferenceProduct else Coproduct
             , techActivityLinkId = Nothing
             , techSupplierClaim = ClaimByProduct -- an output of this activity, not a reference to another
-            , techLocation = fromMaybe "" (fieldText f "location" <|> metaText meta "location")
+            , techLocation = readExchangeLocation (fromMaybe "" (fieldText f "location" <|> metaText meta "location"))
             , techComment = fieldText f "comment"
             , techPedigree = Nothing
             , techShare = Nothing
@@ -490,7 +490,7 @@ technosphereRowOut cfg role actName f
             , techRole = role
             , techActivityLinkId = Nothing
             , techSupplierClaim = maybe ClaimByProduct ClaimByName supplierActivity
-            , techLocation = fromMaybe "" (fieldText f "location")
+            , techLocation = readExchangeLocation (fromMaybe "" (fieldText f "location"))
             , techComment = fieldText f "comment"
             , techPedigree = Nothing
             , techShare = Nothing
@@ -530,7 +530,7 @@ biosphereRowOut cfg actName f
             , bioAmount = amount
             , bioUnitId = unitUUID
             , bioDirection = if parseMedium comp == Right NaturalResource then Resource else Emission
-            , bioLocation = fromMaybe "" (fieldText f "location")
+            , bioLocation = readExchangeLocation (fromMaybe "" (fieldText f "location"))
             , bioComment = fieldText f "comment"
             , bioPedigree = Nothing
             }

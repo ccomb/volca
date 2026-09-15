@@ -414,7 +414,7 @@ exchangeRow cfg db = \case
             [ CText (namedSupplier claim name)
             , CNum amt
             , CText name
-            , locCell loc
+            , locCell (locationCode loc)
             , CText unit
             , CEmpty
             , CText (techTypeLabel role)
@@ -428,7 +428,7 @@ exchangeRow cfg db = \case
             [ CText (bfName flow)
             , CNum amt
             , CEmpty
-            , locCell loc
+            , locCell (locationCode loc)
             , CText unit
             , CText (renderCategories (bfCompartment flow))
             , CText "biosphere"
@@ -447,7 +447,7 @@ exchangeRow cfg db = \case
             [ CText name
             , CNum amt
             , CText name
-            , locCell loc
+            , locCell (locationCode loc)
             , CText unit
             , CEmpty
             , CText "technosphere"

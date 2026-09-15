@@ -1329,7 +1329,7 @@ productToExchange unitCfg env role ProductRow{..} =
                   -- own location is set independently in makeActivity; this
                   -- field lets the cross-DB supplier index expose the
                   -- product under its declared geographic scope as well.
-                  techLocation = prodRowLoc
+                  techLocation = readExchangeLocation prodRowLoc
                 , techComment = cleanedComment
                 , techPedigree = pedigree
                 , techShare = share
@@ -1434,7 +1434,7 @@ techRowToExchange unitCfg env TechExchangeRow{..} =
                 , techRole = Input
                 , techActivityLinkId = Nothing
                 , techSupplierClaim = ClaimByProduct
-                , techLocation = location
+                , techLocation = readExchangeLocation location
                 , techComment = cleanedComment
                 , techPedigree = pedigree
                 , techShare = Nothing

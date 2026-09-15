@@ -501,6 +501,11 @@ History of manual bumps:
 - 39: that formula now carries why it could not be evaluated. Nothing changes
      type, so a cache written just before this would pass the fingerprint and
      keep the example without its reason.
+- 40: an exchange's location says what the source states rather than carrying
+     the code as text, so the two answers a source repeats cost no bytes at
+     all. The field sits inside a record the fingerprint does not look into,
+     and it changes width, so an old cache would pass the check and every
+     field after it would be read at the wrong offset.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -508,7 +513,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 39
+     in hi `xor` lo `xor` 40
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -958,7 +963,7 @@ Unlinked exchanges stay unlinked for cross-DB resolution.
 Returns (fixed exchange, UnlinkedSummary)
 -}
 fixExchangeLink :: ExchangeLinkContext -> Activity -> Exchange -> (Exchange, UnlinkedSummary)
-fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlowId = fid, techRole = role, techSupplierClaim = claim, techLocation = loc}
+fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlowId = fid, techRole = role, techSupplierClaim = claim, techLocation = statedLoc}
     | role == Input || role == ReferenceInput =
         let linked overrides ties actUUID prodUUID =
                 ( ex{techFlowId = prodUUID, techActivityLinkId = Just actUUID}
@@ -995,6 +1000,9 @@ fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlo
                     (ex, mempty{usTotalLinks = 1, usMissingLinks = 1})
     | otherwise = (ex, mempty)
   where
+    loc :: T.Text
+    loc = locationCode statedLoc
+
     declaredLoc :: T.Text
     declaredLoc = fromMaybe loc (M.lookup loc elcLocationAliases)
 
@@ -1326,7 +1334,7 @@ fixExchangeLinkByName unitConfig unitDB idx techFlowDb consumerName ex@Technosph
                     unlinked =
                         ( ex
                         , mempty
-                            { usActivities = M.singleton consumerName [UnlinkedExchange (tfName flow) loc]
+                            { usActivities = M.singleton consumerName [UnlinkedExchange (tfName flow) (locationCode loc)]
                             , usTotalLinks = 1
                             , usMissingLinks = 1
                             }
@@ -2508,11 +2516,14 @@ findExchangeCrossDBLink ::
     UUID.UUID ->
     Exchange ->
     CrossDBLinkingStats
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID ex@TechnosphereExchange{techFlowId = fid, techAmount = amt, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = loc}
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID ex@TechnosphereExchange{techFlowId = fid, techAmount = amt, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
     | namesASupplier ex && not resolvesInternally =
         maybe mempty resolveTechInput (M.lookup fid techFlowDb)
     | otherwise = mempty
   where
+    loc :: T.Text
+    loc = locationCode statedLoc
+
     resolvesInternally = maybe False (\supplier -> S.member (supplier, fid) ownKeys) linkId
     mkTechLink supAct supProd supName supLoc srcDb tied flowUnitName =
         CrossDBLink

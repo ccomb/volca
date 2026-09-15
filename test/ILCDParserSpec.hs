@@ -47,7 +47,7 @@ inputFrom :: Text -> Activity -> Activity
 inputFrom loc act = act{exchanges = map stating (exchanges act)}
   where
     stating :: Exchange -> Exchange
-    stating ex@TechnosphereExchange{} = ex{techLocation = loc}
+    stating ex@TechnosphereExchange{} = ex{techLocation = readExchangeLocation loc}
     stating ex = ex
 
 -- | The same activity under another name, so a ranking has something to rank on.
