@@ -869,7 +869,7 @@ class Client:
         it is the key that source already reads under: either would leave that
         source under a second name.
         """
-        self._require_wire(20, "derive_database", engine_hint="0.12.1")
+        self._require_wire(20, "derive_database", engine_hint="0.13.0")
         return self._call(
             "derive_database",
             db_name=self._db(db_name),
@@ -1596,10 +1596,10 @@ class Client:
             order: ``"desc"`` to reverse; ascending otherwise.
         """
         if kind is not None:
-            self._require_wire(9, "search_flows(kind=...)", engine_hint="0.9.6")
+            self._require_wire(9, "search_flows(kind=...)", engine_hint="0.10.0")
             if "," in kind:
                 self._require_wire(
-                    19, "search_flows(kind=...) naming several kinds", engine_hint="0.12.1"
+                    19, "search_flows(kind=...) naming several kinds", engine_hint="0.13.0"
                 )
         wire_limit, wire_offset = _resolve_page_args(page, page_size, limit, offset)
 
@@ -1624,7 +1624,7 @@ class Client:
                 answering three zeros, which would read as "this database has
                 nothing".
         """
-        self._require_wire(17, "count_search_matches", engine_hint="0.12.1")
+        self._require_wire(17, "count_search_matches", engine_hint="0.13.0")
         return SearchCounts.from_json(self._call("count_search_matches", q=query))
 
     def list_classifications(self) -> list[ClassificationSystem]:
@@ -1919,7 +1919,7 @@ class Client:
         against the dataset it was adapted from. A result whose ``identical``
         is True says the two activities say the same thing.
         """
-        self._require_wire(25, "compare_activities", engine_hint="0.12.1")
+        self._require_wire(25, "compare_activities", engine_hint="0.13.0")
         return ActivityComparison.from_json(
             self._call(
                 "compare_activities",
@@ -1941,7 +1941,7 @@ class Client:
         ``ambiguous`` rather than paired. ``limit`` keeps the first entries of
         each list; the counts always cover them all.
         """
-        self._require_wire(25, "compare_databases", engine_hint="0.12.1")
+        self._require_wire(25, "compare_databases", engine_hint="0.13.0")
         return DatabaseComparison.from_json(
             self._call("compare_databases", other_database=other_database, limit=limit)
         )
@@ -2460,7 +2460,7 @@ class Client:
         sale nor consumes it, and only the unfiltered call lists it.
         """
         if role is not None:
-            self._require_wire(16, "get_flow_activities(role=...)", engine_hint="0.12.1")
+            self._require_wire(16, "get_flow_activities(role=...)", engine_hint="0.13.0")
         target = self._db(db_name)
         raw = self._json(
             self._session.get(
