@@ -722,9 +722,11 @@
   millions of times over, and the reader built a fresh string for each. It now
   holds one value per distinct answer. A package of 4,633 processes carrying
   close to thirty million exchanges reads cold at 29,100MB where it read at
-  31,422MB, and pooling the location codes takes off about a gigabyte more, on
-  a measurement whose own spread is wide enough that only the ordering is firm:
-  the heaviest pooled read still sits below the lightest unpooled one.
+  31,422MB. Pooling the location codes takes more off again, on a measurement
+  whose own spread is wider than the gain: three cold reads of that package give
+  29,215, 26,526 and 28,202MB against 30,130, 29,477 and 31,853MB, so only the
+  ordering is firm, and the heaviest pooled read still sits below the lightest
+  unpooled one.
 - Every database, of every format, holds less once loaded. The two identifiers
   an exchange carries now sit in the exchange rather than behind two pointers,
   and the location it states is one of three answers rather than a string of
