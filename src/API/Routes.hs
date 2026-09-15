@@ -16,6 +16,7 @@ import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.STM (readTVarIO)
+import Control.DeepSeq (force)
 import Control.Exception (evaluate)
 import Control.Monad (forM, forM_, mfilter, unless, when)
 import Control.Monad.IO.Class (liftIO)
@@ -33,7 +34,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Time (diffUTCTime, getCurrentTime)
+import Data.Time (NominalDiffTime, diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Validation as V
 import qualified Data.Vector as V
@@ -46,6 +47,7 @@ import GHC.Generics
 import qualified GHC.Stats
 import qualified Impact
 import Matrix (Inventory, Vector)
+import qualified Matrix
 import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), applyLongTermMode, characterizedFlowIds, computeLCIAScoreFromTables, computeLCIAScoreSetFromTables, computeMappingStats, inventoryContributions, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
@@ -940,9 +942,82 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
                         <> intercalate ", " [T.unpack k <> "=" <> showFFloat (Just 6) v "" | (k, v) <- M.toList scores]
     pure (mkLCIABatchResult results mNW nwSets scoringResults scoringSets scoringIndicators (Service.buildCutoffWaste db activity))
 
-{- | Top-level multi-activity batch impacts. One MUMPS multi-RHS solve for all
-valid PIDs, parallel characterization. Used by the Servant POST route and
-by API.BatchImpacts.
+{- | Everything one chunk of a batch needs and no chunk changes: the database
+being scored, the collection scoring it, and the per-method contexts prepared
+once for the whole request.
+-}
+data BatchScope = BatchScope
+    { bsDbName :: !Text
+    , bsDb :: !Database
+    , bsSolver :: !SharedSolver
+    , bsCollectionName :: !DM.CollectionName
+    , bsCollection :: !MethodCollection
+    , bsContexts :: ![MethodCtx]
+    , bsTopFlows :: !Int
+    , bsLongTerm :: !LongTermMode
+    }
+
+{- | One activity a batch asks about: the id as the caller wrote it, the id it
+resolved to, and the activity that id names.
+-}
+data BatchTarget = BatchTarget
+    { btRequestedId :: !Text
+    , btProcessId :: !ProcessId
+    , btActivity :: !Activity
+    }
+
+{- | Solve one chunk of a batch and turn it into entries, with the time its
+solve took.
+
+Chunking is what keeps a large batch from being a large heap. A solution
+carries a dense scaling vector the width of the database beside its inventory,
+hundreds of kilobytes for a database of any size, where the entry built from it
+carries one number per method. Solving the whole request before building the
+first entry therefore held every solution at once; solving a chunk at a time
+holds that many, and the solutions of a finished chunk are free to go. Every
+chunk still reuses the one cached factorization, so this bounds the memory
+without changing the speed.
+-}
+scoreChunk :: BatchScope -> [BatchTarget] -> AppM (NominalDiffTime, [Either Text BatchImpactsEntry])
+scoreChunk scope chunk = do
+    dbManager <- asks aeDbManager
+    t0 <- liftIO getCurrentTime
+    sols0 <- solutionsWithDeps (bsDbName scope) (bsDb scope) (bsSolver scope) (map btProcessId chunk)
+    sols <- liftIO $ mapM (applyLongTermToSolution dbManager (bsLongTerm scope)) sols0
+    t1 <- liftIO getCurrentTime
+    entries <- liftIO $ mapM (entryOf dbManager) (zip chunk sols)
+    pure (diffUTCTime t1 t0, entries)
+  where
+    {- An entry is forced where it is built. Every field of it is lazy, and the
+    score of a category is a closure over the solution's inventory, so an
+    unforced chunk hands the next one its predecessor's solutions to hold on to
+    and the bound above buys nothing. -}
+    entryOf :: DatabaseManager -> (BatchTarget, SharedSolver.CrossDBSolution) -> IO (Either Text BatchImpactsEntry)
+    entryOf dbManager (target, sol) =
+        evaluate . force . fmap (named target)
+            =<< buildLCIABatchResultCached
+                dbManager
+                (bsDbName scope)
+                (bsCollectionName scope)
+                (bsDb scope)
+                (btProcessId target)
+                (btActivity target)
+                (bsCollection scope)
+                sol
+                (bsContexts scope)
+                (bsTopFlows scope)
+
+    named :: BatchTarget -> LCIABatchResult -> BatchImpactsEntry
+    named target impacts =
+        BatchImpactsEntry
+            { bieProcessId = btRequestedId target
+            , bieActivityName = activityName (btActivity target)
+            , bieImpacts = impacts
+            }
+
+{- | Top-level multi-activity batch impacts, a chunk of activities per solve,
+parallel characterization. Used by the Servant POST route and by
+API.BatchImpacts.
 -}
 batchImpactsH ::
     Text ->
@@ -963,7 +1038,7 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
             [ (pidText, Service.resolveScorable db pidText)
             | pidText <- birProcessIds req
             ]
-        valid = [(pidText, pidNum, act) | (pidText, Right (pidNum, act)) <- resolved]
+        valid = [BatchTarget pidText pidNum act | (pidText, Right (pidNum, act)) <- resolved]
         notFound = [pidText | (pidText, Left (Service.ActivityNotFound _)) <- resolved]
         unscorable = [pidText | (pidText, Left (Service.NotScorable _)) <- resolved]
         -- An under-specified id is unusable as sent, like a malformed one, and
@@ -980,26 +1055,22 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
                 Service.NotScorable _ -> False
                 Service.MatrixError _ -> False
             ]
-        validPidNums = [pidNum | (_, pidNum, _) <- valid]
     t0 <- liftIO getCurrentTime
-    sols0 <- solutionsWithDeps dbName db sharedSolver validPidNums
-    sols <- liftIO $ mapM (applyLongTermToSolution dbManager ltMode) sols0
-    t1 <- liftIO getCurrentTime
     ctxs <- liftIO $ mapConcurrently (prepMethodCtx dbManager dbName collectionName db) (mcMethods collection)
-    let topFlows = max 0 (fromMaybe 0 topFlowsParam)
-    let mkEntry ((pidText, pidNum, activity), sol) = do
-            impactsE <- buildLCIABatchResultCached dbManager dbName collectionName db pidNum activity collection sol ctxs topFlows
-            pure $
-                fmap
-                    ( \impacts ->
-                        BatchImpactsEntry
-                            { bieProcessId = pidText
-                            , bieActivityName = activityName activity
-                            , bieImpacts = impacts
-                            }
-                    )
-                    impactsE
-    entriesE <- liftIO $ mapM mkEntry (zip valid sols)
+    let scope =
+            BatchScope
+                { bsDbName = dbName
+                , bsDb = db
+                , bsSolver = sharedSolver
+                , bsCollectionName = collectionName
+                , bsCollection = collection
+                , bsContexts = ctxs
+                , bsTopFlows = max 0 (fromMaybe 0 topFlowsParam)
+                , bsLongTerm = ltMode
+                }
+    solved <- traverse (scoreChunk scope) (Matrix.chunksOf scoringChunk valid)
+    let solveTime = sum (map fst solved)
+        entriesE = concatMap snd solved
     -- All-or-nothing on purpose: an integrity error is a property of the
     -- (db, method) tables, not of one activity, so every entry would fail
     -- identically. Unresolvable pids stay per-entry (birNotFound/birInvalid).
@@ -1024,7 +1095,7 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
                                 <> " invalid)"
                    )
                 <> " – solve "
-                <> showFFloat (Just 2) (realToFrac (diffUTCTime t1 t0) :: Double) ""
+                <> showFFloat (Just 2) (realToFrac solveTime :: Double) ""
                 <> "s, "
                 <> "total "
                 <> showFFloat (Just 2) (realToFrac (diffUTCTime t2 t0) :: Double) ""
@@ -1074,17 +1145,12 @@ computedQualityReportH dbName mCollection mLimit = do
                     , wfName <$> M.lookup (exchangeFlowId ex) (sdbWasteFlows simple)
                     ]
             _ -> Nothing
-        chunks xs = case splitAt scoringChunk xs of
-            (h, []) -> [h | not (null h)]
-            (h, t) -> h : chunks t
-    responses <-
-        mapM
-            (\pids -> batchImpactsH dbName collection Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = pids})
-            (chunks (M.keys entriesByPid))
+    response <-
+        batchImpactsH dbName collection Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = M.keys entriesByPid}
     -- The ids come from the catalogue itself, so nothing should be
     -- unresolvable – but a dropped entry would silently shrink the report,
     -- so any is worth a warning in the log.
-    let unresolved = concatMap (\r -> birNotFound r <> birInvalid r <> birUnscorable r) responses
+    let unresolved = birNotFound response <> birInvalid response <> birUnscorable response
     unless (null unresolved) $
         liftIO . reportProgress Warning $
             "Computed quality report on " <> T.unpack dbName <> ": " <> show (length unresolved) <> " catalogue entries could not be scored and are missing from the report"
@@ -1100,7 +1166,7 @@ computedQualityReportH dbName mCollection mLimit = do
                     | r <- lbrResults (bieImpacts e)
                     ]
                 }
-            | e <- concatMap birResults responses
+            | e <- birResults response
             , Just act <- [M.lookup (bieProcessId e) entriesByPid]
             ]
     pure (DBHandlers.computedQualityReportToAPI mLimit (CQ.computedQualityReport dbName (DM.unCollectionName collection) scored))
@@ -1139,8 +1205,10 @@ attachment dbName report =
     kept = T.filter headerSafe dbName
     headerSafe c = isAscii c && not (isControl c) && c /= '"' && c /= '\\'
 
-{- | Batch size of the catalogue-wide solve: bounds the dense right-hand-side
-block of one multi-RHS solve while every chunk still reuses the one cached
+{- | How many activities a batch solves before it builds their entries. It
+bounds what the request holds, not what the solver allocates: the dense
+right-hand-side block is already bounded inside the solver by
+'Matrix.multiRhsChunkSize', and every chunk here reuses the one cached
 factorization.
 -}
 scoringChunk :: Int
