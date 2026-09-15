@@ -22,6 +22,7 @@ module SimaPro.Parser (
     generateUnitUUID,
     canonicalRow,
     unitDeclarations,
+    workerRanges,
     normalizeSimaProCompartment,
     indexFlows,
     extractLocation,
@@ -45,7 +46,7 @@ module SimaPro.Parser (
 import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
-import Control.DeepSeq (NFData, force)
+import Control.DeepSeq (NFData, force, ($!!))
 import Control.Exception (evaluate)
 import Control.Monad (foldM, forM_, mfilter)
 import qualified Data.ByteString as BS
@@ -268,12 +269,35 @@ data ParseState
     deriving (Show, Eq)
 
 -- | Parse state accumulator
+
+{- | What a fold does with a block when its @End@ line closes it, and the only
+difference between the file's two passes.
+
+The format lets a file declare parameters that every block is evaluated in, and
+lets it declare them anywhere, so no block can be converted before the last line
+has been read. Reading the file twice is what lets a block be converted where it
+closes: the first pass keeps no block at all and answers only what is file-wide,
+the second converts each block and drops it. Holding every block until the end
+is what reading once costs, and it is most of what a large file costs.
+-}
+data BlockSink
+    = -- | First pass: the block is not even read, let alone kept.
+      CollectGlobals
+    | -- | Second pass: the block becomes an activity where it closes.
+      Convert !UnitConversion.UnitConfig !GlobalParams
+
 data ParseAcc = ParseAcc
     { paConfig :: !SimaProConfig
+    , paSink :: !BlockSink
     , paState :: !ParseState
     , paInProcess :: !Bool -- inside a Process…End pair (vs the file trailer)
     , paCurrentBlock :: !ProcessBlock
-    , paBlocks :: ![ProcessBlock]
+    , paActivities :: ![Activity] -- reversed; file order is restored per worker
+    , paTechFlows :: !(M.Map FlowInUnit TechnosphereFlow)
+    , paBioFlows :: !(M.Map FlowInUnit BiosphereFlow)
+    , paWasteFlows :: !(M.Map FlowInUnit WasteFlow)
+    , paUnits :: !(M.Map UUID.UUID Unit)
+    , paFallbacks :: ![(Text, Text, Double)] -- reversed, as the activities are
     , paLineNum :: !Int
     , paDbInputParams :: ![(Text, Text)]
     , paDbCalcParams :: ![(Text, Text)]
@@ -281,6 +305,15 @@ data ParseAcc = ParseAcc
     , paProjCalcParams :: ![(Text, Text)]
     , paSubstanceCAS :: ![(Text, Text)] -- (name, CAS) from the trailer registry
     }
+
+{- | A flow and the unit it is written in, which is what a worker keeps one
+record per rather than one per exchange row.
+
+The pair and not the flow alone: a file that writes one flow in two units must
+still reach 'indexFlows' as two records, because refusing that is 'indexFlows''
+job and this is only meant to stop the same record being built a million times.
+-}
+type FlowInUnit = (UUID.UUID, UUID.UUID)
 
 -- ============================================================================
 -- Global parameter bundle
@@ -308,13 +341,36 @@ instance Semigroup GlobalParams where
 instance Monoid GlobalParams where
     mempty = GlobalParams [] [] [] []
 
--- | Output of parsing one contiguous chunk of lines.
-data WorkerResult = WorkerResult
-    { wrBlocks :: ![ProcessBlock]
-    , wrParams :: !GlobalParams
-    , wrSubstanceCAS :: ![(Text, Text)]
+{- | What the first pass over a range answers: the parameters every block in the
+file is evaluated in, and the substance registry every flow draws its CAS from.
+Kilobytes, whatever the file's size.
+-}
+data FileGlobals = FileGlobals
+    { fgParams :: !GlobalParams
+    , fgSubstanceCAS :: ![(Text, Text)]
     }
     deriving (Show, Eq, Generic)
+
+instance NFData FileGlobals
+
+instance Semigroup FileGlobals where
+    FileGlobals p1 c1 <> FileGlobals p2 c2 = FileGlobals (p1 <> p2) (c1 <> c2)
+
+instance Monoid FileGlobals where
+    mempty = FileGlobals mempty []
+
+{- | What the second pass over a range yields: the activities its blocks became
+and the flows they name, already one record per flow rather than one per row.
+-}
+data WorkerResult = WorkerResult
+    { wrActivities :: ![Activity]
+    , wrTechFlows :: !(M.Map FlowInUnit TechnosphereFlow)
+    , wrBioFlows :: !(M.Map FlowInUnit BiosphereFlow)
+    , wrWasteFlows :: !(M.Map FlowInUnit WasteFlow)
+    , wrUnits :: !(M.Map UUID.UUID Unit)
+    , wrFallbacks :: ![(Text, Text, Double)]
+    }
+    deriving (Generic)
 
 instance NFData WorkerResult
 
@@ -658,16 +714,7 @@ processLine acc@ParseAcc{..} line
             , paCurrentBlock = emptyProcessBlock
             }
     -- End of block
-    | BS8.strip line == "End" =
-        let block = paCurrentBlock
-            -- A block is valid if it has at least one product (process name not required)
-            isValid = not (null (pbProducts block))
-         in acc
-                { paState = BetweenBlocks
-                , paInProcess = False
-                , paBlocks = if isValid then block : paBlocks else paBlocks
-                , paCurrentBlock = emptyProcessBlock
-                }
+    | BS8.strip line == "End" = closeBlock acc
     -- Section detection (trailer registry blocks resolve against paInProcess)
     | Just sec <- classifyHeader paInProcess line =
         acc{paState = InSection sec}
@@ -676,26 +723,84 @@ processLine acc@ParseAcc{..} line
     , not (BS.null (BS8.strip line)) =
         case sec of
             FileLevel f -> addFileRow paConfig f line acc
-            InBlock b -> acc{paCurrentBlock = addRowToBlock paConfig b line paCurrentBlock}
+            InBlock b -> editBlock (addRowToBlock paConfig b line) acc
             SecIgnored -> acc
     -- Metadata key-value pairs
     | paState == BetweenBlocks || isMetadataKey (BS8.strip line) =
         if isMetadataKey (BS8.strip line)
             then acc{paState = InProcessMeta (BS8.strip line)}
             else case paState of
-                InProcessMeta key ->
-                    acc
-                        { paCurrentBlock = setMetadata key line paCurrentBlock
-                        , paState = BetweenBlocks
-                        }
+                InProcessMeta key -> (editBlock (setMetadata key line) acc){paState = BetweenBlocks}
                 _ -> acc
     -- Value for metadata key
     | InProcessMeta key <- paState =
-        acc
-            { paCurrentBlock = setMetadata key line paCurrentBlock
-            , paState = BetweenBlocks
-            }
+        (editBlock (setMetadata key line) acc){paState = BetweenBlocks}
     | otherwise = acc{paLineNum = paLineNum + 1}
+
+{- | Edit the block being read, or do nothing at all: the first pass keeps no
+block, so it reads no row into one and names none.
+-}
+editBlock :: (ProcessBlock -> ProcessBlock) -> ParseAcc -> ParseAcc
+editBlock edit acc = case paSink acc of
+    CollectGlobals -> acc
+    Convert{} -> acc{paCurrentBlock = edit (paCurrentBlock acc)}
+
+{- | The @End@ line that closes a block.
+
+The second pass converts it here and drops it, which is the whole point of
+reading the file twice: a worker holds one block rather than every block of its
+range, and the conversion's own intermediate lists die with it. A block with no
+product row is dropped whole, amounts included: @End@ also closes the trailer's
+registry blocks, whose fourth column is a comment rather than an amount.
+-}
+closeBlock :: ParseAcc -> ParseAcc
+closeBlock acc =
+    (harvested acc)
+        { paState = BetweenBlocks
+        , paInProcess = False
+        , paCurrentBlock = emptyProcessBlock
+        }
+  where
+    harvested :: ParseAcc -> ParseAcc
+    harvested a = case paSink a of
+        CollectGlobals -> a
+        Convert unitCfg gp -> absorbBlock unitCfg gp (paCurrentBlock a) a
+
+{- | Everything one block yields, folded into the worker's accumulator: its
+activity, the flows it names, and any amount its conversion could not read.
+
+Flows go into maps keyed by flow and unit rather than onto a list, because a
+file names a few thousand distinct flows and writes one exchange row per use of
+one. Keeping the last record for a key is what 'indexFlows' does at the end, so
+keeping the last one here leaves the answer alone.
+-}
+absorbBlock :: UnitConversion.UnitConfig -> GlobalParams -> ProcessBlock -> ParseAcc -> ParseAcc
+absorbBlock unitCfg gp block acc = case processBlockToActivity unitCfg gp block of
+    Nothing -> warned
+    Just (activity, techs, bios, wastes, units) ->
+        warned
+            { paActivities = (: paActivities warned) $!! activity
+            , paTechFlows = keyedBy (\f -> (tfId f, tfUnitId f)) (paTechFlows warned) techs
+            , paBioFlows = keyedBy (\f -> (bfId f, bfUnitId f)) (paBioFlows warned) bios
+            , paWasteFlows = keyedBy (\f -> (wfId f, wfUnitId f)) (paWasteFlows warned) wastes
+            , paUnits = foldl' (\m u -> M.insert (unitId u) u m) (paUnits warned) units
+            }
+  where
+    {- Everything a block yields is forced as the block closes, and that is the
+    point of closing it here: an activity or a warning left as a closure retains
+    the block it was read from, which is precisely the block this is letting go
+    of. A strict field and a strict map both stop at WHNF, which is not enough
+    for a record holding lists. -}
+    -- A block with no product row is not a process: @End@ also closes the
+    -- trailer's registry blocks, whose columns are @name;unit;cas;comment@, so
+    -- reading their comment as an amount would warn on every one of them.
+    warned :: ParseAcc
+    warned
+        | null (pbProducts block) = acc
+        | otherwise = acc{paFallbacks = foldl' (flip (:)) (paFallbacks acc) $!! fallbackAmounts gp block}
+
+    keyedBy :: (NFData a) => (a -> FlowInUnit) -> M.Map FlowInUnit a -> [a] -> M.Map FlowInUnit a
+    keyedBy key = foldl' (\m x -> (\y -> M.insert (key y) y m) $!! x)
 
 {- | Add a row of a file-level section to the accumulator field it belongs to.
 The four parameter tables are in scope for every process the file declares;
@@ -708,50 +813,53 @@ addFileRow cfg sec line acc = case sec of
     SecProjInputParams -> withParam $ \p -> acc{paProjInputParams = p : paProjInputParams acc}
     SecProjCalcParams -> withParam $ \p -> acc{paProjCalcParams = p : paProjCalcParams acc}
     SecSubstanceRegistry ->
-        maybe acc (\nc -> acc{paSubstanceCAS = nc : paSubstanceCAS acc}) (parseSubstanceRow cfg line)
+        placed (parseSubstanceRow cfg line) $ \nc -> acc{paSubstanceCAS = nc : paSubstanceCAS acc}
   where
     withParam :: ((Text, Text) -> ParseAcc) -> ParseAcc
-    withParam k = maybe acc k (parseParamRow cfg line)
+    withParam = placed (parseParamRow cfg line)
 
--- | Add a row to the appropriate list in the block (ByteString)
+    -- Forced as the line closes, for the reason 'addRowToBlock' gives.
+    placed :: (NFData a) => Maybe a -> (a -> ParseAcc) -> ParseAcc
+    placed parsed place = maybe acc (place $!!) parsed
+
+{- | Add a row to the appropriate list in the block (ByteString).
+
+The row is forced as its line closes. Every field of a row record is declared
+strict, but a strict field only forces to WHNF and the WHNF of @Just row@ is the
+@Just@: without this, a worker's whole range stays a graph of closures over the
+bytes it read, and the strictness written on the fields acts only when the chunk
+ends and the accumulator is forced.
+-}
 addRowToBlock :: SimaProConfig -> BlockSection -> BS.ByteString -> ProcessBlock -> ProcessBlock
 addRowToBlock cfg sec line block = case sec of
-    SecProducts -> case parseProductRow cfg line of
-        Just row -> block{pbProducts = row : pbProducts block}
-        Nothing -> block
-    SecAvoidedProducts -> case parseProductRow cfg line of
-        Just row -> block{pbAvoidedProducts = row : pbAvoidedProducts block}
-        Nothing -> block
-    SecMaterials -> case parseTechRow cfg line of
-        Just row -> block{pbMaterials = row : pbMaterials block}
-        Nothing -> block
-    SecElectricity -> case parseTechRow cfg line of
-        Just row -> block{pbElectricity = row : pbElectricity block}
-        Nothing -> block
-    SecWasteToTreatment -> case parseTechRow cfg line of
-        Just row -> block{pbWasteToTreatment = row : pbWasteToTreatment block}
-        Nothing -> block
-    SecResources -> case parseBioRow cfg line of
-        Just row -> block{pbResources = row : pbResources block}
-        Nothing -> block
-    SecEmissionsAir -> case parseBioRow cfg line of
-        Just row -> block{pbEmissionsAir = row : pbEmissionsAir block}
-        Nothing -> block
-    SecEmissionsWater -> case parseBioRow cfg line of
-        Just row -> block{pbEmissionsWater = row : pbEmissionsWater block}
-        Nothing -> block
-    SecEmissionsSoil -> case parseBioRow cfg line of
-        Just row -> block{pbEmissionsSoil = row : pbEmissionsSoil block}
-        Nothing -> block
-    SecFinalWaste -> case parseBioRow cfg line of
-        Just row -> block{pbFinalWaste = row : pbFinalWaste block}
-        Nothing -> block
-    SecInputParams -> case parseParamRow cfg line of
-        Just p -> block{pbInputParams = p : pbInputParams block}
-        Nothing -> block
-    SecCalcParams -> case parseParamRow cfg line of
-        Just p -> block{pbCalcParams = p : pbCalcParams block}
-        Nothing -> block
+    SecProducts -> withProduct $ \r -> block{pbProducts = r : pbProducts block}
+    SecAvoidedProducts -> withProduct $ \r -> block{pbAvoidedProducts = r : pbAvoidedProducts block}
+    SecMaterials -> withTech $ \r -> block{pbMaterials = r : pbMaterials block}
+    SecElectricity -> withTech $ \r -> block{pbElectricity = r : pbElectricity block}
+    SecWasteToTreatment -> withTech $ \r -> block{pbWasteToTreatment = r : pbWasteToTreatment block}
+    SecResources -> withBio $ \r -> block{pbResources = r : pbResources block}
+    SecEmissionsAir -> withBio $ \r -> block{pbEmissionsAir = r : pbEmissionsAir block}
+    SecEmissionsWater -> withBio $ \r -> block{pbEmissionsWater = r : pbEmissionsWater block}
+    SecEmissionsSoil -> withBio $ \r -> block{pbEmissionsSoil = r : pbEmissionsSoil block}
+    SecFinalWaste -> withBio $ \r -> block{pbFinalWaste = r : pbFinalWaste block}
+    SecInputParams -> withParam $ \p -> block{pbInputParams = p : pbInputParams block}
+    SecCalcParams -> withParam $ \p -> block{pbCalcParams = p : pbCalcParams block}
+  where
+    withProduct :: (ProductRow -> ProcessBlock) -> ProcessBlock
+    withProduct = placed (parseProductRow cfg line)
+
+    withTech :: (TechExchangeRow -> ProcessBlock) -> ProcessBlock
+    withTech = placed (parseTechRow cfg line)
+
+    withBio :: (BioExchangeRow -> ProcessBlock) -> ProcessBlock
+    withBio = placed (parseBioRow cfg line)
+
+    withParam :: ((Text, Text) -> ProcessBlock) -> ProcessBlock
+    withParam = placed (parseParamRow cfg line)
+
+    -- A line the section's parser makes nothing of leaves the block as it was.
+    placed :: (NFData a) => Maybe a -> (a -> ProcessBlock) -> ProcessBlock
+    placed parsed place = maybe block (place $!!) parsed
 
 -- | Set metadata field in block (ByteString key, decode value to Text)
 setMetadata :: BS.ByteString -> BS.ByteString -> ProcessBlock -> ProcessBlock
@@ -1480,60 +1588,121 @@ extractConfig = foldl' step defaultConfig . takeWhile isHeaderOrEmpty
         Just (key, value) -> updateConfigFromHeader cfg key value
         Nothing -> cfg
 
-{- | Split lines into N contiguous chunks at End boundaries.
-Each chunk contains roughly totalEnds/N complete blocks.
+{- | A file's lines, with the CR of a Windows line ending removed.
+
+Called on a range rather than on the file, and called afresh wherever lines are
+wanted, so that the list is consumed as it is produced. Naming one for the whole
+file and reading it twice is what materialises nine million slices.
 -}
-splitForWorkers :: Int -> [BS.ByteString] -> [[BS.ByteString]]
-splitForWorkers numWorkers allLines
-    | numWorkers <= 1 = [allLines]
-    | totalEnds == 0 = [allLines]
-    | otherwise = chopAtEnds endsPerChunk 0 [] allLines
+linesOf :: BS.ByteString -> [BS.ByteString]
+linesOf = map stripCR . BS8.lines
   where
-    isEnd l = BS8.strip l == "End"
-    totalEnds = foldl' (\acc l -> if isEnd l then acc + 1 else acc) (0 :: Int) allLines
-    endsPerChunk = max 1 ((totalEnds + numWorkers - 1) `div` numWorkers)
+    stripCR :: BS.ByteString -> BS.ByteString
+    stripCR bs = fromMaybe bs (BS.stripSuffix "\r" bs)
 
-    chopAtEnds _ _ acc [] = [reverse acc | not (null acc)]
-    chopAtEnds target endCount acc (l : ls)
-        | isEnd l
-        , endCount + 1 >= target =
-            reverse (l : acc) : chopAtEnds target 0 [] ls
-        | isEnd l =
-            chopAtEnds target (endCount + 1) (l : acc) ls
-        | otherwise =
-            chopAtEnds target endCount (l : acc) ls
+{- | Cut the file into roughly @n@ ranges, each ending just past an @End@ line.
 
--- | Parse a contiguous range of lines into ProcessBlocks + global params.
-parseWorkerLines :: SimaProConfig -> [BS.ByteString] -> WorkerResult
-parseWorkerLines cfg ls =
-    let initAcc =
-            ParseAcc
-                { paConfig = cfg
-                , paState = BetweenBlocks
-                , paInProcess = False
-                , paCurrentBlock = emptyProcessBlock
-                , paBlocks = []
-                , paLineNum = 0
-                , paDbInputParams = []
-                , paDbCalcParams = []
-                , paProjInputParams = []
-                , paProjCalcParams = []
-                , paSubstanceCAS = []
+Ranges of bytes rather than runs of lines: a worker then walks its own slice and
+the file's lines never exist all at once. Cutting only just past an @End@ is what
+keeps a block whole, and it is the same boundary a run of lines was cut at.
+
+Balanced by bytes, where runs of lines were balanced by block count. Blocks vary
+in size far more than they vary in number, so bytes is the better share of the
+work, and neither is exact.
+-}
+workerRanges :: Int -> BS.ByteString -> [BS.ByteString]
+workerRanges n bs
+    | n <= 1 || BS.length bs <= n = [bs]
+    | otherwise = cut bs
+  where
+    target :: Int
+    target = BS.length bs `div` n
+
+    cut :: BS.ByteString -> [BS.ByteString]
+    cut s
+        | BS.null s = []
+        | otherwise = case endBoundary s of
+            Nothing -> [s]
+            Just k -> BS.take k s : cut (BS.drop k s)
+
+    -- The offset just past the first whole @End@ line at or after the target.
+    endBoundary :: BS.ByteString -> Maybe Int
+    endBoundary s = nextLine target >>= scan
+      where
+        -- Start at a line boundary: a cut that lands mid-line must not read the
+        -- remainder of that line as though it were a line of its own.
+        nextLine :: Int -> Maybe Int
+        nextLine i
+            | i >= BS.length s = Nothing
+            | otherwise = (\j -> i + j + 1) <$> BS8.elemIndex '\n' (BS.drop i s)
+
+        scan :: Int -> Maybe Int
+        scan i = case BS8.elemIndex '\n' (BS.drop i s) of
+            Nothing -> Nothing
+            Just j
+                | BS8.strip (BS.take j (BS.drop i s)) == "End" -> Just (i + j + 1)
+                | otherwise -> scan (i + j + 1)
+
+-- | An accumulator ready to fold over a range, reading its blocks the way the sink says.
+emptyParseAcc :: SimaProConfig -> BlockSink -> ParseAcc
+emptyParseAcc cfg sink =
+    ParseAcc
+        { paConfig = cfg
+        , paSink = sink
+        , paState = BetweenBlocks
+        , paInProcess = False
+        , paCurrentBlock = emptyProcessBlock
+        , paActivities = []
+        , paTechFlows = M.empty
+        , paBioFlows = M.empty
+        , paWasteFlows = M.empty
+        , paUnits = M.empty
+        , paFallbacks = []
+        , paLineNum = 0
+        , paDbInputParams = []
+        , paDbCalcParams = []
+        , paProjInputParams = []
+        , paProjCalcParams = []
+        , paSubstanceCAS = []
+        }
+
+{- | First pass over a range: what it declares for the whole file. It keeps no
+block, so it costs a walk and holds kilobytes.
+-}
+scanGlobals :: SimaProConfig -> BS.ByteString -> FileGlobals
+scanGlobals cfg range =
+    FileGlobals
+        { fgParams =
+            GlobalParams
+                { gpDbInput = paDbInputParams finalAcc
+                , gpDbCalc = paDbCalcParams finalAcc
+                , gpProjInput = paProjInputParams finalAcc
+                , gpProjCalc = paProjCalcParams finalAcc
                 }
-        finalAcc = foldl' processLine initAcc ls
-     in WorkerResult
-            { wrBlocks = reverse (paBlocks finalAcc)
-            , wrParams =
-                GlobalParams
-                    { gpDbInput = paDbInputParams finalAcc
-                    , gpDbCalc = paDbCalcParams finalAcc
-                    , gpProjInput = paProjInputParams finalAcc
-                    , gpProjCalc = paProjCalcParams finalAcc
-                    }
-            , -- Restore file order (rows accumulate reversed): downstream the
-              -- first binding of a name wins, and "first" must mean the file's.
-              wrSubstanceCAS = reverse (paSubstanceCAS finalAcc)
-            }
+        , -- Restore file order (rows accumulate reversed): downstream the
+          -- first binding of a name wins, and "first" must mean the file's.
+          fgSubstanceCAS = reverse (paSubstanceCAS finalAcc)
+        }
+  where
+    finalAcc :: ParseAcc
+    finalAcc = foldl' processLine (emptyParseAcc cfg CollectGlobals) (linesOf range)
+
+{- | Second pass over a range: the activities its blocks become, converted block
+by block as each one closes.
+-}
+parseWorkerRange :: SimaProConfig -> UnitConversion.UnitConfig -> GlobalParams -> BS.ByteString -> WorkerResult
+parseWorkerRange cfg unitCfg gp range =
+    WorkerResult
+        { wrActivities = reverse (paActivities finalAcc)
+        , wrTechFlows = paTechFlows finalAcc
+        , wrBioFlows = paBioFlows finalAcc
+        , wrWasteFlows = paWasteFlows finalAcc
+        , wrUnits = paUnits finalAcc
+        , wrFallbacks = reverse (paFallbacks finalAcc)
+        }
+  where
+    finalAcc :: ParseAcc
+    finalAcc = foldl' processLine (emptyParseAcc cfg (Convert unitCfg gp)) (linesOf range)
 
 {- | Fill empty biosphere-flow CAS from the @(name, CAS)@ pairs a SimaPro
 export lists in its trailing substance registry. Holes only – reuses
@@ -1619,36 +1788,34 @@ parseSimaProCSV unitCfg path = do
     -- Read as ByteString and convert from Windows-1252 to proper UTF-8.
     rawContent <- BS.readFile path
     let !utf8Content = ensureUtf8 rawContent
-        lines' = map stripCR (BS8.lines utf8Content)
 
     -- Extract config from header (fast, sequential, ~5 lines)
-    let cfg = extractConfig lines'
+    let !cfg = extractConfig (linesOf utf8Content)
 
     -- A file carries its own unit table, and it is the one its amounts were
     -- written against: a spelling the shipped table never had, or a size it has
     -- differently, is settled here rather than guessed at row by row.
-    let (fileUnits, unitNotes) = UnitConversion.addDeclaredUnits unitCfg (unitDeclarations cfg lines')
+    let (fileUnits, unitNotes) = UnitConversion.addDeclaredUnits unitCfg (unitDeclarations cfg (linesOf utf8Content))
     forM_ unitNotes (reportProgress Warning . T.unpack)
 
-    -- Split lines into N contiguous chunks at End boundaries
     numWorkers <- getNumCapabilities
-    let workerChunks = splitForWorkers numWorkers lines'
+    let ranges = workerRanges numWorkers utf8Content
 
     reportProgress Info $ printf "Parsing with %d parallel workers" numWorkers
 
-    -- Parse chunks in parallel – each worker folds its contiguous range
-    results <- mapConcurrently (evaluate . force . parseWorkerLines cfg) workerChunks
-    let allBlocks = concatMap wrBlocks results
-        globalParams = foldMap wrParams results
-        substanceCAS = concatMap wrSubstanceCAS results
+    -- First pass: only what the file declares for every block in it. A block
+    -- cannot be converted before this is known, and knowing it is what lets the
+    -- second pass convert each block where it closes instead of keeping it.
+    globals <- mconcat <$> mapConcurrently (evaluate . force . scanGlobals cfg) ranges
+    let globalParams = fgParams globals
+        substanceCAS = fgSubstanceCAS globals
 
-    -- Convert all blocks to activities (one per block; a block without a
-    -- product row is no activity) - PARALLEL
-    converted <- catMaybes <$> mapConcurrently (evaluate . force . processBlockToActivity fileUnits globalParams) allBlocks
+    -- Second pass: each range folded to the activities and flows it yields.
+    results <- mapConcurrently (evaluate . force . parseWorkerRange cfg fileUnits globalParams) ranges
 
     -- Surface every amount the conversion replaced with its lenient fallback:
     -- a number that silently shrinks is worse than a warned one.
-    fallbacks <- concat <$> mapConcurrently (evaluate . force . fallbackAmounts globalParams) allBlocks
+    let fallbacks = concatMap wrFallbacks results
     forM_ fallbacks $ \(name, raw, fallback) ->
         reportProgress Warning $
             printf
@@ -1656,22 +1823,24 @@ parseSimaProCSV unitCfg path = do
                 (T.unpack raw)
                 (T.unpack name)
                 fallback
-    let (activities, ambiguousIds) = dropAmbiguousNativeIds (map (\(a, _, _, _, _) -> a) converted)
+    let (activities, ambiguousIds) = dropAmbiguousNativeIds (concatMap wrActivities results)
     forM_ ambiguousIds $ \nativeId ->
         reportProgress Warning $
             printf
                 "process identifier '%s' names more than one process; those blocks are identified by name and location instead"
                 (T.unpack nativeId)
+    -- Each worker already keeps one record per (flow, unit): what reaches
+    -- 'indexFlows' is a few thousand per range rather than one per exchange row.
     let
-        allTechFlows = concatMap (\(_, tf, _, _, _) -> tf) converted
-        allBioFlows = concatMap (\(_, _, bf, _, _) -> bf) converted
-        allWasteFlows = concatMap (\(_, _, _, wf, _) -> wf) converted
-        allUnits = concatMap (\(_, _, _, _, u) -> u) converted
+        allTechFlows = concatMap (M.elems . wrTechFlows) results
+        allBioFlows = concatMap (M.elems . wrBioFlows) results
+        allWasteFlows = concatMap (M.elems . wrWasteFlows) results
 
     -- Build deduplicated maps – UUID disjointness across kinds is guaranteed
     -- by construction: a technosphere flow hashes with an empty compartment, an
     -- elementary one with the compartment of the section it came from.
-    let unitDB = M.fromList [(unitId u, u) | u <- allUnits]
+    -- Units of one id are one record, so which worker's copy survives is moot.
+    let unitDB = M.unions (map wrUnits results)
         unitNames = M.map unitName unitDB
         indexed = do
             techFlowDB <- indexFlows unitNames (\f -> (tfId f, tfUnitId f, tfName f)) allTechFlows
@@ -1711,7 +1880,3 @@ parseSimaProCSV unitCfg path = do
             reportProgress Info $ printf "  Units: %d unique" numUnits
 
             return (Right (activities, techFlowDB, bioFlowDB, wasteFlowDB, unitDB))
-  where
-    -- Strip Windows \r from ByteString (fast, often no-op)
-    stripCR :: BS.ByteString -> BS.ByteString
-    stripCR bs = fromMaybe bs (BS.stripSuffix "\r" bs)

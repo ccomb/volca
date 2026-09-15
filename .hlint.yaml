@@ -96,7 +96,7 @@
 # A unit identifier minted from the unit's name, by a UUIDv5 over that name, for
 # a value whose every field is that same name. Two rows under one identifier are
 # the same unit.
-- ignore: {name: "Avoid restricted function", within: [BrightwayExcel.Parser.parseBrightwayExcel, SimaPro.Parser.parseSimaProCSV]}
+- ignore: {name: "Avoid restricted function", within: BrightwayExcel.Parser.parseBrightwayExcel}
 
 # The units of one EcoSpold dataset, whose identifiers come from the file rather
 # than from the name. An identifier the file gives two names is refused by
