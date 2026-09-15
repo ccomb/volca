@@ -23,8 +23,10 @@ import qualified Data.IntSet as IS
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
 import Data.Maybe (isJust, listToMaybe, mapMaybe)
+import Data.Proxy (Proxy (..))
 import qualified Data.Set as S
 import Data.Store (Size (..), Store (..))
+import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
@@ -397,6 +399,56 @@ data SupplierClaim
     deriving (Eq, Show, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SupplierClaim)
 
+{- | What a source says about where an exchange happens.
+
+A format either states a code on every exchange (ILCD, EcoSpold 1) or states
+none at all and leaves the activity's own geography to answer (EcoSpold 2).
+The two answers a source repeats are held without a field, so they cost no
+heap at all: a database that writes @GLO@ on four exchanges in five holds one
+shared value for all of them, when it is read and again when it is read back
+from a cache.
+
+Build one with 'readExchangeLocation' rather than with a constructor: it is
+what gives @GLO@ a single representation, so two exchanges stating it hold
+one value and compare equal.
+-}
+data ExchangeLocation
+    = -- | the global geography, written @GLO@
+      LocationGlobal
+    | -- | the source states none, as an EcoSpold 2 exchange states none
+      LocationNone
+    | -- | the code the source states
+      LocationCode !Text
+    deriving (Eq, Show, Generic, NFData, Store)
+
+{- | The location a stated code names. The empty code is what a format
+stating none has always been written as, here and on the wire.
+-}
+readExchangeLocation :: Text -> ExchangeLocation
+readExchangeLocation "" = LocationNone
+readExchangeLocation "GLO" = LocationGlobal
+readExchangeLocation code = LocationCode code
+
+-- | The code a location is written as, which every writer and the wire expect.
+locationCode :: ExchangeLocation -> Text
+locationCode LocationGlobal = "GLO"
+locationCode LocationNone = ""
+locationCode (LocationCode code) = code
+
+-- | So a literal code reads as one wherever an exchange is built.
+instance IsString ExchangeLocation where
+    fromString = readExchangeLocation . T.pack
+
+instance ToJSON ExchangeLocation where
+    toJSON = toJSON . locationCode
+
+instance FromJSON ExchangeLocation where
+    parseJSON = fmap readExchangeLocation . parseJSON
+
+-- | A code on the wire, exactly as the 'Text' it replaced was.
+instance ToSchema ExchangeLocation where
+    declareNamedSchema _ = declareNamedSchema (Proxy :: Proxy Text)
+
 -- | Exchange in an activity - Mirrors EcoSpold intermediateExchange/elementaryExchange structure
 data Exchange
     = TechnosphereExchange
@@ -409,7 +461,7 @@ data Exchange
         {- ^ How the source designates its supplier. Written once, by a parser,
         and never rewritten by linking, unlike 'techActivityLinkId'.
         -}
-        , techLocation :: !Text -- Supplier location (EcoSpold1) or "" (EcoSpold2)
+        , techLocation :: !ExchangeLocation -- What the source says about where the supply happens
         , techComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , techPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
         , techShare :: !(Maybe DeclaredShare) -- The share a product output was declared with; Nothing on inputs and where the source states none
@@ -421,7 +473,7 @@ data Exchange
         , bioAmount :: !Double -- Quantity exchanged
         , bioUnitId :: {-# UNPACK #-} !UUID -- Unit of measurement
         , bioDirection :: !BioDirection -- 'Resource' for extraction, 'Emission' for release
-        , bioLocation :: !Text -- Exchange location (EcoSpold1) or "" (EcoSpold2)
+        , bioLocation :: !ExchangeLocation -- What the source says about where the exchange happens
         , bioComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , bioPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
         }
@@ -437,7 +489,7 @@ data Exchange
         , waActivityLinkId :: !(Maybe UUID) -- Treatment this exchange resolved to (Nothing if orphan)
         , waSupplierClaim :: !SupplierClaim
         -- ^ How the source designates the treatment, as on a technosphere line.
-        , waLocation :: !Text -- Supplier location (EcoSpold1) or "" (EcoSpold2)
+        , waLocation :: !ExchangeLocation -- What the source says about where the treatment happens
         , waComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , waPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
         }
@@ -539,9 +591,9 @@ exchangeActivityLinkId WasteExchange{waActivityLinkId = linkId} = linkId
 
 -- | Get exchange location (for EcoSpold1 supplier lookup)
 exchangeLocation :: Exchange -> Text
-exchangeLocation TechnosphereExchange{techLocation = loc} = loc
-exchangeLocation BiosphereExchange{bioLocation = loc} = loc
-exchangeLocation WasteExchange{waLocation = loc} = loc
+exchangeLocation TechnosphereExchange{techLocation = loc} = locationCode loc
+exchangeLocation BiosphereExchange{bioLocation = loc} = locationCode loc
+exchangeLocation WasteExchange{waLocation = loc} = locationCode loc
 
 -- | Get free-text comment attached to the exchange by the source dataset
 exchangeComment :: Exchange -> Maybe Text

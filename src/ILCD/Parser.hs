@@ -774,7 +774,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
                         , bioAmount = ierAmount raw
                         , bioUnitId = fUnitId
                         , bioDirection = if isInput then Resource else Emission
-                        , bioLocation = ierLocation raw
+                        , bioLocation = readExchangeLocation (ierLocation raw)
                         , bioComment = ierComment raw
                         , bioPedigree = Nothing
                         }
@@ -786,7 +786,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
                         , waIsInput = isInput
                         , waActivityLinkId = Nothing
                         , waSupplierClaim = ClaimByProduct
-                        , waLocation = ierLocation raw
+                        , waLocation = readExchangeLocation (ierLocation raw)
                         , waComment = ierComment raw
                         , waPedigree = Nothing
                         }
@@ -798,7 +798,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
                         , techRole = techRoleFor
                         , techActivityLinkId = Nothing
                         , techSupplierClaim = ClaimByProduct
-                        , techLocation = ierLocation raw
+                        , techLocation = readExchangeLocation (ierLocation raw)
                         , techComment = ierComment raw
                         , techPedigree = Nothing
                         , techShare = declaredShareOf techRoleFor raw
@@ -914,10 +914,10 @@ fixActivityExchanges idx act =
     which producer an input meant, so a process there answers ahead of the
     ranking. Where the file says nothing, or names a location no producer of
     that flow sits at, the ranking answers instead. -}
-    supplierFor :: Text -> UUID -> Maybe ILCDProducer
+    supplierFor :: ExchangeLocation -> UUID -> Maybe ILCDProducer
     supplierFor loc fid = do
         producers <- M.lookup fid idx
-        pure (Data.Maybe.fromMaybe (NE.head producers) (Data.Maybe.listToMaybe (atLocation loc producers)))
+        pure (Data.Maybe.fromMaybe (NE.head producers) (Data.Maybe.listToMaybe (atLocation (locationCode loc) producers)))
 
     atLocation :: Text -> NE.NonEmpty ILCDProducer -> [ILCDProducer]
     atLocation loc producers

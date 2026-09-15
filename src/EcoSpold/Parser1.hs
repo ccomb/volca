@@ -702,7 +702,7 @@ buildExchange activityLoc amount edata
             , bioAmount = amount
             , bioUnitId = unitId
             , bioDirection = if exInputGroup edata == Just InFromNature then Resource else Emission
-            , bioLocation = exchangeLocation
+            , bioLocation = readExchangeLocation exchangeLocation
             , bioComment = nonEmptyText (exComment edata)
             , bioPedigree = Nothing
             }
@@ -716,7 +716,7 @@ buildExchange activityLoc amount edata
             , techRole = techRoleFor
             , techActivityLinkId = Nothing
             , techSupplierClaim = supplierClaim
-            , techLocation = exchangeLocation
+            , techLocation = readExchangeLocation exchangeLocation
             , techComment = nonEmptyText (exComment edata)
             , techPedigree = Nothing
             , techShare = Nothing
