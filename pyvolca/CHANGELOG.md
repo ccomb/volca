@@ -51,21 +51,27 @@ revisions behind the engine. Nothing is removed.
 - A flow search result carries `producer_count`, how many activities make that
   flow, and a flow's activities can be asked for one side of it only.
 - A flow search names several kinds at once.
-- A technosphere exchange carries the `properties` its source states, the dry
-  and wet mass of that line.
-- A score reports the functional unit it is actually per.
-- A supplier gap carries `reasons`, every reason its product was refused a
-  supplier under, where `reason` and `detail` name only the first of them.
 - `tomli` is declared as a dependency on Python 3.10, where `tomllib` is not in
   the standard library yet. `import volca` failed there, although the package
   has always said it supports that version.
 
 ### Changed
 
-- `KNOWN_WIRE` is 25 rather than 14, so a current engine no longer draws a
-  warning that it is newer than this client. `REQUIRED_WIRE` stays at 2: every
-  capability added since is gated on the engine's advertised revision and
-  refuses before sending, rather than reading an answer that is not there.
+- `KNOWN_WIRE` is 25 rather than 14, so an engine speaking any revision up to
+  25 no longer draws a warning that it is newer than this client. Engine
+  v0.13.0 is the first release advertising revision 25. `REQUIRED_WIRE` stays
+  at 2: every capability added since is gated on the engine's advertised
+  revision and refuses before sending, rather than reading an answer that is
+  not there. Two of those revisions carry fields this client does not decode
+  into fields of its own, and which a caller reads through `Client.call`: the
+  dry and wet mass a technosphere exchange's source states (revision 18), and
+  every reason a supplier gap's product was refused a supplier under
+  (revision 24).
+- The documentation of a score's basis says what the score is per. A reference
+  product's `product_amount` is what the source says the block produces, which
+  for a coproduct is rarely one, while a score is always per one
+  `product_unit`; `functional_unit` states that basis. No field moved here: the
+  engine is what stopped contradicting itself.
 - The module-level `volca.compare_activities`, which merged two `aggregate`
   calls here and keyed a line on its flow id alone, now warns.
   `Client.compare_activities` replaces it, and the old name keeps working until
