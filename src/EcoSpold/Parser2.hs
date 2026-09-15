@@ -581,17 +581,26 @@ parseUUIDOrNil t
 nonBlankOr :: Text -> Text -> Text
 nonBlankOr fallback t = if T.null t then fallback else t
 
+{- | File a read exchange, or the flow it names, with the dataset being read.
+
+The bangs are what make a parse cost what its result costs. A 'ParseState' list
+field is strict in the list, which forces the cons cell and leaves the element a
+thunk holding every intermediate the line was read from; nothing looks at an
+exchange until the loader walks it, long after the file is folded, so without
+these a whole file's raw readings are resident at once. Each of these types is
+strict in all its fields, so head-normal form is the whole value.
+-}
 addExchange :: Exchange -> ExchangeFormula -> ParseState -> ParseState
-addExchange ex ef st = st{psExchanges = (ex, ef) : psExchanges st}
+addExchange !ex !ef st = st{psExchanges = (ex, ef) : psExchanges st}
 
 addTechFlow :: TechnosphereFlow -> ParseState -> ParseState
-addTechFlow f st = st{psTechFlows = f : psTechFlows st}
+addTechFlow !f st = st{psTechFlows = f : psTechFlows st}
 
 addBioFlow :: BiosphereFlow -> ParseState -> ParseState
-addBioFlow f st = st{psBioFlows = f : psBioFlows st}
+addBioFlow !f st = st{psBioFlows = f : psBioFlows st}
 
 addWasteFlow :: WasteFlow -> ParseState -> ParseState
-addWasteFlow f st = st{psWasteFlows = f : psWasteFlows st}
+addWasteFlow !f st = st{psWasteFlows = f : psWasteFlows st}
 
 {- | Leave the exchange context: pop the path/text, clear the pending groups
 and file whatever the reading has to say. The exchange itself contributes
@@ -606,9 +615,13 @@ leaveExchange warns st =
         , psWarnings = warns ++ psWarnings st
         }
 
--- | Leave the exchange context, recording the unit it named.
+{- | Leave the exchange context, recording the unit it named. The unit is
+forced for the reason the accumulators above are: its name is read from the
+exchange's own record, so an unforced one holds that record until the loader
+walks the units.
+-}
 finishExchange :: Unit -> [String] -> ParseState -> ParseState
-finishExchange unit warns st = (leaveExchange warns st){psUnits = unit : psUnits st}
+finishExchange !unit warns st = (leaveExchange warns st){psUnits = unit : psUnits st}
 
 {- | Check exchange @mathematicalRelation@ formulas against the dataset-local
 environment: the dataset's @\<parameter\>@ variables plus every exchange's own
