@@ -27,7 +27,7 @@ import Data.Either (lefts, rights)
 import qualified Data.IntMap.Strict as IM
 import Data.List (intercalate)
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -109,6 +109,60 @@ data ElementContext
     | Other
     deriving (Eq)
 
+{- | The group an EcoSpold 1 input is filed under, which is what the format
+says about the kind of flow it carries: the first three are technosphere
+purchases, the fourth is taken from the environment, and the fifth is what an
+export files a flow under when its four classes do not fit.
+
+Constructors rather than the element's own digit, because the digit was
+compared as text: @== "4"@ decided whether a flow was elementary.
+'InputGroupUnrecognised' keeps a number this parser does not know an input, as
+a stated group always was.
+-}
+data InputGroup
+    = InMaterialsFuels
+    | InElectricityHeat
+    | InServices
+    | InFromNature
+    | InFromTechnosphere
+    | InputGroupUnrecognised
+    deriving (Eq, Show)
+
+{- | The group an EcoSpold 1 output is filed under: the reference product, a
+product the dataset includes, one it allocates to, waste it sends for
+treatment, or a release to the environment. 'OutputGroupUnrecognised' holds a
+number this parser does not know, which names neither the reference product nor
+a release, exactly as an unknown digit did.
+-}
+data OutputGroup
+    = OutReferenceProduct
+    | OutIncludedProduct
+    | OutAllocatedProduct
+    | OutWasteToTreatment
+    | OutToNature
+    | OutputGroupUnrecognised
+    deriving (Eq, Show)
+
+-- | The input group a stated number names, or 'Nothing' where none is stated.
+readInputGroup :: Text -> Maybe InputGroup
+readInputGroup "" = Nothing
+readInputGroup "1" = Just InMaterialsFuels
+readInputGroup "2" = Just InElectricityHeat
+readInputGroup "3" = Just InServices
+readInputGroup "4" = Just InFromNature
+readInputGroup "5" = Just InFromTechnosphere
+readInputGroup _ = Just InputGroupUnrecognised
+
+-- | The output group a stated number names, or 'Nothing' where none is stated.
+readOutputGroup :: Text -> Maybe OutputGroup
+readOutputGroup "" = Nothing
+readOutputGroup "0" = Just OutReferenceProduct
+readOutputGroup "1" = Just OutIncludedProduct
+readOutputGroup "2" = Just OutAllocatedProduct
+readOutputGroup "3" = Just OutWasteToTreatment
+readOutputGroup "4" = Just OutToNature
+readOutputGroup _ = Just OutputGroupUnrecognised
+
 {- | Exchange accumulator for EcoSpold1 format
 All data comes from attributes on the <exchange> element
 -}
@@ -120,8 +174,8 @@ data ExchangeData = ExchangeData
     , exLocation :: !Text -- Location (for technosphere)
     , exUnit :: !Text -- Unit name
     , exMeanValue :: !(Maybe Double) -- Amount, absent when the row states none a reader can make sense of
-    , exInputGroup :: !Text -- Input group (1-4 = technosphere input, 4 = resource)
-    , exOutputGroup :: !Text -- Output group (0 = reference, 1-3 = byproduct, 4 = emission)
+    , exInputGroup :: !(Maybe InputGroup)
+    , exOutputGroup :: !(Maybe OutputGroup)
     , exCASNumber :: !Text -- CAS number (optional)
     , exFormula :: !Text -- Chemical formula (optional)
     , exInfrastructure :: !Bool -- Infrastructure process flag
@@ -131,7 +185,7 @@ data ExchangeData = ExchangeData
 
 -- | Initial exchange data
 emptyExchangeData :: ExchangeData
-emptyExchangeData = ExchangeData 0 "" "" "" "" "" Nothing "" "" "" "" False ""
+emptyExchangeData = ExchangeData 0 "" "" "" "" "" Nothing Nothing Nothing "" "" False ""
 
 {- | One @\<source\>@ of the dataset's own bibliography. EcoSpold1 numbers them
 within the dataset, and @dataGeneratorAndPublication\@referenceToPublishedSource@
@@ -385,8 +439,8 @@ onText state content =
 -- | Close tag: finalise the element that is ending.
 onCloseTag :: ParseState -> BS.ByteString -> ParseState
 onCloseTag state tagName
-    | isElement tagName "inputGroup" = closeGroup restoreInputGroup (\e t -> e{exInputGroup = t}) state
-    | isElement tagName "outputGroup" = closeGroup restoreOutputGroup (\e t -> e{exOutputGroup = t}) state
+    | isElement tagName "inputGroup" = closeGroup restoreInputGroup (\e t -> e{exInputGroup = readInputGroup t}) state
+    | isElement tagName "outputGroup" = closeGroup restoreOutputGroup (\e t -> e{exOutputGroup = readOutputGroup t}) state
     | isElement tagName "exchange" = closeExchange state
     | isElement tagName "referenceFunction" = (popElement state){psContext = Other}
     | isElement tagName "geography" = (popElement state){psContext = Other}
@@ -582,10 +636,6 @@ data BuiltExchange = BuiltExchange
 {- | Build exchange, flow, and unit from exchange data.
 @activityLoc@ is the activity's location, used as a biosphere fallback.
 
-EcoSpold1 groups:
-  Input:  1-3 = technosphere, 4 = resource (biosphere)
-  Output: 0 = reference product, 1-3 = byproduct/co-product, 4 = emission (biosphere)
-
 A row filed under @category="Final waste flows"@ is an elementary flow of
 medium 'Waste' whatever group it carries, so it is read as biosphere
 before the groups are consulted. Waste that does have a treatment is not
@@ -600,11 +650,9 @@ buildExchange activityLoc amount edata
     unitId = generateUnitUUID (exUnit edata)
     unit = Unit unitId (exUnit edata) (exUnit edata) ""
 
-    inputGroup = exInputGroup edata
-    outputGroup = exOutputGroup edata
-    isBiosphere = inputGroup == "4" || outputGroup == "4" || isFinalWaste
-    isInput = not (T.null inputGroup)
-    isReferenceProduct = outputGroup == "0"
+    isBiosphere = exInputGroup edata == Just InFromNature || exOutputGroup edata == Just OutToNature || isFinalWaste
+    isInput = isJust (exInputGroup edata)
+    isReferenceProduct = exOutputGroup edata == Just OutReferenceProduct
     -- Waste with no treatment modelled for it, which an EcoSpold1 export files
     -- under this category. It surfaces on inputGroup=5, the export's way of
     -- fitting a fifth flow class into a 4-type input/output model, but nothing
@@ -653,7 +701,7 @@ buildExchange activityLoc amount edata
             { bioFlowId = flowId
             , bioAmount = amount
             , bioUnitId = unitId
-            , bioDirection = if inputGroup == "4" then Resource else Emission
+            , bioDirection = if exInputGroup edata == Just InFromNature then Resource else Emission
             , bioLocation = exchangeLocation
             , bioComment = nonEmptyText (exComment edata)
             , bioPedigree = Nothing
