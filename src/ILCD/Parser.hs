@@ -372,6 +372,15 @@ classifyFlowType raw =
 -- Process XML Parsing
 --------------------------------------------------------------------------------
 
+{- | The pool's own copy of a code, adding it when the pool holds none. Equal
+codes then share one string instead of one per exchange, which is what a file
+writing the same location on every line of a process costs otherwise.
+-}
+pooled :: Text -> M.Map Text Text -> (Text, M.Map Text Text)
+pooled t pool = case M.lookup t pool of
+    Just held -> (held, pool)
+    Nothing -> (t, M.insert t t pool)
+
 data ProcState = ProcState
     { psUUID :: !Text
     , psBaseName :: !Text
@@ -384,6 +393,10 @@ data ProcState = ProcState
     , psExDirection :: !Text
     , psExAmount :: !Double
     , psExLocation :: !Text
+    , psLocationPool :: !(M.Map Text Text)
+    {- ^ The location codes this file has stated, each held once. A process
+    states one per exchange and a handful of distinct ones between them.
+    -}
     , psExComment :: !(Maybe (Text, Text))
     {- ^ (xml:lang, comment text) for the open `<exchange>`. English wins;
     otherwise first non-empty. Reset on each `<exchange>` open.
@@ -431,6 +444,7 @@ parseProcessXML bytes =
             , psExDirection = ""
             , psExAmount = 0
             , psExLocation = ""
+            , psLocationPool = M.empty
             , psExComment = Nothing
             , psExAllocations = []
             , psAllocRef = Nothing
@@ -528,7 +542,8 @@ parseProcessXML bytes =
         | isElement tag "meanAmount" && psInExchange s && psExAmount s == 0 =
             s{psExAmount = parseDouble (accum s), psTextAccum = []}
         | isElement tag "location" && psInExchange s =
-            s{psExLocation = accum s, psTextAccum = []}
+            let (loc, pool) = pooled (accum s) (psLocationPool s)
+             in s{psExLocation = loc, psLocationPool = pool, psTextAccum = []}
         | isElement tag "class" && psInClass s =
             let classVal = accum s
                 key = psPendingClassName s

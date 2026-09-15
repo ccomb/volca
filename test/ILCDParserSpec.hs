@@ -546,6 +546,12 @@ spec = do
                 [ex] -> ierAmount ex `shouldBe` 42.0
                 _ -> expectationFailure "expected one exchange"
 
+    describe "per-exchange location" $ do
+        it "gives each exchange the code its own line states, repeats included" $ do
+            let Just raw = parseProcessXML ilcdProcessWithExchangeLocations
+            map ierLocation (iprExchanges raw)
+                `shouldBe` ["RER", "GLO", "RER", ""]
+
     describe "per-exchange common:generalComment" $ do
         it "captures exchange-level comment, leaves comment-less exchange Nothing, prefers English" $ do
             let Just raw = parseProcessXML ilcdProcessWithExchangeComments
@@ -670,6 +676,48 @@ ilcdProcessWithExchangeComments =
     \<resultingAmount>0.25</resultingAmount>\
     \<common:generalComment xml:lang=\"de\">Deutscher Text zuerst</common:generalComment>\
     \<common:generalComment xml:lang=\"en\">English text wins</common:generalComment>\
+    \</exchange>\
+    \</exchanges>\
+    \</processDataSet>"
+
+ilcdProcessWithExchangeLocations :: BS.ByteString
+ilcdProcessWithExchangeLocations =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+    \<processDataSet xmlns=\"http://lca.jrc.it/ILCD/Process\" \
+    \xmlns:common=\"http://lca.jrc.it/ILCD/Common\">\
+    \<processInformation>\
+    \<dataSetInformation>\
+    \<common:UUID>52345678-1234-1234-1234-123456789abc</common:UUID>\
+    \<name><baseName>Process whose exchanges state locations</baseName></name>\
+    \</dataSetInformation>\
+    \<geography location=\"GLO\"/>\
+    \<quantitativeReference>\
+    \<referenceToReferenceFlow>0</referenceToReferenceFlow>\
+    \</quantitativeReference>\
+    \</processInformation>\
+    \<exchanges>\
+    \<exchange dataSetInternalID=\"0\">\
+    \<referenceToFlowDataSet refObjectId=\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\"/>\
+    \<location>RER</location>\
+    \<exchangeDirection>Output</exchangeDirection>\
+    \<resultingAmount>1.0</resultingAmount>\
+    \</exchange>\
+    \<exchange dataSetInternalID=\"1\">\
+    \<referenceToFlowDataSet refObjectId=\"bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee\"/>\
+    \<location>GLO</location>\
+    \<exchangeDirection>Input</exchangeDirection>\
+    \<resultingAmount>0.5</resultingAmount>\
+    \</exchange>\
+    \<exchange dataSetInternalID=\"2\">\
+    \<referenceToFlowDataSet refObjectId=\"cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee\"/>\
+    \<location>RER</location>\
+    \<exchangeDirection>Input</exchangeDirection>\
+    \<resultingAmount>0.25</resultingAmount>\
+    \</exchange>\
+    \<exchange dataSetInternalID=\"3\">\
+    \<referenceToFlowDataSet refObjectId=\"dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee\"/>\
+    \<exchangeDirection>Input</exchangeDirection>\
+    \<resultingAmount>0.125</resultingAmount>\
     \</exchange>\
     \</exchanges>\
     \</processDataSet>"
