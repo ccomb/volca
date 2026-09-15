@@ -5,6 +5,7 @@
 module EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile) where
 
 import Amount (readAmount)
+import Control.Applicative ((<|>))
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import Data.List (intercalate)
@@ -71,6 +72,43 @@ data ElementContext
     | Other
     deriving (Eq)
 
+{- | What the group an EcoSpold 2 exchange is filed under says about that
+exchange. A dataset states one group per exchange, as an @inputGroup@ or an
+@outputGroup@, and this reader takes two things from it: which side of the
+activity the exchange sits on, and, for an intermediate output, whether the
+group is the one that marks the reference product. The number itself names a
+finer class (which kind of purchase, which kind of output) that nothing
+downstream distinguishes.
+-}
+data ExchangeGroup
+    = -- | an @inputGroup@, whatever number it states
+      EntersActivity
+    | {- | @outputGroup@ 0, which marks the reference product of an
+      intermediate exchange and says nothing more on an elementary one
+      -}
+      LeavesAsReferenceProduct
+    | -- | any other @outputGroup@
+      LeavesActivity
+    deriving (Eq, Show)
+
+-- | The direction a biosphere exchange's group states, on its own.
+sideOf :: ExchangeGroup -> BioDirection
+sideOf EntersActivity = Resource
+sideOf LeavesAsReferenceProduct = Emission
+sideOf LeavesActivity = Emission
+
+-- | The group a stated @inputGroup@ names, or 'Nothing' where none is stated.
+readInputGroup :: Text -> Maybe ExchangeGroup
+readInputGroup t
+    | T.null t = Nothing
+    | otherwise = Just EntersActivity
+
+-- | The group a stated @outputGroup@ names, or 'Nothing' where none is stated.
+readOutputGroup :: Text -> Maybe ExchangeGroup
+readOutputGroup "" = Nothing
+readOutputGroup "0" = Just LeavesAsReferenceProduct
+readOutputGroup _ = Just LeavesActivity
+
 -- | Intermediate exchange accumulator
 data IntermediateData = IntermediateData
     { idFlowId :: !Text
@@ -78,8 +116,7 @@ data IntermediateData = IntermediateData
     , idUnitId :: !Text
     , idFlowName :: !Text
     , idUnitName :: !Text
-    , idInputGroup :: !Text
-    , idOutputGroup :: !Text
+    , idGroup :: !(Maybe ExchangeGroup) -- group stated as an attribute on the exchange itself
     , idActivityLinkId :: !Text
     , idSynonyms :: !(M.Map Text (S.Set Text))
     , idComment :: !(Maybe (Text, Text)) -- (xml:lang, comment text) – English wins
@@ -97,8 +134,7 @@ data ElementaryData = ElementaryData
     , edUnitId :: !Text
     , edFlowName :: !Text
     , edUnitName :: !Text
-    , edInputGroup :: !Text
-    , edOutputGroup :: !Text
+    , edGroup :: !(Maybe ExchangeGroup) -- group stated as an attribute on the exchange itself
     , edCompartments :: ![Text]
     , edSubcompartments :: ![Text]
     , edSynonyms :: !(M.Map Text (S.Set Text))
@@ -227,8 +263,7 @@ data ParseState = ParseState
     , psPath :: ![BS.ByteString] -- Element path stack
     , psContext :: !ElementContext
     , psTextAccum :: ![BS.ByteString] -- Accumulated text content
-    , psPendingInputGroup :: !Text -- Pending inputGroup value from child element
-    , psPendingOutputGroup :: !Text -- Pending outputGroup value from child element
+    , psPendingGroup :: !(Maybe ExchangeGroup) -- group stated as a child element of the open exchange
     , psWarnings :: ![String] -- Accumulated warnings (emitted in IO after fold)
     , psClassifications :: !(M.Map Text Text) -- Classification system -> value
     , psPendingClassSystem :: !Text -- Current classification system name
@@ -259,8 +294,7 @@ initialParseState =
         , psPath = []
         , psContext = Other
         , psTextAccum = []
-        , psPendingInputGroup = ""
-        , psPendingOutputGroup = ""
+        , psPendingGroup = Nothing
         , psWarnings = []
         , psClassifications = M.empty
         , psPendingClassSystem = ""
@@ -537,14 +571,12 @@ mkUnit uuid name
     | T.null name = Unit uuid "UNKNOWN_UNIT" "?" ""
     | otherwise = Unit uuid name name ""
 
-{- | Resolve in/out group: prefer the attribute value, fall back to the pending
-value captured from the child @\<inputGroup\>@ / @\<outputGroup\>@ element.
+{- | The group an exchange is filed under: what its own attribute states,
+falling back to the child @\<inputGroup\>@ / @\<outputGroup\>@ element that
+most exports write instead. 'Nothing' where the exchange states neither.
 -}
-resolveGroups :: Text -> Text -> ParseState -> (Text, Text)
-resolveGroups inG outG st =
-    ( if T.null inG then psPendingInputGroup st else inG
-    , if T.null outG then psPendingOutputGroup st else outG
-    )
+resolveGroup :: Maybe ExchangeGroup -> ParseState -> Maybe ExchangeGroup
+resolveGroup stated st = stated <|> psPendingGroup st
 
 -- | Warning emitted (as a singleton, else empty) when an exchange has no unit name.
 missingUnitWarning :: String -> Text -> Text -> [String]
@@ -610,8 +642,7 @@ leaveExchange :: [String] -> ParseState -> ParseState
 leaveExchange warns st =
     (popText st)
         { psContext = Other
-        , psPendingInputGroup = ""
-        , psPendingOutputGroup = ""
+        , psPendingGroup = Nothing
         , psWarnings = warns ++ psWarnings st
         }
 
@@ -736,7 +767,7 @@ parseWithXeno xmlContent = do
         let newPath = tagName : psPath state
             cleanState
                 | isElement tagName "intermediateExchange" || isElement tagName "elementaryExchange" =
-                    state{psPendingInputGroup = "", psPendingOutputGroup = ""}
+                    state{psPendingGroup = Nothing}
                 | isElement tagName "comment" =
                     state{psPendingCommentLang = ""}
                 | isElement tagName "parameter" =
@@ -748,9 +779,9 @@ parseWithXeno xmlContent = do
                 | isElement tagName "activityName" = InActivityName
                 | isElement tagName "shortname" && any (isElement "geography") (psPath cleanState) = InGeographyShortname
                 | isElement tagName "intermediateExchange" =
-                    InIntermediateExchange (IntermediateData "" Nothing "" "" "" "" "" "" M.empty Nothing M.empty "" "" noProperties)
+                    InIntermediateExchange (IntermediateData "" Nothing "" "" "" Nothing "" M.empty Nothing M.empty "" "" noProperties)
                 | isElement tagName "elementaryExchange" =
-                    InElementaryExchange (ElementaryData "" Nothing "" "" "" "" "" [] [] M.empty Nothing Nothing "" "")
+                    InElementaryExchange (ElementaryData "" Nothing "" "" "" Nothing [] [] M.empty Nothing Nothing "" "")
                 | isElement tagName "text" && any (isElement "generalComment") (psPath cleanState) = InGeneralCommentText
                 -- Classification elements: don't switch context. Handled via psTextAccum + psPendingClassSystem.
                 -- Switching context here would destroy InIntermediateExchange when classifications appear inside exchanges.
@@ -788,8 +819,8 @@ parseWithXeno xmlContent = do
                             | isElement name "intermediateExchangeId" = idata{idFlowId = bsToText value}
                             | isElement name "amount" && not isInsideProperty = idata{idAmount = readAmount (bsToText value)}
                             | isElement name "unitId" && not isInsideProperty = idata{idUnitId = bsToText value}
-                            | isElement name "inputGroup" = idata{idInputGroup = bsToText value}
-                            | isElement name "outputGroup" = idata{idOutputGroup = bsToText value}
+                            | isElement name "inputGroup" = idata{idGroup = readInputGroup (bsToText value) <|> idGroup idata}
+                            | isElement name "outputGroup" = idata{idGroup = readOutputGroup (bsToText value) <|> idGroup idata}
                             | isElement name "activityLinkId" = idata{idActivityLinkId = bsToText value}
                             | isElement name "variableName" && not isInsideProperty = idata{idVariableName = bsToText value}
                             | isElement name "mathematicalRelation" && not isInsideProperty = idata{idMathRel = bsToText value}
@@ -800,8 +831,8 @@ parseWithXeno xmlContent = do
                             | isElement name "elementaryExchangeId" = edata{edFlowId = bsToText value}
                             | isElement name "amount" && not isInsideProperty = edata{edAmount = readAmount (bsToText value)}
                             | isElement name "unitId" && not isInsideProperty = edata{edUnitId = bsToText value}
-                            | isElement name "inputGroup" = edata{edInputGroup = bsToText value}
-                            | isElement name "outputGroup" = edata{edOutputGroup = bsToText value}
+                            | isElement name "inputGroup" = edata{edGroup = readInputGroup (bsToText value) <|> edGroup edata}
+                            | isElement name "outputGroup" = edata{edGroup = readOutputGroup (bsToText value) <|> edGroup edata}
                             | isElement name "casNumber" = edata{edCAS = nonEmptyCAS (bsToText value)}
                             | isElement name "variableName" && not isInsideProperty = edata{edVariableName = bsToText value}
                             | isElement name "mathematicalRelation" && not isInsideProperty = edata{edMathRel = bsToText value}
@@ -865,13 +896,12 @@ parseWithXeno xmlContent = do
                 Nothing -> popPath state
                 Just idata
                     | Just amount <- idAmount idata ->
-                        let (finalInputGroup, finalOutputGroup) = resolveGroups (idInputGroup idata) (idOutputGroup idata) state
-                            isInput = not (T.null finalInputGroup)
-                            isOutput = T.null finalInputGroup
+                        let group = resolveGroup (idGroup idata) state
+                            isInput = group == Just EntersActivity
                             -- Reference products are identified ONLY by outputGroup="0"; this holds for
                             -- normal production (positive amount) and waste treatment (negative amount).
                             -- Negative inputs (e.g. wastewater discharge) are never reference products.
-                            isReferenceProduct = isOutput && finalOutputGroup == "0"
+                            isReferenceProduct = group == Just LeavesAsReferenceProduct
                             -- The one waste marker EcoSpold2 carries: an intermediateExchange
                             -- classified (System='By-product classification', Value='Waste'), a waste
                             -- output that consumers treat via a treatment activity.
@@ -941,7 +971,7 @@ parseWithXeno xmlContent = do
                 Nothing -> popPath state
                 Just edata
                     | Just amount <- edAmount edata ->
-                        let (finalInputGroup, finalOutputGroup) = resolveGroups (edInputGroup edata) (edOutputGroup edata) state
+                        let group = resolveGroup (edGroup edata) state
                             -- A missing compartment becomes 'Nothing', not an empty 'Compartment ""'
                             -- sentinel – the latter used to silently collide with method-side empty mediums.
                             -- A medium the reader cannot place is reported and the
@@ -966,12 +996,10 @@ parseWithXeno xmlContent = do
                                 -- it would make the direction of a flow depend on which dataset one
                                 -- happens to look at, and cost the writers that reconstruct direction
                                 -- from the compartment their round-trip.
+                            fromCompartment = if mCompName == Just NaturalResource then Resource else Emission
                             direction
                                 | isInventoryIndicator = Emission
-                                | not (T.null finalInputGroup) = Resource
-                                | not (T.null finalOutputGroup) = Emission
-                                | mCompName == Just NaturalResource = Resource
-                                | otherwise = Emission
+                                | otherwise = maybe fromCompartment sideOf group
                             isInventoryIndicator = mCompName == Just InventoryIndicator
                             (flowUUID, flowWarn) = parseUUID (edFlowId edata)
                             (unitUUID, unitWarn) = parseUUID (edUnitId edata)
@@ -1039,9 +1067,9 @@ parseWithXeno xmlContent = do
              in onExchange (\d -> d{idSynonyms = ins (idSynonyms d)}) (\d -> d{edSynonyms = ins (edSynonyms d)}) state
         -- inputGroup / outputGroup: stash the pending value, keep the parent exchange context.
         | isElement tagName "inputGroup" =
-            (popText state){psPendingInputGroup = T.strip (accumText state)}
+            (popText state){psPendingGroup = readInputGroup (T.strip (accumText state)) <|> psPendingGroup state}
         | isElement tagName "outputGroup" =
-            (popText state){psPendingOutputGroup = T.strip (accumText state)}
+            (popText state){psPendingGroup = readOutputGroup (T.strip (accumText state)) <|> psPendingGroup state}
         | isElement tagName "compartment" =
             let txt = T.strip (accumText state)
                 add d = if T.null txt then d else d{edCompartments = txt : edCompartments d}
