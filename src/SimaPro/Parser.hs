@@ -750,7 +750,8 @@ editBlock edit acc = case paSink acc of
 The second pass converts it here and drops it, which is the whole point of
 reading the file twice: a worker holds one block rather than every block of its
 range, and the conversion's own intermediate lists die with it. A block with no
-product row publishes no activity, as before, but its amounts are still reported.
+product row is dropped whole, amounts included: @End@ also closes the trailer's
+registry blocks, whose fourth column is a comment rather than an amount.
 -}
 closeBlock :: ParseAcc -> ParseAcc
 closeBlock acc =
@@ -790,8 +791,13 @@ absorbBlock unitCfg gp block acc = case processBlockToActivity unitCfg gp block 
     the block it was read from, which is precisely the block this is letting go
     of. A strict field and a strict map both stop at WHNF, which is not enough
     for a record holding lists. -}
+    -- A block with no product row is not a process: @End@ also closes the
+    -- trailer's registry blocks, whose columns are @name;unit;cas;comment@, so
+    -- reading their comment as an amount would warn on every one of them.
     warned :: ParseAcc
-    warned = acc{paFallbacks = foldl' (flip (:)) (paFallbacks acc) $!! fallbackAmounts gp block}
+    warned
+        | null (pbProducts block) = acc
+        | otherwise = acc{paFallbacks = foldl' (flip (:)) (paFallbacks acc) $!! fallbackAmounts gp block}
 
     keyedBy :: (NFData a) => (a -> FlowInUnit) -> M.Map FlowInUnit a -> [a] -> M.Map FlowInUnit a
     keyedBy key = foldl' (\m x -> (\y -> M.insert (key y) y m) $!! x)

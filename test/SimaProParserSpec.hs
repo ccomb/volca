@@ -6,6 +6,7 @@ module SimaProParserSpec (spec) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
+import Data.List (isInfixOf)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -14,6 +15,7 @@ import qualified Data.Text as T
 import Database.Loader (defaultLoadOptions, getReferenceProductUUID, loadSimaProCSV)
 import Expr (Dialect (..), collectIdentifiers, isExpression, normalizeExpr)
 import qualified Expr
+import Progress (LogLine (..), getLogLines)
 import SimaPro.Parser (
     BioExchangeRow (..),
     Located (..),
@@ -125,6 +127,53 @@ testCSV =
         , ""
         , "End"
         ]
+
+{- | A process whose waste amount cannot be read, followed by the trailer's own
+@Final waste flows@ registry block. The trailer block has no product row, so it
+becomes no activity; its rows are @name;unit;cas;comment@, so a comment sits
+where a process row carries its amount.
+-}
+trailerWasteCSV :: BS.ByteString
+trailerWasteCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Landfill test"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Geography"
+        , "GLO"
+        , ""
+        , "Products"
+        , "Widget;kg;1.0;100;not defined;material;"
+        , ""
+        , "Final waste flows"
+        , "Waste, inert;;kg;0.5+bogus;;;;;"
+        , ""
+        , "End"
+        , ""
+        , "Final waste flows"
+        , "Waste, inert;kg;;Formula: none"
+        , ""
+        , "End"
+        ]
+
+parseTrailerWasteCSV :: IO ([Activity], M.Map UUID TechnosphereFlow, M.Map UUID BiosphereFlow, M.Map UUID WasteFlow, M.Map UUID Unit)
+parseTrailerWasteCSV = withSystemTempFile "trailer-waste-test.csv" $ \path handle -> do
+    BS.hPut handle trailerWasteCSV
+    hClose handle
+    parseOrFail defaultUnitConfig path
 
 -- | Parse the test CSV via a temp file
 parseTestCSV :: IO ([Activity], M.Map UUID TechnosphereFlow, M.Map UUID BiosphereFlow, M.Map UUID WasteFlow, M.Map UUID Unit)
@@ -952,6 +1001,18 @@ spec = do
     -- neither a number nor an evaluable expression; 'fallbackAmounts' is the
     -- pure list of those replacements, reported as warnings on import.
     describe "fallbackAmounts" $ do
+        -- End closes a trailer registry block exactly as it closes a process,
+        -- and a registry row is name;unit;cas;comment, so its comment lands
+        -- where a process row carries its amount. Only the process is warned
+        -- about: the bad amount is reported, the comment is not.
+        it "warns for a process amount and not for a trailer registry comment" $ do
+            (before, _) <- getLogLines 0
+            _ <- parseTrailerWasteCSV
+            (_, newLines) <- getLogLines before
+            let mentioning needle = [l | l <- newLines, needle `isInfixOf` llText l]
+            length (mentioning "0.5+bogus") `shouldBe` 1
+            mentioning "Formula: none" `shouldBe` []
+
         -- The row goes through the real row parser rather than a literal
         -- record, so the value reported here is the one an import would use
         -- and cannot drift from it.
