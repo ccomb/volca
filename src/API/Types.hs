@@ -10,6 +10,7 @@
 module API.Types where
 
 import API.JsonOptions (Stripped (..))
+import Control.DeepSeq (NFData)
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
 import Data.Aeson.Types (Parser)
@@ -634,6 +635,23 @@ data BatchImpactsEntry = BatchImpactsEntry
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped BatchImpactsEntry)
+
+{- | A batch entry and everything it reaches, forceable. A chunk of a large
+batch is forced where it is built so the solutions behind it can go; every
+field here is evaluated on the way out anyway, so this moves the work rather
+than adding any.
+-}
+instance NFData BatchImpactsEntry
+
+instance NFData LCIABatchResult
+
+instance NFData LCIAResult
+
+instance NFData FlowContributionEntry
+
+instance NFData ScoringIndicator
+
+instance NFData CutoffWasteFlow
 
 {- | Batch impacts response: one entry per successfully computed process,
 plus lists of process ids that could not be resolved.
