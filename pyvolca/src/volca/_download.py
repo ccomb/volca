@@ -30,6 +30,7 @@ import json
 import os
 import platform
 import re
+import stat
 import sys
 import tarfile
 import urllib.request
@@ -283,12 +284,28 @@ def _exclusive_lock(path: Path) -> Iterator[None]:
         os.close(fd)
 
 
+def _is_junction(path: Path) -> bool:
+    """Is this a Windows junction: a directory reparse point that is not a symlink?
+
+    ``install.ps1`` makes the current-data pointer a junction, because a symlink
+    needs developer mode. Python reads a junction as a plain directory, so nothing
+    in :mod:`pathlib` distinguishes it, and :func:`shutil.rmtree` refuses one.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        return getattr(path.lstat(), "st_reparse_tag", 0) == stat.IO_REPARSE_TAG_MOUNT_POINT
+    except OSError:
+        return False
+
+
 def _link_current(target: Path, link: Path) -> None:
     """Make ``link`` point at ``target``. Symlink where supported, plain
     copy fallback for Windows configurations without developer mode."""
     import shutil
 
-    if link.is_symlink() or link.is_file():
+    if link.is_symlink() or link.is_file() or _is_junction(link):
+        # unlink removes a junction too, leaving the directory it points at alone.
         link.unlink()
     elif link.is_dir():
         shutil.rmtree(link)

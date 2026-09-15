@@ -9,6 +9,8 @@ authors = [{name = "Christophe Combelles", email = "ccomb@free.fr"}]
 dependencies = [
     "requests>=2.28",
     "platformdirs>=4.0",
+    # server.py reads the engine TOML; tomllib is only in the standard library from 3.11.
+    "tomli>=2.0; python_version < '3.11'",
 ]
 keywords = [
     "lca",
