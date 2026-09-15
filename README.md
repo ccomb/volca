@@ -597,14 +597,16 @@ Install dependencies, then build. MUMPS is built from source by `build-mumps.sh`
 
 ```bash
 # Debian/Ubuntu
-sudo apt install build-essential gfortran python3 curl zlib1g-dev libblas-dev liblapack-dev upx-ucl
+sudo apt install build-essential gfortran python3 curl zlib1g-dev libopenblas-dev upx-ucl
 
 # Fedora
-sudo dnf install gcc gcc-c++ gcc-gfortran make python3 curl zlib-devel blas-devel lapack-devel
+sudo dnf install gcc gcc-c++ gcc-gfortran make python3 curl zlib-devel openblas-devel blas-devel lapack-devel
 
 # Arch Linux
-sudo pacman -S base-devel gcc-fortran python curl zlib blas lapack
+sudo pacman -S base-devel gcc-fortran python curl zlib openblas blas lapack
 ```
+
+The BLAS the engine runs on should be OpenBLAS, as in every packaged build: the engine pins it to one thread, and `BlasThreadsSpec` fails on a build that reaches another BLAS, which has no thread count to pin.
 
 Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/), then:
 

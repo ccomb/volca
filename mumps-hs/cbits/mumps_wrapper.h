@@ -10,7 +10,8 @@ typedef struct MumpsSolver MumpsSolver;
 
 /* Create a solver for an n x n system with nnz non-zeros.
  * irn, jcn are 0-indexed row/col arrays; the wrapper converts to 1-indexed.
- * The arrays are copied internally – caller retains ownership. */
+ * The arrays are copied internally – caller retains ownership.
+ * Pins OpenBLAS, when it is the BLAS linked, to one thread. */
 MumpsSolver* mumps_create(int n, int nnz, const int* irn, const int* jcn, const double* a);
 
 /* Run symbolic analysis (ordering). Returns 0 on success, MUMPS error code on failure. */
@@ -33,5 +34,8 @@ void mumps_destroy(MumpsSolver* s);
 
 /* Return the MUMPS global error code (infog[0]) from the last call. */
 int mumps_get_error(MumpsSolver* s);
+
+/* Threads OpenBLAS may use, or -1 when the BLAS linked is not OpenBLAS. */
+int mumps_blas_threads(void);
 
 #endif /* MUMPS_WRAPPER_H */

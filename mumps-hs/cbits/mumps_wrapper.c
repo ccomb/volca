@@ -10,6 +10,35 @@
 /* MUMPS_SEQ sentinel for comm_fortran (no real MPI) */
 #define MUMPS_USE_COMM_WORLD (-987654)
 
+/* OpenBLAS starts one thread per core. The dense blocks a sparse solve hands
+ * it are too small to share out, so those threads spend the solve waiting for
+ * work: on a matrix of 28,594 activities, a batch solve ran twice as fast on
+ * one thread and left about ten cores free.
+ *
+ * The references are weak because which BLAS answers is settled by the link or
+ * by the system's alternatives, and a BLAS other than OpenBLAS defines neither
+ * symbol. Windows keeps plain references: its build always names OpenBLAS on
+ * the link line, and PE weak externals are not the ELF or Mach-O mechanism. */
+#ifdef _WIN32
+extern void openblas_set_num_threads(int num_threads);
+extern int openblas_get_num_threads(void);
+#define OPENBLAS_LINKED 1
+#else
+extern void openblas_set_num_threads(int num_threads) __attribute__((weak));
+extern int openblas_get_num_threads(void) __attribute__((weak));
+#define OPENBLAS_LINKED (openblas_set_num_threads && openblas_get_num_threads)
+#endif
+
+static void pin_blas_threads(void)
+{
+    if (OPENBLAS_LINKED) openblas_set_num_threads(1);
+}
+
+int mumps_blas_threads(void)
+{
+    return OPENBLAS_LINKED ? openblas_get_num_threads() : -1;
+}
+
 struct MumpsSolver {
     DMUMPS_STRUC_C id;
     int  n;
@@ -22,6 +51,8 @@ struct MumpsSolver {
 
 MumpsSolver* mumps_create(int n, int nnz, const int* irn, const int* jcn, const double* a)
 {
+    pin_blas_threads();
+
     MumpsSolver* s = calloc(1, sizeof(MumpsSolver));
     if (!s) return NULL;
 

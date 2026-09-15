@@ -277,6 +277,7 @@ test-suite lca-tests
                      , LongTermExclusionSpec
                      , SharedSolverSpec
                      , CoalescingSolverSpec
+                     , BlasThreadsSpec
                      , FlowResolverSpec
                      , SynonymExtractSpec
                      , ConfigSpec
@@ -373,6 +374,7 @@ test-suite lca-tests
                      , text
                      , containers
                      , vector
+                     , mumps-hs
                      , bytestring
                      , zip-archive
                      , temporary

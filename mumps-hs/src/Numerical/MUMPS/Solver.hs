@@ -9,6 +9,7 @@ module Numerical.MUMPS.Solver (
     mumpsSolveMulti,
     mumpsDestroy,
     mumpsAnalyzeAndFactorize,
+    mumpsBlasThreads,
 ) where
 
 import Control.Exception (throwIO)
@@ -92,6 +93,15 @@ mumpsDestroy = c_mumps_destroy . solverPtr
 -- | Convenience: analyze + factorize in one call.
 mumpsAnalyzeAndFactorize :: MUMPSSolver -> IO ()
 mumpsAnalyzeAndFactorize s = mumpsAnalyze s >> mumpsFactorize s
+
+{- | The threads the BLAS under MUMPS may use: one once a solver exists, since
+'mumpsCreate' pins OpenBLAS. 'Nothing' when the BLAS linked is not OpenBLAS,
+whose threading is then its own.
+-}
+mumpsBlasThreads :: IO (Maybe Int)
+mumpsBlasThreads = do
+    threads <- c_mumps_blas_threads
+    pure (if threads < 0 then Nothing else Just (fromIntegral threads))
 
 checkError :: String -> CInt -> IO ()
 checkError phase rc

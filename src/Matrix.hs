@@ -93,7 +93,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
-import Numerical.MUMPS (MUMPSSolver, mumpsAnalyzeAndFactorize, mumpsCreate, mumpsDestroy, mumpsSolve, mumpsSolveMulti)
+import Numerical.MUMPS (MUMPSSolver, mumpsAnalyzeAndFactorize, mumpsBlasThreads, mumpsCreate, mumpsDestroy, mumpsSolve, mumpsSolveMulti)
 import Progress
 import System.IO.Unsafe (unsafePerformIO) -- Used only for NOINLINE global singletons
 import Types
@@ -987,6 +987,12 @@ buildDemandVectorFromIndex activityIndex rootProcessId =
             <> T.pack (show n)
             <> " processes), so it names no column to put the functional unit in"
 
+{- | Say how many threads the BLAS runs the solves on. A BLAS other than OpenBLAS
+is not pinned, so its count is not ours to state.
+-}
+describeBlasThreads :: Maybe Int -> String
+describeBlasThreads = maybe "BLAS is not OpenBLAS, its threads are left as it starts them" (\threads -> "OpenBLAS on " ++ show threads ++ " thread(s)")
+
 {- |
 Pre-compute matrix factorization for concurrent inventory calculations.
 
@@ -1007,11 +1013,12 @@ precomputeMatrixFactorization dbName techTriples n = withMVar mumpsFactorization
 
     solver <- mumpsCreate n nnz rows cols vals
     mumpsAnalyzeAndFactorize solver
+    blasThreads <- mumpsBlasThreads
 
     cs <- spawnCoalescingSolver solver n
     modifyMVar_ cachedSolver $ \solvers -> pure $ M.insert dbName cs solvers
 
-    reportMatrixOperation $ "MUMPS solver for database '" ++ T.unpack dbName ++ "' factorized and cached"
+    reportMatrixOperation $ "MUMPS solver for database '" ++ T.unpack dbName ++ "' factorized and cached, " ++ describeBlasThreads blasThreads
 
     let factorization =
             MatrixFactorization
