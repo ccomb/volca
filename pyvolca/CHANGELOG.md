@@ -18,6 +18,79 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
+## [0.12.0] - 2026-09-15
+
+The minor is for a deprecation and for a client that had fallen eleven wire
+revisions behind the engine. Nothing is removed.
+
+### Added
+
+- `Client.compare_activities` and `Client.compare_databases` ask the engine to
+  compare two activities, or two loaded databases, down to the exchanges,
+  instead of composing an answer from two `aggregate` calls on this side. They
+  return `ActivityComparison` and `DatabaseComparison`, and bring
+  `ChangedActivity`, `AmbiguousActivities`, `ExchangeChange`, `UncomparedLine`,
+  `SummaryChange` and `Quantity` with them. Every pair says what it matched on,
+  and a line written in several units on one side is named rather than summed.
+- `Client.count_search_matches` answers in one call how many processes,
+  products and flows a query matches, as `SearchCounts`.
+- `Client.derive_database` asks a loaded database for a copy divided by another
+  allocation key, without editing a configuration file.
+- A technosphere or waste exchange carries its `supplier_claim`, a
+  `SupplierClaim` naming how the source designated its supplier before linking
+  answered: by the product row, by an activity identifier, by an activity name,
+  or by the number a dataset is published under.
+- An activity carries its `native_id`, the identifier its source file gave the
+  block it was read from, and the `block` it came out of with the
+  `block_products` that block declares.
+- A database status carries the `allocation` key its blocks were divided by and
+  the `source` it was derived from.
+- A product of a multi-output block carries `mass_allocation_percent`, the
+  share it would carry if the key were its mass, beside the share its source
+  declared.
+- A flow search result carries `producer_count`, how many activities make that
+  flow, and a flow's activities can be asked for one side of it only.
+- A flow search names several kinds at once.
+- `tomli` is declared as a dependency on Python 3.10, where `tomllib` is not in
+  the standard library yet. `import volca` failed there, although the package
+  has always said it supports that version.
+
+### Changed
+
+- `KNOWN_WIRE` is 25 rather than 14, so an engine speaking any revision up to
+  25 no longer draws a warning that it is newer than this client. Engine
+  v0.13.0 is the first release advertising revision 25. `REQUIRED_WIRE` stays
+  at 2: every capability added since is gated on the engine's advertised
+  revision and refuses before sending, rather than reading an answer that is
+  not there. Two of those revisions carry fields this client does not decode
+  into fields of its own, and which a caller reads through `Client.call`: the
+  dry and wet mass a technosphere exchange's source states (revision 18), and
+  every reason a supplier gap's product was refused a supplier under
+  (revision 24).
+- The documentation of a score's basis says what the score is per. A reference
+  product's `product_amount` is what the source says the block produces, which
+  for a coproduct is rarely one, while a score is always per one
+  `product_unit`; `functional_unit` states that basis. No field moved here: the
+  engine is what stopped contradicting itself.
+- The module-level `volca.compare_activities`, which merged two `aggregate`
+  calls here and keyed a line on its flow id alone, now warns.
+  `Client.compare_activities` replaces it, and the old name keeps working until
+  pyvolca 1.0.
+
+### Fixed
+
+- Downloading a database on Windows no longer stops on the pointer the
+  installer left behind. `install.ps1` makes the current-data pointer a
+  junction, because a symlink there needs developer mode; Python reads a
+  junction as a plain directory and `shutil.rmtree` refuses one, so replacing
+  the pointer raised "Cannot call rmtree on a symbolic link" and said nothing
+  about junctions. A junction is now recognised and unlinked, which removes the
+  pointer and leaves the directory it pointed at alone. Checked on Windows
+  Server 2022 from Python 3.10 through 3.14.
+- The first line of the README named the two databases the engine was first
+  used on. It now says what the engine reads: EcoSpold 1 and 2, SimaPro CSV,
+  ILCD and Brightway Excel.
+
 ## [0.11.0] - 2026-09-02
 
 The minor is for two additions a strict reader cannot ignore: the exchange
