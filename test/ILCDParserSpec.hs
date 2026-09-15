@@ -12,7 +12,7 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import ILCD.Common (readDataSetVersion)
-import ILCD.Parser (ILCDExchangeRaw (..), ILCDProcessRaw (..), ILCDProducer (..), buildSupplierIndex, fixActivityExchanges, parseILCDDirectory, parseProcessXML)
+import ILCD.Parser (ILCDDirection (..), ILCDExchangeRaw (..), ILCDProcessRaw (..), ILCDProducer (..), buildSupplierIndex, fixActivityExchanges, parseILCDDirectory, parseProcessXML)
 import System.Directory (copyFile, createDirectoryIfMissing, listDirectory)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -515,7 +515,7 @@ spec = do
         it "parses exchange direction Output" $ do
             let Just raw = parseProcessXML ilcdProcessWithClassification
             case iprExchanges raw of
-                [ex] -> ierDirection ex `shouldBe` "Output"
+                [ex] -> ierDirection ex `shouldBe` Just DirectionOutput
                 _ -> expectationFailure "expected one exchange"
 
         it "parses exchange resultingAmount" $ do
@@ -537,7 +537,7 @@ spec = do
             let Just raw = parseProcessXML xml
             -- coal extraction has two Output exchanges; verify direction parsing works
             let dirs = map ierDirection (iprExchanges raw)
-            dirs `shouldContain` ["Output"]
+            dirs `shouldContain` [Just DirectionOutput]
 
         it "falls back to meanAmount when resultingAmount is absent" $ do
             xml <- BS.readFile "test-data/SAMPLE.ilcd/processes/mean-amount.xml"

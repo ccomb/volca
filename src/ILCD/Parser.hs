@@ -11,6 +11,7 @@ module ILCD.Parser (
     parseProcessXML,
     ILCDProcessRaw (..),
     ILCDExchangeRaw (..),
+    ILCDDirection (..),
     buildSupplierIndex,
     ILCDProducer (..),
     fixActivityExchanges,
@@ -68,10 +69,27 @@ pickILCDComment existing lang txt =
                 Nothing -> Just (lang, s)
                 Just _ -> existing
 
+{- | Which way one exchange goes, as its @exchangeDirection@ element spells it.
+
+Two constructors rather than the element's own text, because the file states the
+direction once per exchange and a large process states it tens of thousands of
+times: holding the word costs more than holding the fact, and every one of those
+words is one of two. 'Nothing' is a spelling this parser does not know, which is
+read as an output exactly as an unrecognised word always was.
+-}
+data ILCDDirection = DirectionInput | DirectionOutput
+    deriving (Eq, Show)
+
+-- | The direction an @exchangeDirection@ element states, or 'Nothing' for anything else.
+readDirection :: Text -> Maybe ILCDDirection
+readDirection "Input" = Just DirectionInput
+readDirection "Output" = Just DirectionOutput
+readDirection _ = Nothing
+
 data ILCDExchangeRaw = ILCDExchangeRaw
     { ierInternalId :: !Int
     , ierFlowRef :: !UUID
-    , ierDirection :: !Text -- "Input" / "Output"
+    , ierDirection :: !(Maybe ILCDDirection)
     , ierAmount :: !Double
     , ierLocation :: !Text
     , ierComment :: !(Maybe Text) -- per-exchange <common:generalComment>
@@ -381,7 +399,7 @@ data ProcState = ProcState
     , psInExchange :: !Bool
     , psExInternalId :: !Int
     , psExFlowRef :: !Text
-    , psExDirection :: !Text
+    , psExDirection :: !(Maybe ILCDDirection)
     , psExAmount :: !Double
     , psExLocation :: !Text
     , psExComment :: !(Maybe (Text, Text))
@@ -428,7 +446,7 @@ parseProcessXML bytes =
             , psInExchange = False
             , psExInternalId = -1
             , psExFlowRef = ""
-            , psExDirection = ""
+            , psExDirection = Nothing
             , psExAmount = 0
             , psExLocation = ""
             , psExComment = Nothing
@@ -455,7 +473,7 @@ parseProcessXML bytes =
                 , psTextAccum = []
                 , psExInternalId = -1
                 , psExFlowRef = ""
-                , psExDirection = ""
+                , psExDirection = Nothing
                 , psExAmount = 0
                 , psExLocation = ""
                 , psExComment = Nothing
@@ -522,7 +540,7 @@ parseProcessXML bytes =
                 Right (n, _) -> s{psRefFlowIdx = n, psTextAccum = []}
                 Left _ -> s{psTextAccum = []}
         | isElement tag "exchangeDirection" && psInExchange s =
-            s{psExDirection = accum s, psTextAccum = []}
+            s{psExDirection = readDirection (accum s), psTextAccum = []}
         | isElement tag "resultingAmount" && psInExchange s =
             s{psExAmount = parseDouble (accum s), psTextAccum = []}
         | isElement tag "meanAmount" && psInExchange s && psExAmount s == 0 =
@@ -721,7 +739,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
 
     mkExchange refIdx raw =
         let flowUUID = ierFlowRef raw
-            isInput = ierDirection raw == "Input"
+            isInput = ierDirection raw == Just DirectionInput
             isRef = ierInternalId raw == refIdx
             flowClass = maybe TechClass (classifyFlowType . ilcdFlowType) (M.lookup flowUUID flowInfoMap)
             fUnitId =
