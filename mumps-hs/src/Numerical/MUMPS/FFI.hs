@@ -10,6 +10,7 @@ module Numerical.MUMPS.FFI (
     c_mumps_solve_multi,
     c_mumps_destroy,
     c_mumps_get_error,
+    c_mumps_blas_threads,
 ) where
 
 import Foreign.C.Types (CDouble (..), CInt (..))
@@ -38,3 +39,6 @@ foreign import ccall unsafe "mumps_destroy"
 
 foreign import ccall unsafe "mumps_get_error"
     c_mumps_get_error :: Ptr MumpsSolverC -> IO CInt
+
+foreign import ccall unsafe "mumps_blas_threads"
+    c_mumps_blas_threads :: IO CInt

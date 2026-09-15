@@ -31,6 +31,13 @@
   ambiguities are documented where a reader looks for them.
 
 ### Changed
+- A solve no longer runs OpenBLAS on a thread per core. The dense blocks a
+  sparse solve hands it are too small to share out, so those threads spent the
+  solve waiting for work while holding about ten cores busy. Scoring 2,000
+  processes of a 28,594-activity database in one batch request takes 13.5 s
+  instead of 17 to 18 s, on 23 s of processor time instead of 190 to 220 s. The
+  factorisation log line says how many threads OpenBLAS runs on, or that the
+  BLAS linked is another one.
 - A product no dependency supplies now says every reason it was refused, and how
   many demands each reason refused. It used to say one, chosen by the order the
   linking runs happened to merge in, beside the total of all of them: a product

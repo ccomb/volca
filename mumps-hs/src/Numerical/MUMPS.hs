@@ -22,6 +22,9 @@ module Numerical.MUMPS (
     -- * Solve
     mumpsSolve,
     mumpsSolveMulti,
+
+    -- * BLAS
+    mumpsBlasThreads,
 ) where
 
 import Numerical.MUMPS.Solver
