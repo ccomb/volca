@@ -43,6 +43,7 @@ import Database
 import qualified Database.ComputedQuality as CQ
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), MethodCollectionStatus (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
+import EcoSpold.Common (distributeFiles)
 import qualified Expr
 import GHC.Generics
 import qualified GHC.Stats
@@ -971,15 +972,14 @@ data BatchTarget = BatchTarget
 and return the results in the order of the input.
 
 One slice per capability rather than one thread per element: however large the
-request, it fans out no wider than the machine.
+request, it fans out no wider than the machine. The slices are balanced, the
+way the loaders split their files, so 25 elements on 24 capabilities still
+make 24 slices, not 13 of two.
 -}
 acrossCapabilities :: (a -> IO b) -> [a] -> IO [b]
 acrossCapabilities act xs = do
     capabilities <- getNumCapabilities
-    concat <$> mapConcurrently (mapM act) (Matrix.chunksOf (sliceOf capabilities) xs)
-  where
-    sliceOf :: Int -> Int
-    sliceOf capabilities = max 1 ((length xs + capabilities - 1) `div` capabilities)
+    concat <$> mapConcurrently (mapM act) (distributeFiles capabilities xs)
 
 {- | Solve one chunk of a batch and turn it into entries, with the time its
 solve took.
