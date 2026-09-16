@@ -3838,7 +3838,7 @@ it with its file), so a failure says so.
 builtinMethodCollection :: BuiltinMethod -> Either Text (MethodCollection, M.Map UUID ILCDFlowInfo)
 builtinMethodCollection builtin =
     bimap unreadable (\methods -> (MethodCollection methods [] [] [], M.empty)) $
-        parseMethodCSVBytes (stripBOM (BL.toStrict (builtinMethodContent builtin)))
+        parseMethodCSVBytes (BL.toStrict (builtinMethodContent builtin))
   where
     unreadable :: String -> Text
     unreadable err = "The built-in method " <> builtinMethodName builtin <> " could not be read, this binary was built wrong: " <> T.pack err
@@ -4122,6 +4122,8 @@ removeMethodCollection manager name = do
     case M.lookup name available of
         Nothing -> return $ Left $ "Method collection not found: " <> name
         Just mc
+            | MethodBuiltIn _ <- mcOrigin mc ->
+                return $ Left $ "Cannot delete a method built into this engine. Switch it off in volca.toml: [[methods]] name = \"" <> name <> "\", active = false."
             | not (mcIsUploaded mc) ->
                 return $ Left "Cannot delete configured method. Edit volca.toml to remove it."
             | M.member name loaded ->

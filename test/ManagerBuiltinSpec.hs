@@ -7,7 +7,8 @@ import Control.Concurrent.STM (readTVarIO)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
-import Database.Manager (CachePolicy (..), DatabaseLoadStatus (..), DatabaseManager (..), MethodCollectionStatus (..), initDatabaseManager, listMethodCollections)
+import qualified Data.Text as T
+import Database.Manager (CachePolicy (..), DatabaseLoadStatus (..), DatabaseManager (..), MethodCollectionStatus (..), initDatabaseManager, listMethodCollections, removeMethodCollection)
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.Types (Method (..), MethodCollection (..))
 import TOML (getArrayOf, getFieldWith)
@@ -50,6 +51,11 @@ spec = describe "initDatabaseManager with the built-in defaults" $ do
                 listed <- filter ((== "plain-indicators") . mcsName) <$> listMethodCollections manager
                 map (\m -> (mcsStatus m, mcsPath m, mcsFormat m, mcsDescription m)) listed
                     `shouldBe` [(Unloaded, "built-in", "Columnar CSV", Just "Raw physical quantities counted through the supply chain (CF=1.0)")]
+
+    it "refuses to delete the built-in method, and says how to switch it off" $ do
+        manager <- initDatabaseManager defaultConfig NoCache
+        refusal <- removeMethodCollection manager "plain-indicators"
+        either T.unpack (const "deleted") refusal `shouldContain` "active = false"
   where
     decodeMethods :: Text -> Either TOML.TOMLError [MethodConfig]
     decodeMethods = TOML.decodeWith (getFieldWith (getArrayOf TOML.tomlDecoder) "methods")
