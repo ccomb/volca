@@ -92,6 +92,7 @@ cubic metre,volume,1.0
 Nm3,volume,1.0
 Sm3,volume,1.0
 l,volume,0.001
+L,volume,0.001
 liter,volume,0.001
 litre,volume,0.001
 dm3,volume,0.001
@@ -125,6 +126,8 @@ dollar,currency,1.0
 tkm,mass*length,1.0
 t*km,mass*length,1.0
 t.km,mass*length,1.0
+t⋅km,mass*length,1.0
+t·km,mass*length,1.0
 metric ton*km,mass*length,1.0
 tonne*km,mass*length,1.0
 tonne-km,mass*length,1.0

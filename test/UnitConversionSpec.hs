@@ -356,6 +356,26 @@ spec = do
             readUnit cfg "kg" `shouldSatisfy` exact
             readUnit cfg " kg " `shouldSatisfy` exact
 
+        it "reads the litre under both of its symbols" $ do
+            -- The SI accepts l and L for the litre, L so that a reader cannot
+            -- take the symbol for the digit 1. With only the l row, L is read
+            -- as l with a note saying the table spells it otherwise, and a
+            -- client reading the table as written finds no litre under L.
+            cfg <- loadFullUnitConfig
+            readUnit cfg "L" `shouldSatisfy` exact
+            readUnit cfg "l" `shouldSatisfy` exact
+            lookupUnitDef cfg "L" `shouldBe` Just (unitDef "volume" 1.0e-3)
+
+        it "reads the tonne-kilometre written with a centred dot" $ do
+            -- The SI writes a product of units with a centred dot, and two
+            -- characters draw it: the dot operator (U+22C5) and the middle dot
+            -- (U+00B7). A reader cannot tell them apart, so the table holds both.
+            cfg <- loadFullUnitConfig
+            readUnit cfg "t⋅km" `shouldSatisfy` exact
+            readUnit cfg "t·km" `shouldSatisfy` exact
+            lookupUnitDef cfg "t⋅km" `shouldBe` lookupUnitDef cfg "t.km"
+            lookupUnitDef cfg "t·km" `shouldBe` lookupUnitDef cfg "t.km"
+
         it "reads a capitalised prefix as the unit it spells" $ do
             -- The table holds both halves of each pair, so neither is read as
             -- the other. Without the capitalised row a megagram folds onto the

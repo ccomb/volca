@@ -18,6 +18,15 @@
 
 ### Fixed
 
+- The unit table spells the litre and the tonne-kilometre the way the SI writes
+  them. The litre gains `L` beside `l`: the SI accepts both, the capital having
+  been added so that a reader cannot take the symbol for the digit 1. The
+  tonne-kilometre gains `t⋅km` and `t·km` beside `t.km` and `t*km`: the SI
+  joins a product of units with a centred dot, and two characters draw it that
+  a reader cannot tell apart. A source writing `L` was read as `l` with a note
+  saying the table spells the unit otherwise, a source writing the centred dot
+  had its unit reported as unknown, and a client reading the shipped
+  `units.csv` as written found neither. Data version 5.
 - An EcoSpold 1 database that names its non-methane volatile organic
   compounds `NMVOC, non-methane volatile organic compounds, unspecified
   origin` now has that flow characterized. The methods write the same
