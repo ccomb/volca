@@ -147,6 +147,7 @@ kilogram-kilometer,mass*length,0.001
 kilogram-kilometre,mass*length,0.001
 kgm,mass*length,1e-06
 kg*m,mass*length,1e-06
+kg⋅m,mass*length,1e-06
 t*mile,mass*length,1.609344
 ton*mile,mass*length,1.609344
 ton-mile,mass*length,1.609344

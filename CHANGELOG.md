@@ -21,13 +21,14 @@
 - The unit table spells its units the way the SI writes them. The litre gains
   `L` beside `l`, and `kg/L` beside `kg/l`: the SI accepts both symbols, the
   capital having been added so that a reader cannot take it for the digit 1.
-  Every product of units the table holds, from `t⋅km` to `m²⋅a` and `kW⋅h`,
+  Every product of SI units the table holds, from `t⋅km` to `m²⋅a` and `kW⋅h`,
   gains the spelling that joins its factors with the dot operator (U+22C5), and
   `dm³` and `kg/m³` join `m³` and `cm³`. A source writing `L` was read as `l`
   with a note saying the table spells the unit otherwise, a source writing
   either of the others had its unit reported as unknown, and a client reading
   the shipped `units.csv` as written found none of them. The middle dot
-  (U+00B7), which looks the same, is still reported as unknown. Data version 5.
+  (U+00B7), which looks the same, is still reported as unknown, and so is a
+  product of units outside the SI such as `person⋅km`. Data version 5.
 - An EcoSpold 1 database that names its non-methane volatile organic
   compounds `NMVOC, non-methane volatile organic compounds, unspecified
   origin` now has that flow characterized. The methods write the same

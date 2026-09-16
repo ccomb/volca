@@ -370,12 +370,13 @@ spec = do
 
         it "reads a product of units written with a centred dot as the unit it spells" $ do
             -- The SI writes a product of units with a centred dot, the dot
-            -- operator (U+22C5). The table holds it for every product it holds,
-            -- each the unit its plain row is.
+            -- operator (U+22C5). The table holds it for every product of SI
+            -- units it holds, each the unit its plain row is.
             cfg <- loadFullUnitConfig
             let products =
                     [ ("t⋅km", "tkm")
                     , ("kg⋅km", "kgkm")
+                    , ("kg⋅m", "kgm")
                     , ("m²⋅a", "m2a")
                     , ("ha⋅a", "ha a")
                     , ("m³⋅a", "m3a")
@@ -398,7 +399,7 @@ spec = do
             -- milliwatt hour would fold onto it and be read a billion times large.
             lookupUnitDef cfg "mw⋅h" `shouldBe` Nothing
 
-        it "reads a superscript power as the digit it stands for" $ do
+        it "holds the superscript spelling of a power beside the digit one" $ do
             cfg <- loadFullUnitConfig
             let powers = [("m²", "m2"), ("cm²", "cm2"), ("km²", "km2"), ("m³", "m3"), ("dm³", "dm3"), ("cm³", "cm3"), ("kg/m³", "kg/m3")]
             mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) powers
