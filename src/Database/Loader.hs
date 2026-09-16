@@ -1429,8 +1429,8 @@ answering (Just name) producers = NE.nonEmpty (NE.filter named producers)
 {- | The producers offering the product where the input says it buys it.
 
 An input claims its supplier by product, and where the format writes the
-geography into the product name the row claims a geography too
-('ClaimByProduct' carries it). One product name covers every geography the
+geography into the product name the row claims a geography too, which its
+'techLocation' carries. One product name covers every geography the
 product is made in, so when the row states one it is the statement that says
 which producer answers, and the ranking is left with nothing to decide.
 
