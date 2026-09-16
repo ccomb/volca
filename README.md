@@ -23,7 +23,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel da
 - **Archive support**: Load databases directly from .zip, .7z, .gz, or .xz archives – no manual extraction
 - **Cross-database linking**: Resolve supplier references across databases, with configurable dependencies and topological load ordering. EcoSpold2 inputs link to a loaded background by exact `activityLinkId` identity (so a partial import resolves against its matching release), falling back to attribute matching – flagged as approximate – when the background is a different release
 - **Cross-DB what-if substitutions**: Swap an upstream activity at any depth – including suppliers in dependency databases – and recompute inventory and impacts through one endpoint
-- **LCIA method collections**: Load ILCD method packages (ZIP or directory), SimaPro method CSV exports, openLCA JSON-LD impact categories, or tabular CSV from config; export any loaded collection back as SimaPro method CSV, columnar CSV (one column per impact category – the spreadsheet view), an openLCA JSON-LD zip, or an ILCD method package zip
+- **LCIA method collections**: Load ILCD method packages (ZIP or directory), SimaPro method CSV exports, openLCA JSON-LD impact categories, or tabular CSV from config, beside a built-in `plain-indicators` collection that counts raw physical quantities; export any loaded collection back as SimaPro method CSV, columnar CSV (one column per impact category – the spreadsheet view), an openLCA JSON-LD zip, or an ILCD method package zip
 - **Normalization and weighting**: Batch LCIA computes normalized and weighted scores per category and a single aggregated score (Pt) when NW data is present in the method collection
 - **Contribution analysis**: Per-flow and per-activity contributions to any LCIA score, ranked by share
 - **Flow mapping engine**: 4-step matching cascade (UUID → name → synonym → CAS) with per-strategy coverage statistics
@@ -161,6 +161,14 @@ path = "DBs/EF-v3.1.zip"      # ILCD method package (ZIP or directory)
 
 # SimaPro method CSV exports and tabular CSV are also accepted:
 # path = "DBs/EF3.1_methods.csv"
+
+# "plain-indicators" (land occupied, water used, fossil CO2, methane, primary
+# energy, waste heat, cadmium, every factor 1.0) is built into the engine and
+# loaded beside the collections listed here. Name it with a path to replace it,
+# or with no path to switch it off or to give it scoring sets and patches:
+#   [[methods]]
+#   name = "plain-indicators"
+#   active = false
 
 # Optional scoring sets on a method collection: named variables per impact
 # category, computed expressions, then normalization + weighting factors

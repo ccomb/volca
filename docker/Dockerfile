@@ -231,13 +231,13 @@ COPY --from=haskell-builder /build/output/volca /usr/local/bin/volca
 WORKDIR /app
 
 # /data/ is the engine's writing root (uploads, editable copies, journals)
-# and the home of the shipped method below. The reference tables themselves
-# are built into the binary, so a bind mount over /data/ hides nothing the
-# engine needs. The copy happens BEFORE the volume declaration so a fresh
-# named volume starts with the method (Docker populates an empty named
-# volume with whatever the image holds at the volume path). A configuration
-# that names a `data/...` file of its own still resolves it here, through
-# VOLCA_DATA_DIR (Config.redirectIntoDataDir).
+# and the home of the chemical synonyms file below. The reference tables and
+# the plain-indicators method are built into the binary, so a bind mount over
+# /data/ hides nothing the engine needs to score. The copy happens BEFORE the
+# volume declaration so a fresh named volume starts with that file (Docker
+# populates an empty named volume with whatever the image holds at the
+# volume path). A configuration that names a `data/...` file of its own
+# still resolves it here, through VOLCA_DATA_DIR (Config.redirectIntoDataDir).
 COPY data/ /data/
 
 ENV VOLCA_DATA_DIR=/data
@@ -245,8 +245,9 @@ VOLUME /data
 
 RUN cat > /app/volca.toml <<'EOF'
 # The reference tables (flow synonyms, compartment mapping, units, energy
-# densities) and the geographies are built into the engine and active; a
-# configuration names one only to replace it with a file or to switch it off.
+# densities), the geographies and the plain-indicators method are built into
+# the engine and active; a configuration names one only to replace it with a
+# file or to switch it off.
 # The chemical synonyms are not built in: this top-level key names the file
 # the image ships, and must stay above the first [section] header.
 chem-synonyms = "data/chem_synonyms.csv"
@@ -254,15 +255,6 @@ chem-synonyms = "data/chem_synonyms.csv"
 [server]
 port = 8080
 host = "0.0.0.0"
-
-# Method paths are user content that VOLCA_DATA_DIR does not rewrite, so the
-# shipped method needs the absolute path; a relative one would resolve under
-# /app and the image would start with no method at all.
-[[methods]]
-name = "plain-indicators"
-path = "/data/methods/plain-indicators.csv"
-active = true
-description = "Raw physical quantities counted through the supply chain (CF=1.0)"
 EOF
 
 COPY docker/rts-flags.sh /app/rts-flags.sh
