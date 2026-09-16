@@ -28,7 +28,11 @@
   either of the others had its unit reported as unknown, and a client reading
   the shipped `units.csv` as written found none of them. The middle dot
   (U+00B7), which looks the same, is still reported as unknown, and so is a
-  product of units outside the SI such as `person⋅km`. Data version 5.
+  product of units outside the SI such as `person⋅km`. Authoring matches a unit
+  by its factor as well as by its spelling, so an activity written in `L` still
+  reaches a database that records `l`, and one written in `kilogram` now
+  reaches a database that records `kg`; when two of the database's units
+  qualify, the refusal names both. Data version 5.
 - An EcoSpold 1 database that names its non-methane volatile organic
   compounds `NMVOC, non-methane volatile organic compounds, unspecified
   origin` now has that flow characterized. The methods write the same

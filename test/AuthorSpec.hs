@@ -69,7 +69,7 @@ import Types (
     noProperties,
     processIdToText,
  )
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig)
 
 spec :: Spec
 spec = do
@@ -171,6 +171,29 @@ spec = do
                 a <- resolveOrFail fixtureDb baseActivity
                 b <- resolveOrFail fixtureDb baseActivity{aaProductUnit = "item"}
                 snd (riKey a) `shouldNotBe` snd (riKey b)
+
+            -- The unit table holds `L` and `l` as two rows, so the two spellings
+            -- no longer meet on a key: what makes them one unit is the factor of
+            -- 1 between them. `kilogram` against a database recording `kg` is
+            -- the same case.
+            it "takes a unit the database records under another spelling of it" $
+                withSpellings $ \cfg -> do
+                    let ctx = (contextOf fixtureDb){acUnitConfig = cfg}
+                    case validateAuthored ctx [baseActivity{aaProductUnit = "kilogram", aaExchanges = [bioOf (FlowById co2Id) 1 (Just "kilogram")]}] of
+                        Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
+                        Right ([r], _) -> do
+                            activityUnit (riActivity r) `shouldBe` "kg"
+                            snd (riKey r) `shouldBe` authoredProductUUID "cheese" "kg"
+                        Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
+
+            it "names the units a spelling could be when the database records two of them" $
+                withSpellings $ \cfg -> do
+                    let kilogramId = mkUUID 13
+                        twoKilos = fixtureDb{dbUnits = M.insert kilogramId Unit{unitId = kilogramId, unitName = "kilogram", unitSymbol = "kilogram", unitComment = ""} (dbUnits fixtureDb)}
+                        ctx = (contextOf twoKilos){acUnitConfig = cfg}
+                    case validateAuthored ctx [baseActivity{aaProductUnit = "kilo"}] of
+                        Right _ -> expectationFailure "expected a refusal naming both units"
+                        Left errs -> errs `shouldSatisfy` any (isInfixOf "unit \"kilo\" could be \"kg\" or \"kilogram\"")
 
             it "links a local supplier by UUIDs, never by process id" $ do
                 -- Process ids renumber on every rebuild; an embedded one would
@@ -571,6 +594,14 @@ resolveOrFail db authored = case validateAuthored (contextOf db) [authored] of
 
 contextOf :: Database -> AuthorContext
 contextOf db = AuthorContext{acDb = db, acDeps = [], acUnitConfig = defaultUnitConfig}
+
+-- | A unit table holding three spellings of the kilogram, each a row of its own.
+withSpellings :: (UnitConfig -> Expectation) -> Expectation
+withSpellings check =
+    either
+        (expectationFailure . T.unpack)
+        check
+        (buildFromCSV "name,dimension,factor\nkg,mass,1.0\nkilogram,mass,1.0\nkilo,mass,1.0\n")
 
 -- | The same database with no activities, used to prove a dependency link resolves.
 emptyOf :: Database -> Database
