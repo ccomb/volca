@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- An EcoSpold 1 database that names its non-methane volatile organic
+  compounds `NMVOC, non-methane volatile organic compounds, unspecified
+  origin` now has that flow characterized. The methods write the same
+  substance without the origin suffix, and the flow registry paired the
+  suffixed name with a caption from the table it was copied from instead of
+  with that spelling, so the flow reached no factor and nothing said so.
+  On one such database, photochemical ozone formation, whose reference
+  substance it is, came out 28 % low on the median process and forty times
+  low where that flow dominates; every other category that characterizes it
+  was short as well. Data version 5.
+
 ## [0.13.0] - 2026-09-15
 
 ### Added
