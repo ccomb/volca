@@ -16,7 +16,7 @@ import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
-import Config (MethodConfig (..))
+import Config (MethodConfig (..), MethodOrigin (..))
 import Database.Export (MethodExportFormat (..), parseMethodExportFormat, serializeMethodCollection)
 import Database.Manager (loadMethodCollectionFromConfig)
 import Method.FlowResolver (parseCompartment, parseFlowXML)
@@ -245,7 +245,7 @@ methodConfig :: FilePath -> MethodConfig
 methodConfig path =
     MethodConfig
         { mcName = "reload"
-        , mcPath = path
+        , mcOrigin = MethodFromFile path
         , mcActive = True
         , mcIsUploaded = False
         , mcDescription = Nothing

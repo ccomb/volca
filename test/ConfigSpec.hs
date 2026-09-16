@@ -2,7 +2,7 @@
 
 module ConfigSpec (spec) where
 
-import Builtin (BuiltinTable (..), DataVersion (..), builtinDataVersion, builtinName, builtinTables)
+import Builtin (BuiltinMethod (..), BuiltinTable (..), DataVersion (..), builtinDataVersion, builtinMethods, builtinName, builtinTables)
 import Config (
     CFPatchOp (..),
     ClassificationEntry (..),
@@ -12,6 +12,7 @@ import Config (
     HostingConfig (..),
     Listen (..),
     MethodConfig (..),
+    MethodOrigin (..),
     MethodPatch (..),
     MethodPatchMatch (..),
     RefDataConfig (..),
@@ -427,6 +428,41 @@ spec = do
             map (fmap rdName . listToMaybe) [cfgFlowSynonyms defaultConfig, cfgCompartmentMappings defaultConfig, cfgUnits defaultConfig, cfgEnergyDensities defaultConfig]
                 `shouldBe` map (Just . builtinName) builtinTables
 
+    describe "built-in methods" $ do
+        let decodeMethods :: Text -> Either TOML.TOMLError [MethodConfig]
+            decodeMethods = TOML.decodeWith (getFieldWith (getArrayOf TOML.tomlDecoder) "methods")
+            originsAfterBuiltins :: Text -> Either TOML.TOMLError [(Text, MethodOrigin, Bool)]
+            originsAfterBuiltins toml =
+                map (\m -> (mcName m, mcOrigin m, mcActive m)) . cfgMethods . withBuiltins . (\ms -> defaultConfig{cfgMethods = ms})
+                    <$> decodeMethods toml
+
+        it "are listed, on, when the configuration names none" $
+            map (\m -> (mcOrigin m, mcActive m)) (cfgMethods defaultConfig)
+                `shouldBe` map (\b -> (MethodBuiltIn b, True)) builtinMethods
+
+        -- Collections are never merged, so the built-in beside an operator's
+        -- own changes none of their scores: unlike a table, it stays.
+        it "stay beside a collection the configuration adds" $
+            originsAfterBuiltins "[[methods]]\nname = \"EF\"\npath = \"ef.zip\"\n"
+                `shouldBe` Right [("EF", MethodFromFile "ef.zip", True), ("plain-indicators", MethodBuiltIn BuiltinPlainIndicators, True)]
+
+        it "are switched off by naming one without a path" $
+            originsAfterBuiltins "[[methods]]\nname = \"plain-indicators\"\nactive = false\n"
+                `shouldBe` Right [("plain-indicators", MethodBuiltIn BuiltinPlainIndicators, False)]
+
+        it "are replaced by a file of the same name" $
+            originsAfterBuiltins "[[methods]]\nname = \"plain-indicators\"\npath = \"mine.csv\"\n"
+                `shouldBe` Right [("plain-indicators", MethodFromFile "mine.csv", True)]
+
+        it "refuse a pathless entry that names none of them" $
+            case decodeMethods "[[methods]]\nname = \"EF\"\n" of
+                Left err -> show err `shouldContain` "plain-indicators"
+                Right _ -> expectationFailure "expected a decode error naming the built-in collections"
+
+        it "have no path to redirect or resolve" $
+            map mcOrigin (cfgMethods (resolveConfigPaths (Just "/etc/volca/volca.toml") (applyDataDir (Just "/d") defaultConfig)))
+                `shouldBe` map MethodBuiltIn builtinMethods
+
     describe "redirectIntoDataDir" $ do
         it "leaves paths unchanged when VOLCA_DATA_DIR is unset" $
             redirectIntoDataDir Nothing "data/flows.csv" `shouldBe` "data/flows.csv"
@@ -509,7 +545,7 @@ spec = do
                 -- Expected values go through 'normalise' too: on Windows the
                 -- resolver emits backslashes.
                 map dcPath (cfgDatabases resolved) `shouldBe` [normalise "/etc/volca/agb.CSV"]
-                map mcPath (cfgMethods resolved) `shouldBe` [normalise "/etc/volca/ef.zip"]
+                map mcOrigin (cfgMethods resolved) `shouldBe` [MethodFromFile (normalise "/etc/volca/ef.zip")]
                 map rdSource (cfgFlowSynonyms resolved) `shouldBe` [FromFile (normalise "/etc/volca/flows.csv")]
                 map rdSource (cfgCompartmentMappings resolved) `shouldBe` [FromFile (normalise "/etc/volca/compartments.csv")]
                 map rdSource (cfgUnits resolved) `shouldBe` [FromFile (normalise "/etc/volca/units.csv")]
@@ -520,14 +556,14 @@ spec = do
 
         it "leaves an absolute path alone" $
             withParsed $ \_ method -> do
-                let cfg = defaultConfig{cfgMethods = [method{mcPath = "/srv/methods/ef.zip"}]}
-                map mcPath (cfgMethods (resolveConfigPaths (Just "/etc/volca/volca.toml") cfg))
-                    `shouldBe` [normalise "/srv/methods/ef.zip"]
+                let cfg = defaultConfig{cfgMethods = [method{mcOrigin = MethodFromFile "/srv/methods/ef.zip"}]}
+                map mcOrigin (cfgMethods (resolveConfigPaths (Just "/etc/volca/volca.toml") cfg))
+                    `shouldBe` [MethodFromFile (normalise "/srv/methods/ef.zip")]
 
         it "falls back to the process directory when there is no config file" $
             withParsed $ \_ method -> do
                 let cfg = defaultConfig{cfgMethods = [method]}
-                map mcPath (cfgMethods (resolveConfigPaths Nothing cfg)) `shouldBe` ["ef.zip"]
+                map mcOrigin (cfgMethods (resolveConfigPaths Nothing cfg)) `shouldBe` [MethodFromFile "ef.zip"]
 
         it "keeps the shipped data bundle applyDataDir already pointed at" $ do
             -- applyDataDir runs first and turns "data/x" into an absolute path;

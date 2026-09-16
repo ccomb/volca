@@ -10,6 +10,8 @@ module Config (
     ServerName (..),
     DatabaseConfig (..),
     MethodConfig (..),
+    MethodOrigin (..),
+    describeMethodOrigin,
     ScoringSetConfig (..),
     MethodPatch (..),
     MethodPatchMatch (..),
@@ -68,7 +70,7 @@ module Config (
     resolveLoadOrder,
 ) where
 
-import Builtin (BuiltinTable (..), DataVersion (..), builtinDataVersion, builtinName)
+import Builtin (BuiltinMethod (..), BuiltinTable (..), DataVersion (..), builtinDataVersion, builtinMethodDescription, builtinMethodName, builtinMethods, builtinName)
 import Control.Monad (forM_, unless, when)
 import Data.Indexing (repeated)
 import Data.List (find, isPrefixOf, isSuffixOf)
@@ -240,10 +242,17 @@ data DatabaseConfig = DatabaseConfig
     }
     deriving (Show, Eq, Generic)
 
+{- | Where a method collection's factors come from. A built-in collection has
+no path: it is in the binary, and a configuration names it only to switch it
+off, to replace it with a file, or to attach scoring sets and patches to it.
+-}
+data MethodOrigin = MethodFromFile FilePath | MethodBuiltIn BuiltinMethod
+    deriving (Show, Eq, Generic)
+
 -- | Method configuration
 data MethodConfig = MethodConfig
     { mcName :: !Text
-    , mcPath :: !FilePath
+    , mcOrigin :: !MethodOrigin
     , mcActive :: !Bool
     , mcIsUploaded :: !Bool -- True for uploaded methods (vs. configured in TOML)
     , mcDescription :: !(Maybe Text) -- Optional description
@@ -436,6 +445,11 @@ keep it beside them or, named with @active = false@, to switch it off. The
 tables of one kind are merged in name order, so adding the built-in to a
 list the operator wrote would let it win over their file on every key they
 share, silently; a kind they mention is theirs alone.
+
+The built-in method collections follow a rule of their own: each one is listed
+unless the configuration names it. Two collections are never merged, so a
+built-in beside the operator's own changes none of their scores, and a
+configuration that lists a method of its own keeps the built-in ones.
 -}
 withBuiltins :: Config -> Config
 withBuiltins cfg =
@@ -444,11 +458,15 @@ withBuiltins cfg =
         , cfgCompartmentMappings = withTable BuiltinCompartments (cfgCompartmentMappings cfg)
         , cfgUnits = withTable BuiltinUnits (cfgUnits cfg)
         , cfgEnergyDensities = withTable BuiltinEnergyDensities (cfgEnergyDensities cfg)
+        , cfgMethods = cfgMethods cfg ++ map builtinMethodEntry (filter unnamed builtinMethods)
         }
   where
     withTable :: BuiltinTable -> [RefDataConfig] -> [RefDataConfig]
     withTable t [] = [builtinEntry t]
     withTable _ entries = entries
+
+    unnamed :: BuiltinMethod -> Bool
+    unnamed m = builtinMethodName m `notElem` map mcName (cfgMethods cfg)
 
 -- | A built-in table as the registry lists it: on, and not the operator's to delete.
 builtinEntry :: BuiltinTable -> RefDataConfig
@@ -462,10 +480,35 @@ builtinEntry t =
         , rdDescription = Just "Built into this engine"
         }
 
+-- | A built-in method collection as the registry lists it: on, and not the operator's to delete.
+builtinMethodEntry :: BuiltinMethod -> MethodConfig
+builtinMethodEntry m =
+    MethodConfig
+        { mcName = builtinMethodName m
+        , mcOrigin = MethodBuiltIn m
+        , mcActive = True
+        , mcIsUploaded = False
+        , mcDescription = originDescription (MethodBuiltIn m)
+        , mcFormat = Nothing
+        , mcScoringSets = []
+        , mcGlobalMethods = []
+        , mcPatches = []
+        }
+
 -- | Where a table comes from, for a log line.
 describeSource :: RefDataSource -> String
 describeSource (FromFile path) = path
 describeSource (BuiltIn _) = "built-in"
+
+-- | Where a method collection comes from, for a log line or a listing.
+describeMethodOrigin :: MethodOrigin -> String
+describeMethodOrigin (MethodFromFile path) = path
+describeMethodOrigin (MethodBuiltIn _) = "built-in"
+
+-- | What a collection says about itself when its entry says nothing.
+originDescription :: MethodOrigin -> Maybe Text
+originDescription (MethodBuiltIn m) = Just (builtinMethodDescription m)
+originDescription (MethodFromFile _) = Nothing
 
 {- | Where the data bundle the engine reads sits: the directory of the flow
 registry, the first @flow-synonyms@ entry that is not an upload, when that
@@ -561,13 +604,26 @@ geographyPolicyDecoder = do
         "global" -> pure GeoGlobal
         other -> fail $ "geography_policy: expected one of exact|parent|global, got: " <> T.unpack other
 
+{- | An entry with a path is a file. An entry without one names a collection
+the engine carries, like a reference table entry names its built-in.
+-}
 instance DecodeTOML MethodConfig where
     tomlDecoder = do
         mcName <- getField "name"
-        mcPath <- getField "path"
+        mPath <- getFieldOpt "path"
+        mcOrigin <- case (mPath, find ((== mcName) . builtinMethodName) builtinMethods) of
+            (Just path, _) -> pure (MethodFromFile path)
+            (Nothing, Just builtin) -> pure (MethodBuiltIn builtin)
+            (Nothing, Nothing) ->
+                fail $
+                    "a method without a path names a collection built into the engine ("
+                        <> T.unpack (T.intercalate ", " (map (\b -> "\"" <> builtinMethodName b <> "\"") builtinMethods))
+                        <> "); got \""
+                        <> T.unpack mcName
+                        <> "\""
         mcActive <- fromMaybe True <$> getFieldOpt "active"
         let mcIsUploaded = False -- Methods from TOML are not uploaded
-        mcDescription <- getFieldOpt "description"
+        mcDescription <- maybe (originDescription mcOrigin) Just <$> getFieldOpt "description"
         let mcFormat = Nothing -- Detected later from file content
         mcScoringSets <- fromMaybe [] <$> getFieldOpt "scoring"
         mcGlobalMethods <- fromMaybe [] <$> getFieldOpt "global-methods"
@@ -920,7 +976,7 @@ overPaths :: (PathKind -> FilePath -> FilePath) -> Config -> Config
 overPaths f cfg =
     cfg
         { cfgDatabases = map (\d -> d{dcPath = content (dcPath d)}) (cfgDatabases cfg)
-        , cfgMethods = map (\m -> m{mcPath = content (mcPath m)}) (cfgMethods cfg)
+        , cfgMethods = map (\m -> m{mcOrigin = onMethod (mcOrigin m)}) (cfgMethods cfg)
         , cfgFlowSynonyms = map refData (cfgFlowSynonyms cfg)
         , cfgCompartmentMappings = map refData (cfgCompartmentMappings cfg)
         , cfgUnits = map refData (cfgUnits cfg)
@@ -936,6 +992,9 @@ overPaths f cfg =
     onFile :: RefDataSource -> RefDataSource
     onFile (FromFile p) = FromFile (reference p)
     onFile b@(BuiltIn _) = b
+    onMethod :: MethodOrigin -> MethodOrigin
+    onMethod (MethodFromFile p) = MethodFromFile (content p)
+    onMethod b@(MethodBuiltIn _) = b
 
 {- | Apply redirectIntoDataDir to every reference-data path on the Config.
 Database and method paths are the operator's own and are left untouched,

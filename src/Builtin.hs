@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | The reference tables the binary carries, read from @data/@ at build time
-by gen-version.sh. A configuration refers to one by its name: to replace it
-with a file of its own, or to switch it off. The four list tables have a
-name because a TOML array entry names them; the geographies are a single
-top-level key and have none.
+{- | The reference tables and the method collections the binary carries, read
+from @data/@ at build time by gen-version.sh. A configuration refers to one by
+its name: to replace it with a file of its own, or to switch it off. The four
+list tables have a name because a TOML array entry names them; the geographies
+are a single top-level key and have none.
 -}
 module Builtin (
     BuiltinTable (..),
@@ -12,6 +12,11 @@ module Builtin (
     builtinName,
     builtinContent,
     builtinGeographies,
+    BuiltinMethod (..),
+    builtinMethods,
+    builtinMethodName,
+    builtinMethodDescription,
+    builtinMethodContent,
     DataVersion (..),
     builtinDataVersion,
 ) where
@@ -51,6 +56,23 @@ builtinContent = decode . literal
 
 builtinGeographies :: BL.ByteString
 builtinGeographies = decode L.geographiesCsv
+
+-- | The method collections the binary carries, each a columnar method CSV.
+data BuiltinMethod = BuiltinPlainIndicators
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+builtinMethods :: [BuiltinMethod]
+builtinMethods = [minBound .. maxBound]
+
+-- | The name a configuration uses to refer to the collection.
+builtinMethodName :: BuiltinMethod -> Text
+builtinMethodName BuiltinPlainIndicators = "plain-indicators"
+
+builtinMethodDescription :: BuiltinMethod -> Text
+builtinMethodDescription BuiltinPlainIndicators = "Raw physical quantities counted through the supply chain (CF=1.0)"
+
+builtinMethodContent :: BuiltinMethod -> BL.ByteString
+builtinMethodContent BuiltinPlainIndicators = decode L.plainIndicatorsCsv
 
 decode :: String -> BL.ByteString
 decode = BL.fromStrict . B64.decodeLenient . BC.pack
