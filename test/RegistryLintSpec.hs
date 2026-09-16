@@ -77,6 +77,15 @@ spec = do
                     classOf "Coal, brown, 8 MJ per kg" `shouldBe` brown
                     classOf "Coal, brown, 10 MJ per kg" `shouldBe` brown
 
+                -- EcoSpold 1 names the aggregate NMVOC flow with an origin
+                -- suffix that the characterization methods no longer write, so
+                -- without this bridge that flow reaches no factor at all.
+                it "bridges the origin-suffixed NMVOC spelling to the unsuffixed one" $ do
+                    let unsuffixed = classOf "NMVOC, non-methane volatile organic compounds"
+                    unsuffixed `shouldNotBe` Nothing
+                    classOf "NMVOC, non-methane volatile organic compounds, unspecified origin"
+                        `shouldBe` unsuffixed
+
                 it "keeps hard and brown coal in separate classes" $
                     classOf "Energy, from coal" == classOf "Energy, from coal, brown"
                         `shouldBe` False
