@@ -365,16 +365,44 @@ spec = do
             readUnit cfg "L" `shouldSatisfy` exact
             readUnit cfg "l" `shouldSatisfy` exact
             lookupUnitDef cfg "L" `shouldBe` Just (unitDef "volume" 1.0e-3)
+            readUnit cfg "kg/L" `shouldSatisfy` exact
+            lookupUnitDef cfg "kg/L" `shouldBe` lookupUnitDef cfg "kg/l"
 
-        it "reads the tonne-kilometre written with a centred dot" $ do
-            -- The SI writes a product of units with a centred dot, and two
-            -- characters draw it: the dot operator (U+22C5) and the middle dot
-            -- (U+00B7). A reader cannot tell them apart, so the table holds both.
+        it "reads a product of units written with a centred dot as the unit it spells" $ do
+            -- The SI writes a product of units with a centred dot, the dot
+            -- operator (U+22C5). The table holds it for every product it holds,
+            -- each the unit its plain row is.
             cfg <- loadFullUnitConfig
-            readUnit cfg "t⋅km" `shouldSatisfy` exact
-            readUnit cfg "t·km" `shouldSatisfy` exact
-            lookupUnitDef cfg "t⋅km" `shouldBe` lookupUnitDef cfg "t.km"
-            lookupUnitDef cfg "t·km" `shouldBe` lookupUnitDef cfg "t.km"
+            let products =
+                    [ ("t⋅km", "tkm")
+                    , ("kg⋅km", "kgkm")
+                    , ("m²⋅a", "m2a")
+                    , ("ha⋅a", "ha a")
+                    , ("m³⋅a", "m3a")
+                    , ("l⋅a", "l*a")
+                    , ("L⋅a", "l*a")
+                    , ("l⋅d", "l*d")
+                    , ("L⋅d", "l*d")
+                    , ("kg⋅a", "kg*a")
+                    , ("kg⋅d", "kg*d")
+                    , ("m⋅a", "m*a")
+                    , ("km⋅a", "km*a")
+                    , ("W⋅h", "Wh")
+                    , ("kW⋅h", "kWh")
+                    , ("MW⋅h", "MWh")
+                    , ("mW⋅h", "mWh")
+                    ]
+            mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) products
+            map (lookupUnitDef cfg . fst) products `shouldBe` map (lookupUnitDef cfg . snd) products
+            -- Both halves of the pair, as for mWh: with the megawatt alone, a
+            -- milliwatt hour would fold onto it and be read a billion times large.
+            lookupUnitDef cfg "mw⋅h" `shouldBe` Nothing
+
+        it "reads a superscript power as the digit it stands for" $ do
+            cfg <- loadFullUnitConfig
+            let powers = [("m²", "m2"), ("cm²", "cm2"), ("km²", "km2"), ("m³", "m3"), ("dm³", "dm3"), ("cm³", "cm3"), ("kg/m³", "kg/m3")]
+            mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) powers
+            map (lookupUnitDef cfg . fst) powers `shouldBe` map (lookupUnitDef cfg . snd) powers
 
         it "reads a capitalised prefix as the unit it spells" $ do
             -- The table holds both halves of each pair, so neither is read as

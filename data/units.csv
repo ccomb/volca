@@ -61,13 +61,17 @@ terajoule,energy,1000000.0
 kWh,energy,3.6
 kilowatt hour,energy,3.6
 kilowatt-hour,energy,3.6
+kW⋅h,energy,3.6
 MWh,energy,3600.0
 megawatt hour,energy,3600.0
 megawatt-hour,energy,3600.0
+MW⋅h,energy,3600.0
 mWh,energy,3.6e-06
+mW⋅h,energy,3.6e-06
 Wh,energy,0.0036
 watt hour,energy,0.0036
 watt-hour,energy,0.0036
+W⋅h,energy,0.0036
 kcal,energy,0.004184
 kilocalorie,energy,0.004184
 cal,energy,4.184e-06
@@ -96,6 +100,7 @@ L,volume,0.001
 liter,volume,0.001
 litre,volume,0.001
 dm3,volume,0.001
+dm³,volume,0.001
 ml,volume,1e-06
 mL,volume,1e-06
 ML,volume,1000.0
@@ -127,7 +132,6 @@ tkm,mass*length,1.0
 t*km,mass*length,1.0
 t.km,mass*length,1.0
 t⋅km,mass*length,1.0
-t·km,mass*length,1.0
 metric ton*km,mass*length,1.0
 tonne*km,mass*length,1.0
 tonne-km,mass*length,1.0
@@ -136,6 +140,7 @@ tonne-kilometre,mass*length,1.0
 kgkm,mass*length,0.001
 kg*km,mass*length,0.001
 kg.km,mass*length,0.001
+kg⋅km,mass*length,0.001
 kilogram*km,mass*length,0.001
 kilogram-km,mass*length,0.001
 kilogram-kilometer,mass*length,0.001
@@ -159,10 +164,12 @@ m2*a,area*time,1.0
 m2*year,area*time,1.0
 m²*year,area*time,1.0
 m2.year,area*time,1.0
+m²⋅a,area*time,1.0
 ha a,area*time,10000.0
 ha*a,area*time,10000.0
 ha*year,area*time,10000.0
 ha.year,area*time,10000.0
+ha⋅a,area*time,10000.0
 hectare*year,area*time,10000.0
 m3y,volume*time,1.0
 m3a,volume*time,1.0
@@ -170,31 +177,40 @@ m3*a,volume*time,1.0
 m3*year,volume*time,1.0
 m³*year,volume*time,1.0
 m3.year,volume*time,1.0
+m³⋅a,volume*time,1.0
 l*year,volume*time,0.001
 l.year,volume*time,0.001
 l*a,volume*time,0.001
+l⋅a,volume*time,0.001
+L⋅a,volume*time,0.001
 liter*year,volume*time,0.001
 litre*year,volume*time,0.001
 l*day,volume*time,2.7397260273972604e-06
 l.day,volume*time,2.7397260273972604e-06
 l*d,volume*time,2.7397260273972604e-06
+l⋅d,volume*time,2.7397260273972604e-06
+L⋅d,volume*time,2.7397260273972604e-06
 liter*day,volume*time,2.7397260273972604e-06
 litre*day,volume*time,2.7397260273972604e-06
 kgy,mass*time,1.0
 kg*year,mass*time,1.0
 kg.year,mass*time,1.0
 kg*a,mass*time,1.0
+kg⋅a,mass*time,1.0
 kg*day,mass*time,0.0027397260273972603
 kg.day,mass*time,0.0027397260273972603
 kg*d,mass*time,0.0027397260273972603
+kg⋅d,mass*time,0.0027397260273972603
 my,length*time,1.0
 m*a,length*time,1.0
 m*year,length*time,1.0
 m.year,length*time,1.0
+m⋅a,length*time,1.0
 kmy,length*time,1000.0
 km*a,length*time,1000.0
 km*year,length*time,1000.0
 km.year,length*time,1000.0
+km⋅a,length*time,1000.0
 mile*year,length*time,1609.344
 mile.year,length*time,1609.344
 m/s,length/time,1.0
@@ -207,4 +223,6 @@ kilobecquerel,/time,1.0
 Bq,/time,0.001
 becquerel,/time,0.001
 kg/m3,mass/length/length/length,1.0
+kg/m³,mass/length/length/length,1.0
 kg/l,mass/length/length/length,1000.0
+kg/L,mass/length/length/length,1000.0
