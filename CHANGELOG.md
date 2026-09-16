@@ -23,7 +23,13 @@
   capital having been added so that a reader cannot take it for the digit 1.
   Every product of SI units the table holds, from `t⋅km` to `m²⋅a` and `kW⋅h`,
   gains the spelling that joins its factors with the dot operator (U+22C5), and
-  `dm³` and `kg/m³` join `m³` and `cm³`. A source writing `L` was read as `l`
+  `dm³` and `kg/m³` join `m³` and `cm³`. The table also gains the prefixed
+  multiples a source commonly writes: `µg`, `ng`, `kt`, `µm`, `dm²`, `mm²`,
+  `cl`, `hl`, `GWh` and `TWh`, the litre ones under both symbols. The Greek mu
+  is read as the micro sign with a note. The megatonne and the petajoule are
+  left out, because a table holding `Mt` would read the `MT` a source writes
+  for a metric tonne as a megatonne, and one holding `PJ` would read a
+  picojoule as a petajoule. A source writing `L` was read as `l`
   with a note saying the table spells the unit otherwise, a source writing
   either of the others had its unit reported as unknown, and a client reading
   the shipped `units.csv` as written found none of them. The middle dot

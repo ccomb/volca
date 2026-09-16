@@ -5,11 +5,14 @@ g,mass,0.001
 gram,mass,0.001
 mg,mass,1e-06
 milligram,mass,1e-06
+µg,mass,1e-09
+ng,mass,1e-12
 Mg,mass,1000.0
 t,mass,1000.0
 ton,mass,1000.0
 tonne,mass,1000.0
 metric ton,mass,1000.0
+kt,mass,1000000.0
 pound,mass,0.45359237
 lb,mass,0.45359237
 ounce avoirdupois,mass,0.028349523125
@@ -26,6 +29,7 @@ centimetre,length,0.01
 mm,length,0.001
 millimeter,length,0.001
 millimetre,length,0.001
+µm,length,1e-06
 Mm,length,1000000.0
 mile,length,1609.344
 ft,length,0.3048
@@ -66,6 +70,8 @@ MWh,energy,3600.0
 megawatt hour,energy,3600.0
 megawatt-hour,energy,3600.0
 MW⋅h,energy,3600.0
+GWh,energy,3600000.0
+TWh,energy,3600000000.0
 mWh,energy,3.6e-06
 mW⋅h,energy,3.6e-06
 Wh,energy,0.0036
@@ -88,6 +94,10 @@ km2,area,1000000.0
 km²,area,1000000.0
 cm2,area,0.0001
 cm²,area,0.0001
+dm2,area,0.01
+dm²,area,0.01
+mm2,area,1e-06
+mm²,area,1e-06
 acre,area,4046.8564224
 m3,volume,1.0
 m³,volume,1.0
@@ -103,6 +113,10 @@ dm3,volume,0.001
 dm³,volume,0.001
 ml,volume,1e-06
 mL,volume,1e-06
+cl,volume,1e-05
+cL,volume,1e-05
+hl,volume,0.1
+hL,volume,0.1
 ML,volume,1000.0
 cm3,volume,1e-06
 cm³,volume,1e-06

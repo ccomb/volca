@@ -401,9 +401,38 @@ spec = do
 
         it "holds the superscript spelling of a power beside the digit one" $ do
             cfg <- loadFullUnitConfig
-            let powers = [("m²", "m2"), ("cm²", "cm2"), ("km²", "km2"), ("m³", "m3"), ("dm³", "dm3"), ("cm³", "cm3"), ("kg/m³", "kg/m3")]
+            let powers =
+                    [ ("m²", "m2")
+                    , ("dm²", "dm2")
+                    , ("cm²", "cm2")
+                    , ("mm²", "mm2")
+                    , ("km²", "km2")
+                    , ("m³", "m3")
+                    , ("dm³", "dm3")
+                    , ("cm³", "cm3")
+                    , ("kg/m³", "kg/m3")
+                    ]
             mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) powers
             map (lookupUnitDef cfg . fst) powers `shouldBe` map (lookupUnitDef cfg . snd) powers
+
+        it "reads the prefixed multiples a source writes" $ do
+            cfg <- loadFullUnitConfig
+            let multiples =
+                    [ ("µg", unitDef "mass" 1.0e-9)
+                    , ("ng", unitDef "mass" 1.0e-12)
+                    , ("kt", unitDef "mass" 1.0e6)
+                    , ("µm", unitDef "length" 1.0e-6)
+                    , ("cL", unitDef "volume" 1.0e-5)
+                    , ("hL", unitDef "volume" 0.1)
+                    , ("GWh", unitDef "energy" 3.6e6)
+                    , ("TWh", unitDef "energy" 3.6e9)
+                    ]
+            mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) multiples
+            map (lookupUnitDef cfg . fst) multiples `shouldBe` map (Just . snd) multiples
+            -- The table holds the micro sign a keyboard types (U+00B5). The
+            -- Greek mu (U+03BC) folds onto it, so it is read as the microgram
+            -- and said to be spelt otherwise.
+            readUnit cfg "μg" `shouldSatisfy` respeltAs "µg"
 
         it "reads a capitalised prefix as the unit it spells" $ do
             -- The table holds both halves of each pair, so neither is read as
