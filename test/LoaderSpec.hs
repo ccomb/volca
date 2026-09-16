@@ -160,7 +160,11 @@ missingActUUID = read "dddddddd-0000-0000-0000-000000000099"
 oneProducer :: Text -> UUID.UUID -> UUID.UUID -> Text -> NameOnlyIndex
 oneProducer key actId prodId unit = M.singleton key (namedProducerOf "producer" actId prodId unit NE.:| [])
 
--- | A producer of a product, named, in no location and in service.
+{- | A producer of a product, named, documented in no location and in service.
+It offers its product in @GLO@, the geography 'refExchange' puts on a reference
+row, so that an index built by hand here answers the same inputs as one built
+from activities.
+-}
 namedProducerOf :: Text -> UUID.UUID -> UUID.UUID -> Text -> NameProducer
 namedProducerOf name actId prodId unit =
     NameProducer
@@ -168,9 +172,15 @@ namedProducerOf name actId prodId unit =
         , npProductUUID = prodId
         , npActivityName = name
         , npLocation = ""
+        , npProductLocation = "GLO"
         , npObsolete = False
         , npReferenceUnit = unit
         }
+
+-- | A producer offering its product under one geography.
+producerOffering :: ExchangeLocation -> UUID.UUID -> UUID.UUID -> NameProducer
+producerOffering loc actId prodId =
+    (namedProducerOf "producer" actId prodId ""){npProductLocation = loc}
 
 -- | The producer the index ranks first, as (activity, product, reference unit).
 firstProducer :: Text -> NameOnlyIndex -> Maybe (UUID.UUID, UUID.UUID, Text)
@@ -651,6 +661,22 @@ spec = do
             -- empty UnitDB → reference unit resolves to the "unknown" sentinel
             firstProducer "wheat production" idx `shouldBe` Just (actUUID1, flowUUID1, "unknown")
 
+        it "records the geography the product row offers, not the activity's" $ do
+            -- A source can document a dataset in one place and offer its
+            -- product under another, and a row buying that product names the
+            -- second. Both are kept so each question has its own answer.
+            let act =
+                    minimalActivity
+                        "wheat production"
+                        "CH"
+                        [(refExchange flowUUID1){techLocation = "GLO"}]
+                acts = M.fromList [((actUUID1, flowUUID1), act)]
+                flows = M.fromList [(flowUUID1, minimalFlow flowUUID1 "Wheat Production")]
+                idx = buildSupplierIndexByName M.empty acts flows
+                producer = NE.head <$> M.lookup "wheat production" idx
+            (npLocation <$> producer) `shouldBe` Just "CH"
+            (npProductLocation <$> producer) `shouldBe` Just "GLO"
+
         it "picks a duplicate producer by name, never by identifier" $ do
             -- The typo pair: two blocks exported under names differing by one
             -- letter, both declaring the same product. Either answers, and the
@@ -883,6 +909,43 @@ spec = do
                 flows = M.fromList [(flowUUID1, minimalFlow flowUUID1 "wheat")]
                 (_, summary) = fixExchangeLinkByName defaultUnitConfig M.empty idx flows "consumer" (inputExchange flowUUID1 "GLO")
             usAmbiguousProducers summary `shouldBe` []
+
+        -- Where the format writes the geography into the product name, one name
+        -- covers every geography the product is made in and the consuming row
+        -- states the one it buys. Of one real export's 17 705 technosphere
+        -- rows, 8 601 state a geography and 4 012 of those name a product
+        -- several activities produce. The producers are given in the order the
+        -- ranking puts them, which ends on the location and so answers with the
+        -- first in alphabetical order.
+        let twoGeographies =
+                M.singleton
+                    "land use change"
+                    ( producerOffering "AR" actUUID1 flowUUID2
+                        NE.:| [producerOffering "MG" actUUID2 flowUUID2]
+                    )
+            landUseChange = M.fromList [(flowUUID1, minimalFlow flowUUID1 "land use change")]
+
+        it "links to the producer offering the geography the input states" $ do
+            let (fixed, summary) =
+                    fixExchangeLinkByName defaultUnitConfig M.empty twoGeographies landUseChange "consumer" (inputExchange flowUUID1 "MG")
+            techActivityLinkId fixed `shouldBe` Just actUUID2
+            usAmbiguousProducers summary `shouldBe` []
+
+        it "leaves the input for the cross-database linker when no producer offers the geography it states" $ do
+            -- A geography this database does not offer is very often one of a
+            -- database it depends on. Answering with a producer of another
+            -- geography would be the substitution this narrowing exists to
+            -- remove.
+            let (fixed, summary) =
+                    fixExchangeLinkByName defaultUnitConfig M.empty twoGeographies landUseChange "consumer" (inputExchange flowUUID1 "PE")
+            techActivityLinkId fixed `shouldBe` Nothing
+            usMissingLinks summary `shouldBe` 1
+
+        it "leaves the ranking to decide when the input states no geography" $ do
+            let (fixed, summary) =
+                    fixExchangeLinkByName defaultUnitConfig M.empty twoGeographies landUseChange "consumer" (inputExchange flowUUID1 "")
+            techActivityLinkId fixed `shouldBe` Just actUUID1
+            map apCandidates (usAmbiguousProducers summary) `shouldBe` [2]
 
     -- -----------------------------------------------------------------------
     -- fixEcoSpold1ActivityLinks (name-only fallback, EcoSpold1 style)
