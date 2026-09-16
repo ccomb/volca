@@ -1,6 +1,6 @@
 #!/bin/bash
 # Generate the build-time modules: src/Version.hs (build metadata) and
-# src/Builtin/Literals.hs (the reference tables the engine carries).
+# src/Builtin/Literals.hs (the reference tables and the method the engine carries).
 # Uses git if available, falls back to GIT_HASH/GIT_TAG/BUILD_TARGET env vars.
 set -e
 
@@ -28,8 +28,8 @@ EOF
 
 echo "Generated src/Version.hs (hash=$GIT_HASH, target=$BUILD_TARGET)"
 
-# The reference tables the engine carries. Read from data/ at build time so a
-# binary downloaded on its own scores with them; base64 keeps the generated
+# The reference tables and the method the engine carries. Read from data/ at
+# build time so a binary downloaded on its own scores with them; base64 keeps the generated
 # source ASCII whatever the CSV holds, and Builtin decodes it once at startup.
 # base64 wraps lines on some platforms and not others, hence the tr.
 b64() { base64 < "$1" | tr -d '\n'; }
@@ -48,6 +48,9 @@ compartmentsCsv = "$(b64 data/compartments.csv)"
 unitsCsv = "$(b64 data/units.csv)"
 energyDensityCsv = "$(b64 data/energy_density.csv)"
 geographiesCsv = "$(b64 data/geographies.csv)"
+
+plainIndicatorsCsv :: String
+plainIndicatorsCsv = "$(b64 data/methods/plain-indicators.csv)"
 EOF
 
 echo "Generated src/Builtin/Literals.hs (data version $DATA_VERSION)"

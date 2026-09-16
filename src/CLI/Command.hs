@@ -6,7 +6,7 @@ module CLI.Command where
 import API.Types (ActivityInput, ActivityWriteRequest (..), ProducerFilter (..), toAuthoredActivities, toExchangeEdits)
 import CLI.Client (readJsonFile)
 import CLI.Types (CLIConfig (..), Command (..), DatabaseAction (..), DbActivityArgs (..), DbDeleteArgs (..), DbExportArgs (..), DbRelinkArgs (..), DbWriteArgs (..), DebugMatricesOptions (..), FlowSubCommand (..), GlobalOptions (..), LCIAOptions (..), MappingOptions (..), McExportArgs (..), MethodAction (..), OutputFormat (..), SearchActivitiesOptions (..), SearchFlowsOptions (..), UploadArgs (..))
-import Config (DatabaseConfig (..), MethodConfig (..))
+import Config (DatabaseConfig (..), MethodConfig (..), MethodOrigin (..))
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson (Value, encode, object, toJSON, (.=))
 import Data.Aeson.Encode.Pretty (encodePretty)
@@ -451,7 +451,7 @@ executeMcUpload fmt manager args = do
             let mc =
                     MethodConfig
                         { mcName = uaName args
-                        , mcPath = methodDir
+                        , mcOrigin = MethodFromFile methodDir
                         , mcActive = False
                         , mcIsUploaded = True
                         , mcDescription = uaDescription args

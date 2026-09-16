@@ -20,6 +20,11 @@ spec = describe "Builtin" $ do
             , (BuiltinEnergyDensities, "data/energy_density.csv")
             ]
 
+    it "carries every method of data/methods/ byte for byte" $
+        mapM_
+            (\(m, path) -> BL.readFile path >>= \onDisk -> builtinMethodContent m `shouldBe` onDisk)
+            [(BuiltinPlainIndicators, "data/methods/plain-indicators.csv")]
+
     it "carries the geographies byte for byte" $
         BL.readFile "data/geographies.csv" >>= (builtinGeographies `shouldBe`)
 
@@ -29,3 +34,6 @@ spec = describe "Builtin" $ do
 
     it "names every table distinctly" $
         nub (map builtinName builtinTables) `shouldBe` map builtinName builtinTables
+
+    it "names every method distinctly" $
+        nub (map builtinMethodName builtinMethods) `shouldBe` map builtinMethodName builtinMethods

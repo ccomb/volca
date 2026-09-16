@@ -7,7 +7,7 @@ this is what says so.
 -}
 module ShadowedNamesSpec (spec) where
 
-import Config (MethodConfig (..))
+import Config (MethodConfig (..), MethodOrigin (..))
 import Data.Text (Text)
 import Database.Manager (shadowedMethods, shadowedNames)
 import Test.Hspec
@@ -43,7 +43,7 @@ collection :: Text -> FilePath -> MethodConfig
 collection name path =
     MethodConfig
         { mcName = name
-        , mcPath = path
+        , mcOrigin = MethodFromFile path
         , mcActive = True
         , mcIsUploaded = False
         , mcDescription = Nothing

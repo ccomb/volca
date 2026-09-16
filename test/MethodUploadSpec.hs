@@ -17,7 +17,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import API.DatabaseHandlers (formatToText)
-import Config (MethodConfig (..))
+import Config (MethodConfig (..), MethodOrigin (..))
 import Database.Manager (loadMethodCollectionFromConfig)
 import Database.Upload
 import Method.Types (Method (..), MethodCF (..), mcMethods)
@@ -170,7 +170,7 @@ spec = do
                 let mc =
                         MethodConfig
                             { mcName = "Test JSON-LD method"
-                            , mcPath = urPath res
+                            , mcOrigin = MethodFromFile (urPath res)
                             , mcActive = False
                             , mcIsUploaded = True
                             , mcDescription = Nothing
@@ -232,7 +232,7 @@ spec = do
     bareConfig path =
         MethodConfig
             { mcName = "bare"
-            , mcPath = path
+            , mcOrigin = MethodFromFile path
             , mcActive = False
             , mcIsUploaded = False
             , mcDescription = Nothing

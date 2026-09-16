@@ -143,7 +143,7 @@ import API.Types (
     toExchangeEdits,
  )
 import App.Env (AppEnv (..), AppM)
-import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, messageOr, readOnlyRefusalFor)
+import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, messageOr, readOnlyRefusalFor)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.Reader (asks)
 import Data.Aeson (Value)
@@ -1228,7 +1228,7 @@ uploadMethodHandler mName mDesc src =
                 let mc =
                         MethodConfig
                             { mcName = name
-                            , mcPath = methodDir
+                            , mcOrigin = MethodFromFile methodDir
                             , mcActive = False
                             , mcIsUploaded = True
                             , mcDescription = mDescription

@@ -145,7 +145,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE, withExceptT)
 import Data.Aeson (FromJSON (..), ToJSON (..), (.:), (.:?), (.=))
 import qualified Data.Aeson as A
-import Data.Bifunctor (first)
+import Data.Bifunctor (bimap, first)
 import Data.Char (toLower)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
@@ -170,7 +170,7 @@ import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileE
 import System.FilePath (takeDirectory, takeExtension, takeFileName, (</>))
 import System.Mem (performGC)
 
-import Builtin (builtinContent, builtinGeographies)
+import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName)
 import Config
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -1261,7 +1261,7 @@ shadowedMethods mcs =
         <> " and loaded from "
         <> NE.head paths
         <> ", so the name answers with two different collections"
-    | (name, paths) <- Indexing.collisions [(mcName mc, mcPath mc) | mc <- mcs]
+    | (name, paths) <- Indexing.collisions [(mcName mc, describeMethodOrigin (mcOrigin mc)) | mc <- mcs]
     ]
 
 {- | The location hierarchy this run scores against. Falling back to the
@@ -1735,7 +1735,7 @@ discoverUploadedMethodConfigs = do
         return
             MethodConfig
                 { mcName = UploadedDB.umDisplayName meta
-                , mcPath = methodDir
+                , mcOrigin = MethodFromFile methodDir
                 , mcActive = False -- Never auto-load uploaded methods
                 , mcIsUploaded = True
                 , mcDescription = UploadedDB.umDescription meta
@@ -3825,16 +3825,34 @@ data ParsedMethodFiles = ParsedMethodFiles
     , pmfErrors :: ![String]
     }
 
-{- | Load methods from a MethodConfig path (directory or archive).
+-- | Load the methods a MethodConfig names, from the binary or from disk.
+loadMethodCollectionFromConfig :: MethodConfig -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
+loadMethodCollectionFromConfig mc = case mcOrigin mc of
+    MethodBuiltIn builtin -> pure (builtinMethodCollection builtin)
+    MethodFromFile path -> loadMethodCollectionFromPath path
+
+{- | A built-in collection is a columnar method CSV, with no flow definitions
+beside it. It cannot fail to parse unless the build did (BuiltinSpec compares
+it with its file), so a failure says so.
+-}
+builtinMethodCollection :: BuiltinMethod -> Either Text (MethodCollection, M.Map UUID ILCDFlowInfo)
+builtinMethodCollection builtin =
+    bimap unreadable (\methods -> (MethodCollection methods [] [] [], M.empty)) $
+        parseMethodCSVBytes (BL.toStrict (builtinMethodContent builtin))
+  where
+    unreadable :: String -> Text
+    unreadable err = "The built-in method " <> builtinMethodName builtin <> " could not be read, this binary was built wrong: " <> T.pack err
+
+{- | Load methods from a path (directory or archive).
 Handles ZIP/7z archives via resolveDataPath, finds method XMLs,
 and enriches CFs from ILCD flow XMLs when available.
 -}
-loadMethodCollectionFromConfig :: MethodConfig -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
-loadMethodCollectionFromConfig mc = runExceptT $ do
+loadMethodCollectionFromPath :: FilePath -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
+loadMethodCollectionFromPath path = runExceptT $ do
     {- Resolve archives (ZIP to extracted directory). Single .json (openLCA
     JSON-LD ImpactCategory) and .csv (SimaPro method export) files are accepted
     directly without a wrapping directory or archive. -}
-    resolvedPath <- ExceptT (resolveDataPath (mcPath mc))
+    resolvedPath <- ExceptT (resolveDataPath path)
     source <- ExceptT $ methodSourceAt resolvedPath
     files <- liftIO $ methodFilesOf source
     when (noMethodFiles files) $
@@ -3865,10 +3883,10 @@ loadMethodCollectionFromConfig mc = runExceptT $ do
     this to guess at from the extension. -}
     unusableMethodPath :: Bool -> Text
     unusableMethodPath isFile
-        | not isFile = "Method path not found: " <> T.pack (mcPath mc)
+        | not isFile = "Method path not found: " <> T.pack path
         | otherwise =
             "Unsupported method file type (expected a directory, archive, .csv, or .json): "
-                <> T.pack (mcPath mc)
+                <> T.pack path
 
     methodFilesOf :: MethodSource -> IO MethodFiles
     methodFilesOf (BareMethodFile file) =
@@ -4010,13 +4028,17 @@ listMethodCollections manager = do
             , mcsDescription = mcDescription mc
             , mcsStatus = if M.member name loaded then Loaded else Unloaded
             , mcsIsUploaded = mcIsUploaded mc
-            , mcsPath = T.pack (mcPath mc)
+            , mcsPath = T.pack (describeMethodOrigin (mcOrigin mc))
             , mcsMethodCount = maybe 0 (length . mcMethods) (M.lookup name loaded)
-            , mcsFormat = fromMaybe (detectFormatFromPath (mcPath mc)) (mcFormat mc)
+            , mcsFormat = fromMaybe (formatOf (mcOrigin mc)) (mcFormat mc)
             }
         | (name, mc) <- M.toList available
         ]
   where
+    formatOf :: MethodOrigin -> Text
+    formatOf (MethodBuiltIn _) = "Columnar CSV"
+    formatOf (MethodFromFile path) = detectFormatFromPath path
+
     detectFormatFromPath :: FilePath -> Text
     detectFormatFromPath p
         | T.isInfixOf ".csv" (T.toLower (T.pack p)) = "SimaPro CSV"
@@ -4100,6 +4122,8 @@ removeMethodCollection manager name = do
     case M.lookup name available of
         Nothing -> return $ Left $ "Method collection not found: " <> name
         Just mc
+            | MethodBuiltIn _ <- mcOrigin mc ->
+                return $ Left $ "Cannot delete a method built into this engine. Switch it off in volca.toml: [[methods]] name = \"" <> name <> "\", active = false."
             | not (mcIsUploaded mc) ->
                 return $ Left "Cannot delete configured method. Edit volca.toml to remove it."
             | M.member name loaded ->

@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The `plain-indicators` method is built into the engine, like the reference
+  tables. It used to load only when a configuration named its file, so an
+  engine whose configuration did not name it started without it, and so did
+  one whose configuration named it by a relative path that led nowhere from
+  where that configuration sat. It is now loaded beside whatever methods a
+  configuration lists. A
+  `[[methods]]` entry named `plain-indicators` replaces it with a file when it
+  has a `path`, and without one switches it off (`active = false`) or gives it
+  scoring sets and patches. Any other entry without a `path` is refused at
+  startup. The collection lists its path as `built-in` and its format as
+  `Columnar CSV`.
+
 ### Fixed
 
 - An EcoSpold 1 database that names its non-methane volatile organic
