@@ -18,27 +18,26 @@
 
 ### Fixed
 
-- The unit table spells its units the way the SI writes them. The litre gains
-  `L` beside `l`, and `kg/L` beside `kg/l`: the SI accepts both symbols, the
-  capital having been added so that a reader cannot take it for the digit 1.
-  Every product of SI units the table holds, from `t⋅km` to `m²⋅a` and `kW⋅h`,
-  gains the spelling that joins its factors with the dot operator (U+22C5), and
-  `dm³` and `kg/m³` join `m³` and `cm³`. The table also gains the prefixed
-  multiples a source commonly writes: `µg`, `ng`, `kt`, `µm`, `dm²`, `mm²`,
-  `cl`, `hl`, `GWh` and `TWh`, the litre ones under both symbols. The Greek mu
-  is read as the micro sign with a note. The megatonne and the petajoule are
-  left out, because a table holding `Mt` would read the `MT` a source writes
-  for a metric tonne as a megatonne, and one holding `PJ` would read a
-  picojoule as a petajoule. A source writing `L` was read as `l`
-  with a note saying the table spells the unit otherwise, a source writing
-  either of the others had its unit reported as unknown, and a client reading
-  the shipped `units.csv` as written found none of them. The middle dot
-  (U+00B7), which looks the same, is still reported as unknown, and so is a
-  product of units outside the SI such as `person⋅km`. Authoring matches a unit
-  by its factor as well as by its spelling, so an activity written in `L` still
-  reaches a database that records `l`, and one written in `kilogram` now
-  reaches a database that records `kg`; when two of the database's units
-  qualify, the refusal names both. Data version 5.
+- The unit table spells its units the way the SI writes them, and holds the
+  multiples a source commonly writes. The litre gains `L` beside `l`, and
+  `kg/L` beside `kg/l`: the SI accepts both symbols, the capital having been
+  added so that a reader cannot take it for the digit 1. Every product of SI
+  units the table holds, from `t⋅km` to `m²⋅a` and `kW⋅h`, gains the spelling
+  that joins its factors with the dot operator (U+22C5), and `dm³` and `kg/m³`
+  join `m³` and `cm³`. `µg`, `ng`, `kt`, `µm`, `dm²`, `mm²`, `cl`, `hl`, `GWh`
+  and `TWh` are added, the litre ones under both symbols, and the Greek mu is
+  read as the micro sign with a note. A source writing `L` was read as `l` with
+  a note saying the table spells the unit otherwise, a source writing any of
+  the others had its unit reported as unknown, and a client reading the shipped
+  `units.csv` as written found none of them. Still reported as unknown: the
+  middle dot (U+00B7), which looks like the dot operator; a product of units
+  outside the SI such as `person⋅km`; and the megatonne and the petajoule, left
+  out because a table holding `Mt` would read the `MT` a source writes for a
+  metric tonne as a megatonne, and one holding `PJ` would read a picojoule as a
+  petajoule. Authoring matches a unit by its factor as well as by its spelling,
+  so an activity written in `L` still reaches a database that records `l`, and
+  one written in `kilogram` now reaches a database that records `kg`; when two
+  of the database's units qualify, the refusal names both. Data version 5.
 - An input is linked to a supplier offering its product where the input says it
   buys it. A product name carries no geography, so one name covers every
   geography the product is made in, and a format that writes the geography into
