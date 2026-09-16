@@ -506,6 +506,10 @@ History of manual bumps:
      all. The field sits inside a record the fingerprint does not look into,
      and it changes width, so an old cache would pass the check and every
      field after it would be read at the wrong offset.
+- 41: an input whose product name states a geography is linked to a producer
+     offering the product there, where it used to be linked on the name alone.
+     Nothing changes type, so a cache written just before this would pass the
+     fingerprint and keep the links made on the name.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -513,7 +517,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 40
+     in hi `xor` lo `xor` 41
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -605,12 +609,21 @@ The reference-product unit lets the linker reject a candidate whose unit is
 dimensionally incompatible with the consumer exchange (which the matrix builder
 could not convert), instead of forming a link that aborts the whole load. The
 activity name is what an input naming its supplier is matched against.
+
+The two locations answer two different questions and are both needed. The
+activity's is where the dataset was documented, which is what a reader sees and
+what the EcoSpold1 index is keyed on. The product row's is the geography that
+row offers its product under, which is what an input naming a product is
+matched against: a format writing the geography into the product name, as the
+SimaPro convention @Product/XX U@ does, states the two independently, and the
+row a consumer wrote names the second.
 -}
 data NameProducer = NameProducer
     { npActivityUUID :: !UUID.UUID
     , npProductUUID :: !UUID.UUID
     , npActivityName :: !T.Text
     , npLocation :: !T.Text
+    , npProductLocation :: !ExchangeLocation
     , npObsolete :: !Bool
     , npReferenceUnit :: !T.Text
     }
@@ -622,9 +635,10 @@ tie-break picks.
 
 Several is the ordinary shape, not the exception: a product name carries no
 location, so one name covers every geography the product is made in. The
-SimaPro and Brightway Excel readers take the head; the EcoSpold1 reader refuses
-a name covering more than one dataset, because there a location was expected
-and is missing.
+SimaPro and Brightway Excel readers narrow it by what the consuming row states
+about its supplier ('answering', 'offeredAt') and take the head of what is
+left; the EcoSpold1 reader refuses a name covering more than one dataset,
+because there a location was expected and is missing.
 -}
 type NameOnlyIndex = M.Map T.Text (NE.NonEmpty NameProducer)
 
@@ -836,6 +850,7 @@ rankedProducers keyOf unitDB activities techFlowDb =
             , npProductUUID = prodUUID
             , npActivityName = activityName act
             , npLocation = activityLocation act
+            , npProductLocation = exchangeStatedLocation ex
             , npObsolete = activityIsObsolete act
             , npReferenceUnit = getUnitNameForExchange unitDB ex
             }
@@ -1310,14 +1325,18 @@ reference-product unit is dimensionally compatible with the consumer exchange
 forming a link the matrix builder cannot convert – which would otherwise abort
 the whole load.
 
-An input that names the activity it buys from is honoured first: a product name
-several activities of the database produce says which one only when the source
-also names it, and a Brightway Excel workbook does. The ranked head is the
+Whatever the input says about its supplier is honoured first: a product name
+several activities of the database produce says which one only when the row
+states something more, and the two things a row states are the activity's name
+(a Brightway Excel workbook writes one) and the geography it buys the product
+under (a SimaPro row writes one into the product name, a Brightway Excel
+workbook into its location column). The ranked head is the
 fallback, and when it decides alone among several the tie is reported.
 
 There is no second guess. An input naming a product no activity of this
-database produces stays unlinked, and the cross-database linker gets its turn
-on it. Returns (fixed exchange, UnlinkedSummary).
+database produces, or naming it under an activity name or a geography none of
+them offers, stays unlinked, and the cross-database linker gets its turn on it.
+Returns (fixed exchange, UnlinkedSummary).
 -}
 fixExchangeLinkByName :: UC.UnitConfig -> UnitDB -> NameOnlyIndex -> TechFlowDB -> T.Text -> Exchange -> (Exchange, UnlinkedSummary)
 fixExchangeLinkByName unitConfig unitDB idx techFlowDb consumerName ex@TechnosphereExchange{techFlowId = fid, techRole = role, techSupplierClaim = claim, techLocation = loc}
@@ -1339,7 +1358,7 @@ fixExchangeLinkByName unitConfig unitDB idx techFlowDb consumerName ex@Technosph
                             , usMissingLinks = 1
                             }
                         )
-                 in case M.lookup key idx >>= answering (claimedName claim) of
+                 in case M.lookup key idx >>= answering (claimedName claim) >>= offeredAt loc of
                         Nothing -> unlinked
                         Just answers -> case accept (NE.head answers) of
                             Nothing -> unlinked
@@ -1406,6 +1425,31 @@ answering (Just name) producers = NE.nonEmpty (NE.filter named producers)
   where
     named :: NameProducer -> Bool
     named p = normalizeText name == normalizeText (npActivityName p)
+
+{- | The producers offering the product where the input says it buys it.
+
+An input claims its supplier by product, and where the format writes the
+geography into the product name the row claims a geography too, which its
+'techLocation' carries. One product name covers every geography the
+product is made in, so when the row states one it is the statement that says
+which producer answers, and the ranking is left with nothing to decide.
+
+A row stating no geography is answered by every producer, as before. One
+stating a geography no producer of this database offers is answered by none:
+the same reasoning as 'answering', because the geography is very often one of a
+database this one depends on, and the cross-database linker weighs geographies
+where this index cannot. Answering it with a producer of another geography
+would be a fallback taken when the lookup failed, which is the defect this
+narrowing exists to remove, not a smaller version of it.
+-}
+offeredAt :: ExchangeLocation -> NE.NonEmpty NameProducer -> Maybe (NE.NonEmpty NameProducer)
+offeredAt stated producers = case stated of
+    LocationNone -> Just producers
+    LocationGlobal -> offering
+    LocationCode _ -> offering
+  where
+    offering :: Maybe (NE.NonEmpty NameProducer)
+    offering = NE.nonEmpty (NE.filter ((== stated) . npProductLocation) producers)
 
 {- | The tie an input left the ranking to break: several producers answered it
 equally well, and nothing in the row says which.

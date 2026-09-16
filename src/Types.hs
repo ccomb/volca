@@ -589,11 +589,15 @@ exchangeActivityLinkId TechnosphereExchange{techActivityLinkId = linkId} = linkI
 exchangeActivityLinkId BiosphereExchange{} = Nothing
 exchangeActivityLinkId WasteExchange{waActivityLinkId = linkId} = linkId
 
+-- | What the source says about where an exchange happens.
+exchangeStatedLocation :: Exchange -> ExchangeLocation
+exchangeStatedLocation TechnosphereExchange{techLocation = loc} = loc
+exchangeStatedLocation BiosphereExchange{bioLocation = loc} = loc
+exchangeStatedLocation WasteExchange{waLocation = loc} = loc
+
 -- | Get exchange location (for EcoSpold1 supplier lookup)
 exchangeLocation :: Exchange -> Text
-exchangeLocation TechnosphereExchange{techLocation = loc} = locationCode loc
-exchangeLocation BiosphereExchange{bioLocation = loc} = locationCode loc
-exchangeLocation WasteExchange{waLocation = loc} = locationCode loc
+exchangeLocation = locationCode . exchangeStatedLocation
 
 -- | Get free-text comment attached to the exchange by the source dataset
 exchangeComment :: Exchange -> Maybe Text

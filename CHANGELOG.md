@@ -39,6 +39,26 @@
   reaches a database that records `l`, and one written in `kilogram` now
   reaches a database that records `kg`; when two of the database's units
   qualify, the refusal names both. Data version 5.
+- An input is linked to a supplier offering its product where the input says it
+  buys it. A product name carries no geography, so one name covers every
+  geography the product is made in, and a format that writes the geography into
+  the product name states the two independently: a row reading
+  `Land use change, annual crop (…)/MG U` names both the product and the
+  country it buys it in. Only the name was read. One published export holds
+  thirty-one activities of that one product name, and the row was answered by
+  whichever the ranking put first, a country clearing forest where the one asked
+  for converts existing cropland: a factor of eleven on the climate change of
+  what consumes it. A global average buying its product from three countries
+  was answered by itself for all three, consumed its whole output, and scored
+  zero in every category. Of that export's 17 705 technosphere rows, 8 601 state
+  a geography and 4 012 of those name a product several activities produce. A
+  row stating a geography no activity of the database offers is now left for
+  the cross-database linker, which weighs geographies where this index cannot,
+  rather than answered with an activity of another one. A row stating none is
+  answered as before. A Brightway Excel workbook, which states the geography in
+  a column of its own, is narrowed the same way. A cache built before this keeps
+  the links made on the name alone, so every cache rebuilds itself from its
+  source on the next load.
 - An EcoSpold 1 database that names its non-methane volatile organic
   compounds `NMVOC, non-methane volatile organic compounds, unspecified
   origin` now has that flow characterized. The methods write the same
