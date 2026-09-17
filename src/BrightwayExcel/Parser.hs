@@ -54,6 +54,7 @@ module BrightwayExcel.Parser (
 import Amount (readAmount)
 import Codec.Archive.Zip (Archive, findEntryByPath, fromEntry, toArchiveOrFail)
 import Control.Applicative ((<|>))
+import Control.Monad (mfilter)
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
@@ -64,6 +65,7 @@ import Data.List (find, findIndex, partition)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -132,7 +134,7 @@ parseBrightwayExcel cfg path = do
         Right sheets -> do
             let (dataSheets, skipped) = partition (validFirstCell . snd) sheets
                 blocks = concatMap (mapMaybe parseBlock . activityBlocks . snd) dataSheets
-                results = map (rawToActivity cfg) blocks
+                results = map (rawToActivity cfg (ownDatabases (map snd dataSheets) blocks)) blocks
                 activities = [a | (a, _, _, _, _) <- results]
                 techFlows = concat [fs | (_, fs, _, _, _) <- results]
                 bioFlows = concat [fs | (_, _, fs, _, _) <- results]
@@ -332,25 +334,76 @@ sheetToActivities ::
     UC.UnitConfig ->
     [Row] ->
     [(Activity, [TechnosphereFlow], [BiosphereFlow], [Unit], [Text])]
-sheetToActivities cfg = map (rawToActivity cfg) . mapMaybe parseBlock . activityBlocks
+sheetToActivities cfg rows = map (rawToActivity cfg (ownDatabases [rows] blocks)) blocks
+  where
+    blocks :: [RawActivity]
+    blocks = mapMaybe parseBlock (activityBlocks rows)
+
+-- | A block's exchange rows, each keyed by its column labels.
+blockFields :: RawActivity -> [M.Map Text CellValue]
+blockFields ra = map (rowFields (raHeaders ra)) (raRows ra)
+
+isProductionRow :: M.Map Text CellValue -> Bool
+isProductionRow f = (T.toLower <$> fieldText f "type") == Just "production"
+
+{- | The databases a workbook writes its own activities into: those its
+@Database@ sections name and those its production rows name. A technosphere row
+naming any other database asks for a product made there.
+-}
+newtype OwnDatabases = OwnDatabases (S.Set Text)
+
+ownDatabases :: [[Row]] -> [RawActivity] -> OwnDatabases
+ownDatabases sheets blocks =
+    OwnDatabases . S.fromList $
+        [name | row <- concat sheets, rowKeyIs "database" row, Just name <- [textAt 1 row]]
+            ++ [name | ra <- blocks, f <- blockFields ra, isProductionRow f, Just name <- [fieldText f "database"]]
+
+{- | Where a technosphere row says its product is made: in this workbook, or in
+the database its @database@ column names when that is none of the workbook's
+own. A row naming no database is made here, as every row was read before.
+-}
+data MadeIn = MadeHere | MadeIn !Text
+
+madeIn :: OwnDatabases -> M.Map Text CellValue -> MadeIn
+madeIn (OwnDatabases own) f = maybe MadeHere MadeIn (mfilter (`S.notMember` own) (fieldText f "database"))
+
+{- | The flow a product row designates. A product made in another database is
+not the product of this workbook spelt the same way: another activity makes it,
+often counted in another unit (a coke weighed here in kilograms, bought there in
+megajoules), and one flow for both refused the whole workbook for its two
+units. The database takes the place a biosphere flow gives its compartment, so
+a product made here keeps the identity the other readers give it.
+-}
+productFlowUUID :: MadeIn -> Text -> UUID
+productFlowUUID = \case
+    MadeHere -> (`generateFlowUUID` "")
+    MadeIn db -> (`generateFlowUUID` ("database " <> db))
+
+-- | What every exchange row of one block is read against.
+data RowContext = RowContext
+    { rcUnits :: !UC.UnitConfig
+    , rcOwn :: !OwnDatabases
+    , rcActivity :: !Text
+    -- ^ The activity the row belongs to, named in every warning it raises.
+    }
 
 rawToActivity ::
     UC.UnitConfig ->
+    OwnDatabases ->
     RawActivity ->
     (Activity, [TechnosphereFlow], [BiosphereFlow], [Unit], [Text])
-rawToActivity cfg ra =
+rawToActivity cfg own ra =
     (activity, techFlows, bioFlows, units, warnings)
   where
     meta = metaOf ra
-    fieldRows = map (rowFields (raHeaders ra)) (raRows ra)
-    isType t r = (T.toLower <$> fieldText r "type") == Just t
-    prodRows = filter (isType "production") fieldRows
-    otherRows = filter (not . isType "production") fieldRows
+    fieldRows = blockFields ra
+    prodRows = filter isProductionRow fieldRows
+    otherRows = filter (not . isProductionRow) fieldRows
 
     prodOuts = case prodRows of
         [] -> [productRowOut cfg meta True M.empty | M.member "reference product" meta]
         (r : rs) -> productRowOut cfg meta True r : map (productRowOut cfg meta False) rs
-    otherOuts = map (exchangeRowOut cfg (raName ra)) otherRows
+    otherOuts = map (exchangeRowOut (RowContext cfg own (raName ra))) otherRows
     allOuts = prodOuts ++ otherOuts
 
     exchanges' = mapMaybe roExch allOuts
@@ -425,7 +478,7 @@ productRowOut cfg meta isRef f =
     rawUnit = fromMaybe "" (fieldText f "unit" <|> metaText meta "unit")
     rawAmount = fromMaybe 1 (fieldNum f "amount" <|> metaNum meta "production amount")
     (effUnit, effAmount) = canonicalRow cfg rawUnit rawAmount
-    flowUUID = generateFlowUUID name ""
+    flowUUID = productFlowUUID MadeHere name
     unitUUID = generateUnitUUID effUnit
     exch =
         TechnosphereExchange
@@ -446,11 +499,11 @@ productRowOut cfg meta isRef f =
     unit = Unit unitUUID effUnit effUnit ""
 
 -- | Build a technosphere or biosphere exchange from a non-production row.
-exchangeRowOut :: UC.UnitConfig -> Text -> M.Map Text CellValue -> RowOut
-exchangeRowOut cfg actName f =
+exchangeRowOut :: RowContext -> M.Map Text CellValue -> RowOut
+exchangeRowOut ctx@RowContext{rcUnits = cfg, rcActivity = actName} f =
     case T.toLower <$> fieldText f "type" of
-        Just "technosphere" -> technosphereRowOut cfg Input actName f
-        Just "substitution" -> technosphereRowOut cfg AvoidedProduct actName f
+        Just "technosphere" -> technosphereRowOut ctx Input f
+        Just "substitution" -> technosphereRowOut ctx AvoidedProduct f
         Just "biosphere" -> biosphereRowOut cfg actName f
         Just other ->
             emptyRowOut{roWarn = ["activity '" <> actName <> "': skipped exchange with unrecognized type '" <> other <> "'"]}
@@ -460,7 +513,9 @@ exchangeRowOut cfg actName f =
 {- | A technosphere row keyed by the supplier's /reference product/ name (the
 key 'Database.Loader.buildSupplierIndexByName' matches against), with the
 supplier location preserved for geography-aware cross-DB linking: an 'Input'
-for a @technosphere@ row, an 'AvoidedProduct' for a @substitution@ row.
+for a @technosphere@ row, an 'AvoidedProduct' for a @substitution@ row. A row
+whose @database@ column names another database than the workbook's own asks for
+a flow of its own ('productFlowUUID').
 
 A zero amount is kept, like every other amount and like the SimaPro importer:
 it says the author disabled this input, which is a statement about the model,
@@ -471,8 +526,8 @@ the row's 'SupplierClaim'. It is what tells @market group for electricity, mediu
 voltage@ from the 26 other activities of a released background database whose
 reference product is also @electricity, medium voltage@ in GLO.
 -}
-technosphereRowOut :: UC.UnitConfig -> TechRole -> Text -> M.Map Text CellValue -> RowOut
-technosphereRowOut cfg role actName f
+technosphereRowOut :: RowContext -> TechRole -> M.Map Text CellValue -> RowOut
+technosphereRowOut RowContext{rcUnits = cfg, rcOwn = own, rcActivity = actName} role f
     | T.null name = emptyRowOut{roWarn = ["activity '" <> actName <> "': skipped technosphere row with no name"]}
     | isNothing (fieldNum f "amount") =
         emptyRowOut{roWarn = ["activity '" <> actName <> "', row '" <> name <> "': skipped, its amount cell holds no number"]}
@@ -480,7 +535,7 @@ technosphereRowOut cfg role actName f
   where
     name = fromMaybe "" (fieldText f "reference product" <|> fieldText f "name")
     (unitName', amount) = canonicalRow cfg (fromMaybe "" (fieldText f "unit")) (fromMaybe 0 (fieldNum f "amount"))
-    flowUUID = generateFlowUUID name ""
+    flowUUID = productFlowUUID (madeIn own f) name
     unitUUID = generateUnitUUID unitName'
     exch =
         TechnosphereExchange
