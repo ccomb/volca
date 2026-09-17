@@ -14,6 +14,7 @@ import Test.Hspec
 import Data.Either (isLeft)
 import Data.Maybe (isJust)
 import Method.ChemSynonyms (emptyChemSynonyms, parseChemSynonymsCSV)
+import Method.FlowResolver (parseCompartment)
 import Method.Mapping
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.Types (Compartment (..), EnergyDensity (..), FlowDirection (..), Method (..), MethodCF (..), buildCompartmentMapFromCSV)
@@ -710,6 +711,51 @@ spec = do
             scoreVia cmap USEtoxFamily "Iron, ion" Nothing "ground-, long-term" `shouldReturn` 0.0
             scoreVia cmap USEtoxFamily "Iron(2+)" (Just "7439-89-6") "ground-, long-term" `shouldReturn` 0.0
             scoreVia cmap OtherCFFamily "Iron(2+)" (Just "7439-89-6") "ground-, long-term" `shouldReturn` 2108.5
+
+    describe "ILCD soil and fresh-water subcompartments (compartments.csv)" $ do
+        -- The ILCD package files its factors under "Emissions to agricultural
+        -- soil", "Emissions to non-agricultural soil" and "Emissions to fresh
+        -- water"; SimaPro writes agricultural, industrial and river, EcoSpold 2
+        -- agricultural, industrial and surface water. The SimaPro implementation
+        -- of the same method and the EcoSpold 2 release's own both give those
+        -- the ILCD subcompartment's factor, so a flow there must not fall back
+        -- to the unspecified one. The factors take their compartment through
+        -- 'parseCompartment', as an ILCD package loads them.
+        cmap <- runIO $ do
+            csv <- BL.readFile "data/compartments.csv"
+            either (fail . ("compartments.csv: " <>)) pure (buildCompartmentMapFromCSV csv)
+        let cfUnder medium sub val = (mkCF "Silver (I)" Nothing val){mcfCompartment = parseCompartment ["Emissions", medium, sub]}
+            soilCFs =
+                [ cfUnder "Emissions to soil" "Emissions to soil, unspecified" 1.0
+                , cfUnder "Emissions to soil" "Emissions to agricultural soil" 2.0
+                , cfUnder "Emissions to soil" "Emissions to non-agricultural soil" 3.0
+                ]
+            waterCFs =
+                [ cfUnder "Emissions to water" "Emissions to water, unspecified" 1.0
+                , cfUnder "Emissions to water" "Emissions to fresh water" 2.0
+                ]
+            scoreAt cfs medium sub = do
+                fid <- nextRandom
+                let flow = mkFlow fid "Silver (I)" medium (Just sub)
+                    tables = buildMethodTables USEtoxFamily cmap M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
+                pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
+
+        it "gives agricultural and industrial soil their own factors" $ do
+            scoreAt soilCFs Soil "agricultural" `shouldReturn` 2.0
+            scoreAt soilCFs Soil "industrial" `shouldReturn` 3.0
+
+        it "gives river and surface water the fresh-water factor" $ do
+            scoreAt waterCFs Water "river" `shouldReturn` 2.0
+            scoreAt waterCFs Water "surface water" `shouldReturn` 2.0
+
+        it "gives surface water the river factor of a method written in SimaPro terms" $
+            scoreAt
+                [ mkCFComp "Silver (I)" "water" "(unspecified)" 1.0
+                , mkCFComp "Silver (I)" "water" "river" 2.0
+                ]
+                Water
+                "surface water"
+                `shouldReturn` 2.0
 
     describe "final waste flows and inventory indicators meet the same factor" $ do
         -- A method writing an ecofactor for landfilled waste puts "Waste" in

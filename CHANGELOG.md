@@ -116,6 +116,21 @@
   chromium as bare `Chromium`, the amounts an EcoSpold 2 release records as
   `Chromium III` and later exports write `Chromium (III)`. No score changes.
   Data version 5.
+- An ILCD method package now gives an emission to agricultural soil,
+  industrial soil or a river its own subcompartment factor. The package files
+  them under `Emissions to agricultural soil`, `Emissions to non-agricultural
+  soil` and `Emissions to fresh water`; SimaPro writes `agricultural`,
+  `industrial` and `river`, EcoSpold 2 `agricultural`, `industrial` and
+  `surface water`. The compartment table joined only the last, so the others
+  took the unspecified-soil or unspecified-water factor, for silver on
+  agricultural soil half the right one. The SimaPro implementation of the
+  EF 3.1 package and an EcoSpold 2 release's own both read these
+  subcompartments this way. Scored with the reference EF 3.1 package, an
+  EcoSpold 2 release now matches its own published human non-cancer toxicity
+  from inorganics within 5 % for 87 % of its processes instead of 64 %; with
+  the SimaPro implementation, 85 % instead of 18 %. An emission to a lake
+  keeps the unspecified-water factor, as in the SimaPro implementation.
+  Data version 5.
 
 ## [0.13.0] - 2026-09-15
 
