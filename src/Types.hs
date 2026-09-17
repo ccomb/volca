@@ -416,8 +416,8 @@ data SupplierRequest = SupplierRequest
     { srProduct :: !Text
     , srActivity :: !(Maybe Text)
     -- ^ The supplier activity the input named, when it named one by name
-    , srLocation :: !(Maybe Text)
-    -- ^ The location the input stated, when it stated one
+    , srLocation :: !ExchangeLocation
+    -- ^ The location the input stated
     }
     deriving (Eq, Ord, Show, Generic, NFData, Store)
 
@@ -427,16 +427,13 @@ supplierRequest name claim loc =
     SupplierRequest
         { srProduct = name
         , srActivity = claimedName claim
-        , srLocation = case loc of
-            LocationNone -> Nothing
-            LocationGlobal -> Just (locationCode loc)
-            LocationCode _ -> Just (locationCode loc)
+        , srLocation = loc
         }
 
 -- | A request as a log line names it: @market for lime · lime (RoW)@.
 describeRequest :: SupplierRequest -> Text
 describeRequest SupplierRequest{srProduct = name, srActivity = activity, srLocation = loc} =
-    maybe "" (<> " · ") activity <> name <> maybe "" (\code -> " (" <> code <> ")") loc
+    maybe "" (<> " · ") activity <> name <> maybe "" (\code -> " (" <> code <> ")") (statedCode loc)
 
 {- | What a source says about where an exchange happens.
 
@@ -458,7 +455,7 @@ data ExchangeLocation
       LocationNone
     | -- | the code the source states
       LocationCode !Text
-    deriving (Eq, Show, Generic, NFData, Store)
+    deriving (Eq, Ord, Show, Generic, NFData, Store)
 
 {- | The location a stated code names. The empty code is what a format
 stating none has always been written as, here and on the wire.
@@ -473,6 +470,12 @@ locationCode :: ExchangeLocation -> Text
 locationCode LocationGlobal = "GLO"
 locationCode LocationNone = ""
 locationCode (LocationCode code) = code
+
+-- | The code a location is written as, when the source states one.
+statedCode :: ExchangeLocation -> Maybe Text
+statedCode LocationNone = Nothing
+statedCode loc@LocationGlobal = Just (locationCode loc)
+statedCode loc@(LocationCode _) = Just (locationCode loc)
 
 -- | So a literal code reads as one wherever an exchange is built.
 instance IsString ExchangeLocation where

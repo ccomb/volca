@@ -300,7 +300,7 @@ spec = do
         let refusedBy blockers =
                 stats
                     { cdlUnresolvedRequests =
-                        M.insert (SupplierRequest "flour" Nothing (Just "FR")) (UnresolvedProduct blockers) (cdlUnresolvedRequests stats)
+                        M.insert (SupplierRequest "flour" Nothing "FR") (UnresolvedProduct blockers) (cdlUnresolvedRequests stats)
                     }
             entriesOf refused =
                 filter ((== "flour") . gaeName) (graGaps (gapReportToAPI Nothing (gapReportForStaged "consumer" consumerDB refused)))
@@ -353,8 +353,8 @@ spec = do
 
         it "records each refused request under what it asked for" $
             M.keys (cdlUnresolvedRequests namedStats)
-                `shouldBe` [ SupplierRequest "flour" Nothing (Just "FR")
-                           , SupplierRequest "flour" (Just "flour milling") (Just "DE")
+                `shouldBe` [ SupplierRequest "flour" Nothing "FR"
+                           , SupplierRequest "flour" (Just "flour milling") "DE"
                            ]
 
         it "reports the activity a request named on its own entry" $

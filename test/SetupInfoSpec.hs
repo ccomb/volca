@@ -5,6 +5,7 @@ module SetupInfoSpec (spec) where
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Data.List (nub)
 import qualified Data.Map.Strict as M
+import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -157,7 +158,7 @@ what is under test, and a fixture producing a chosen pair of them would be
 three databases of scaffolding.
 -}
 refusedAs :: M.Map LinkBlocker Int -> IO DatabaseSetupInfo
-refusedAs blockers = requestsRefused [(SupplierRequest "wheat" Nothing Nothing, blockers)]
+refusedAs blockers = requestsRefused [(SupplierRequest "wheat" Nothing LocationNone, blockers)]
 
 -- | Setup info for a database whose linker refused each request the given ways.
 requestsRefused :: [(SupplierRequest, M.Map LinkBlocker Int)] -> IO DatabaseSetupInfo
@@ -276,13 +277,17 @@ spec = do
                            , ("unit_incompatible", 2, Just "m3 vs kg")
                            ]
 
-        -- The location a demand asked for is part of the blocker, so a product
-        -- demanded at forty locations no dependency serves would be forty rows
-        -- on a page that shows ten products. One reason refused all of them;
-        -- which locations is what the unresolved-location list is for.
+        -- A product demanded at forty locations no dependency serves would be
+        -- forty rows on a page that shows ten products. One reason refused all
+        -- of them, and the row lists where.
         it "counts one reason once, whatever locations it was refused at" $ do
-            info <- refusedAs (M.fromList [(LocationUnavailable loc, 1) | loc <- ["FR", "DE", "IT"]])
+            info <-
+                requestsRefused
+                    [ (SupplierRequest "wheat" Nothing (fromString loc), M.singleton (LocationUnavailable (T.pack loc)) 1)
+                    | loc <- ["FR", "DE", "IT"]
+                    ]
             missingRows info `shouldBe` [("location_unavailable", 3, Nothing)]
+            map msLocations (dsiMissingSuppliers info) `shouldBe` [["DE", "FR", "IT"]]
 
     -- The dangling-import shape, but its matching background is loaded as a
     -- dependency: the input resolves cross-DB by activityLinkId, recorded in
@@ -292,27 +297,37 @@ spec = do
     -- at. A row naming only the product leaves the user guessing which
     -- dataset of the dependency is missing.
     describe "buildLoadedSetupInfo (requests naming an activity)" $ do
-        it "names the activity and the location each request stated" $ do
+        it "names the activity, and the locations each reason refused it at" $ do
             let lime = SupplierRequest "lime" (Just "market for lime")
             info <-
                 requestsRefused
-                    [ (lime (Just "RoW"), M.singleton NoNameMatch 2)
-                    , (lime (Just "Europe without Switzerland"), M.singleton NoNameMatch 4)
+                    [ (lime "RoW", M.singleton NoNameMatch 2)
+                    , (lime "Europe without Switzerland", M.singleton NoNameMatch 4)
+                    , (lime "CH", M.singleton (UnitIncompatible "m3" "kg") 1)
                     ]
-            [(msProductName s, msSupplierActivity s, msLocation s, msCount s) | s <- dsiMissingSuppliers info]
-                `shouldBe` [ ("lime", Just "market for lime", Just "Europe without Switzerland", 4)
-                           , ("lime", Just "market for lime", Just "RoW", 2)
+            [(msProductName s, msSupplierActivity s, msReason s, msLocations s, msCount s) | s <- dsiMissingSuppliers info]
+                `shouldBe` [ ("lime", Just "market for lime", "no_name_match", ["Europe without Switzerland", "RoW"], 6)
+                           , ("lime", Just "market for lime", "unit_incompatible", ["CH"], 1)
                            ]
 
-        -- The page shows ten products. Capping requests instead would let one
-        -- product bought at many locations push every other product off it.
+        it "lists each activity a product was asked from apart" $ do
+            info <-
+                requestsRefused
+                    [ (SupplierRequest "lime" (Just "market for lime") "RoW", M.singleton NoNameMatch 2)
+                    , (SupplierRequest "lime" (Just "lime production") "RoW", M.singleton NoNameMatch 1)
+                    ]
+            map msSupplierActivity (dsiMissingSuppliers info) `shouldBe` [Just "market for lime", Just "lime production"]
+
+        -- The page shows ten products, however many activities or locations
+        -- each was asked at.
         it "keeps ten products however many requests one of them makes" $ do
-            let electricity = [(SupplierRequest "electricity" Nothing (Just loc), M.singleton NoNameMatch 5) | loc <- ["L" <> T.pack (show i) | i <- [1 .. 12 :: Int]]]
-                others = [(SupplierRequest ("product " <> T.pack (show i)) Nothing Nothing, M.singleton NoNameMatch 1) | i <- [1 .. 10 :: Int]]
+            let electricity = [(SupplierRequest "electricity" Nothing (fromString ('L' : show i)), M.singleton NoNameMatch 5) | i <- [1 .. 12 :: Int]]
+                others = [(SupplierRequest ("product " <> T.pack (show i)) Nothing LocationNone, M.singleton NoNameMatch 1) | i <- [1 .. 10 :: Int]]
             info <- requestsRefused (electricity <> others)
             let products = map msProductName (dsiMissingSuppliers info)
+            length products `shouldBe` 10
             length (nub products) `shouldBe` 10
-            length (filter (== "electricity") products) `shouldBe` 12
+            map (length . msLocations) (take 1 (dsiMissingSuppliers info)) `shouldBe` [12]
 
     describe "buildLoadedSetupInfo (partial import + loaded background)" $ do
         it "reports a cross-DB-supplied background link as ready / 100% / no gaps" $ do

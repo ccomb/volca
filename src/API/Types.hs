@@ -985,7 +985,7 @@ data GapConsumerAPI = GapConsumerAPI
 
 {- | One supplier gap, aggregated per (product name, supplier activity,
 location, unit) so @demandSum@ never mixes units. @supplierActivity@ is the
-activity the demands named, left out where they named none by name.
+activity the demands named, @null@ where they named none by name.
 @reasons@ carries every stable blocker code the request was refused under ('Types.blockerReason'), plus
 @dangling_source_identity@ for inputs whose named source activity no dependency
 ships, and @unlinked_waste_input@ for treatment-side waste inputs with no

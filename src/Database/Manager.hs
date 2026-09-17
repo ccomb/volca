@@ -246,6 +246,7 @@ import Types (
     CrossDBLink (..),
     CrossDBLinkingStats (..),
     Database (..),
+    ExchangeLocation (..),
     FlowClosure (..),
     GeographyPolicy (..),
     LinkBlocker (..),
@@ -263,6 +264,7 @@ import Types (
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
+    blockerReason,
     computeMinimalSelectedDeps,
     crossDBBySource,
     crossDBRedundantSources,
@@ -275,6 +277,7 @@ import Types (
     initializeRuntimeFields,
     parseAllocationKey,
     reasonsOf,
+    statedCode,
     toSimpleDatabase,
     unresolvedCount,
     upDemands,
@@ -341,7 +344,9 @@ data MissingSupplier = MissingSupplier
     , msCount :: !Int
     -- ^ Number of activities needing this supplier
     , msLocation :: !(Maybe Text)
-    -- ^ The location the inputs stated, when they stated one
+    -- ^ Never filled: read 'msLocations'. Dropped in 0.15.0
+    , msLocations :: ![Text]
+    -- ^ The locations the inputs refused for this reason stated, most demanded first
     , msReason :: !Text
     -- ^ "unit_incompatible", "location_unavailable", "no_name_match"
     , msDetail :: !(Maybe Text)
@@ -3314,29 +3319,49 @@ rankMissingProducts blocked dangling =
         M.unionWith
             (<>)
             blocked
-            (M.fromList [(SupplierRequest name Nothing Nothing, UnresolvedProduct (M.singleton NoNameMatch cnt)) | (name, cnt) <- M.toList dangling])
+            (M.fromList [(SupplierRequest name Nothing LocationNone, UnresolvedProduct (M.singleton NoNameMatch cnt)) | (name, cnt) <- M.toList dangling])
     byProduct :: Map Text (NonEmpty (SupplierRequest, UnresolvedProduct))
     byProduct = M.fromListWith (flip (<>)) [(srProduct request, pure entry) | entry@(request, _) <- M.toList requests]
     productDemands :: MissingProduct -> Int
     productDemands (MissingProduct entries) = sum (upDemands . snd <$> entries)
 
-{- | Project one ranked missing product onto its wire shape: one row per request
-and reason it was refused for, biggest first, so a request blocked two ways is
-read as two and never as one of them carrying the other's demands.
+{- | Project one ranked missing product onto its wire shape: one row per
+activity asked for and reason it was refused for, biggest first, so an activity
+blocked two ways is read as two and never as one of them carrying the other's
+demands. The locations are listed on the row rather than split into rows of
+their own, for the reason 'reasonsOf' gives.
 -}
 missingSuppliersOf :: MissingProduct -> [MissingSupplier]
 missingSuppliersOf (MissingProduct entries) =
-    [ MissingSupplier
-        { msProductName = srProduct request
-        , msSupplierActivity = srActivity request
-        , msCount = n
-        , msLocation = srLocation request
-        , msReason = brReason reason
-        , msDetail = brDetail reason
-        }
-    | (request, unresolved) <- NE.toList entries
-    , (reason, n) <- reasonsOf (upBlockers unresolved)
-    ]
+    concatMap rowsOf (sortOn (Down . sum . fmap (upDemands . snd)) (M.elems byActivity))
+  where
+    byActivity :: Map (Maybe Text) (NonEmpty (SupplierRequest, UnresolvedProduct))
+    byActivity = M.fromListWith (flip (<>)) [(srActivity request, pure entry) | entry@(request, _) <- NE.toList entries]
+
+    rowsOf :: NonEmpty (SupplierRequest, UnresolvedProduct) -> [MissingSupplier]
+    rowsOf requests =
+        [ MissingSupplier
+            { msProductName = srProduct asked
+            , msSupplierActivity = srActivity asked
+            , msCount = n
+            , msLocation = Nothing
+            , msLocations = locationsRefusedFor (brReason reason) requests
+            , msReason = brReason reason
+            , msDetail = brDetail reason
+            }
+        | (reason, n) <- reasonsOf (M.unionsWith (+) (upBlockers . snd <$> NE.toList requests))
+        ]
+      where
+        asked :: SupplierRequest
+        asked = fst (NE.head requests)
+
+    locationsRefusedFor :: Text -> NonEmpty (SupplierRequest, UnresolvedProduct) -> [Text]
+    locationsRefusedFor code requests =
+        [ loc
+        | (request, unresolved) <- NE.toList requests
+        , any ((== code) . brReason . blockerReason) (M.keys (upBlockers unresolved))
+        , Just loc <- [statedCode (srLocation request)]
+        ]
 
 {- | Missing-supplier list for a staged database: rich blockers from the
 linking stats plus dangling background links a partial import leaves behind
@@ -3378,8 +3403,8 @@ setupInfoFrom SetupSource{..} =
         , dsiInternalLinks = lcInternalLinks ssCounts
         , dsiCrossDBLinks = lcCrossDBLinks ssCounts
         , dsiUnresolvedLinks = lcUnresolvedLinks ssCounts
-        , -- The ten worst products, every request and reason each was refused
-          -- for: capping the rows instead would drop the later requests of the
+        , -- The ten worst products, every activity and reason each was refused
+          -- for: capping the rows instead would drop the later activities of the
           -- last product, which is the collapse this list exists to avoid.
           dsiMissingSuppliers = concatMap missingSuppliersOf (take 10 ssMissing)
         , dsiDependencies = ssDependencies

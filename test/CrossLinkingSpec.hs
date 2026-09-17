@@ -23,8 +23,8 @@ spec = do
     -- -----------------------------------------------------------------------
     describe "CrossDBLinkingStats <>" $ do
         it "keeps every reason a product was refused for, counted apart" $ do
-            let wheat = SupplierRequest "wheat" Nothing (Just "FR")
-                maize = SupplierRequest "maize" Nothing (Just "FR")
+            let wheat = SupplierRequest "wheat" Nothing "FR"
+                maize = SupplierRequest "maize" Nothing "FR"
                 s1 = mempty{cdlUnresolvedRequests = M.fromList [(wheat, unresolved 2 NoNameMatch)]} :: CrossDBLinkingStats
                 s2 = mempty{cdlUnresolvedRequests = M.fromList [(wheat, unresolved 3 (LocationUnavailable "FR")), (maize, unresolved 1 NoNameMatch)]}
                 merged = s1 <> s2
