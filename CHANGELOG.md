@@ -109,6 +109,13 @@
   toxicity factor at all. The antimony ore names (`Stibnite`, `antimony
   sulfide`) now bridge to antimony only as a resource, so an emission bearing
   them does not take the ion's factors. Data version 5.
+- The flow registry now gives the right reason for reading a chromium
+  emission written without its valence as trivalent. It claimed that EF 3.1
+  does so, when EF 3.1 gives chromium of unstated valence the hexavalent
+  factors. The reason is the data: older SimaPro exports write trivalent
+  chromium as bare `Chromium`, the amounts an EcoSpold 2 release records as
+  `Chromium III` and later exports write `Chromium (III)`. No score changes.
+  Data version 5.
 
 ## [0.13.0] - 2026-09-15
 

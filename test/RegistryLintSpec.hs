@@ -112,6 +112,15 @@ spec = do
                     filter ((== emitted "Antimony, ion") . emitted) ["Stibnite", "antimony sulfide"]
                         `shouldBe` []
 
+                -- Older SimaPro exports write trivalent chromium as bare
+                -- Chromium. Bridged to Chromium, ion, the form EF 3.1
+                -- characterizes as hexavalent, it scored cancer toxicity from
+                -- inorganics 57 % above published reference results (#178).
+                it "keeps chromium written without its valence trivalent" $ do
+                    classOf "Chromium" `shouldNotBe` Nothing
+                    classOf "Chromium (III)" `shouldBe` classOf "Chromium"
+                    classOf "Chromium, ion" `shouldNotBe` classOf "Chromium"
+
                 it "keeps hard and brown coal in separate classes" $
                     classOf "Energy, from coal" == classOf "Energy, from coal, brown"
                         `shouldBe` False
