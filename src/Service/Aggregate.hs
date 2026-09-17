@@ -50,8 +50,8 @@ import Service (
     convertToInventoryExport,
     demandFor,
     getActivityExchangeDetails,
-    getReferenceProductAmount,
     getReferenceProductName,
+    referenceMagnitude,
     resolveScorable,
  )
 import SharedSolver (DepSolverLookup, SharedSolver, computeInventoryMatrixWithDepsCached, solveWithSharedSolver)
@@ -217,8 +217,8 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidTex
                     case solE of
                         Left err -> return (Left (MatrixError err))
                         Right sol ->
-                            let rootRefAmount = getReferenceProductAmount activity
-                             in return $ Right $ reduce params (rowsFromConsumption rootRefAmount (SharedSolver.csScalings sol))
+                            let rootRefMagnitude = referenceMagnitude activity
+                             in return $ Right $ reduce params (rowsFromConsumption rootRefMagnitude (SharedSolver.csScalings sol))
   where
     emptyFilter maxD =
         SupplyChainFilter
@@ -308,8 +308,10 @@ transformation chain the way summing cumulative supply-chain productions
 does, because each consumption event is one row.
 
 Signs pass through untouched: inputs are stored positive, byproduct
-outputs negative, and treatment-convention columns flip both the
-coefficient and the scaling, so their product stays sign-correct.
+outputs negative, and a treatment-convention column flips both its
+coefficient and its scaling, so their product stays sign-correct. The
+multiplier is the root's reference amount as a magnitude, the direction
+of one unit of the root being carried by its scaling already.
 Filtering on positive values here would silently drop real inputs of
 treatment activities.
 
@@ -321,8 +323,8 @@ classifications) are left empty rather than resolved – a classification
 or target-name filter therefore never matches a bridge edge.
 -}
 rowsFromConsumption :: Double -> NonEmpty (Text, Database, VU.Vector Double) -> [AggRow]
-rowsFromConsumption rootRefAmount ((rootDbName, rootDb, rootScaling) :| deps) =
-    dbRows False rootDbName rootDb rootScaling rootRefAmount
+rowsFromConsumption rootRefMagnitude ((rootDbName, rootDb, rootScaling) :| deps) =
+    dbRows False rootDbName rootDb rootScaling rootRefMagnitude
         <> concatMap (\(depName, depDb, depScaling) -> dbRows True depName depDb depScaling 1.0) deps
   where
     dbRows qualifyPids dbN db' s mult =

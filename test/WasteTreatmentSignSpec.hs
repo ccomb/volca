@@ -21,7 +21,7 @@ every case: treating waste adds burden, it never subtracts it.
 -}
 module WasteTreatmentSignSpec (spec) where
 
-import API.Types (ExchangeWithUnit (..))
+import API.Types (ExchangeWithUnit (..), SupplyChainEntry (..), SupplyChainResponse (..))
 import Data.List (elemIndex)
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
@@ -32,12 +32,12 @@ import qualified Data.Vector as V
 import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Loader (findAllCrossDBLinks)
-import Matrix (computeInventoryMatrix)
-import Service (buildCrossDBLinkMap, toExchangeWithUnit)
+import Matrix (computeInventoryMatrix, computeScalingVector)
+import Service (ActivityFilterCore (..), Edges (..), SupplyChainFilter (..), buildCrossDBLinkMap, buildSupplyChainFromScalingVector, toExchangeWithUnit)
 import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached)
 import SynonymDB (emptySynonymDB)
 import Test.Hspec
-import TestHelpers (mkDepLookupFromMap, mkSolverFromDb, withinTolerance)
+import TestHelpers (mkDepLookupFromMap, mkSolverFromDb, shippedGeographies, withinTolerance)
 import Types
 import UnitConversion (defaultUnitConfig)
 
@@ -126,6 +126,25 @@ treatment role amt =
         , exchanges = [techEx wW amt role Nothing, co2Emission 2.0]
         }
 
+{- | The same treatment, buying 0.5 kg of product Y to do its job. What the
+chain has to report is a quantity consumed, whichever way the reference is
+written.
+-}
+treatmentBuyingY :: TechRole -> Double -> Activity
+treatmentBuyingY role amt =
+    emptyActivity
+        { activityName = "treatment of waste W"
+        , exchanges = [techEx wW amt role Nothing, techEx yY 0.5 Input (Just pA), co2Emission 2.0]
+        }
+
+-- | A plain producer of Y, with no waste of its own.
+supplierOfY :: Activity
+supplierOfY =
+    emptyActivity
+        { activityName = "supplier of Y"
+        , exchanges = [techEx yY 1.0 ReferenceProduct Nothing]
+        }
+
 {- | A producer of Y that also emits 3 kg of waste W. @waste@ supplies the
 waste exchange (intra-DB link, or orphan for the cross-DB cases).
 -}
@@ -175,6 +194,38 @@ scoreOf name key acts = do
     case processIdOf db key of
         Nothing -> fail (T.unpack name <> ": activity not interned")
         Just pid -> co2Of <$> (either (fail . show) pure =<< computeInventoryMatrix db (fromIntegral pid))
+
+{- | The quantity the supply chain reports for the one supplier of an activity
+asked as the functional unit.
+-}
+supplierQuantityOf :: T.Text -> (UUID, UUID) -> M.Map (UUID, UUID) Activity -> IO Double
+supplierQuantityOf name key acts = do
+    db <- buildDB name acts
+    case processIdOf db key of
+        Nothing -> fail (T.unpack name <> ": activity not interned")
+        Just pid -> do
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db (fromIntegral pid)
+            let entries = scrSupplyChain (buildSupplyChainFromScalingVector shippedGeographies db "root" (fromIntegral pid) supplyVec noFilter)
+            case entries of
+                [entry] -> pure (sceQuantity entry)
+                _ -> fail (T.unpack name <> ": expected one supplier, got " <> show (length entries))
+  where
+    noFilter :: SupplyChainFilter
+    noFilter =
+        SupplyChainFilter
+            ActivityFilterCore
+                { afcName = Nothing
+                , afcLocation = Nothing
+                , afcProduct = Nothing
+                , afcClassifications = []
+                , afcLimit = Nothing
+                , afcOffset = Nothing
+                , afcSort = Nothing
+                , afcOrder = Nothing
+                }
+            Nothing
+            Nothing
+            EntriesOnly
 
 -- | Intra-DB scoring of the producer's CO2 (single database, static triples).
 scoreIntra :: T.Text -> M.Map (UUID, UUID) Activity -> IO Double
@@ -262,6 +313,27 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
     it "a treatment whose reference is a positive input scores +2 for itself" $ do
         score <- scoreOf "self-positive-input" (tA, wW) (M.singleton (tA, wW) (treatment ReferenceInput 1.0))
         withinTolerance 1.0e-9 2.0 score `shouldBe` True
+
+    -- The chain of the same treatment: it buys 0.5 kg of Y to treat that
+    -- kilogram, so the chain says 0.5 consumed. The quantity is the scaling
+    -- times the root's reference amount, and that amount is a magnitude: were
+    -- it signed, it would carry the direction the functional unit already
+    -- carries and report the purchase as a sale.
+    it "reports what a treatment whose reference is a negative output buys" $ do
+        quantity <-
+            supplierQuantityOf
+                "chain-negative-output"
+                (tA, wW)
+                (M.fromList [((tA, wW), treatmentBuyingY ReferenceProduct (-1.0)), ((pA, yY), supplierOfY)])
+        withinTolerance 1.0e-9 0.5 quantity `shouldBe` True
+
+    it "reports what a treatment whose reference is a positive input buys" $ do
+        quantity <-
+            supplierQuantityOf
+                "chain-positive-input"
+                (tA, wW)
+                (M.fromList [((tA, wW), treatmentBuyingY ReferenceInput 1.0), ((pA, yY), supplierOfY)])
+        withinTolerance 1.0e-9 0.5 quantity `shouldBe` True
 
     it "intra-DB ILCD (positive ReferenceInput) scores +6" $ do
         score <-
