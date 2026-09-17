@@ -23,15 +23,17 @@ spec = do
     -- -----------------------------------------------------------------------
     describe "CrossDBLinkingStats <>" $ do
         it "keeps every reason a product was refused for, counted apart" $ do
-            let s1 = mempty{cdlUnresolvedProducts = M.fromList [("wheat", unresolved 2 NoNameMatch)]} :: CrossDBLinkingStats
-                s2 = mempty{cdlUnresolvedProducts = M.fromList [("wheat", unresolved 3 (LocationUnavailable "FR")), ("maize", unresolved 1 NoNameMatch)]}
+            let wheat = SupplierRequest "wheat" Nothing "FR"
+                maize = SupplierRequest "maize" Nothing "FR"
+                s1 = mempty{cdlUnresolvedRequests = M.fromList [(wheat, unresolved 2 NoNameMatch)]} :: CrossDBLinkingStats
+                s2 = mempty{cdlUnresolvedRequests = M.fromList [(wheat, unresolved 3 (LocationUnavailable "FR")), (maize, unresolved 1 NoNameMatch)]}
                 merged = s1 <> s2
             -- Two runs refused wheat two different ways. The merge owes the
             -- reader both, not the total under whichever arrived first.
-            fmap upBlockers (M.lookup "wheat" (cdlUnresolvedProducts merged))
+            fmap upBlockers (M.lookup wheat (cdlUnresolvedRequests merged))
                 `shouldBe` Just (M.fromList [(NoNameMatch, 2), (LocationUnavailable "FR", 3)])
-            fmap upDemands (M.lookup "wheat" (cdlUnresolvedProducts merged)) `shouldBe` Just 5
-            M.lookup "maize" (cdlUnresolvedProducts merged) `shouldBe` Just (unresolved 1 NoNameMatch)
+            fmap upDemands (M.lookup wheat (cdlUnresolvedRequests merged)) `shouldBe` Just 5
+            M.lookup maize (cdlUnresolvedRequests merged) `shouldBe` Just (unresolved 1 NoNameMatch)
 
         it "adds the scalar counters" $ do
             let s1 = mempty{cdlTotalInputs = 4, cdlWasteExactLinks = 1} :: CrossDBLinkingStats

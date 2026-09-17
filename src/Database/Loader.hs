@@ -510,6 +510,10 @@ History of manual bumps:
      offering the product there, where it used to be linked on the name alone.
      Nothing changes type, so a cache written just before this would pass the
      fingerprint and keep the links made on the name.
+- 42: the refused inputs a linking report stores are keyed by what each asked
+     for (product, activity, location) instead of the product name. The map
+     sits inside a record the fingerprint does not look into, so an old cache
+     would pass the check and be read with the wrong key.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -517,7 +521,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 41
+     in hi `xor` lo `xor` 42
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1386,14 +1390,6 @@ claimedNumber = \case
     ClaimById _ -> Nothing
     ClaimByName _ -> Nothing
 
--- | The supplier activity a claim names, when it names one by name.
-claimedName :: SupplierClaim -> Maybe T.Text
-claimedName = \case
-    ClaimByName name -> Just name
-    ClaimByProduct -> Nothing
-    ClaimById _ -> Nothing
-    ClaimByDatasetNumber _ -> Nothing
-
 {- | Whether the source named an activity by an identifier another database
 could carry. An input that did and still found no supplier there is a dangling
 identity, which the dangling scan names; anything else is an unsupplied
@@ -2252,10 +2248,10 @@ cross-DB linking.
 -}
 data GapReason
     = {- | Nil-link input the attribute matcher could not place, with every
-      reason its product was refused for ('Types.reasonsOf'). The reasons
-      alone, not the counts beside them: those counts are per product name, and
-      an entry is one (name, location, unit), so a count carried here would
-      credit one location with demands raised at another.
+      reason its request was refused for ('Types.reasonsOf'). The reasons
+      alone, not the counts beside them: those counts are per request, and an
+      entry also splits by unit, so a count carried here would credit one unit
+      with demands raised in another.
       -}
       GapBlocked !(NE.NonEmpty BlockerReason)
     | {- | Non-nil source identity no dependency ships, and no attribute match
@@ -2271,6 +2267,8 @@ data GapReason
 -- | One consumer edge left unsupplied – the unit of the supplier-gap report.
 data GapEdge = GapEdge
     { gapFlowName :: !T.Text
+    , gapSupplierActivity :: !(Maybe T.Text)
+    -- ^ The supplier activity the demand named, when it named one by name
     , gapLocation :: !T.Text
     -- ^ Effective requested location ("" when the demand names none)
     , gapUnit :: !T.Text
@@ -2292,11 +2290,12 @@ data GapConsumer = GapConsumer
     }
     deriving (Show, Eq)
 
-{- | Aggregate over one (flow name, location, unit) key of the gap report.
-Unit is part of the key so 'geDemandSum' never mixes units.
+{- | Aggregate over one (flow name, supplier activity, location, unit) key of
+the gap report. Unit is part of the key so 'geDemandSum' never mixes units.
 -}
 data GapEntry = GapEntry
     { geFlowName :: !T.Text
+    , geSupplierActivity :: !(Maybe T.Text)
     , geLocation :: !T.Text
     , geUnit :: !T.Text
     , geReason :: !GapReason
@@ -2351,10 +2350,6 @@ gapEdgesWith hasProducer db links stats =
 {- | Describe one unsupplied demand. Biosphere exchanges are never demands
 ('isSupplierDemand'), hence 'Nothing'. A missing flow entry doesn't hide the
 edge: the flow UUID stands in for the name so the report stays countable.
-
-'cdlUnresolvedProducts' records reasons per flow /name/, while the report keys
-entries by (name, location, unit) – two same-named entries at different
-locations therefore carry the same reasons, the union of what refused either.
 -}
 mkGapEdge ::
     SimpleDatabase ->
@@ -2368,22 +2363,23 @@ mkGapEdge db stats actUUID prodUUID ex = case ex of
         let name = flowNameOr tfName (sdbTechFlows db)
             reason
                 | claimsAnActivityUUID (exchangeSupplierClaim ex) = GapDanglingIdentity
-                | otherwise = GapBlocked (reasonsFor name)
+                | otherwise = GapBlocked (reasonsFor (supplierRequest name (exchangeSupplierClaim ex) (techLocation ex)))
          in Just (edge name reason)
     WasteExchange{} -> Just (edge (flowNameOr wfName (sdbWasteFlows db)) GapWasteInput)
     BiosphereExchange{} -> Nothing
   where
     -- A name the linker never recorded a refusal for is a name it matched
     -- nowhere, which is what 'NoNameMatch' says.
-    reasonsFor :: T.Text -> NE.NonEmpty BlockerReason
-    reasonsFor name =
+    reasonsFor :: SupplierRequest -> NE.NonEmpty BlockerReason
+    reasonsFor request =
         fromMaybe (NE.singleton (blockerReason NoNameMatch)) $
-            NE.nonEmpty . map fst . reasonsOf . upBlockers =<< M.lookup name (cdlUnresolvedProducts stats)
+            NE.nonEmpty . map fst . reasonsOf . upBlockers =<< M.lookup request (cdlUnresolvedRequests stats)
     flowNameOr nameOf flows =
         maybe (UUID.toText (exchangeFlowId ex)) nameOf (M.lookup (exchangeFlowId ex) flows)
     edge name reason =
         GapEdge
             { gapFlowName = name
+            , gapSupplierActivity = claimedName (exchangeSupplierClaim ex)
             , gapLocation =
                 let loc = exchangeLocation ex
                  in if T.null loc then extractBracketedLocation name else loc
@@ -2398,7 +2394,7 @@ mkGapEdge db stats actUUID prodUUID ex = case ex of
 topConsumerCap :: Int
 topConsumerCap = 20
 
-{- | Group gap edges by (flow name, location, unit), sorted by edge count
+{- | Group gap edges by (flow name, supplier activity, location, unit), sorted by edge count
 descending. Within a group the reason with the richest diagnostic wins
 ('GapBlocked' over 'GapDanglingIdentity' over 'GapWasteInput'). Consumer
 processes are named from the database, most-demanding first.
@@ -2410,17 +2406,18 @@ gapEntries db edges =
     byKey =
         M.fromListWith
             (flip (<>))
-            [((gapFlowName e, gapLocation e, gapUnit e), [e]) | e <- edges]
+            [((gapFlowName e, gapSupplierActivity e, gapLocation e, gapUnit e), [e]) | e <- edges]
     reasonRank r = case r of
         GapBlocked _ -> 0 :: Int
         GapDanglingIdentity -> 1
         GapWasteInput -> 2
     strongerReason a b = if reasonRank a <= reasonRank b then a else b
-    entry ((name, loc, unit), es) =
+    entry ((name, activity, loc, unit), es) =
         let consumers =
                 M.fromListWith (+) [((gapConsumerAct e, gapConsumerProd e), 1 :: Int) | e <- es]
          in GapEntry
                 { geFlowName = name
+                , geSupplierActivity = activity
                 , geLocation = loc
                 , geUnit = unit
                 , geReason = foldr (strongerReason . gapReason) GapWasteInput es
@@ -2688,7 +2685,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                 UnitIncompatible{} -> []
                 AliasTargetMissing{} -> []
          in mempty
-                { cdlUnresolvedProducts = M.singleton (tfName flow) (UnresolvedProduct (M.singleton blocker 1))
+                { cdlUnresolvedRequests = M.singleton (supplierRequest (tfName flow) claim statedLoc) (UnresolvedProduct (M.singleton blocker 1))
                 , cdlLocationUnresolved = unresolved
                 }
 findExchangeCrossDBLink _ _ _ BiosphereExchange{} = mempty
@@ -2786,15 +2783,15 @@ reportCrossDBLinkingStats nActivities stats = do
                 wCutoff
 
     -- Missing suppliers
-    let !missing = sortOn (Down . upDemands . snd) $ M.toList (cdlUnresolvedProducts stats)
+    let !missing = sortOn (Down . upDemands . snd) $ M.toList (cdlUnresolvedRequests stats)
     unless (null missing) $ do
         reportProgress Warning $
-            printf "Missing suppliers: %d products unresolved" (length missing)
-        forM_ (take 20 missing) $ \(name, unresolved) ->
+            printf "Missing suppliers: %d requests unresolved" (length missing)
+        forM_ (take 20 missing) $ \(request, unresolved) ->
             reportProgress Warning $
                 printf
                     "  - %s (%d activities) – %s"
-                    (T.unpack name)
+                    (T.unpack (describeRequest request))
                     (upDemands unresolved)
                     (showReasons (upBlockers unresolved))
         when (length missing > 20) $

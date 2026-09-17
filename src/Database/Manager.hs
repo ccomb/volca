@@ -246,6 +246,7 @@ import Types (
     CrossDBLink (..),
     CrossDBLinkingStats (..),
     Database (..),
+    ExchangeLocation (..),
     FlowClosure (..),
     GeographyPolicy (..),
     LinkBlocker (..),
@@ -255,6 +256,7 @@ import Types (
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierAmbiguity (..),
+    SupplierRequest (..),
     UUID,
     Unit (..),
     UnitDB,
@@ -262,6 +264,7 @@ import Types (
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
+    blockerReason,
     computeMinimalSelectedDeps,
     crossDBBySource,
     crossDBRedundantSources,
@@ -274,6 +277,7 @@ import Types (
     initializeRuntimeFields,
     parseAllocationKey,
     reasonsOf,
+    statedCode,
     toSimpleDatabase,
     unresolvedCount,
     upDemands,
@@ -314,8 +318,8 @@ data StagedDatabase = StagedDatabase
     -- ^ Parsed data (activities, flows, units)
     , sdConfig :: !DatabaseConfig
     -- ^ Configuration
-    , sdMissingProducts :: ![(Text, UnresolvedProduct)]
-    -- ^ Product name, and the demands it left unsupplied
+    , sdMissingProducts :: ![MissingProduct]
+    -- ^ Products whose requests went unanswered, most demanded first
     , sdSelectedDeps :: ![Text]
     -- ^ Selected dependency database names
     , sdCrossDBLinks :: ![CrossDBLink]
@@ -335,10 +339,14 @@ data StagedDatabase = StagedDatabase
 -- | Information about a missing supplier product
 data MissingSupplier = MissingSupplier
     { msProductName :: !Text
+    , msSupplierActivity :: !(Maybe Text)
+    -- ^ The supplier activity the inputs named, when they named one by name
     , msCount :: !Int
     -- ^ Number of activities needing this supplier
     , msLocation :: !(Maybe Text)
-    -- ^ Most common location requested
+    -- ^ Never filled: read 'msLocations'. Dropped in 0.15.0
+    , msLocations :: ![Text]
+    -- ^ The locations the inputs refused for this reason stated, most demanded first
     , msReason :: !Text
     -- ^ "unit_incompatible", "location_unavailable", "no_name_match"
     , msDetail :: !(Maybe Text)
@@ -3289,37 +3297,80 @@ notReadyReason lc
                 <> " unresolved inputs. Add dependencies to resolve them first."
     | otherwise = Nothing
 
-{- | Rank missing products by demanding-input count, descending. Nil-link gaps
-carry the rich blockers the attribute matcher produced; dangling non-nil gaps
-are tagged 'NoNameMatch'. The two sets are disjoint (nil vs non-nil), so the
-concatenation never duplicates.
+{- | One product no dependency supplied: each request made for it, and the
+demands it left unsupplied. A product is the unit a list is capped by, so a
+product asked for at twelve locations cannot push every other one off it.
 -}
-rankMissingProducts :: Map Text UnresolvedProduct -> Map Text Int -> [(Text, UnresolvedProduct)]
-rankMissingProducts blocked dangling =
-    sortOn
-        (Down . upDemands . snd)
-        ( M.toList blocked
-            <> [(name, UnresolvedProduct (M.singleton NoNameMatch cnt)) | (name, cnt) <- M.toList dangling]
-        )
+newtype MissingProduct = MissingProduct (NonEmpty (SupplierRequest, UnresolvedProduct))
 
-{- | Project one ranked missing product onto its wire shape: one row per reason
-it was refused for, biggest first, so a product blocked two ways is read as two
-and never as one of them carrying the other's demands.
+{- | Rank missing products by the demands all their requests left unsupplied,
+and each product's requests by their own. Nil-link gaps carry the rich blockers
+the attribute matcher produced; dangling non-nil gaps are tagged 'NoNameMatch'
+and name neither an activity nor a location: a reference by identifier names
+no activity, and the per-triple subtraction cannot say which location is the
+covered one.
 -}
-missingSuppliersOf :: (Text, UnresolvedProduct) -> [MissingSupplier]
-missingSuppliersOf (name, unresolved) =
-    [ MissingSupplier name n Nothing (brReason reason) (brDetail reason)
-    | (reason, n) <- reasonsOf (upBlockers unresolved)
-    ]
+rankMissingProducts :: Map SupplierRequest UnresolvedProduct -> Map Text Int -> [MissingProduct]
+rankMissingProducts blocked dangling =
+    sortOn (Down . productDemands) (MissingProduct . NE.sortWith (Down . upDemands . snd) <$> M.elems byProduct)
+  where
+    requests :: Map SupplierRequest UnresolvedProduct
+    requests =
+        M.unionWith
+            (<>)
+            blocked
+            (M.fromList [(SupplierRequest name Nothing LocationNone, UnresolvedProduct (M.singleton NoNameMatch cnt)) | (name, cnt) <- M.toList dangling])
+    byProduct :: Map Text (NonEmpty (SupplierRequest, UnresolvedProduct))
+    byProduct = M.fromListWith (flip (<>)) [(srProduct request, pure entry) | entry@(request, _) <- M.toList requests]
+    productDemands :: MissingProduct -> Int
+    productDemands (MissingProduct entries) = sum (upDemands . snd <$> entries)
+
+{- | Project one ranked missing product onto its wire shape: one row per
+activity asked for and reason it was refused for, biggest first, so an activity
+blocked two ways is read as two and never as one of them carrying the other's
+demands. The locations are listed on the row rather than split into rows of
+their own, for the reason 'reasonsOf' gives.
+-}
+missingSuppliersOf :: MissingProduct -> [MissingSupplier]
+missingSuppliersOf (MissingProduct entries) =
+    concatMap rowsOf (sortOn (Down . sum . fmap (upDemands . snd)) (M.elems byActivity))
+  where
+    byActivity :: Map (Maybe Text) (NonEmpty (SupplierRequest, UnresolvedProduct))
+    byActivity = M.fromListWith (flip (<>)) [(srActivity request, pure entry) | entry@(request, _) <- NE.toList entries]
+
+    rowsOf :: NonEmpty (SupplierRequest, UnresolvedProduct) -> [MissingSupplier]
+    rowsOf requests =
+        [ MissingSupplier
+            { msProductName = srProduct asked
+            , msSupplierActivity = srActivity asked
+            , msCount = n
+            , msLocation = Nothing
+            , msLocations = locationsRefusedFor (brReason reason) requests
+            , msReason = brReason reason
+            , msDetail = brDetail reason
+            }
+        | (reason, n) <- reasonsOf (M.unionsWith (+) (upBlockers . snd <$> NE.toList requests))
+        ]
+      where
+        asked :: SupplierRequest
+        asked = fst (NE.head requests)
+
+    locationsRefusedFor :: Text -> NonEmpty (SupplierRequest, UnresolvedProduct) -> [Text]
+    locationsRefusedFor code requests =
+        [ loc
+        | (request, unresolved) <- NE.toList requests
+        , any ((== code) . brReason . blockerReason) (M.keys (upBlockers unresolved))
+        , Just loc <- [statedCode (srLocation request)]
+        ]
 
 {- | Missing-supplier list for a staged database: rich blockers from the
 linking stats plus dangling background links a partial import leaves behind
 ('Loader.collectStagedDanglingProductNames'), ranked by demand.
 -}
-stagedMissingProducts :: SimpleDatabase -> CrossDBLinkingStats -> [(Text, UnresolvedProduct)]
+stagedMissingProducts :: SimpleDatabase -> CrossDBLinkingStats -> [MissingProduct]
 stagedMissingProducts sdb stats =
     rankMissingProducts
-        (cdlUnresolvedProducts stats)
+        (cdlUnresolvedRequests stats)
         (Loader.collectStagedDanglingProductNames sdb (cdlLinks stats))
 
 {- | Assemble the wire record from the shared tally, the single place the
@@ -3336,7 +3387,7 @@ data SetupSource = SetupSource
     { ssConfig :: !DatabaseConfig
     , ssCounts :: !LinkCounts
     , ssStats :: !CrossDBLinkingStats
-    , ssMissing :: ![(Text, UnresolvedProduct)]
+    , ssMissing :: ![MissingProduct]
     , ssDependencies :: ![DependencyChoice]
     , ssOrigin :: !SetupOrigin
     }
@@ -3352,9 +3403,9 @@ setupInfoFrom SetupSource{..} =
         , dsiInternalLinks = lcInternalLinks ssCounts
         , dsiCrossDBLinks = lcCrossDBLinks ssCounts
         , dsiUnresolvedLinks = lcUnresolvedLinks ssCounts
-        , -- The ten worst products, every reason each was refused for: capping
-          -- the rows instead would drop the later reasons of the last product,
-          -- which is the collapse this list exists to avoid.
+        , -- The ten worst products, every activity and reason each was refused
+          -- for: capping the rows instead would drop the later activities of the
+          -- last product, which is the collapse this list exists to avoid.
           dsiMissingSuppliers = concatMap missingSuppliersOf (take 10 ssMissing)
         , dsiDependencies = ssDependencies
         , dsiIsReady = isNothing (notReadyReason ssCounts)
@@ -3417,7 +3468,7 @@ buildLoadedSetupInfo config db configs indexedDbs =
             , ssStats = dbLinkingStats db
             , ssMissing =
                 rankMissingProducts
-                    (cdlUnresolvedProducts (dbLinkingStats db))
+                    (cdlUnresolvedRequests (dbLinkingStats db))
                     (Loader.collectDanglingProductNames db)
             , ssDependencies = buildDependencyChoices (dcName config) (dbDependsOn db) [] configs indexedDbs
             , ssOrigin = FromLoaded

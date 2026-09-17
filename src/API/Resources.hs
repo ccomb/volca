@@ -611,7 +611,8 @@ description r = case r of
     GetGapReport ->
         "LCA / ACV: supplier-gap report of a database: every input demand \
         \still unsupplied after internal resolution and cross-database \
-        \linking, aggregated per (product, location, unit) and ranked by \
+        \linking, aggregated per (product, supplier activity the input \
+        \named, location, unit) and ranked by \
         \demanding edges. Each gap carries every reason it was blocked for, \
         \the number of \
         \consumer edges and distinct consumers, the total demanded amount, \

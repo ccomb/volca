@@ -983,9 +983,10 @@ data GapConsumerAPI = GapConsumerAPI
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped GapConsumerAPI)
 
-{- | One supplier gap, aggregated per (product name, location, unit) so
-@demandSum@ never mixes units. @reasons@ carries every stable blocker code the
-product was refused under ('Types.blockerReason'), plus
+{- | One supplier gap, aggregated per (product name, supplier activity,
+location, unit) so @demandSum@ never mixes units. @supplierActivity@ is the
+activity the demands named, @null@ where they named none by name.
+@reasons@ carries every stable blocker code the request was refused under ('Types.blockerReason'), plus
 @dangling_source_identity@ for inputs whose named source activity no dependency
 ships, and @unlinked_waste_input@ for treatment-side waste inputs with no
 internal producer. @reason@ and @detail@ are the first of them, kept so a client
@@ -997,6 +998,7 @@ before. A product refused two ways is the ordinary case: read @reasons@.
 -}
 data GapEntryAPI = GapEntryAPI
     { gaeName :: Text
+    , gaeSupplierActivity :: Maybe Text
     , gaeLocation :: Text
     , gaeUnit :: Text
     , gaeReasons :: [BlockerReason]

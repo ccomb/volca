@@ -361,6 +361,7 @@ gapReportToAPI mLimit r =
         let first :| others = gapReasons (Loader.geReason e)
          in GapEntryAPI
                 { gaeName = Loader.geFlowName e
+                , gaeSupplierActivity = Loader.geSupplierActivity e
                 , gaeLocation = Loader.geLocation e
                 , gaeUnit = Loader.geUnit e
                 , gaeReasons = first : others
