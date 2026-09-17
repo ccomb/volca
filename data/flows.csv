@@ -287,7 +287,7 @@ Chlorosulfonic acid,"chlorosulphuric acid, chloridosulfonic acid, sulfuric chlor
 Chlorothalonil,tetrachloroisophthalonitrile
 Chlorotoluron,Chlortoluron
 Chromium,"Chromium, in ground"
-Chromium,"Chromium (III)",,,EF 3.1 characterizes an unspecified chromium emission as trivalent; the hexavalent CF applies only to an explicit Chromium VI flow
+Chromium,"Chromium (III)",,016065-83-1,older SimaPro name for trivalent chromium: the amounts EcoSpold 2 records as Chromium III and later exports write Chromium (III); EF 3.1 itself gives chromium of unstated valence the hexavalent factors (report JRC130796 table 6 note c)
 Chrysotile,"Chrysotile, in ground"
 Cinnabar,"Cinnabar, in ground"
 "Clay, bentonite","Clay, bentonite, in ground"
