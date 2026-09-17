@@ -5,6 +5,7 @@ module MappingSpec (spec) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID, fromWords, nil)
@@ -529,6 +530,68 @@ spec = do
             score mappings `shouldBe` 2.0 * 34.5
             -- insertion order must not matter
             score (reverse mappings) `shouldBe` 2.0 * 34.5
+
+    describe "a synonym two substances share" $ do
+        -- EcoSpold 2 gives trivalent and hexavalent chromium the same synonyms,
+        -- Chromium and Chromium ion: the names a method gives chromium of
+        -- unstated valence, characterized as hexavalent. Such a synonym names
+        -- neither flow. The rows below follow a method that writes trivalent
+        -- chromium at the unspecified compartment only, since its specific
+        -- compartments carry the same zero, and writes the unstated one at a
+        -- specific compartment too: a row landing on trivalent chromium there
+        -- is the only one at that compartment, so no tie-break can undo it.
+        let chromium i name comp =
+                (mkFlow (fromWords i 0 0 0) name Air comp)
+                    { bfSynonyms = M.singleton "en" (S.fromList ["Chromium", "Chromium ion"])
+                    }
+            trivalent = chromium 1 "Chromium III" (Just "high. pop.")
+            hexavalent = chromium 2 "Chromium VI" Nothing
+            flows = M.fromList [(bfId f, f) | f <- [trivalent, hexavalent]]
+            context =
+                MapContext
+                    { mcBioFlowsByUUID = flows
+                    , mcBioFlowsByName = VT.buildFlowNameIndex flows
+                    , mcBioFlowsByCAS = M.empty
+                    , mcSynonymDB = emptySynonymDB
+                    , mcActivities = M.empty
+                    , mcCompartmentMap = M.empty
+                    , mcSynGroupFlows = M.empty
+                    }
+            factors rows = do
+                mappings <-
+                    mapMethodFlows
+                        context
+                        Method
+                            { methodId = nil
+                            , methodName = "Human toxicity, cancer - inorganics"
+                            , methodDescription = Nothing
+                            , methodUnit = "CTUh"
+                            , methodCategory = "Human toxicity, cancer - inorganics"
+                            , methodMethodology = Nothing
+                            , methodFactors = rows
+                            }
+                let tables = buildMethodTables USEtoxFamily M.empty M.empty mappings
+                pure [cfValue <$> lookupCFForFlow tables (bfId f) (Just f) | f <- [trivalent, hexavalent]]
+            spelled unstated iii vi =
+                [ mkCFComp unstated "air" "" 7.9836e-5
+                , mkCFComp unstated "air" "high. pop." 7.9836e-5
+                , mkCFComp iii "air" "" 0
+                , mkCFComp vi "air" "" 7.9836e-5
+                ]
+
+        it "gives each valence its own factor under the reference package spelling" $
+            factors (spelled "chromium" "chromium (iii)" "chromium (vi)") `shouldReturn` [Just 0, Just 7.9836e-5]
+
+        it "gives each valence its own factor under the SimaPro spelling" $
+            factors (spelled "Chromium, ion" "Chromium (III)" "Chromium (VI)") `shouldReturn` [Just 0, Just 7.9836e-5]
+
+        -- The arsenic a method writes without valence is the only arsenic
+        -- EcoSpold 2 emits, Arsenic ion, and it shares the name with the ore.
+        it "still reaches a flow through a synonym only it lists" $ do
+            let ore = mkFlow (fromWords 3 0 0 0) "Arsenic" NaturalResource (Just "in ground")
+                ion = (mkFlow (fromWords 4 0 0 0) "Arsenic ion" Water Nothing){bfSynonyms = M.singleton "en" (S.singleton "Arsenic")}
+                index = VT.buildFlowNameIndex (M.fromList [(bfId f, f) | f <- [ore, ion]])
+            S.fromList . map bfId <$> M.lookup "arsenic" index `shouldBe` Just (S.fromList [bfId ore, bfId ion])
 
     describe "a row no database flow claimed at build time" $ do
         -- Such a row is filed under the method's own flow name, and the

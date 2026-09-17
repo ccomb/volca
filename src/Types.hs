@@ -1630,21 +1630,37 @@ refActivityUUID t = case parseProcessRef t of
 addSynonymDBToDatabase :: Database -> SynonymDB -> Database
 addSynonymDBToDatabase db synDB = db{dbSynonymDB = Just synDB}
 
-{- | Build the biosphere flow name index. Groups flows by normalized name
-(primary + synonyms) for efficient LCIA lookup.
+{- | Build the biosphere flow name index. Groups flows by normalized name for
+LCIA lookup: every flow under its own name, and under each synonym it lists
+when that synonym names one substance only.
+
+A synonym several flows of different names list names none of them. EcoSpold 2
+gives both Chromium III and Chromium VI the synonyms Chromium and Chromium ion,
+the names a method gives chromium of unstated valence and characterizes as
+hexavalent; indexed, those rows landed on whichever of the two flows came first
+and charged trivalent chromium the hexavalent factors.
 -}
 buildFlowNameIndex :: BioFlowDB -> M.Map Text [BiosphereFlow]
-buildFlowNameIndex bioDB =
-    M.fromListWith (++) $ concatMap flowEntries (M.elems bioDB)
+buildFlowNameIndex bioDB = M.unionWith (++) byOwnName (M.filter namesOneSubstance bySynonym)
   where
-    flowEntries f =
-        let primary = normalizeName (bfName f)
-            synKeys =
-                [ normalizeName syn
-                | syns <- M.elems (bfSynonyms f)
-                , syn <- S.toList syns
-                ]
-         in [(k, [f]) | k <- nub (primary : synKeys)]
+    flows :: [BiosphereFlow]
+    flows = M.elems bioDB
+    ownKey :: BiosphereFlow -> Text
+    ownKey = normalizeName . bfName
+    byOwnName, bySynonym :: M.Map Text [BiosphereFlow]
+    byOwnName = M.fromListWith (++) [(ownKey f, [f]) | f <- flows]
+    bySynonym = M.fromListWith (++) [(k, [f]) | f <- flows, k <- synonymKeys f]
+    synonymKeys :: BiosphereFlow -> [Text]
+    synonymKeys f =
+        nub
+            [ k
+            | syns <- M.elems (bfSynonyms f)
+            , syn <- S.toList syns
+            , let k = normalizeName syn
+            , k /= ownKey f
+            ]
+    namesOneSubstance :: [BiosphereFlow] -> Bool
+    namesOneSubstance = (== 1) . S.size . S.fromList . map ownKey
 
 {- | Build CAS index from biosphere flows.
 
