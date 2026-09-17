@@ -29,7 +29,11 @@
   read as the micro sign with a note. A source writing `L` was read as `l` with
   a note saying the table spells the unit otherwise, a source writing any of
   the others had its unit reported as unknown, and a client reading the shipped
-  `units.csv` as written found none of them. Still reported as unknown: the
+  `units.csv` as written found none of them. `ton kilometer` and
+  `square meter-year` are added too: they are how a Brightway workbook writes a
+  background database's `metric ton*km` and `m2*year`, and while unknown they
+  left every transport input written so without a supplier, so the workbook
+  could not be finalized. Still reported as unknown: the
   middle dot (U+00B7), which looks like the dot operator; a product of units
   outside the SI such as `person⋅km`; and the megatonne and the petajoule, left
   out because a table holding `Mt` would read the `MT` a source writes for a

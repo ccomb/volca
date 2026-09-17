@@ -399,6 +399,20 @@ spec = do
             -- milliwatt hour would fold onto it and be read a billion times large.
             lookupUnitDef cfg "mw⋅h" `shouldBe` Nothing
 
+        it "reads the spellings a Brightway workbook writes for a transport and a land occupation" $ do
+            -- Brightway renames the units it imports, so a workbook it exports
+            -- writes a background database's metric ton*km as ton kilometer
+            -- and its m2*year as square meter-year. While the table did not
+            -- hold them, such a transport input found no supplier, since a
+            -- supplier's unit has to convert into the input's.
+            cfg <- loadFullUnitConfig
+            let spellings =
+                    [ ("ton kilometer", "metric ton*km")
+                    , ("square meter-year", "m2*year")
+                    ]
+            mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) spellings
+            map (lookupUnitDef cfg . fst) spellings `shouldBe` map (lookupUnitDef cfg . snd) spellings
+
         it "holds the superscript spelling of a power beside the digit one" $ do
             cfg <- loadFullUnitConfig
             let powers =

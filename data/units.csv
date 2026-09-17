@@ -151,6 +151,7 @@ tonne*km,mass*length,1.0
 tonne-km,mass*length,1.0
 tonne-kilometer,mass*length,1.0
 tonne-kilometre,mass*length,1.0
+ton kilometer,mass*length,1.0
 kgkm,mass*length,0.001
 kg*km,mass*length,0.001
 kg.km,mass*length,0.001
@@ -179,6 +180,7 @@ m2*a,area*time,1.0
 m2*year,area*time,1.0
 m²*year,area*time,1.0
 m2.year,area*time,1.0
+square meter-year,area*time,1.0
 m²⋅a,area*time,1.0
 ha a,area*time,10000.0
 ha*a,area*time,10000.0
