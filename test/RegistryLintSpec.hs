@@ -113,12 +113,13 @@ spec = do
                         `shouldBe` []
 
                 -- Older SimaPro exports write trivalent chromium as bare
-                -- Chromium. Read as chromium of unstated valence, which EF 3.1
+                -- Chromium. Bridged to Chromium, ion, the form EF 3.1
                 -- characterizes as hexavalent, it scored cancer toxicity from
-                -- inorganics 57 % above published reference results.
+                -- inorganics 57 % above published reference results (#178).
                 it "keeps chromium written without its valence trivalent" $ do
                     classOf "Chromium" `shouldNotBe` Nothing
                     classOf "Chromium (III)" `shouldBe` classOf "Chromium"
+                    classOf "Chromium, ion" `shouldNotBe` classOf "Chromium"
 
                 it "keeps hard and brown coal in separate classes" $
                     classOf "Energy, from coal" == classOf "Energy, from coal, brown"
