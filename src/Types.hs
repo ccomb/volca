@@ -1630,21 +1630,66 @@ refActivityUUID t = case parseProcessRef t of
 addSynonymDBToDatabase :: Database -> SynonymDB -> Database
 addSynonymDBToDatabase db synDB = db{dbSynonymDB = Just synDB}
 
-{- | Build the biosphere flow name index. Groups flows by normalized name
-(primary + synonyms) for efficient LCIA lookup.
+{- | Build the biosphere flow name index. Groups flows by normalized name for
+LCIA lookup: every flow under its own name, and under each synonym it lists
+when that synonym names one substance only.
+
+A synonym several flows of different names list names none of them. EcoSpold 2
+gives both Chromium III and Chromium VI the synonyms Chromium and Chromium ion,
+the names a method gives chromium of unstated valence and characterizes as
+hexavalent; indexed, those rows landed on whichever of the two flows came first
+and charged trivalent chromium the hexavalent factors.
 -}
 buildFlowNameIndex :: BioFlowDB -> M.Map Text [BiosphereFlow]
-buildFlowNameIndex bioDB =
-    M.fromListWith (++) $ concatMap flowEntries (M.elems bioDB)
+buildFlowNameIndex = flowNameIndexOver . pure
+
+{- | The name index over several flow sets, each set's flows ahead of the next
+set's under every name. Whether a synonym is shared is judged over all the sets
+together: two databases each holding one of the flows that list it would
+otherwise both keep it.
+-}
+flowNameIndexOver :: [BioFlowDB] -> M.Map Text [BiosphereFlow]
+flowNameIndexOver sets = M.unionsWith (++) (map indexOf sets)
   where
-    flowEntries f =
-        let primary = normalizeName (bfName f)
-            synKeys =
-                [ normalizeName syn
-                | syns <- M.elems (bfSynonyms f)
-                , syn <- S.toList syns
-                ]
-         in [(k, [f]) | k <- nub (primary : synKeys)]
+    shared :: S.Set Text
+    shared = M.keysSet (sharedFlowSynonyms sets)
+    indexOf :: BioFlowDB -> M.Map Text [BiosphereFlow]
+    indexOf flows =
+        M.unionWith
+            (++)
+            (keyedBy (pure . bioFlowNameKey) flows)
+            (keyedBy bioFlowSynonymKeys flows `M.withoutKeys` shared)
+    keyedBy :: (BiosphereFlow -> [Text]) -> BioFlowDB -> M.Map Text [BiosphereFlow]
+    keyedBy keys flows = M.fromListWith (++) [(k, [f]) | f <- M.elems flows, k <- keys f]
+
+{- | The synonyms that flows of different names list, each with the names of
+the flows listing it, normalized as the name index keys them.
+-}
+sharedFlowSynonyms :: [BioFlowDB] -> M.Map Text (S.Set Text)
+sharedFlowSynonyms sets =
+    M.filter ((> 1) . S.size) $
+        M.fromListWith
+            S.union
+            [ (k, S.singleton (bioFlowNameKey f))
+            | flows <- sets
+            , f <- M.elems flows
+            , k <- bioFlowSynonymKeys f
+            ]
+
+-- | A flow's own name, normalized as the name index keys it.
+bioFlowNameKey :: BiosphereFlow -> Text
+bioFlowNameKey = normalizeName . bfName
+
+-- | The keys a flow's synonyms normalize to, other than its own name's.
+bioFlowSynonymKeys :: BiosphereFlow -> [Text]
+bioFlowSynonymKeys f =
+    nub
+        [ k
+        | syns <- M.elems (bfSynonyms f)
+        , syn <- S.toList syns
+        , let k = normalizeName syn
+        , k /= bioFlowNameKey f
+        ]
 
 {- | Build CAS index from biosphere flows.
 
@@ -1711,7 +1756,7 @@ flowClosure root deps =
         !merged = M.union (dbBioFlows root) depFlows
      in FlowClosure
             { clByUUID = merged
-            , clByName = M.unionWith (++) (dbFlowsByName root) (buildFlowNameIndex depFlows)
+            , clByName = flowNameIndexOver [dbBioFlows root, depFlows]
             , clByCAS = M.unionWith (++) (dbFlowsByCAS root) (buildFlowCASIndex depFlows)
             }
 

@@ -15,6 +15,7 @@ module DependencyFlowClosureSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
@@ -194,6 +195,15 @@ spec = do
                 DM.mapMethodToFlowsCached manager "root" collection root $
                     mkMethod "Water use" [namedCF "Water, river" 6.98]
             reachedFlows mappings `shouldBe` [bfId rootRiverWater]
+
+        it "judges a flow synonym shared across the root and its dependencies" $ do
+            -- Each database holds one of the two flows listing the synonym, so
+            -- each alone would keep it; together it names two substances.
+            let listingChromium i name =
+                    methane{bfId = mkUUID i, bfName = name, bfSynonyms = M.singleton "en" (S.singleton "Chromium")}
+                root = withOwnFlows [listingChromium 510 "Chromium III"] (mkDB 100 ["FR"] [])
+                dep = withOwnFlows [listingChromium 511 "Chromium VI"] (mkDB 1 ["FR"] [])
+            M.member "chromium" (clByName (flowClosure root [dep])) `shouldBe` False
 
         it "drops a dependent's cached mapping when the dependency changes" $ do
             (manager, root) <- setup []

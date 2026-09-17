@@ -277,6 +277,7 @@ import Types (
     initializeRuntimeFields,
     parseAllocationKey,
     reasonsOf,
+    sharedFlowSynonyms,
     statedCode,
     toSimpleDatabase,
     unresolvedCount,
@@ -1547,6 +1548,7 @@ loadOneDatabase manager LoadLevel{..} dbConfig = withLogScope (dcName dbConfig) 
             let bioFlowDb = dbBioFlows (ldDatabase loaded)
                 !pairs = extractFromEcoSpold2 bioFlowDb
             reportProgress Info (extractSummary bioFlowDb pairs)
+            mapM_ (reportProgress Info) (sharedSynonymSummary (sharedFlowSynonyms [bioFlowDb]))
             {- A biosphere flow whose name carries a "/unit" suffix that
             'normalizeName' does not strip silently misses its CF (the SimaPro
             unit-in-name convention; e.g. a "/MJ" absent from 'unitSuffixes').
@@ -1576,6 +1578,20 @@ loadOneDatabase manager LoadLevel{..} dbConfig = withLogScope (dcName dbConfig) 
             <> " with synonyms, "
             <> show (length pairs)
             <> " pairs"
+
+    -- A synonym flows of different names share matches none of them, which
+    -- changes the coverage a method gets; say which, and between what.
+    sharedSynonymSummary :: M.Map Text (S.Set Text) -> Maybe String
+    sharedSynonymSummary shared
+        | M.null shared = Nothing
+        | otherwise =
+            Just $
+                "  [SYNONYMS] "
+                    <> T.unpack (dcName dbConfig)
+                    <> ": "
+                    <> show (M.size shared)
+                    <> " flow synonyms name flows of different names and are not matched on: "
+                    <> T.unpack (T.intercalate "; " [syn <> " (" <> T.intercalate ", " (S.toList names) <> ")" | (syn, names) <- M.toList shared])
 
     unstrippedSuffixWarning :: (Text, [Text]) -> String
     unstrippedSuffixWarning (unit, egs) =
