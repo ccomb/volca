@@ -766,7 +766,7 @@ resolveBio ctx flowRef direction amount mUnit comment
             Just (flow, ownerUnits, local) ->
                 let flowUnit = unitNameOf ownerUnits (bfUnitId flow)
                  in case mUnit of
-                        Just stated | not (sameSpelling stated flowUnit) -> Left [mismatch stated flowUnit]
+                        Just stated | not (sameUnitAs stated flowUnit) -> Left [mismatch stated flowUnit]
                         _ -> emitKnown flowId flow flowUnit local
         FlowByName name comp unit -> case findBioFlowsByName ctx name comp of
             [] -> introduce name comp unit
@@ -777,23 +777,24 @@ resolveBio ctx flowRef direction amount mUnit comment
                 ties -> Left [severalNamed comp ties]
   where
     -- The unit the author states and the one the flow carries must be the
-    -- same unit, and case is part of what says so.
-    sameSpelling :: Text -> Text -> Bool
-    sameSpelling stated other = unitKey (acUnitConfig ctx) stated == unitKey (acUnitConfig ctx) other
+    -- same unit, since the amount is carried through unconverted: @L@ passes
+    -- for @l@, at factor 1, and case still keeps @mJ@ from passing for @MJ@.
+    sameUnitAs :: Text -> Text -> Bool
+    sameUnitAs = sameUnit (acUnitConfig ctx)
     -- A name the database already carries addresses that flow, rather than
     -- minting a second one under it: an introduced flow matches no
     -- characterization factor by identity, so the twin of a curated flow
     -- would score as zero next to the original.
     attach stated (flow, ownerUnits, local) =
         let flowUnit = unitNameOf ownerUnits (bfUnitId flow)
-         in if not (sameSpelling stated flowUnit)
+         in if not (sameUnitAs stated flowUnit)
                 then Left [mismatch stated flowUnit]
                 else emitKnown (bfId flow) flow flowUnit local
     -- One name and compartment in two units (an energy carrier recorded in
     -- kg and in MJ) is told apart by the unit the exchange states, which the
     -- author has already written. Nothing else is guessed at.
     statedIn stated (flow, ownerUnits, _) =
-        sameSpelling stated (unitNameOf ownerUnits (bfUnitId flow))
+        sameUnitAs stated (unitNameOf ownerUnits (bfUnitId flow))
     introduce name comp unit = case lookupUnit ctx unit of
         Nothing -> Left [unitRefusal ctx unit <> " for flow \"" <> name <> "\""]
         Just (unitRef, unitLabel) ->
@@ -1101,23 +1102,46 @@ settle has candidates, and naming them is the whole point of refusing it.
 -}
 unitRefusal :: AuthorContext -> Text -> Text
 unitRefusal ctx stated = case readUnit (acUnitConfig ctx) stated of
-    ReadAmbiguous a b rest ->
-        "unit \"" <> stated <> "\" could be " <> T.intercalate " or " [quoted u | u <- a : b : rest]
-    ReadExact _ -> unknown
-    ReadRespelt _ _ -> unknown
-    ReadUnknown -> unknown
+    ReadAmbiguous a b rest -> couldBe (a : b : rest)
+    ReadExact _ -> unrecorded
+    ReadRespelt _ _ -> unrecorded
+    ReadUnknown -> "unknown unit " <> quoted stated
   where
-    unknown :: Text
-    unknown = "unknown unit " <> quoted stated
+    -- The table knows the unit, so what is missing is a row of this database.
+    unrecorded :: Text
+    unrecorded = case map snd (unitsMeant ctx stated) of
+        names@(_ : _ : _) -> couldBe names
+        _ -> "this database records no unit " <> quoted stated <> " nor one equal to it"
+
+    couldBe :: [Text] -> Text
+    couldBe names = "unit " <> quoted stated <> " could be " <> T.intercalate " or " (map quoted names)
 
     quoted :: Text -> Text
     quoted u = "\"" <> u <> "\""
 
 lookupUnit :: AuthorContext -> Text -> Maybe (UUID, Text)
-lookupUnit ctx stated = M.lookup (unitKey cfg stated) (unitIndex cfg (dbUnits (acDb ctx)))
+lookupUnit ctx stated = case unitsMeant ctx stated of
+    [found] -> Just found
+    _ -> Nothing
+
+{- | The units of this database a spelling names: the one filed under that
+spelling, or else every one it equals at factor 1.
+
+The second half is what lets an author write @L@ against a database that
+records @l@, or @kg⋅km@ against one that records @kgkm@: the table holds each
+spelling as a row of its own, so the spellings no longer meet on a key, but
+they are one unit and nothing needs converting. Two units of the database
+answering that way are two answers, and 'unitRefusal' names them.
+-}
+unitsMeant :: AuthorContext -> Text -> [(UUID, Text)]
+unitsMeant ctx stated =
+    maybe (nub [unit | (key, unit) <- M.toList index, sameUnit cfg stated key]) pure (M.lookup (unitKey cfg stated) index)
   where
     cfg :: UnitConfig
     cfg = acUnitConfig ctx
+
+    index :: M.Map Text (UUID, Text)
+    index = unitIndex cfg (dbUnits (acDb ctx))
 
 unitIndex :: UnitConfig -> UnitDB -> M.Map Text (UUID, Text)
 unitIndex cfg units =

@@ -356,6 +356,98 @@ spec = do
             readUnit cfg "kg" `shouldSatisfy` exact
             readUnit cfg " kg " `shouldSatisfy` exact
 
+        it "reads the litre under both of its symbols" $ do
+            -- The SI accepts l and L for the litre, L so that a reader cannot
+            -- take the symbol for the digit 1. With only the l row, L is read
+            -- as l with a note saying the table spells it otherwise, and a
+            -- client reading the table as written finds no litre under L.
+            cfg <- loadFullUnitConfig
+            readUnit cfg "L" `shouldSatisfy` exact
+            readUnit cfg "l" `shouldSatisfy` exact
+            lookupUnitDef cfg "L" `shouldBe` Just (unitDef "volume" 1.0e-3)
+            readUnit cfg "kg/L" `shouldSatisfy` exact
+            lookupUnitDef cfg "kg/L" `shouldBe` lookupUnitDef cfg "kg/l"
+
+        it "reads a product of units written with a centred dot as the unit it spells" $ do
+            -- The SI writes a product of units with a centred dot, the dot
+            -- operator (U+22C5). The table holds it for every product of SI
+            -- units it holds, each the unit its plain row is.
+            cfg <- loadFullUnitConfig
+            let products =
+                    [ ("t⋅km", "tkm")
+                    , ("kg⋅km", "kgkm")
+                    , ("kg⋅m", "kgm")
+                    , ("m²⋅a", "m2a")
+                    , ("ha⋅a", "ha a")
+                    , ("m³⋅a", "m3a")
+                    , ("l⋅a", "l*a")
+                    , ("L⋅a", "l*a")
+                    , ("l⋅d", "l*d")
+                    , ("L⋅d", "l*d")
+                    , ("kg⋅a", "kg*a")
+                    , ("kg⋅d", "kg*d")
+                    , ("m⋅a", "m*a")
+                    , ("km⋅a", "km*a")
+                    , ("W⋅h", "Wh")
+                    , ("kW⋅h", "kWh")
+                    , ("MW⋅h", "MWh")
+                    , ("mW⋅h", "mWh")
+                    ]
+            mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) products
+            map (lookupUnitDef cfg . fst) products `shouldBe` map (lookupUnitDef cfg . snd) products
+            -- Both halves of the pair, as for mWh: with the megawatt alone, a
+            -- milliwatt hour would fold onto it and be read a billion times large.
+            lookupUnitDef cfg "mw⋅h" `shouldBe` Nothing
+
+        it "reads the spellings a Brightway workbook writes for a transport and a land occupation" $ do
+            -- Brightway renames the units it imports, so a workbook it exports
+            -- writes a background database's metric ton*km as ton kilometer
+            -- and its m2*year as square meter-year. While the table did not
+            -- hold them, such a transport input found no supplier, since a
+            -- supplier's unit has to convert into the input's.
+            cfg <- loadFullUnitConfig
+            let spellings =
+                    [ ("ton kilometer", "metric ton*km")
+                    , ("square meter-year", "m2*year")
+                    ]
+            mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) spellings
+            map (lookupUnitDef cfg . fst) spellings `shouldBe` map (lookupUnitDef cfg . snd) spellings
+
+        it "holds the superscript spelling of a power beside the digit one" $ do
+            cfg <- loadFullUnitConfig
+            let powers =
+                    [ ("m²", "m2")
+                    , ("dm²", "dm2")
+                    , ("cm²", "cm2")
+                    , ("mm²", "mm2")
+                    , ("km²", "km2")
+                    , ("m³", "m3")
+                    , ("dm³", "dm3")
+                    , ("cm³", "cm3")
+                    , ("kg/m³", "kg/m3")
+                    ]
+            mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) powers
+            map (lookupUnitDef cfg . fst) powers `shouldBe` map (lookupUnitDef cfg . snd) powers
+
+        it "reads the prefixed multiples a source writes" $ do
+            cfg <- loadFullUnitConfig
+            let multiples =
+                    [ ("µg", unitDef "mass" 1.0e-9)
+                    , ("ng", unitDef "mass" 1.0e-12)
+                    , ("kt", unitDef "mass" 1.0e6)
+                    , ("µm", unitDef "length" 1.0e-6)
+                    , ("cL", unitDef "volume" 1.0e-5)
+                    , ("hL", unitDef "volume" 0.1)
+                    , ("GWh", unitDef "energy" 3.6e6)
+                    , ("TWh", unitDef "energy" 3.6e9)
+                    ]
+            mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) multiples
+            map (lookupUnitDef cfg . fst) multiples `shouldBe` map (Just . snd) multiples
+            -- The table holds the micro sign a keyboard types (U+00B5). The
+            -- Greek mu (U+03BC) folds onto it, so it is read as the microgram
+            -- and said to be spelt otherwise.
+            readUnit cfg "μg" `shouldSatisfy` respeltAs "µg"
+
         it "reads a capitalised prefix as the unit it spells" $ do
             -- The table holds both halves of each pair, so neither is read as
             -- the other. Without the capitalised row a megagram folds onto the
