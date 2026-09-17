@@ -58,10 +58,11 @@
   number, so only the flow registry could join them, and each counted zero
   without a word. On one such export of 21 456 processes, freshwater
   ecotoxicity from inorganics under the adapted collection now agrees with the
-  JRC package within 5 % for 90 % of the processes instead of 45 %, and
-  photochemical ozone formation moves by more than 5 % for 584 of them, under
-  both collections, now that ethene is ethylene. A collection that writes the
-  bare element name itself, as the JRC package does, keeps its own factor.
+  reference EF 3.1 package within 5 % for 90 % of the processes instead of
+  45 %, and photochemical ozone formation moves by more than 5 % for 584 of
+  them, under both collections, now that ethene is ethylene. A collection that
+  writes the bare element name itself, as the reference package does, keeps
+  its own factor.
   `Ethene, chloro-` was paired with `PVC`, its polymer; it now joins vinyl
   chloride. Data version 5.
 
