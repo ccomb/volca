@@ -12,6 +12,7 @@ header, biosphere categories (with @::@), and within-file supplier linking.
 module BrightwayExcelSpec (spec) where
 
 import BrightwayExcel.Parser (CellValue (..), parseBrightwayExcel, parseSheetXml, sheetToActivities, skippedSheetWarning, splitCategories)
+import BrightwayExcel.Writer (defaultWriterConfig, renderWorkbook)
 import Codec.Archive.Zip (addEntryToArchive, emptyArchive, fromArchive, toEntry)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (chr, ord)
@@ -169,7 +170,7 @@ spec = describe "BrightwayExcel.Parser" $ do
             (_, warnings) <- readSheet (formulaSheet CE CE)
             filter (T.isInfixOf "formula") warnings `shouldBe` []
 
-    describe "loadDatabase dispatch" $
+    describe "loadDatabase dispatch" $ do
         it "resolves within-file technosphere links" $
             withFixture $ \path -> do
                 loadDatabase defaultUnitConfig path >>= \case
@@ -180,6 +181,33 @@ spec = describe "BrightwayExcel.Parser" $ do
                         -- Widget consumes the file's own "electricity, high voltage";
                         -- the name-based pass must resolve that supplier.
                         any (/= UUID.nil) links `shouldBe` True
+
+        it "keeps a product the workbook makes apart from one another database sells under its name" $
+            withWorkbook (buildWorkbook [("iron", madeElsewhereSheet)]) $ \path -> do
+                loadDatabase defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right db -> do
+                        let acts = M.elems (sdbActivities db)
+                        coke <- requireActivity acts "Coke production"
+                        iron <- requireActivity acts "Pig iron production"
+                        [cokeProduct] <- pure (filter exchangeIsReference (exchanges coke))
+                        [madeHere, boughtElsewhere] <- pure (inputExchanges iron)
+                        -- The kilograms come from the workbook's own activity; the
+                        -- megajoules are another flow, left for a dependency to supply.
+                        exchangeFlowId madeHere `shouldBe` exchangeFlowId cokeProduct
+                        inputLink madeHere `shouldSatisfy` isJust
+                        exchangeFlowId boughtElsewhere `shouldNotBe` exchangeFlowId cokeProduct
+                        inputLink boughtElsewhere `shouldBe` Nothing
+
+        it "refuses to export the two products a workbook would read back as one" $
+            withWorkbook (buildWorkbook [("iron", madeElsewhereSheet)]) $ \path -> do
+                loadDatabase defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right db -> case renderWorkbook defaultWriterConfig db of
+                        Right _ -> expectationFailure "exported a workbook the reader would refuse"
+                        Left err -> do
+                            err `shouldSatisfy` T.isInfixOf "\"Coke\" (kilogram)"
+                            err `shouldSatisfy` T.isInfixOf "\"coke\" (megajoule)"
 
     describe "upload format detection" $
         it "routes a Brightway .xlsx to ArchiveXlsx, not generic ArchiveZip" $
@@ -359,6 +387,33 @@ formulaSheet inputFormula emissionFormula =
     , [CT "Steel production", CN 1, CT "steel", CT "GLO", CT "kilogram", CE, CT "technosphere", inputFormula]
     , [CT "Carbon dioxide, fossil", CN 0.5, CE, CT "GLO", CT "kilogram", CT "air", CT "biosphere", emissionFormula]
     ]
+
+{- | A workbook whose own coke, weighed in kilograms, is spelt like the coke
+another database sells in megajoules. It has no @Database@ section, so its own
+database is the one its production rows name.
+-}
+madeElsewhereSheet :: [[Cell]]
+madeElsewhereSheet =
+    [ [CT "Activity", CT "Coke production"]
+    , [CT "reference product", CT "Coke"]
+    , [CT "location", CT "CN"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Exchanges"]
+    , header
+    , [CT "Coke production", CN 1, CT "Coke", CT "CN", CT "kilogram", CE, CT "production", CT "Foreground"]
+    , []
+    , [CT "Activity", CT "Pig iron production"]
+    , [CT "reference product", CT "pig iron"]
+    , [CT "location", CT "CN"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Exchanges"]
+    , header
+    , [CT "Pig iron production", CN 1, CT "pig iron", CT "CN", CT "kilogram", CE, CT "production", CT "Foreground"]
+    , [CT "Coke production", CN 0.4, CT "Coke", CT "CN", CT "kilogram", CE, CT "technosphere", CT "Foreground"]
+    , [CT "market for coke", CN 0.7, CT "coke", CT "CN", CT "megajoule", CE, CT "technosphere", CT "Background"]
+    ]
+  where
+    header = [CT "name", CT "amount", CT "reference product", CT "location", CT "unit", CT "categories", CT "type", CT "database"]
 
 -- | A single-activity worksheet (standard column order) for multi-sheet tests.
 activitySheet :: Text -> Text -> [[Cell]]

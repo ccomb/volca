@@ -514,6 +514,11 @@ History of manual bumps:
      for (product, activity, location) instead of the product name. The map
      sits inside a record the fingerprint does not look into, so an old cache
      would pass the check and be read with the wrong key.
+- 43: a Brightway Excel row asking for a product made in another database than
+     the workbook's own designates a flow of its own, where it used to share
+     the flow of the workbook's product spelt the same way. Nothing changes
+     type, so a cache written just before this would pass the fingerprint and
+     keep the two as one flow.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -521,7 +526,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 42
+     in hi `xor` lo `xor` 43
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
