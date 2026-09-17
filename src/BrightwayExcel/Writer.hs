@@ -69,13 +69,16 @@ module BrightwayExcel.Writer (
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (chr, ord)
 import Data.List (sortOn)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, listToMaybe, mapMaybe, maybeToList)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import Amount (readAmount)
+import Data.Indexing (collisions)
 import EcoSpold.Common (showFFloatTrim)
 import Types
 import Zip (zipFiles)
@@ -163,8 +166,13 @@ re-parse through 'Amount.readAmount' (the importer's correctly-rounded reader);
 every finite amount does, so this rejects only the non-finite @NaN@/@Infinity@
 that would otherwise substitute a different value on re-import.
 
+Two products spelt alike in different units are rejected ('productsSpeltAlike'):
+the file names a product by its name, and the reader would refuse to read them
+back as one.
+
 Databases whose exchanges all resolve, carry no linked waste, keep every resource
-direction recoverable, and whose amounts all re-parse pass unchanged.
+direction recoverable, name no two products alike in different units, and whose
+amounts all re-parse pass unchanged.
 -}
 
 {- | A waste exchange with no producer link: matrix-invisible, so 'exchangeRow'
@@ -208,6 +216,7 @@ checkBrightwayExportable db =
         , refInputMsg <$> listToMaybe refInputOffenders
         , directionMsg <$> listToMaybe directionOffenders
         , roundTripMsg <$> listToMaybe roundTripOffenders
+        , alikeMsg <$> listToMaybe (productsSpeltAlike db)
         ] of
         [] -> Right ()
         violations -> Left (T.intercalate "\n\n" violations)
@@ -229,6 +238,15 @@ checkBrightwayExportable db =
             <> "exchange amount "
             <> tshow amt
             <> " does not re-parse to the same value (a non-finite amount)."
+    alikeMsg :: NE.NonEmpty TechnosphereFlow -> Text
+    alikeMsg flows =
+        "Brightway Excel export cannot represent the products "
+            <> T.intercalate " and " (map spelt (NE.toList flows))
+            <> ": a workbook names a product by its name alone, so they would be read back"
+            <> " as one product written in two units."
+    spelt :: TechnosphereFlow -> Text
+    spelt flow =
+        "\"" <> tfName flow <> "\" (" <> maybe "unknown unit" unitName (M.lookup (tfUnitId flow) (sdbUnits db)) <> ")"
     -- Names of activities with at least one exchange satisfying @p@. Only the
     -- first offender is ever reported, so one entry per activity (not per
     -- exchange) is equivalent – and lets every guard share one comprehension.
@@ -247,6 +265,26 @@ checkBrightwayExportable db =
         , not (amountRoundTrips amt)
         ]
     amountRoundTrips amt = readAmount (formatAmount amt) == Just amt
+
+{- | The products the exchanges name that a workbook cannot tell apart. The reader
+knows a product by its name folded in case and refuses one written in two units,
+so two such products in different units make a file it would refuse. A database
+reaches this when it holds a product of its own and one spelt alike that
+another database makes ('BrightwayExcel.Parser.productFlowUUID'): the writer
+does not know that database, and writes every row as made in the workbook.
+-}
+productsSpeltAlike :: SimpleDatabase -> [NE.NonEmpty TechnosphereFlow]
+productsSpeltAlike db =
+    [ flows
+    | (_, flows) <- collisions [(T.toCaseFold (T.strip (tfName f)), f) | f <- written]
+    , NE.length (NE.nub (NE.map tfUnitId flows)) > 1
+    ]
+  where
+    written :: [TechnosphereFlow]
+    written =
+        mapMaybe
+            (`M.lookup` sdbTechFlows db)
+            (S.toList (S.fromList [exchangeFlowId ex | act <- M.elems (sdbActivities db), ex@TechnosphereExchange{} <- exchanges act]))
 
 {- | A 'Resource' biosphere exchange whose compartment would not re-parse as a
 resource: the writer never records the direction, so the parser reconstructs it
@@ -401,7 +439,10 @@ isReferenceInput = \case
 'Nothing' for an exchange whose flow or unit is missing from the database (it
 cannot be written faithfully, so it is dropped rather than emitted with blanks
 that would re-parse into a different flow). The @reference product@ column
-carries the flow name, from which the parser reconstructs the same flow UUID;
+carries the flow name, from which the parser reconstructs the same flow UUID for
+a product made in the workbook. Every row's @database@ column names the
+workbook, so a product another database makes comes back as one made here
+('productsSpeltAlike' refuses the case where that would merge two products);
 @name@ carries the supplier activity where the source named one, and repeats the
 flow name where it did not.
 -}

@@ -464,7 +464,9 @@ The /reference/ product is normalized to its canonical base unit at ingest (e.g.
 the importer non-injective on the reference unit: a database whose reference unit
 is non-canonical does not satisfy @parse (write d) == d@. The writer's contract
 is instead fixed-point over the parser's /image/ – once a database has been
-parsed (so its reference unit is canonical), @parse (write d) == d@ holds. A
+parsed (so its reference unit is canonical), @parse (write d) == d@ holds, for a
+database whose products are all made in the workbook: the writer does not keep
+the database a product made elsewhere came from ('productFlowUUID'). A
 coproduct row is left in its stated unit (no canonicalization), so it round-trips
 verbatim.
 -}

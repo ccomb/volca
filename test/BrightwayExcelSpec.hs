@@ -12,6 +12,7 @@ header, biosphere categories (with @::@), and within-file supplier linking.
 module BrightwayExcelSpec (spec) where
 
 import BrightwayExcel.Parser (CellValue (..), parseBrightwayExcel, parseSheetXml, sheetToActivities, skippedSheetWarning, splitCategories)
+import BrightwayExcel.Writer (defaultWriterConfig, renderWorkbook)
 import Codec.Archive.Zip (addEntryToArchive, emptyArchive, fromArchive, toEntry)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (chr, ord)
@@ -197,6 +198,16 @@ spec = describe "BrightwayExcel.Parser" $ do
                         inputLink madeHere `shouldSatisfy` isJust
                         exchangeFlowId boughtElsewhere `shouldNotBe` exchangeFlowId cokeProduct
                         inputLink boughtElsewhere `shouldBe` Nothing
+
+        it "refuses to export the two products a workbook would read back as one" $
+            withWorkbook (buildWorkbook [("iron", madeElsewhereSheet)]) $ \path -> do
+                loadDatabase defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right db -> case renderWorkbook defaultWriterConfig db of
+                        Right _ -> expectationFailure "exported a workbook the reader would refuse"
+                        Left err -> do
+                            err `shouldSatisfy` T.isInfixOf "\"Coke\" (kilogram)"
+                            err `shouldSatisfy` T.isInfixOf "\"coke\" (megajoule)"
 
     describe "upload format detection" $
         it "routes a Brightway .xlsx to ArchiveXlsx, not generic ArchiveZip" $

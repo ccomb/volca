@@ -61,7 +61,10 @@
   a flow of its own. It used to share the flow of the workbook's product spelt
   the same way, so a workbook weighing its own coke in kilograms and buying
   coke from a background database in megajoules was refused whole, as a flow
-  written in two units no conversion relates. A cache built before this keeps
+  written in two units no conversion relates. Such a database is refused for
+  a Brightway Excel export, naming both products and their units: the writer
+  does not keep the database a product came from, so the file would name the
+  two alike and be refused on the way back. A cache built before this keeps
   the two as one flow, so every cache rebuilds itself from its source on the
   next load.
 - An input is linked to a supplier offering its product where the input says it
