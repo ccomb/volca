@@ -168,13 +168,17 @@ co2Of = M.findWithDefault 0.0 co2
 processIdOf :: Database -> (UUID, UUID) -> Maybe ProcessId
 processIdOf db key = fromIntegral <$> elemIndex key (V.toList (dbProcessIdTable db))
 
+-- | Intra-DB scoring of one activity's CO2, asked as the functional unit.
+scoreOf :: T.Text -> (UUID, UUID) -> M.Map (UUID, UUID) Activity -> IO Double
+scoreOf name key acts = do
+    db <- buildDB name acts
+    case processIdOf db key of
+        Nothing -> fail (T.unpack name <> ": activity not interned")
+        Just pid -> co2Of <$> (either (fail . show) pure =<< computeInventoryMatrix db (fromIntegral pid))
+
 -- | Intra-DB scoring of the producer's CO2 (single database, static triples).
 scoreIntra :: T.Text -> M.Map (UUID, UUID) Activity -> IO Double
-scoreIntra name acts = do
-    db <- buildDB name acts
-    case processIdOf db (pA, yY) of
-        Nothing -> fail "producer not interned"
-        Just pid -> co2Of <$> (either (fail . show) pure =<< computeInventoryMatrix db (fromIntegral pid))
+scoreIntra name = scoreOf name (pA, yY)
 
 -- | A linking context holding one dependency database.
 ctxWithDep :: T.Text -> Database -> LinkingContext
@@ -245,6 +249,19 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
                     ]
                 )
         withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    -- The treatment asked for itself, with no producer sending it anything: one
+    -- unit of it is one kilogram treated, and treating a kilogram emits. A
+    -- reference declared as a negative output normalizes the column by that
+    -- negative amount, so a functional unit of +1 asks for the kilogram to be
+    -- produced instead, and every number of the answer comes back reversed.
+    it "a treatment whose reference is a negative output scores +2 for itself" $ do
+        score <- scoreOf "self-negative-output" (tA, wW) (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+        withinTolerance 1.0e-9 2.0 score `shouldBe` True
+
+    it "a treatment whose reference is a positive input scores +2 for itself" $ do
+        score <- scoreOf "self-positive-input" (tA, wW) (M.singleton (tA, wW) (treatment ReferenceInput 1.0))
+        withinTolerance 1.0e-9 2.0 score `shouldBe` True
 
     it "intra-DB ILCD (positive ReferenceInput) scores +6" $ do
         score <-

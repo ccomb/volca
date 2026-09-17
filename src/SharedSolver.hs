@@ -59,7 +59,7 @@ import Matrix (
     accumulateDepDemands,
     accumulateDepDemandsWith,
     applyBiosphereMatrix,
-    buildDemandVectorFromIndex,
+    buildDemandVector,
     computeInventoryMatrixBatch,
     depDemandsToVector,
     precomputeMatrixFactorization,
@@ -158,7 +158,7 @@ computeScalingVectorCached db solver pid =
     either
         (pure . Left)
         (fmap Right . solveWithSharedSolver solver)
-        (buildDemandVectorFromIndex (dbActivityIndex db) pid)
+        (buildDemandVector db pid)
 
 -- | Inventory for @pid@ using the shared-solver factorization cache.
 computeInventoryMatrixCached :: Database -> SharedSolver -> ProcessId -> IO (Either Text Inventory)
@@ -242,7 +242,7 @@ computeInventoryMatrixBatchWithDepsCached unitConfig depLookup db dbName solver 
     either
         (pure . Left)
         (\demands -> goWithDeps unitConfig depLookup db dbName solver demands 0)
-        (traverse (buildDemandVectorFromIndex (dbActivityIndex db)) pids)
+        (traverse (buildDemandVector db) pids)
 
 -- | Single-process convenience wrapper. One-element batch.
 computeInventoryMatrixWithDepsCached ::
@@ -428,7 +428,7 @@ crossDBProcessContributions unitConfig unitDB flowDB depLookup rootDb rootName r
     either
         (pure . Left)
         (\demand -> go rootDb rootName rootSolver [demand] 0)
-        (buildDemandVectorFromIndex (dbActivityIndex rootDb) rootPid)
+        (buildDemandVector rootDb rootPid)
   where
     go ::
         Database ->

@@ -50,7 +50,8 @@ module Matrix (
     perturbGlobal,
     applyShermanMorrison,
     applyShermanMorrisonV,
-    buildDemandVectorFromIndex,
+    buildDemandVector,
+    referenceSign,
     solveSparseLinearSystem,
     applySparseMatrix,
     fromList,
@@ -484,7 +485,7 @@ as a whole, naming the first that does not. Callers resolve with
 computeInventoryMatrixBatch :: Database -> MatrixFactorization -> [ProcessId] -> IO (Either Text [Inventory])
 computeInventoryMatrixBatch _ _ [] = pure (Right [])
 computeInventoryMatrixBatch db fact pids =
-    either (pure . Left) solveAll (traverse (buildDemandVectorFromIndex (dbActivityIndex db)) pids)
+    either (pure . Left) solveAll (traverse (buildDemandVector db) pids)
   where
     solveAll :: [Demand] -> IO (Either Text [Inventory])
     solveAll demandVecs = do
@@ -553,7 +554,7 @@ Returns the supply vector where x[i] is the scaling factor for activity i
 -}
 computeScalingVector :: Database -> ProcessId -> IO (Either Text Vector)
 computeScalingVector db rootProcessId =
-    either (pure . Left) solve (buildDemandVectorFromIndex (dbActivityIndex db) rootProcessId)
+    either (pure . Left) solve (buildDemandVector db rootProcessId)
   where
     solve :: Demand -> IO (Either Text Vector)
     solve demandVec =
@@ -961,25 +962,46 @@ depDemandsToVector unitConfig depDbName depDb demands = do
                                         <> " \8212 "
                                         <> UnitConversion.missingConversion unitConfig exchangeUnit supplierUnit
 
+{- | The direction one unit of an activity runs in, read from its reference
+product.
+
+An activity that declares its reference as a negative output states that it
+consumes what it is named after: the treatment of a waste, which the matrix
+column is normalized by. One unit of that column is a unit produced, the
+reverse of what the activity does, so the functional unit belongs on the other
+side: demanding -1 asks for the kilogram to be treated, and the whole solution
+(its inputs, its emissions, every process upstream) comes out the way the
+activity was written. A reference declared as an input normalizes on its
+absolute value and already runs the right way, so it takes +1 like any other.
+-}
+referenceSign :: Database -> ProcessId -> Double
+referenceSign db pid = if activityNormalizationFactor db pid < 0 then -1.0 else 1.0
+
 {- |
 Build the final demand vector f for LCA calculations.
 
 The demand vector represents external demand for products from each activity:
-- f[i] = 1.0 for the root activity (functional unit)
+- f[i] = one unit of the root activity, signed by 'referenceSign'
 - f[i] = 0.0 for all other activities
 
 A process id the index does not hold names no column, so there is no vector
 to build and the caller is told. A vector of zeros would solve to an
 inventory of zeros and be reported as an answer.
 -}
-buildDemandVectorFromIndex :: V.Vector Int32 -> ProcessId -> Either Text Demand
-buildDemandVectorFromIndex activityIndex rootProcessId =
+buildDemandVector :: Database -> ProcessId -> Either Text Demand
+buildDemandVector db rootProcessId =
     maybe (Left noColumn) (Right . loadColumn) (activityIndex V.!? fromIntegral rootProcessId)
   where
+    activityIndex :: V.Vector Int32
+    activityIndex = dbActivityIndex db
     n :: Int
     n = V.length activityIndex
+    -- Read only from 'loadColumn', which the index lookup above has already
+    -- gated: 'referenceSign' reads the activity vector at that same position.
+    unit :: Double
+    unit = referenceSign db rootProcessId
     loadColumn :: Int32 -> Demand
-    loadColumn col = Demand $ fromList [if i == fromIntegral col then 1.0 else 0.0 | i <- [0 .. n - 1 :: Int]]
+    loadColumn col = Demand $ fromList [if i == fromIntegral col then unit else 0.0 | i <- [0 .. n - 1 :: Int]]
     noColumn :: Text
     noColumn =
         "ProcessId "

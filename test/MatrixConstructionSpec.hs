@@ -10,7 +10,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Database (buildDatabaseWithMatrices)
-import Matrix (Demand (..), buildDemandVectorFromIndex, computeInventoryMatrix)
+import Matrix (Demand (..), buildDemandVector, computeInventoryMatrix)
 import Test.Hspec
 import TestHelpers
 import Types
@@ -103,9 +103,9 @@ spec = do
             -- zeros, which would solve to an inventory of zeros.
             let activityIndex = dbActivityIndex db
                 offEnd = fromIntegral (V.length activityIndex) :: ProcessId
-            fmap (VU.sum . unDemand) (buildDemandVectorFromIndex activityIndex 0) `shouldBe` Right 1.0
-            isLeft (buildDemandVectorFromIndex activityIndex offEnd) `shouldBe` True
-            isLeft (buildDemandVectorFromIndex activityIndex (-1)) `shouldBe` True
+            fmap (VU.sum . unDemand) (buildDemandVector db 0) `shouldBe` Right 1.0
+            isLeft (buildDemandVector db offEnd) `shouldBe` True
+            isLeft (buildDemandVector db (-1)) `shouldBe` True
 
     describe "Matrix Sparsity" $ do
         it "produces only well above-zero entries on the basic SAMPLE.min3 fixture" $ do

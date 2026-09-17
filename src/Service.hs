@@ -32,7 +32,7 @@ import qualified Data.Vector.Unboxed as U
 import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.MatrixBuild (findProducer, linkedProducer)
-import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVectorFromIndex, computeInventoryMatrix, depDemandsToVector, perturbA, perturbABatch, perturbGlobal, toList)
+import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix, depDemandsToVector, perturbA, perturbABatch, perturbGlobal, toList)
 import qualified Matrix.Export as MatrixExport
 import qualified Progress
 import qualified Search.BM25 as BM25
@@ -236,7 +236,7 @@ here without being resolved is the only way to get a 'Left'.
 -}
 demandFor :: Database -> ProcessId -> Either ServiceError Demand
 demandFor db processId =
-    either (Left . MatrixError) Right (buildDemandVectorFromIndex (dbActivityIndex db) processId)
+    either (Left . MatrixError) Right (buildDemandVector db processId)
 
 -- | Rich activity info (returns same format as API)
 getActivityInfo :: Database -> Text -> Either ServiceError Value

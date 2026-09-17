@@ -14,7 +14,7 @@ module Matrix.Export (
 ) where
 
 import Database (filterByName, flowSearchFields)
-import Matrix (Demand (..), Vector, applySparseMatrix, buildDemandVectorFromIndex, solveSparseLinearSystem, toList)
+import Matrix (Demand (..), Vector, applySparseMatrix, buildDemandVector, referenceSign, solveSparseLinearSystem, toList)
 import Progress (ProgressLevel (..), reportProgress)
 import Types
 
@@ -61,7 +61,7 @@ extractMatrixDebugInfo database targetProcessId flowFilter =
     either
         (pure . Left)
         (fmap Right . withDemand . unDemand)
-        (buildDemandVectorFromIndex (dbActivityIndex database) targetProcessId)
+        (buildDemandVector database targetProcessId)
   where
     withDemand :: Vector -> IO MatrixDebugInfo
     withDemand demandVec = do
@@ -326,13 +326,10 @@ own inputs everywhere else, which no solver can read.
 referenceSigns :: Database -> U.Vector Double
 referenceSigns db = U.generate (fromIntegral (dbActivityCount db)) columnSign
   where
-    -- The very quantity the triples were divided by, so the export undoes the
-    -- normalisation it is undoing rather than a rule that resembles it: a
-    -- treatment whose reference is a negative *input* normalises on its
-    -- absolute value and is not flipped at all, and reading the raw amount
-    -- would reverse its whole column for nothing.
+    -- The same sign the functional unit is put on, so the exported column and
+    -- the engine's own answer for that activity read the same way round.
     columnSign :: Int -> Double
-    columnSign i = signum (activityNormFactor (dbActivities db V.! i) (dbProcessIdTable db V.! i))
+    columnSign i = referenceSign db (fromIntegral i)
 
 -- | Export A_public.csv (Technosphere Matrix)
 exportAMatrix :: FilePath -> Database -> IO ()
