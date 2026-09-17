@@ -183,7 +183,8 @@ Anthracen,Anthracene
 Anthracene,Anthracin
 Anthracene,Paranaphthalene
 Antimony,"Antimony, in ground"
-"Antimony, in ground",Stibnite
+Antimony,"Antimony, ion",,007440-36-0,EF 3.1 characterizes antimony of unstated valence as the average of Sb(III) and Sb(V) (report JRC130796 table 6 note d): Antimony ion in the adapted collection
+"Antimony, in ground",Stibnite,input
 Argon,Argon-40
 Argon-40,Argon-40/kg
 Arsane,Arsine
@@ -708,7 +709,7 @@ Zirconium,"Zirconium, in ground"
 "alpha-cyano-3-phenoxybenzyl 2,2,3,3-tetramethylcyclopropanecarboxylate",Fenpropathrin
 "aminic acid, formylic acid, hydrogen carboxylic acid, methanoic acid",Formic acid
 "aminobenzene, benzenamine, phenylamine",Aniline
-antimony sulfide,"Stibnite, in ground"
+antimony sulfide,"Stibnite, in ground",input
 benzo[def]phenanthrene,Pyrene
 "bicyclo(4.4.0)deca-1,3,5,7,9-pentene",Naphtalene
 bis(2-ethylhexyl) Phtalat,"Phthalate, dioctyl-"
