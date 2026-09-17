@@ -540,6 +540,7 @@ spec = do
         -- compartments carry the same zero, and writes the unstated one at a
         -- specific compartment too: a row landing on trivalent chromium there
         -- is the only one at that compartment, so no tie-break can undo it.
+        -- The flow registry is left empty: only the name index decides here.
         let chromium i name comp =
                 (mkFlow (fromWords i 0 0 0) name Air comp)
                     { bfSynonyms = M.singleton "en" (S.fromList ["Chromium", "Chromium ion"])

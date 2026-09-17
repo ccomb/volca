@@ -139,11 +139,13 @@
   hexavalent factors. It gives `Carbon dioxide` to the fossil, non-fossil and
   soil carbon flows alike, and the flow registry reads a bare
   `Carbon dioxide` as the fossil one: biogenic carbon dioxide was charged as
-  fossil in both climate change indicators. A flow is still found under its own name, and under a synonym
-  no flow of another name lists. Against the EF v3.1 results an EcoSpold 2
-  release publishes, with the reference EF 3.1 package, activities within
-  5 % go from 13 % to 78 % on cancer toxicity from inorganics and from 57 %
-  to 88 % on fossil climate change.
+  fossil in both climate change indicators. A flow is still found under its
+  own name, and under a synonym no flow of another name lists, judged over a
+  database and the databases it depends on together. Loading a database lists
+  the synonyms it leaves out and the flows that share each. Against the
+  EF v3.1 results an EcoSpold 2 release publishes, with the reference EF 3.1
+  package, activities within 5 % go from 13 % to 78 % on cancer toxicity from
+  inorganics and from 57 % to 88 % on fossil climate change.
 
 ## [0.13.0] - 2026-09-15
 
