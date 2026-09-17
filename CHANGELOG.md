@@ -42,6 +42,17 @@
   so an activity written in `L` still reaches a database that records `l`, and
   one written in `kilogram` now reaches a database that records `kg`; when two
   of the database's units qualify, the refusal names both. Data version 5.
+- The missing suppliers of a database setup, and the entries of its gap report,
+  name the activity the inputs asked for (`supplierActivity`) as well as the
+  product. A workbook row buying `lime, packed` from
+  `market for lime, packed` was listed as `lime, packed` alone, which left the
+  reader to guess which dataset of the dependency was missing. The setup list
+  now fills `location` too, with the location the inputs stated, and names a
+  product once per request (activity, location) and reason, for the ten products
+  most demanded. An input naming its supplier by identifier names no activity,
+  and its row names no location either. Wire revision 26. A cache built before
+  this stores the refused inputs under their product name alone, so every cache
+  rebuilds itself from its source on the next load.
 - An input is linked to a supplier offering its product where the input says it
   buys it. A product name carries no geography, so one name covers every
   geography the product is made in, and a format that writes the geography into

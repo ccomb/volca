@@ -1414,7 +1414,12 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 25: the compare_activities and compare_databases routes;
+(revision 26: the @supplierActivity@ a gap entry and a missing supplier
+carry, the activity the inputs named, the @location@ a missing supplier now
+fills with the location the inputs stated, and that list naming a product once
+per request (activity, location) and reason; a reference by identifier names
+neither;
+revision 25: the compare_activities and compare_databases routes;
 revision 24: the @reasons@ a gap entry carries, every reason its product was
 refused a supplier under, where @reason@ and @detail@ name only the first, and
 the setup report's missing-supplier list naming a product once per reason;
@@ -1465,7 +1470,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 25
+currentWireVersion = 26
 
 getVersion :: AppM Value
 getVersion = do

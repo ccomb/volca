@@ -399,6 +399,45 @@ data SupplierClaim
     deriving (Eq, Show, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SupplierClaim)
 
+-- | The supplier activity a claim names, when it names one by name.
+claimedName :: SupplierClaim -> Maybe Text
+claimedName = \case
+    ClaimByName name -> Just name
+    ClaimByProduct -> Nothing
+    ClaimById _ -> Nothing
+    ClaimByDatasetNumber _ -> Nothing
+
+{- | What one input asked a dependency for: the product, the activity it named
+and the location it stated. The key a refused input is reported under, so two
+inputs buying one product from two activities, or at two locations, read as two
+requests a user can look up, not as one product name.
+-}
+data SupplierRequest = SupplierRequest
+    { srProduct :: !Text
+    , srActivity :: !(Maybe Text)
+    -- ^ The supplier activity the input named, when it named one by name
+    , srLocation :: !(Maybe Text)
+    -- ^ The location the input stated, when it stated one
+    }
+    deriving (Eq, Ord, Show, Generic, NFData, Store)
+
+-- | The request an input for this product makes, from what the input says.
+supplierRequest :: Text -> SupplierClaim -> ExchangeLocation -> SupplierRequest
+supplierRequest name claim loc =
+    SupplierRequest
+        { srProduct = name
+        , srActivity = claimedName claim
+        , srLocation = case loc of
+            LocationNone -> Nothing
+            LocationGlobal -> Just (locationCode loc)
+            LocationCode _ -> Just (locationCode loc)
+        }
+
+-- | A request as a log line names it: @market for lime · lime (RoW)@.
+describeRequest :: SupplierRequest -> Text
+describeRequest SupplierRequest{srProduct = name, srActivity = activity, srLocation = loc} =
+    maybe "" (<> " · ") activity <> name <> maybe "" (\code -> " (" <> code <> ")") loc
+
 {- | What a source says about where an exchange happens.
 
 A format either states a code on every exchange (ILCD, EcoSpold 1) or states
@@ -2077,12 +2116,13 @@ data SupplierAmbiguity = SupplierAmbiguity
     deriving (Show, Eq, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SupplierAmbiguity)
 
-{- | One product no dependency supplies: every reason a demand for it was
+{- | One request no dependency answers: every reason a demand making it was
 refused, and how many demands each reason refused.
 
-The reasons are counted separately because a product is routinely blocked for
-several: two activities asking for it in a unit the supplier does not ship, three
-more whose location the geography policy rejects. A single blocker plus a total
+The reasons are counted separately because one request can be blocked for
+several, the unit being no part of it: two activities asking in a unit the
+supplier does not ship, three more asking in one it ships and refused for
+another reason. A single blocker plus a total
 could not tell that apart from five demands refused for one reason, so every
 surface reading this has to say what it does with several.
 -}
@@ -2105,8 +2145,8 @@ Only essential state is stored; counts are derived via accessor functions.
 data CrossDBLinkingStats = CrossDBLinkingStats
     { cdlLinks :: ![CrossDBLink]
     -- ^ Resolved cross-DB links (technosphere + waste)
-    , cdlUnresolvedProducts :: !(M.Map Text UnresolvedProduct)
-    -- ^ Product name -> the demands it left unsupplied
+    , cdlUnresolvedRequests :: !(M.Map SupplierRequest UnresolvedProduct)
+    -- ^ What each refused request asked for -> the demands it left unsupplied
     , cdlUnknownUnits :: !(S.Set Text)
     -- ^ Unknown units from sdbUnits
     , cdlLocationFallbacks :: ![LocationFallback]
@@ -2128,7 +2168,7 @@ data CrossDBLinkingStats = CrossDBLinkingStats
     }
     deriving (Generic, NFData, Store)
 
-{- | Field-wise '<>'. On unresolved-product collision the two reason tallies are
+{- | Field-wise '<>'. On unresolved-request collision the two reason tallies are
 added reason by reason, so nothing a run recorded is lost to the run it merges
 with. Hand-written: bare 'Int' has no canonical 'Monoid'.
 -}
@@ -2136,7 +2176,7 @@ instance Semigroup CrossDBLinkingStats where
     s1 <> s2 =
         CrossDBLinkingStats
             { cdlLinks = cdlLinks s1 <> cdlLinks s2
-            , cdlUnresolvedProducts = M.unionWith (<>) (cdlUnresolvedProducts s1) (cdlUnresolvedProducts s2)
+            , cdlUnresolvedRequests = M.unionWith (<>) (cdlUnresolvedRequests s1) (cdlUnresolvedRequests s2)
             , cdlUnknownUnits = cdlUnknownUnits s1 <> cdlUnknownUnits s2
             , cdlLocationFallbacks = cdlLocationFallbacks s1 <> cdlLocationFallbacks s2
             , cdlLocationUnresolved = cdlLocationUnresolved s1 <> cdlLocationUnresolved s2
@@ -2152,7 +2192,7 @@ instance Monoid CrossDBLinkingStats where
     mempty =
         CrossDBLinkingStats
             { cdlLinks = []
-            , cdlUnresolvedProducts = M.empty
+            , cdlUnresolvedRequests = M.empty
             , cdlUnknownUnits = S.empty
             , cdlLocationFallbacks = []
             , cdlLocationUnresolved = []
@@ -2197,7 +2237,7 @@ crossDBLinksCount = length . cdlLinks
 
 -- | Number of unresolved inputs
 unresolvedCount :: CrossDBLinkingStats -> Int
-unresolvedCount = sum . map upDemands . M.elems . cdlUnresolvedProducts
+unresolvedCount = sum . map upDemands . M.elems . cdlUnresolvedRequests
 
 -- | Cross-DB links grouped by source database
 crossDBBySource :: CrossDBLinkingStats -> M.Map Text Int

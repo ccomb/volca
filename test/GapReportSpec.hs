@@ -46,6 +46,7 @@ import Types (
     LocationSource (..),
     SimpleDatabase (..),
     SupplierClaim (..),
+    SupplierRequest (..),
     TechRole (..),
     TechnosphereFlow (..),
     Unit (..),
@@ -293,13 +294,13 @@ spec = do
             length (graGaps (gapReportToAPI Nothing report)) `shouldBe` 3
 
     describe "a product refused two ways" $ do
-        -- The linker records the reasons per product name. An entry of that
-        -- product has to carry both: naming one of them attributes the other's
+        -- The linker records the reasons per request. An entry of that
+        -- request has to carry both: naming one of them attributes the other's
         -- demands to a cause that did not raise them.
         let refusedBy blockers =
                 stats
-                    { cdlUnresolvedProducts =
-                        M.insert "flour" (UnresolvedProduct blockers) (cdlUnresolvedProducts stats)
+                    { cdlUnresolvedRequests =
+                        M.insert (SupplierRequest "flour" Nothing (Just "FR")) (UnresolvedProduct blockers) (cdlUnresolvedRequests stats)
                     }
             entriesOf refused =
                 filter ((== "flour") . gaeName) (graGaps (gapReportToAPI Nothing (gapReportForStaged "consumer" consumerDB refused)))
@@ -324,6 +325,40 @@ spec = do
             let entry = entriesOf (refusedBy (M.fromList [(LocationUnavailable loc, 1) | loc <- ["FR", "DE", "IT"]]))
             map gaeReasons entry `shouldBe` [[BlockerReason "location_unavailable" Nothing]]
             map (\e -> (gaeReason e, gaeDetail e)) entry `shouldBe` [("location_unavailable", Nothing)]
+
+    -- A workbook row names the activity it buys from. Two rows buying one
+    -- product from different activities, or at different locations, are two
+    -- things to look up in the dependency, and read as two.
+    describe "a product requested from a named activity" $ do
+        let namedDB =
+                consumerDB
+                    { sdbActivities =
+                        M.singleton
+                            (actBread, breadFlow)
+                            ( mkActivity
+                                "bread baking"
+                                [ reference breadFlow
+                                , techInput flourFlow 2.0
+                                , (techInput flourFlow 1.0){techSupplierClaim = ClaimByName "flour milling", techLocation = "DE"}
+                                ]
+                            )
+                    }
+            namedStats =
+                relinkSimpleDatabase [supplierIndexed] emptySynonymDB defaultUnitConfig M.empty GeoGlobal emptyAliasMap namedDB
+            flourEntries =
+                [ (gaeSupplierActivity e, gaeLocation e, gaeEdges e)
+                | e <- graGaps (gapReportToAPI Nothing (gapReportForStaged "consumer" namedDB namedStats))
+                , gaeName e == "flour"
+                ]
+
+        it "records each refused request under what it asked for" $
+            M.keys (cdlUnresolvedRequests namedStats)
+                `shouldBe` [ SupplierRequest "flour" Nothing (Just "FR")
+                           , SupplierRequest "flour" (Just "flour milling") (Just "DE")
+                           ]
+
+        it "reports the activity a request named on its own entry" $
+            flourEntries `shouldMatchList` [(Nothing, "FR", 1), (Just "flour milling", "DE", 1)]
 
     describe "alias integration" $ do
         it "surfaces a missing designated target as its blocker in the report" $ do
