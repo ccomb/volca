@@ -744,6 +744,17 @@ spec = do
             scoreAt soilCFs Soil "agricultural" `shouldReturn` 2.0
             scoreAt soilCFs Soil "industrial" `shouldReturn` 3.0
 
+        it "reads the same soils from a two-level category tree" $ do
+            -- With no third level, the ILCD label itself is the medium.
+            let twoLevel label val = (mkCF "Silver (I)" Nothing val){mcfCompartment = parseCompartment ["Emissions", label]}
+                cfs =
+                    [ cfUnder "Emissions to soil" "Emissions to soil, unspecified" 1.0
+                    , twoLevel "Emissions to agricultural soil" 2.0
+                    , twoLevel "Emissions to non-agricultural soil" 3.0
+                    ]
+            scoreAt cfs Soil "agricultural" `shouldReturn` 2.0
+            scoreAt cfs Soil "industrial" `shouldReturn` 3.0
+
         it "gives river and surface water the fresh-water factor" $ do
             scoreAt waterCFs Water "river" `shouldReturn` 2.0
             scoreAt waterCFs Water "surface water" `shouldReturn` 2.0
