@@ -158,6 +158,7 @@ Dibromodifluoromethane,"Methane, dibromodifluoro-, Halon 1202"
 "8-tert-butyl-1,4-dioxaspiro[4.5]decan-2-ylmethyl(ethyl)(propyl)amine",Spiroxamine
 "9,10-dihydro-9,10-dioxoanthracene",Anthraquinone
 9H-Fluorene,Fluorene
+"AOX, Adsorbable Organic Halogen as Cl","AOX, Adsorbable Organic Halogen",,,older spelling of the same sum parameter
 Abamectin,Zephyr
 Acephate,Ortho 12420
 "Acetic acid, trifluoro-",TFA
@@ -201,6 +202,7 @@ BOD5 (Biological Oxygen Demand),"BOD5, Biological Oxygen Demand"
 BOU,Sulfuric acid
 BaP,Benzo(a)pyrene
 Barium,"Barium, in ground"
+Barium,"Barium (II)",,022541-12-4,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Basalt,"Basalt, in ground"
 Baycor,Bitertanol
 Benfluralin,Benthrodine
@@ -221,6 +223,7 @@ Benzo(a)phenanthrene,Chrysene
 Benzo(b)fluoranthene,"Benzo(b,j,k)fluoranthene"
 "Benzo(g,h,i)perylene",Benzo(ghi)perylene
 Beryllium,"Beryllium, in ground"
+Beryllium,"Beryllium (II)",,022537-20-8,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Beta-cyfluthrin,Cyfluthrin
 Beta-methylbivinyl,Isoprene
 Biethylene,Butadiene
@@ -245,6 +248,7 @@ Cadmium,"Cadmium, in ground"
 Cadmium,"Cadmium, ion"
 Cadmium,"Cadmium (II)",,022537-48-0,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 "Caesium, in ground",Cesium
+Cesium,"Cesium (I)",,018459-37-5,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Calcite,"Calcite, in ground"
 Calcium,"Calcium, in ground"
 Calcium,"Calcium, ion"
@@ -328,6 +332,7 @@ Diazinon,Dimpylatum
 Dibutyl p-phthalat,"Phthalate, dibutyl-"
 Dichlormonofluormethan,"Methane, dichlorofluoro-, HCFC-21"
 Diclofop,HOE-021079
+Diclofop,"2-[4-(2,4-Dichlorophenoxy)phenoxy]propanoic acid",,040843-25-2,IUPAC name of the acid; its methyl ester Diclofop-methyl is another substance
 Dicrotophos,Phosphoric acid (E)-3-(dimethylamino)-1-methyl-3-oxo-1-propenyl dimethyl ester
 Diflufenzopyr-sodium,"sodium 2-{(EZ)-1-[4-(3,5-difluorophenyl)semicarbazono]ethyl}nicotinate"
 Dimethoate,"O,O-dimethyl S-methylcarbamoylmethyl phosphorodithioate"
@@ -375,9 +380,12 @@ Ethane thiol,Mercaptoethane
 "Ethane, pentafluoro-, HFC-125",R125
 "Ethaneamine, Monoethylamine, Aminoethane, 1-Aminoethane",Ethylamine
 "Ethanol, 2-ethoxy-",Ethylene glycol monoethyl ether
-"Ethene, chloro-",PVC
+Ethene,Ethylene,,000074-85-1,older name of the same molecule
+"Ethene, chloro-",Chloroethylene,,000075-01-4,"older name of the same molecule, the vinyl chloride monomer and not its polymer"
 "Ethene, tetrachloro-",Perchlorethylen
+"Ethene, tetrachloro-",Tetrachloroethylene,,000127-18-4,older name of the same molecule
 "Ethene, trichloro-",Trichlorethylen
+"Ethene, trichloro-",Trichloroethylene,,000079-01-6,older name of the same molecule
 Ethoprop,"O-ethyl S,S-dipropyl dithiophosphate"
 Etridiazole,Tuban
 Europium,"Europium, in ground"
@@ -478,6 +486,7 @@ Magnesium chloride,"Magnesium, in ground"
 Mancozeb,manganese ethylenebis(dithiocarbamate) (polymeric) complex with zinc salt
 Maneb,manganese ethylenebis(ditiocarbamate) (polymeric)
 Manganese,"Manganese, in ground"
+Manganese,"Manganese (II)",,016397-91-4,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Maposol,Metam-sodium
 Mercury,"Mercury, in ground"
 Mercury,"Mercury (II)",,014302-87-5,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
@@ -506,10 +515,12 @@ Methomyl,Nu-bait II
 Methyl acetate,methyl ethanoate
 Methyl amine,Methylamine
 Methyl parathion,"Parathion, methyl"
+Methyl pentane,Methylpentane,,,the method lists 2-methylpentane and isohexane as synonyms of its Methylpentane
 Metolachlor,"Metolachlor, (S)"
 "Metolachlor, (S)",S-metolachlor
 Molinate,Yulan
 Molybdenum,"Molybdenum, in ground"
+Molybdenum,"Molybdenum (VI)",,016065-87-5,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 "Molybdenum, 0.010% in sulfide, Mo 8.2E-3% and Cu 1.83% in crude ore","Molybdenum, 0.010% in sulfide, Mo 8.2E-3% and Cu 1.83% in crude ore, in ground"
 "Molybdenum, 0.014% in sulfide, Mo 8.2E-3% and Cu 0.81% in crude ore","Molybdenum, 0.014% in sulfide, Mo 8.2E-3% and Cu 0.81% in crude ore, in ground"
 "Molybdenum, 0.016% in sulfide, Mo 8.2E-3% and Cu 0.27% in crude ore","Molybdenum, 0.016% in sulfide, Mo 8.2E-3% and Cu 0.27% in crude ore, in ground"
@@ -595,6 +606,7 @@ Propanal,"propionaldehyde, methylacetaldehyde, propionic aldehyde, propaldehyde"
 Propanil,Stam M-4
 Prosulfocarb,S-benzyl dipropylthiocarbamate
 Protactinium,"Protactinium, in ground"
+Prothioconazol,Prothioconazole,,178928-70-6,spelling without the final e
 Pumice,"Pumice, in ground"
 Pyraclostrobin,Pyraclostrobin (prop)
 Pyrethrin,Pyrethrin II
@@ -623,6 +635,7 @@ Shale,"Shale, in ground"
 Silicon,"Silicon, in ground"
 Silver,"Silver, in ground"
 Silver,"Silver, ion"
+Silver,"Silver (I)",,014701-21-4,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 "Silver, 0.007% in sulfide, Ag 0.004%, Pb, Zn, Cd, In","Silver, 0.007% in sulfide, Ag 0.004%, Pb, Zn, Cd, In, in ground"
 "Silver, 3.2ppm in sulfide, Ag 1.2ppm, Cu and Te, in crude ore","Silver, 3.2ppm in sulfide, Ag 1.2ppm, Cu and Te, in crude ore, in ground"
 "Silver, Ag 1.5E-4%, Au 6.8E-4%, in ore","Silver, Ag 1.5E-4%, Au 6.8E-4%, in ore, in ground"
@@ -645,6 +658,7 @@ Spodumene,"Spodumene, in ground"
 Steatite,"Steatite, in ground"
 Stibnite,"Stibnite, in ground"
 Strontium,"Strontium, in ground"
+Strontium,"Strontium (II)",,022537-39-9,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Sulfate,"Sulfate, ion"
 Sulfosate,trimethylsulfonium N-[(hydroxyphosphinato)methyl]glycine
 Sulfur,"Sulfur, in ground"
@@ -661,6 +675,7 @@ Terbium,"Terbium, in ground"
 Terpenes,TERPINOLENE 22
 Tetramethyl ammonium hydroxide,TMAH
 Thallium,"Thallium, in ground"
+Thallium,"Thallium (I)",,022537-56-0,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Thiophanat-methyl,Thiophanate-methyl
 Thorium,"Thorium, in ground"
 Thulium,"Thulium, in ground"

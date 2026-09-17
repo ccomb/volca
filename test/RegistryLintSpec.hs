@@ -18,7 +18,7 @@ module RegistryLintSpec (spec) where
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isDigit, ord)
 import qualified Data.Map.Strict as M
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isNothing, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -86,6 +86,16 @@ spec = do
                     classOf "NMVOC, non-methane volatile organic compounds, unspecified origin"
                         `shouldBe` unsuffixed
 
+                -- Older SimaPro sources write these emissions without the
+                -- charge, or under an older name of the molecule, and carry no
+                -- CAS: without a bridge each reaches no factor at all.
+                it "bridges older emission spellings to the ones the adapted EF 3.1 method writes" $
+                    [ pair
+                    | pair@(older, current) <- olderEmissionSpellings
+                    , isNothing (classOf current) || classOf older /= classOf current
+                    ]
+                        `shouldBe` []
+
                 it "keeps hard and brown coal in separate classes" $
                     classOf "Energy, from coal" == classOf "Energy, from coal, brown"
                         `shouldBe` False
@@ -122,6 +132,29 @@ spec = do
             let row n cas = RegistryRow (SynEdge n "peer" BridgeBoth) (Just cas) Nothing
                 rows = [row "alpha" "075-69-4", row "beta" "75-69-4"]
             classCas rows ["alpha", "beta"] `shouldBe` S.singleton "75-69-4"
+
+{- | Emission names older SimaPro sources write, each paired with the name the
+adapted EF 3.1 method gives the same substance.
+-}
+olderEmissionSpellings :: [(Text, Text)]
+olderEmissionSpellings =
+    [ ("Strontium", "Strontium (II)")
+    , ("Barium", "Barium (II)")
+    , ("Beryllium", "Beryllium (II)")
+    , ("Cesium", "Cesium (I)")
+    , ("Silver", "Silver (I)")
+    , ("Thallium", "Thallium (I)")
+    , ("Manganese", "Manganese (II)")
+    , ("Molybdenum", "Molybdenum (VI)")
+    , ("AOX, Adsorbable Organic Halogen as Cl", "AOX, Adsorbable Organic Halogen")
+    , ("Ethene", "Ethylene")
+    , ("Ethene, chloro-", "Chloroethylene")
+    , ("Ethene, tetrachloro-", "Tetrachloroethylene")
+    , ("Ethene, trichloro-", "Trichloroethylene")
+    , ("Methyl pentane", "Methylpentane")
+    , ("Prothioconazol", "Prothioconazole")
+    , ("Diclofop", "2-[4-(2,4-Dichlorophenoxy)phenoxy]propanoic acid")
+    ]
 
 {- | Carbon-origin families named inside a class. A name with no qualifier is
 compatible with any single family (SimaPro's bare \"Carbon dioxide\" IS the

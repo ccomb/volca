@@ -48,6 +48,22 @@
   substance it is, came out 28 % low on the median process and forty times
   low where that flow dominates; every other category that characterizes it
   was short as well. Data version 5.
+- Older SimaPro sources that write an emission without its charge (`Strontium`,
+  `Barium`, `Beryllium`, `Cesium`, `Silver`, `Thallium`, `Manganese`,
+  `Molybdenum`) or under an older name of the substance (`AOX, Adsorbable
+  Organic Halogen as Cl`, `Ethene` and its chlorinated forms, `Methyl pentane`,
+  `Prothioconazol`, `Diclofop`) now have those flows characterized by
+  collections that write `Strontium (II)`, `Ethylene`, `Prothioconazole` and
+  so on, as the adapted EF 3.1 collection does. These rows carry no CAS
+  number, so only the flow registry could join them, and each counted zero
+  without a word. On one such export of 21 456 processes, freshwater
+  ecotoxicity from inorganics under the adapted collection now agrees with the
+  JRC package within 5 % for 90 % of the processes instead of 45 %, and
+  photochemical ozone formation moves by more than 5 % for 584 of them, under
+  both collections, now that ethene is ethylene. A collection that writes the
+  bare element name itself, as the JRC package does, keeps its own factor.
+  `Ethene, chloro-` was paired with `PVC`, its polymer; it now joins vinyl
+  chloride. Data version 5.
 
 ## [0.13.0] - 2026-09-15
 
