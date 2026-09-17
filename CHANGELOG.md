@@ -89,6 +89,14 @@
   its own factor.
   `Ethene, chloro-` was paired with `PVC`, its polymer; it now joins vinyl
   chloride. Data version 5.
+- An antimony emission written without its valence is characterized by the
+  adapted EF 3.1 collection, through its `Antimony, ion`, the form it gives
+  antimony of unstated valence (EF 3.1 takes the average of the trivalent and
+  pentavalent factors). Such a flow carries the amounts an EcoSpold 2
+  release of the same data records as `Antimony ion`, and it reached no
+  toxicity factor at all. The antimony ore names (`Stibnite`, `antimony
+  sulfide`) now bridge to antimony only as a resource, so an emission bearing
+  them does not take the ion's factors. Data version 5.
 
 ## [0.13.0] - 2026-09-15
 

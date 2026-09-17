@@ -33,6 +33,7 @@ import SynonymDB (
     buildFromEdges,
     lookupSynonymGroup,
     normalizeName,
+    outputView,
     parseRegistryCSV,
  )
 
@@ -94,6 +95,21 @@ spec = do
                     | pair@(older, current) <- olderEmissionSpellings
                     , isNothing (classOf current) || classOf older /= classOf current
                     ]
+                        `shouldBe` []
+
+                -- Bare Antimony carries the amounts EcoSpold 2 records as
+                -- Antimony ion, the method's form for antimony of unstated
+                -- valence; without the bridge it reaches no toxicity factor.
+                it "reads antimony written without its valence as the method's unspecified form" $ do
+                    classOf "Antimony" `shouldNotBe` Nothing
+                    classOf "Antimony, ion" `shouldBe` classOf "Antimony"
+
+                -- Stibnite is the ore antimony is mined from, a resource name:
+                -- an emission of it is not the dissolved ion.
+                it "keeps the antimony ore out of the antimony emission class" $ do
+                    let emitted = lookupSynonymGroup (outputView db)
+                    emitted "Antimony, ion" `shouldNotBe` Nothing
+                    filter ((== emitted "Antimony, ion") . emitted) ["Stibnite", "antimony sulfide"]
                         `shouldBe` []
 
                 it "keeps hard and brown coal in separate classes" $
