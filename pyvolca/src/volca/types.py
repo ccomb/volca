@@ -302,7 +302,7 @@ class FlowContribution(FromJson):
     share_pct: float  # 0..100
     flow_id: str
     category: str  # e.g. "air/urban air"
-    cf_value: float = 0.0  # raw characterization factor
+    cf_value: float = 0.0  # the factor the score applied; effective (contribution / quantity) where factors depend on location
     compartment: str | None = None
     match_kind: str | None = None  # how the factor was found; None when no factor in the method reaches this flow
 

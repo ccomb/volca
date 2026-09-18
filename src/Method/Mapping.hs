@@ -47,6 +47,7 @@ module Method.Mapping (
     fillBroadcastVector,
     zeroedMatchedCFs,
     fillRegionalActivityWeights,
+    regionalizedContributionsCrossDB,
     RegionalActivityWeights (..),
     computeLCIAScore,
     computeLCIAScoreFromTables,
@@ -121,6 +122,7 @@ import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.DeepSeq (NFData)
 import Control.Exception (evaluate)
+import Control.Monad (unless, when)
 import Control.Monad.ST (runST)
 import Data.Aeson (ToJSON)
 import Data.Either (lefts, rights)
@@ -966,6 +968,41 @@ data RegionalActivityWeights = RegionalActivityWeights
     { rawWeights :: !(U.Vector Double)
     , rawTainted :: !(U.Vector Word8)
     , rawMissingPairs :: ![(UUID, Location)]
+    , rawFactors :: !RegionalFactorTable
+    {- ^ The factors the weights above were summed from, kept so a caller can
+    fold the same numbers by flow instead of by column.
+    -}
+    }
+
+{- | The characterization factor this method applies to each biosphere flow,
+resolved per location and per unit of flow, unit conversion already applied.
+
+One triple of the biosphere matrix is a flow emitted by an activity, and the
+factor it meets depends on where that activity is. Resolving that per triple
+costs a map lookup per triple and there are millions of them, so it is resolved
+once here: a flow that is not regionalized has one factor whatever the
+location ('rftUniversal'), and a flow that is regionalized has one per location
+('rftRegional', a row of the grid per regionalized flow).
+
+Reading it is two array indexes, which is what lets the score and the
+per-flow contributions be summed from the same numbers - the score by column,
+the contributions by flow - rather than from two walks that have to agree.
+
+* 'rftRegionalRow' - a regionalized flow's row in the grid, @-1@ when the flow
+  is not regionalized and 'rftUniversal' answers instead.
+* 'rftGap' - true where a regionalized flow has no factor for that location,
+  parents and the universal fallback included. Those columns are tainted and
+  contribute nothing, here as in the score.
+* 'rftColumnLocation' - the location slot of each matrix column, the grid's
+  other coordinate.
+-}
+data RegionalFactorTable = RegionalFactorTable
+    { rftUniversal :: !(U.Vector Double)
+    , rftRegionalRow :: !(U.Vector Int)
+    , rftRegional :: !(U.Vector Double)
+    , rftGap :: !(U.Vector Bool)
+    , rftLocationCount :: !Int
+    , rftColumnLocation :: !(U.Vector Int)
     }
 
 {- | Inverted indices over a 'Method' for the post-scoring suggester.
@@ -2116,25 +2153,88 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
                  , col < nCols
                  ]
 
+    -- The locations the columns actually name, numbered. A database names a
+    -- few hundred at most, which is what keeps the grid below small.
+    locationSlot :: M.Map Location Int
+    locationSlot = M.fromList (zip (Set.toAscList (Set.fromList (V.toList colLoc))) [0 ..])
+
+    nLocs :: Int
+    nLocs = M.size locationSlot
+
+    -- Total: every location in 'colLoc' was numbered just above.
+    columnLocation :: U.Vector Int
+    columnLocation = U.generate nCols (\c -> M.findWithDefault 0 (colLoc V.! c) locationSlot)
+
     -- Cached locally so the hot loop reads from one stable pointer per field.
     broadcast = mtBroadcast tables
 
-    -- Walk biosphere triples once; build weights, tainted flags and the
-    -- deduplicated missing-(flow, location) set in a single ST action.
-    --
-    -- The CF cascade is inlined here so the universal-fallback branch can
-    -- read from 'mtBroadcast' (pre-multiplied by unit conversion at
-    -- 'fillBroadcastVector' time) instead of re-running 'lookupCascadeCF'
-    -- which calls 'normalizeName' per triple. Profiling on EF31-biomaps ×
-    -- agribalyse showed 'normalizeName' eating ~83% of fillRegional time
-    -- across 90M biosphere triples; the broadcast map already has the
-    -- answer the cascade was recomputing.
-    --
-    -- The parent-region fallback uses a manual short-circuit recursion
-    -- ('lookupParents') rather than @firstJust [M.lookup .. | p <- parents]@:
-    -- the list comprehension materialised a cons cell per parent per triple,
-    -- accounting for ~30% of warmup heap allocations on EF31-biomaps. The
-    -- manual recursion stops at the first hit and allocates nothing.
+    nRows :: Int
+    nRows = V.length bioFlows
+
+    -- The universal factor per unit of flow, as 'mtBroadcast' already holds it
+    -- (unit conversion pre-multiplied at 'fillBroadcastVector' time). Zero
+    -- where the method says nothing about a flow, which is what adding nothing
+    -- came to.
+    universal :: U.Vector Double
+    universal = U.generate nRows (\r -> M.findWithDefault 0 (bioFlows V.! r) broadcast)
+
+    regionalRows :: [Int]
+    regionalRows = [r | r <- [0 .. nRows - 1], isJust (regionalByRow V.! r)]
+
+    regionalRowSlot :: U.Vector Int
+    regionalRowSlot = U.replicate nRows (-1) U.// zip regionalRows [0 ..]
+
+    -- One grid row per regionalized flow, one cell per location: the factor
+    -- that flow meets there, per unit of it, or a gap.
+    grid :: U.Vector (Double, Bool)
+    grid = U.fromList [cellAt r loc | r <- regionalRows, loc <- M.keys locationSlot]
+
+    cellAt :: Int -> Location -> (Double, Bool)
+    cellAt r loc = case regionalByRow V.! r of
+        -- Unreachable: 'regionalRows' kept only the rows that have a locMap.
+        Nothing -> (U.unsafeIndex universal r, False)
+        Just locMap -> case M.lookup loc locMap <|> lookupParents locMap (M.findWithDefault [] loc hier) of
+            Just cf -> (perUnitOf r cf, False)
+            Nothing -> case M.lookup (bioFlows V.! r) broadcast of
+                Just preMultipliedCF -> (preMultipliedCF, False)
+                -- The flow is regionalized but nothing covers this location,
+                -- its parents and the universal factor included.
+                Nothing -> (0, True)
+
+    -- Walk the parent locations until one yields a factor. Allocates no list
+    -- cells, unlike @firstJust [.. | p <- parents]@.
+    lookupParents :: M.Map Location CF -> [Location] -> Maybe CF
+    lookupParents _ [] = Nothing
+    lookupParents locMap (p : ps) = case M.lookup p locMap of
+        Just cf -> Just cf
+        Nothing -> lookupParents locMap ps
+
+    perUnitOf :: Int -> CF -> Double
+    perUnitOf r cf =
+        convertAndMultiply
+            unitCfg
+            unitDB
+            (mtEnergyDensities tables)
+            (M.lookup (bioFlows V.! r) flowDB)
+            cf
+            1.0
+
+    factors :: RegionalFactorTable
+    factors =
+        let (vals, gaps) = U.unzip grid
+         in RegionalFactorTable
+                { rftUniversal = universal
+                , rftRegionalRow = regionalRowSlot
+                , rftRegional = vals
+                , rftGap = gaps
+                , rftLocationCount = nLocs
+                , rftColumnLocation = columnLocation
+                }
+
+    -- Walk the biosphere triples once, summing the factors above by column and
+    -- collecting the deduplicated (flow, location) gaps as they are met. A gap
+    -- is recorded where a triple runs into one, not for every hole in the
+    -- grid: a flow nothing emits at that location is nobody's gap.
     precomputed :: RegionalActivityWeights
     precomputed = runST $ do
         ws <- MU.replicate nCols (0 :: Double)
@@ -2143,51 +2243,17 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
         U.forM_ bioTriples $ \(SparseTriple flowRow colIdx bioVal) -> do
             let !col = fromIntegral colIdx :: Int
                 !row = fromIntegral flowRow :: Int
-                !flowUUID = bioFlows V.! row
-                applyRaw cf =
-                    let !contribution =
-                            convertAndMultiply
-                                unitCfg
-                                unitDB
-                                (mtEnergyDensities tables)
-                                (M.lookup flowUUID flowDB)
-                                cf
-                                bioVal
-                     in MU.unsafeModify ws (+ contribution) col
-                -- 'mtBroadcast' is the unit-converted CF per unit of flow, so
-                -- the contribution is @bioVal * preMultipliedCF@ – same
-                -- algebra as 'computeLCIAScoreFromTables's fast path.
-                applyBroadcast = case M.lookup flowUUID broadcast of
-                    Just preMultipliedCF ->
-                        MU.unsafeModify ws (+ bioVal * preMultipliedCF) col
-                    Nothing -> pure ()
-            case regionalByRow V.! row of
-                -- Common case: flow is not regionalized at all. No exact /
-                -- parent walk; just broadcast (universal CF) if present.
-                Nothing -> applyBroadcast
-                Just locMap ->
-                    let !loc = colLoc V.! col
-                        -- Walk the parent locations until one yields a CF.
-                        -- Allocates no list cells – replaces
-                        -- @firstJust [.. | p <- parents]@.
-                        lookupParents [] = Nothing
-                        lookupParents (p : ps) = case M.lookup p locMap of
-                            Just cf -> Just cf
-                            Nothing -> lookupParents ps
-                     in case M.lookup loc locMap of
-                            Just cf -> applyRaw cf
-                            Nothing -> case lookupParents (M.findWithDefault [] loc hier) of
-                                Just cf -> applyRaw cf
-                                Nothing -> case M.lookup flowUUID broadcast of
-                                    Just preMultipliedCF ->
-                                        MU.unsafeModify ws (+ bioVal * preMultipliedCF) col
-                                    Nothing -> do
-                                        -- Flow IS regionalized (locMap is
-                                        -- @Just _@) but has no CF for this
-                                        -- location even after parents and
-                                        -- no universal broadcast – taint.
-                                        MU.unsafeWrite ts col 1
-                                        modifySTRef' missRef (Set.insert (flowUUID, loc))
+                !slot = U.unsafeIndex regionalRowSlot row
+            if slot < 0
+                then MU.unsafeModify ws (+ bioVal * U.unsafeIndex universal row) col
+                else do
+                    let !cell = slot * nLocs + U.unsafeIndex columnLocation col
+                        (!factor, !isGap) = U.unsafeIndex grid cell
+                    if isGap
+                        then do
+                            MU.unsafeWrite ts col 1
+                            modifySTRef' missRef (Set.insert (bioFlows V.! row, colLoc V.! col))
+                        else MU.unsafeModify ws (+ bioVal * factor) col
         wsF <- U.unsafeFreeze ws
         tsF <- U.unsafeFreeze ts
         miss <- readSTRef missRef
@@ -2196,6 +2262,7 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
                 { rawWeights = wsF
                 , rawTainted = tsF
                 , rawMissingPairs = Set.toAscList miss
+                , rawFactors = factors
                 }
 
 {- | Score an inventory against precomputed 'MethodTables'.
@@ -2350,9 +2417,11 @@ computeRegionalizedLCIAScore unitConfig unitDB flowDB db scalingVec _hier tables
                     \ this automatically)."
   where
     -- Fast path: one dot product over precomputed per-column weights.
-    -- Tainted columns contribute 0 by construction in
-    -- 'fillRegionalActivityWeights' (weights[i] == 0 when no CF matched),
-    -- so summing them yields the correct partial score. The coverage gap is
+    -- A tainted column is not a zero one: 'fillRegionalActivityWeights'
+    -- leaves out the triples it found no factor for and keeps the others, so
+    -- the column still carries what could be characterized, and the score
+    -- under-counts it the way the broadcast path under-counts a flow no CF
+    -- reaches. Summing them yields that partial score. The coverage gap is
     -- surfaced once at table-build time via 'rawMissingPairs' + the WARN
     -- in 'Database.Manager' – not by collapsing the whole method to a
     -- 'Left', which forced every category with even one uncovered
@@ -2426,6 +2495,165 @@ sumRegionalizedLCIAScoreCrossDB unitCfg unitDB flowDB hier triples =
      in case lefts results of
             [] -> Right (sum (rights results))
             es -> Left (T.intercalate "; " es)
+
+{- | What one flow brought to a regionalized score, and how much of that flow
+the inventory holds.
+
+Kept together because the factor a surface shows for the row is the ratio of
+the two: a flow emitted in thirty countries has thirty factors, and the one
+number that stays true of the row is the one the score actually applied.
+-}
+data FlowShare = FlowShare
+    { fsContribution :: !Double
+    , fsQuantity :: !Double
+    }
+
+-- | Two databases can emit the same flow; their shares add.
+addShares :: FlowShare -> FlowShare -> FlowShare
+addShares a b = FlowShare (fsContribution a + fsContribution b) (fsQuantity a + fsQuantity b)
+
+{- | Per-flow contributions to a regionalized score, cross-database.
+
+The score is @Σ_a s[a] · w[a]@ over activity columns; these are the same
+per-triple products @s[a] · B[f,a] · CF(f, loc(a))@ summed by flow instead,
+so the rows add up to the score rather than to some other number computed
+another way. 'Method.Mapping.inventoryContributions' cannot do this: it reads
+a total inventory that has forgotten where each kilogram was emitted, and
+resolves one factor per flow UUID.
+
+Takes the same per-database triples as 'sumRegionalizedLCIAScoreCrossDB',
+including its flat fallback for a dependency whose flow mappings caught none
+of this method's regional factors, and returns what
+'Method.Mapping.inventoryContributions' returns: the rows, and the non-zero
+flow UUIDs with no record in the merged flow metadata, which the caller
+surfaces.
+
+The factor carried by a row is the effective one, the contribution over the
+quantity, on the inventory's unit basis. A row whose quantity nets to zero,
+which takes one flow emitted and avoided in two places with different factors,
+carries a factor of zero: its contribution and its share stay exact, and there
+is no number that could be multiplied by nothing to give them.
+-}
+regionalizedContributionsCrossDB ::
+    UnitConfig ->
+    UnitDB ->
+    BioFlowDB ->
+    -- | Per-DB triples, in the order 'SharedSolver.csScalings' returns them
+    [(Database, Vector, MethodTables)] ->
+    Either Text ([FlowContribution], [UUID])
+regionalizedContributionsCrossDB unitCfg unitDB flowDB triples =
+    case lefts perDb of
+        [] ->
+            let (shares, unknowns) = unzip (rights perDb)
+                (rows, unknownRows) = sharesToContributions flowDB (M.unionsWith addShares shares)
+             in Right (rows, concat unknowns <> unknownRows)
+        es -> Left (T.intercalate "; " es)
+  where
+    perDb :: [Either Text (M.Map UUID FlowShare, [UUID])]
+    perDb = [sharesOf db sv t | (db, sv, t) <- triples]
+
+    sharesOf :: Database -> Vector -> MethodTables -> Either Text (M.Map UUID FlowShare, [UUID])
+    sharesOf db sv tables = case mtRegionalActivityWeights tables of
+        Just raw -> Right (regionalFlowShares db sv raw, [])
+        Nothing
+            -- Same fallback as the score: a dep DB that carries none of this
+            -- method's regional factors is scored flat over its own slice, so
+            -- its rows are read from that slice too.
+            | M.null (mtRegionalizedCF tables) -> Right (flatFlowShares db sv tables)
+            | otherwise ->
+                Left
+                    "Regionalized contributions requested but precomputed activity\
+                    \ weights are absent. Call 'fillRegionalActivityWeights' on the\
+                    \ MethodTables before asking for them (mapMethodToTablesCached\
+                    \ does this automatically)."
+
+    flatFlowShares :: Database -> Vector -> MethodTables -> (M.Map UUID FlowShare, [UUID])
+    flatFlowShares db sv tables =
+        let inventory = applyBiosphereMatrix db sv
+            (rows, unknowns) = inventoryContributions unitCfg unitDB flowDB inventory tables
+         in ( M.fromListWith
+                addShares
+                [ (bfId f, FlowShare c (M.findWithDefault 0 (bfId f) inventory))
+                | FlowContribution{fcFlow = f, fcContribution = c} <- rows
+                ]
+            , unknowns
+            )
+
+{- | Sum one database's biosphere triples by flow, weighted by its scaling
+vector, reading the factors the per-column weights were built from.
+
+Gap triples are left out here exactly as they are there, so the two sums stay
+the same numbers in a different order. The quantity counts every triple of the
+row, gaps included: it is how much of the flow the inventory holds, not how
+much of it the method could characterize.
+-}
+regionalFlowShares :: Database -> Vector -> RegionalActivityWeights -> M.Map UUID FlowShare
+regionalFlowShares db scalingVec raw =
+    M.fromListWith
+        addShares
+        [ (bioFlows V.! r, FlowShare c q)
+        | r <- [0 .. V.length bioFlows - 1]
+        , r < U.length contributions
+        , let !c = U.unsafeIndex contributions r
+        , let !q = U.unsafeIndex quantities r
+        , c /= 0
+        ]
+  where
+    factors :: RegionalFactorTable
+    factors = rawFactors raw
+
+    bioFlows :: V.Vector UUID
+    bioFlows = dbBiosphereOrder db
+
+    nLocs :: Int
+    nLocs = rftLocationCount factors
+
+    nRows :: Int
+    nRows = V.length bioFlows
+
+    walk :: (U.Vector Double, U.Vector Double)
+    walk = runST $ do
+        cs <- MU.replicate nRows (0 :: Double)
+        qs <- MU.replicate nRows (0 :: Double)
+        U.forM_ (dbBiosphereTriples db) $ \(SparseTriple flowRow colIdx bioVal) -> do
+            let !col = fromIntegral colIdx :: Int
+                !row = fromIntegral flowRow :: Int
+            when (col < U.length scalingVec && row < nRows) $ do
+                let !sv = U.unsafeIndex scalingVec col
+                when (sv /= 0) $ do
+                    let !qty = bioVal * sv
+                        !slot = U.unsafeIndex (rftRegionalRow factors) row
+                    MU.unsafeModify qs (+ qty) row
+                    if slot < 0
+                        then MU.unsafeModify cs (+ qty * U.unsafeIndex (rftUniversal factors) row) row
+                        else do
+                            let !cell = slot * nLocs + U.unsafeIndex (rftColumnLocation factors) col
+                            unless (U.unsafeIndex (rftGap factors) cell) $
+                                MU.unsafeModify cs (+ qty * U.unsafeIndex (rftRegional factors) cell) row
+        (,) <$> U.unsafeFreeze cs <*> U.unsafeFreeze qs
+
+    contributions :: U.Vector Double
+    contributions = fst walk
+
+    quantities :: U.Vector Double
+    quantities = snd walk
+
+{- | Turn per-flow shares into the rows a surface publishes, and the flow UUIDs
+the merged metadata has no record of. Same contract as
+'Method.Mapping.inventoryContributions', which is what the flat path returns.
+-}
+sharesToContributions :: BioFlowDB -> M.Map UUID FlowShare -> ([FlowContribution], [UUID])
+sharesToContributions flowDB = M.foldlWithKey' step ([], [])
+  where
+    step :: ([FlowContribution], [UUID]) -> UUID -> FlowShare -> ([FlowContribution], [UUID])
+    step (rows, unknowns) fid share = case M.lookup fid flowDB of
+        Nothing -> (rows, fid : unknowns)
+        Just flow -> (FlowContribution flow (effectiveFactor share) (fsContribution share) : rows, unknowns)
+
+    effectiveFactor :: FlowShare -> Double
+    effectiveFactor share
+        | fsQuantity share == 0 = 0
+        | otherwise = fsContribution share / fsQuantity share
 
 {- | Cascade CF lookup: UUID → exact (name, medium, subcomp) → fallback (name, medium).
 The same logic is baked into 'mtBroadcast' once unit conversion is available;

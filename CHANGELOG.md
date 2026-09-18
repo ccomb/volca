@@ -34,6 +34,18 @@
 
 ### Fixed
 
+- The flows an impact category lists as its biggest contributors are read the
+  way its score is. A category whose factors depend on where a flow occurs is
+  scored from each activity's own location, but the list beside that score was
+  read from the total inventory, which has forgotten where any of it was
+  emitted, with one world factor per flow. On a process scoring 2.51e10
+  m3-world equivalents of water use, the shares published under it added up to
+  140 % and every row showed the same factor; land use published 91 %. The
+  rows now carry what the score applied to that flow and add up to it. A flow
+  emitted in thirty countries has thirty factors, so its row carries the
+  effective one, its contribution over its quantity. Nothing changes for a
+  category whose factors are the same everywhere, and no score moves.
+
 - The unit table spells its units the way the SI writes them, and holds the
   multiples a source commonly writes. The litre gains `L` beside `l`, and
   `kg/L` beside `kg/l`: the SI accepts both symbols, the capital having been

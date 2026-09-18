@@ -723,12 +723,12 @@ computeCategoryResult ::
     Method ->
     IO (Either Text LCIAResult)
 computeCategoryResult dbManager dbName collection db sol activity topFlows precomputedScore method = do
-    unitCfg <- getMergedUnitConfig dbManager
-    (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
+    (_mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
     mappings <- DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- DM.mapMethodToTablesCached dbManager dbName collection db method
     let inventory = SharedSolver.csInventory sol
     let stats = computeMappingStats mappings
+    let functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
     -- A Left is a scoring integrity error (see 'resolveBatchedScore') – it
     -- propagates instead of collapsing to a 0 the consumer can't tell from a
     -- real score. A precomputed Left arrives already labeled by
@@ -738,26 +738,23 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
         Nothing -> Impact.scoreSolution dbManager collection method tables sol inventory
     case scoreE of
         Left err -> pure (Left err)
-        Right score -> buildResult unitCfg mFlows mUnits inventory tables stats score
+        Right score -> do
+            contribsE <- contributionsFor tables score
+            pure (fmap (result stats score functionalUnit) contribsE)
   where
-    buildResult unitCfg mFlows mUnits inventory tables stats score = do
-        let functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
-            (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
-            contribs = sortOn (negate . abs . fcContribution) rawContribs
-            topContribs = take topFlows contribs
-            topContributors =
-                [ FlowContributionEntry
-                    { fcoFlowName = bfName f
-                    , fcoContribution = c
-                    , fcoSharePct = if score /= 0 then c / score * 100 else 0
-                    , fcoFlowId = UUID.toText (bfId f)
-                    , fcoCategory = bfCompartmentName f
-                    , fcoCompartment = bfCompartmentSub f
-                    , fcoCfValue = cfVal
-                    , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
-                    }
-                | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- topContribs
-                ]
+    -- The rows come from the same path as the score, so their shares sum to
+    -- it. A regionalized method has no other way to say which flow made which
+    -- part of its score: read region-blind from the merged inventory, the
+    -- shares add up to something else entirely.
+    contributionsFor :: MethodTables -> Double -> IO (Either Text [FlowContributionEntry])
+    contributionsFor tables score
+        | topFlows <= 0 = pure (Right [])
+        | otherwise = do
+            contribsE <- Impact.contributionsOf dbManager collection method tables sol (SharedSolver.csInventory sol)
+            traverse (uncurry (rows tables score)) contribsE
+
+    rows :: MethodTables -> Double -> [FlowContribution] -> [UUID] -> IO [FlowContributionEntry]
+    rows tables score rawContribs unknownUuids = do
         unless (null unknownUuids) $
             reportProgress Warning $
                 "[LCIA "
@@ -766,21 +763,47 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
                     <> show (length unknownUuids)
                     <> " inventory flow UUID(s) absent from merged FlowDB – characterization incomplete. Samples: "
                     <> show (take 3 unknownUuids)
-        pure $
-            Right
-                LCIAResult
-                    { lrMethodId = methodId method
-                    , lrMethodName = methodName method
-                    , lrCategory = methodCategory method
-                    , lrDamageCategory = methodCategory method
-                    , lrScore = score
-                    , lrUnit = methodUnit method
-                    , lrNormalizedScore = Nothing
-                    , lrWeightedScore = Nothing
-                    , lrMappedFlows = msTotal stats - msUnmatched stats
-                    , lrFunctionalUnit = functionalUnit
-                    , lrTopContributors = topContributors
-                    }
+        pure (topContributorRows tables score topFlows rawContribs)
+
+    result :: MappingStats -> Double -> Text -> [FlowContributionEntry] -> LCIAResult
+    result stats score functionalUnit topContributors =
+        LCIAResult
+            { lrMethodId = methodId method
+            , lrMethodName = methodName method
+            , lrCategory = methodCategory method
+            , lrDamageCategory = methodCategory method
+            , lrScore = score
+            , lrUnit = methodUnit method
+            , lrNormalizedScore = Nothing
+            , lrWeightedScore = Nothing
+            , lrMappedFlows = msTotal stats - msUnmatched stats
+            , lrFunctionalUnit = functionalUnit
+            , lrTopContributors = topContributors
+            }
+
+{- | The rows one method publishes under a score: the biggest contributions
+first, cut to the number asked for.
+
+The factor a row carries is the one the score applied to that flow. A
+regionalized method applies one per location, so the row carries the effective
+factor its contribution divided by its quantity – see
+'Method.Mapping.regionalizedContributionsCrossDB'.
+-}
+topContributorRows :: MethodTables -> Double -> Int -> [FlowContribution] -> [FlowContributionEntry]
+topContributorRows tables score topFlows rawContribs =
+    [ FlowContributionEntry
+        { fcoFlowName = bfName f
+        , fcoContribution = c
+        , fcoSharePct = if score /= 0 then c / score * 100 else 0
+        , fcoFlowId = UUID.toText (bfId f)
+        , fcoCategory = bfCompartmentName f
+        , fcoCompartment = bfCompartmentSub f
+        , fcoCfValue = cfVal
+        , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
+        }
+    | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <-
+        take topFlows (sortOn (negate . abs . fcContribution) rawContribs)
+    ]
 
 {- | Batch fast path: scores via 'batchedScoresFor', then build LCIAResult
 records straight from the precomputed contexts. Skips the per-pid
@@ -823,53 +846,38 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                 <> show (length unknownUuids)
                 <> " inventory flow UUID(s) absent from merged FlowDB – characterization incomplete. Samples: "
                 <> show (take 3 unknownUuids)
-    mUnitCfg <-
-        if topFlows > 0
-            then Just <$> getMergedUnitConfig dbManager
-            else pure Nothing
     let functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
         mkResultIO ctx = do
             let method = mctxMethod ctx
             case resolveBatchedScore method scoreMap of
                 Left err -> pure (Left (err <> " (pid=" <> T.pack (show actPid) <> ")"))
-                Right score -> Right <$> mkResultForScore ctx method score
-        mkResultForScore ctx method score = do
-            topContributors <- case mUnitCfg of
-                Nothing -> pure []
-                Just unitCfg -> do
-                    tables <- DM.mapMethodToTablesCached dbManager dbName collectionName db method
-                    let (rawContribs, _unknownUuids) =
-                            inventoryContributions unitCfg mUnits mFlows inventory tables
-                        sorted = sortOn (negate . abs . fcContribution) rawContribs
-                        top = take topFlows sorted
-                    pure
-                        [ FlowContributionEntry
-                            { fcoFlowName = bfName f
-                            , fcoContribution = c
-                            , fcoSharePct = if score /= 0 then c / score * 100 else 0
-                            , fcoFlowId = UUID.toText (bfId f)
-                            , fcoCategory = bfCompartmentName f
-                            , fcoCompartment = bfCompartmentSub f
-                            , fcoCfValue = cfVal
-                            , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
-                            }
-                        | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- top
-                        ]
-            pure $
-                enrichWithNW dcLookup mNW $
-                    LCIAResult
-                        { lrMethodId = methodId method
-                        , lrMethodName = methodName method
-                        , lrCategory = methodCategory method
-                        , lrDamageCategory = methodCategory method
-                        , lrScore = score
-                        , lrUnit = methodUnit method
-                        , lrNormalizedScore = Nothing
-                        , lrWeightedScore = Nothing
-                        , lrMappedFlows = mctxMappedFlows ctx
-                        , lrFunctionalUnit = functionalUnit
-                        , lrTopContributors = topContributors
-                        }
+                Right score -> do
+                    rowsE <- topContributorsOf method score
+                    pure (fmap (mkResultForScore ctx method score) rowsE)
+        -- Read by the same path as the score, so the shares sum to it. The
+        -- merged inventory has forgotten where each kilogram was emitted,
+        -- which is exactly what a regionalized factor needs to know.
+        topContributorsOf method score
+            | topFlows <= 0 = pure (Right [])
+            | otherwise = do
+                tables <- DM.mapMethodToTablesCached dbManager dbName collectionName db method
+                contribsE <- Impact.contributionsOf dbManager collectionName method tables sol inventory
+                pure (fmap (topContributorRows tables score topFlows . fst) contribsE)
+        mkResultForScore ctx method score topContributors =
+            enrichWithNW dcLookup mNW $
+                LCIAResult
+                    { lrMethodId = methodId method
+                    , lrMethodName = methodName method
+                    , lrCategory = methodCategory method
+                    , lrDamageCategory = methodCategory method
+                    , lrScore = score
+                    , lrUnit = methodUnit method
+                    , lrNormalizedScore = Nothing
+                    , lrWeightedScore = Nothing
+                    , lrMappedFlows = mctxMappedFlows ctx
+                    , lrFunctionalUnit = functionalUnit
+                    , lrTopContributors = topContributors
+                    }
     resultsE <- sequence <$> traverse mkResultIO ctxs
     case resultsE of
         Left err -> pure (Left err)
