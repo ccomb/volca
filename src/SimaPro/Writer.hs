@@ -81,18 +81,18 @@ module SimaPro.Writer (
     headerLines,
 ) where
 
-import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import Data.Either (lefts)
 import Data.List (partition, sortOn)
 import qualified Data.Map.Strict as M
 
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Database.Allocation (AllocationRefusal (..), asAllocated, describeRefusal)
-import SimaPro.Parser (isMetadataKey, parsePedigreePrefix)
+import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
 import Types
 
 -- ============================================================================
@@ -427,51 +427,57 @@ builder, not silently defaulted to a wrong unit here).
 unitNameOf :: UnitDB -> UUID -> Text
 unitNameOf units uid = maybe "" unitName (M.lookup uid units)
 
-{- | The four flow/unit catalogs an activity is serialized against, gathered
-into one record so the per-section helpers take a single argument instead of
-threading four maps positionally (which invites silent arg-swaps between maps
-of the same shape).
+{- | What an activity is serialized against: the flow and unit catalogs, plus
+the products the file itself makes, which decide whether a row has to designate
+what it buys. Gathered into one record so the per-section helpers take a single
+argument instead of threading four maps positionally (which invites silent
+arg-swaps between maps of the same shape).
 -}
 data Catalogs = Catalogs
     { catTech :: !TechFlowDB
     , catBio :: !BioFlowDB
     , catWaste :: !WasteFlowDB
     , catUnits :: !UnitDB
-    , catSuppliers :: !(M.Map (UUID, UUID) Supplier)
-    -- ^ What an input's link resolves to, for the row that has to name it.
+    , catProducedHere :: !(S.Set UUID)
+    -- ^ Products the file makes, which its own rows name each other by.
     }
 
--- | The two things a designation says about a supplier beside its product.
-data Supplier = Supplier
-    { supActivity :: !Text
-    , supLocation :: !Text
+{- | Where a row's product comes from: the geography, and the activity making it
+where one is known. A designation states no activity without a geography, the
+convention having nowhere to put one.
+-}
+data BoughtFrom = BoughtFrom
+    { bfGeography :: !Text
+    , bfActivity :: !(Maybe Text)
     }
 
--- | Every activity of the database under the key an input linking to it states.
-suppliersOf :: M.Map (UUID, UUID) Activity -> M.Map (UUID, UUID) Supplier
-suppliersOf = M.map (\act -> Supplier (activityName act) (activityLocation act))
-
-{- | How a row designates what it buys.
+{- | How a row designates its product.
 
 SimaPro gives a row one string for it, and the convention a SimaPro export of
 an EcoSpold 2 database follows packs the product, the geography in braces and
-the supplying activity between bars into that string. Written as the product alone, the row says
-nothing about which of the activities making that product it bought from, and a
-reader is left ranking candidates where the file had the answer: a foreground
-whose gin bought Indian medium-voltage electricity came back buying from a
-sewage sludge treatment that coproduces some.
+the activity between bars into that string. Written as the product alone, a row
+buying from outside the file says nothing about which of the activities making
+that product it bought from, and a reader is left ranking candidates where the
+source had the answer.
 
-The activity is only written beside a geography, the convention having nowhere
-to put it otherwise, and a product name that already designates is left exactly
-as its source wrote it.
+A name its own parser already reads a location out of designates its supply
+itself, and is left exactly as its source wrote it.
 -}
-designation :: Text -> Maybe Text -> Maybe Text -> Text
-designation product' geography activity
-    | T.isInfixOf "{" product' = product'
-    | otherwise = case (geography, activity) of
-        (Nothing, _) -> product'
-        (Just geo, Nothing) -> product' <> " {" <> geo <> "}"
-        (Just geo, Just act) -> product' <> " {" <> geo <> "}| " <> act <> " |"
+designation :: Text -> Maybe BoughtFrom -> Text
+designation product' boughtFrom
+    | isJust (extractLocation product') = product'
+    | otherwise = maybe product' designated boughtFrom
+  where
+    designated :: BoughtFrom -> Text
+    designated from =
+        product' <> " {" <> bfGeography from <> "}" <> maybe "" named (bfActivity from)
+
+    named :: Text -> Text
+    named activity = "| " <> activity <> " |"
+
+-- | A field a source left blank states nothing, and is not written as if it did.
+nonEmpty :: Text -> Maybe Text
+nonEmpty t = if T.null (T.strip t) then Nothing else Just (T.strip t)
 
 -- ============================================================================
 -- Process block serialization
@@ -588,26 +594,23 @@ techInputLine cats TechnosphereExchange{..} = case techRole of
     Coproduct -> Nothing
     AvoidedProduct -> Nothing
   where
-    supplier :: Maybe Supplier
-    supplier = techActivityLinkId >>= \link -> M.lookup (link, techFlowId) (catSuppliers cats)
-
-    -- What the row states about where it bought, else where its supplier sits.
-    geography :: Maybe Text
-    geography = (statedCode techLocation >>= nonEmpty) <|> (supplier >>= nonEmpty . supLocation)
-
-    -- The activity the row links to, else the one its source named.
-    activity :: Maybe Text
-    activity = (supplier >>= nonEmpty . supActivity) <|> claimedName techSupplierClaim
-
-    nonEmpty :: Text -> Maybe Text
-    nonEmpty t = if T.null (T.strip t) then Nothing else Just (T.strip t)
+    {- Where the row bought, for a row that has to say it: one whose product no
+    activity of this file makes. Where the maker travels in the same file, the
+    two rows name each other by the product and always have, and designating one
+    side alone would part them. -}
+    boughtFrom :: Maybe BoughtFrom
+    boughtFrom
+        | S.member techFlowId (catProducedHere cats) = Nothing
+        | otherwise = do
+            geography <- statedCode techLocation >>= nonEmpty
+            pure (BoughtFrom geography (claimedName techSupplierClaim))
 
     inputLine :: Maybe Line
     inputLine = do
         flow <- M.lookup techFlowId (catTech cats)
         pure
             Line
-                { lName = designation (tfName flow) geography activity
+                { lName = designation (tfName flow) boughtFrom
                 , lCompartment = ""
                 , lUnit = unitNameOf (catUnits cats) techUnitId
                 , lAmount = techAmount
@@ -723,6 +726,18 @@ productLines keep cats category exchs =
             row [nm, unit, formatAmount amt, formatAmount share, "not defined", rowCategory, comment]
      in
         map mkRow (sortOn id entries)
+
+{- | The products a set of activities makes. A row buying one of these buys
+from inside the file, which links its rows by product name.
+-}
+productsOf :: M.Map (UUID, UUID) Activity -> S.Set UUID
+productsOf activities =
+    S.fromList
+        [ exchangeFlowId ex
+        | act <- M.elems activities
+        , ex <- exchanges act
+        , exchangeIsReference ex
+        ]
 
 -- | A product output the gate left unsplit: written as a further @Products@ row of its block.
 isCoproduct :: Exchange -> Bool
@@ -885,7 +900,7 @@ byte stream is independent of the underlying 'Map' iteration order.
 serializeSimaProCSV :: WriterConfig -> SimpleDatabase -> Either Text BS.ByteString
 serializeSimaProCSV cfg db@SimpleDatabase{..} = do
     checkSimaProExportable db
-    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (suppliersOf sdbActivities)
+    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities)
         acts = sortOn (\a -> (activityName a, activityLocation a)) (M.elems sdbActivities)
         blocks = concatMap (serializeActivity cats) acts
         allLines = headerLines cfg ++ blocks

@@ -28,6 +28,7 @@ import qualified Data.ByteString as BS
 import Data.Either (isLeft, isRight)
 import Data.List (sort)
 import qualified Data.Map.Strict as M
+import Data.Maybe (isJust)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -563,15 +564,30 @@ spec = describe "SimaPro.Writer round-trip" $ do
 
     -- A product name alone says nothing about which of the activities making
     -- that product a row bought from, and this format has no column for it: the
-    -- designation is where it goes.
-    it "designates an input by the geography and the activity it buys from" $
+    -- designation is where it goes. A row whose maker travels in the same file
+    -- needs none, the two rows naming each other by the product as they always
+    -- have, so only what the file does not make is designated.
+    it "designates what it buys from outside the file, and only that" $
         case serializeSimaProCSV defaultWriterConfig designationDb of
             Left err -> expectationFailure (T.unpack err)
             Right out ->
                 rowsUnder out "Materials/fuels"
-                    `shouldMatchList` [ "electricity, medium voltage {IN}| market for electricity, medium voltage |;kg;2;Undefined;0;0;0;"
+                    `shouldMatchList` [ "electricity, medium voltage;kg;2;Undefined;0;0;0;"
                                       , "urea {RER};kg;3;Undefined;0;0;0;"
                                       ]
+
+    it "leaves a file it wrote linking to itself" $
+        case serializeSimaProCSV defaultWriterConfig designationDb of
+            Left err -> expectationFailure (T.unpack err)
+            Right out -> do
+                db <- loadBytes out
+                [ techActivityLinkId ex
+                  | act <- M.elems (sdbActivities db)
+                  , activityName act == "consumer"
+                  , ex@TechnosphereExchange{techRole = Input} <- exchanges act
+                  , isJust (techActivityLinkId ex)
+                  ]
+                    `shouldSatisfy` ((== 1) . length)
 
     -- This format has no waste axis of its own, so a waste exchange from
     -- another one has to be written into one of its two waste sections, and
