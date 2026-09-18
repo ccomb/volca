@@ -51,7 +51,7 @@ import qualified Impact
 import Matrix (Inventory, Vector)
 import qualified Matrix
 import qualified Method.Explain as Explain
-import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), applyLongTermMode, characterizedFlowIds, computeLCIAScoreFromTables, computeLCIAScoreSetFromTables, computeMappingStats, inventoryContributions, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
+import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
 import Method.Types (DamageCategory (..), Method (..), MethodCF (..), MethodCollection (..), NormWeightSet (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
 import qualified Method.Types as MT
@@ -2017,41 +2017,21 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
         dbManager <- asks aeDbManager
         let lim = fromMaybe 20 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
-        unitCfg <- liftIO $ getMergedUnitConfig dbManager
-        (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-        inventory <- applyLongTermMode mFlows ltMode <$> inventoryWithDeps dbName db sharedSolver actProcessId
+        (mFlows, _) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        sol <-
+            solutionWithDeps dbName db sharedSolver actProcessId
+                >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
-        let score = loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables)
-            (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
-            contribs = sortOn (negate . abs . fcContribution) rawContribs
-            topFlows =
-                [ FlowContributionEntry
-                    { fcoFlowName = bfName f
-                    , fcoContribution = c
-                    , fcoSharePct = if score /= 0 then c / score * 100 else 0
-                    , fcoFlowId = UUID.toText (bfId f)
-                    , fcoCategory = bfCompartmentName f
-                    , fcoCompartment = bfCompartmentSub f
-                    , fcoCfValue = cfVal
-                    , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
-                    }
-                | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- take lim contribs
-                ]
-        liftIO $
-            unless (null unknownUuids) $
-                reportProgress Warning $
-                    "[contributing-flows "
-                        <> T.unpack (methodName method)
-                        <> "] "
-                        <> show (length unknownUuids)
-                        <> " inventory flow UUID(s) absent from merged FlowDB. Samples: "
-                        <> show (take 3 unknownUuids)
+        liftIO $ warnUnknownInventoryFlows ("contributing-flows " <> methodName method) mFlows (SharedSolver.csInventory sol)
+        score <- liftIO (Impact.scoreSolution dbManager collectionName method tables sol) >>= either scoringError pure
+        (rawContribs, _) <-
+            liftIO (Impact.contributionsOf dbManager collectionName method tables sol) >>= either scoringError pure
         return
             ContributingFlowsResult
                 { cfrMethod = methodName method
                 , cfrUnit = methodUnit method
                 , cfrTotalScore = score
-                , cfrTopFlows = topFlows
+                , cfrTopFlows = topContributorRows tables score lim rawContribs
                 }
 
 getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult

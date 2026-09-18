@@ -38,6 +38,7 @@ import Database (Geographies, filterByName, flowSearchFields)
 import Database.Edit (deriveDatabase, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
+import qualified Impact
 
 import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
@@ -49,7 +50,7 @@ import Control.Monad (mfilter, unless)
 import qualified Data.List as L
 import Matrix (applyBiosphereMatrix)
 import qualified Method.Explain as Explain
-import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), applyLongTermMode, computeLCIAScoreAuto, computeLCIAScoreFromTables, computeMappingStats, defaultUncharacterizedOpts, inventoryContributions, longTermModeFromExclude)
+import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeLCIAScoreFromTables, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude)
 import qualified Method.Mapping as Mapping
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Network.HTTP.Types.Header (RequestHeaders, hAccept, hAllow, hHost)
@@ -1213,12 +1214,12 @@ runImpactsRequest dbManager args req = do
     subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-    solvedInventory <-
+    solved <-
         ExceptT $
             if null subs
-                then fmap (fmap SharedSolver.csInventory) (computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName (ldSharedSolver ld) (raPid ra))
+                then computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName (ldSharedSolver ld) (raPid ra)
                 else
-                    either (Left . T.pack . show) (Right . SharedSolver.csInventory)
+                    first (T.pack . show)
                         <$> Service.inventoryWithSubsAndDeps
                             unitCfg
                             (DM.mkDepSolverLookup dbManager)
@@ -1228,12 +1229,15 @@ runImpactsRequest dbManager args req = do
                             (raPid ra)
                             subs
     let ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-        inventory = applyLongTermMode mFlows ltMode solvedInventory
+    sol <- liftIO (Impact.withLongTermPolicy dbManager ltMode solved)
+    let inventory = SharedSolver.csInventory sol
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
+    score <- ExceptT (Impact.scoreSolution dbManager collection method tables sol)
+    (rawContribs, unknownUuids) <- ExceptT (Impact.contributionsOf dbManager collection method tables sol)
     let stats = computeMappingStats mappings
-        baseOutcome = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
-        (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
+        baseOutcome =
+            (computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables){loScore = score}
         contribs = L.sortOn (negate . abs . fcContribution) rawContribs
         functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits (raActivity ra)
     -- Diagnostics path: opt-in via include_diagnostics. Skips the suggester
@@ -2024,7 +2028,7 @@ callGetContributingFlows dbManager mBaseUrl rid args =
         except $ ensureLinked dbName "computing contributions" db
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
         (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-        sol <-
+        solved <-
             ExceptT $
                 computeInventoryMatrixWithDepsCached
                     unitCfg
@@ -2034,11 +2038,12 @@ callGetContributingFlows dbManager mBaseUrl rid args =
                     (ldSharedSolver ld)
                     (raPid ra)
         let ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-            inventory = applyLongTermMode mFlows ltMode (SharedSolver.csInventory sol)
+        sol <- liftIO (Impact.withLongTermPolicy dbManager ltMode solved)
+        let inventory = SharedSolver.csInventory sol
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
+        score <- ExceptT (Impact.scoreSolution dbManager collection method tables sol)
+        (rawContribs, unknownUuids) <- ExceptT (Impact.contributionsOf dbManager collection method tables sol)
         let outcome = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
-            score = loScore outcome
-            (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
             contribs = L.sortOn (negate . abs . fcContribution) rawContribs
             top = take lim contribs
             hasNeg = any ((< 0) . fcContribution) contribs
