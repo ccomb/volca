@@ -966,6 +966,11 @@ caller can emit one warning per gap rather than per pid × per method.
 -}
 data RegionalActivityWeights = RegionalActivityWeights
     { rawWeights :: !(U.Vector Double)
+    , rawWeightsWithoutLongTerm :: !(U.Vector Double)
+    {- ^ The same sum with the delayed long-term emissions left out. A column is
+    not a flow, so dropping those from an inventory cannot reach a path that
+    reads columns; summed here, in the walk that is happening anyway, it can.
+    -}
     , rawTainted :: !(U.Vector Word8)
     , rawMissingPairs :: ![(UUID, Location)]
     , rawFactors :: !RegionalFactorTable
@@ -995,6 +1000,9 @@ the contributions by flow - rather than from two walks that have to agree.
   contribute nothing, here as in the score.
 * 'rftColumnLocation' - the location slot of each matrix column, the grid's
   other coordinate.
+* 'rftLongTerm' - true for a flow the method's consumer calls a delayed
+  long-term emission, so a fold by flow can leave it out where a fold by
+  column reads 'rawWeightsWithoutLongTerm' instead.
 -}
 data RegionalFactorTable = RegionalFactorTable
     { rftUniversal :: !(U.Vector Double)
@@ -1003,6 +1011,7 @@ data RegionalFactorTable = RegionalFactorTable
     , rftGap :: !(U.Vector Bool)
     , rftLocationCount :: !Int
     , rftColumnLocation :: !(U.Vector Int)
+    , rftLongTerm :: !(U.Vector Bool)
     }
 
 {- | Inverted indices over a 'Method' for the post-scoring suggester.
@@ -2178,6 +2187,11 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
     universal :: U.Vector Double
     universal = U.generate nRows (\r -> M.findWithDefault 0 (bioFlows V.! r) broadcast)
 
+    -- A delayed long-term emission, which 'ExcludeLongTerm' drops. Read per
+    -- biosphere row once rather than per triple, like everything else here.
+    longTermRow :: U.Vector Bool
+    longTermRow = U.generate nRows (\r -> isLongTermFlow flowDB (bioFlows V.! r))
+
     regionalRows :: [Int]
     regionalRows = [r | r <- [0 .. nRows - 1], isJust (regionalByRow V.! r)]
 
@@ -2229,6 +2243,7 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
                 , rftGap = gaps
                 , rftLocationCount = nLocs
                 , rftColumnLocation = columnLocation
+                , rftLongTerm = longTermRow
                 }
 
     -- Walk the biosphere triples once, summing the factors above by column and
@@ -2238,14 +2253,19 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
     precomputed :: RegionalActivityWeights
     precomputed = runST $ do
         ws <- MU.replicate nCols (0 :: Double)
+        wsShort <- MU.replicate nCols (0 :: Double)
         ts <- MU.replicate nCols (0 :: Word8)
         missRef <- newSTRef (Set.empty :: Set.Set (UUID, Location))
         U.forM_ bioTriples $ \(SparseTriple flowRow colIdx bioVal) -> do
             let !col = fromIntegral colIdx :: Int
                 !row = fromIntegral flowRow :: Int
                 !slot = U.unsafeIndex regionalRowSlot row
+                !delayed = U.unsafeIndex longTermRow row
+                add !v = do
+                    MU.unsafeModify ws (+ v) col
+                    unless delayed $ MU.unsafeModify wsShort (+ v) col
             if slot < 0
-                then MU.unsafeModify ws (+ bioVal * U.unsafeIndex universal row) col
+                then add (bioVal * U.unsafeIndex universal row)
                 else do
                     let !cell = slot * nLocs + U.unsafeIndex columnLocation col
                         (!factor, !isGap) = U.unsafeIndex grid cell
@@ -2253,13 +2273,15 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
                         then do
                             MU.unsafeWrite ts col 1
                             modifySTRef' missRef (Set.insert (bioFlows V.! row, colLoc V.! col))
-                        else MU.unsafeModify ws (+ bioVal * factor) col
+                        else add (bioVal * factor)
         wsF <- U.unsafeFreeze ws
+        wsShortF <- U.unsafeFreeze wsShort
         tsF <- U.unsafeFreeze ts
         miss <- readSTRef missRef
         pure
             RegionalActivityWeights
                 { rawWeights = wsF
+                , rawWeightsWithoutLongTerm = wsShortF
                 , rawTainted = tsF
                 , rawMissingPairs = Set.toAscList miss
                 , rawFactors = factors
@@ -2343,6 +2365,8 @@ computeLCIAScoreAuto ::
     UnitConfig ->
     UnitDB ->
     BioFlowDB ->
+    -- | What to do with the delayed long-term emissions
+    LongTermMode ->
     Database ->
     -- | Scaling vector @s@ (only consulted if the method is regionalized)
     Vector ->
@@ -2352,11 +2376,11 @@ computeLCIAScoreAuto ::
     M.Map Location [Location] ->
     MethodTables ->
     Either Text Double
-computeLCIAScoreAuto unitCfg unitDB flowDB db scalingVec inventory hier tables
+computeLCIAScoreAuto unitCfg unitDB flowDB ltMode db scalingVec inventory hier tables
     | M.null (mtRegionalizedCF tables) =
-        Right (loScore (computeLCIAScoreFromTables unitCfg unitDB flowDB inventory tables))
+        Right (loScore (computeLCIAScoreFromTables unitCfg unitDB flowDB (applyLongTermMode flowDB ltMode inventory) tables))
     | otherwise =
-        computeRegionalizedLCIAScore unitCfg unitDB flowDB db scalingVec hier tables
+        computeRegionalizedLCIAScore unitCfg unitDB flowDB ltMode db scalingVec hier tables
 
 {- | Which of the two ways a database contributes to a regionalized score: its
 precomputed per-column weights, or a flat walk over its own slice.
@@ -2389,6 +2413,14 @@ database, so a length mismatch is a stale cache or the wrong tables paired,
 never a coverage gap. Refused rather than truncated: a shorter vector would
 leave the last activities out of the score, and out of the rows, in silence.
 -}
+{- | The per-column sum a long-term policy asks for. 'ExcludeLongTerm' drops
+the delayed emissions from an inventory, and the regionalized path reads
+columns rather than an inventory, so it reads the sum they were left out of.
+-}
+weightsUnder :: LongTermMode -> RegionalActivityWeights -> U.Vector Double
+weightsUnder IncludeLongTerm = rawWeights
+weightsUnder ExcludeLongTerm = rawWeightsWithoutLongTerm
+
 checkScalingLength :: RegionalActivityWeights -> Vector -> Either Text ()
 checkScalingLength raw s
     | U.length s == U.length (rawWeights raw) = Right ()
@@ -2425,6 +2457,8 @@ computeRegionalizedLCIAScore ::
     UnitConfig ->
     UnitDB ->
     BioFlowDB ->
+    -- | What to do with the delayed long-term emissions
+    LongTermMode ->
     Database ->
     -- | Scaling vector @s@ from 'Matrix.computeScalingVector'
     Vector ->
@@ -2432,7 +2466,7 @@ computeRegionalizedLCIAScore ::
     M.Map Location [Location] ->
     MethodTables ->
     Either Text Double
-computeRegionalizedLCIAScore unitConfig unitDB flowDB db scalingVec _hier tables =
+computeRegionalizedLCIAScore unitConfig unitDB flowDB ltMode db scalingVec _hier tables =
     case regionalPathOf tables of
         Left err -> Left err
         Right (Just raw) -> scoreFromPrecomputed raw scalingVec
@@ -2442,7 +2476,13 @@ computeRegionalizedLCIAScore unitConfig unitDB flowDB db scalingVec _hier tables
         Right Nothing ->
             Right
                 ( loScore
-                    (computeLCIAScoreFromTables unitConfig unitDB flowDB (applyBiosphereMatrix db scalingVec) tables)
+                    ( computeLCIAScoreFromTables
+                        unitConfig
+                        unitDB
+                        flowDB
+                        (applyLongTermMode flowDB ltMode (applyBiosphereMatrix db scalingVec))
+                        tables
+                    )
                 )
   where
     -- Fast path: one dot product over precomputed per-column weights.
@@ -2462,7 +2502,7 @@ computeRegionalizedLCIAScore unitConfig unitDB flowDB db scalingVec _hier tables
     scoreFromPrecomputed :: RegionalActivityWeights -> Vector -> Either Text Double
     scoreFromPrecomputed raw s = do
         checkScalingLength raw s
-        let !weights = rawWeights raw
+        let !weights = weightsUnder ltMode raw
             !n = U.length weights
             go !i !acc
                 | i >= n = acc
@@ -2504,14 +2544,16 @@ sumRegionalizedLCIAScoreCrossDB ::
     UnitConfig ->
     UnitDB ->
     BioFlowDB ->
+    -- | What to do with the delayed long-term emissions
+    LongTermMode ->
     M.Map Location [Location] ->
     {- | Per-DB triples: one per database participating in the cross-DB solve
     (root + dep DBs in the same order returned by 'SharedSolver.csScalings').
     -}
     [(Database, Vector, MethodTables)] ->
     Either Text Double
-sumRegionalizedLCIAScoreCrossDB unitCfg unitDB flowDB hier triples =
-    let results = [computeRegionalizedLCIAScore unitCfg unitDB flowDB db sv hier t | (db, sv, t) <- triples]
+sumRegionalizedLCIAScoreCrossDB unitCfg unitDB flowDB ltMode hier triples =
+    let results = [computeRegionalizedLCIAScore unitCfg unitDB flowDB ltMode db sv hier t | (db, sv, t) <- triples]
      in case lefts results of
             [] -> Right (sum (rights results))
             es -> Left (T.intercalate "; " es)
@@ -2558,10 +2600,12 @@ regionalizedContributionsCrossDB ::
     UnitConfig ->
     UnitDB ->
     BioFlowDB ->
+    -- | What to do with the delayed long-term emissions
+    LongTermMode ->
     -- | Per-DB triples, in the order 'SharedSolver.csScalings' returns them
     [(Database, Vector, MethodTables)] ->
     Either Text ([FlowContribution], [UUID])
-regionalizedContributionsCrossDB unitCfg unitDB flowDB triples =
+regionalizedContributionsCrossDB unitCfg unitDB flowDB ltMode triples =
     case lefts perDb of
         [] ->
             let (shares, unknowns) = unzip (rights perDb)
@@ -2577,7 +2621,7 @@ regionalizedContributionsCrossDB unitCfg unitDB flowDB triples =
         Left err -> Left err
         Right (Just raw) -> do
             checkScalingLength raw sv
-            Right (regionalFlowShares db sv raw, [])
+            Right (regionalFlowShares ltMode db sv raw, [])
         -- A dependency the score reads flat is read flat here too, over that
         -- same slice: taken from the merged inventory its flows would be
         -- counted twice.
@@ -2585,7 +2629,7 @@ regionalizedContributionsCrossDB unitCfg unitDB flowDB triples =
 
     flatFlowShares :: Database -> Vector -> MethodTables -> (M.Map UUID FlowShare, [UUID])
     flatFlowShares db sv tables =
-        let inventory = applyBiosphereMatrix db sv
+        let inventory = applyLongTermMode flowDB ltMode (applyBiosphereMatrix db sv)
             (rows, unknowns) = inventoryContributions unitCfg unitDB flowDB inventory tables
          in ( M.fromListWith
                 addShares
@@ -2603,8 +2647,8 @@ the same numbers in a different order. The quantity counts every triple of the
 row, gaps included: it is how much of the flow the inventory holds, not how
 much of it the method could characterize.
 -}
-regionalFlowShares :: Database -> Vector -> RegionalActivityWeights -> M.Map UUID FlowShare
-regionalFlowShares db scalingVec raw =
+regionalFlowShares :: LongTermMode -> Database -> Vector -> RegionalActivityWeights -> M.Map UUID FlowShare
+regionalFlowShares ltMode db scalingVec raw =
     M.fromListWith
         addShares
         [ (bioFlows V.! r, FlowShare c q)
@@ -2616,6 +2660,13 @@ regionalFlowShares db scalingVec raw =
   where
     factors :: RegionalFactorTable
     factors = rawFactors raw
+
+    -- The rows 'weightsUnder' left out of the column sum, left out here too:
+    -- the two have to be the same products in a different order.
+    dropped :: Int -> Bool
+    dropped = case ltMode of
+        IncludeLongTerm -> const False
+        ExcludeLongTerm -> U.unsafeIndex (rftLongTerm factors)
 
     bioFlows :: V.Vector UUID
     bioFlows = dbBiosphereOrder db
@@ -2633,7 +2684,7 @@ regionalFlowShares db scalingVec raw =
         U.forM_ (dbBiosphereTriples db) $ \(SparseTriple flowRow colIdx bioVal) -> do
             let !col = fromIntegral colIdx :: Int
                 !row = fromIntegral flowRow :: Int
-            when (col < U.length scalingVec && row < nRows) $ do
+            when (col < U.length scalingVec && row < nRows && not (dropped row)) $ do
                 let !sv = U.unsafeIndex scalingVec col
                 when (sv /= 0) $ do
                     let !qty = bioVal * sv
@@ -3433,6 +3484,8 @@ computeLCIAScoreSetFromTables ::
     UnitConfig ->
     UnitDB ->
     BioFlowDB ->
+    -- | What to do with the delayed long-term emissions
+    LongTermMode ->
     Inventory ->
     M.Map Location [Location] ->
     {- | Non-empty per-DB triples: 'NE.head' is root, tail is each participating
@@ -3440,7 +3493,7 @@ computeLCIAScoreSetFromTables ::
     -}
     NonEmpty (Database, Vector, MethodSetTables) ->
     [(UUID, Either Text Double)]
-computeLCIAScoreSetFromTables unitCfg unitDB flowDB inventory hier perDb =
+computeLCIAScoreSetFromTables unitCfg unitDB flowDB ltMode inventory hier perDb =
     let (_, _, mstRoot) = NE.head perDb
         regionalIds =
             Set.fromList
@@ -3455,10 +3508,10 @@ computeLCIAScoreSetFromTables unitCfg unitDB flowDB inventory hier perDb =
         -- left to be overwritten, so the two halves carry no key in common.
         batched =
             [ r
-            | r@(mid, _) <- scoreBatched unitCfg unitDB flowDB (msBatched mstRoot) inventory
+            | r@(mid, _) <- scoreBatched unitCfg unitDB flowDB (msBatched mstRoot) (applyLongTermMode flowDB ltMode inventory)
             , not (Set.member mid regionalIds)
             ]
-        regional = scoreRegionalCrossDB unitCfg unitDB flowDB hier regionalEntries perDb
+        regional = scoreRegionalCrossDB unitCfg unitDB flowDB ltMode hier regionalEntries perDb
         byId = M.fromList (batched ++ regional)
      in [ (mseMethodId e, M.findWithDefault (missing e) (mseMethodId e) byId)
         | e <- V.toList (msAllMethods mstRoot)
@@ -3484,13 +3537,14 @@ scoreRegionalCrossDB ::
     UnitConfig ->
     UnitDB ->
     BioFlowDB ->
+    LongTermMode ->
     M.Map Location [Location] ->
     V.Vector MethodSetEntry ->
     NonEmpty (Database, Vector, MethodSetTables) ->
     [(UUID, Either Text Double)]
-scoreRegionalCrossDB unitCfg unitDB flowDB hier ms perDb =
+scoreRegionalCrossDB unitCfg unitDB flowDB ltMode hier ms perDb =
     [ ( mseMethodId e
-      , sumRegionalizedLCIAScoreCrossDB unitCfg unitDB flowDB hier (triples (mseMethodId e))
+      , sumRegionalizedLCIAScoreCrossDB unitCfg unitDB flowDB ltMode hier (triples (mseMethodId e))
       )
     | e <- V.toList ms
     ]

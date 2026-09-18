@@ -622,17 +622,6 @@ crossDBSolutionFor dbName db solver pid mSub = case mSub of
                     (srSubstitutions subReq)
         either throwServiceError pure eSol
 
-{- | Apply the request's long-term policy to a freshly solved inventory. Drops
-the delayed long-term emission flows when excluding, and is a no-op (with no
-extra work) when including. Every downstream scoring path reads @csInventory@,
-so filtering here once keeps scores and top-contributor breakdowns consistent.
--}
-applyLongTermToSolution :: DatabaseManager -> LongTermMode -> SharedSolver.CrossDBSolution -> IO SharedSolver.CrossDBSolution
-applyLongTermToSolution _ IncludeLongTerm sol = pure sol
-applyLongTermToSolution dbManager ExcludeLongTerm sol = do
-    (mFlows, _) <- DM.getMergedFlowMetadata dbManager
-    pure sol{SharedSolver.csInventory = applyLongTermMode mFlows ExcludeLongTerm (SharedSolver.csInventory sol)}
-
 {- | Look up MethodSetTables for every (DB, scaling) pair in the cross-DB
 solution. Cache-keyed by (dbName, methods).
 -}
@@ -672,6 +661,7 @@ batchedScoresFor dbManager _dbName collection _db sol methods = do
                 unitCfg
                 mUnits
                 mFlows
+                (SharedSolver.csLongTerm sol)
                 (SharedSolver.csInventory sol)
                 hier
                 perDb
@@ -736,7 +726,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
     -- 'resolveBatchedScore'; only the locally computed one is labeled here.
     scoreE <- case precomputedScore of
         Just e -> traverse evaluate e
-        Nothing -> Impact.scoreSolution dbManager collection method tables sol inventory
+        Nothing -> Impact.scoreSolution dbManager collection method tables sol
     case scoreE of
         Left err -> pure (Left err)
         Right score -> do
@@ -751,7 +741,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
     contributionsFor tables score
         | topFlows <= 0 = pure (Right [])
         | otherwise = do
-            contribsE <- Impact.contributionsOf dbManager collection method tables sol (SharedSolver.csInventory sol)
+            contribsE <- Impact.contributionsOf dbManager collection method tables sol
             pure (fmap (topContributorRows tables score topFlows . fst) contribsE)
 
     result :: MappingStats -> Double -> Text -> [FlowContributionEntry] -> LCIAResult
@@ -859,7 +849,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
             | topFlows <= 0 = pure (Right [])
             | otherwise = do
                 tables <- DM.mapMethodToTablesCached dbManager dbName collectionName db method
-                contribsE <- Impact.contributionsOf dbManager collectionName method tables sol inventory
+                contribsE <- Impact.contributionsOf dbManager collectionName method tables sol
                 pure (fmap (topContributorRows tables score topFlows . fst) contribsE)
         mkResultForScore ctx method score topContributors =
             enrichWithNW dcLookup mNW $
@@ -903,7 +893,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
     let dcLookup = damageCategoryIndex damageCats
         mNW = case nwSets of (nw : _) -> Just nw; [] -> Nothing
     t0 <- liftIO getCurrentTime
-    sol <- crossDBSolutionFor dbName db sharedSolver actProcessId mSub >>= liftIO . applyLongTermToSolution dbManager ltMode
+    sol <- crossDBSolutionFor dbName db sharedSolver actProcessId mSub >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
     t1 <- liftIO getCurrentTime
     let inventory = SharedSolver.csInventory sol
         !invSize = M.size inventory
@@ -1004,7 +994,7 @@ scoreChunk scope chunk = do
     dbManager <- asks aeDbManager
     t0 <- liftIO getCurrentTime
     sols0 <- solutionsWithDeps (bsDbName scope) (bsDb scope) (bsSolver scope) (map btProcessId chunk)
-    sols <- liftIO $ acrossCapabilities (applyLongTermToSolution dbManager (bsLongTerm scope)) sols0
+    sols <- liftIO $ acrossCapabilities (Impact.withLongTermPolicy dbManager (bsLongTerm scope)) sols0
     t1 <- liftIO getCurrentTime
     entries <- liftIO $ acrossCapabilities (entryOf dbManager) (zip chunk sols)
     pure (diffUTCTime t1 t0, entries)

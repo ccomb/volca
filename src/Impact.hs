@@ -21,11 +21,12 @@ path, and so do both contributing-flows endpoints and both
 contributing-activities endpoints. Routing them here is now a matter of
 calling these two functions, the walk they needed being 'contributionsOf'.
 
-One further gap, older than this module and not fixed by it: long-term-emission
-filtering applies to the inventory only, so the regionalized path ignores
-@exclude_long_term@. A database whose regional factors all arrive from a
-dependency now takes that path, so it stops honouring the flag – which is what
-the dependency it mirrors already did.
+The long-term policy travels with the solution rather than beside it. Dropping
+the delayed emissions from an inventory cannot reach a path that reads columns,
+a column not being a flow, so the regionalized path reads the policy and the
+per-column sum those emissions were left out of. 'withLongTermPolicy' is the
+one place that records it, so a filtered inventory and a policy saying otherwise
+cannot be built.
 
 Whether a method is scored that way is asked of every database the solution
 reads, not of the root alone. A database's tables answer whether this method's
@@ -37,6 +38,7 @@ located emissions with one world factor, or with none.
 module Impact (
     scoreSolution,
     contributionsOf,
+    withLongTermPolicy,
 ) where
 
 import Control.Exception (evaluate)
@@ -52,7 +54,9 @@ import Matrix (Inventory, Vector)
 import Method.Mapping (
     FlowContribution (..),
     LCIAOutcome (..),
+    LongTermMode (..),
     MethodTables (..),
+    applyLongTermMode,
     computeLCIAScoreFromTables,
     inventoryContributions,
     regionalizedContributionsCrossDB,
@@ -62,12 +66,26 @@ import Method.Types (Method (..))
 import qualified SharedSolver
 import Types (Database)
 
-{- | The score of one method against a cross-database solution.
+{- | Record the long-term emission policy on a solution: drop the delayed
+emissions from its inventory and say so, in one move.
 
-@inventory@ is passed separately from @sol@ because a caller may have filtered
-it (long-term emissions) after solving. The regionalized path reads the
-solution's scaling vectors instead, so that filtering does not reach it – see
-the note above.
+Both halves are needed because the two scoring paths read different things. A
+flat score reads the inventory and wants them gone; a regionalized score reads
+the per-database scaling vectors, where they cannot be taken out, and wants to
+be told. Setting one without the other is what let @exclude_long_term@ be
+honoured by one path and ignored by the other.
+-}
+withLongTermPolicy :: DatabaseManager -> LongTermMode -> SharedSolver.CrossDBSolution -> IO SharedSolver.CrossDBSolution
+withLongTermPolicy _ IncludeLongTerm sol = pure sol
+withLongTermPolicy dbManager ExcludeLongTerm sol = do
+    (mFlows, _) <- getMergedFlowMetadata dbManager
+    pure
+        sol
+            { SharedSolver.csInventory = applyLongTermMode mFlows ExcludeLongTerm (SharedSolver.csInventory sol)
+            , SharedSolver.csLongTerm = ExcludeLongTerm
+            }
+
+{- | The score of one method against a cross-database solution.
 
 A 'Left' is a scoring integrity error – a regionalized method with a gap it
 cannot fill. It propagates rather than collapsing to a zero the consumer could
@@ -80,17 +98,18 @@ scoreSolution ::
     Method ->
     MethodTables ->
     SharedSolver.CrossDBSolution ->
-    -- | The inventory to score, after any filtering the caller applied
-    Inventory ->
     IO (Either Text Double)
-scoreSolution dbManager collection method tables sol inventory = do
+scoreSolution dbManager collection method tables sol = do
     unitCfg <- getMergedUnitConfig dbManager
     (mFlows, mUnits) <- getMergedFlowMetadata dbManager
     perDb <- perDatabaseTables dbManager collection method sol
     label method $
         if anyRegionalized perDb
-            then traverse evaluate (sumRegionalizedLCIAScoreCrossDB unitCfg mUnits mFlows (dmLocationHierarchy dbManager) perDb)
-            else Right <$> evaluate (loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables))
+            then traverse evaluate (sumRegionalizedLCIAScoreCrossDB unitCfg mUnits mFlows ltMode (dmLocationHierarchy dbManager) perDb)
+            else Right <$> evaluate (loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows (SharedSolver.csInventory sol) tables))
+  where
+    ltMode :: LongTermMode
+    ltMode = SharedSolver.csLongTerm sol
 
 {- | The flows that made that score, each with what it contributed and the
 factor the score applied to it.
@@ -108,17 +127,18 @@ contributionsOf ::
     Method ->
     MethodTables ->
     SharedSolver.CrossDBSolution ->
-    -- | The inventory to read, after any filtering the caller applied
-    Inventory ->
     IO (Either Text ([FlowContribution], [UUID]))
-contributionsOf dbManager collection method tables sol inventory = do
+contributionsOf dbManager collection method tables sol = do
     unitCfg <- getMergedUnitConfig dbManager
     (mFlows, mUnits) <- getMergedFlowMetadata dbManager
     perDb <- perDatabaseTables dbManager collection method sol
     label method $
         if anyRegionalized perDb
-            then pure (regionalizedContributionsCrossDB unitCfg mUnits mFlows perDb)
-            else pure (Right (inventoryContributions unitCfg mUnits mFlows inventory tables))
+            then pure (regionalizedContributionsCrossDB unitCfg mUnits mFlows ltMode perDb)
+            else pure (Right (inventoryContributions unitCfg mUnits mFlows (SharedSolver.csInventory sol) tables))
+  where
+    ltMode :: LongTermMode
+    ltMode = SharedSolver.csLongTerm sol
 
 {- | Whether any database of the solution carries factors that depend on where
 a flow occurs. One that carries none is not evidence that the method has none:
