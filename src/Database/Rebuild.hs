@@ -58,6 +58,7 @@ import Types (
     BiosphereFlow (..),
     Database (..),
     Exchange (..),
+    ExchangeLocation (..),
     ProcessId,
     ProcessRef (..),
     TechnosphereFlow (..),
@@ -66,6 +67,7 @@ import Types (
     findProcessIdByActivityUUID,
     parseProcessRef,
     processRefText,
+    readExchangeLocation,
  )
 import UnitConversion (UnitConfig, defaultUnitConfig)
 
@@ -89,9 +91,10 @@ Steps, all pure:
   1. Resolve the delete set to the @(activityUUID, productUUID)@ keys it
      occupies in 'dbProcessIdTable', validating that every requested
      'ProcessId' exists (no silent skip).
-  2. Drop those keys; for every surviving activity, UNLINK any technosphere /
-     waste exchange whose @(activityLink, flow)@ pointed at a deleted key –
-     clear its activity link and clear the stale process link.
+  2. Split on those keys; for every surviving activity, UNLINK any technosphere
+     / waste exchange whose @(activityLink, flow)@ pointed at a deleted key –
+     clear its activity link, keeping on the exchange the location the supplier
+     supplied from ('unlinkActivity').
   3. Rebuild interning tables, indexes, matrices and the product index from
      the surviving activity map via the shared loader builders.
 
@@ -102,9 +105,12 @@ unknown unit conversion under the given config).
 deleteActivitiesWith :: UnitConfig -> [ProcessId] -> Database -> Either Text Database
 deleteActivitiesWith unitConfig pids db = do
     deletedKeys <- resolveDeleteKeys db pids
-    let survivors = surviving db deletedKeys
-        survivingKeys = M.keysSet survivors
-        unlinkedMap = M.map (unlinkActivity survivingKeys) survivors
+    -- The two halves come from one split, because the survivors are unlinked
+    -- against what the other half says: where each deleted activity supplied
+    -- from, which after the delete nothing else records.
+    let (removed, survivors) = M.partitionWithKey (\key _ -> S.member key deletedKeys) (activityMap db)
+        unlink = unlinkActivity (M.keysSet survivors) (M.map suppliedFrom removed)
+        unlinkedMap = M.map unlink survivors
     if M.null unlinkedMap
         then Left "Refusing to delete: the result would have no activities"
         else rebuildFromActivities unitConfig db unlinkedMap
@@ -117,19 +123,17 @@ during unlinking are @O(log n)@.
 resolveDeleteKeys :: Database -> [ProcessId] -> Either Text (S.Set (UUID, UUID))
 resolveDeleteKeys db = fmap S.fromList . traverse (processKey db)
 
--- | The activity map keyed by @(activityUUID, productUUID)@, minus the deleted keys.
-surviving :: Database -> S.Set (UUID, UUID) -> M.Map (UUID, UUID) Activity
-surviving db deletedKeys =
-    M.fromList
-        [ (key, dbActivities db V.! i)
-        | i <- [0 .. V.length (dbActivities db) - 1]
-        , let key = dbProcessIdTable db V.! i
-        , not (S.member key deletedKeys)
-        ]
-
 -- | The database's activities, keyed the way a rebuild takes them.
 activityMap :: Database -> M.Map (UUID, UUID) Activity
-activityMap db = surviving db S.empty
+activityMap db =
+    M.fromList
+        [ (dbProcessIdTable db V.! i, dbActivities db V.! i)
+        | i <- [0 .. V.length (dbActivities db) - 1]
+        ]
+
+-- | Where an activity supplied from, as an exchange buying from it would state it.
+suppliedFrom :: Activity -> ExchangeLocation
+suppliedFrom = readExchangeLocation . activityLocation
 
 {- | Reset technosphere / waste exchanges on a surviving activity whose producer
 link no longer resolves to a surviving @(activityUUID, productUUID)@ key.
@@ -140,20 +144,47 @@ activity that keeps at least one product stays a valid target for exchanges
 pointing at a *surviving* product, while exchanges pointing at a deleted
 product are unlinked. A biosphere exchange has no producer link and is
 returned unchanged. An already-orphan link stays orphan.
+
+An unlinked line keeps the location its supplier supplied from, when it states
+none of its own. The link was the whole of what said where a line bought, so
+dropping it and nothing else leaves a row asking for a product with no
+geography at all: exported and read back, it is answered by whichever activity
+of any country the ranking puts first, which is how a foreground exported away
+from its background comes home buying its electricity somewhere it never did.
+A location the line already states is the source's own word and is left alone.
 -}
-unlinkActivity :: S.Set (UUID, UUID) -> Activity -> Activity
-unlinkActivity survivingKeys act =
+unlinkActivity :: S.Set (UUID, UUID) -> M.Map (UUID, UUID) ExchangeLocation -> Activity -> Activity
+unlinkActivity survivingKeys removed act =
     act{exchanges = map unlinkExchange (exchanges act)}
   where
+    dangling :: UUID -> UUID -> Bool
     dangling link flow = not (S.member (link, flow) survivingKeys)
+
+    supplied :: UUID -> UUID -> Maybe ExchangeLocation
+    supplied link flow = M.lookup (link, flow) removed
+
+    unlinkExchange :: Exchange -> Exchange
     unlinkExchange ex = case ex of
         BiosphereExchange{} -> ex
         TechnosphereExchange{techActivityLinkId = Just link, techFlowId = flow}
-            | dangling link flow -> ex{techActivityLinkId = Nothing}
+            | dangling link flow ->
+                ex
+                    { techActivityLinkId = Nothing
+                    , techLocation = keptLocation (techLocation ex) (supplied link flow)
+                    }
         TechnosphereExchange{} -> ex
         WasteExchange{waActivityLinkId = Just link, waFlowId = flow}
-            | dangling link flow -> ex{waActivityLinkId = Nothing}
+            | dangling link flow ->
+                ex
+                    { waActivityLinkId = Nothing
+                    , waLocation = keptLocation (waLocation ex) (supplied link flow)
+                    }
         WasteExchange{} -> ex
+
+-- | The line's own location, or the removed supplier's where it states none.
+keptLocation :: ExchangeLocation -> Maybe ExchangeLocation -> ExchangeLocation
+keptLocation LocationNone (Just gone) = gone
+keptLocation stated _ = stated
 
 {- | Rebuild a 'Database' from a surviving activity map, reusing the exact pure
 builders that back a freshly-loaded database. Flow / unit tables are carried

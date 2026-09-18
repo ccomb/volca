@@ -156,6 +156,25 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                             ]
                     midInputLinks `shouldBe` [Nothing]
 
+        it "keeps the location an unlinked line bought at" $ do
+            db <- buildOrFail (locatedChainDB 250)
+            let indianPid = pidFor2 db (mkUUID 251) (mkUUID 251)
+                brazilianPid = pidFor2 db (mkUUID 261) (mkUUID 261)
+            case deleteActivities [indianPid, brazilianPid] db of
+                Left err -> expectationFailure ("deleteActivities failed: " <> show err)
+                Right db' -> do
+                    let inputs =
+                            [ (techFlowId ex, techLocation ex)
+                            | act <- V.toList (dbActivities db')
+                            , activityName act == "mid"
+                            , ex@TechnosphereExchange{techRole = Input} <- exchanges act
+                            ]
+                    -- The line that stated nothing takes the location its
+                    -- supplier supplied from; the line that stated CN keeps
+                    -- what its source said, which is not where the supplier is.
+                    lookup (mkUUID 251) inputs `shouldBe` Just "IN"
+                    lookup (mkUUID 261) inputs `shouldBe` Just "CN"
+
         it "keeps a multi-product link target when only one product is deleted" $ do
             db <- buildOrFail (multiProductDB 300)
             -- supplier exposes two products; delete only product B.
@@ -566,6 +585,32 @@ chainDB offset =
                 [ (supA, mkTechFlow supA "supplier-product")
                 , (midA, mkTechFlow midA "mid-product")
                 , (topA, mkTechFlow topA "top-product")
+                ]
+            )
+            units
+
+{- | Two suppliers in two countries, and one consumer buying from both: from the
+Indian one saying nothing about where, from the Brazilian one saying @CN@.
+Deleting both suppliers is what a foreground export does to its background.
+-}
+locatedChainDB :: Int -> SimpleParts
+locatedChainDB offset =
+    let indian = mkUUID (offset + 1)
+        brazilian = mkUUID (offset + 11)
+        midA = mkUUID (offset + 21)
+        statedCN = (inputFrom brazilian brazilian){techLocation = "CN"}
+        mid = mkActivity "mid" "GLO" M.empty [refOut midA midA, inputFrom indian indian, statedCN]
+     in SimpleParts
+            ( M.fromList
+                [ ((indian, indian), mkActivity "indian" "IN" M.empty [refOut indian indian])
+                , ((brazilian, brazilian), mkActivity "brazilian" "BR" M.empty [refOut brazilian brazilian])
+                , ((midA, midA), mid)
+                ]
+            )
+            ( M.fromList
+                [ (indian, mkTechFlow indian "indian-product")
+                , (brazilian, mkTechFlow brazilian "brazilian-product")
+                , (midA, mkTechFlow midA "mid-product")
                 ]
             )
             units

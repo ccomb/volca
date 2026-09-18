@@ -152,6 +152,19 @@
   do not change: a producer sending its waste away was already charged for the
   treatment and still is.
 
+- Deleting activities keeps, on every line that bought from them, the location
+  it bought at. The link to the supplier was the whole of what said where a
+  line bought, so clearing it and nothing else left a row asking for a product
+  with no geography at all, which another database reading that row answers
+  with whichever activity of whichever country its ranking puts first. The line
+  now takes the location its deleted supplier supplied from, unless it states
+  one of its own, which is what its source said and is left alone. Exporting a
+  foreground model on its own is where this shows, the background being deleted
+  to get there: a cotton model whose gin bought Indian medium voltage
+  electricity came back buying from a sewage sludge treatment that coproduces
+  some, and scored 15 % under the model it was exported from on climate change,
+  where it now scores 5 % under. A format with nowhere to write an exchange
+  location, EcoSpold 2, is unaffected.
 - The unit table spells its units the way the SI writes them, and holds the
   multiples a source commonly writes. The litre gains `L` beside `l`, and
   `kg/L` beside `kg/l`: the SI accepts both symbols, the capital having been
