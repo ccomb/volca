@@ -34,6 +34,7 @@ import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix, depDemandsToVector, perturbA, perturbABatch, perturbGlobal, toList)
 import qualified Matrix.Export as MatrixExport
+import Method.Mapping (LongTermMode (..))
 import qualified Progress
 import qualified Search.BM25 as BM25
 import qualified Search.Fuzzy as Fuzzy
@@ -2502,7 +2503,7 @@ goWithSubsAndDeps unitCfg depLookup thisDb thisDbName rootDb solver demands allS
         let localInvs = map (applyBiosphereMatrix thisDb) scalings'
             baseSolutions =
                 zipWith
-                    (\inv s -> SharedSolver.CrossDBSolution inv (NE.singleton (unThisDb thisDbName, thisDb, s)))
+                    (\inv s -> SharedSolver.CrossDBSolution inv (NE.singleton (unThisDb thisDbName, thisDb, s)) IncludeLongTerm)
                     localInvs
                     scalings'
         if depth >= SharedSolver.maxDepsDepth

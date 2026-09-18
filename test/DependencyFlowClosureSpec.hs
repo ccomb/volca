@@ -24,6 +24,7 @@ import Test.Hspec
 import Config (DatabaseConfig (..), defaultConfig)
 import qualified Database.Manager as DM
 import Method.Mapping (
+    LongTermMode (..),
     MatchStrategy (..),
     computeRegionalizedLCIAScore,
     mtRegionalizedCF,
@@ -237,6 +238,7 @@ spec = do
                 kgUnitConfig
                 (dbUnits emitting)
                 (dbBioFlows emitting)
+                IncludeLongTerm
                 emitting
                 (U.fromList [1.0])
                 M.empty

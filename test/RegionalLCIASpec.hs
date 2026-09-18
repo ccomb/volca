@@ -213,10 +213,21 @@ universalMapping v =
         )
     ]
 
+-- The same second flow, emitted to a compartment the consumer calls a delayed
+-- long-term emission, which 'ExcludeLongTerm' drops.
+withLongTermFlow :: Database -> Database
+withLongTermFlow db =
+    let withFlow = withUniversalFlow db
+        delayed = methaneFlow{bfCompartment = Just (VT.Compartment Air (Just "long-term"))}
+     in withFlow{dbBioFlows = M.insert methaneUUID delayed (dbBioFlows withFlow)}
+
 -- The rows one database publishes under its regionalized score, by flow name.
 contributionRows :: Database -> U.Vector Double -> MethodTables -> [FlowContribution]
-contributionRows db scaling tables =
-    case regionalizedContributionsCrossDB kgUnitConfig (dbUnits db) (dbBioFlows db) [(db, scaling, tables)] of
+contributionRows = contributionRowsUnder IncludeLongTerm
+
+contributionRowsUnder :: LongTermMode -> Database -> U.Vector Double -> MethodTables -> [FlowContribution]
+contributionRowsUnder ltMode db scaling tables =
+    case regionalizedContributionsCrossDB kgUnitConfig (dbUnits db) (dbBioFlows db) ltMode [(db, scaling, tables)] of
         Left err -> error (T.unpack err)
         Right (rows, _unknown) -> sortOn (bfName . fcFlow) rows
 
@@ -309,6 +320,7 @@ spec = do
                 kgUnitConfig
                 (dbUnits db)
                 (dbBioFlows db)
+                IncludeLongTerm
                 db
                 scaling
                 M.empty
@@ -329,6 +341,7 @@ spec = do
                 kgUnitConfig
                 (dbUnits db)
                 (dbBioFlows db)
+                IncludeLongTerm
                 db
                 scaling
                 M.empty
@@ -347,6 +360,7 @@ spec = do
                 kgUnitConfig
                 (dbUnits db)
                 (dbBioFlows db)
+                IncludeLongTerm
                 db
                 scaling
                 M.empty
@@ -362,7 +376,7 @@ spec = do
                 mappings = regionalMappings [("FR", 2), ("DE", 3), ("GLO", 4)] <> universalMapping 5
                 tables = buildTables db M.empty mappings
                 scaling = U.fromList [1, 2, 4]
-                score = computeRegionalizedLCIAScore kgUnitConfig (dbUnits db) (dbBioFlows db) db scaling M.empty tables
+                score = computeRegionalizedLCIAScore kgUnitConfig (dbUnits db) (dbBioFlows db) IncludeLongTerm db scaling M.empty tables
                 rows = contributionRows db scaling tables
             -- Regional flow: 1·10·2 + 2·20·3 + 4·5·4 = 220.
             -- Universal flow: (1·1 + 2·1 + 4·1)·5 = 35.
@@ -401,3 +415,36 @@ spec = do
                 tables = buildTables db M.empty mappings
             flowMatchKind tables flowUUID `shouldBe` Just "regional"
             flowMatchKind tables methaneUUID `shouldBe` Nothing
+
+    describe "exclude_long_term on the regionalized path" $ do
+        -- The same fixture as above: a regional flow worth 220 and a second
+        -- flow worth 35, the second one emitted to a compartment that makes it
+        -- a delayed long-term emission. Dropping it from an inventory cannot
+        -- reach a path that reads columns, so the column sums carry it.
+        let db = withLongTermFlow (mkDB [("FR", 10), ("DE", 20), ("GLO", 5)])
+            mappings = regionalMappings [("FR", 2), ("DE", 3), ("GLO", 4)] <> universalMapping 5
+            tables = buildTables db M.empty mappings
+            scaling = U.fromList [1, 2, 4]
+            scoreUnder m =
+                computeRegionalizedLCIAScore
+                    kgUnitConfig
+                    (dbUnits db)
+                    (dbBioFlows db)
+                    m
+                    db
+                    scaling
+                    M.empty
+                    tables
+
+        it "counts the delayed emission when the request keeps it" $ do
+            scoreUnder IncludeLongTerm `shouldBe` Right 255
+            sum (map fcContribution (contributionRowsUnder IncludeLongTerm db scaling tables))
+                `shouldBe` 255
+
+        it "leaves it out of the score when the request excludes it" $
+            scoreUnder ExcludeLongTerm `shouldBe` Right 220
+
+        it "leaves it out of the rows by the same triples" $ do
+            let rows = contributionRowsUnder ExcludeLongTerm db scaling tables
+            map (bfName . fcFlow) rows `shouldBe` ["Carbon dioxide"]
+            sum (map fcContribution rows) `shouldBe` 220

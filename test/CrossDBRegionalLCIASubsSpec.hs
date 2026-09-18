@@ -27,7 +27,7 @@ import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
 import CrossDBRegionalLCIAFixture
-import Method.Mapping (MethodTables, sumRegionalizedLCIAScoreCrossDB)
+import Method.Mapping (LongTermMode (..), MethodTables, sumRegionalizedLCIAScoreCrossDB)
 import qualified Service
 import qualified SharedSolver as SS
 import TestHelpers (mkSolverFromDb)
@@ -55,6 +55,7 @@ spec = describe "cross-DB regional LCIA via substitution path" $ do
                     kgUnitConfig
                     (dbUnits depDb)
                     (dbBioFlows depDb)
+                    IncludeLongTerm
                     M.empty
                     perDb
 

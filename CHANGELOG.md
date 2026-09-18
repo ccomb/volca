@@ -61,6 +61,16 @@
 
 ### Fixed
 
+- `exclude_long_term` reaches a category whose factors depend on where a flow
+  occurs. The flag drops the delayed long-term emissions from an inventory, and
+  such a category is not scored from an inventory: it is scored from the
+  activity columns, where a flow cannot be taken out one at a time. It kept
+  counting them, and said nothing. Those columns now carry a second sum, the
+  one those emissions were left out of, and the flow list published under the
+  score leaves out the same rows. A category whose factors are the same
+  everywhere is unaffected, as are requests that keep the delayed emissions,
+  which is the default.
+
 - Whether a category is scored from each activity's location is asked of every
   database the answer is summed over, not of the root alone. A database's
   lookup tables say whether the method's located factors reached the flows
