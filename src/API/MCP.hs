@@ -59,7 +59,7 @@ import qualified Search.Normalize as Normalize
 import qualified Service
 import qualified Service.Aggregate as Agg
 import qualified Service.Compare as Compare
-import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached, crossDBProcessContributions)
+import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount)
 
@@ -2098,22 +2098,19 @@ callGetContributingActivities dbManager mBaseUrl rid args =
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
         except $ ensureLinked dbName "computing contributions" db
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-        (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-        tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
-        -- Skip separate inventory compute: contributions sum equals the score.
-        contributions <-
+        (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        solved <-
             ExceptT $
-                crossDBProcessContributions
+                computeInventoryMatrixWithDepsCached
                     unitCfg
-                    mUnits
-                    mFlows
                     (DM.mkDepSolverLookup dbManager)
                     db
                     dbName
                     (ldSharedSolver ld)
                     (raPid ra)
-                    tables
-                    ltMode
+        sol <- liftIO (Impact.withLongTermPolicy dbManager ltMode solved)
+        contributions <- ExceptT (Impact.processContributionsOf dbManager collection method sol)
+        -- The terms of the score, so their sum is it.
         let score = sum (M.elems contributions)
             sorted = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
             top = take lim sorted

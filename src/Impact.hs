@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 {- | Scoring one method against one solved inventory, and saying which flows
-made the score.
+and which activities made the score.
 
 A method carrying regional characterization factors is scored from the
 per-database scaling vectors rather than from the merged inventory, because a
@@ -15,11 +16,10 @@ keeps the shares summing to the total: a score taken from the dot product over
 per-column weights and shares taken from a region-blind walk over the merged
 inventory published percentages that added up to anything but a hundred.
 
-Everything that publishes a score for one flow list comes through here: the
-REST impact routes, the contributing-flows endpoint and the assistant tools.
-What does not, yet, is the pair that answers by activity rather than by flow,
-the contributing-activities endpoint and its tool, which read a per-activity
-walk of their own and score a regionalized method flat.
+Everything that publishes a score comes through here: the REST impact routes,
+the two contributing endpoints and the assistant tools. A list by flow and a
+list by activity are the same sum folded on its two axes, so they leave by the
+same path as the score and add up to it.
 
 The long-term policy travels with the solution rather than beside it. Dropping
 the delayed emissions from an inventory cannot reach a path that reads columns,
@@ -38,6 +38,7 @@ located emissions with one world factor, or with none.
 module Impact (
     scoreSolution,
     contributionsOf,
+    processContributionsOf,
     withLongTermPolicy,
     unknownInventoryFlows,
     warnUnknownFlowIds,
@@ -63,12 +64,13 @@ import Method.Mapping (
     computeLCIAScoreFromTables,
     inventoryContributions,
     regionalizedContributionsCrossDB,
+    regionalizedProcessContributions,
     sumRegionalizedLCIAScoreCrossDB,
  )
 import Method.Types (Method (..))
 import Progress (ProgressLevel (..), reportProgress)
 import qualified SharedSolver
-import Types (BioFlowDB, Database)
+import Types (BioFlowDB, Database, ProcessId)
 
 {- | Record the long-term emission policy on a solution: drop the delayed
 emissions from its inventory and say so, in one move.
@@ -150,6 +152,37 @@ it is evidence about that database's flows.
 -}
 anyRegionalized :: [(Database, Vector, MethodTables)] -> Bool
 anyRegionalized = any (\(_, _, tables) -> not (M.null (mtRegionalizedCF tables)))
+
+{- | The activities that made that score, each with what it contributed.
+
+The same sum as 'contributionsOf', folded on its other axis: a regionalized
+score is @Σ_a s[a] · w[a]@ over activity columns, and one column is one process,
+so the term is what that process contributed and there is nothing to walk. A
+database whose tables caught none of the method's located factors is read flat
+over its own slice, as the score reads it.
+
+A process id is local to its database, so the key names both: the same id in
+two databases is two processes.
+-}
+processContributionsOf ::
+    DatabaseManager ->
+    CollectionName ->
+    Method ->
+    SharedSolver.CrossDBSolution ->
+    IO (Either Text (M.Map (Text, ProcessId) Double))
+processContributionsOf dbManager collection method sol = do
+    unitCfg <- getMergedUnitConfig dbManager
+    (mFlows, mUnits) <- getMergedFlowMetadata dbManager
+    perDb <- perDatabaseTables dbManager collection method sol
+    let ltMode = SharedSolver.csLongTerm sol
+        ofDb (name, (db, sv, tables)) =
+            M.mapKeys (name,)
+                <$> regionalizedProcessContributions unitCfg mUnits mFlows ltMode db sv tables
+    label method $
+        pure (M.unionsWith (+) <$> traverse ofDb (zip names perDb))
+  where
+    names :: [Text]
+    names = [n | (n, _, _) <- NE.toList (SharedSolver.csScalings sol)]
 
 {- | The flows of an inventory the merged metadata has no record of.
 
