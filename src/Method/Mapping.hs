@@ -3407,15 +3407,22 @@ regional method whose coverage is incomplete (mirrors 'computeLCIAScoreAuto').
 The two halves of the set are scored by separate code paths and merged by
 methodId so the result list follows the input order ('msAllMethods'):
 
-  * non-regional half ('msBatched' on root): one matvec over the shared
-    dense broadcast – the PR #29 fast path, restored for mixed sets like
-    EF 3.1. Reads the merged cross-DB inventory, so dep-DB flows are
-    characterized without any per-DB bookkeeping.
-  * regional half ('msRegional' on root): per-method cross-DB sum
+  * non-regional half: one matvec over the shared dense broadcast – the
+    PR #29 fast path, restored for mixed sets like EF 3.1. Reads the merged
+    cross-DB inventory, so dep-DB flows are characterized without any per-DB
+    bookkeeping.
+  * regional half: per-method cross-DB sum
     ('sumRegionalizedLCIAScoreCrossDB'). For each regional method, the
     score is @Σ_d rawWeights_d · scaling_d@ across every participating
     database – root + each dep DB reached at request time. Closes the
     gap where dep-DB regional CFs were previously invisible.
+
+Which half a method falls in is decided by every database of the set, not by
+the root's: a database whose own mappings caught none of a method's located
+factors puts it in its 'msBatched', and that is a fact about that database's
+flows. Read from the root alone it would send a dependency's located emissions
+through the flat matvec, with the world factor the method does not state for
+them.
 
 Callers pass the per-DB triples as a 'NonEmpty' with the ROOT triple at
 'NE.head'. The non-regional matvec is keyed off the root entry's
@@ -3435,12 +3442,31 @@ computeLCIAScoreSetFromTables ::
     [(UUID, Either Text Double)]
 computeLCIAScoreSetFromTables unitCfg unitDB flowDB inventory hier perDb =
     let (_, _, mstRoot) = NE.head perDb
-        batched = scoreBatched unitCfg unitDB flowDB (msBatched mstRoot) inventory
-        regional = scoreRegionalCrossDB unitCfg unitDB flowDB hier (msRegional mstRoot) perDb
+        regionalIds =
+            Set.fromList
+                [ mseMethodId e
+                | (_, _, mst) <- NE.toList perDb
+                , e <- V.toList (msRegional mst)
+                ]
+        regionalEntries =
+            V.filter ((`Set.member` regionalIds) . mseMethodId) (msAllMethods mstRoot)
+        -- The matvec scores the root's whole non-regional half; a method some
+        -- other database calls regional is dropped from it here rather than
+        -- left to be overwritten, so the two halves carry no key in common.
+        batched =
+            [ r
+            | r@(mid, _) <- scoreBatched unitCfg unitDB flowDB (msBatched mstRoot) inventory
+            , not (Set.member mid regionalIds)
+            ]
+        regional = scoreRegionalCrossDB unitCfg unitDB flowDB hier regionalEntries perDb
         byId = M.fromList (batched ++ regional)
-     in [ (mseMethodId e, byId M.! mseMethodId e)
+     in [ (mseMethodId e, M.findWithDefault (missing e) (mseMethodId e) byId)
         | e <- V.toList (msAllMethods mstRoot)
         ]
+  where
+    -- Unreachable: every entry of 'msAllMethods' is in one half or the other.
+    missing :: MethodSetEntry -> Either Text Double
+    missing e = Left ("scored by neither half of the method set: " <> methodName (mseMethod e))
 
 {- | Per-method cross-DB regional sum. For each regional method, scores
 @Σ_d rawWeights_d · scaling_d@ across all participating DBs by looking
