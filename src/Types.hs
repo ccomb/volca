@@ -453,7 +453,7 @@ data ExchangeLocation
       LocationGlobal
     | -- | the source states none, as an EcoSpold 2 exchange states none
       LocationNone
-    | -- | the code the source states
+    | -- | the code stated for this line, by its source or by a delete
       LocationCode !Text
     deriving (Eq, Ord, Show, Generic, NFData, Store)
 
@@ -503,7 +503,13 @@ data Exchange
         {- ^ How the source designates its supplier. Written once, by a parser,
         and never rewritten by linking, unlike 'techActivityLinkId'.
         -}
-        , techLocation :: !ExchangeLocation -- What the source says about where the supply happens
+        , techLocation :: !ExchangeLocation
+        {- ^ What the source says about where the supply happens, and on a line
+        whose source said nothing, where the supplier a delete removed supplied
+        from ('Database.Rebuild.unlinkActivity'). Deleting the producers is how
+        a foreground model is exported on its own, and the link was the whole
+        of what said where its lines bought.
+        -}
         , techComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , techPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
         , techShare :: !(Maybe DeclaredShare) -- The share a product output was declared with; Nothing on inputs and where the source states none
@@ -531,7 +537,7 @@ data Exchange
         , waActivityLinkId :: !(Maybe UUID) -- Treatment this exchange resolved to (Nothing if orphan)
         , waSupplierClaim :: !SupplierClaim
         -- ^ How the source designates the treatment, as on a technosphere line.
-        , waLocation :: !ExchangeLocation -- What the source says about where the treatment happens
+        , waLocation :: !ExchangeLocation -- Where the treatment happens, as on a technosphere line
         , waComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , waPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
         }

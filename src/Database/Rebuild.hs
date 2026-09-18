@@ -91,10 +91,10 @@ Steps, all pure:
   1. Resolve the delete set to the @(activityUUID, productUUID)@ keys it
      occupies in 'dbProcessIdTable', validating that every requested
      'ProcessId' exists (no silent skip).
-  2. Drop those keys; for every surviving activity, UNLINK any technosphere /
-     waste exchange whose @(activityLink, flow)@ pointed at a deleted key –
-     clear its activity link and clear the stale process link, keeping on the
-     exchange the location the supplier supplied from ('unlinkActivity').
+  2. Split on those keys; for every surviving activity, UNLINK any technosphere
+     / waste exchange whose @(activityLink, flow)@ pointed at a deleted key –
+     clear its activity link, keeping on the exchange the location the supplier
+     supplied from ('unlinkActivity').
   3. Rebuild interning tables, indexes, matrices and the product index from
      the surviving activity map via the shared loader builders.
 
@@ -105,9 +105,12 @@ unknown unit conversion under the given config).
 deleteActivitiesWith :: UnitConfig -> [ProcessId] -> Database -> Either Text Database
 deleteActivitiesWith unitConfig pids db = do
     deletedKeys <- resolveDeleteKeys db pids
-    let survivors = surviving db deletedKeys
-        survivingKeys = M.keysSet survivors
-        unlinkedMap = M.map (unlinkActivity survivingKeys (removedLocations db deletedKeys)) survivors
+    -- The two halves come from one split, because the survivors are unlinked
+    -- against what the other half says: where each deleted activity supplied
+    -- from, which after the delete nothing else records.
+    let (removed, survivors) = M.partitionWithKey (\key _ -> S.member key deletedKeys) (activityMap db)
+        unlink = unlinkActivity (M.keysSet survivors) (M.map suppliedFrom removed)
+        unlinkedMap = M.map unlink survivors
     if M.null unlinkedMap
         then Left "Refusing to delete: the result would have no activities"
         else rebuildFromActivities unitConfig db unlinkedMap
@@ -120,32 +123,17 @@ during unlinking are @O(log n)@.
 resolveDeleteKeys :: Database -> [ProcessId] -> Either Text (S.Set (UUID, UUID))
 resolveDeleteKeys db = fmap S.fromList . traverse (processKey db)
 
--- | The activity map keyed by @(activityUUID, productUUID)@, minus the deleted keys.
-surviving :: Database -> S.Set (UUID, UUID) -> M.Map (UUID, UUID) Activity
-surviving db deletedKeys =
-    M.fromList
-        [ (key, dbActivities db V.! i)
-        | i <- [0 .. V.length (dbActivities db) - 1]
-        , let key = dbProcessIdTable db V.! i
-        , not (S.member key deletedKeys)
-        ]
-
 -- | The database's activities, keyed the way a rebuild takes them.
 activityMap :: Database -> M.Map (UUID, UUID) Activity
-activityMap db = surviving db S.empty
-
-{- | Where each activity about to be deleted supplied from, under the key an
-exchange links to it with. Read before the delete, because after it the only
-record of where a line bought is the line itself.
--}
-removedLocations :: Database -> S.Set (UUID, UUID) -> M.Map (UUID, UUID) ExchangeLocation
-removedLocations db deletedKeys =
+activityMap db =
     M.fromList
-        [ (key, readExchangeLocation (activityLocation (dbActivities db V.! i)))
+        [ (dbProcessIdTable db V.! i, dbActivities db V.! i)
         | i <- [0 .. V.length (dbActivities db) - 1]
-        , let key = dbProcessIdTable db V.! i
-        , S.member key deletedKeys
         ]
+
+-- | Where an activity supplied from, as an exchange buying from it would state it.
+suppliedFrom :: Activity -> ExchangeLocation
+suppliedFrom = readExchangeLocation . activityLocation
 
 {- | Reset technosphere / waste exchanges on a surviving activity whose producer
 link no longer resolves to a surviving @(activityUUID, productUUID)@ key.
@@ -169,8 +157,13 @@ unlinkActivity :: S.Set (UUID, UUID) -> M.Map (UUID, UUID) ExchangeLocation -> A
 unlinkActivity survivingKeys removed act =
     act{exchanges = map unlinkExchange (exchanges act)}
   where
+    dangling :: UUID -> UUID -> Bool
     dangling link flow = not (S.member (link, flow) survivingKeys)
+
+    supplied :: UUID -> UUID -> Maybe ExchangeLocation
     supplied link flow = M.lookup (link, flow) removed
+
+    unlinkExchange :: Exchange -> Exchange
     unlinkExchange ex = case ex of
         BiosphereExchange{} -> ex
         TechnosphereExchange{techActivityLinkId = Just link, techFlowId = flow}
