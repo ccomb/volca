@@ -325,6 +325,7 @@ test-suite lca-tests
                      , SensitivitySpec
                      , CrossDBSubstitutionSpec
                      , GapReportSpec
+                     , LinkingReportSpec
                      , QualityReportSpec
                      , QualityCsvSpec
                      , ComputedQualitySpec

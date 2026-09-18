@@ -4,6 +4,16 @@
 
 ### Changed
 
+- Loading a database says which pass is speaking. A database is first linked to
+  itself, then to its dependencies, and the first pass used to call everything
+  it had not answered a missing supplier, at warning level, listing products the
+  dependency supplies a second later. A workbook that ends up linked whole
+  therefore scrolled past forty lines reading `Steel production: 26 missing
+  suppliers`. That pass now reports at information level, as inputs left for a
+  dependency, and the words missing supplier are kept for the two places where
+  they are true: after the pass over the dependencies, and, for a database that
+  has none configured, at the moment it is loaded.
+
 - The `plain-indicators` method is built into the engine, like the reference
   tables. It used to load only when a configuration named its file, so an
   engine whose configuration did not name it started without it, and so did
