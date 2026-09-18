@@ -76,6 +76,16 @@
   with no candidate to choose between and reproduces every indicator of the
   original.
 
+- An ILCD package describes the flows its processes exchange, and no others.
+  The writer wrote a flow dataset for every flow in the database's tables,
+  which are a vocabulary rather than a list of what is used: a model of
+  twenty-eight processes carved out of a large database still carries the
+  tens of thousands of flow definitions that database was loaded with, and the
+  archive carried them too. Worse, the export guard judged that whole
+  vocabulary, so a compartment no process here mentions refused an export
+  those processes had nothing to do with. Both now read the flows the
+  exported processes actually exchange.
+
 - The contributing-activities endpoint and its tool publish the total the
   impact routes publish. They read a walk of their own that resolves one world
   factor per flow, which is the wrong reading for a category whose factors

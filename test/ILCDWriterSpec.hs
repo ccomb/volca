@@ -261,6 +261,25 @@ spec = describe "ILCD.Writer round-trip" $ do
           ]
             `shouldSatisfy` elem 3.3e-20
 
+    -- A database's flow tables are a vocabulary, and one carved out of a larger
+    -- database keeps the whole of it. What the package describes is what its
+    -- processes exchange: writing the rest put a dataset in the archive for
+    -- every flow the source database ever defined, and refused the export over
+    -- compartments no process here mentions.
+    it "describes the flows its processes exchange, and no others" $ do
+        let stranded = fResource{bfCompartment = Just (Compartment Waste Nothing)}
+            db =
+                oneActivityDb
+                    (M.fromList [(fEmitU, fEmission), (fResU, stranded)])
+                    [ TechnosphereExchange fProdU 1.0 fUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+                    , BiosphereExchange fEmitU 0.5 fUnitU Emission "" Nothing Nothing
+                    ]
+        checkILCDExportable db `shouldBe` Right ()
+        flowPaths (ilcdFiles defaultWriteOptions db)
+            `shouldMatchList` [ "flows/" <> UUID.toString fProdU <> ".xml"
+                              , "flows/" <> UUID.toString fEmitU <> ".xml"
+                              ]
+
     it "emits one process file per activity" $ do
         db <- loadFixture
         length (processPaths (ilcdFiles defaultWriteOptions db)) `shouldBe` M.size (sdbActivities db)
@@ -473,6 +492,10 @@ isPrefixOfFp = isPrefixOf
 -- | The @processes/@ entries of an 'ilcdFiles' listing, one per exported process.
 processPaths :: [(FilePath, a)] -> [FilePath]
 processPaths files = [p | (p, _) <- files, "processes/" `isPrefixOfFp` p]
+
+-- | The @flows/@ entries of an 'ilcdFiles' listing, one per described flow.
+flowPaths :: [(FilePath, a)] -> [FilePath]
+flowPaths files = [p | (p, _) <- files, "flows/" `isPrefixOfFp` p]
 
 -- ---------------------------------------------------------------------------
 -- Multi-output fixture (two products sharing one activity UUID)
