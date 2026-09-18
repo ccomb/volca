@@ -9,7 +9,7 @@ a zip of it) with four subdirectories:
 
 @
   processes/      one XML per (activity, product) pair (see 'ilcdProcessUUID')
-  flows/          one XML per tech/bio/waste flow
+  flows/          one XML per flow the processes exchange
   flowproperties/ one XML per unit group (1:1 with units)
   unitgroups/     one XML per unit
 @
@@ -24,9 +24,9 @@ Determinism is the contract:
   @write (parse (write d)) == write d@ holds byte-for-byte.
 
 What round-trips: process UUID, name, location, classifications, processType,
-every exchange (flow ref, direction, amount, location, per-exchange comment), and the
-full flow + unit catalog (names, CAS, biosphere compartment, flow type, the
-flow→unit reference). These are exactly the fields "ILCD.Parser" reads back;
+every exchange (flow ref, direction, amount, location, per-exchange comment), the
+exchanged flows (names, CAS, biosphere compartment, flow type, the flow→unit
+reference) and the unit catalog. These are exactly the fields "ILCD.Parser" reads back;
 fields the parser drops (activity description, synonyms, params, pedigree)
 are not representable in this ILCD profile and are not emitted.
 
@@ -337,9 +337,8 @@ processes exchange, and no others.
 
 A database's flow tables are a vocabulary, wider than what its own processes
 use, and a subset carved out of a larger database keeps the whole of it. Writing
-that vocabulary put tens of thousands of flow datasets beside twenty-eight
-processes, and had the export refused over a compartment no process here
-mentions.
+that vocabulary describes flows the package has no process for, and lets a
+compartment none of them mentions refuse the export.
 -}
 exportedFlows :: SimpleDatabase -> [(FlowKind, UUID)]
 exportedFlows db = filter (exchanged . flowKindId . fst) everyFlow
