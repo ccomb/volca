@@ -10,9 +10,15 @@
   dependency supplies a second later. A workbook that ends up linked whole
   therefore scrolled past forty lines reading `Steel production: 26 missing
   suppliers`. That pass now reports at information level, as inputs left for a
-  dependency, and the words missing supplier are kept for the two places where
-  they are true: after the pass over the dependencies, and, for a database that
-  has none configured, at the moment it is loaded.
+  dependency, and an input is called a missing supplier in the one place where
+  that is known: after the pass over the dependencies.
+
+- That pass now runs for every database, where it used to be skipped for one
+  configured with no dependency and for every SimaPro CSV a configuration names.
+  Both were told they were 100% complete however many inputs nothing answered,
+  their gap report was empty, and a CSV export given a dependency was never
+  linked to it. They now report what no activity can supply, like every other
+  database.
 
 - The `plain-indicators` method is built into the engine, like the reference
   tables. It used to load only when a configuration named its file, so an

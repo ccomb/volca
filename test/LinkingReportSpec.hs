@@ -29,6 +29,10 @@ spec = describe "the inputs a database does not answer itself" $ do
                        , "      * hard coal [CN]"
                        ]
 
+    it "counts one input as one" $
+        leftForADependency (summaryOf [("Steel production", [buys "hard coal" "CN"])])
+            `shouldSatisfy` elem "  - Steel production: 1 input"
+
     -- A row that states no geography buys the product wherever it is made.
     it "leaves out the brackets when the input stated no location" $
         leftForADependency (summaryOf [("Steel production", [buys "hard coal" ""])])

@@ -807,12 +807,16 @@ leftForADependency summary
 
     activityLines :: (T.Text, [UnlinkedExchange]) -> [T.Text]
     activityLines (actName, unlinkedExchanges) =
-        T.pack (printf "  - %s: %d inputs" (T.unpack actName) (length uniqueExchanges))
+        ("  - " <> actName <> ": " <> countedInputs (length uniqueExchanges))
             : map inputLine (take 3 uniqueExchanges)
                 <> [T.pack (printf "      ... and %d more" (length uniqueExchanges - 3)) | length uniqueExchanges > 3]
       where
         uniqueExchanges :: [UnlinkedExchange]
         uniqueExchanges = nub unlinkedExchanges
+
+    countedInputs :: Int -> T.Text
+    countedInputs 1 = "1 input"
+    countedInputs n = T.pack (show n) <> " inputs"
 
     inputLine :: UnlinkedExchange -> T.Text
     inputLine ue
@@ -1960,35 +1964,21 @@ loadDatabaseWithCrossDBLinking opts otherIndexes synonymDB locationHier policy p
     quoted :: T.Text -> T.Text
     quoted t = "\"" <> t <> "\""
 
+    -- \| The pass over the dependencies, run even when there are none: what
+    --    nothing can answer is counted there, and a database configured without a
+    --    dependency used to be told it was 100% complete.
+    --
     loadOn :: SimpleDatabase -> S.Set T.Text -> IO (Either T.Text (SimpleDatabase, CrossDBLinkingStats))
     loadOn simpleDb unknownUnits = do
-        -- If there are other databases to search, perform cross-DB linking
-        let !totalInputs = countTotalTechInputs simpleDb
-        if null otherIndexes
-            then do
-                -- Nothing to ask: what the database did not answer itself stays
-                -- unanswered, and here it is a missing supplier, since there is
-                -- no dependency left to name one.
-                let !stats = mempty{cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs}
-                    !stillUnlinked = countUnlinkedExchanges simpleDb
-                when (stillUnlinked > 0) $
-                    reportProgress Warning $
-                        printf
-                            "Missing suppliers: %d inputs this database does not make, and no dependency is configured to make them"
-                            stillUnlinked
-                reportCrossDBLinkingStats (M.size (sdbActivities simpleDb)) stats
-                return $ Right (simpleDb, stats)
-            else do
-                -- Perform cross-database linking using pre-built indexes
-                (linkedDb, stats) <-
-                    fixActivityLinksWithCrossDB
-                        otherIndexes
-                        synonymDB
-                        (loUnitConfig opts)
-                        locationHier
-                        policy
-                        simpleDb
-                return $ Right (linkedDb, stats{cdlUnknownUnits = unknownUnits})
+        (linkedDb, stats) <-
+            fixActivityLinksWithCrossDB
+                otherIndexes
+                synonymDB
+                (loUnitConfig opts)
+                locationHier
+                policy
+                simpleDb
+        return $ Right (linkedDb, stats{cdlUnknownUnits = unknownUnits})
 
 {- | Fix activity links using cross-database lookup.
 
@@ -2031,10 +2021,13 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig locationHier policy 
             return (db, mempty{cdlTotalInputs = totalInputs})
         else do
             reportProgress Info $
-                printf
-                    "Cross-database linking: %d unlinked exchanges, searching %d database(s)..."
-                    unlinkedBefore
-                    (length indexedDbs)
+                if null indexedDbs
+                    then printf "Cross-database linking: %d inputs to answer, and no dependency to ask" unlinkedBefore
+                    else
+                        printf
+                            "Cross-database linking: %d unlinked exchanges, searching %d database(s)..."
+                            unlinkedBefore
+                            (length indexedDbs)
 
             -- Report index stats
             forM_ indexedDbs $ \idb ->
