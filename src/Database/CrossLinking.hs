@@ -663,10 +663,78 @@ findWasteTreatmentByActivity LinkingContext{lcIndexedDatabases} actUUID flowUUID
         matches -> WasteAmbiguous (nub (map fst matches))
 
 {- | Find a supplier across all loaded databases (using pre-built indexes)
-This is the fast O(1) lookup version
+This is the fast O(1) lookup version.
+
+A demand whose name matches nowhere is asked again for what a designation says,
+that being the one part of such a name another database can hold. Nothing else
+moves: a name that matched still matches, and a refusal that saw candidates (an
+incompatible unit, a geography the policy turns down) is the answer rather than
+an invitation to ask again under another name.
 -}
 findSupplierInIndexedDBs :: LinkingContext -> SupplierQuery -> CrossDBLinkResult
-findSupplierInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, sqSupplierActivity = supplierActivity, sqLocation = location, sqUnit = unit} =
+findSupplierInIndexedDBs ctx q = case matchInIndexedDBs ctx q of
+    CrossDBNotLinked NoNameMatch ->
+        maybe (CrossDBNotLinked NoNameMatch) (matchInIndexedDBs ctx) (plainlyNamed q)
+    result -> result
+
+{- | The same demand, read for what a designation states rather than as one
+opaque name: the product it is really for, the activity it names as its
+supplier, and the geography it was bought at.
+
+A row written @product {GLO}| activity | Cut-off, U@ packs three statements into
+the one name the demand carries. Taken whole, that name is one no database but
+the file it came from holds, so every input written that way went unanswered.
+'Nothing' where the name states no designation, which is every name outside the
+convention.
+-}
+plainlyNamed :: SupplierQuery -> Maybe SupplierQuery
+plainlyNamed q = do
+    Designation{desProduct = stated, desActivity = activity, desLocation = geography} <-
+        readDesignation (sqProductName q)
+    pure
+        q
+            { sqProductName = stated
+            , sqSupplierActivity = sqSupplierActivity q <|> activity
+            , sqLocation = if T.null (sqLocation q) then geography else sqLocation q
+            }
+
+-- | The three statements a designation packs into one name.
+data Designation = Designation
+    { desProduct :: !Text
+    , desLocation :: !Text
+    , desActivity :: !(Maybe Text)
+    }
+
+{- | Read @product {GLO}| activity | anything@, and @product {GLO}@, which the
+same convention writes where it names no activity. A name with no braces, with
+nothing between them, or with nothing before them, states no designation.
+-}
+readDesignation :: Text -> Maybe Designation
+readDesignation name = case T.breakOn "{" name of
+    (_, "") -> Nothing
+    (before, rest) -> case T.breakOn "}" (T.drop 1 rest) of
+        (_, "") -> Nothing
+        (geography, after)
+            | T.null (T.strip geography) || T.null (T.strip before) -> Nothing
+            | otherwise ->
+                Just
+                    Designation
+                        { desProduct = T.strip before
+                        , desLocation = T.strip geography
+                        , desActivity = namedActivity (T.drop 1 after)
+                        }
+  where
+    -- The activity sits between the first two bars; a designation that stops at
+    -- the geography names none.
+    namedActivity :: Text -> Maybe Text
+    namedActivity after = case T.breakOn "|" after of
+        (_, "") -> Nothing
+        (_, afterBar) -> case T.strip (fst (T.breakOn "|" (T.drop 1 afterBar))) of
+            "" -> Nothing
+            activity -> Just activity
+
+matchInIndexedDBs :: LinkingContext -> SupplierQuery -> CrossDBLinkResult
+matchInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, sqSupplierActivity = supplierActivity, sqLocation = location, sqUnit = unit} =
     -- An alias row preempts the direct cascade: the curator's designation is
     -- a stronger statement of intent than a generic name match – otherwise a
     -- row answering "which supplier replaces this input?" could be silently

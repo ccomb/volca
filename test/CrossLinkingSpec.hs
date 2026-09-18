@@ -202,6 +202,27 @@ spec = do
                 CrossDBLinked{cdlrScore = score} -> score `shouldSatisfy` (>= defaultLinkingThreshold)
                 CrossDBNotLinked reason -> expectationFailure $ "Expected link but got: " ++ show reason
 
+        -- A SimaPro row designates its supplier in one string: the product, the
+        -- geography in braces, then the activity between bars. Read whole, that
+        -- string names nothing outside the file it came from, so an input
+        -- written the way an ecoinvent export writes it matched no supplier at
+        -- all where the bare product name matched one.
+        it "reads a designation for the product, geography and activity it states" $ do
+            idb <- loadMin3IndexedDB
+            let ctx =
+                    LinkingContext
+                        { lcIndexedDatabases = [idb]
+                        , lcSynonymDB = emptySynonymDB
+                        , lcUnitConfig = defaultUnitConfig
+                        , lcThreshold = defaultLinkingThreshold
+                        , lcLocationHierarchy = locationHierarchy
+                        , lcGeographyPolicy = GeoGlobal
+                        , lcSupplierAliases = emptyAliasMap
+                        }
+            case findSupplierInIndexedDBs ctx (query "product Y {GLO}| activity Y | Cut-off, U" "" "kg") of
+                CrossDBLinked{cdlrScore = score} -> score `shouldSatisfy` (>= defaultLinkingThreshold)
+                CrossDBNotLinked reason -> expectationFailure $ "Expected link but got: " ++ show reason
+
         it "returns NoNameMatch for an unknown product" $ do
             idb <- loadMin3IndexedDB
             let ctx =
