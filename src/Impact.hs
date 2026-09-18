@@ -15,11 +15,11 @@ keeps the shares summing to the total: a score taken from the dot product over
 per-column weights and shares taken from a region-blind walk over the merged
 inventory published percentages that added up to anything but a hundred.
 
-It is not yet reached from below every surface. The REST impact routes come
-through here; the assistant tools score regionalized methods with the flat
-path, and so do both contributing-flows endpoints and both
-contributing-activities endpoints. Routing them here is now a matter of
-calling these two functions, the walk they needed being 'contributionsOf'.
+Everything that publishes a score for one flow list comes through here: the
+REST impact routes, the contributing-flows endpoint and the assistant tools.
+What does not, yet, is the pair that answers by activity rather than by flow,
+the contributing-activities endpoint and its tool, which read a per-activity
+walk of their own and score a regionalized method flat.
 
 The long-term policy travels with the solution rather than beside it. Dropping
 the delayed emissions from an inventory cannot reach a path that reads columns,
@@ -39,18 +39,21 @@ module Impact (
     scoreSolution,
     contributionsOf,
     withLongTermPolicy,
+    unknownInventoryFlows,
+    warnUnknownFlowIds,
 ) where
 
 import Control.Exception (evaluate)
-import Control.Monad (forM)
+import Control.Monad (forM, unless)
 import Data.Bifunctor (first)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.UUID (UUID)
 
 import Database.Manager (CollectionName, DatabaseManager (..), getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached)
-import Matrix (Vector)
+import Matrix (Inventory, Vector)
 import Method.Mapping (
     FlowContribution (..),
     LCIAOutcome (..),
@@ -63,8 +66,9 @@ import Method.Mapping (
     sumRegionalizedLCIAScoreCrossDB,
  )
 import Method.Types (Method (..))
+import Progress (ProgressLevel (..), reportProgress)
 import qualified SharedSolver
-import Types (Database)
+import Types (BioFlowDB, Database)
 
 {- | Record the long-term emission policy on a solution: drop the delayed
 emissions from its inventory and say so, in one move.
@@ -146,6 +150,29 @@ it is evidence about that database's flows.
 -}
 anyRegionalized :: [(Database, Vector, MethodTables)] -> Bool
 anyRegionalized = any (\(_, _, tables) -> not (M.null (mtRegionalizedCF tables)))
+
+{- | The flows of an inventory the merged metadata has no record of.
+
+A flow nothing describes is a flow nothing can characterize, and a score that
+quietly leaves it out is a score nobody can tell from a complete one. Read from
+the inventory rather than from the rows a score produced: those name what was
+characterized, which is the other question.
+-}
+unknownInventoryFlows :: BioFlowDB -> Inventory -> [UUID]
+unknownInventoryFlows mFlows inventory =
+    [fid | (fid, qty) <- M.toList inventory, qty /= 0, not (M.member fid mFlows)]
+
+-- | Say so, naming the surface that asked.
+warnUnknownFlowIds :: Text -> [UUID] -> IO ()
+warnUnknownFlowIds surface unknown =
+    unless (null unknown) $
+        reportProgress Warning $
+            "["
+                <> T.unpack surface
+                <> "] "
+                <> show (length unknown)
+                <> " inventory flow UUID(s) absent from merged FlowDB – characterization incomplete. Samples: "
+                <> show (take 3 unknown)
 
 -- | Each database of the solution with this method's tables built against it.
 perDatabaseTables ::

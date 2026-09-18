@@ -760,26 +760,10 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
             , lrTopContributors = topContributors
             }
 
-{- | Say which flows of an inventory the merged metadata has no record of.
-
-A flow nothing describes is a flow nothing can characterize, and a score that
-quietly leaves it out is a score nobody can tell from a complete one. Read from
-the inventory rather than from the contribution rows, so asking for no rows
-does not also ask for no warning.
--}
+-- | Say which flows of an inventory the merged metadata has no record of.
 warnUnknownInventoryFlows :: Text -> BioFlowDB -> Inventory -> IO ()
-warnUnknownInventoryFlows label mFlows inventory =
-    unless (null unknownUuids) $
-        reportProgress Warning $
-            "["
-                <> T.unpack label
-                <> "] "
-                <> show (length unknownUuids)
-                <> " inventory flow UUID(s) absent from merged FlowDB – characterization incomplete. Samples: "
-                <> show (take 3 unknownUuids)
-  where
-    unknownUuids :: [UUID]
-    unknownUuids = [fid | (fid, qty) <- M.toList inventory, qty /= 0, not (M.member fid mFlows)]
+warnUnknownInventoryFlows label mFlows =
+    Impact.warnUnknownFlowIds label . Impact.unknownInventoryFlows mFlows
 
 {- | The rows one method publishes under a score: the biggest contributions
 first, cut to the number asked for.
