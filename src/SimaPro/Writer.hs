@@ -81,6 +81,7 @@ module SimaPro.Writer (
     headerLines,
 ) where
 
+import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import Data.Either (lefts)
 import Data.List (partition, sortOn)
@@ -436,7 +437,41 @@ data Catalogs = Catalogs
     , catBio :: !BioFlowDB
     , catWaste :: !WasteFlowDB
     , catUnits :: !UnitDB
+    , catSuppliers :: !(M.Map (UUID, UUID) Supplier)
+    -- ^ What an input's link resolves to, for the row that has to name it.
     }
+
+-- | The two things a designation says about a supplier beside its product.
+data Supplier = Supplier
+    { supActivity :: !Text
+    , supLocation :: !Text
+    }
+
+-- | Every activity of the database under the key an input linking to it states.
+suppliersOf :: M.Map (UUID, UUID) Activity -> M.Map (UUID, UUID) Supplier
+suppliersOf = M.map (\act -> Supplier (activityName act) (activityLocation act))
+
+{- | How a row designates what it buys.
+
+SimaPro gives a row one string for it, and the convention a SimaPro export of
+an EcoSpold 2 database follows packs the product, the geography in braces and
+the supplying activity between bars into that string. Written as the product alone, the row says
+nothing about which of the activities making that product it bought from, and a
+reader is left ranking candidates where the file had the answer: a foreground
+whose gin bought Indian medium-voltage electricity came back buying from a
+sewage sludge treatment that coproduces some.
+
+The activity is only written beside a geography, the convention having nowhere
+to put it otherwise, and a product name that already designates is left exactly
+as its source wrote it.
+-}
+designation :: Text -> Maybe Text -> Maybe Text -> Text
+designation product' geography activity
+    | T.isInfixOf "{" product' = product'
+    | otherwise = case (geography, activity) of
+        (Nothing, _) -> product'
+        (Just geo, Nothing) -> product' <> " {" <> geo <> "}"
+        (Just geo, Just act) -> product' <> " {" <> geo <> "}| " <> act <> " |"
 
 -- ============================================================================
 -- Process block serialization
@@ -553,12 +588,26 @@ techInputLine cats TechnosphereExchange{..} = case techRole of
     Coproduct -> Nothing
     AvoidedProduct -> Nothing
   where
+    supplier :: Maybe Supplier
+    supplier = techActivityLinkId >>= \link -> M.lookup (link, techFlowId) (catSuppliers cats)
+
+    -- What the row states about where it bought, else where its supplier sits.
+    geography :: Maybe Text
+    geography = (statedCode techLocation >>= nonEmpty) <|> (supplier >>= nonEmpty . supLocation)
+
+    -- The activity the row links to, else the one its source named.
+    activity :: Maybe Text
+    activity = (supplier >>= nonEmpty . supActivity) <|> claimedName techSupplierClaim
+
+    nonEmpty :: Text -> Maybe Text
+    nonEmpty t = if T.null (T.strip t) then Nothing else Just (T.strip t)
+
     inputLine :: Maybe Line
     inputLine = do
         flow <- M.lookup techFlowId (catTech cats)
         pure
             Line
-                { lName = tfName flow
+                { lName = designation (tfName flow) geography activity
                 , lCompartment = ""
                 , lUnit = unitNameOf (catUnits cats) techUnitId
                 , lAmount = techAmount
@@ -836,7 +885,7 @@ byte stream is independent of the underlying 'Map' iteration order.
 serializeSimaProCSV :: WriterConfig -> SimpleDatabase -> Either Text BS.ByteString
 serializeSimaProCSV cfg db@SimpleDatabase{..} = do
     checkSimaProExportable db
-    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits
+    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (suppliersOf sdbActivities)
         acts = sortOn (\a -> (activityName a, activityLocation a)) (M.elems sdbActivities)
         blocks = concatMap (serializeActivity cats) acts
         allLines = headerLines cfg ++ blocks

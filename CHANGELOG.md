@@ -86,6 +86,17 @@
   those processes had nothing to do with. Both now read the flows the
   exported processes actually exchange.
 
+- A SimaPro export designates what each input buys, rather than naming the
+  product alone. This format has no column for the geography or the supplying
+  activity: the convention puts both in the row's one name, `product {GLO}|
+  activity | Cut-off, U`, and the writer wrote the bare product. A reader then
+  had a ranking to guess with where the file had the answer, and a foreground
+  whose gin bought Indian medium-voltage electricity came back buying from a
+  sewage sludge treatment that coproduces some. The row now states the
+  geography it bought at, or the one its supplier sits in, and names that
+  supplier where it is known. A product name that already designates is left
+  as its source wrote it.
+
 - An input designated the way a SimaPro export designates one finds its
   supplier in another database. Such a row states three things in the one name
   it has, `product {GLO}| activity | Cut-off, U`, and the linker read the whole

@@ -561,6 +561,18 @@ spec = describe "SimaPro.Writer round-trip" $ do
             checkSimaProExportable (emissionDb (Just (Compartment Waste Nothing)))
                 `shouldBe` Right ()
 
+    -- A product name alone says nothing about which of the activities making
+    -- that product a row bought from, and this format has no column for it: the
+    -- designation is where it goes.
+    it "designates an input by the geography and the activity it buys from" $
+        case serializeSimaProCSV defaultWriterConfig designationDb of
+            Left err -> expectationFailure (T.unpack err)
+            Right out ->
+                rowsUnder out "Materials/fuels"
+                    `shouldMatchList` [ "electricity, medium voltage {IN}| market for electricity, medium voltage |;kg;2;Undefined;0;0;0;"
+                                      , "urea {RER};kg;3;Undefined;0;0;0;"
+                                      ]
+
     -- This format has no waste axis of its own, so a waste exchange from
     -- another one has to be written into one of its two waste sections, and
     -- the section decides what a re-import makes of it. Naming a treatment is
@@ -759,16 +771,82 @@ wasteDb mTreatment =
             Nothing
             Nothing
 
-{- | The first row a serialized export carries under a section header, or an
-empty list when the section is absent. The writer joins with CRLF, so the
-carriage returns come off before anything is compared.
+{- | The rows a serialized export carries under a section header, or an empty
+list when the section is absent. The writer joins with CRLF, so the carriage
+returns come off before anything is compared.
 -}
-firstRowUnder :: BS.ByteString -> Text -> [Text]
-firstRowUnder out header =
-    take 1 (takeWhile (not . T.null) (drop 1 (dropWhile (/= header) ls)))
+rowsUnder :: BS.ByteString -> Text -> [Text]
+rowsUnder out header =
+    takeWhile (not . T.null) (drop 1 (dropWhile (/= header) ls))
   where
     ls :: [Text]
     ls = map (T.dropWhileEnd (== '\r')) (T.lines (TE.decodeUtf8 out))
+
+-- | The first of those rows, for a section a fixture gives one row.
+firstRowUnder :: BS.ByteString -> Text -> [Text]
+firstRowUnder out = take 1 . rowsUnder out
+
+{- | A consumer buying two products it does not make: one from an activity the
+file carries, one from an activity it does not, the second row stating only the
+geography it bought at, as a foreground exported without its background does.
+-}
+designationDb :: SimpleDatabase
+designationDb =
+    SimpleDatabase
+        { sdbActivities = M.fromList [((actU, prodU), consumer), ((marketU, elecU), market)]
+        , sdbTechFlows =
+            M.fromList
+                [ (prodU, TechnosphereFlow prodU "thing" unitU M.empty Nothing Nothing)
+                , (elecU, TechnosphereFlow elecU "electricity, medium voltage" unitU M.empty Nothing Nothing)
+                , (ureaU, TechnosphereFlow ureaU "urea" unitU M.empty Nothing Nothing)
+                ]
+        , sdbBioFlows = M.empty
+        , sdbWasteFlows = M.empty
+        , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
+        }
+  where
+    actU, prodU, marketU, elecU, ureaU, unitU :: UUID
+    actU = testUUID 0x30
+    prodU = testUUID 0xa2
+    marketU = testUUID 0x31
+    elecU = testUUID 0xa3
+    ureaU = testUUID 0xa4
+    unitU = testUUID 0x01
+    consumer =
+        Activity
+            "consumer"
+            []
+            []
+            M.empty
+            M.empty
+            "FR"
+            LocationDeclared
+            "kg"
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+            , TechnosphereExchange elecU 2.0 unitU Input (Just marketU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+            , TechnosphereExchange ureaU 3.0 unitU Input Nothing ClaimByProduct "RER" Nothing Nothing Nothing M.empty noProperties
+            ]
+            M.empty
+            M.empty
+            Nothing
+            Nothing
+            Nothing
+    market =
+        Activity
+            "market for electricity, medium voltage"
+            []
+            []
+            M.empty
+            M.empty
+            "IN"
+            LocationDeclared
+            "kg"
+            [TechnosphereExchange elecU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties]
+            M.empty
+            M.empty
+            Nothing
+            Nothing
+            Nothing
 
 -- ---------------------------------------------------------------------------
 -- Allocation round-trip fixture
