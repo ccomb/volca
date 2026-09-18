@@ -36,6 +36,7 @@ import Config (
     unknownKeys,
     validateConfig,
     withBuiltins,
+    withSourcePatches,
  )
 import Data.Either (isRight)
 import Data.List (sort)
@@ -356,6 +357,33 @@ spec = do
                 \scale = 0.6\n" of
                 Left _ -> pure ()
                 Right _ -> expectationFailure "expected a decode error for an empty selector"
+
+    describe "DatabaseConfig patches" $ do
+        let decodeDatabase t = TOML.decode t :: Either TOML.TOMLError DatabaseConfig
+            patched selector =
+                T.unlines
+                    [ "name = \"src\""
+                    , "path = \"src.csv\""
+                    , "[[patches]]"
+                    , "match = { flow-name-contains = \"" <> selector <> "\" }"
+                    , "set-value = 0.0"
+                    ]
+
+        it "rejects a blank part of a name, which every name contains" $
+            case decodeDatabase (patched " ") of
+                Left _ -> pure ()
+                Right _ -> expectationFailure "expected a decode error for a blank selector"
+
+        it "gives a derived database, and a copy of it, the patches of the database whose files they read" $
+            case decodeDatabase (patched "creosote") of
+                Left e -> expectationFailure (show e)
+                Right source -> do
+                    let derived = source{dcName = "derived", dcPatches = [], dcIsUploaded = True, dcSource = Just "src"}
+                        copy = derived{dcName = "copy", dcSource = Just "derived"}
+                        upload = derived{dcName = "upload", dcSource = Nothing}
+                    dcPatches source `shouldNotBe` []
+                    map dcPatches (withSourcePatches [source, derived, copy, upload])
+                        `shouldBe` [dcPatches source, dcPatches source, dcPatches source, []]
 
     let registry path uploaded = RefDataConfig{rdName = "flows", rdSource = FromFile path, rdActive = True, rdIsUploaded = uploaded, rdIsAuto = False, rdDescription = Nothing}
         reading path = defaultConfig{cfgFlowSynonyms = [registry path False]}

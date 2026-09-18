@@ -549,6 +549,13 @@ exchangeAmount TechnosphereExchange{techAmount = amt} = amt
 exchangeAmount BiosphereExchange{bioAmount = amt} = amt
 exchangeAmount WasteExchange{waAmount = amt} = amt
 
+-- | The same exchange, restated. Only the amount moves.
+withAmount :: Double -> Exchange -> Exchange
+withAmount amount ex = case ex of
+    TechnosphereExchange{} -> ex{techAmount = amount}
+    BiosphereExchange{} -> ex{bioAmount = amount}
+    WasteExchange{} -> ex{waAmount = amount}
+
 exchangeUnitId :: Exchange -> UUID
 exchangeUnitId TechnosphereExchange{techUnitId = uid} = uid
 exchangeUnitId BiosphereExchange{bioUnitId = uid} = uid
@@ -1380,13 +1387,21 @@ data ExchangePatchMatch = ExchangePatchMatch
     deriving (Eq, Show, Generic, NFData, Store)
 
 {- | One declarative adjustment to the exchanges a database states, applied
-when the database is built from its source files: the equivalent of a script
+as the database is read from its source files: the equivalent of a script
 rewriting the inventory before it is used, expressed as data.
 
-A patch reaches the inputs, the emissions and the avoided products of a
-process, never the rows saying what that process makes (its reference and its
-coproducts): those define the unit every other amount is stated per, so
-rescaling one would restate the whole process rather than adjust a line of it.
+A patch reaches the inputs, the emissions, the waste sent to treatment and the
+avoided products of a process, never the rows saying what that process makes
+(its reference and its coproducts): those define the unit every other amount is
+stated per, so rescaling one would restate the whole process rather than adjust
+a line of it.
+
+It meets an amount as the engine records it, which is not always as the source
+wrote it: the SimaPro and Brightway Excel readers bring every row to the
+reference unit of its dimension (a row written in grams is recorded in
+kilograms), and a multi-output block is already divided into its processes. A
+@scale@ reads the same either way; a @set-value@ is stated in the recorded
+unit, and lands whole on every one of those processes.
 -}
 data ExchangePatch = ExchangePatch
     { xpDescription :: !(Maybe Text)

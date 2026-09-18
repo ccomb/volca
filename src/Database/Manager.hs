@@ -1202,7 +1202,7 @@ discoverDatabases config = do
         return dbConfig{dcPath = resolvedPath, dcFormat = Just format}
     -- Uploaded databases are self-describing, through their meta.toml
     uploaded <- discoverUploadedDatabases
-    let combined = configured ++ uploaded
+    let combined = withSourcePatches (configured ++ uploaded)
     mapM_ (reportProgress Warning) (shadowedNames "database" dcName dcPath combined)
     return combined
 
@@ -1663,7 +1663,8 @@ uploadMetaToConfig slug dirPath meta =
           -- 'Declared' here handed it back divided the way its source
           -- declares under a name promising the opposite.
           dcAllocation = UploadedDB.umAllocation meta
-        , dcPatches = []
+        , -- A copy's or a derived database's come from its source, in 'withSourcePatches'.
+          dcPatches = []
         , dcSource = UploadedDB.umSource meta
         }
 

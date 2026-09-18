@@ -35,9 +35,11 @@ import Types (
     WasteFlow (..),
     applyPatchOp,
     describePatchOp,
+    exchangeAmount,
     exchangeFlowId,
     exchangeIsProductOutput,
     exchangeIsReference,
+    withAmount,
  )
 
 -- | What a selector reads of the process an exchange belongs to.
@@ -102,14 +104,9 @@ patchProcess names patch touched (_, productId) activity =
 patchExchange :: M.Map UUID Text -> ExchangePatch -> ProcessNames -> Exchange -> (Exchange, Bool)
 patchExchange names patch process exchange
     | exchangeIsReference exchange || exchangeIsProductOutput exchange = (exchange, False)
-    | exchangeMatches (xpMatch patch) process (M.lookup (exchangeFlowId exchange) names) = (rescaled, True)
+    | exchangeMatches (xpMatch patch) process (M.lookup (exchangeFlowId exchange) names) =
+        (withAmount (applyPatchOp (xpOp patch) (exchangeAmount exchange)) exchange, True)
     | otherwise = (exchange, False)
-  where
-    rescaled :: Exchange
-    rescaled = case exchange of
-        TechnosphereExchange{techAmount = amount} -> exchange{techAmount = applyPatchOp (xpOp patch) amount}
-        BiosphereExchange{bioAmount = amount} -> exchange{bioAmount = applyPatchOp (xpOp patch) amount}
-        WasteExchange{waAmount = amount} -> exchange{waAmount = applyPatchOp (xpOp patch) amount}
 
 {- | Does this exchange match the selector? Every field the selector sets must
 match (conjunction); an unset field imposes no constraint. The flow name is

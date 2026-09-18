@@ -9,6 +9,7 @@ module Config (
     ServerConfig (..),
     ServerName (..),
     DatabaseConfig (..),
+    withSourcePatches,
     MethodConfig (..),
     MethodOrigin (..),
     describeMethodOrigin,
@@ -70,7 +71,7 @@ module Config (
 ) where
 
 import Builtin (BuiltinMethod (..), BuiltinTable (..), DataVersion (..), builtinDataVersion, builtinMethodDescription, builtinMethodName, builtinMethods, builtinName)
-import Control.Monad (forM_, unless, when)
+import Control.Monad (forM_, mfilter, unless, when)
 import Data.Indexing (repeated)
 import Data.List (find, isPrefixOf, isSuffixOf)
 import Data.Map.Strict (Map)
@@ -241,6 +242,26 @@ data DatabaseConfig = DatabaseConfig
     -}
     }
     deriving (Show, Eq, Generic)
+
+{- | Give every database that reads another's files the patches declared
+against those files, following a copy of a copy back to the database that owns
+them. A derived or copied database takes them from its source when it is made,
+but its upload metadata does not record them: rebuilt from that metadata at the
+next start, it would score the amounts its source corrects under a name that
+says otherwise. Reading them from the source also keeps it in step when the
+source's patches change.
+-}
+withSourcePatches :: [DatabaseConfig] -> [DatabaseConfig]
+withSourcePatches configs = map (\config -> config{dcPatches = patchesOf S.empty config}) configs
+  where
+    patchesOf :: S.Set Text -> DatabaseConfig -> [ExchangePatch]
+    patchesOf seen config =
+        maybe (dcPatches config) (patchesOf (S.insert (dcName config) seen)) $
+            mfilter ((`S.notMember` seen) . dcName) (dcSource config >>= named)
+
+    -- The last entry of a repeated name, the one the manager's index keeps.
+    named :: Text -> Maybe DatabaseConfig
+    named name = find ((== name) . dcName) (reverse configs)
 
 {- | Where a method collection's factors come from. A built-in collection has
 no path: it is in the binary, and a configuration names it only to switch it
@@ -651,14 +672,26 @@ exchangePatchDecoder = do
 
 exchangePatchMatchDecoder :: Decoder ExchangePatchMatch
 exchangePatchMatchDecoder = do
-    xpmActivityNameContains <- getFieldOpt "activity-name-contains"
-    xpmProductNameContains <- getFieldOpt "product-name-contains"
+    xpmActivityNameContains <- substringSelector "activity-name-contains"
+    xpmProductNameContains <- substringSelector "product-name-contains"
     xpmLocation <- getFieldOpt "location"
     xpmFlowName <- getFieldOpt "flow-name"
-    xpmFlowNameContains <- getFieldOpt "flow-name-contains"
+    xpmFlowNameContains <- substringSelector "flow-name-contains"
     when (all isNothing [xpmActivityNameContains, xpmProductNameContains, xpmLocation, xpmFlowName, xpmFlowNameContains]) $
         fail "match: at least one selector field must be set (a patch matching every exchange is almost certainly a mistake)"
     pure ExchangePatchMatch{..}
+
+{- | A selector read as a part of a name. A blank one is refused: every name
+contains it, so it would count as a selector while constraining nothing, which
+is the patch across a whole database the decoder exists to refuse.
+-}
+substringSelector :: Text -> Decoder (Maybe Text)
+substringSelector key = getFieldOpt key >>= traverse nonBlank
+  where
+    nonBlank :: Text -> Decoder Text
+    nonBlank value
+        | T.null (T.strip value) = fail ("match: '" <> T.unpack key <> "' is blank, and would match every name")
+        | otherwise = pure value
 
 {- | @scale@ or @set-value@ on a patch entry, whichever it states. Reading both
 from the same decoder is what keeps the two patch kinds saying the same thing.

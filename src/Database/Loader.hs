@@ -1176,9 +1176,8 @@ readSourceUnder opts path = do
 
 {- | What a load reads besides the files themselves.
 
-Gathered rather than passed one by one: every format loader needs all three,
-and three positional arguments of which two are maps invite a caller to swap
-them.
+Gathered rather than passed one by one: the format loaders need most of them,
+and positional arguments of which two are maps invite a caller to swap them.
 -}
 data LoadOptions = LoadOptions
     { loUnitConfig :: !UC.UnitConfig -- The merged unit table amounts are converted through
@@ -1935,7 +1934,7 @@ The loading sequence:
 5. Report linking summary with cross-DB statistics
 -}
 loadDatabaseWithCrossDBLinking ::
-    -- | What this database is read under: units, aliases, allocation key
+    -- | What this database is read under: units, aliases, allocation key, patches
     LoadOptions ->
     -- | Pre-built indexes from other databases
     [IndexedDatabase] ->
