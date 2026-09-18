@@ -31,7 +31,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Database.Allocation (AllocatedActivity, AllocationRefusal, allocatedActivity, asAllocated, describeRefusal)
 import Types
-import UnitConversion (UnitConfig, convertUnit, unitKey)
+import UnitConversion (UnitConfig, convertUnit, missingConversion, unitKey)
 
 {- | Per-process lookup tables built once from the ascending activity-key list.
 
@@ -139,15 +139,16 @@ missingActivityWarning consumer ex actUUID
             ++ "  This exchange will be skipped."
         ]
 
-unitConversionError :: Activity -> Text -> Text -> Text
-unitConversionError consumer fromU toU =
+unitConversionError :: UnitConfig -> Activity -> Text -> Text -> Text
+unitConversionError unitConfig consumer fromU toU =
     "Unknown unit conversion: \""
         <> fromU
         <> "\" \8594 \""
         <> toU
         <> "\" in "
         <> activityName consumer
-        <> " \8212 add these units to [[units]] CSV"
+        <> " \8212 "
+        <> missingConversion unitConfig fromU toU
 
 {- | Flatten the activity set into a stream of @(normFactor, j, activity, ex)@
 tuples, over the activities the allocation gate accepts. An activity it
@@ -243,7 +244,7 @@ techTriple unitConfig unitDB lkp supplierRefUnits actCount normFactor j consumer
                     && not (T.null exchUnit)
                     && not (T.null suppUnit)
          in case (needsConversion, convertUnit unitConfig exchUnit suppUnit raw) of
-                (True, Nothing) -> Left (unitConversionError consumer exchUnit suppUnit)
+                (True, Nothing) -> Left (unitConversionError unitConfig consumer exchUnit suppUnit)
                 (True, Just v) -> Right (triplesFor idx v, [])
                 (False, _) -> Right (triplesFor idx raw, [])
 

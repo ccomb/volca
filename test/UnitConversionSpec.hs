@@ -329,6 +329,18 @@ spec = do
                 Just v -> v `shouldSatisfy` (\x -> abs (x - 365000.0) < 1.0)
                 Nothing -> expectationFailure "conversion failed"
 
+        it "says a volume and a mass need a density, and an unknown unit a row" $ do
+            cfg <- loadFullUnitConfig
+            missingConversion cfg "m3" "kg" `shouldSatisfy` T.isInfixOf "density"
+            missingConversion cfg "m3" "kg" `shouldNotSatisfy` T.isInfixOf "add these units"
+            missingConversion cfg "m3" "firkin" `shouldSatisfy` T.isInfixOf "add these units to [[units]]"
+
+        it "blames a zero factor, not the quantities, when two masses refuse" $ do
+            cfg <- loadFullUnitConfig
+            let zeroed = mkUnitConfig (ucDimensionOrder cfg) (M.insert "void" (unitDef "mass" 0) (ucUnits cfg))
+            convertUnit zeroed "kg" "void" 1 `shouldBe` Nothing
+            missingConversion zeroed "kg" "void" `shouldSatisfy` T.isInfixOf "factor of zero"
+
     describe "Backward Compatibility" $ do
         it "convertExchangeAmount converts tkm to kgkm" $ do
             cfg <- loadFullUnitConfig

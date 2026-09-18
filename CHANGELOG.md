@@ -79,6 +79,16 @@
   row carried no kind at all, which that field documents as meaning no factor
   reached the flow.
 
+- An EcoSpold 2 file written for one product of an activity that makes
+  several, and listing the activity's other products as references at zero,
+  loads as that product's process. Every product used to stay a reference:
+  the process was refused a score, and a consumer was converted into the unit
+  of whichever product the file listed first. A gas bought in cubic metres
+  from a producer listing its petroleum first stopped the whole load on a
+  conversion from `m3` to `kg`, and an electricity bought in kilowatt hours
+  from one listing its heat first would have been converted by 3.6 without a
+  word. The process's unit is that product's too, where it used to be the
+  unit of whichever product the file listed last.
 - The unit table spells its units the way the SI writes them, and holds the
   multiples a source commonly writes. The litre gains `L` beside `l`, and
   `kg/L` beside `kg/l`: the SI accepts both symbols, the capital having been
