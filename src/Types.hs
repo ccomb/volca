@@ -1335,12 +1335,74 @@ data ProductIndex = ProductIndex
 emptyProductIndex :: ProductIndex
 emptyProductIndex = ProductIndex M.empty M.empty M.empty
 
+{- | What a patch does to the value it matched. A sum, so a patch is either a
+rescale or a hard override, never an ambiguous combination of both.
+-}
+data PatchOp
+    = -- | Multiply the matched value (TOML: @scale = 0.6@).
+      ScaleBy !Double
+    | -- | Replace the matched value outright (TOML: @set-value = 0.0@).
+      SetValueTo !Double
+    deriving (Eq, Show, Generic, NFData, Store)
+
+-- | Apply a patch operation to the value it matched.
+applyPatchOp :: PatchOp -> Double -> Double
+applyPatchOp (ScaleBy s) v = v * s
+applyPatchOp (SetValueTo v) _ = v
+
+-- | How a patch operation reads in a log line.
+describePatchOp :: PatchOp -> Text
+describePatchOp (ScaleBy s) = "(scale ×" <> T.pack (show s) <> ")"
+describePatchOp (SetValueTo v) = "(set-value " <> T.pack (show v) <> ")"
+
+{- | Selector picking which exchanges an 'ExchangePatch' touches. Every field
+set must match (conjunction); a selector with no field set is rejected by the
+decoder, since a patch crossing every exchange of a database is a mistake
+rather than an intent.
+
+The two name fields read the two names a process carries: the activity that
+transforms, and the product it is addressed by. A SimaPro export often leaves
+the first empty and spells the whole designation in the second, so a selector
+written against one format is not portable to another by itself.
+-}
+data ExchangePatchMatch = ExchangePatchMatch
+    { xpmActivityNameContains :: !(Maybe Text)
+    -- ^ Case-insensitive substring of the consuming activity's name (TOML: @activity-name-contains@).
+    , xpmProductNameContains :: !(Maybe Text)
+    -- ^ Case-insensitive substring of the reference product's name (TOML: @product-name-contains@).
+    , xpmLocation :: !(Maybe Text)
+    -- ^ The consuming activity's location, spelt as the source states it (TOML: @location@).
+    , xpmFlowName :: !(Maybe Text)
+    -- ^ Exact name of the flow exchanged (TOML: @flow-name@).
+    , xpmFlowNameContains :: !(Maybe Text)
+    -- ^ Case-insensitive substring of that flow name (TOML: @flow-name-contains@).
+    }
+    deriving (Eq, Show, Generic, NFData, Store)
+
+{- | One declarative adjustment to the exchanges a database states, applied
+when the database is built from its source files: the equivalent of a script
+rewriting the inventory before it is used, expressed as data.
+
+A patch reaches the inputs, the emissions and the avoided products of a
+process, never the rows saying what that process makes (its reference and its
+coproducts): those define the unit every other amount is stated per, so
+rescaling one would restate the whole process rather than adjust a line of it.
+-}
+data ExchangePatch = ExchangePatch
+    { xpDescription :: !(Maybe Text)
+    -- ^ Free-text note on why this patch exists, surfaced in load logs.
+    , xpMatch :: !ExchangePatchMatch
+    , xpOp :: !PatchOp
+    }
+    deriving (Eq, Show, Generic, NFData, Store)
+
 {- | What the loader read besides the source files, and what shapes a database
 as much as they do. The unit table decides which exchanges convert, which of
 them link, and the unit every amount is recorded in; the location aliases
-decide which dataset an EcoSpold 1 exchange resolves to. A database records
-the pair it was built with in 'dbBuiltWith', and its matrix cache is trusted
-only while that pair is the one in force.
+decide which dataset an EcoSpold 1 exchange resolves to; the patches decide
+which amounts are not the ones the source states. A database records what it
+was built with in 'dbBuiltWith', and its matrix cache is trusted only while
+that is what is in force.
 
 Everything else the loader is handed (the synonym set, the geography
 hierarchy and policy, the other databases) shapes the cross-database links
@@ -1352,6 +1414,7 @@ data BuildInputs = BuildInputs
     { biUnitConfig :: !UnitConfig
     , biLocationAliases :: !(M.Map Text Text)
     , biAllocation :: !AllocationKey
+    , biPatches :: ![ExchangePatch]
     }
     deriving (Eq, Show, Generic, NFData, Store)
 

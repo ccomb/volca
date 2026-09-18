@@ -389,7 +389,7 @@ buildDepFixture :: IO Database
 buildDepFixture = do
     built <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities = M.singleton (depActId, depProdId) depActivity
                 , sdbTechFlows = M.singleton depProdId wheatFlow
@@ -403,7 +403,7 @@ buildFixture :: IO Database
 buildFixture = do
     built <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities = M.singleton (supplierActId, supplierProdId) supplierActivity
                 , sdbTechFlows = M.singleton supplierProdId milkFlow

@@ -337,6 +337,7 @@ baseConfig name =
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal
         , dcAllocation = Declared
+        , dcPatches = []
         , dcSource = Nothing
         }
 
@@ -363,7 +364,7 @@ buildFrom :: M.Map (UUID, UUID) Activity -> IO Database
 buildFrom activities = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities = activities
                 , sdbTechFlows = M.singleton supplierProdId milkFlow

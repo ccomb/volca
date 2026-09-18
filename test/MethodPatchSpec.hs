@@ -3,7 +3,6 @@
 module MethodPatchSpec (spec) where
 
 import Config (
-    CFPatchOp (..),
     MethodPatch (..),
     MethodPatchMatch (..),
  )
@@ -18,6 +17,7 @@ import Method.Types (
     MethodCollection (..),
  )
 import Test.Hspec
+import Types (PatchOp (..))
 
 -- | A CF with everything defaulted, so each test only sets what it matches on.
 mkCF :: Text -> Double -> MethodCF

@@ -120,6 +120,7 @@ dbConfigFor name =
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
         , dcAllocation = Declared
+        , dcPatches = []
         , dcSource = Nothing
         }
 

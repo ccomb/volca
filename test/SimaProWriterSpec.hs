@@ -341,7 +341,7 @@ inventoryByName (acts, tech, bio, waste, units) target = do
     let actMap = M.fromList [(activityKey a, a) | a <- acts]
     built <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities = actMap
                 , sdbTechFlows = tech

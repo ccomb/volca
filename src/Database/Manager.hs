@@ -1663,6 +1663,7 @@ uploadMetaToConfig slug dirPath meta =
           -- 'Declared' here handed it back divided the way its source
           -- declares under a name promising the opposite.
           dcAllocation = UploadedDB.umAllocation meta
+        , dcPatches = []
         , dcSource = UploadedDB.umSource meta
         }
 
@@ -1886,6 +1887,7 @@ loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig cachePolicy othe
                         { Loader.loUnitConfig = unitConfig
                         , Loader.loLocationAliases = locationAliases
                         , Loader.loAllocation = dcAllocation dbConfig
+                        , Loader.loPatches = dcPatches dbConfig
                         }
                 , rlSourcePath = sourcePath
                 , rlCachePolicy = cachePolicy
@@ -2182,6 +2184,7 @@ loadDatabaseRawWithCrossDB RawLoad{..} = do
             (Loader.loUnitConfig rlLoadOptions)
             (Loader.loLocationAliases rlLoadOptions)
             (Loader.loAllocation rlLoadOptions)
+            (Loader.loPatches rlLoadOptions)
 
 -- | Load a single database without auto-loading dependencies
 loadDatabaseSingle :: DatabaseManager -> Text -> IO (Either Text LoadedDatabase)
@@ -2825,6 +2828,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                         { Loader.loUnitConfig = unitConfig
                         , Loader.loLocationAliases = dcLocationAliases dbConfig
                         , Loader.loAllocation = dcAllocation dbConfig
+                        , Loader.loPatches = dcPatches dbConfig
                         }
                     (M.elems indexedDbs)
                     synonymDB
@@ -4275,7 +4279,7 @@ cache is trusted only if it records the same pair.
 currentBuildInputs :: DatabaseManager -> DatabaseConfig -> IO BuildInputs
 currentBuildInputs manager dbConfig = do
     unitConfig <- getMergedUnitConfig manager
-    pure (BuildInputs unitConfig (dcLocationAliases dbConfig) (dcAllocation dbConfig))
+    pure (BuildInputs unitConfig (dcLocationAliases dbConfig) (dcAllocation dbConfig) (dcPatches dbConfig))
 
 {- | Snapshot of flow + unit metadata across every currently-loaded DB.
 Used to characterize or display a cross-DB-merged 'Inventory', whose

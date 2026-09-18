@@ -149,6 +149,7 @@ sourceConfig csvPath =
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
         , dcAllocation = Declared
+        , dcPatches = []
         , dcSource = Nothing
         }
 

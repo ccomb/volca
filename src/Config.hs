@@ -15,7 +15,6 @@ module Config (
     ScoringSetConfig (..),
     MethodPatch (..),
     MethodPatchMatch (..),
-    CFPatchOp (..),
     RefDataConfig (..),
     HostingConfig (..),
     ReadOnly (..),
@@ -88,7 +87,7 @@ import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
 import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldOpt, getFieldOptWith, getFieldWith)
-import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), GeographyPolicy (..), parseAllocationKey)
+import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), GeographyPolicy (..), PatchOp (..), parseAllocationKey)
 
 -- | A single classification filter entry (system + value)
 data ClassificationEntry = ClassificationEntry
@@ -233,6 +232,7 @@ data DatabaseConfig = DatabaseConfig
     , dcDeletable :: !Bool -- May the UI delete this entry? Defaults to dcIsUploaded.
     , dcGeographyPolicy :: !GeographyPolicy -- How aggressively to widen geography when linking suppliers
     , dcAllocation :: !AllocationKey -- How a multi-output block is divided; the same source under two keys is two databases
+    , dcPatches :: ![ExchangePatch] -- Declarative adjustments to the amounts this database states
     , dcSource :: !(Maybe Text)
     {- ^ The database whose files this one reads, when it does not own them: a
     copy, or a source re-keyed under another allocation. Carried here rather
@@ -280,16 +280,6 @@ data MethodConfig = MethodConfig
     }
     deriving (Show, Eq, Generic)
 
-{- | What a 'MethodPatch' does to a matched CF's value. A sum so a patch is
-either a rescale or a hard override, never an ambiguous combination of both.
--}
-data CFPatchOp
-    = -- | Multiply the matched CF's value (TOML: @scale = 0.6@).
-      ScaleBy !Double
-    | -- | Replace the matched CF's value outright (TOML: @set-value = 0.0@).
-      SetValueTo !Double
-    deriving (Show, Eq, Generic)
-
 {- | Selector picking which characterization factors a 'MethodPatch' touches.
 Every present field must match (conjunction); a selector with no field set
 is rejected by the decoder – a patch that would touch every CF in every
@@ -326,7 +316,7 @@ data MethodPatch = MethodPatch
     { mpDescription :: !(Maybe Text)
     -- ^ Free-text note on why this patch exists, surfaced in load logs.
     , mpMatch :: !MethodPatchMatch
-    , mpOp :: !CFPatchOp
+    , mpOp :: !PatchOp
     }
     deriving (Show, Eq, Generic)
 
@@ -580,6 +570,7 @@ instance DecodeTOML DatabaseConfig where
         dcDeletable <- fromMaybe dcIsUploaded <$> getFieldOpt "deletable"
         dcGeographyPolicy <- fromMaybe GeoGlobal <$> getFieldOptWith geographyPolicyDecoder "geography_policy"
         dcAllocation <- fromMaybe Declared <$> getFieldOptWith allocationKeyDecoder "allocation"
+        dcPatches <- fromMaybe [] <$> getFieldOptWith (getArrayOf exchangePatchDecoder) "patches"
         let dcSource = Nothing -- A configured database owns the files it names
         pure DatabaseConfig{..}
 
@@ -645,14 +636,42 @@ instance DecodeTOML MethodPatch where
     tomlDecoder = do
         mpDescription <- getFieldOpt "description"
         mpMatch <- getFieldWith tomlDecoder "match"
-        mScale <- getFieldOpt "scale"
-        mSetValue <- getFieldOpt "set-value"
-        mpOp <- case (mScale, mSetValue) of
-            (Just s, Nothing) -> pure (ScaleBy s)
-            (Nothing, Just v) -> pure (SetValueTo v)
-            (Nothing, Nothing) -> fail "patch: exactly one of 'scale' or 'set-value' is required, neither was set"
-            (Just _, Just _) -> fail "patch: exactly one of 'scale' or 'set-value' is required, both were set"
+        mpOp <- patchOpDecoder
         pure MethodPatch{..}
+
+{- | A @[[databases.patches]]@ entry. A decoder rather than an instance: the
+type lives in "Types", which the cache reads, and has no business knowing TOML.
+-}
+exchangePatchDecoder :: Decoder ExchangePatch
+exchangePatchDecoder = do
+    xpDescription <- getFieldOpt "description"
+    xpMatch <- getFieldWith exchangePatchMatchDecoder "match"
+    xpOp <- patchOpDecoder
+    pure ExchangePatch{..}
+
+exchangePatchMatchDecoder :: Decoder ExchangePatchMatch
+exchangePatchMatchDecoder = do
+    xpmActivityNameContains <- getFieldOpt "activity-name-contains"
+    xpmProductNameContains <- getFieldOpt "product-name-contains"
+    xpmLocation <- getFieldOpt "location"
+    xpmFlowName <- getFieldOpt "flow-name"
+    xpmFlowNameContains <- getFieldOpt "flow-name-contains"
+    when (all isNothing [xpmActivityNameContains, xpmProductNameContains, xpmLocation, xpmFlowName, xpmFlowNameContains]) $
+        fail "match: at least one selector field must be set (a patch matching every exchange is almost certainly a mistake)"
+    pure ExchangePatchMatch{..}
+
+{- | @scale@ or @set-value@ on a patch entry, whichever it states. Reading both
+from the same decoder is what keeps the two patch kinds saying the same thing.
+-}
+patchOpDecoder :: Decoder PatchOp
+patchOpDecoder = do
+    mScale <- getFieldOpt "scale"
+    mSetValue <- getFieldOpt "set-value"
+    case (mScale, mSetValue) of
+        (Just s, Nothing) -> pure (ScaleBy s)
+        (Nothing, Just v) -> pure (SetValueTo v)
+        (Nothing, Nothing) -> fail "patch: exactly one of 'scale' or 'set-value' is required, neither was set"
+        (Just _, Just _) -> fail "patch: exactly one of 'scale' or 'set-value' is required, both were set"
 
 instance DecodeTOML ScoringSetConfig where
     tomlDecoder = do
@@ -807,7 +826,7 @@ configKeys =
             ( "databases"
             , keys $
                 map plain ["name", "displayName", "path", "description", "load", "default", "depends", "deletable", "geography_policy", "allocation"]
-                    <> [("locationAliases", AcceptsAnything)]
+                    <> [("locationAliases", AcceptsAnything), ("patches", exchangePatch)]
             )
         ,
             ( "methods"
@@ -850,6 +869,10 @@ configKeys =
         keys $
             map plain ["description", "scale", "set-value"]
                 <> [("match", keys (map plain ["category", "flow-name", "flow-name-prefix", "cas", "subcompartment-contains"]))]
+    exchangePatch =
+        keys $
+            map plain ["description", "scale", "set-value"]
+                <> [("match", keys (map plain ["activity-name-contains", "product-name-contains", "location", "flow-name", "flow-name-contains"]))]
 
 {- | Every key a shape names by name, dotted: what a document has to spell out
 to exercise the whole of it.

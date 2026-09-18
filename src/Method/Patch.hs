@@ -14,20 +14,20 @@ every re-import).
 module Method.Patch (
     applyMethodPatches,
     cfMatches,
-    applyOp,
     describePatch,
 ) where
 
-import Config (CFPatchOp (..), MethodPatch (..), MethodPatchMatch (..))
+import Config (MethodPatch (..), MethodPatchMatch (..))
 import Data.List (mapAccumL)
 import Data.Maybe (maybeToList)
 import qualified Data.Text as T
 import Method.Types (Compartment (..), Method (..), MethodCF (..), MethodCollection (..))
 import SubstanceRegistry (nonEmptyCAS)
+import Types (applyPatchOp, describePatchOp)
 
 {- | Apply every patch, in order, to a method collection. Each patch scans
 every CF of every method whose category matches (via 'cfMatches') and
-replaces its value with 'applyOp'; a patch with no 'mpmCategory' selector
+replaces its value with 'applyPatchOp'; a patch with no 'mpmCategory' selector
 crosses every method in the collection.
 
 Returns the patched collection alongside, for each patch, how many CFs it
@@ -50,7 +50,7 @@ patchMethod :: MethodPatch -> Method -> (Method, Int)
 patchMethod patch method =
     let category = methodName method
         go cf
-            | cfMatches (mpMatch patch) category cf = (cf{mcfValue = applyOp (mpOp patch) (mcfValue cf)}, 1 :: Int)
+            | cfMatches (mpMatch patch) category cf = (cf{mcfValue = applyPatchOp (mpOp patch) (mcfValue cf)}, 1 :: Int)
             | otherwise = (cf, 0)
         results = map go (methodFactors method)
      in (method{methodFactors = map fst results}, sum (map snd results))
@@ -85,17 +85,13 @@ subcompartmentMatches Nothing _ = False
 subcompartmentMatches (Just (Compartment _ subcompartment _)) want =
     T.toLower want `T.isInfixOf` T.toLower subcompartment
 
-applyOp :: CFPatchOp -> Double -> Double
-applyOp (ScaleBy s) v = v * s
-applyOp (SetValueTo v) _ = v
-
 {- | Human-readable label for a patch, for log lines – its description when
 given, else a rendering of the selector and operation.
 -}
 describePatch :: MethodPatch -> T.Text
 describePatch patch = case mpDescription patch of
     Just d -> d
-    Nothing -> describeMatch (mpMatch patch) <> " " <> describeOp (mpOp patch)
+    Nothing -> describeMatch (mpMatch patch) <> " " <> describePatchOp (mpOp patch)
 
 describeMatch :: MethodPatchMatch -> T.Text
 describeMatch sel =
@@ -107,7 +103,3 @@ describeMatch sel =
             , ["cas=" <> c | c <- maybeToList (mpmCAS sel)]
             , ["subcompartment-contains=" <> s | s <- maybeToList (mpmSubcompartmentContains sel)]
             ]
-
-describeOp :: CFPatchOp -> T.Text
-describeOp (ScaleBy s) = "(scale ×" <> T.pack (show s) <> ")"
-describeOp (SetValueTo v) = "(set-value " <> T.pack (show v) <> ")"

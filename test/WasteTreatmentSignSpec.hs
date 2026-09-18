@@ -152,7 +152,7 @@ techFlowDB =
 buildDB :: T.Text -> M.Map (UUID, UUID) Activity -> IO Database
 buildDB name acts =
     buildDatabaseWithMatrices
-        (BuildInputs defaultUnitConfig mempty Declared)
+        (BuildInputs defaultUnitConfig mempty Declared [])
         SimpleDatabase
             { sdbActivities = acts
             , sdbTechFlows = techFlowDB

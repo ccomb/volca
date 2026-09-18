@@ -155,6 +155,19 @@ allocation = "declared"        # how a multi-output block is divided:
                                # POST /db/{name}/derive/{newName}?allocation=
 # locationAliases = { "FR" = "France" }   # per-database location renames
 
+# Optional patches adjust the amounts a database states, at load time.
+# Selector fields combine with AND; at least one is required. Exactly one of
+# `scale` (multiply) or `set-value` (replace) per patch. A patch reaches the
+# inputs, the emissions and the avoided products of a process, never the rows
+# saying what it makes. A patch matching no exchange logs a warning at load
+# time, and a database whose patch list changed is rebuilt from source rather
+# than read from its matrix cache.
+#   [[databases.patches]]
+#   description = "example: the preservative a trellis is no longer treated with"
+#   match = { product-name-contains = "trellis", flow-name-contains = "creosote" }
+#   # other selectors: activity-name-contains, location (exact), flow-name (exact)
+#   set-value = 0.0
+
 [[methods]]
 name = "EF-3.1"
 path = "DBs/EF-v3.1.zip"      # ILCD method package (ZIP or directory)

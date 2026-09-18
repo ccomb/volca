@@ -4,7 +4,6 @@ module ConfigSpec (spec) where
 
 import Builtin (BuiltinMethod (..), BuiltinTable (..), DataVersion (..), builtinDataVersion, builtinMethods, builtinName, builtinTables)
 import Config (
-    CFPatchOp (..),
     ClassificationEntry (..),
     ClassificationPreset (..),
     Config (..),
@@ -49,7 +48,7 @@ import System.FilePath (normalise)
 import TOML (getArrayOf, getFieldWith)
 import qualified TOML
 import Test.Hspec
-import Types (ClassificationFilter (..), ClassificationMatch (..))
+import Types (ClassificationFilter (..), ClassificationMatch (..), PatchOp (..))
 
 serverOn :: Text -> ServerConfig
 serverOn host =

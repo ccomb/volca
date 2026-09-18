@@ -1036,6 +1036,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , dcDeletable = True
                             , dcGeographyPolicy = GeoGlobal
                             , dcAllocation = Declared
+                            , dcPatches = []
                             , dcSource = Nothing
                             }
 

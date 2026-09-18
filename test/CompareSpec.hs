@@ -292,7 +292,7 @@ database :: [Row] -> IO Database
 database rows = do
     built <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig M.empty Declared)
+            (BuildInputs defaultUnitConfig M.empty Declared [])
             SimpleDatabase
                 { sdbActivities = M.fromList (map entry rows)
                 , sdbTechFlows = M.fromList [(tfId (rowProduct r), rowProduct r) | r <- rows]
