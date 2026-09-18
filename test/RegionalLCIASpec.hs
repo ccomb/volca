@@ -20,6 +20,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
+import Method.Explain (flowMatchKind)
 import Method.Mapping
 import Method.Types (
     Compartment (..),
@@ -390,3 +391,13 @@ spec = do
                 rows = contributionRows db scaling tables
             map fcContribution rows `shouldBe` [20]
             map fcFactor rows `shouldBe` [20 / 30]
+
+        it "says a factor came from the regional table when no rung of the cascade did" $ do
+            -- This flow is characterized only where it occurs, which is what
+            -- the cascade cannot replay: without an answer here a row showing
+            -- a contribution would claim no factor reached it.
+            let db = mkDB [("FR", 10), ("DE", 20), ("GLO", 5)]
+                mappings = regionalMappings [("FR", 2), ("DE", 3), ("GLO", 4)]
+                tables = buildTables db M.empty mappings
+            flowMatchKind tables flowUUID `shouldBe` Just "regional"
+            flowMatchKind tables methaneUUID `shouldBe` Nothing

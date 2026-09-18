@@ -723,12 +723,13 @@ computeCategoryResult ::
     Method ->
     IO (Either Text LCIAResult)
 computeCategoryResult dbManager dbName collection db sol activity topFlows precomputedScore method = do
-    (_mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
+    (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
     mappings <- DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- DM.mapMethodToTablesCached dbManager dbName collection db method
     let inventory = SharedSolver.csInventory sol
     let stats = computeMappingStats mappings
     let functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
+    warnUnknownInventoryFlows ("LCIA " <> methodName method) mFlows inventory
     -- A Left is a scoring integrity error (see 'resolveBatchedScore') – it
     -- propagates instead of collapsing to a 0 the consumer can't tell from a
     -- real score. A precomputed Left arrives already labeled by
@@ -751,19 +752,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
         | topFlows <= 0 = pure (Right [])
         | otherwise = do
             contribsE <- Impact.contributionsOf dbManager collection method tables sol (SharedSolver.csInventory sol)
-            traverse (uncurry (rows tables score)) contribsE
-
-    rows :: MethodTables -> Double -> [FlowContribution] -> [UUID] -> IO [FlowContributionEntry]
-    rows tables score rawContribs unknownUuids = do
-        unless (null unknownUuids) $
-            reportProgress Warning $
-                "[LCIA "
-                    <> T.unpack (methodName method)
-                    <> "] "
-                    <> show (length unknownUuids)
-                    <> " inventory flow UUID(s) absent from merged FlowDB – characterization incomplete. Samples: "
-                    <> show (take 3 unknownUuids)
-        pure (topContributorRows tables score topFlows rawContribs)
+            pure (fmap (topContributorRows tables score topFlows . fst) contribsE)
 
     result :: MappingStats -> Double -> Text -> [FlowContributionEntry] -> LCIAResult
     result stats score functionalUnit topContributors =
@@ -780,6 +769,27 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
             , lrFunctionalUnit = functionalUnit
             , lrTopContributors = topContributors
             }
+
+{- | Say which flows of an inventory the merged metadata has no record of.
+
+A flow nothing describes is a flow nothing can characterize, and a score that
+quietly leaves it out is a score nobody can tell from a complete one. Read from
+the inventory rather than from the contribution rows, so asking for no rows
+does not also ask for no warning.
+-}
+warnUnknownInventoryFlows :: Text -> BioFlowDB -> Inventory -> IO ()
+warnUnknownInventoryFlows label mFlows inventory =
+    unless (null unknownUuids) $
+        reportProgress Warning $
+            "["
+                <> T.unpack label
+                <> "] "
+                <> show (length unknownUuids)
+                <> " inventory flow UUID(s) absent from merged FlowDB – characterization incomplete. Samples: "
+                <> show (take 3 unknownUuids)
+  where
+    unknownUuids :: [UUID]
+    unknownUuids = [fid | (fid, qty) <- M.toList inventory, qty /= 0, not (M.member fid mFlows)]
 
 {- | The rows one method publishes under a score: the biggest contributions
 first, cut to the number asked for.
@@ -809,7 +819,8 @@ topContributorRows tables score topFlows rawContribs =
 records straight from the precomputed contexts. Skips the per-pid
 'mapConcurrently' over methods entirely. When 'topFlows' is 0
 (the default) 'lrTopContributors' is left empty and the contribution
-walk is skipped; when >0, runs 'inventoryContributions' per method.
+walk is skipped; when >0, asks 'Impact.contributionsOf' per method, which
+reads the rows by the path that scored the method.
 -}
 buildLCIABatchResultCached ::
     DatabaseManager ->
@@ -832,20 +843,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
         inventory = SharedSolver.csInventory sol
     scoreMap <- batchedScoresFor dbManager dbName collectionName db sol methods
     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
-    let unknownUuids =
-            [ fid
-            | (fid, qty) <- M.toList inventory
-            , qty /= 0
-            , not (M.member fid mFlows)
-            ]
-    unless (null unknownUuids) $
-        reportProgress Warning $
-            "[LCIA batch] pid="
-                <> show actPid
-                <> ": "
-                <> show (length unknownUuids)
-                <> " inventory flow UUID(s) absent from merged FlowDB – characterization incomplete. Samples: "
-                <> show (take 3 unknownUuids)
+    warnUnknownInventoryFlows ("LCIA batch pid=" <> T.pack (show actPid)) mFlows inventory
     let functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
         mkResultIO ctx = do
             let method = mctxMethod ctx
@@ -1422,7 +1420,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 26: the @supplierActivity@ a gap entry and a missing supplier
+(revision 27: the @regional@ match kind a contributing flow can carry, naming a
+factor the method states per location, where the cascade recorded no rung and
+the absent field used to say no factor reached the flow at all;
+revision 26: the @supplierActivity@ a gap entry and a missing supplier
 carry, the activity the inputs named, the @locations@ a missing supplier
 carries, the locations those inputs stated, and that list naming a product
 once per activity and reason; a reference by identifier names neither;
@@ -1477,7 +1478,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 26
+currentWireVersion = 27
 
 getVersion :: AppM Value
 getVersion = do

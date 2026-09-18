@@ -2358,6 +2358,48 @@ computeLCIAScoreAuto unitCfg unitDB flowDB db scalingVec inventory hier tables
     | otherwise =
         computeRegionalizedLCIAScore unitCfg unitDB flowDB db scalingVec hier tables
 
+{- | Which of the two ways a database contributes to a regionalized score: its
+precomputed per-column weights, or a flat walk over its own slice.
+
+Cross-DB scoring passes per-DB tables in; a dependency whose flow mappings
+caught none of this method's regional factors has an empty 'mtRegionalizedCF',
+so 'fillRegionalActivityWeights' left 'mtRegionalActivityWeights' unfilled. Its
+emissions are still this method's business, they just all go through the
+broadcast tables, so it is read flat over its own slice rather than
+contributing a zero that reads exactly like a database with nothing to say.
+
+A 'Left' is the one genuine integrity error: a method regionalized here whose
+weights were never precomputed. The score and the per-flow rows both come
+through this, so neither can answer where the other refuses.
+-}
+regionalPathOf :: MethodTables -> Either Text (Maybe RegionalActivityWeights)
+regionalPathOf tables = case mtRegionalActivityWeights tables of
+    Just raw -> Right (Just raw)
+    Nothing
+        | M.null (mtRegionalizedCF tables) -> Right Nothing
+        | otherwise ->
+            Left
+                "Regionalized scoring requested but precomputed activity weights\
+                \ are absent. Call 'fillRegionalActivityWeights' on the\
+                \ MethodTables first (mapMethodToTablesCached does this\
+                \ automatically)."
+
+{- | The scaling vector and the weights it multiplies are built from the same
+database, so a length mismatch is a stale cache or the wrong tables paired,
+never a coverage gap. Refused rather than truncated: a shorter vector would
+leave the last activities out of the score, and out of the rows, in silence.
+-}
+checkScalingLength :: RegionalActivityWeights -> Vector -> Either Text ()
+checkScalingLength raw s
+    | U.length s == U.length (rawWeights raw) = Right ()
+    | otherwise =
+        Left $
+            "Regionalized scoring: scaling/weights length mismatch ("
+                <> T.pack (show (U.length s))
+                <> " vs "
+                <> T.pack (show (U.length (rawWeights raw)))
+                <> "). Activity index and precomputed weights are built from the same database – this means the cache is stale or the wrong tables were paired."
+
 {- | Streaming regionalized LCIA score over the biosphere matrix.
 
 @score = Σ_{(f, a)} B[f, a] · s[a] · C[f, loc(a)]@
@@ -2391,30 +2433,17 @@ computeRegionalizedLCIAScore ::
     MethodTables ->
     Either Text Double
 computeRegionalizedLCIAScore unitConfig unitDB flowDB db scalingVec _hier tables =
-    case mtRegionalActivityWeights tables of
-        Just raw -> scoreFromPrecomputed raw scalingVec
-        Nothing
-            -- Cross-DB scoring passes per-DB tables in; a dep DB whose flow
-            -- mappings caught none of this method's regional CFs has empty
-            -- 'mtRegionalizedCF', so 'fillRegionalActivityWeights' left
-            -- 'mtRegionalActivityWeights' unfilled. Its emissions are still
-            -- this method's business – they just all go through the broadcast
-            -- tables – so score its own slice flat instead of contributing a
-            -- zero that reads exactly like a database with nothing to say.
-            -- Unlike the fast path this walks the DB's biosphere triples once
-            -- per score call; precompute it the way
-            -- 'fillRegionalActivityWeights' does if a batch ever makes it hot.
-            | M.null (mtRegionalizedCF tables) ->
-                Right
-                    ( loScore
-                        (computeLCIAScoreFromTables unitConfig unitDB flowDB (applyBiosphereMatrix db scalingVec) tables)
-                    )
-            | otherwise ->
-                Left
-                    "Regionalized score requested but precomputed activity weights\
-                    \ are absent. Call 'fillRegionalActivityWeights' on the\
-                    \ MethodTables before scoring (mapMethodToTablesCached does\
-                    \ this automatically)."
+    case regionalPathOf tables of
+        Left err -> Left err
+        Right (Just raw) -> scoreFromPrecomputed raw scalingVec
+        -- Unlike the fast path this walks the DB's biosphere triples once per
+        -- score call; precompute it the way 'fillRegionalActivityWeights' does
+        -- if a batch ever makes it hot.
+        Right Nothing ->
+            Right
+                ( loScore
+                    (computeLCIAScoreFromTables unitConfig unitDB flowDB (applyBiosphereMatrix db scalingVec) tables)
+                )
   where
     -- Fast path: one dot product over precomputed per-column weights.
     -- A tainted column is not a zero one: 'fillRegionalActivityWeights'
@@ -2430,28 +2459,19 @@ computeRegionalizedLCIAScore unitConfig unitDB flowDB db scalingVec _hier tables
     --
     -- 'Left' is reserved here for genuine integrity errors (length mismatch
     -- below; "weights absent" in the outer 'case'), not coverage gaps.
-    scoreFromPrecomputed raw s =
+    scoreFromPrecomputed :: RegionalActivityWeights -> Vector -> Either Text Double
+    scoreFromPrecomputed raw s = do
+        checkScalingLength raw s
         let !weights = rawWeights raw
             !n = U.length weights
-            !sLen = U.length s
-         in if sLen /= n
-                then
-                    Left $
-                        "Regionalized score: scaling/weights length mismatch ("
-                            <> T.pack (show sLen)
-                            <> " vs "
-                            <> T.pack (show n)
-                            <> "). Activity index and precomputed weights are built from the same database – this means the cache is stale or the wrong tables were paired."
-                else
-                    let go !i !acc
-                            | i >= n = acc
-                            | otherwise =
-                                let !sv = U.unsafeIndex s i
-                                 in if sv == 0
-                                        then go (i + 1) acc
-                                        else go (i + 1) (acc + sv * U.unsafeIndex weights i)
-                        !score = go 0 0
-                     in Right score
+            go !i !acc
+                | i >= n = acc
+                | otherwise =
+                    let !sv = U.unsafeIndex s i
+                     in if sv == 0
+                            then go (i + 1) acc
+                            else go (i + 1) (acc + sv * U.unsafeIndex weights i)
+        Right (go 0 0)
 
 {- | Cross-DB regionalized LCIA score.
 
@@ -2553,19 +2573,15 @@ regionalizedContributionsCrossDB unitCfg unitDB flowDB triples =
     perDb = [sharesOf db sv t | (db, sv, t) <- triples]
 
     sharesOf :: Database -> Vector -> MethodTables -> Either Text (M.Map UUID FlowShare, [UUID])
-    sharesOf db sv tables = case mtRegionalActivityWeights tables of
-        Just raw -> Right (regionalFlowShares db sv raw, [])
-        Nothing
-            -- Same fallback as the score: a dep DB that carries none of this
-            -- method's regional factors is scored flat over its own slice, so
-            -- its rows are read from that slice too.
-            | M.null (mtRegionalizedCF tables) -> Right (flatFlowShares db sv tables)
-            | otherwise ->
-                Left
-                    "Regionalized contributions requested but precomputed activity\
-                    \ weights are absent. Call 'fillRegionalActivityWeights' on the\
-                    \ MethodTables before asking for them (mapMethodToTablesCached\
-                    \ does this automatically)."
+    sharesOf db sv tables = case regionalPathOf tables of
+        Left err -> Left err
+        Right (Just raw) -> do
+            checkScalingLength raw sv
+            Right (regionalFlowShares db sv raw, [])
+        -- A dependency the score reads flat is read flat here too, over that
+        -- same slice: taken from the merged inventory its flows would be
+        -- counted twice.
+        Right Nothing -> Right (flatFlowShares db sv tables)
 
     flatFlowShares :: Database -> Vector -> MethodTables -> (M.Map UUID FlowShare, [UUID])
     flatFlowShares db sv tables =
@@ -2593,7 +2609,6 @@ regionalFlowShares db scalingVec raw =
         addShares
         [ (bioFlows V.! r, FlowShare c q)
         | r <- [0 .. V.length bioFlows - 1]
-        , r < U.length contributions
         , let !c = U.unsafeIndex contributions r
         , let !q = U.unsafeIndex quantities r
         , c /= 0
@@ -3133,7 +3148,10 @@ place.
 data FlowContribution = FlowContribution
     { fcFlow :: !BiosphereFlow
     , fcFactor :: !Double
-    -- ^ The characterisation factor, as the method states it.
+    {- ^ The factor applied to this flow. The method states one per flow, except
+    where its factors depend on where the flow occurs: there the row carries
+    the effective one, its contribution over its quantity.
+    -}
     , fcContribution :: !Double
     -- ^ Factor times inventory amount, in the method's unit.
     }

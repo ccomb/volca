@@ -46,6 +46,12 @@
   effective one, its contribution over its quantity. Nothing changes for a
   category whose factors are the same everywhere, and no score moves.
 
+- A contributing flow says when its factor came from a method's regional table
+  (`match_kind` = `regional`, wire revision 27). A flow a method characterizes
+  only where it occurs is absent from the cascade the other kinds name, so its
+  row carried no kind at all, which that field documents as meaning no factor
+  reached the flow.
+
 - The unit table spells its units the way the SI writes them, and holds the
   multiples a source commonly writes. The litre gains `L` beside `l`, and
   `kg/L` beside `kg/l`: the SI accepts both symbols, the capital having been
