@@ -958,7 +958,8 @@ depDemandsToVector unitConfig depDbName depDb demands = do
                                         <> activityName act
                                         <> " in database "
                                         <> depDbName
-                                        <> " \8212 add these units to [[units]] CSV"
+                                        <> " \8212 "
+                                        <> UnitConversion.missingConversion unitConfig exchangeUnit supplierUnit
 
 {- |
 Build the final demand vector f for LCA calculations.

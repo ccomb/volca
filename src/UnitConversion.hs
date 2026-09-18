@@ -34,6 +34,7 @@ module UnitConversion (
     isKnownUnit,
     unitsCompatible,
     convertUnit,
+    missingConversion,
     convertOntoFactorBasis,
     lookupUnitDef,
     canonicalUnitFor,
@@ -235,6 +236,21 @@ unitsCompatible cfg u1 u2 =
     case (lookupUnitDef cfg u1, lookupUnitDef cfg u2) of
         (Just d1, Just d2) -> udDimension d1 == udDimension d2
         _ -> False
+
+{- | What a conversion 'convertUnit' refused would need, in words.
+
+A unit the table does not know can be added to it. Two it knows that measure
+different quantities cannot be bridged by any row: a volume of a product
+becomes a mass through that product's density, which is not a property of
+either unit. Two it knows of the same quantity are refused only when the
+target's row gives it a factor of zero.
+-}
+missingConversion :: UnitConfig -> Text -> Text -> Text
+missingConversion cfg from to
+    | not (isKnownUnit cfg from && isKnownUnit cfg to) = "add these units to [[units]] CSV"
+    | unitsCompatible cfg from to = "the [[units]] row of \"" <> to <> "\" gives it a factor of zero, which nothing converts into"
+    | otherwise =
+        "the two measure different quantities, so converting needs a property of the product, such as its density, which no [[units]] entry can hold"
 
 {- | Convert amount from one unit to another.
 Returns Nothing if units are incompatible or unknown.
