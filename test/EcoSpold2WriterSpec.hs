@@ -406,6 +406,22 @@ spec = describe "EcoSpold2 writer round-trip" $ do
                 [techRole ex | ex@TechnosphereExchange{techRole = Coproduct} <- exchanges act]
                     `shouldBe` [Coproduct]
 
+    -- A foreground exported on its own has had its suppliers deleted, so no
+    -- link survives and the claim is all that still names the dataset each line
+    -- bought from. Write only the link and the file loses that identity, and
+    -- with it the exact relink when it is read back beside the background.
+    it "writes the supplier a line names when the link no longer resolves" $ do
+        let claimed =
+                TechnosphereExchange prodA 2.0 unitKg Input Nothing (ClaimById actB) "" Nothing Nothing Nothing M.empty noProperties
+            docs = writeOrFail noVolatileMeta (fixtureWithExchange claimed)
+        any (T.isInfixOf ("activityLinkId=\"" <> UUID.toText actB <> "\"") . snd) docs `shouldBe` True
+        sdb' <- roundTrip (fixtureWithExchange claimed)
+        case M.lookup (actA, prodA) (sdbActivities sdb') of
+            Nothing -> expectationFailure "activity missing after round-trip"
+            Just act ->
+                [techSupplierClaim ex | ex@TechnosphereExchange{techRole = Input} <- exchanges act]
+                    `shouldBe` [ClaimById actB]
+
     -- Export-boundary guards: data EcoSpold2 cannot faithfully re-encode must be
     -- rejected loudly by 'checkEcoSpold2Exportable' rather than silently
     -- corrupted (a non-finite amount clamps to 0.0; a ReferenceInput re-parses

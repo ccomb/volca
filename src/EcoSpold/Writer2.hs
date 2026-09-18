@@ -42,6 +42,7 @@ module EcoSpold.Writer2 (
 ) where
 
 import Amount (readAmount)
+import Control.Applicative ((<|>))
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -389,7 +390,7 @@ renderTechnosphere env ex =
         (reUnitName env (techUnitId ex))
         (reTechSyns env flowId)
         groupLine
-        (techActivityLinkId ex)
+        (statedLink (techActivityLinkId ex) (techSupplierClaim ex))
         Nothing
         (techComment ex)
   where
@@ -426,7 +427,7 @@ renderWaste env ex =
         (reUnitName env (waUnitId ex))
         (reWasteSyns env flowId)
         groupLine
-        (waActivityLinkId ex)
+        (statedLink (waActivityLinkId ex) (waSupplierClaim ex))
         (Just ("By-product classification", "Waste"))
         (waComment ex)
   where
@@ -467,9 +468,20 @@ renderBiosphere env ex =
         Resource -> "        <inputGroup>4</inputGroup>"
         Emission -> "        <outputGroup>4</outputGroup>"
 
+{- | The activity a line's @activityLinkId@ should name: the supplier the load
+resolved, or, where nothing was resolved, the one the source itself named. The
+two differ once the supplier has been deleted, which is how a foreground model
+is exported without the background it stands on: the link is gone, the claim
+still holds the identity, and writing it is what lets the file relink exactly
+when it is read back beside that background.
+-}
+statedLink :: Maybe UUID.UUID -> SupplierClaim -> Maybe UUID.UUID
+statedLink resolved = (resolved <|>) . claimedId
+
 {- | Shared @intermediateExchange@ emitter for technosphere and waste flows.
-The @activityLinkId@ is emitted only when the exchange has one (matching the parser, which
-treats a nil or empty attribute as "no link"). An optional @classification@ tags waste flows.
+The @activityLinkId@ is emitted only when the exchange names an activity (matching
+the parser, which treats a nil or empty attribute as "no link"). An optional
+@classification@ tags waste flows.
 -}
 intermediateExchange ::
     Maybe Text -> -- resolved flow name

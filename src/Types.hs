@@ -407,6 +407,14 @@ claimedName = \case
     ClaimById _ -> Nothing
     ClaimByDatasetNumber _ -> Nothing
 
+-- | The supplier activity a claim names, when it names one by identifier.
+claimedId :: SupplierClaim -> Maybe UUID
+claimedId = \case
+    ClaimById actId -> Just actId
+    ClaimByProduct -> Nothing
+    ClaimByName _ -> Nothing
+    ClaimByDatasetNumber _ -> Nothing
+
 {- | What one input asked a dependency for: the product, the activity it named
 and the location it stated. The key a refused input is reported under, so two
 inputs buying one product from two activities, or at two locations, read as two
