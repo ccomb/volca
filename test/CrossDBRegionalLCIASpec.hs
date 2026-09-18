@@ -87,6 +87,7 @@ spec = describe "cross-DB regional LCIA" $ do
                     kgUnitConfig
                     (dbUnits rootDb)
                     (dbBioFlows rootDb)
+                    IncludeLongTerm
                     rootDb
                     rootScaling
                     M.empty
@@ -122,6 +123,7 @@ spec = describe "cross-DB regional LCIA" $ do
                     kgUnitConfig
                     (dbUnits depDb)
                     (dbBioFlows depDb)
+                    IncludeLongTerm
                     M.empty
                     perDb
                     `shouldBe` Right 5.0
@@ -178,6 +180,7 @@ spec = describe "cross-DB regional LCIA" $ do
                         kgUnitConfig
                         (dbUnits depDb)
                         (dbBioFlows depDb)
+                        IncludeLongTerm
                         (SS.csInventory sol)
                         M.empty
                         perDb
@@ -218,6 +221,7 @@ spec = describe "cross-DB regional LCIA" $ do
                     kgUnitConfig
                     (dbUnits depDb)
                     (dbBioFlows depDb)
+                    IncludeLongTerm
                     M.empty
                     perDb of
                     Left _ -> pure ()
@@ -266,6 +270,7 @@ spec = describe "cross-DB regional LCIA" $ do
                     kgUnitConfig
                     (dbUnits depDb)
                     (dbBioFlows depDb)
+                    IncludeLongTerm
                     M.empty
                     perDb
                     `shouldBe` Right 0.0
@@ -308,6 +313,7 @@ spec = describe "cross-DB regional LCIA" $ do
                     kgUnitConfig
                     (dbUnits depDb)
                     (dbBioFlows depDb)
+                    IncludeLongTerm
                     M.empty
                     perDb
                     `shouldBe` Right 0.0
@@ -394,6 +400,7 @@ spec = describe "cross-DB regional LCIA" $ do
                         kgUnitConfig
                         (dbUnits rootStandalone)
                         (dbBioFlows rootStandalone)
+                        IncludeLongTerm
                         M.empty
                         perDb
                         `shouldBe` Right 7.0

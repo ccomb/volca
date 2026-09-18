@@ -199,6 +199,12 @@ included; the solver never silently omits a participating DB.
 data CrossDBSolution = CrossDBSolution
     { csInventory :: !Inventory
     , csScalings :: !(NonEmpty (Text, Database, Vector))
+    , csLongTerm :: !LongTermMode
+    {- ^ The policy 'csInventory' was filtered under. A scaling vector cannot
+    carry it, a column not being a flow, so a path that reads the vectors has
+    to apply this itself; keeping it beside them is what stops the two from
+    disagreeing. A solve leaves it 'IncludeLongTerm' and one function sets it.
+    -}
     }
 
 {- | Combine two cross-DB solutions: sum their inventories and concatenate
@@ -210,6 +216,10 @@ instance Semigroup CrossDBSolution where
         CrossDBSolution
             (M.unionWith (+) (csInventory a) (csInventory b))
             (csScalings a <> csScalings b)
+            -- A union keeps what either side kept, so it is filtered only when
+            -- both sides were. Solutions are merged during the solve, where
+            -- both are 'IncludeLongTerm'.
+            (case (csLongTerm a, csLongTerm b) of (ExcludeLongTerm, ExcludeLongTerm) -> ExcludeLongTerm; _ -> IncludeLongTerm)
 
 {- |
 Batch inventory with cross-DB back-substitution. Multi-RHS is preserved at
@@ -316,7 +326,7 @@ goWithDepsFromScalings unitConfig depLookup db dbName extraLinks scalings depth 
     let localInvs = map (applyBiosphereMatrix db) scalings
         baseSolutions =
             zipWith
-                (\inv s -> CrossDBSolution inv (NE.singleton (dbName, db, s)))
+                (\inv s -> CrossDBSolution inv (NE.singleton (dbName, db, s)) IncludeLongTerm)
                 localInvs
                 scalings
     if depth >= maxDepsDepth

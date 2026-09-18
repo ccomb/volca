@@ -49,7 +49,7 @@ import Control.Monad (mfilter, unless)
 import qualified Data.List as L
 import Matrix (applyBiosphereMatrix)
 import qualified Method.Explain as Explain
-import Method.Mapping (FlowContribution (..), LCIAOutcome (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), applyLongTermMode, computeLCIAScoreAuto, computeLCIAScoreFromTables, computeMappingStats, defaultUncharacterizedOpts, inventoryContributions, longTermModeFromExclude)
+import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), applyLongTermMode, computeLCIAScoreAuto, computeLCIAScoreFromTables, computeMappingStats, defaultUncharacterizedOpts, inventoryContributions, longTermModeFromExclude)
 import qualified Method.Mapping as Mapping
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Network.HTTP.Types.Header (RequestHeaders, hAccept, hAllow, hHost)
@@ -1371,7 +1371,9 @@ callComputeSensitivity dbManager mBaseUrl rid args =
             liftIO $
                 Service.computeSensitivities db (ldSharedSolver ld) (raPid ra) perts
         (baselineX, perResults) <- liftShow eRes
-        let scoreOf x = computeLCIAScoreAuto unitCfg mUnits mFlows db x (applyBiosphereMatrix db x) hier tables
+        -- This tool takes no long-term policy: it compares a baseline with
+        -- perturbations of it, and both sides count the same flows.
+        let scoreOf x = computeLCIAScoreAuto unitCfg mUnits mFlows IncludeLongTerm db x (applyBiosphereMatrix db x) hier tables
         baselineScore <- case scoreOf baselineX of
             Right s -> pure s
             Left e -> throwE ("baseline scoring failed: " <> e)

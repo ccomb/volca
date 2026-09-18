@@ -169,6 +169,7 @@ spec = do
                         UnitConversion.defaultUnitConfig
                         udb
                         fdb
+                        IncludeLongTerm
                         inv
                         M.empty -- hier unused for non-regio
                         (NE.singleton (unusedDatabase, U.empty, mst)) -- scalingVec unused for non-regio
@@ -198,6 +199,7 @@ spec = do
                         UnitConversion.defaultUnitConfig
                         udb
                         fdb
+                        IncludeLongTerm
                         M.empty
                         M.empty
                         (NE.singleton (unusedDatabase, U.empty, mst))
@@ -224,6 +226,7 @@ spec = do
                         UnitConversion.defaultUnitConfig
                         udb
                         fdb
+                        IncludeLongTerm
                         inv
                         M.empty
                         (NE.singleton (unusedDatabase, U.empty, mst))
@@ -272,6 +275,7 @@ spec = do
                         UnitConversion.defaultUnitConfig
                         udb
                         scoringFlowDB
+                        IncludeLongTerm
                         inv
                         M.empty
                         (NE.singleton (unusedDatabase, U.empty, mst))
@@ -314,6 +318,7 @@ spec = do
                         UnitConversion.defaultUnitConfig
                         udb
                         scoringFlowDB
+                        IncludeLongTerm
                         inv
                         M.empty
                         (NE.singleton (unusedDatabase, U.empty, mst))
@@ -394,6 +399,7 @@ spec = do
                         UnitConversion.defaultUnitConfig
                         udb
                         fdb
+                        IncludeLongTerm
                         inv
                         M.empty
                         (NE.singleton (unusedDatabase, U.empty, mst))

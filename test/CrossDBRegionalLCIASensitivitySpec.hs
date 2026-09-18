@@ -29,7 +29,7 @@ import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
 import CrossDBRegionalLCIAFixture
-import Method.Mapping (sumRegionalizedLCIAScoreCrossDB)
+import Method.Mapping (LongTermMode (..), sumRegionalizedLCIAScoreCrossDB)
 import qualified SharedSolver as SS
 import TestHelpers (mkSolverFromDb)
 import Types
@@ -92,6 +92,7 @@ spec = describe "cross-DB regional LCIA via sensitivity propagation" $ do
                     kgUnitConfig
                     (dbUnits depDb)
                     (dbBioFlows depDb)
+                    IncludeLongTerm
                     M.empty
                     perDb
                     `shouldBe` Right 5.0
@@ -133,6 +134,7 @@ spec = describe "cross-DB regional LCIA via sensitivity propagation" $ do
                     kgUnitConfig
                     (dbUnits depDb)
                     (dbBioFlows depDb)
+                    IncludeLongTerm
                     M.empty
                     perDb
                     `shouldBe` Right 10.0
