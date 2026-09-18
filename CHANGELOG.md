@@ -61,6 +61,17 @@
 
 ### Fixed
 
+- The contributing-flows endpoint and the assistant's impact and
+  contributing-flows tools publish the total the impact routes publish. They
+  read it from the merged inventory with one world factor per flow, which is
+  the wrong reading for a category whose factors depend on where the flow
+  occurs, so the same process and the same category came out at two different
+  numbers depending on which one was asked. On a process scoring water use, the
+  endpoint said 3.52e10 m3-world equivalents where the impact route said
+  2.51e10, and land use 6.72e11 against 7.40e11; the rows carried three distinct
+  factors where the score had applied fifteen. A category whose factors are the
+  same everywhere is unaffected, in the total and in the rows.
+
 - `exclude_long_term` reaches a category whose factors depend on where a flow
   occurs. The flag drops the delayed long-term emissions from an inventory, and
   such a category is not scored from an inventory: it is scored from the

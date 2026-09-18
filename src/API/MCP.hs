@@ -38,6 +38,7 @@ import Database (Geographies, filterByName, flowSearchFields)
 import Database.Edit (deriveDatabase, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
+import qualified Impact
 
 import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
@@ -45,15 +46,15 @@ import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, scoreActivityWebUrl, slimLCIAPanel, webUrlField)
 import API.Routes (collectionNotLoadedMessage)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits)
-import Control.Monad (mfilter, unless)
+import Control.Monad (mfilter)
 import qualified Data.List as L
-import Matrix (applyBiosphereMatrix)
+import qualified Data.Set as Set
+import Matrix (Inventory, applyBiosphereMatrix)
 import qualified Method.Explain as Explain
-import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), applyLongTermMode, computeLCIAScoreAuto, computeLCIAScoreFromTables, computeMappingStats, defaultUncharacterizedOpts, inventoryContributions, longTermModeFromExclude)
+import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude)
 import qualified Method.Mapping as Mapping
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Network.HTTP.Types.Header (RequestHeaders, hAccept, hAllow, hHost)
-import Progress (ProgressLevel (Warning), reportProgress)
 import qualified Search.Normalize as Normalize
 import qualified Service
 import qualified Service.Aggregate as Agg
@@ -1213,12 +1214,12 @@ runImpactsRequest dbManager args req = do
     subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-    solvedInventory <-
+    solved <-
         ExceptT $
             if null subs
-                then fmap (fmap SharedSolver.csInventory) (computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName (ldSharedSolver ld) (raPid ra))
+                then computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName (ldSharedSolver ld) (raPid ra)
                 else
-                    either (Left . T.pack . show) (Right . SharedSolver.csInventory)
+                    first (T.pack . show)
                         <$> Service.inventoryWithSubsAndDeps
                             unitCfg
                             (DM.mkDepSolverLookup dbManager)
@@ -1228,13 +1229,27 @@ runImpactsRequest dbManager args req = do
                             (raPid ra)
                             subs
     let ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-        inventory = applyLongTermMode mFlows ltMode solvedInventory
+    sol <- liftIO (Impact.withLongTermPolicy dbManager ltMode solved)
+    let inventory = SharedSolver.csInventory sol
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
+    score <- ExceptT (Impact.scoreSolution dbManager collection method tables sol)
+    (rawContribs, _) <- ExceptT (Impact.contributionsOf dbManager collection method tables sol)
     let stats = computeMappingStats mappings
-        baseOutcome = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
-        (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
+        unknownUuids = Impact.unknownInventoryFlows mFlows inventory
         contribs = L.sortOn (negate . abs . fcContribution) rawContribs
+        -- The flows the score characterized are the ones it published a row
+        -- for, whichever path produced them. Reading coverage off the flat
+        -- cascade instead would describe a walk this score did not take.
+        scored = Set.fromList [bfId f | FlowContribution{fcFlow = f} <- rawContribs]
+        baseOutcome =
+            LCIAOutcome
+                { loScore = score
+                , loCharacterizedSum = characterizedMass scored inventory
+                , loInventoryAbsSum = inventoryMass inventory
+                , loUncharacterized = []
+                , loUnknownUuids = []
+                }
         functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits (raActivity ra)
     -- Diagnostics path: opt-in via include_diagnostics. Skips the suggester
     -- work entirely when not requested, so the hot path stays bit-identical
@@ -1254,7 +1269,12 @@ runImpactsRequest dbManager args req = do
                             (DM.dmChemSynonyms dbManager)
                             idx
                             opts
-                pure baseOutcome{loUncharacterized = diagnostics, loUnknownUuids = unknownUuids}
+                pure
+                    baseOutcome
+                        { loUncharacterized =
+                            filter (not . (`Set.member` scored) . ucfFlowId) diagnostics
+                        , loUnknownUuids = unknownUuids
+                        }
             else pure baseOutcome
     pure
         ImpactsResult
@@ -1265,6 +1285,18 @@ runImpactsRequest dbManager args req = do
             , irUnknownUuids = unknownUuids
             , irFunctionalUnit = functionalUnit
             }
+
+{- | How much of an inventory's mass a score characterized: the flows it
+published a row for. Read that way rather than from the cascade, so the figure
+describes the path that produced the score printed beside it.
+-}
+characterizedMass :: Set.Set UUID -> Inventory -> Double
+characterizedMass scored =
+    M.foldlWithKey' (\acc fid qty -> if Set.member fid scored then acc + abs qty else acc) 0
+
+-- | How much the inventory holds in all, characterized or not.
+inventoryMass :: Inventory -> Double
+inventoryMass = M.foldl' (\acc qty -> acc + abs qty) 0
 
 {- | Handler for the 'get_impacts' MCP tool (computes LCIA score).
 Historically named 'get_lcia' -- the MCP surface now uses 'impacts'
@@ -1289,15 +1321,7 @@ callGetImpacts dbManager mBaseUrl rid args =
             webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/impacts/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
             hasNeg = any ((< 0) . fcContribution) contribs
             unknownUuids = irUnknownUuids ir
-        liftIO $
-            unless (null unknownUuids) $
-                reportProgress Warning $
-                    "[MCP get_impacts "
-                        <> T.unpack (methodName method)
-                        <> "] "
-                        <> show (length unknownUuids)
-                        <> " inventory flow UUID(s) absent from merged FlowDB -- characterization incomplete. Samples: "
-                        <> show (take 3 unknownUuids)
+        liftIO $ Impact.warnUnknownFlowIds ("MCP get_impacts " <> methodName method) unknownUuids
         let outcome = irOutcome ir
             diagnosticsFields =
                 [ "uncharacterized_flows" .= map encodeUncharacterized (loUncharacterized outcome)
@@ -2013,68 +2037,29 @@ callGetContributingFlows :: DatabaseManager -> Maybe Text -> Value -> KeyMap Val
 callGetContributingFlows dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
-        let ld = lrLoaded req
-            db = ldDatabase ld
-            method = lrMethod req
+        ir <- runImpactsRequest dbManager args req
+        let method = lrMethod req
             dbName = lrDbName req
-            collection = lrCollection req
             ra = lrResolved req
             lim = fromMaybe 20 (intArg "limit" args)
-            webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/contributing-flows/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
-        except $ ensureLinked dbName "computing contributions" db
-        unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-        (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-        sol <-
-            ExceptT $
-                computeInventoryMatrixWithDepsCached
-                    unitCfg
-                    (DM.mkDepSolverLookup dbManager)
-                    db
-                    dbName
-                    (ldSharedSolver ld)
-                    (raPid ra)
-        let ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-            inventory = applyLongTermMode mFlows ltMode (SharedSolver.csInventory sol)
-        tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
-        let outcome = computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables
-            score = loScore outcome
-            (rawContribs, unknownUuids) = inventoryContributions unitCfg mUnits mFlows inventory tables
-            contribs = L.sortOn (negate . abs . fcContribution) rawContribs
+            score = loScore (irOutcome ir)
+            contribs = irContribs ir
             top = take lim contribs
             hasNeg = any ((< 0) . fcContribution) contribs
-        diagnosticsFields <-
-            if fromMaybe False (boolArg "include_diagnostics" args)
-                then do
-                    idx <- liftIO $ DM.mapMethodToIndexCached dbManager dbName collection method
-                    let opts = defaultUncharacterizedOpts
-                        uncharacterized =
-                            Mapping.findUncharacterized
-                                unitCfg
-                                mUnits
-                                mFlows
-                                inventory
-                                tables
-                                (DM.dmChemSynonyms dbManager)
-                                idx
-                                opts
-                    pure
-                        [ "uncharacterized_flows" .= map encodeUncharacterized uncharacterized
-                        , "characterized_share"
-                            .= ( if loInventoryAbsSum outcome > 0
-                                    then loCharacterizedSum outcome / loInventoryAbsSum outcome
-                                    else 1 :: Double
-                               )
-                        ]
-                else pure []
-        liftIO $
-            unless (null unknownUuids) $
-                reportProgress Warning $
-                    "[MCP get_contributing_flows "
-                        <> T.unpack (methodName method)
-                        <> "] "
-                        <> show (length unknownUuids)
-                        <> " inventory flow UUID(s) absent from merged FlowDB. Samples: "
-                        <> show (take 3 unknownUuids)
+            tables = irTables ir
+            outcome = irOutcome ir
+            webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/contributing-flows/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
+            diagnosticsFields
+                | fromMaybe False (boolArg "include_diagnostics" args) =
+                    [ "uncharacterized_flows" .= map encodeUncharacterized (loUncharacterized outcome)
+                    , "characterized_share"
+                        .= ( if loInventoryAbsSum outcome > 0
+                                then loCharacterizedSum outcome / loInventoryAbsSum outcome
+                                else 1 :: Double
+                           )
+                    ]
+                | otherwise = []
+        liftIO $ Impact.warnUnknownFlowIds ("MCP get_contributing_flows " <> methodName method) (irUnknownUuids ir)
         pure $
             toolSuccessJson rid $
                 object $
