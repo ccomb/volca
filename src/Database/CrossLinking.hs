@@ -727,11 +727,9 @@ readDesignation name = case T.breakOn "{" name of
     -- The activity sits between the first two bars; a designation that stops at
     -- the geography names none.
     namedActivity :: Text -> Maybe Text
-    namedActivity after = case T.breakOn "|" after of
-        (_, "") -> Nothing
-        (_, afterBar) -> case T.strip (fst (T.breakOn "|" (T.drop 1 afterBar))) of
-            "" -> Nothing
-            activity -> Just activity
+    namedActivity after = case T.splitOn "|" after of
+        (_ : activity : _) | not (T.null (T.strip activity)) -> Just (T.strip activity)
+        _ -> Nothing
 
 matchInIndexedDBs :: LinkingContext -> SupplierQuery -> CrossDBLinkResult
 matchInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, sqSupplierActivity = supplierActivity, sqLocation = location, sqUnit = unit} =

@@ -205,8 +205,8 @@ spec = do
         -- A SimaPro row designates its supplier in one string: the product, the
         -- geography in braces, then the activity between bars. Read whole, that
         -- string names nothing outside the file it came from, so an input
-        -- written the way an ecoinvent export writes it matched no supplier at
-        -- all where the bare product name matched one.
+        -- written the way a SimaPro export of an EcoSpold 2 database writes one
+        -- matched no supplier at all where the bare product name matched one.
         it "reads a designation for the product, geography and activity it states" $ do
             idb <- loadMin3IndexedDB
             let ctx =
