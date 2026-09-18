@@ -565,7 +565,7 @@ data FlowContributionEntry = FlowContributionEntry
     , fcoFlowId :: Text -- Flow UUID for disambiguation
     , fcoCategory :: Text -- Medium only (e.g. "air")
     , fcoCompartment :: Maybe Text -- Sub-compartment (e.g. "urban air")
-    , fcoCfValue :: Double -- Raw characterization factor value
+    , fcoCfValue :: Double -- The factor the score applied to this flow. A category whose factors depend on where the flow occurs has several, so the row carries the effective one: its contribution over its quantity
     , fcoMatchKind :: Maybe Text -- How the factor was found ("exact_name", "cas_number", …); absent for a flow no rung of the cascade reached
     }
     deriving (Generic)

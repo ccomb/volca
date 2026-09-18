@@ -43,6 +43,7 @@ module Method.Explain (
     -- * Rendering
     renderResolution,
     rungName,
+    regionalName,
     outcomeName,
     vetoName,
     stepName,
@@ -73,7 +74,7 @@ import Method.Mapping (
     cascadeTrail,
     flowToCFOutcome,
  )
-import Method.Types (EnergyDensity (..), MethodCF (..))
+import Method.Types (EnergyDensity (..), Location (..), MethodCF (..))
 import Types (BiosphereFlow, UUID, UnitDB)
 import UnitConversion (UnitConfig)
 
@@ -181,14 +182,28 @@ broadcast vector was filled rather than replayed. This is the cheap answer, for
 annotating a whole table of contributing flows at once; 'explainFlowCF' is the
 full one, for the flow somebody clicked.
 
-'Nothing' means the tables hold no recorded resolution for this flow: no rung
-of the cascade reached it. The tables are built over the flows the database
+A flow the method only characterizes where it occurs has no recorded rung: the
+cascade is built from the factors that state no location, and those are the
+only ones it can replay. Such a flow answers 'regionalName', because saying
+nothing would claim no factor reached a flow whose contribution a score used.
+
+'Nothing' means neither: no rung of the cascade reached it and it holds no
+regional factor either. The tables are built over the flows the database
 reaches, its dependencies' included, so a flow arriving from a dependency is
 walked like any other and this answer is about the method's coverage, not
 about where the flow came from.
 -}
 flowMatchKind :: MethodTables -> UUID -> Maybe Text
-flowMatchKind tables fid = rungName . ftRung <$> M.lookup fid (mtResolution tables)
+flowMatchKind tables fid = case M.lookup fid (mtResolution tables) of
+    Just tag -> Just (rungName (ftRung tag))
+    Nothing -> regionalKind
+  where
+    -- O(log n) where 'ceRegionalCFCount' scans: this annotates a whole table
+    -- of contributing flows, one lookup per row.
+    regionalKind :: Maybe Text
+    regionalKind = case M.lookupGE (fid, Location T.empty) (mtRegionalizedCF tables) of
+        Nothing -> Nothing
+        Just ((f, _), _) -> if f == fid then Just regionalName else Nothing
 
 --------------------------------------------------------------------------------
 -- Wire names
@@ -208,6 +223,12 @@ rungName RungSubBlind = "subcompartment_blind"
 rungName RungRegionBase = "region_base_name"
 rungName RungEnergyResource = "energy_content"
 rungName RungOreGradeBase = "ore_base_element"
+
+{- | Stable name for a factor that came from the method's regional table. Not a
+rung: the cascade never reaches it, an activity's location does.
+-}
+regionalName :: Text
+regionalName = "regional"
 
 -- | Stable name for the three outcomes.
 outcomeName :: CFResolution -> Text

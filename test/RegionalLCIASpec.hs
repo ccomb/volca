@@ -10,16 +10,20 @@ the regional CF map directly to compute expected weights.
 module RegionalLCIASpec (spec) where
 
 import Data.Int (Int32)
+import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
+import Method.Explain (flowMatchKind)
 import Method.Mapping
 import Method.Types (
+    Compartment (..),
     FlowDirection (..),
     Location (..),
     MethodCF (..),
@@ -173,6 +177,49 @@ buildTables db hier mappings =
             hier
             withBroadcast
 
+-- A second biosphere flow, one kilogram from every activity, whose factor does
+-- not depend on where it happens: the universal side of the same sum.
+methaneUUID :: UUID
+methaneUUID = mkUUID 2
+
+methaneFlow :: BiosphereFlow
+methaneFlow = testFlow{bfId = methaneUUID, bfName = "Methane"}
+
+withUniversalFlow :: Database -> Database
+withUniversalFlow db =
+    db
+        { dbBioFlows = M.insert methaneUUID methaneFlow (dbBioFlows db)
+        , dbBiosphereOrder = dbBiosphereOrder db <> V.singleton methaneUUID
+        , dbBiosphereCount = 2
+        , dbBiosphereTriples =
+            dbBiosphereTriples db
+                <> U.fromList [SparseTriple 1 (fromIntegral c) 1 | c <- [0 .. fromIntegral (dbActivityCount db) - 1 :: Int]]
+        }
+
+universalMapping :: Double -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+universalMapping v =
+    [
+        ( MethodCF
+            { mcfFlowRef = methaneUUID
+            , mcfFlowName = "Methane"
+            , mcfDirection = Output
+            , mcfValue = v
+            , mcfCompartment = Just (Compartment "air" "" "")
+            , mcfCAS = Nothing
+            , mcfUnit = "kg"
+            , mcfConsumerLocation = Nothing
+            }
+        , Just (methaneFlow, ByName)
+        )
+    ]
+
+-- The rows one database publishes under its regionalized score, by flow name.
+contributionRows :: Database -> U.Vector Double -> MethodTables -> [FlowContribution]
+contributionRows db scaling tables =
+    case regionalizedContributionsCrossDB kgUnitConfig (dbUnits db) (dbBioFlows db) [(db, scaling, tables)] of
+        Left err -> error (T.unpack err)
+        Right (rows, _unknown) -> sortOn (bfName . fcFlow) rows
+
 -- ---------------------------------------------------------------------------
 -- Oracle: independent score over the regional CF map only
 -- ---------------------------------------------------------------------------
@@ -305,3 +352,52 @@ spec = do
                 M.empty
                 tables
                 `shouldBe` Right 20
+
+    describe "regionalizedContributionsCrossDB" $ do
+        it "publishes rows that add up to the score" $ do
+            -- The same fixture the score is read from above: A1@FR=10,
+            -- A2@DE=20, A3@GLO=5 with CFs 2, 3, 4 and scaling [1, 2, 4],
+            -- plus a second flow with one factor wherever it is emitted.
+            let db = withUniversalFlow (mkDB [("FR", 10), ("DE", 20), ("GLO", 5)])
+                mappings = regionalMappings [("FR", 2), ("DE", 3), ("GLO", 4)] <> universalMapping 5
+                tables = buildTables db M.empty mappings
+                scaling = U.fromList [1, 2, 4]
+                score = computeRegionalizedLCIAScore kgUnitConfig (dbUnits db) (dbBioFlows db) db scaling M.empty tables
+                rows = contributionRows db scaling tables
+            -- Regional flow: 1·10·2 + 2·20·3 + 4·5·4 = 220.
+            -- Universal flow: (1·1 + 2·1 + 4·1)·5 = 35.
+            score `shouldBe` Right 255
+            sum (map fcContribution rows) `shouldBe` 255
+            lookup "Carbon dioxide" [(bfName (fcFlow r), fcContribution r) | r <- rows] `shouldBe` Just 220
+            lookup "Methane" [(bfName (fcFlow r), fcContribution r) | r <- rows] `shouldBe` Just 35
+
+        it "carries the factor the score applied, not one of the thirty it could have shown" $ do
+            -- One flow, three factors, one row. 220 of impact over the
+            -- 1·10 + 2·20 + 4·5 = 70 kilograms emitted.
+            let db = mkDB [("FR", 10), ("DE", 20), ("GLO", 5)]
+                mappings = regionalMappings [("FR", 2), ("DE", 3), ("GLO", 4)]
+                tables = buildTables db M.empty mappings
+                scaling = U.fromList [1, 2, 4]
+            map fcFactor (contributionRows db scaling tables) `shouldBe` [220 / 70]
+
+        it "under-counts an uncovered location in the row exactly as in the score" $ do
+            -- F has a factor at FR only; A2@DE emits 20 kg that nothing
+            -- characterizes. The score is 20, and so is the row - over the
+            -- 30 kilograms the inventory holds, gap included.
+            let db = mkDB [("FR", 10), ("DE", 20)]
+                mappings = regionalMappings [("FR", 2)]
+                tables = buildTables db M.empty mappings
+                scaling = U.fromList [1, 1]
+                rows = contributionRows db scaling tables
+            map fcContribution rows `shouldBe` [20]
+            map fcFactor rows `shouldBe` [20 / 30]
+
+        it "says a factor came from the regional table when no rung of the cascade did" $ do
+            -- This flow is characterized only where it occurs, which is what
+            -- the cascade cannot replay: without an answer here a row showing
+            -- a contribution would claim no factor reached it.
+            let db = mkDB [("FR", 10), ("DE", 20), ("GLO", 5)]
+                mappings = regionalMappings [("FR", 2), ("DE", 3), ("GLO", 4)]
+                tables = buildTables db M.empty mappings
+            flowMatchKind tables flowUUID `shouldBe` Just "regional"
+            flowMatchKind tables methaneUUID `shouldBe` Nothing

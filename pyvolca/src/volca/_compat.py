@@ -32,8 +32,14 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 25
-"""The newest wire revision this pyvolca understands (revision 25 added
+KNOWN_WIRE = 27
+"""The newest wire revision this pyvolca understands (revision 27 added the
+``regional`` match kind a contributing flow can carry, naming a factor the
+method states per location, where the field used to be absent and its absence
+meant no factor reached the flow at all; revision 26 added the
+``supplier_activity`` a gap entry and a missing supplier carry, the activity
+their inputs named, and the ``locations`` a missing supplier carries, the
+locations those inputs stated; revision 25 added
 ``compare_activities`` and ``compare_databases``, the comparison of two
 activities and of two loaded databases; revision 24 added the
 ``reasons`` a supplier-gap entry carries, every reason its product was refused
