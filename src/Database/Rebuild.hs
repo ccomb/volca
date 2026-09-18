@@ -58,6 +58,7 @@ import Types (
     BiosphereFlow (..),
     Database (..),
     Exchange (..),
+    ExchangeLocation (..),
     ProcessId,
     ProcessRef (..),
     TechnosphereFlow (..),
@@ -66,6 +67,7 @@ import Types (
     findProcessIdByActivityUUID,
     parseProcessRef,
     processRefText,
+    readExchangeLocation,
  )
 import UnitConversion (UnitConfig, defaultUnitConfig)
 
@@ -91,7 +93,8 @@ Steps, all pure:
      'ProcessId' exists (no silent skip).
   2. Drop those keys; for every surviving activity, UNLINK any technosphere /
      waste exchange whose @(activityLink, flow)@ pointed at a deleted key –
-     clear its activity link and clear the stale process link.
+     clear its activity link and clear the stale process link, keeping on the
+     exchange the location the supplier supplied from ('unlinkActivity').
   3. Rebuild interning tables, indexes, matrices and the product index from
      the surviving activity map via the shared loader builders.
 
@@ -104,7 +107,7 @@ deleteActivitiesWith unitConfig pids db = do
     deletedKeys <- resolveDeleteKeys db pids
     let survivors = surviving db deletedKeys
         survivingKeys = M.keysSet survivors
-        unlinkedMap = M.map (unlinkActivity survivingKeys) survivors
+        unlinkedMap = M.map (unlinkActivity survivingKeys (removedLocations db deletedKeys)) survivors
     if M.null unlinkedMap
         then Left "Refusing to delete: the result would have no activities"
         else rebuildFromActivities unitConfig db unlinkedMap
@@ -131,6 +134,19 @@ surviving db deletedKeys =
 activityMap :: Database -> M.Map (UUID, UUID) Activity
 activityMap db = surviving db S.empty
 
+{- | Where each activity about to be deleted supplied from, under the key an
+exchange links to it with. Read before the delete, because after it the only
+record of where a line bought is the line itself.
+-}
+removedLocations :: Database -> S.Set (UUID, UUID) -> M.Map (UUID, UUID) ExchangeLocation
+removedLocations db deletedKeys =
+    M.fromList
+        [ (key, readExchangeLocation (activityLocation (dbActivities db V.! i)))
+        | i <- [0 .. V.length (dbActivities db) - 1]
+        , let key = dbProcessIdTable db V.! i
+        , S.member key deletedKeys
+        ]
+
 {- | Reset technosphere / waste exchanges on a surviving activity whose producer
 link no longer resolves to a surviving @(activityUUID, productUUID)@ key.
 
@@ -140,20 +156,42 @@ activity that keeps at least one product stays a valid target for exchanges
 pointing at a *surviving* product, while exchanges pointing at a deleted
 product are unlinked. A biosphere exchange has no producer link and is
 returned unchanged. An already-orphan link stays orphan.
+
+An unlinked line keeps the location its supplier supplied from, when it states
+none of its own. The link was the whole of what said where a line bought, so
+dropping it and nothing else leaves a row asking for a product with no
+geography at all: exported and read back, it is answered by whichever activity
+of any country the ranking puts first, which is how a foreground exported away
+from its background comes home buying its electricity somewhere it never did.
+A location the line already states is the source's own word and is left alone.
 -}
-unlinkActivity :: S.Set (UUID, UUID) -> Activity -> Activity
-unlinkActivity survivingKeys act =
+unlinkActivity :: S.Set (UUID, UUID) -> M.Map (UUID, UUID) ExchangeLocation -> Activity -> Activity
+unlinkActivity survivingKeys removed act =
     act{exchanges = map unlinkExchange (exchanges act)}
   where
     dangling link flow = not (S.member (link, flow) survivingKeys)
+    supplied link flow = M.lookup (link, flow) removed
     unlinkExchange ex = case ex of
         BiosphereExchange{} -> ex
         TechnosphereExchange{techActivityLinkId = Just link, techFlowId = flow}
-            | dangling link flow -> ex{techActivityLinkId = Nothing}
+            | dangling link flow ->
+                ex
+                    { techActivityLinkId = Nothing
+                    , techLocation = keptLocation (techLocation ex) (supplied link flow)
+                    }
         TechnosphereExchange{} -> ex
         WasteExchange{waActivityLinkId = Just link, waFlowId = flow}
-            | dangling link flow -> ex{waActivityLinkId = Nothing}
+            | dangling link flow ->
+                ex
+                    { waActivityLinkId = Nothing
+                    , waLocation = keptLocation (waLocation ex) (supplied link flow)
+                    }
         WasteExchange{} -> ex
+
+-- | The line's own location, or the removed supplier's where it states none.
+keptLocation :: ExchangeLocation -> Maybe ExchangeLocation -> ExchangeLocation
+keptLocation LocationNone (Just gone) = gone
+keptLocation stated _ = stated
 
 {- | Rebuild a 'Database' from a surviving activity map, reusing the exact pure
 builders that back a freshly-loaded database. Flow / unit tables are carried
