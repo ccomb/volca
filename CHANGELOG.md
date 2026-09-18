@@ -179,7 +179,9 @@
   electricity came back buying from a sewage sludge treatment that coproduces
   some, and scored 15 % under the model it was exported from on climate change,
   where it now scores 5 % under. A format with nowhere to write an exchange
-  location, EcoSpold 2, is unaffected.
+  location, EcoSpold 2, is unaffected: it names the supplying dataset outright,
+  and that identity is what its writer now states.
+
 - The unit table spells its units the way the SI writes them, and holds the
   multiples a source commonly writes. The litre gains `L` beside `l`, and
   `kg/L` beside `kg/l`: the SI accepts both symbols, the capital having been
