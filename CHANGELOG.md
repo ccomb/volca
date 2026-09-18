@@ -61,6 +61,17 @@
 
 ### Fixed
 
+- Whether a category is scored from each activity's location is asked of every
+  database the answer is summed over, not of the root alone. A database's
+  lookup tables say whether the method's located factors reached the flows
+  *that* database holds, which is the whole answer only for as long as the
+  root's flow closure keeps reaching its dependencies'. A root that emits
+  nothing itself and consumes a dependency that emits a located flow would
+  otherwise be read as a method with no located factors at all, and that
+  kilogram scored with a world factor it has none of. This holds for a
+  collection scored in one pass as well as for a single category, so the flow
+  list published under a score cannot be read one way and the score the other.
+
 - The flows an impact category lists as its biggest contributors are read the
   way its score is. A category whose factors depend on where a flow occurs is
   scored from each activity's own location, but the list beside that score was
