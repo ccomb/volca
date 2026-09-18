@@ -89,6 +89,25 @@
   from one listing its heat first would have been converted by 3.6 without a
   word. The process's unit is that product's too, where it used to be the
   unit of whichever product the file listed last.
+- A process whose reference product carries a negative amount, the way an
+  EcoSpold 2 activity records the waste it treats, is scored in the direction
+  it is written: treating a kilogram of waste now adds its emissions instead of
+  subtracting them. The matrix column is normalized by that negative reference,
+  so one unit of the column stood for a kilogram of waste produced, the reverse
+  of what the activity does, and the inventory, the score of every impact
+  category and the flow contributions all came back with their sign turned
+  over, while the functional unit beside them read "1.00 kg of" the waste. The
+  functional unit now takes the sign its reference product states, so the
+  answer, the inputs it draws and every process upstream read the way the
+  activity was written. The supply chain, the path to a process and the
+  aggregated consumption rows read the same as before, their quantity being a
+  scaling times the amount the reference product states, now taken as a
+  magnitude since the direction is carried by the functional unit. A process
+  whose reference product is positive is untouched, a treatment that records
+  its waste as a positive input was already right, and the matrices themselves
+  do not change: a producer sending its waste away was already charged for the
+  treatment and still is.
+
 - The unit table spells its units the way the SI writes them, and holds the
   multiples a source commonly writes. The litre gains `L` beside `l`, and
   `kg/L` beside `kg/l`: the SI accepts both symbols, the capital having been

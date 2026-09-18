@@ -4,7 +4,7 @@ module SharedSolverSpec (spec) where
 
 import qualified Data.Vector.Unboxed as U
 import GoldenData
-import Matrix (buildDemandVectorFromIndex)
+import Matrix (buildDemandVector)
 import SharedSolver (SharedSolver, createSharedSolver, getFactorization, solveWithSharedSolver)
 import Test.Hspec
 import TestHelpers (assertVectorNear, loadSampleDatabase)
@@ -36,7 +36,7 @@ spec = do
     describe "solve correctness (SAMPLE.min3)" $ do
         it "scaling vector matches golden values [1.0, 0.6, 0.24]" $ do
             (solver, db) <- min3Solver
-            let demandVec = buildDemandVectorFromIndex (dbActivityIndex db) 0
+            let demandVec = buildDemandVector db 0
             result <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             assertVectorNear "scaling vector" defaultTolerance result sampleMin3ExpectedSupply
 
@@ -46,7 +46,7 @@ spec = do
     describe "caching" $ do
         it "second solve produces the same result" $ do
             (solver, db) <- min3Solver
-            let demandVec = buildDemandVectorFromIndex (dbActivityIndex db) 0
+            let demandVec = buildDemandVector db 0
             result1 <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             result2 <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             U.toList result1 `shouldBe` U.toList result2
@@ -65,6 +65,6 @@ min3Solver = do
         actCount = fromIntegral (dbActivityCount db)
     solver <- createSharedSolver "SAMPLE.min3" techTriples actCount
     -- Trigger lazy factorization via first solve
-    let demandVec = buildDemandVectorFromIndex (dbActivityIndex db) 0
+    let demandVec = buildDemandVector db 0
     _ <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
     return (solver, db)

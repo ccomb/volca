@@ -32,7 +32,7 @@ import qualified Data.Vector.Unboxed as U
 import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.MatrixBuild (findProducer, linkedProducer)
-import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVectorFromIndex, computeInventoryMatrix, depDemandsToVector, perturbA, perturbABatch, perturbGlobal, toList)
+import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix, depDemandsToVector, perturbA, perturbABatch, perturbGlobal, toList)
 import qualified Matrix.Export as MatrixExport
 import qualified Progress
 import qualified Search.BM25 as BM25
@@ -236,7 +236,7 @@ here without being resolved is the only way to get a 'Left'.
 -}
 demandFor :: Database -> ProcessId -> Either ServiceError Demand
 demandFor db processId =
-    either (Left . MatrixError) Right (buildDemandVectorFromIndex (dbActivityIndex db) processId)
+    either (Left . MatrixError) Right (buildDemandVector db processId)
 
 -- | Rich activity info (returns same format as API)
 getActivityInfo :: Database -> Text -> Either ServiceError Value
@@ -1712,7 +1712,7 @@ getPathTo db solver pidText target = do
                     case eVec of
                         Left err -> return $ Left err
                         Right supplyVec ->
-                            let rootRefAmount = getReferenceProductAmount rootAct
+                            let rootRefMagnitude = referenceMagnitude rootAct
                                 adj = buildAdjacencyFromTriples (dbTechnosphereTriples db)
                                 mPath =
                                     bfsToPattern
@@ -1742,7 +1742,7 @@ getPathTo db solver pidText target = do
                                                         , "activityName" .= activityName act
                                                         , "location" .= activityLocation act
                                                         , "unit" .= activityUnit act
-                                                        , "cumulativeQuantity" .= (sf * rootRefAmount)
+                                                        , "cumulativeQuantity" .= (sf * rootRefMagnitude)
                                                         , "scalingFactor" .= sf
                                                         ]
                                                  in object $ case mRatio of
@@ -1831,7 +1831,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
         -- A root chain is stated per the root's reference product; a dep level
         -- receives a scaling that is already physical.
         quantityMult = case level of
-            RootLevel{rlRoot = r} -> getReferenceProductAmount (dbActivities db V.! fromIntegral r)
+            RootLevel{rlRoot = r} -> referenceMagnitude (dbActivities db V.! fromIntegral r)
             DepLevel{} -> 1.0
         depthOffset = case level of
             RootLevel{} -> 0
@@ -2232,6 +2232,16 @@ bfsToPattern from matches adj = go (Empty |> from) (IM.singleton from from)
 getReferenceProductAmount :: Activity -> Double
 getReferenceProductAmount activity =
     maybe 1.0 exchangeAmount (L.find exchangeIsReference (exchanges activity))
+
+{- | The amount a chain stated per one unit of an activity is multiplied by.
+
+A magnitude, never a sign: which way one unit of the activity runs is carried
+by the functional unit ('Matrix.referenceSign'), so a multiplier carrying it a
+second time would report every input a treatment draws as a quantity it
+produces.
+-}
+referenceMagnitude :: Activity -> Double
+referenceMagnitude = abs . getReferenceProductAmount
 
 {- | Root-only scaling vector: solve @(I-A)x = d@. Substitutions are applied by
 the cross-DB applicator ('applySubstitutionsAt', via
