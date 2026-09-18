@@ -70,7 +70,7 @@ module Database.Loader (
     gapReportForStaged,
 
     -- * Internal Linking
-    fixSimaProActivityLinks,
+    linkWithinDatabaseByName,
     fixEcoSpold1ActivityLinks,
 
     -- * Reporting
@@ -89,6 +89,8 @@ module Database.Loader (
     getReferenceProductUUID,
     indexActivities,
     UnlinkedSummary (..),
+    UnlinkedExchange (..),
+    leftForADependency,
     LocationOverride (..),
     AmbiguousProducer (..),
     NameOnlyIndex,
@@ -739,10 +741,12 @@ instance Monoid UnlinkedSummary where
             , usAmbiguousProducers = []
             }
 
--- | Report grouped summary of unlinked exchanges, and of the ties broken blind
+{- | Report the inputs this database does not answer itself, and the ties broken
+blind. Nothing here is a missing supplier yet: a dependency is asked next.
+-}
 reportUnlinkedSummary :: UnlinkedSummary -> IO ()
 reportUnlinkedSummary summary = do
-    reportUnlinkedActivities summary
+    mapM_ (reportProgress Info . T.unpack) (leftForADependency summary)
     reportAmbiguousProducers (usAmbiguousProducers summary)
 
 {- | Report the inputs whose supplier the ranking picked among several.
@@ -771,41 +775,58 @@ reportAmbiguousProducers ties = do
     unique :: [AmbiguousProducer]
     unique = oncePerKey (\t -> (apProduct t, apChosen t)) ties
 
--- | Report grouped summary of unlinked exchanges
-reportUnlinkedActivities :: UnlinkedSummary -> IO ()
-reportUnlinkedActivities summary
-    | M.null (usActivities summary) = return () -- Nothing to report
-    | otherwise = do
-        let activities = usActivities summary
-            activityCount = M.size activities
-            -- Sort activities by number of unlinked exchanges (descending)
-            sortedActivities = take 10 $ reverse $ sortOn' (length . snd) $ M.toList activities
-            remainingCount = activityCount - length sortedActivities
+{- | The inputs no activity of this database answers, grouped by the activity
+that buys them, the ten hungriest first and three inputs each.
 
-        reportProgress Warning $
-            printf "Unlinked activities: %d activities affected" activityCount
-
-        -- Report top activities with their missing suppliers
-        forM_ sortedActivities $ \(actName, unlinkedExchanges) -> do
-            let uniqueExchanges = nub unlinkedExchanges -- Remove duplicates
-                flowCount = length uniqueExchanges
-                topFlows = take 3 uniqueExchanges
-                remainingFlows = flowCount - length topFlows
-            reportProgress Warning $
-                printf "  - %s: %d missing suppliers" (T.unpack actName) flowCount
-            forM_ topFlows $ \ue ->
-                if T.null (ueLocation ue)
-                    then reportProgress Warning $ printf "      * %s" (T.unpack (ueFlowName ue))
-                    else reportProgress Warning $ printf "      * %s [%s]" (T.unpack (ueFlowName ue)) (T.unpack (ueLocation ue))
-            when (remainingFlows > 0) $
-                reportProgress Warning $
-                    printf "      ... and %d more" remainingFlows
-
-        when (remainingCount > 0) $
-            reportProgress Warning $
-                printf "  ... and %d more activities" remainingCount
+They are not missing suppliers: this pass only asks the database about itself,
+and a dependency is asked next ('fixActivityLinksWithCrossDB'), which is where
+an input that nothing can answer is finally named. Saying "missing" here made a
+file that loads whole read as broken.
+-}
+leftForADependency :: UnlinkedSummary -> [T.Text]
+leftForADependency summary
+    | M.null (usActivities summary) = []
+    | otherwise =
+        -- The count sits on the line before, which every caller prints; naming
+        -- it again here would only make "1 activities" possible.
+        "Left for a dependency, by the activity that buys them:"
+            : concatMap activityLines sortedActivities
+                <> [T.pack (printf "  ... and %d more activities" remainingCount) | remainingCount > 0]
   where
+    activities :: M.Map T.Text [UnlinkedExchange]
+    activities = usActivities summary
+
+    activityCount :: Int
+    activityCount = M.size activities
+
+    sortedActivities :: [(T.Text, [UnlinkedExchange])]
+    sortedActivities = take 10 $ reverse $ sortOn' (length . snd) $ M.toList activities
+
+    remainingCount :: Int
+    remainingCount = activityCount - length sortedActivities
+
+    activityLines :: (T.Text, [UnlinkedExchange]) -> [T.Text]
+    activityLines (actName, unlinkedExchanges) =
+        ("  - " <> actName <> ": " <> countedInputs (length uniqueExchanges))
+            : map inputLine (take 3 uniqueExchanges)
+                <> [T.pack (printf "      ... and %d more" (length uniqueExchanges - 3)) | length uniqueExchanges > 3]
+      where
+        uniqueExchanges :: [UnlinkedExchange]
+        uniqueExchanges = nub unlinkedExchanges
+
+    countedInputs :: Int -> T.Text
+    countedInputs 1 = "1 input"
+    countedInputs n = T.pack (show n) <> " inputs"
+
+    inputLine :: UnlinkedExchange -> T.Text
+    inputLine ue
+        | T.null (ueLocation ue) = "      * " <> ueFlowName ue
+        | otherwise = "      * " <> ueFlowName ue <> " [" <> ueLocation ue <> "]"
+
+    sortOn' :: (Ord b) => (a -> b) -> [a] -> [a]
     sortOn' f = sortBy (\a b -> compare (f a) (f b))
+
+    nub :: [UnlinkedExchange] -> [UnlinkedExchange]
     nub = map NE.head . NE.group . sort
 
 -- | Normalize text for matching: lowercase, strip whitespace, normalize Unicode
@@ -898,7 +919,7 @@ fixEcoSpold1ActivityLinks locationAliases dsIndex db = do
 
     reportProgress Info $
         printf
-            "Activity linking: %d/%d resolved (%.1f%%), %d unresolved"
+            "Linking within the database: %d/%d inputs answered here (%.1f%%), %d left for a dependency"
             (usFoundLinks summary)
             (usTotalLinks summary)
             (if usTotalLinks summary > 0 then 100.0 * fromIntegral (usFoundLinks summary) / fromIntegral (usTotalLinks summary) else 0.0 :: Double)
@@ -1247,7 +1268,7 @@ loadSimaProCSV opts csvPath = do
                     let simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB
 
                     -- Fix activity links using supplier lookup (same as EcoSpold1)
-                    Right <$> fixSimaProActivityLinks unitConfig simpleDb
+                    Right <$> linkWithinDatabaseByName unitConfig simpleDb
 
 {- | Load a Brightway Excel (.xlsx) inventory.
 
@@ -1269,22 +1290,23 @@ loadBrightwayExcel opts xlsxPath = do
                 let (procMap, collisions) = indexActivities (allocateAll (allocating opts unitDB) activities)
                     simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB
                 forM_ collisions $ reportProgress Warning . T.unpack
-                Right <$> fixSimaProActivityLinks unitConfig simpleDb
+                Right <$> linkWithinDatabaseByName unitConfig simpleDb
 
-{- | Fix SimaPro activity links by resolving supplier references
-Uses name-only matching (no location required) for SimaPro technosphere inputs
+{- | Link a database to itself: every input looks for its supplier among this
+database's own activities, by product name and without a location. What it
+leaves unlinked is for a dependency to supply, not a missing supplier.
 -}
-fixSimaProActivityLinks :: UC.UnitConfig -> SimpleDatabase -> IO SimpleDatabase
-fixSimaProActivityLinks unitConfig db = do
+linkWithinDatabaseByName :: UC.UnitConfig -> SimpleDatabase -> IO SimpleDatabase
+linkWithinDatabaseByName unitConfig db = do
     let nameIndex = buildSupplierIndexByName (sdbUnits db) (sdbActivities db) (sdbTechFlows db)
-    reportProgress Info $ printf "Built name-only supplier index with %d entries for SimaPro linking" (M.size nameIndex)
+    reportProgress Info $ printf "Built name-only supplier index with %d entries for linking within the database" (M.size nameIndex)
 
     -- Count and report statistics
     let (fixedActivities, summary) = fixAllActivitiesByName unitConfig (sdbUnits db) nameIndex (sdbTechFlows db) (sdbActivities db)
 
     reportProgress Info $
         printf
-            "SimaPro activity linking: %d/%d resolved (%.1f%%), %d unresolved"
+            "Linking within the database: %d/%d inputs answered here (%.1f%%), %d left for a dependency"
             (usFoundLinks summary)
             (usTotalLinks summary)
             (if usTotalLinks summary > 0 then 100.0 * fromIntegral (usFoundLinks summary) / fromIntegral (usTotalLinks summary) else 0.0 :: Double)
@@ -1942,27 +1964,21 @@ loadDatabaseWithCrossDBLinking opts otherIndexes synonymDB locationHier policy p
     quoted :: T.Text -> T.Text
     quoted t = "\"" <> t <> "\""
 
+    -- \| The pass over the dependencies, run even when there are none: what
+    --    nothing can answer is counted there, and a database configured without a
+    --    dependency used to be told it was 100% complete.
+    --
     loadOn :: SimpleDatabase -> S.Set T.Text -> IO (Either T.Text (SimpleDatabase, CrossDBLinkingStats))
     loadOn simpleDb unknownUnits = do
-        -- If there are other databases to search, perform cross-DB linking
-        let !totalInputs = countTotalTechInputs simpleDb
-        if null otherIndexes
-            then do
-                -- No cross-DB linking needed
-                let !stats = mempty{cdlUnknownUnits = unknownUnits, cdlTotalInputs = totalInputs}
-                reportCrossDBLinkingStats (M.size (sdbActivities simpleDb)) stats
-                return $ Right (simpleDb, stats)
-            else do
-                -- Perform cross-database linking using pre-built indexes
-                (linkedDb, stats) <-
-                    fixActivityLinksWithCrossDB
-                        otherIndexes
-                        synonymDB
-                        (loUnitConfig opts)
-                        locationHier
-                        policy
-                        simpleDb
-                return $ Right (linkedDb, stats{cdlUnknownUnits = unknownUnits})
+        (linkedDb, stats) <-
+            fixActivityLinksWithCrossDB
+                otherIndexes
+                synonymDB
+                (loUnitConfig opts)
+                locationHier
+                policy
+                simpleDb
+        return $ Right (linkedDb, stats{cdlUnknownUnits = unknownUnits})
 
 {- | Fix activity links using cross-database lookup.
 
@@ -2005,10 +2021,13 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig locationHier policy 
             return (db, mempty{cdlTotalInputs = totalInputs})
         else do
             reportProgress Info $
-                printf
-                    "Cross-database linking: %d unlinked exchanges, searching %d database(s)..."
-                    unlinkedBefore
-                    (length indexedDbs)
+                if null indexedDbs
+                    then printf "Cross-database linking: %d inputs to answer, and no dependency to ask" unlinkedBefore
+                    else
+                        printf
+                            "Cross-database linking: %d unlinked exchanges, searching %d database(s)..."
+                            unlinkedBefore
+                            (length indexedDbs)
 
             -- Report index stats
             forM_ indexedDbs $ \idb ->

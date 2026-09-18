@@ -2129,9 +2129,11 @@ loadDatabaseRawWithCrossDB RawLoad{..} = do
             else do
                 format <- detectDirectoryFormat path
                 case format of
-                    FormatCSV -> narrowToDataFile format path >>= either (pure . Left) loadCSV
-                    -- A workbook names one file, like a CSV export, but the
-                    -- parsing itself is Loader's business.
+                    -- A CSV export and a workbook each name one file, where the
+                    -- other formats name a directory; the parsing itself, and
+                    -- the pass over the dependencies, are Loader's business for
+                    -- all of them alike.
+                    FormatCSV -> narrowToDataFile format path >>= either (pure . Left) loadStructured
                     FormatExcel -> narrowToDataFile format path >>= either (pure . Left) loadStructured
                     FormatUnknown ->
                         return $
@@ -2143,26 +2145,6 @@ loadDatabaseRawWithCrossDB RawLoad{..} = do
                     FormatSpold -> loadStructured path
                     FormatXML -> loadStructured path
                     FormatILCD -> loadStructured path
-
-    loadCSV :: FilePath -> IO (Either Text (Database, LoadSource))
-    loadCSV csvFile = do
-        reportProgress Info $ "Parsing SimaPro CSV: " <> csvFile
-        loaded <- Loader.loadSimaProCSV rlLoadOptions csvFile
-        -- This path reaches the parser directly, so the load's own report of
-        -- what the allocation key refused has to be asked for here.
-        either (const (pure ())) (Loader.reportKeyRefusals rlLoadOptions) loaded
-        case loaded of
-            Left err -> return $ Left err
-            Right linkedDb -> do
-                reportProgress Info $ "Building database from " <> show (M.size (sdbActivities linkedDb)) <> " activities"
-                dbResult <- buildDatabaseWithMatrices inputs linkedDb
-                case dbResult of
-                    Left err -> return $ Left err
-                    Right db -> do
-                        when (rlCachePolicy == UseCache) $
-                            Loader.saveCachedDatabaseWithMatrices rlDbName rlSourcePath db
-                        Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
-                        return $ Right (db, FromSource)
 
     loadStructured :: FilePath -> IO (Either Text (Database, LoadSource))
     loadStructured path = do
