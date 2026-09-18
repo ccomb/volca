@@ -955,10 +955,15 @@ parseWithXeno xmlContent = do
                             -- and the whole dataset is dropped – silently severing every input that
                             -- links into the treatment subsystem.
                             refOnWasteAxis = isWasteFlow && not isReferenceProduct
-                            newRefUnit =
-                                if isReferenceProduct && not (T.null (idUnitName idata))
-                                    then Just (idUnitName idata)
-                                    else psRefUnit state
+                            -- A reference at zero is another product the file lists beside its
+                            -- own ('Database.Allocation.normalise' drops it), so its unit is
+                            -- taken only while no other has been read.
+                            newRefUnit
+                                | isReferenceProduct
+                                , not (T.null (idUnitName idata))
+                                , amount /= 0 || isNothing (psRefUnit state) =
+                                    Just (idUnitName idata)
+                                | otherwise = psRefUnit state
                             formula = ExchangeFormula (nonEmptyText (idVariableName idata)) (nonEmptyText (idMathRel idata))
                             base = (finishExchange unit warns state){psRefUnit = newRefUnit}
                          in if refOnWasteAxis

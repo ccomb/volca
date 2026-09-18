@@ -87,7 +87,8 @@
   from a producer listing its petroleum first stopped the whole load on a
   conversion from `m3` to `kg`, and an electricity bought in kilowatt hours
   from one listing its heat first would have been converted by 3.6 without a
-  word.
+  word. The process's unit is that product's too, where it used to be the
+  unit of whichever product the file listed last.
 - The unit table spells its units the way the SI writes them, and holds the
   multiples a source commonly writes. The litre gains `L` beside `l`, and
   `kg/L` beside `kg/l`: the SI accepts both symbols, the capital having been

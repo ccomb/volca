@@ -517,6 +517,8 @@ endToEnd = do
                 -- Rows sort by key: the gas producer (aaaa...) is 0, its consumer 1.
                 either (const False) (const True) (Service.resolveScorable db (processIdToText db 0)) `shouldBe` True
                 [(i, j, v) | SparseTriple i j v <- VU.toList (dbTechnosphereTriples db)] `shouldBe` [(0, 1, 0.5)]
+                -- The condensate is read last, and it is not what the file makes.
+                activityUnit (dbActivities db V.! 0) `shouldBe` "m3"
 
     describe "an EcoSpold 2 dataset with an unallocated coproduct, loaded" $ do
         it "loads, reads, is refused a score and is named by the quality report" $
