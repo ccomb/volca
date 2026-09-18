@@ -202,6 +202,27 @@ spec = do
                 CrossDBLinked{cdlrScore = score} -> score `shouldSatisfy` (>= defaultLinkingThreshold)
                 CrossDBNotLinked reason -> expectationFailure $ "Expected link but got: " ++ show reason
 
+        -- A SimaPro row designates its supplier in one string: the product, the
+        -- geography in braces, then the activity between bars. Read whole, that
+        -- string names nothing outside the file it came from, so an input
+        -- written the way a SimaPro export of an EcoSpold 2 database writes one
+        -- matched no supplier at all where the bare product name matched one.
+        it "reads a designation for the product, geography and activity it states" $ do
+            idb <- loadMin3IndexedDB
+            let ctx =
+                    LinkingContext
+                        { lcIndexedDatabases = [idb]
+                        , lcSynonymDB = emptySynonymDB
+                        , lcUnitConfig = defaultUnitConfig
+                        , lcThreshold = defaultLinkingThreshold
+                        , lcLocationHierarchy = locationHierarchy
+                        , lcGeographyPolicy = GeoGlobal
+                        , lcSupplierAliases = emptyAliasMap
+                        }
+            case findSupplierInIndexedDBs ctx (query "product Y {GLO}| activity Y | Cut-off, U" "" "kg") of
+                CrossDBLinked{cdlrScore = score} -> score `shouldSatisfy` (>= defaultLinkingThreshold)
+                CrossDBNotLinked reason -> expectationFailure $ "Expected link but got: " ++ show reason
+
         it "returns NoNameMatch for an unknown product" $ do
             idb <- loadMin3IndexedDB
             let ctx =
@@ -267,11 +288,12 @@ spec = do
                         , lcGeographyPolicy = GeoGlobal
                         , lcSupplierAliases = emptyAliasMap
                         }
-            -- "product Y {GLO}" compound name with empty location arg
-            -- extractBracketedLocation will find "GLO"
+            -- The same convention, stopping at the geography: the name states
+            -- where the product was bought and no activity. It used to be read
+            -- whole and match nothing, which is why this case stood pending.
             case findSupplierInIndexedDBs ctx (query "product Y {GLO}" "" "kg") of
                 CrossDBLinked{cdlrScore = score} -> score `shouldSatisfy` (>= defaultLinkingThreshold)
-                CrossDBNotLinked _ -> pendingWith "Compound name location extraction may not match"
+                CrossDBNotLinked reason -> expectationFailure $ "Expected link but got: " ++ show reason
 
     -- -----------------------------------------------------------------------
     -- acceptableLocation – table-driven, one case per (policy, kind) cell

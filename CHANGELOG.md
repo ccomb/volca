@@ -86,6 +86,19 @@
   those processes had nothing to do with. Both now read the flows the
   exported processes actually exchange.
 
+- An input designated the way a SimaPro export designates one finds its
+  supplier in another database. Such a row states three things in the one name
+  it has, `product {GLO}| activity | Cut-off, U`, and the linker read the whole
+  string as a product name. No database but the file it came from holds a name
+  of that shape, so those inputs matched nothing at all, where the bare product
+  name would have matched: a file naming `Urea {RER}| market for urea |` had
+  its urea left unanswered beside a database supplying urea. A demand whose
+  name matches nowhere is now asked again for what the designation states, the
+  product plus the activity and the geography it names, which are the two
+  things that tell twenty-seven activities making one product apart. A name
+  that already matched still matches, and a refusal that had candidates, an
+  incompatible unit or a geography the policy turns down, is still the answer.
+
 - The contributing-activities endpoint and its tool publish the total the
   impact routes publish. They read a walk of their own that resolves one world
   factor per flow, which is the wrong reading for a category whose factors
