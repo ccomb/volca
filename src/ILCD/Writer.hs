@@ -9,7 +9,7 @@ a zip of it) with four subdirectories:
 
 @
   processes/      one XML per (activity, product) pair (see 'ilcdProcessUUID')
-  flows/          one XML per tech/bio/waste flow
+  flows/          one XML per flow the processes exchange
   flowproperties/ one XML per unit group (1:1 with units)
   unitgroups/     one XML per unit
 @
@@ -24,9 +24,9 @@ Determinism is the contract:
   @write (parse (write d)) == write d@ holds byte-for-byte.
 
 What round-trips: process UUID, name, location, classifications, processType,
-every exchange (flow ref, direction, amount, location, per-exchange comment), and the
-full flow + unit catalog (names, CAS, biosphere compartment, flow type, the
-flow→unit reference). These are exactly the fields "ILCD.Parser" reads back;
+every exchange (flow ref, direction, amount, location, per-exchange comment), the
+exchanged flows (names, CAS, biosphere compartment, flow type, the flow→unit
+reference) and the unit catalog. These are exactly the fields "ILCD.Parser" reads back;
 fields the parser drops (activity description, synonyms, params, pedigree)
 are not representable in this ILCD profile and are not emitted.
 
@@ -184,7 +184,7 @@ ilcdFiles opts db = sortOn fst (processes ++ flows ++ flowProps ++ unitGroups)
 
     flows =
         [ ("flows/" <> uuidStr (flowKindId fk) <> ".xml", render (flowXML fk unitRef))
-        | (fk, unitRef) <- allFlows db
+        | (fk, unitRef) <- exportedFlows db
         ]
 
     flowProps =
@@ -236,7 +236,7 @@ checkILCDExportable db =
     -- The media the parser's @extractMedium@ inverts back.
     canonicalMedia = [Air, Water, Soil, NaturalResource]
     checkMedia =
-        case [f | f <- M.elems (sdbBioFlows db), notInvertible f] of
+        case [f | (BioKind f, _) <- exportedFlows db, notInvertible f] of
             [] -> Right ()
             (f : _) ->
                 Left $
@@ -332,12 +332,34 @@ writeILCDArchive opts db = checkILCDExportable db >> pure (zipFiles (ilcdFiles o
 -- Flow enumeration (tech ∪ bio ∪ waste), tagged with their unit id
 --------------------------------------------------------------------------------
 
--- | All flows in the database as 'FlowKind' + unit id, sorted by flow UUID.
-allFlows :: SimpleDatabase -> [(FlowKind, UUID)]
-allFlows db =
-    [(TechKind f, tfUnitId f) | f <- M.elems (sdbTechFlows db)]
-        ++ [(BioKind f, bfUnitId f) | f <- M.elems (sdbBioFlows db)]
-        ++ [(WasteKind f, wfUnitId f) | f <- M.elems (sdbWasteFlows db)]
+{- | The flows the package describes, as 'FlowKind' + unit id: those its
+processes exchange, and no others.
+
+A database's flow tables are a vocabulary, wider than what its own processes
+use, and a subset carved out of a larger database keeps the whole of it. Writing
+that vocabulary describes flows the package has no process for, and lets a
+compartment none of them mentions refuse the export.
+-}
+exportedFlows :: SimpleDatabase -> [(FlowKind, UUID)]
+exportedFlows db = filter (exchanged . flowKindId . fst) everyFlow
+  where
+    everyFlow :: [(FlowKind, UUID)]
+    everyFlow =
+        [(TechKind f, tfUnitId f) | f <- M.elems (sdbTechFlows db)]
+            ++ [(BioKind f, bfUnitId f) | f <- M.elems (sdbBioFlows db)]
+            ++ [(WasteKind f, wfUnitId f) | f <- M.elems (sdbWasteFlows db)]
+
+    exchanged :: UUID -> Bool
+    exchanged = (`S.member` exchangedFlowIds db)
+
+-- | Every flow id the database's processes exchange, on all three axes.
+exchangedFlowIds :: SimpleDatabase -> S.Set UUID
+exchangedFlowIds db =
+    S.fromList
+        [ exchangeFlowId ex
+        | act <- M.elems (sdbActivities db)
+        , ex <- exchanges act
+        ]
 
 --------------------------------------------------------------------------------
 -- Process XML
