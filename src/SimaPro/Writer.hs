@@ -87,11 +87,12 @@ import Data.List (partition, sortOn)
 import qualified Data.Map.Strict as M
 
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Database.Allocation (AllocationRefusal (..), asAllocated, describeRefusal)
-import SimaPro.Parser (isMetadataKey, parsePedigreePrefix)
+import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
 import Types
 
 -- ============================================================================
@@ -426,17 +427,57 @@ builder, not silently defaulted to a wrong unit here).
 unitNameOf :: UnitDB -> UUID -> Text
 unitNameOf units uid = maybe "" unitName (M.lookup uid units)
 
-{- | The four flow/unit catalogs an activity is serialized against, gathered
-into one record so the per-section helpers take a single argument instead of
-threading four maps positionally (which invites silent arg-swaps between maps
-of the same shape).
+{- | What an activity is serialized against: the flow and unit catalogs, plus
+the products the file itself makes, which decide whether a row has to designate
+what it buys. Gathered into one record so the per-section helpers take a single
+argument instead of threading four maps positionally (which invites silent
+arg-swaps between maps of the same shape).
 -}
 data Catalogs = Catalogs
     { catTech :: !TechFlowDB
     , catBio :: !BioFlowDB
     , catWaste :: !WasteFlowDB
     , catUnits :: !UnitDB
+    , catProducedHere :: !(S.Set UUID)
+    -- ^ Products the file makes, which its own rows name each other by.
     }
+
+{- | Where a row's product comes from: the geography, and the activity making it
+where one is known. A designation states no activity without a geography, the
+convention having nowhere to put one.
+-}
+data BoughtFrom = BoughtFrom
+    { bfGeography :: !Text
+    , bfActivity :: !(Maybe Text)
+    }
+
+{- | How a row designates its product.
+
+SimaPro gives a row one string for it, and the convention a SimaPro export of
+an EcoSpold 2 database follows packs the product, the geography in braces and
+the activity between bars into that string. Written as the product alone, a row
+buying from outside the file says nothing about which of the activities making
+that product it bought from, and a reader is left ranking candidates where the
+source had the answer.
+
+A name its own parser already reads a location out of designates its supply
+itself, and is left exactly as its source wrote it.
+-}
+designation :: Text -> Maybe BoughtFrom -> Text
+designation product' boughtFrom
+    | isJust (extractLocation product') = product'
+    | otherwise = maybe product' designated boughtFrom
+  where
+    designated :: BoughtFrom -> Text
+    designated from =
+        product' <> " {" <> bfGeography from <> "}" <> maybe "" named (bfActivity from)
+
+    named :: Text -> Text
+    named activity = "| " <> activity <> " |"
+
+-- | A field a source left blank states nothing, and is not written as if it did.
+nonEmpty :: Text -> Maybe Text
+nonEmpty t = if T.null (T.strip t) then Nothing else Just (T.strip t)
 
 -- ============================================================================
 -- Process block serialization
@@ -553,12 +594,23 @@ techInputLine cats TechnosphereExchange{..} = case techRole of
     Coproduct -> Nothing
     AvoidedProduct -> Nothing
   where
+    {- Where the row bought, for a row that has to say it: one whose product no
+    activity of this file makes. Where the maker travels in the same file, the
+    two rows name each other by the product and always have, and designating one
+    side alone would part them. -}
+    boughtFrom :: Maybe BoughtFrom
+    boughtFrom
+        | S.member techFlowId (catProducedHere cats) = Nothing
+        | otherwise = do
+            geography <- statedCode techLocation >>= nonEmpty
+            pure (BoughtFrom geography (claimedName techSupplierClaim))
+
     inputLine :: Maybe Line
     inputLine = do
         flow <- M.lookup techFlowId (catTech cats)
         pure
             Line
-                { lName = tfName flow
+                { lName = designation (tfName flow) boughtFrom
                 , lCompartment = ""
                 , lUnit = unitNameOf (catUnits cats) techUnitId
                 , lAmount = techAmount
@@ -674,6 +726,18 @@ productLines keep cats category exchs =
             row [nm, unit, formatAmount amt, formatAmount share, "not defined", rowCategory, comment]
      in
         map mkRow (sortOn id entries)
+
+{- | The products a set of activities makes. A row buying one of these buys
+from inside the file, which links its rows by product name.
+-}
+productsOf :: M.Map (UUID, UUID) Activity -> S.Set UUID
+productsOf activities =
+    S.fromList
+        [ exchangeFlowId ex
+        | act <- M.elems activities
+        , ex <- exchanges act
+        , exchangeIsReference ex
+        ]
 
 -- | A product output the gate left unsplit: written as a further @Products@ row of its block.
 isCoproduct :: Exchange -> Bool
@@ -836,7 +900,7 @@ byte stream is independent of the underlying 'Map' iteration order.
 serializeSimaProCSV :: WriterConfig -> SimpleDatabase -> Either Text BS.ByteString
 serializeSimaProCSV cfg db@SimpleDatabase{..} = do
     checkSimaProExportable db
-    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits
+    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities)
         acts = sortOn (\a -> (activityName a, activityLocation a)) (M.elems sdbActivities)
         blocks = concatMap (serializeActivity cats) acts
         allLines = headerLines cfg ++ blocks
