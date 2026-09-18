@@ -61,6 +61,21 @@
 
 ### Fixed
 
+- An EcoSpold 2 export names the supplier each input asked for, even where
+  the supplying dataset is not in the file. The writer emitted
+  `activityLinkId` only when the load had resolved the link, so a model
+  exported on its own, with its suppliers deleted, came out with inputs naming
+  a product and nothing else. Read back beside the database those suppliers
+  live in, such an input is matched on the product name and the unit, which
+  for a product made by dozens of activities is a guess: one foreground of
+  twenty-eight activities scored 15 % under its original because an input of
+  medium-voltage electricity landed on a sludge treatment that coproduces
+  some. The identity the source stated is kept through the load whether or not
+  it resolved, so it is now what the writer emits, and that same foreground,
+  exported and read back beside its background, links every input by identity
+  with no candidate to choose between and reproduces every indicator of the
+  original.
+
 - The contributing-activities endpoint and its tool publish the total the
   impact routes publish. They read a walk of their own that resolves one world
   factor per flow, which is the wrong reading for a category whose factors
@@ -164,7 +179,9 @@
   electricity came back buying from a sewage sludge treatment that coproduces
   some, and scored 15 % under the model it was exported from on climate change,
   where it now scores 5 % under. A format with nowhere to write an exchange
-  location, EcoSpold 2, is unaffected.
+  location, EcoSpold 2, is unaffected: it names the supplying dataset outright,
+  and that identity is what its writer now states.
+
 - The unit table spells its units the way the SI writes them, and holds the
   multiples a source commonly writes. The litre gains `L` beside `l`, and
   `kg/L` beside `kg/l`: the SI accepts both symbols, the capital having been
