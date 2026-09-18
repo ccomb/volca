@@ -2408,11 +2408,6 @@ regionalPathOf tables = case mtRegionalActivityWeights tables of
                 \ MethodTables first (mapMethodToTablesCached does this\
                 \ automatically)."
 
-{- | The scaling vector and the weights it multiplies are built from the same
-database, so a length mismatch is a stale cache or the wrong tables paired,
-never a coverage gap. Refused rather than truncated: a shorter vector would
-leave the last activities out of the score, and out of the rows, in silence.
--}
 {- | The per-column sum a long-term policy asks for. 'ExcludeLongTerm' drops
 the delayed emissions from an inventory, and the regionalized path reads
 columns rather than an inventory, so it reads the sum they were left out of.
@@ -2421,6 +2416,11 @@ weightsUnder :: LongTermMode -> RegionalActivityWeights -> U.Vector Double
 weightsUnder IncludeLongTerm = rawWeights
 weightsUnder ExcludeLongTerm = rawWeightsWithoutLongTerm
 
+{- | The scaling vector and the weights it multiplies are built from the same
+database, so a length mismatch is a stale cache or the wrong tables paired,
+never a coverage gap. Refused rather than truncated: a shorter vector would
+leave the last activities out of the score, and out of the rows, in silence.
+-}
 checkScalingLength :: RegionalActivityWeights -> Vector -> Either Text ()
 checkScalingLength raw s
     | U.length s == U.length (rawWeights raw) = Right ()
@@ -3468,6 +3468,10 @@ methodId so the result list follows the input order ('msAllMethods'):
     database – root + each dep DB reached at request time. Closes the
     gap where dep-DB regional CFs were previously invisible.
 
+@inventory@ arrives filtered under @ltMode@, the way a flat score reads it
+everywhere else; the policy is passed for the regional half, which reads
+columns and cannot take a flow out of one.
+
 Which half a method falls in is decided by every database of the set, not by
 the root's: a database whose own mappings caught none of a method's located
 factors puts it in its 'msBatched', and that is a fact about that database's
@@ -3508,7 +3512,7 @@ computeLCIAScoreSetFromTables unitCfg unitDB flowDB ltMode inventory hier perDb 
         -- left to be overwritten, so the two halves carry no key in common.
         batched =
             [ r
-            | r@(mid, _) <- scoreBatched unitCfg unitDB flowDB (msBatched mstRoot) (applyLongTermMode flowDB ltMode inventory)
+            | r@(mid, _) <- scoreBatched unitCfg unitDB flowDB (msBatched mstRoot) inventory
             , not (Set.member mid regionalIds)
             ]
         regional = scoreRegionalCrossDB unitCfg unitDB flowDB ltMode hier regionalEntries perDb

@@ -50,7 +50,7 @@ import Data.Text (Text)
 import Data.UUID (UUID)
 
 import Database.Manager (CollectionName, DatabaseManager (..), getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached)
-import Matrix (Inventory, Vector)
+import Matrix (Vector)
 import Method.Mapping (
     FlowContribution (..),
     LCIAOutcome (..),
