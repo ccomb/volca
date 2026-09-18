@@ -64,6 +64,7 @@ library
                      , Database.CrossLinking
                      , Database.RelinkMapping
                      , Database.MatrixBuild
+                     , Database.Patch
                      , Database.Quality
                      , Database.ComputedQuality
                      , Database.Upload
@@ -236,6 +237,7 @@ test-suite lca-tests
                      , MatrixExportSpec
                      , MethodSpec
                      , MethodPatchSpec
+                     , ExchangePatchSpec
                      , SimaProParserSpec
                      , SimaProRegistryCASSpec
                      , BrightwayExcelSpec

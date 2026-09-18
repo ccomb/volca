@@ -32,7 +32,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel da
 - **Fuzzy search**: Trigram-based typo and stem tolerance on activity and supply-chain name filters
 - **Auto-extracted synonyms**: Synonym pairs extracted automatically from loaded databases and method packages, available for toggling and download
 - **Reference data management**: Flow synonyms, compartment mappings, and unit definitions can be configured in TOML, uploaded via the API, or toggled independently
-- **Fast cache**: Per-database cache co-located with the source path, rebuilt when the cache schema changes or when the unit table or location aliases it was built with are no longer the ones in force (figures in the Performance table below)
+- **Fast cache**: Per-database cache co-located with the source path, rebuilt when the cache schema changes or when what it was read under besides its source files (unit table, location aliases, allocation key, patches) is no longer what is in force (figures in the Performance table below)
 - **Optional access control**: Single-code login with cookie-based session
 
 ---
@@ -154,6 +154,21 @@ allocation = "declared"        # how a multi-output block is divided:
                                # for the second one at runtime with
                                # POST /db/{name}/derive/{newName}?allocation=
 # locationAliases = { "FR" = "France" }   # per-database location renames
+
+# Optional patches adjust the amounts a database states, at load time.
+# Selector fields combine with AND; at least one is required. Exactly one of
+# `scale` (multiply) or `set-value` (replace) per patch. A patch reaches the
+# inputs, the emissions, the waste sent to treatment and the avoided products
+# of a process, never the rows saying what it makes. A `set-value` is in the
+# unit the engine records the row in (a SimaPro row written in g is recorded
+# in kg), and applies to each process a multi-output block was divided into. A patch matching no exchange logs a
+# warning at load time, and a database whose patch list changed is rebuilt
+# from source rather than read from its matrix cache.
+#   [[databases.patches]]
+#   description = "example: the preservative a trellis is no longer treated with"
+#   match = { product-name-contains = "trellis", flow-name-contains = "creosote" }
+#   # other selectors: activity-name-contains, location (exact), flow-name (exact)
+#   set-value = 0.0
 
 [[methods]]
 name = "EF-3.1"

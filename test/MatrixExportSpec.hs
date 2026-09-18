@@ -299,7 +299,7 @@ be read first to know what the answer should be.
 treatmentDatabase :: IO Database
 treatmentDatabase =
     buildDatabaseWithMatrices
-        (BuildInputs defaultUnitConfig mempty Declared)
+        (BuildInputs defaultUnitConfig mempty Declared [])
         SimpleDatabase
             { sdbActivities =
                 M.fromList

@@ -34,7 +34,6 @@ module Database.Loader (
     LoadOptions (..),
     defaultLoadOptions,
     loadDatabaseWithLocationAliases,
-    reportKeyRefusals,
     loadSimaProCSV,
     loadDatabaseWithCrossDBLinking,
     findFilesByExtRecursive,
@@ -164,6 +163,7 @@ import Database.CrossLinking (
     normalizeUnicode,
  )
 import Database.MatrixBuild (findProducer)
+import Database.Patch (applyExchangePatches, describeExchangePatch)
 import Database.Upload (listDirectoryRecursive)
 import EcoSpold.Common (ParsedDataset (..), distributeFiles)
 import EcoSpold.Parser1 (streamParseActivityAndFlowsFromFile1, streamParseAllDatasetsFromFile1)
@@ -521,6 +521,10 @@ History of manual bumps:
      the flow of the workbook's product spelt the same way. Nothing changes
      type, so a cache written just before this would pass the fingerprint and
      keep the two as one flow.
+- 44: what a database was built with now includes the patches applied to its
+     exchanges. The field sits inside a record the fingerprint does not look
+     into, and it changes width, so an old cache would pass the check and every
+     field after it would be read at the wrong offset.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -528,7 +532,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 43
+     in hi `xor` lo `xor` 44
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1116,11 +1120,37 @@ Location aliases map wrongLocation → correctLocation (e.g., "ENTSO" → "ENTSO
 
 The 'UnitConfig' is passed down to parsers so reference-product amounts can be
 normalized to the canonical base unit of their dimension at ingest time.
+
+The patches are applied here, to what the source states, and nowhere later: a
+database rebuilt from the activities of a loaded one (re-staged to edit its
+dependencies) reads amounts that already carry them, and a @scale@ applied
+again there would compound.
 -}
 loadDatabaseWithLocationAliases :: LoadOptions -> FilePath -> IO (Either T.Text SimpleDatabase)
 loadDatabaseWithLocationAliases opts path = do
     loaded <- readSourceUnder opts path
-    either (pure . Left) (\db -> Right db <$ reportKeyRefusals opts db) loaded
+    traverse (\db -> reportKeyRefusals opts db >> patchedUnder opts db) loaded
+
+{- | The database with the configured patches applied, saying what each one
+touched. A patch that matched no exchange is almost certainly a wrong selector
+(a mistyped name, a location spelt as another format spells it), and staying
+silent would leave the database scoring as if the patch had never been
+declared.
+-}
+patchedUnder :: LoadOptions -> SimpleDatabase -> IO SimpleDatabase
+patchedUnder opts db = patched <$ mapM_ reportPatch stats
+  where
+    patched :: SimpleDatabase
+    stats :: [(ExchangePatch, Int)]
+    (patched, stats) = applyExchangePatches (loPatches opts) db
+
+    reportPatch :: (ExchangePatch, Int) -> IO ()
+    reportPatch (patch, 0) =
+        reportProgress Warning $
+            "  [patch] \"" <> T.unpack (describeExchangePatch patch) <> "\" touched 0 exchanges. Check the selector."
+    reportPatch (patch, touched) =
+        reportProgress Info $
+            "  [patch] \"" <> T.unpack (describeExchangePatch patch) <> "\" applied to " <> show touched <> " exchanges"
 
 -- | The load itself, before anything is said about what the key refused.
 readSourceUnder :: LoadOptions -> FilePath -> IO (Either T.Text SimpleDatabase)
@@ -1146,14 +1176,14 @@ readSourceUnder opts path = do
 
 {- | What a load reads besides the files themselves.
 
-Gathered rather than passed one by one: every format loader needs all three,
-and three positional arguments of which two are maps invite a caller to swap
-them.
+Gathered rather than passed one by one: the format loaders need most of them,
+and positional arguments of which two are maps invite a caller to swap them.
 -}
 data LoadOptions = LoadOptions
     { loUnitConfig :: !UC.UnitConfig -- The merged unit table amounts are converted through
     , loLocationAliases :: !(M.Map T.Text T.Text) -- Wrong location -> correct location
     , loAllocation :: !AllocationKey -- How a multi-output block is divided
+    , loPatches :: ![ExchangePatch] -- Declarative adjustments to the amounts the source states
     }
 
 {- | Say what the key this load asked for could not divide.
@@ -1194,6 +1224,7 @@ defaultLoadOptions unitConfig =
         { loUnitConfig = unitConfig
         , loLocationAliases = M.empty
         , loAllocation = Declared
+        , loPatches = []
         }
 
 {- | Say that an EcoSpold 2 dataset divided into several processes will come
@@ -1787,6 +1818,7 @@ builtWithDifference cached current =
         ["unit table" | biUnitConfig cached /= biUnitConfig current]
             ++ ["location aliases" | biLocationAliases cached /= biLocationAliases current]
             ++ ["allocation key" | biAllocation cached /= biAllocation current]
+            ++ ["patches" | biPatches cached /= biPatches current]
 
 -- | Load compressed (.bin.zst) cache file with header validation
 loadCompressedCacheFile :: FilePath -> IO (Maybe Database)
@@ -1902,7 +1934,7 @@ The loading sequence:
 5. Report linking summary with cross-DB statistics
 -}
 loadDatabaseWithCrossDBLinking ::
-    -- | What this database is read under: units, aliases, allocation key
+    -- | What this database is read under: units, aliases, allocation key, patches
     LoadOptions ->
     -- | Pre-built indexes from other databases
     [IndexedDatabase] ->

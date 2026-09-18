@@ -116,7 +116,7 @@ withDatabase csv k = withSystemTempDirectory "source-block" $ \dir -> do
     BS.writeFile path csv
     loaded <- loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig) path
     simpleDb <- either (fail . T.unpack) pure loaded
-    built <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared) simpleDb
+    built <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) simpleDb
     either (fail . T.unpack) k built
 
 -- | Every process of the database, summarised the way a search result is.

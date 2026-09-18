@@ -129,6 +129,7 @@ stubConfig =
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
         , dcAllocation = Declared
+        , dcPatches = []
         , dcSource = Nothing
         }
 
@@ -136,7 +137,7 @@ buildDb :: [((UUID.UUID, UUID.UUID), Activity)] -> [(UUID.UUID, Text)] -> IO Dat
 buildDb acts flows = do
     res <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities = M.fromList acts
                 , sdbTechFlows = M.fromList [(fid, minimalFlow fid name) | (fid, name) <- flows]

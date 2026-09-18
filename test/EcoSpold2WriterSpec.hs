@@ -301,7 +301,7 @@ fixtureWasteCoproduct =
 buildDb :: SimpleDatabase -> IO Database
 buildDb sdb = do
     res <-
-        buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared) sdb
+        buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) sdb
     case res of
         Left err -> error $ "matrix build failed: " ++ T.unpack err
         Right db -> pure db

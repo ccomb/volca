@@ -41,6 +41,15 @@ allocation = "wet mass"
 [databases.locationAliases]
 "FR " = "FR"
 
+[[databases.patches]]
+description = "a patch"
+match = { activity-name-contains = "trellis", product-name-contains = "Trellis system", location = "FR", flow-name = "Pyrene", flow-name-contains = "creosote" }
+set-value = 0.0
+
+[[databases.patches]]
+match = { flow-name = "Other" }
+scale = 0.5
+
 [[methods]]
 name = "EF"
 path = "ef.zip"

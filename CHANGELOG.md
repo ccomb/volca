@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Added
+
+- `[[databases.patches]]`: declarative adjustments to the amounts a database
+  states, the inventory-side sibling of `[[methods.patches]]`. A patch selects
+  exchanges by the process consuming them (`activity-name-contains`,
+  `product-name-contains`, `location`) and by the flow exchanged (`flow-name`,
+  `flow-name-contains`), then either scales the amount (`scale`) or replaces it
+  (`set-value`). It reaches the inputs, the emissions, the waste sent to
+  treatment and the avoided products of a process, never the rows saying what
+  that process makes: those define the unit every other amount is stated per,
+  so rescaling one would restate the whole process rather than adjust a line of
+  it. A `set-value` is stated in the unit the engine records the row in (the
+  SimaPro and Brightway Excel readers record a row written in grams in
+  kilograms), and applies to each process a multi-output block was divided
+  into. A selector part left
+  blank is refused, since it would match every name. A patch that matches no
+  exchange logs a warning, as a method patch does. A database derived or copied
+  from a patched one reads the same files, and takes its source's patches.
+
+  This is for reading a source file against a reference whose own modelling
+  excludes something the file states. Expressing that exclusion in the
+  configuration keeps the load pure and reproducible, and says in the log how
+  many rows each patch touched, where a script rewriting the source file says
+  nothing. The patch list is part of what a database records having been built
+  with, so a matrix cache written under another list is rebuilt instead of
+  being read back with the amounts of the old one.
+
 ### Changed
 
 - Loading a database says which pass is speaking. A database is first linked to

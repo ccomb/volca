@@ -88,7 +88,7 @@ buildFixture :: Compartment -> IO Database
 buildFixture comp = do
     r <-
         DB.buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities = M.singleton (actU, prodU) act
                 , sdbTechFlows = M.singleton prodU (TechnosphereFlow prodU "product" unitU M.empty Nothing Nothing)

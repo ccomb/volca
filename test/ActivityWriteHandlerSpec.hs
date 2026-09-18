@@ -405,6 +405,7 @@ uploadedConfig name dataDir =
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal
         , dcAllocation = Declared
+        , dcPatches = []
         , dcSource = Nothing
         }
 
@@ -457,7 +458,7 @@ buildFixture :: IO Database
 buildFixture = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities = M.singleton (supplierActId, supplierProdId) milkActivity
                 , sdbTechFlows = M.singleton supplierProdId milkFlow

@@ -253,7 +253,7 @@ fixture =
 loadedFixture :: IO (DatabaseManager, Database)
 loadedFixture = do
     manager <- initDatabaseManager defaultConfig NoCache
-    db <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared) fixture >>= either (fail . show) pure
+    db <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) fixture >>= either (fail . show) pure
     solver <-
         createSharedSolver
             fixtureName
@@ -284,6 +284,7 @@ fixtureConfig =
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal
         , dcAllocation = Declared
+        , dcPatches = []
         , dcSource = Nothing
         }
 

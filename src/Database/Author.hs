@@ -102,6 +102,7 @@ import Types (
     mediumText,
     noProperties,
     parseProcessRef,
+    withAmount,
  )
 import UnitConversion (UnitConfig, UnitReading (..), convertUnit, readUnit, unitKey)
 
@@ -596,13 +597,6 @@ matchesProvider :: ProviderKey -> Maybe UUID -> UUID -> Bool
 matchesProvider key linkedActivity linkedFlow = case key of
     ProviderPair activityId productId -> Just activityId == linkedActivity && productId == linkedFlow
     ProviderActivity activityId -> Just activityId == linkedActivity
-
--- | The same exchange, restated. Only the amount moves.
-withAmount :: Double -> Exchange -> Exchange
-withAmount amount ex = case ex of
-    TechnosphereExchange{} -> ex{techAmount = amount}
-    BiosphereExchange{} -> ex{bioAmount = amount}
-    WasteExchange{} -> ex{waAmount = amount}
 
 {- | How a complaint names a selector, phrased like 'describeExchange': the
 author who writes a line and the author who selects one are the same person.

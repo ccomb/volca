@@ -70,6 +70,7 @@ runRawWith unitConfig locationAliases dstDir = do
                         { loUnitConfig = unitConfig
                         , loLocationAliases = locationAliases
                         , loAllocation = Declared
+                        , loPatches = []
                         }
                 , rlSourcePath = dstDir
                 , rlCachePolicy = UseCache -- cache must be written/read

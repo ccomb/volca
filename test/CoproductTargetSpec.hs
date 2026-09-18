@@ -234,7 +234,7 @@ buildFixture :: Activity -> M.Map (UUID, UUID) Activity -> M.Map UUID Technosphe
 buildFixture consumer rows flows = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities = M.insert (consumerActId, consumerProdId) consumer rows
                 , sdbTechFlows = M.insert consumerProdId (techFlow consumerProdId "cheese") flows

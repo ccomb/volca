@@ -219,6 +219,7 @@ mkConfig name =
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
         , dcAllocation = Declared
+        , dcPatches = []
         , dcSource = Nothing
         }
 
@@ -226,7 +227,7 @@ buildOrFail :: SimpleParts -> IO Database
 buildOrFail (SimpleParts acts flows units) = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig M.empty Declared)
+            (BuildInputs defaultUnitConfig M.empty Declared [])
             SimpleDatabase
                 { sdbActivities = acts
                 , sdbTechFlows = flows

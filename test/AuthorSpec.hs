@@ -855,7 +855,7 @@ buildFixtureAt :: UUID -> UUID -> IO Database
 buildFixtureAt actId prodId = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities =
                     M.fromList
@@ -881,7 +881,7 @@ buildTwoProductTreatment :: IO Database
 buildTwoProductTreatment = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities =
                     M.fromList
@@ -910,7 +910,7 @@ buildBareFixture = do
         noBio = act{exchanges = filter isTechnosphereExchange (exchanges act)}
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared)
+            (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
                 { sdbActivities = M.singleton (supplierActId, supplierProdId) noBio
                 , sdbTechFlows = M.singleton supplierProdId (milkFlowAt supplierProdId)

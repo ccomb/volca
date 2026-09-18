@@ -200,7 +200,7 @@ spec = do
 
             result <-
                 buildDatabaseWithMatrices
-                    (BuildInputs defaultUnitConfig mempty Declared)
+                    (BuildInputs defaultUnitConfig mempty Declared [])
                     SimpleDatabase
                         { sdbActivities = activityMap
                         , sdbTechFlows = techFlowDB
@@ -285,7 +285,7 @@ spec = do
 
             result <-
                 buildDatabaseWithMatrices
-                    (BuildInputs defaultUnitConfig mempty Declared)
+                    (BuildInputs defaultUnitConfig mempty Declared [])
                     SimpleDatabase
                         { sdbActivities = activityMap
                         , sdbTechFlows = techFlowDB
@@ -410,7 +410,7 @@ spec = do
 
             result <-
                 buildDatabaseWithMatrices
-                    (BuildInputs defaultUnitConfig mempty Declared)
+                    (BuildInputs defaultUnitConfig mempty Declared [])
                     SimpleDatabase
                         { sdbActivities = activityMap
                         , sdbTechFlows = techFlowDB

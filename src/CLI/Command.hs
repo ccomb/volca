@@ -391,6 +391,7 @@ executeDbUpload fmt manager args = do
                         , dcDeletable = True
                         , dcGeographyPolicy = Types.GeoGlobal
                         , dcAllocation = Types.Declared
+                        , dcPatches = []
                         , dcSource = Nothing
                         }
             addDatabase manager dbConfig
