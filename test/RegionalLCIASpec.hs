@@ -448,3 +448,51 @@ spec = do
             let rows = contributionRowsUnder ExcludeLongTerm db scaling tables
             map (bfName . fcFlow) rows `shouldBe` ["Carbon dioxide"]
             sum (map fcContribution rows) `shouldBe` 220
+
+    describe "regionalizedProcessContributions" $ do
+        -- The same fixture: one flow emitted 10 kg at FR, 20 at DE and 5 at
+        -- GLO, factors 2, 3 and 4, scaled by 1, 2 and 4.
+        let db = mkDB [("FR", 10), ("DE", 20), ("GLO", 5)]
+            mappings = regionalMappings [("FR", 2), ("DE", 3), ("GLO", 4)]
+            tables = buildTables db M.empty mappings
+            scaling = U.fromList [1, 2, 4]
+            byProcess m =
+                regionalizedProcessContributions
+                    kgUnitConfig
+                    (dbUnits db)
+                    (dbBioFlows db)
+                    m
+                    db
+                    scaling
+                    tables
+
+        it "gives each activity the term of the score it is" $
+            byProcess IncludeLongTerm
+                `shouldBe` Right (M.fromList [(0, 20), (1, 120), (2, 80)])
+
+        it "adds up to the score, by construction" $ do
+            let score =
+                    computeRegionalizedLCIAScore
+                        kgUnitConfig
+                        (dbUnits db)
+                        (dbBioFlows db)
+                        IncludeLongTerm
+                        db
+                        scaling
+                        M.empty
+                        tables
+            fmap (sum . M.elems) (byProcess IncludeLongTerm) `shouldBe` score
+            score `shouldBe` Right 220
+
+        it "leaves out an activity that contributed nothing" $ do
+            -- Nothing is demanded of the DE activity, so it is not a row.
+            let quiet =
+                    regionalizedProcessContributions
+                        kgUnitConfig
+                        (dbUnits db)
+                        (dbBioFlows db)
+                        IncludeLongTerm
+                        db
+                        (U.fromList [1, 0, 4])
+                        tables
+            fmap M.keys quiet `shouldBe` Right [0, 2]

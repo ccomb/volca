@@ -61,6 +61,18 @@
 
 ### Fixed
 
+- The contributing-activities endpoint and its tool publish the total the
+  impact routes publish. They read a walk of their own that resolves one world
+  factor per flow, which is the wrong reading for a category whose factors
+  depend on where the flow occurs, so the same process and the same category
+  came out at two different numbers depending on which page asked. On one
+  process: water use 3.52e10 m3-world equivalents against 2.51e10, land use
+  6.72e11 against 7.40e11, acidification and terrestrial eutrophication off by
+  a third and an eighth of a percent. The contribution of one activity to such
+  a score is a term of the score itself, so it is now read from there and the
+  two agree by construction. The walk that re-descended the dependency graph to
+  compute them is gone: the solution already holds what it went looking for.
+
 - The contributing-flows endpoint and the assistant's impact and
   contributing-flows tools publish the total the impact routes publish. They
   read it from the merged inventory with one world factor per flow, which is

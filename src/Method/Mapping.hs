@@ -48,6 +48,7 @@ module Method.Mapping (
     zeroedMatchedCFs,
     fillRegionalActivityWeights,
     regionalizedContributionsCrossDB,
+    regionalizedProcessContributions,
     RegionalActivityWeights (..),
     computeLCIAScore,
     computeLCIAScoreFromTables,
@@ -2703,6 +2704,55 @@ regionalFlowShares ltMode db scalingVec raw =
 
     quantities :: U.Vector Double
     quantities = snd walk
+
+{- | One database's contribution to a score, by the process that made it.
+
+The score is @Σ_a s[a] · w[a]@ over this database's activity columns, and a
+column is one process: the term of that sum /is/ what the process contributed,
+so there is nothing to walk. A database whose mappings caught none of this
+method's located factors is read flat over its own slice instead, the way the
+score reads it, by the walk that resolves one factor per flow.
+
+Returns the local process ids of this database; a caller reaching several has to
+keep them apart, because the same id in two databases is two processes.
+-}
+regionalizedProcessContributions ::
+    UnitConfig ->
+    UnitDB ->
+    BioFlowDB ->
+    -- | What to do with the delayed long-term emissions
+    LongTermMode ->
+    Database ->
+    -- | Scaling vector @s@ for this database
+    Vector ->
+    MethodTables ->
+    Either Text (M.Map ProcessId Double)
+regionalizedProcessContributions unitCfg unitDB flowDB ltMode db scalingVec tables =
+    case regionalPathOf tables of
+        Left err -> Left err
+        Right (Just raw) -> do
+            checkScalingLength raw scalingVec
+            Right (columnTerms raw)
+        Right Nothing ->
+            Right (processContributionsFromTables unitCfg unitDB flowDB ltMode db scalingVec tables)
+  where
+    -- One term of the dot product per process, the zero ones left out: a
+    -- process that contributed nothing is not a row anybody wants. The flat
+    -- branch above keeps them, which no caller can tell apart: a zero sorts
+    -- last under |contribution| and no limit reaches it.
+    columnTerms :: RegionalActivityWeights -> M.Map ProcessId Double
+    columnTerms raw =
+        let weights = weightsUnder ltMode raw
+            actIdx = dbActivityIndex db
+         in M.fromList
+                [ (fromIntegral pid, term)
+                | pid <- [0 .. V.length actIdx - 1]
+                , let !col = fromIntegral (actIdx V.! pid) :: Int
+                , col >= 0
+                , col < U.length weights
+                , let !term = U.unsafeIndex scalingVec col * U.unsafeIndex weights col
+                , term /= 0
+                ]
 
 {- | Turn per-flow shares into the rows a surface publishes, and the flow UUIDs
 the merged metadata has no record of. Same contract as

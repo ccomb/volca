@@ -2024,37 +2024,25 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
         dbManager <- asks aeDbManager
         let lim = fromMaybe 10 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
-        requireFullyLinked dbName db
-        unitCfg <- liftIO $ getMergedUnitConfig dbManager
         (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        sol <-
+            solutionWithDeps dbName db sharedSolver actProcessId
+                >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
-        eContribs <-
-            liftIO $
-                SharedSolver.crossDBProcessContributions
-                    unitCfg
-                    mUnits
-                    mFlows
-                    (DM.mkDepSolverLookup dbManager)
-                    db
-                    dbName
-                    sharedSolver
-                    actProcessId
-                    tables
-                    ltMode
-        case eContribs of
-            Left err -> throwError err422{errBody = BSL.fromStrict $ T.encodeUtf8 err}
-            Right contributions -> do
-                let score = sum (M.elems contributions)
-                    sorted = sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
-                    top = take lim sorted
-                rows <- liftIO $ mapM (mkCrossDBContrib dbManager dbName mFlows mUnits score) top
-                return
-                    ContributingActivitiesResult
-                        { carMethod = methodName method
-                        , carUnit = methodUnit method
-                        , carTotalScore = score
-                        , carActivities = rows
-                        }
+        contributions <-
+            liftIO (Impact.processContributionsOf dbManager collectionName method tables sol)
+                >>= either scoringError pure
+        -- The terms of the score, so their sum is it.
+        let score = sum (M.elems contributions)
+            top = take lim (sortOn (\(_, c) -> negate (abs c)) (M.toList contributions))
+        rows <- liftIO $ mapM (mkCrossDBContrib dbManager dbName mFlows mUnits score) top
+        return
+            ContributingActivitiesResult
+                { carMethod = methodName method
+                , carUnit = methodUnit method
+                , carTotalScore = score
+                , carActivities = rows
+                }
 
 getFlowDetail :: Text -> Text -> AppM FlowDetail
 getFlowDetail dbName flowIdText = do

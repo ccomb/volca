@@ -29,6 +29,7 @@ import Matrix (applyBiosphereMatrix)
 import Method.Mapping
 import qualified Method.Mapping as MM
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..))
+import qualified Method.Types as MT
 import qualified SharedSolver as SS
 import TestHelpers (mkSolverFromDb)
 import Types
@@ -432,3 +433,72 @@ spec = describe "cross-DB regional LCIA" $ do
                             foldr (M.unionWith (+)) M.empty perDbInvs
                     M.toList (SS.csInventory sol)
                         `shouldBe` M.toList reconstructed
+
+    it "reads a method no database locates from the tables the score reads" $ do
+        -- Nothing here is located, so this is the flat score: the merged
+        -- inventory through the ROOT's tables. A dependency's own tables are
+        -- built through its own synonyms and closure and need not agree with
+        -- the root's on a dependency flow, so reading the per-activity rows
+        -- from them would total something the impact routes do not publish.
+        let universal v =
+                [
+                    ( MethodCF
+                        { mcfFlowRef = flowUUID
+                        , mcfFlowName = "Carbon dioxide"
+                        , mcfDirection = Output
+                        , mcfValue = v
+                        , mcfCompartment = Just (MT.Compartment "air" "" "")
+                        , mcfCAS = Nothing
+                        , mcfUnit = "kg"
+                        , mcfConsumerLocation = Nothing
+                        }
+                    , Just (testFlow, ByName)
+                    )
+                ]
+            rootFlat = buildTables rootDb (universal 2)
+            depDisagrees = buildTables depDb (universal 7)
+        mtRegionalizedCF rootFlat `shouldBe` M.empty
+        rootSolver <- mkSolverFromDb rootDb "root"
+        depSolver <- mkSolverFromDb depDb "dep"
+        let depLookup name =
+                pure $
+                    if name == "dep" then Just (depDb, depSolver) else Nothing
+        eRes <-
+            SS.computeInventoryMatrixWithDepsCached
+                kgUnitConfig
+                depLookup
+                rootDb
+                "root"
+                rootSolver
+                0
+        case eRes of
+            Left err -> expectationFailure ("solve failed: " <> show err)
+            Right sol -> do
+                let bySlice tablesOf =
+                        sum
+                            [ sum
+                                ( M.elems
+                                    ( MM.processContributionsFromTables
+                                        kgUnitConfig
+                                        (dbUnits depDb)
+                                        (dbBioFlows depDb)
+                                        IncludeLongTerm
+                                        db
+                                        sc
+                                        (tablesOf n)
+                                    )
+                                )
+                            | (n, db, sc) <- NE.toList (SS.csScalings sol)
+                            ]
+                    flatScore =
+                        loScore
+                            ( computeLCIAScoreFromTables
+                                kgUnitConfig
+                                (dbUnits depDb)
+                                (dbBioFlows depDb)
+                                (SS.csInventory sol)
+                                rootFlat
+                            )
+                flatScore `shouldBe` 2.0
+                bySlice (const rootFlat) `shouldBe` flatScore
+                bySlice (\n -> if n == "root" then rootFlat else depDisagrees) `shouldBe` 7.0
