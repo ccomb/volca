@@ -66,8 +66,8 @@
   only when the load had resolved the link, so a model exported on its own,
   with its suppliers deleted, came out with inputs naming a product and
   nothing else. Read back beside the database those suppliers live in, such an
-  input is matched on the product name, its unit and, where it states one, its
-  location, and a product made by dozens of activities is then a guess: one
+  input is matched on the product name and the unit, which for a product made
+  by dozens of activities is a guess: one
   foreground of twenty-eight activities scored 15 % under its original because
   an input of medium-voltage electricity landed on a sludge treatment that
   coproduces some. The identity the source stated is kept through the load

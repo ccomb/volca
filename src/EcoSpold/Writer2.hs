@@ -390,7 +390,7 @@ renderTechnosphere env ex =
         (reUnitName env (techUnitId ex))
         (reTechSyns env flowId)
         groupLine
-        (statedLink (techActivityLinkId ex) (techSupplierClaim ex))
+        (statedLink ex)
         Nothing
         (techComment ex)
   where
@@ -427,7 +427,7 @@ renderWaste env ex =
         (reUnitName env (waUnitId ex))
         (reWasteSyns env flowId)
         groupLine
-        (statedLink (waActivityLinkId ex) (waSupplierClaim ex))
+        (statedLink ex)
         (Just ("By-product classification", "Waste"))
         (waComment ex)
   where
@@ -475,8 +475,8 @@ is exported without the background it stands on: the link is gone, the claim
 still holds the identity, and writing it is what lets the file relink exactly
 when it is read back beside that background.
 -}
-statedLink :: Maybe UUID.UUID -> SupplierClaim -> Maybe UUID.UUID
-statedLink resolved = (resolved <|>) . claimedId
+statedLink :: Exchange -> Maybe UUID.UUID
+statedLink ex = exchangeActivityLinkId ex <|> claimedId (exchangeSupplierClaim ex)
 
 {- | Shared @intermediateExchange@ emitter for technosphere and waste flows.
 The @activityLinkId@ is emitted only when the exchange names an activity (matching
