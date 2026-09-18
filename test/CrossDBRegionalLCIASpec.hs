@@ -125,6 +125,56 @@ spec = describe "cross-DB regional LCIA" $ do
                     perDb
                     `shouldBe` Right 5.0
 
+    it "a root blind to the method's regional factors is not the method having none" $ do
+        -- The root's tables are built over the flows the root reaches. Let
+        -- them reach none of the ones this method locates, which is what a
+        -- root consuming a dependency and emitting nothing itself looks like
+        -- when its flow closure stops short. Reading the choice of path off
+        -- those tables then says "no regional factors anywhere" and scores the
+        -- dependency's located kilogram with the world factor it does not
+        -- have: 0 instead of 5.
+        let blindRoot = buildTables rootDb []
+        mtRegionalizedCF blindRoot `shouldBe` M.empty
+        rootSolver <- mkSolverFromDb rootDb "root"
+        depSolver <- mkSolverFromDb depDb "dep"
+        let depLookup name =
+                pure $
+                    if name == "dep" then Just (depDb, depSolver) else Nothing
+        eRes <-
+            SS.computeInventoryMatrixWithDepsCached
+                kgUnitConfig
+                depLookup
+                rootDb
+                "root"
+                rootSolver
+                0
+        case eRes of
+            Left err -> expectationFailure ("solve failed: " <> show err)
+            Right sol -> do
+                let perDb =
+                        [ (db, sc, if n == "root" then blindRoot else depTables)
+                        | (n, db, sc) <- NE.toList (SS.csScalings sol)
+                        ]
+                -- What the flat path makes of it, reading the blind root's
+                -- tables over the merged inventory that does hold the kilogram.
+                loScore
+                    ( computeLCIAScoreFromTables
+                        kgUnitConfig
+                        (dbUnits depDb)
+                        (dbBioFlows depDb)
+                        (SS.csInventory sol)
+                        blindRoot
+                    )
+                    `shouldBe` 0
+                -- What the dependency's own tables know.
+                sumRegionalizedLCIAScoreCrossDB
+                    kgUnitConfig
+                    (dbUnits depDb)
+                    (dbBioFlows depDb)
+                    M.empty
+                    perDb
+                    `shouldBe` Right 5.0
+
     it "NEW path: a dep-DB integrity error fails the whole sum, never undercounts" $ do
         -- Same solve as the 5.0 case, but the dep DB's tables carry a
         -- genuine integrity error (regional CFs present, precomputed

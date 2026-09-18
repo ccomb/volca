@@ -27,10 +27,12 @@ filtering applies to the inventory only, so the regionalized path ignores
 dependency now takes that path, so it stops honouring the flag – which is what
 the dependency it mirrors already did.
 
-The dispatch below still asks the /root/ database's tables whether the method is
-regionalized. That reads right now only because those tables are built over the
-root's flow closure and so carry its dependencies' regional factors; it is a
-property of the method, and asking one database's tables for it is incidental.
+Whether a method is scored that way is asked of every database the solution
+reads, not of the root alone. A database's tables answer whether this method's
+regional factors reached the flows /that/ database holds, and the root's
+answered for all of them only as long as its flow closure kept reaching its
+dependencies'. A root blind to them would otherwise score a dependency's
+located emissions with one world factor, or with none.
 -}
 module Impact (
     scoreSolution,
@@ -84,11 +86,10 @@ scoreSolution ::
 scoreSolution dbManager collection method tables sol inventory = do
     unitCfg <- getMergedUnitConfig dbManager
     (mFlows, mUnits) <- getMergedFlowMetadata dbManager
+    perDb <- perDatabaseTables dbManager collection method sol
     label method $
-        if isRegionalized tables
-            then do
-                perDb <- perDatabaseTables dbManager collection method sol
-                traverse evaluate (sumRegionalizedLCIAScoreCrossDB unitCfg mUnits mFlows (dmLocationHierarchy dbManager) perDb)
+        if anyRegionalized perDb
+            then traverse evaluate (sumRegionalizedLCIAScoreCrossDB unitCfg mUnits mFlows (dmLocationHierarchy dbManager) perDb)
             else Right <$> evaluate (loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows inventory tables))
 
 {- | The flows that made that score, each with what it contributed and the
@@ -113,16 +114,18 @@ contributionsOf ::
 contributionsOf dbManager collection method tables sol inventory = do
     unitCfg <- getMergedUnitConfig dbManager
     (mFlows, mUnits) <- getMergedFlowMetadata dbManager
+    perDb <- perDatabaseTables dbManager collection method sol
     label method $
-        if isRegionalized tables
-            then do
-                perDb <- perDatabaseTables dbManager collection method sol
-                pure (regionalizedContributionsCrossDB unitCfg mUnits mFlows perDb)
+        if anyRegionalized perDb
+            then pure (regionalizedContributionsCrossDB unitCfg mUnits mFlows perDb)
             else pure (Right (inventoryContributions unitCfg mUnits mFlows inventory tables))
 
--- | Whether this method's factors depend on where a flow occurs.
-isRegionalized :: MethodTables -> Bool
-isRegionalized = not . M.null . mtRegionalizedCF
+{- | Whether any database of the solution carries factors that depend on where
+a flow occurs. One that carries none is not evidence that the method has none:
+it is evidence about that database's flows.
+-}
+anyRegionalized :: [(Database, Vector, MethodTables)] -> Bool
+anyRegionalized = any (\(_, _, tables) -> not (M.null (mtRegionalizedCF tables)))
 
 -- | Each database of the solution with this method's tables built against it.
 perDatabaseTables ::
