@@ -190,6 +190,17 @@ spec = do
             let act = activity [productRow wheyId 2.0 Coproduct Nothing M.empty, productRow creamId 1.0 Coproduct Nothing M.empty]
             any exchangeIsReference (concatMap exchanges (allocate declaredOn act)) `shouldBe` False
 
+        it "drops a reference listed at zero beside the one the dataset makes" $ do
+            let act = activity [productRow wheyId 0.0 ReferenceProduct Nothing M.empty, productRow cheeseId 1.0 ReferenceProduct Nothing M.empty]
+            [exchangeFlowId ex | p <- NE.toList (allocate declaredOn act), ex <- exchanges p, exchangeIsReference ex]
+                `shouldBe` [cheeseId]
+
+        it "keeps a reference at zero when no reference states an amount, and two that both do" $ do
+            let references exs = length [ex | p <- NE.toList (allocate declaredOn (activity exs)), ex <- exchanges p, exchangeIsReference ex]
+            references [productRow cheeseId 0.0 ReferenceProduct Nothing M.empty] `shouldBe` 1
+            references [productRow cheeseId 1.0 ReferenceProduct Nothing M.empty, productRow wheyId 1.0 ReferenceProduct Nothing M.empty]
+                `shouldBe` 2
+
     describe "asAllocated" $ do
         it "accepts a split process and a single-output activity alike" $ do
             let processes = NE.toList (allocate declaredOn block)
@@ -499,7 +510,14 @@ consumerActId = u "a2"
 -- ---------------------------------------------------------------------------
 
 endToEnd :: Spec
-endToEnd =
+endToEnd = do
+    describe "an EcoSpold 2 dataset listing its activity's other products at zero, loaded" $
+        it "is its own product's process, which a consumer reaches in the unit it asks for" $
+            withSuppliedGas $ \db -> do
+                -- Rows sort by key: the gas producer (aaaa...) is 0, its consumer 1.
+                either (const False) (const True) (Service.resolveScorable db (processIdToText db 0)) `shouldBe` True
+                [(i, j, v) | SparseTriple i j v <- VU.toList (dbTechnosphereTriples db)] `shouldBe` [(0, 1, 0.5)]
+
     describe "an EcoSpold 2 dataset with an unallocated coproduct, loaded" $ do
         it "loads, reads, is refused a score and is named by the quality report" $
             withTwoOutputDataset $ \(simpleDb, db) -> do
@@ -553,6 +571,83 @@ twoOutputsXml =
     \                           intermediateExchangeId=\"dddddddd-dddd-dddd-dddd-dddddddddddd\">\n\
     \        <name xml:lang=\"en\">Milk</name>\n\
     \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \    </flowData>\n\
+    \  </activityDataset>\n\
+    \</ecoSpold>\n"
+
+{- | A gas producer written the way a multi-output activity used to be
+published one product per file: petroleum and condensate listed as references
+at zero around the gas the file is for, in another unit. A consumer asks for
+the gas in m3.
+-}
+withSuppliedGas :: (Database -> IO ()) -> IO ()
+withSuppliedGas k = withSystemTempDirectory "es2-listed-at-zero" $ \dir -> do
+    BS.writeFile (dir </> "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee.spold") gasProducerXml
+    BS.writeFile (dir </> "cccccccc-cccc-cccc-cccc-cccccccccccc_dddddddd-dddd-dddd-dddd-dddddddddddd.spold") gasConsumerXml
+    loaded <- loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig) dir
+    simpleDb <- either (fail . T.unpack) pure loaded
+    built <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) simpleDb
+    either (fail . T.unpack) k built
+
+gasProducerXml :: BS.ByteString
+gasProducerXml =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    \<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold02\">\n\
+    \  <activityDataset>\n\
+    \    <activityDescription>\n\
+    \      <activity id=\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\" activityNameId=\"gas-production\">\n\
+    \        <activityName xml:lang=\"en\">petroleum and gas production</activityName>\n\
+    \      </activity>\n\
+    \      <geography geographyId=\"TEST\"><shortname xml:lang=\"en\">TEST</shortname></geography>\n\
+    \    </activityDescription>\n\
+    \    <flowData>\n\
+    \      <intermediateExchange id=\"oil\" unitId=\"unit-kg\" amount=\"0\"\n\
+    \                           intermediateExchangeId=\"ffffffff-ffff-ffff-ffff-ffffffffffff\">\n\
+    \        <name xml:lang=\"en\">petroleum</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <outputGroup>0</outputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"gas\" unitId=\"unit-m3\" amount=\"1\"\n\
+    \                           intermediateExchangeId=\"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee\">\n\
+    \        <name xml:lang=\"en\">natural gas</name>\n\
+    \        <unitName xml:lang=\"en\">m3</unitName>\n\
+    \        <outputGroup>0</outputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"condensate\" unitId=\"unit-kg\" amount=\"0\"\n\
+    \                           intermediateExchangeId=\"99999999-9999-9999-9999-999999999999\">\n\
+    \        <name xml:lang=\"en\">natural gas condensate</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <outputGroup>0</outputGroup>\n\
+    \      </intermediateExchange>\n\
+    \    </flowData>\n\
+    \  </activityDataset>\n\
+    \</ecoSpold>\n"
+
+gasConsumerXml :: BS.ByteString
+gasConsumerXml =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    \<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold02\">\n\
+    \  <activityDataset>\n\
+    \    <activityDescription>\n\
+    \      <activity id=\"cccccccc-cccc-cccc-cccc-cccccccccccc\" activityNameId=\"heat\">\n\
+    \        <activityName xml:lang=\"en\">heat production, natural gas</activityName>\n\
+    \      </activity>\n\
+    \      <geography geographyId=\"TEST\"><shortname xml:lang=\"en\">TEST</shortname></geography>\n\
+    \    </activityDescription>\n\
+    \    <flowData>\n\
+    \      <intermediateExchange id=\"heat\" unitId=\"unit-mj\" amount=\"1\"\n\
+    \                           intermediateExchangeId=\"dddddddd-dddd-dddd-dddd-dddddddddddd\">\n\
+    \        <name xml:lang=\"en\">heat</name>\n\
+    \        <unitName xml:lang=\"en\">MJ</unitName>\n\
+    \        <outputGroup>0</outputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"fuel\" unitId=\"unit-m3\" amount=\"0.5\"\n\
+    \                           intermediateExchangeId=\"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee\"\n\
+    \                           activityLinkId=\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\">\n\
+    \        <name xml:lang=\"en\">natural gas</name>\n\
+    \        <unitName xml:lang=\"en\">m3</unitName>\n\
     \        <inputGroup>5</inputGroup>\n\
     \      </intermediateExchange>\n\
     \    </flowData>\n\

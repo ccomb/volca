@@ -318,10 +318,16 @@ massShares cfg products = share <$> traverse mass products
     share :: NonEmpty Double -> NonEmpty Double
     share masses = (* (100 / sum masses)) <$> masses
 
-{- | The two rules the EcoSpold parsers used to apply to every dataset: a
-zero-amount coproduct the source states no share for is not an output, and
-an activity with no reference but one non-zero product output is that
-product's process.
+{- | Read a dataset for what it makes, before it is allocated.
+
+A zero-amount product row the source states no share for is not an output:
+a coproduct, and a reference beside another reference that states an amount.
+An EcoSpold 2 file written for one product of a multi-output activity lists
+every product of that activity as a reference and zeroes all but its own.
+Kept, those zeros would leave the process with several references, which the
+gate refuses, and hand its consumers the unit of whichever came first. An
+activity with no reference but one non-zero product output is that product's
+process.
 -}
 normalise :: Activity -> Activity
 normalise act = promote act{exchanges = filter keep (exchanges act)}
@@ -329,9 +335,14 @@ normalise act = promote act{exchanges = filter keep (exchanges act)}
     keep :: Exchange -> Bool
     keep ex = case ex of
         TechnosphereExchange{techRole = Coproduct, techAmount = amount, techShare = Nothing} -> amount /= 0
+        TechnosphereExchange{techRole = ReferenceProduct, techAmount = amount, techShare = Nothing} -> amount /= 0 || not makesSomething
         TechnosphereExchange{} -> True
         BiosphereExchange{} -> True
         WasteExchange{} -> True
+
+    -- Only beside a reference that states an amount is one at zero listed rather than made.
+    makesSomething :: Bool
+    makesSomething = any (\ex -> exchangeIsReference ex && exchangeAmount ex /= 0) (exchanges act)
 
     promote :: Activity -> Activity
     promote a

@@ -525,6 +525,11 @@ History of manual bumps:
      exchanges. The field sits inside a record the fingerprint does not look
      into, and it changes width, so an old cache would pass the check and every
      field after it would be read at the wrong offset.
+- 45: an EcoSpold dataset that lists its activity's other products at zero
+     beside the one it makes keeps that one alone as its reference, where it
+     used to keep them all and be refused a score. Nothing changes type, so a
+     cache written just before this would pass the fingerprint and keep the
+     zeros.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -532,7 +537,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 44
+     in hi `xor` lo `xor` 45
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
