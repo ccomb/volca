@@ -2737,7 +2737,9 @@ regionalizedProcessContributions unitCfg unitDB flowDB ltMode db scalingVec tabl
             Right (processContributionsFromTables unitCfg unitDB flowDB ltMode db scalingVec tables)
   where
     -- One term of the dot product per process, the zero ones left out: a
-    -- process that contributed nothing is not a row anybody wants.
+    -- process that contributed nothing is not a row anybody wants. The flat
+    -- branch above keeps them, which no caller can tell apart: a zero sorts
+    -- last under |contribution| and no limit reaches it.
     columnTerms :: RegionalActivityWeights -> M.Map ProcessId Double
     columnTerms raw =
         let weights = weightsUnder ltMode raw

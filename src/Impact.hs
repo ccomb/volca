@@ -63,6 +63,7 @@ import Method.Mapping (
     applyLongTermMode,
     computeLCIAScoreFromTables,
     inventoryContributions,
+    processContributionsFromTables,
     regionalizedContributionsCrossDB,
     regionalizedProcessContributions,
     sumRegionalizedLCIAScoreCrossDB,
@@ -111,7 +112,7 @@ scoreSolution dbManager collection method tables sol = do
     perDb <- perDatabaseTables dbManager collection method sol
     label method $
         if anyRegionalized perDb
-            then traverse evaluate (sumRegionalizedLCIAScoreCrossDB unitCfg mUnits mFlows ltMode (dmLocationHierarchy dbManager) perDb)
+            then traverse evaluate (sumRegionalizedLCIAScoreCrossDB unitCfg mUnits mFlows ltMode (dmLocationHierarchy dbManager) (map unnamed perDb))
             else Right <$> evaluate (loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows (SharedSolver.csInventory sol) tables))
   where
     ltMode :: LongTermMode
@@ -140,7 +141,7 @@ contributionsOf dbManager collection method tables sol = do
     perDb <- perDatabaseTables dbManager collection method sol
     label method $
         if anyRegionalized perDb
-            then pure (regionalizedContributionsCrossDB unitCfg mUnits mFlows ltMode perDb)
+            then pure (regionalizedContributionsCrossDB unitCfg mUnits mFlows ltMode (map unnamed perDb))
             else pure (Right (inventoryContributions unitCfg mUnits mFlows (SharedSolver.csInventory sol) tables))
   where
     ltMode :: LongTermMode
@@ -150,8 +151,8 @@ contributionsOf dbManager collection method tables sol = do
 a flow occurs. One that carries none is not evidence that the method has none:
 it is evidence about that database's flows.
 -}
-anyRegionalized :: [(Database, Vector, MethodTables)] -> Bool
-anyRegionalized = any (\(_, _, tables) -> not (M.null (mtRegionalizedCF tables)))
+anyRegionalized :: [(Text, Database, Vector, MethodTables)] -> Bool
+anyRegionalized = any (\(_, _, _, tables) -> not (M.null (mtRegionalizedCF tables)))
 
 {- | The activities that made that score, each with what it contributed.
 
@@ -161,6 +162,12 @@ so the term is what that process contributed and there is nothing to walk. A
 database whose tables caught none of the method's located factors is read flat
 over its own slice, as the score reads it.
 
+Same dispatch as the other two, and for the same reason: a method no database
+locates is scored from the merged inventory with the root's tables, so its
+activities are read from each slice with those same tables. Read with each
+database's own, they would answer a total the impact routes do not publish,
+because a root's tables and a dependency's need not agree on a dependency flow.
+
 A process id is local to its database, so the key names both: the same id in
 two databases is two processes.
 -}
@@ -168,21 +175,26 @@ processContributionsOf ::
     DatabaseManager ->
     CollectionName ->
     Method ->
+    -- | The root's tables, which a method no database locates is scored from
+    MethodTables ->
     SharedSolver.CrossDBSolution ->
     IO (Either Text (M.Map (Text, ProcessId) Double))
-processContributionsOf dbManager collection method sol = do
+processContributionsOf dbManager collection method tables sol = do
     unitCfg <- getMergedUnitConfig dbManager
     (mFlows, mUnits) <- getMergedFlowMetadata dbManager
     perDb <- perDatabaseTables dbManager collection method sol
     let ltMode = SharedSolver.csLongTerm sol
-        ofDb (name, (db, sv, tables)) =
+        regional (name, db, sv, dbTables) =
             M.mapKeys (name,)
-                <$> regionalizedProcessContributions unitCfg mUnits mFlows ltMode db sv tables
+                <$> regionalizedProcessContributions unitCfg mUnits mFlows ltMode db sv dbTables
+        flat (name, db, sv, _) =
+            M.mapKeys (name,) $
+                processContributionsFromTables unitCfg mUnits mFlows ltMode db sv tables
     label method $
-        pure (M.unionsWith (+) <$> traverse ofDb (zip names perDb))
-  where
-    names :: [Text]
-    names = [n | (n, _, _) <- NE.toList (SharedSolver.csScalings sol)]
+        pure $
+            if anyRegionalized perDb
+                then M.unionsWith (+) <$> traverse regional perDb
+                else Right (M.unionsWith (+) (map flat perDb))
 
 {- | The flows of an inventory the merged metadata has no record of.
 
@@ -207,17 +219,24 @@ warnUnknownFlowIds surface unknown =
                 <> " inventory flow UUID(s) absent from merged FlowDB – characterization incomplete. Samples: "
                 <> show (take 3 unknown)
 
--- | Each database of the solution with this method's tables built against it.
+{- | Each database of the solution, named, with this method's tables built
+against it. Named because a process id means nothing without the database it
+belongs to; the scoring calls drop it with 'unnamed'.
+-}
 perDatabaseTables ::
     DatabaseManager ->
     CollectionName ->
     Method ->
     SharedSolver.CrossDBSolution ->
-    IO [(Database, Vector, MethodTables)]
+    IO [(Text, Database, Vector, MethodTables)]
 perDatabaseTables dbManager collection method sol =
     forM (NE.toList (SharedSolver.csScalings sol)) $ \(n, d, sv) -> do
         tbls <- mapMethodToTablesCached dbManager n collection d method
-        pure (d, sv, tbls)
+        pure (n, d, sv, tbls)
+
+-- | The three a per-database score takes, the name dropped.
+unnamed :: (Text, Database, Vector, MethodTables) -> (Database, Vector, MethodTables)
+unnamed (_, db, sv, tables) = (db, sv, tables)
 
 -- | Name the method in front of whatever went wrong, once for both paths.
 label :: Method -> IO (Either Text a) -> IO (Either Text a)

@@ -2109,7 +2109,8 @@ callGetContributingActivities dbManager mBaseUrl rid args =
                     (ldSharedSolver ld)
                     (raPid ra)
         sol <- liftIO (Impact.withLongTermPolicy dbManager ltMode solved)
-        contributions <- ExceptT (Impact.processContributionsOf dbManager collection method sol)
+        tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
+        contributions <- ExceptT (Impact.processContributionsOf dbManager collection method tables sol)
         -- The terms of the score, so their sum is it.
         let score = sum (M.elems contributions)
             sorted = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)

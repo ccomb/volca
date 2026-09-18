@@ -2028,8 +2028,9 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
         sol <-
             solutionWithDeps dbName db sharedSolver actProcessId
                 >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
+        tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
         contributions <-
-            liftIO (Impact.processContributionsOf dbManager collectionName method sol)
+            liftIO (Impact.processContributionsOf dbManager collectionName method tables sol)
                 >>= either scoringError pure
         -- The terms of the score, so their sum is it.
         let score = sum (M.elems contributions)
