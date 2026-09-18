@@ -21,7 +21,7 @@ every case: treating waste adds burden, it never subtracts it.
 -}
 module WasteTreatmentSignSpec (spec) where
 
-import API.Types (ExchangeWithUnit (..), SupplyChainEntry (..), SupplyChainResponse (..))
+import API.Types (Aggregation (..), ExchangeWithUnit (..), SupplyChainEntry (..), SupplyChainResponse (..))
 import Data.List (elemIndex)
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
@@ -34,6 +34,7 @@ import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, d
 import Database.Loader (findAllCrossDBLinks)
 import Matrix (computeInventoryMatrix, computeScalingVector)
 import Service (ActivityFilterCore (..), Edges (..), SupplyChainFilter (..), buildCrossDBLinkMap, buildSupplyChainFromScalingVector, toExchangeWithUnit)
+import qualified Service.Aggregate as Agg
 import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached)
 import SynonymDB (emptySynonymDB)
 import Test.Hspec
@@ -195,6 +196,31 @@ scoreOf name key acts = do
         Nothing -> fail (T.unpack name <> ": activity not interned")
         Just pid -> co2Of <$> (either (fail . show) pure =<< computeInventoryMatrix db (fromIntegral pid))
 
+{- | The total the aggregated consumption rows report for an activity asked as
+the functional unit. The third readout that states a quantity as a scaling
+times the root's reference amount, and the one no other test here covers.
+-}
+consumptionTotalOf :: T.Text -> (UUID, UUID) -> M.Map (UUID, UUID) Activity -> IO Double
+consumptionTotalOf name key acts = do
+    db <- buildDB name acts
+    case processIdOf db key of
+        Nothing -> fail (T.unpack name <> ": activity not interned")
+        Just pid -> do
+            solver <- mkSolverFromDb db "root"
+            agg <-
+                Agg.aggregate
+                    defaultUnitConfig
+                    shippedGeographies
+                    (dbBioFlows db)
+                    (dbUnits db)
+                    db
+                    "root"
+                    solver
+                    (\_ -> pure Nothing)
+                    (processIdToText db (fromIntegral pid))
+                    (Agg.emptyAggregateParams Agg.ScopeConsumption)
+            either (fail . show) (pure . aggFilteredTotal) agg
+
 {- | The quantity the supply chain reports for the one supplier of an activity
 asked as the functional unit.
 -}
@@ -334,6 +360,14 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
                 (tA, wW)
                 (M.fromList [((tA, wW), treatmentBuyingY ReferenceInput 1.0), ((pA, yY), supplierOfY)])
         withinTolerance 1.0e-9 0.5 quantity `shouldBe` True
+
+    it "aggregates the same purchase as a consumption of 0.5" $ do
+        total <-
+            consumptionTotalOf
+                "consumption-negative-output"
+                (tA, wW)
+                (M.fromList [((tA, wW), treatmentBuyingY ReferenceProduct (-1.0)), ((pA, yY), supplierOfY)])
+        withinTolerance 1.0e-9 0.5 total `shouldBe` True
 
     it "intra-DB ILCD (positive ReferenceInput) scores +6" $ do
         score <-
