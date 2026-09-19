@@ -2213,18 +2213,22 @@ collectUnlinkedProductNames db =
 
 {- | Supplier demands a dependency answers, counted as demands rather than as
 links. A link stands for one demand at most, so several links made at one
-consumer triple answer no more than the demands made there, and a link made for
-an input of zero or a waste output answers none: neither is a demand
-('isSupplierDemand'). Counting the links instead let a database with as many
-such links as unanswered demands report itself complete and ready, while the
-impact routes refused it.
+consumer triple answer no more than the demands made there, and a waste output
+answers none: it is no demand ('isSupplierDemand'). Counting the links instead
+let a database with as many such links as unanswered demands report itself
+complete and ready, while the impact routes refused it.
+
+A link carrying no amount is left out for the same reason the solve leaves it
+out ('Matrix.accumulateDepDemandsWith' drops a demand of zero): counted, the
+link made for an input of zero would answer the demand of a sibling input
+asking for the same product at the same consumer.
 -}
 countAnsweredDemands :: SimpleDatabase -> [CrossDBLink] -> Int
 countAnsweredDemands db links =
     sum [min n (M.findWithDefault 0 triple covered) | (triple, n) <- M.toList demands]
   where
     covered :: M.Map (UUID.UUID, UUID.UUID, UUID.UUID) Int
-    covered = crossDBCoveredCounts links
+    covered = crossDBCoveredCounts (filter ((/= 0) . cdlCoefficient) links)
 
     demands :: M.Map (UUID.UUID, UUID.UUID, UUID.UUID) Int
     demands =
@@ -2536,9 +2540,10 @@ gapEntries db edges =
             }
 
 {- | Assemble the report. Header counts reuse the setup-page predicates
-('countTotalTechInputs' / 'countUnlinkedExchanges'); 'grUnresolvedEdges' is the
-edge-accurate count (per-triple coverage), so it can sit below the setup page's
-coarse @unlinked - crossDBLinks@ difference when waste-output links exist.
+('countTotalTechInputs' / 'countUnlinkedExchanges'), and 'grUnresolvedEdges' is
+the per-triple count the setup page now reads too ('countAnsweredDemands'), so
+the two agree. 'grCrossDBLinks' stays a count of links: this report is about
+the edges themselves.
 -}
 buildGapReport :: T.Text -> SimpleDatabase -> Int -> [GapEdge] -> GapReport
 buildGapReport dbName db nLinks edges =
