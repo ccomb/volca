@@ -54,6 +54,7 @@ module Database.Loader (
     collectUnlinkedProductNames,
 
     -- * Database Analysis
+    countAnsweredDemands,
     countTotalTechInputs,
     countUnlinkedExchanges,
     collectDanglingProductNames,
@@ -2106,7 +2107,7 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig locationHier policy 
 
             -- Report statistics
             let !stats' = stats{cdlTotalInputs = totalInputs}
-            reportCrossDBLinkingStats (M.size (sdbActivities db)) stats'
+            reportCrossDBLinkingStats db stats'
 
             -- Return the original database unchanged, along with the cross-DB links
             -- The links will be stored in the Database.dbCrossDBLinks field later
@@ -2209,6 +2210,32 @@ collectUnlinkedProductNames db =
         , not (hasInternalProducer db ex)
         , Just flow <- [M.lookup (exchangeFlowId ex) (sdbTechFlows db)]
         ]
+
+{- | Supplier demands a dependency answers, counted as demands rather than as
+links. A link stands for one demand at most, so several links made at one
+consumer triple answer no more than the demands made there, and a link made for
+an input of zero or a waste output answers none: neither is a demand
+('isSupplierDemand'). Counting the links instead let a database with as many
+such links as unanswered demands report itself complete and ready, while the
+impact routes refused it.
+-}
+countAnsweredDemands :: SimpleDatabase -> [CrossDBLink] -> Int
+countAnsweredDemands db links =
+    sum [min n (M.findWithDefault 0 triple covered) | (triple, n) <- M.toList demands]
+  where
+    covered :: M.Map (UUID.UUID, UUID.UUID, UUID.UUID) Int
+    covered = crossDBCoveredCounts links
+
+    demands :: M.Map (UUID.UUID, UUID.UUID, UUID.UUID) Int
+    demands =
+        M.fromListWith
+            (+)
+            [ ((actUUID, prodUUID, exchangeFlowId ex), 1 :: Int)
+            | ((actUUID, prodUUID), act) <- M.toList (sdbActivities db)
+            , ex <- exchanges act
+            , isSupplierDemand ex
+            , not (hasInternalProducer db ex)
+            ]
 
 -- | Count supplier demands with no resolved internal producer.
 countUnlinkedExchanges :: SimpleDatabase -> Int
@@ -2812,10 +2839,11 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows 
     flowName = maybe "" wfName (M.lookup fid wasteFlowDb)
 
 -- | Report cross-database linking statistics
-reportCrossDBLinkingStats :: Int -> CrossDBLinkingStats -> IO ()
-reportCrossDBLinkingStats nActivities stats = do
-    let !nInputs = cdlTotalInputs stats
-        !nCrossDB = crossDBLinksCount stats
+reportCrossDBLinkingStats :: SimpleDatabase -> CrossDBLinkingStats -> IO ()
+reportCrossDBLinkingStats db stats = do
+    let !nActivities = M.size (sdbActivities db)
+        !nInputs = cdlTotalInputs stats
+        !nCrossDB = countAnsweredDemands db (cdlLinks stats)
         !nUnresolved = unresolvedCount stats
         !nInternal = max 0 (nInputs - nCrossDB - nUnresolved)
         !nResolved = nInternal + nCrossDB

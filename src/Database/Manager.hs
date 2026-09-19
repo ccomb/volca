@@ -2112,7 +2112,7 @@ loadDatabaseRawWithCrossDB RawLoad{..} = do
         UseCache -> Loader.loadCachedDatabaseWithMatrices rlDbName rlSourcePath inputs
     case cacheVerdict rlOtherIndexes mCachedDb of
         Fresh db -> do
-            Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
+            Loader.reportCrossDBLinkingStats (toSimpleDatabase db) (dbLinkingStats db)
             return $ Right (db, FromCache)
         Stale -> do
             reportProgress Info "Cache has unresolved links, rebuilding with available dependencies..."
@@ -3233,6 +3233,8 @@ data LinkCounts = LinkCounts
     , lcTotalInputs :: !Int
     , lcUnlinked :: !Int
     , lcCrossDBLinks :: !Int
+    -- ^ Demands a dependency answered, never the links made
+    -- ('Loader.countAnsweredDemands').
     }
 
 -- | Inputs resolved inside the database itself.
@@ -3250,7 +3252,7 @@ stagedLinkCounts staged =
         { lcActivityCount = M.size (sdbActivities sdb)
         , lcTotalInputs = Loader.countTotalTechInputs sdb
         , lcUnlinked = Loader.countUnlinkedExchanges sdb
-        , lcCrossDBLinks = Loader.crossDBLinksCount (sdLinkingStats staged)
+        , lcCrossDBLinks = Loader.countAnsweredDemands sdb (Loader.cdlLinks (sdLinkingStats staged))
         }
   where
     sdb :: SimpleDatabase
@@ -3271,7 +3273,7 @@ loadedLinkCounts db =
         { lcActivityCount = fromIntegral (dbActivityCount db)
         , lcTotalInputs = Loader.countTotalTechInputs sdb
         , lcUnlinked = Loader.countUnlinkedExchanges sdb
-        , lcCrossDBLinks = length (dbCrossDBLinks db)
+        , lcCrossDBLinks = Loader.countAnsweredDemands sdb (dbCrossDBLinks db)
         }
   where
     sdb = toSimpleDatabase db

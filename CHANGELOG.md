@@ -114,6 +114,14 @@
 
 ### Fixed
 
+- A database is complete when its demands are answered, not when it made as many
+  links as it has demands. The setup page counted the links a dependency pass
+  made, and a link made for an input of zero or for waste sent to treatment is
+  not the answer to a demand: a database with as many of those as it had
+  unanswered demands reported itself complete and ready, while an impact
+  computation on it answered 422. Several links made at one input count as the
+  one demand they answer too.
+
 - An input of zero that no dependency supplies is no longer counted as an unmet
   demand. An EcoSpold 2 file that lists inputs at zero with no supplier named
   loaded ready, but read back from its matrix cache it listed thousands of
