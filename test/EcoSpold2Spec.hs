@@ -109,6 +109,12 @@ spec = describe "per-exchange comments" $ do
             withWastePatternsFixture $ \ParsedDataset{pdActivity = act} ->
                 [bioDirection e | e@BiosphereExchange{} <- exchanges act]
                     `shouldBe` [Emission, Emission]
+        -- A consequential system model files residual wood and the venting of a
+        -- gas under "social". Read as no medium, the flow lost its compartment.
+        it "keeps a flow filed under the 'social' medium in that compartment" $
+            withDatasetFixture socialXml $ \ParsedDataset{pdBioFlows = bios} ->
+                [bfCompartment f | f <- bios, bfName f == "Carbon dioxide"]
+                    `shouldBe` [Just (Compartment Social (Just "unspecified"))]
         it "routes an intermediate classified 'By-product:Waste' to WasteExchange" $
             withWastePatternsFixture $ \ParsedDataset{pdActivity = act} -> do
                 let wasteInputs = [e | e@WasteExchange{waIsInput = True} <- exchanges act]
@@ -690,9 +696,13 @@ propertiesOf flowId act =
         ]
 
 withWastePatternsFixture :: (ParsedDataset -> IO ()) -> IO ()
-withWastePatternsFixture k = withSystemTempDirectory "es2-waste-spec" $ \dir -> do
+withWastePatternsFixture = withDatasetFixture wastePatternsXml
+
+-- | Parse one dataset written from these bytes.
+withDatasetFixture :: BS.ByteString -> (ParsedDataset -> IO ()) -> IO ()
+withDatasetFixture xml k = withSystemTempDirectory "es2-waste-spec" $ \dir -> do
     let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
-    BS.writeFile path wastePatternsXml
+    BS.writeFile path xml
     result <- streamParseActivityAndFlowsFromFile path
     case result of
         Left err -> expectationFailure $ "Parse failed: " ++ err
@@ -762,6 +772,15 @@ wastePatternsXml =
     \    </flowData>\n\
     \  </activityDataset>\n\
     \</ecoSpold>\n"
+
+-- | The same dataset with its genuine emission filed under the @social@ medium.
+socialXml :: BS.ByteString
+socialXml =
+    TE.encodeUtf8 $
+        T.replace
+            "<compartment xml:lang=\"en\">air</compartment>"
+            "<compartment xml:lang=\"en\">social</compartment>"
+            (TE.decodeUtf8 wastePatternsXml)
 
 {- | A waste-treatment / market-for-waste activity whose reference flow is itself
 waste: negative amount, outputGroup="0", tagged By-product classification=Waste.

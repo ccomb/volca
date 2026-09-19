@@ -690,6 +690,7 @@ bioSection cats ex@BiosphereExchange{bioDirection = dir}
         InventoryIndicator -> SecAir
         Economic -> SecAir
         Waste -> SecAir
+        Social -> SecAir
 bioSection _ TechnosphereExchange{} = Nothing
 bioSection _ WasteExchange{} = Nothing
 

@@ -122,6 +122,13 @@
   first load had skipped them. They are still linked when a dependency answers
   them, so an author who gives one an amount finds the link in place.
 
+- An EcoSpold 2 flow filed under the medium `social`, which a consequential
+  system model uses for residual wood and the venting of a gas, keeps its
+  compartment. It was read with none and reported as an unknown medium, so a
+  matrix export listed it without a compartment. `social` is now one of the
+  media a compartment can name, on the wire as everywhere else. A matrix cache
+  written before this is rebuilt.
+
 - Two subcompartments are now spelt one way whichever format names them, so a
   flow reaches the factor a method writes for its subcompartment instead of the
   unspecified one. High altitude was `lower stratosphere + upper troposphere`

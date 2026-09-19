@@ -534,6 +534,10 @@ History of manual bumps:
      unit of the product it listed last. Nothing changes type, so a cache
      written just before this would pass the fingerprint and keep the other
      product's unit.
+- 47: an EcoSpold 2 flow filed under the medium @social@ keeps its compartment,
+     where it used to be read with none. Nothing changes type, so a cache
+     written just before this would pass the fingerprint and keep the flow
+     without its compartment.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -541,7 +545,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 46
+     in hi `xor` lo `xor` 47
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
