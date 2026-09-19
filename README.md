@@ -292,6 +292,10 @@ A flow reads a factor at three places, in this order, and nowhere else:
 A flow that states no subcompartment is an `unspecified` emission. The engine
 borrows no factor across subcompartments beyond these three: a method that
 means a sea or long-term emission to count for nothing writes that line.
+The same places decide which database flow a method line is matched to: the
+flow that reads it first, and none when no flow reads it. A line whose name
+ends in `*` and that is written at `unspecified` selects the flows filed at
+`unspecified`, not those of every subcompartment.
 `explain-cf` names the step that answered (`exact_name`, `compartment_default`,
 `if_absent`, …).
 
