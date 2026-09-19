@@ -31,6 +31,39 @@
 
 ### Changed
 
+- A flow reads a characterization factor written at another subcompartment
+  only where the data says so. It used to take whatever the engine judged
+  close: the method's unspecified line, its long-term default, a value the
+  substance happened to carry in a single subcompartment, or whatever the CAS
+  bridge found anywhere in the medium, minus two vetoes for the sea and for
+  long-term groundwater. Under a method taken from a complete matrix, which
+  gives nothing for chromium VI in long-term groundwater or for carbon dioxide
+  emitted at ground level in its aircraft category, that lent factors the
+  matrix does not contain. A flow now reads a factor at three places and
+  nowhere else, in this order: its own subcompartment, the line its substance
+  writes for the whole medium (what `(unspecified)` means in the SimaPro CSV
+  format), and the place an `if_absent` row of the compartment mapping sends
+  it to. In an ILCD package, a JSON-LD package or this engine's CSV format,
+  `unspecified` names one subcompartment like any other. README, "How a flow
+  meets a factor's subcompartment", says it for method and database authors.
+
+  The compartment mapping takes an optional seventh column, `kind`: `same`
+  (the default) for one place written two ways, `if_absent` for a
+  correspondence between two vocabularies that holds only under a method whose
+  collection never writes the first place. The built-in table gains five such
+  rows, from the published EcoSpold 2 mapping of the EF 3.1 flow list: forest
+  and industrial soil read non-agricultural soil, groundwater reads fresh
+  water, and long-term groundwater and long-term non-urban air read the
+  long-term unspecified line. `ground-` is now spelt `groundwater`, and the
+  ILCD non-agricultural soil keeps its own name: both used to be merged into a
+  neighbour for every method, so that under a method from the EcoSpold 2
+  matrix a groundwater release of 1,1,1-trichloroethane took the surface-water
+  factor of 1 700 instead of its own 0 (data version 5).
+
+  `explain-cf` names the new step `if_absent`; `long_term_default` and
+  `subcompartment_blind` no longer occur, and no step is `vetoed`. The `veto`
+  field of a step stays, always empty, and goes in 0.15.
+
 - Loading a database says which pass is speaking. A database is first linked to
   itself, then to its dependencies, and the first pass used to call everything
   it had not answered a missing supplier, at warning level, listing products the
