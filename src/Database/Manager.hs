@@ -3233,8 +3233,9 @@ data LinkCounts = LinkCounts
     , lcTotalInputs :: !Int
     , lcUnlinked :: !Int
     , lcCrossDBLinks :: !Int
-    -- ^ Demands a dependency answered, never the links made
-    -- ('Loader.countAnsweredDemands').
+    {- ^ Demands a dependency answered, never the links made
+    ('Loader.countAnsweredDemands').
+    -}
     }
 
 -- | Inputs resolved inside the database itself.
