@@ -534,6 +534,10 @@ History of manual bumps:
      unit of the product it listed last. Nothing changes type, so a cache
      written just before this would pass the fingerprint and keep the other
      product's unit.
+- 47: an EcoSpold 2 flow filed under the medium @social@ keeps its compartment,
+     where it used to be read with none. Nothing changes type, so a cache
+     written just before this would pass the fingerprint and keep the flow
+     without its compartment.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -541,7 +545,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 46
+     in hi `xor` lo `xor` 47
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -2727,8 +2731,11 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
             CrossDBNotLinked blocker
                 -- An input designating by its product row reports a rich blocker;
                 -- one that named an identity and matched nothing (no identity, no
-                -- attribute match) is left for the dangling scan.
+                -- attribute match) is left for the dangling scan. An input of zero
+                -- is linked when a supplier answers it, but one that finds none
+                -- leaves no demand unmet ('isSupplierDemand').
                 | claimsAnActivityUUID claim -> mempty
+                | not (isSupplierDemand ex) -> mempty
                 | otherwise -> unresolvedStats flow blocker
     unresolvedStats flow blocker =
         let unresolved = case blocker of

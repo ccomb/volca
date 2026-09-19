@@ -209,7 +209,8 @@ distinct one, so each product becomes its own process dataset.
 * /Media this classification cannot name./ 'compartmentBlock' emits
   @"Emissions to <medium>"@ for any non-resource medium, but the parser's
   @extractMedium@ only inverts the air\/water\/soil\/natural-resource phrasings.
-  A flow of any other medium ('Waste', 'InventoryIndicator', 'Economic')
+  A flow of any other medium ('Waste', 'InventoryIndicator', 'Economic',
+  'Social')
   re-imports under a different compartment, silently shifting LCIA scores.
 
 * /Empty classification levels./ 'classificationBlock' joins levels with @"/"@

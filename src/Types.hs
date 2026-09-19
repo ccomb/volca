@@ -94,7 +94,7 @@ and every reader and writer that needed them to agree carried its own list of
 spellings. The medium is the closed part; the subcompartment underneath it
 ("high. pop.", "river water") is genuinely open and stays 'Text'.
 
-'Economic', 'InventoryIndicator' and 'Waste' are not media in the physical
+'Economic', 'InventoryIndicator', 'Waste' and 'Social' are not media in the physical
 sense. They are what the sources file those flows under, and a flow has to keep
 saying which it is for the readers and writers that bucket by medium.
 -}
@@ -113,6 +113,11 @@ data Medium
       technosphere side.
       -}
       Waste
+    | {- | What a consequential system model files the flows it tracks outside
+      the physical environment under, such as residual wood or the venting of
+      a gas.
+      -}
+      Social
     deriving (Eq, Ord, Show, Enum, Bounded, Generic, NFData, Store)
     deriving anyclass (ToSchema)
 
@@ -129,6 +134,7 @@ mediumText = \case
     InventoryIndicator -> "inventory indicator"
     Economic -> "economic"
     Waste -> "waste"
+    Social -> "social"
 
 {- | Read a medium as any format writes it. Case and surrounding space are
 ignored; @raw@, @resource@ and @resources@ are the three ways the formats name
@@ -153,6 +159,7 @@ parseMedium raw = case T.toLower (T.strip raw) of
     "inventory indicator" -> Right InventoryIndicator
     "economic" -> Right Economic
     "waste" -> Right Waste
+    "social" -> Right Social
     other -> Left other
 
 -- | On the wire a medium is its canonical spelling, and reads back from any.

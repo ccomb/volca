@@ -683,13 +683,15 @@ bioSection cats ex@BiosphereExchange{bioDirection = dir}
     sectionForMedium = \case
         Water -> SecWater
         Soil -> SecSoil
-        -- 'checkSimaProExportable' rejects every medium but air, water and soil
-        -- at the export boundary, so a real export only ever lands air here.
+        -- 'checkSimaProExportable' refuses an emission to any medium but air,
+        -- water and soil, waste and inventory indicators aside, so the other
+        -- arms never meet an emission in a real export.
         Air -> SecAir
         NaturalResource -> SecAir
         InventoryIndicator -> SecAir
         Economic -> SecAir
         Waste -> SecAir
+        Social -> SecAir
 bioSection _ TechnosphereExchange{} = Nothing
 bioSection _ WasteExchange{} = Nothing
 
