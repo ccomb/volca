@@ -863,8 +863,8 @@ data ExplainedMatchAPI = ExplainedMatchAPI
 -- | One rung of the cascade, and what it made of the flow.
 data ExplainedStepAPI = ExplainedStepAPI
     { estRung :: Text
-    , estResult :: Text -- "hit" | "miss" | "not_applicable" | "vetoed" | "ambiguous"
-    , estVeto :: Maybe Text -- Which rule vetoed, when result is "vetoed"
+    , estResult :: Text -- "hit" | "miss" | "not_applicable" | "ambiguous"
+    , estVeto :: Maybe Text -- Always absent: no rung vetoes any more. Dropped in 0.15.
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ExplainedStepAPI)

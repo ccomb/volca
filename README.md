@@ -263,6 +263,38 @@ The `depends` field ensures dependency databases load first and their flows are 
 
 A database's dependency set is **pinned**: it is seeded automatically when the database is first staged (the minimal set of supplier databases needed to resolve its links), and from then on it is authoritative. A plain `relink` re-resolves links *within* the pinned set only – it never silently adds another loaded database. Edit the pin explicitly with `add-dependency` / `remove-dependency`, then `finalize`; the new set is written to the matrix cache and reused on every later open. This is how you restrict a consumer (e.g. an inventory built against a single Agribalyse version) to exactly the supplier databases it should depend on, even while other versions stay loaded for other consumers. (The one exception is a *mapping* relink – `relink` with a `depDb` and an alias CSV – which pins that chosen dependency in-memory if it isn't already, so a `copy → delete → relink` pipeline composes in one pass; links to the other pinned dependencies are preserved, not dropped.)
 
+### How a flow meets a factor's subcompartment
+
+A method writes a factor per substance, medium and subcompartment; a database
+files each flow under its own. The compartment mapping (`data/compartments.csv`,
+replaced with `[[compartment-mappings]]`) holds two kinds of row, named in its
+`kind` column:
+
+- `same` (the default): one place written another way. SimaPro's `Air / low.
+  pop.` is EcoSpold 2's `air / non-urban air or from high stacks`. The row
+  rewrites a flow and a factor line alike, and never joins two places one
+  vocabulary keeps apart.
+- `if_absent`: two different places. `soil,forestry,,soil,non-agricultural,,if_absent`
+  says that a flow emitted to forest soil reads the factor written for
+  non-agricultural soil, but only under a method whose collection never writes
+  forestry. The EF 3.1 package has no forest soil, so the row holds there;
+  a method with forestry factors of its own keeps them.
+
+A flow reads a factor at three places, in this order, and nowhere else:
+
+1. its own subcompartment;
+2. the line its substance writes for the whole medium, with no
+   subcompartment. That is what `(unspecified)` means in the SimaPro CSV format,
+   whose reader keys it there. In an ILCD package, a JSON-LD package or this
+   engine's CSV format, `unspecified` names one subcompartment like any other;
+3. the place an `if_absent` row sends it to.
+
+A flow that states no subcompartment is an `unspecified` emission. The engine
+borrows no factor across subcompartments beyond these three: a method that
+means a sea or long-term emission to count for nothing writes that line.
+`explain-cf` names the step that answered (`exact_name`, `compartment_default`,
+`if_absent`, …).
+
 ---
 
 ## REST API

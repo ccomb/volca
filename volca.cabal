@@ -251,7 +251,7 @@ test-suite lca-tests
                      , EnergyResourceFillSpec
                      , UnitVariantCFSpec
                      , CharacterizedFlowsSpec
-                     , SubBlindCFSpec
+                     , CrossSubcompartmentSpec
                      , ServerSpec
                      , IdleSpec
                      , ILCDParserSpec

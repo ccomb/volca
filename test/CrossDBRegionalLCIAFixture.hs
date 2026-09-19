@@ -52,7 +52,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 
 import Method.Mapping (MatchStrategy (..), MethodTables, buildMethodTables, fillBroadcastVector, fillRegionalActivityWeights)
-import Method.Types (CFFamily (..), FlowDirection (..), MethodCF (..))
+import Method.Types (FlowDirection (..), MethodCF (..))
 import TestHelpers (unitDef)
 import Types
 import qualified Types as VT
@@ -211,7 +211,7 @@ regionalMappings = map (\(loc, v) -> (cf loc v, Just (testFlow, ByName)))
 
 buildTables :: Database -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> MethodTables
 buildTables db mappings =
-    let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let raw = buildMethodTables mempty mempty M.empty mappings
         withBroadcast = fillBroadcastVector kgUnitConfig (dbUnits db) (dbBioFlows db) raw
      in fillRegionalActivityWeights
             kgUnitConfig

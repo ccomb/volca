@@ -9,7 +9,7 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import Method.Mapping (MatchStrategy (..), MethodTables, buildMethodTables, cfValue, lookupCFForFlow)
-import Method.Types (CFFamily (..), Compartment (..), EnergyDensity (..), EnergyDensityMap, FlowDirection (..), MethodCF (..), parseEnergyDensitySuffix)
+import Method.Types (Compartment (..), EnergyDensity (..), EnergyDensityMap, FlowDirection (..), MethodCF (..), parseEnergyDensitySuffix)
 import SynonymDB (normalizeName)
 import Types (
     BiosphereFlow (..),
@@ -59,7 +59,7 @@ mkFlow = mkFlowIn NaturalResource
 
 tablesOf :: EnergyDensityMap -> [MethodCF] -> MethodTables
 tablesOf eds cfs =
-    buildMethodTables OtherCFFamily M.empty eds [(cf, Just (mkFlow 1 (mcfFlowName cf), ByName)) | cf <- cfs]
+    buildMethodTables mempty mempty eds [(cf, Just (mkFlow 1 (mcfFlowName cf), ByName)) | cf <- cfs]
 
 -- Tables where the method prices a unit of energy, the way both the JRC's own
 -- fossil method and its SimaPro adaptation do.

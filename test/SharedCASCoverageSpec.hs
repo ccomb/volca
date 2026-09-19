@@ -18,7 +18,7 @@ the engine's true behaviour rather than a hand-modelled approximation.
 
 The second group reproduces the broadcast-table pollution defect of
 regionalized methods: location-specific CF rows used to land in the
-name-keyed broadcast tables ('mtExactCF' / 'mtFallbackCF') alongside the
+name-keyed broadcast tables ('mtExactCF') alongside the
 global row, where one arbitrary location's value won the key – a
 water-abundant region's 0 erased the global credit, and a high-scarcity
 region's factor inflated the global charge. Broadcast tables must hold
@@ -35,7 +35,7 @@ import Test.Hspec
 
 import Method.Mapping
 import Method.ParserSimaPro (parseSimaProMethodCSVBytes)
-import Method.Types (Compartment (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..))
+import Method.Types (Compartment (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..), Subcompartment (..))
 import SubstanceRegistry (CASNumber (..))
 import SynonymDB (buildFromPairs, emptySynonymDB, normalizeName)
 import Types (
@@ -152,7 +152,7 @@ mapCtx =
         , mcBioFlowsByCAS = M.fromList [(waterCAS, allFlows)]
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
-        , mcCompartmentMap = M.empty
+        , mcCompartmentMap = mempty
         , mcSynGroupFlows = M.empty
         }
 
@@ -160,7 +160,7 @@ mapCtx =
 buildTablesFor :: Method -> IO MethodTables
 buildTablesFor method = do
     mappings <- mapMethodFlows mapCtx method
-    let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let raw = buildMethodTables mempty mempty M.empty mappings
     pure (fillBroadcastVector defaultUnitConfig M.empty flowDB raw)
 
 buildTables :: IO MethodTables
@@ -233,14 +233,14 @@ carbonSynonyms =
         , mcBioFlowsByCAS = M.fromList [(methaneCAS, [methaneNonFossil, methaneFossil])]
         , mcSynonymDB = buildFromPairs [("Methane, biogenic", "Methane, non-fossil")]
         , mcActivities = M.empty
-        , mcCompartmentMap = M.empty
+        , mcCompartmentMap = mempty
         , mcSynGroupFlows = M.empty
         }
 
 buildCarbonTables :: IO MethodTables
 buildCarbonTables = do
     mappings <- mapMethodFlows carbonSynonyms biogenicMethaneMethod
-    let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let raw = buildMethodTables mempty mempty M.empty mappings
     pure (fillBroadcastVector defaultUnitConfig M.empty carbonFlows raw)
 
 -- ---------------------------------------------------------------------------
@@ -310,7 +310,9 @@ mkAirCF name sub val =
 -- A radionuclide emitted to an uncovered subcompartment (the method has no CF
 -- for "low population density, long-term"), one to a covered subcompartment,
 -- and a toxicant emitted to "unspecified (long-term)" (which the method DOES
--- cover, with a 0 factor).
+-- cover, with a 0 factor). The method writes each substance's default for the
+-- whole medium with no subcompartment, as the SimaPro CSV reader keys
+-- "(unspecified)".
 radonLongTerm, radonNonUrban, mercuryLongTerm :: BiosphereFlow
 radonLongTerm = mkAirFlow 11 "Radon-222" "low population density, long-term"
 radonNonUrban = mkAirFlow 12 "Radon-222" "non-urban air or from high stacks"
@@ -332,9 +334,9 @@ fallbackMethod =
         , methodCategory = "Test"
         , methodMethodology = Nothing
         , methodFactors =
-            [ mkAirCF "Radon-222" "unspecified" 10
+            [ mkAirCF "Radon-222" "" 10
             , mkAirCF "Radon-222" "non-urban air or from high stacks" 8
-            , mkAirCF "Mercury" "unspecified" 5
+            , mkAirCF "Mercury" "" 5
             , mkAirCF "Mercury" "unspecified (long-term)" 0
             ]
         }
@@ -347,14 +349,14 @@ fallbackCtx =
         , mcBioFlowsByCAS = M.empty
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
-        , mcCompartmentMap = M.empty
+        , mcCompartmentMap = mempty
         , mcSynGroupFlows = M.empty
         }
 
 buildFallbackTables :: IO MethodTables
 buildFallbackTables = do
     mappings <- mapMethodFlows fallbackCtx fallbackMethod
-    let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let raw = buildMethodTables mempty mempty M.empty mappings
     pure (fillBroadcastVector defaultUnitConfig M.empty fallbackFlowDB raw)
 
 -- ---------------------------------------------------------------------------
@@ -381,7 +383,7 @@ acrMethod =
         , methodMethodology = Nothing
         , methodFactors =
             [ (mkAirCF "acryolonitrile" "indoor" 100){mcfCAS = Just acrCAS}
-            , (mkAirCF "acryolonitrile" "unspecified" 1){mcfCAS = Just acrCAS}
+            , (mkAirCF "acryolonitrile" "" 1){mcfCAS = Just acrCAS}
             ]
         }
 
@@ -393,7 +395,7 @@ acrCtx =
         , mcBioFlowsByCAS = M.fromList [(acrCAS, [acrFlow])]
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
-        , mcCompartmentMap = M.empty
+        , mcCompartmentMap = mempty
         , mcSynGroupFlows = M.empty
         }
 
@@ -411,7 +413,7 @@ acrRegionalMethod =
         , methodMethodology = Nothing
         , methodFactors =
             [ atLocation "FR" ((mkAirCF "acryolonitrile" "indoor" 100){mcfCAS = Just acrCAS})
-            , atLocation "FR" ((mkAirCF "acryolonitrile" "unspecified" 1){mcfCAS = Just acrCAS})
+            , atLocation "FR" ((mkAirCF "acryolonitrile" "" 1){mcfCAS = Just acrCAS})
             ]
         }
 
@@ -468,14 +470,14 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
     describe "regionalized rows stay out of the global tables" $ do
         it "routes a location-bearing CAS-matched CF to mtRegionalCasCF only" $ do
             mappings <- mapMethodFlows mapCtx regionalCasMethod
-            let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
-            M.lookup (CASNumber waterCAS, Just NaturalResource) (mtRegionalCasCF tables)
+            let tables = buildMethodTables mempty mempty M.empty mappings
+            M.lookup (CASNumber waterCAS, Just NaturalResource, Subcompartment "") (mtRegionalCasCF tables)
                 `shouldBe` Just (M.fromList [(Location "FR", CF 9 (CFUnit "m3"))])
-            M.member (CASNumber waterCAS, Just NaturalResource) (mtCasCF tables) `shouldBe` False
+            M.member (CASNumber waterCAS, Just NaturalResource, Subcompartment "") (mtCasCF tables) `shouldBe` False
 
         it "keeps regionalized UUID-matched rows out of mtUuidCF" $ do
             mappings <- mapMethodFlows mapCtx uuidRegionalMethod
-            let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
+            let tables = buildMethodTables mempty mempty M.empty mappings
             -- The global row stands; the location row lives in the regional
             -- table instead of clobbering the flow's universal value.
             fmap teCF (M.lookup (bfId river) (mtUuidCF tables)) `shouldBe` Just (CF 5 (CFUnit "m3"))
@@ -514,18 +516,25 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
                 Left err -> expectationFailure ("Parse failed: " ++ err)
                 Right coll -> do
                     mappings <- concat <$> mapM (mapMethodFlows mapCtx) (mcMethods coll)
-                    let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
-                    M.lookup (CASNumber waterCAS, Just NaturalResource) (mtCasCF tables)
+                    let tables = buildMethodTables mempty mempty M.empty mappings
+                    M.lookup (CASNumber waterCAS, Just NaturalResource, Subcompartment "") (mtCasCF tables)
                         `shouldBe` Nothing
-                    M.lookup (CASNumber waterCAS, Just Water) (mtCasCF tables)
+                    M.lookup (CASNumber waterCAS, Just Water, Subcompartment "") (mtCasCF tables)
                         `shouldBe` Nothing
 
-    describe "unspecified subcompartment is the medium-level fallback" $ do
-        it "an uncovered subcompartment falls back to the unspecified CF" $ do
+    describe "a line written for the whole medium covers what the substance leaves unwritten" $ do
+        it "an uncovered subcompartment reads the line for the whole medium" $ do
             -- Radon-222 emitted to "low population density, long-term" has no
-            -- exact CF; it picks up the unspecified factor (10) instead of 0.
+            -- exact CF; it reads the medium's line (10) instead of 0.
             tables <- buildFallbackTables
             M.lookup (bfId radonLongTerm) (mtBroadcast tables) `shouldBe` Just 10
+
+        it "a line at unspecified covers unspecified only" $ do
+            -- In an ILCD package, a JSON-LD package or this engine's CSV,
+            -- "unspecified" names one subcompartment like any other.
+            mappings <- mapMethodFlows fallbackCtx fallbackMethod{methodFactors = [mkAirCF "Radon-222" "unspecified" 10]}
+            let tables = fillBroadcastVector defaultUnitConfig M.empty fallbackFlowDB (buildMethodTables mempty mempty M.empty mappings)
+            M.lookup (bfId radonLongTerm) (mtBroadcast tables) `shouldBe` Nothing
 
         it "an exact subcompartment still wins over the fallback" $ do
             tables <- buildFallbackTables
@@ -538,24 +547,21 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
             tables <- buildFallbackTables
             M.lookup (bfId mercuryLongTerm) (mtBroadcast tables) `shouldBe` Just 0
 
-    describe "CAS bridge broadcasts the unspecified value, not the niche max" $ do
-        it "keeps the unspecified factor when subcompartment CFs diverge" $ do
+    describe "CAS bridge reads the subcompartments a name would" $ do
+        it "keeps each subcompartment's factor apart" $ do
             mappings <- mapMethodFlows acrCtx acrMethod
-            let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
-            -- indoor air is 100x; the bridge must not broadcast it.
-            fmap teCF (M.lookup (CASNumber acrCAS, Just Air) (mtCasCF tables)) `shouldBe` Just (CF 1 (CFUnit "kg"))
+            let tables = buildMethodTables mempty mempty M.empty mappings
+            fmap (fmap teCF) (M.lookup (CASNumber acrCAS, Just Air, Subcompartment "") (mtCasCF tables)) `shouldBe` Just (Just (CF 1 (CFUnit "kg")))
+            fmap (fmap teCF) (M.lookup (CASNumber acrCAS, Just Air, Subcompartment "indoor") (mtCasCF tables)) `shouldBe` Just (Just (CF 100 (CFUnit "kg")))
 
-        it "reaches the flow with the unspecified factor, not the indoor max" $ do
+        it "reaches an urban flow with the line for the whole medium, not the indoor one" $ do
             mappings <- mapMethodFlows acrCtx acrMethod
-            let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+            let raw = buildMethodTables mempty mempty M.empty mappings
                 tables = fillBroadcastVector defaultUnitConfig M.empty (mcBioFlowsByUUID acrCtx) raw
             M.lookup (bfId acrFlow) (mtBroadcast tables) `shouldBe` Just 1
 
-        it "the regional bridge keeps the unspecified value per location too" $ do
-            -- FR carries both the indoor (100) and the unspecified (1) CF; the
-            -- regionalized bridge must keep the medium-level default, not the
-            -- niche max – same rule as the non-regional 'mtCasCF'.
+        it "the regional bridge keeps each subcompartment apart per location too" $ do
             mappings <- mapMethodFlows acrCtx acrRegionalMethod
-            let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
-            M.lookup (CASNumber acrCAS, Just Air) (mtRegionalCasCF tables)
+            let tables = buildMethodTables mempty mempty M.empty mappings
+            M.lookup (CASNumber acrCAS, Just Air, Subcompartment "") (mtRegionalCasCF tables)
                 `shouldBe` Just (M.fromList [(Location "FR", CF 1 (CFUnit "kg"))])

@@ -189,10 +189,10 @@ import Method.Mapping (
     MethodIndex,
     MethodSetTables,
     MethodTables,
+    MethodVocabulary,
     ProxyTargets (..),
     RefusalReason,
     RegionalActivityWeights (..),
-    SeaWaterCFs (..),
     buildMethodIndex,
     buildMethodSetTables,
     buildMethodTables,
@@ -206,11 +206,9 @@ import Method.Mapping (
     isExclusionCF,
     mapContextFor,
     mapMethodFlows,
-    mtExactCF,
-    mtFallbackCF,
+    methodVocabulary,
     mtRegionalActivityWeights,
     mtRegionalizedCF,
-    mtSeaWaterCFs,
     projectRegionalResourceFlows,
     zeroedMatchedCFs,
  )
@@ -224,7 +222,6 @@ import Method.Types (
     ScoringSet (..),
     buildCompartmentMapFromCSV,
     buildEnergyDensityMapFromCSV,
-    cfFamily,
     compartmentMapSize,
     energyDensityMapSize,
  )
@@ -252,7 +249,6 @@ import Types (
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
-    Medium (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierAmbiguity (..),
@@ -623,6 +619,12 @@ data DatabaseManager = DatabaseManager
     These depend only on (db, collection, method), so building them once per
     triple saves O(n log n) Map constructions on every LCIA call.
     -}
+    , dmMethodVocabularyCache :: !(TVar (Map CollectionName MethodVocabulary))
+    {- ^ The places each collection writes factors at ('methodVocabulary'),
+    which decide the @if_absent@ rows its tables follow. One pass over the
+    whole collection, shared by every method and database its tables are
+    built for, and invalidated with them.
+    -}
     , dmMethodTablesInflight :: !(TVar (Map (Text, CollectionName, UUID) (TMVar (Either SomeException MethodTables))))
     {- ^ Single-flight slots guarding 'dmMethodTablesCache' builds. The first
     caller for a key installs an empty 'TMVar' and runs the (expensive) build;
@@ -788,6 +790,22 @@ mapMethodToTablesCached manager dbName collection db method = do
                 (modifyTVar' (dmMethodTablesCache manager) . M.insert key)
                 (buildMethodTablesFor manager dbName collection db method)
 
+{- | The places a collection writes factors at, which decide the @if_absent@
+rows its tables follow; computed once per collection ('dmMethodVocabularyCache').
+A method is only ever built from a loaded collection; were it not, its own
+lines are the one place left to read.
+-}
+collectionVocabulary :: DatabaseManager -> CollectionName -> CompartmentMap -> Method -> IO MethodVocabulary
+collectionVocabulary manager collection cmap method = do
+    cached <- M.lookup collection <$> readTVarIO (dmMethodVocabularyCache manager)
+    case cached of
+        Just vocabulary -> pure vocabulary
+        Nothing -> do
+            siblings <- maybe [method] mcMethods <$> getMethodCollection manager (unCollectionName collection)
+            vocabulary <- Control.Exception.evaluate (methodVocabulary cmap (concatMap methodFactors siblings))
+            atomically $ modifyTVar' (dmMethodVocabularyCache manager) (M.insert collection vocabulary)
+            pure vocabulary
+
 {- | Build the LCIA lookup tables for one method against a database: resolve the
 CF→flow mappings, stack them into the broadcast/CAS/regional tables, and
 precompute the regionalized per-activity weights. The deduplicated regional
@@ -817,7 +835,8 @@ buildMethodTablesFor manager dbName collection db method = do
     globalMethods <-
         maybe [] mcGlobalMethods . M.lookup (unCollectionName collection)
             <$> readTVarIO (dmAvailableMethods manager)
-    let !raw0 = buildMethodTables (cfFamily (methodUnit method)) cmap energyDensities expanded
+    vocabulary <- collectionVocabulary manager collection cmap method
+    let !raw0 = buildMethodTables cmap vocabulary energyDensities expanded
         !raw =
             if methodName method `elem` globalMethods
                 then raw0{mtRegionalizedCF = M.empty}
@@ -827,7 +846,6 @@ buildMethodTablesFor manager dbName collection db method = do
         -- scoring is a dot product instead of one biosphere-triple walk per pid.
         !tables = fillRegionalActivityWeights unitConfig mUnits mFlows db hier withBroadcast
     mapM_ (reportProgress Warning) (regionalGapWarning (mtRegionalActivityWeights tables))
-    mapM_ (reportProgress Warning) (seaWaterWarning raw0)
     mapM_
         (reportProgress Warning)
         (zeroedWarning mUnits (zeroedMatchedCFs unitConfig mUnits mFlows withBroadcast))
@@ -865,32 +883,6 @@ buildMethodTablesFor manager dbName collection db method = do
                     <> "(after walking parent regions and universal broadcast). "
                     <> "Samples: "
                     <> show (take 3 [(show fid, T.unpack loc) | (fid, Location loc) <- missing])
-
-    -- Which side of the sea-water gate this method landed on, said out loud.
-    -- A method with no sea-water factor of its own has its medium-level factor
-    -- applied to sea emissions, and that is only right when the method had
-    -- nothing different to say there. When its sea lines were instead lost on
-    -- import, the same silence overstates every sea emission it covers - and
-    -- the two cases are indistinguishable from the outside. Report the regime
-    -- so a method author can tell them apart; only for a method that writes
-    -- water factors at all, since the others have no stake in it.
-    seaWaterWarning :: MethodTables -> Maybe String
-    seaWaterWarning tables = case mtSeaWaterCFs tables of
-        MethodDeclaresSeaWater -> Nothing
-        MethodSilentOnSeaWater
-            | waterCFs == 0 -> Nothing
-            | otherwise ->
-                Just . lcia $
-                    "no sea-water factor among "
-                        <> show waterCFs
-                        <> " water factor(s): the medium-level factor will be applied to sea "
-                        <> "emissions. Right when the method draws no distinction there, wrong "
-                        <> "when its sea lines were lost on import."
-      where
-        waterCFs :: Int
-        waterCFs =
-            length [() | (_, Just Water, _) <- M.keys (mtExactCF tables)]
-                + length [() | (_, Just Water) <- M.keys (mtFallbackCF tables)]
 
     -- A CF that matched (broadcast or regionalized) but cannot be
     -- unit-converted scores an (intentional) 0 - refusing wrong-dimension data
@@ -1080,6 +1072,7 @@ clearMethodMappingCache :: DatabaseManager -> IO ()
 clearMethodMappingCache manager = atomically $ do
     writeTVar (dmMethodMappingCache manager) M.empty
     writeTVar (dmMethodTablesCache manager) M.empty
+    writeTVar (dmMethodVocabularyCache manager) M.empty
     writeTVar (dmMethodTablesInflight manager) M.empty
     writeTVar (dmMethodSetTablesCache manager) M.empty
     writeTVar (dmMethodIndexCache manager) M.empty
@@ -1365,6 +1358,7 @@ newManager ManagerSeed{..} = do
     loadedEnergyDensitiesVar <- newTVarIO M.empty
     methodMappingCacheVar <- newTVarIO M.empty
     methodTablesCacheVar <- newTVarIO M.empty
+    methodVocabularyCacheVar <- newTVarIO M.empty
     methodTablesInflightVar <- newTVarIO M.empty
     methodSetTablesCacheVar <- newTVarIO M.empty
     methodIndexCacheVar <- newTVarIO M.empty
@@ -1393,6 +1387,7 @@ newManager ManagerSeed{..} = do
             , dmLocationHierarchy = hierarchyFromGeographies msGeographies
             , dmMethodMappingCache = methodMappingCacheVar
             , dmMethodTablesCache = methodTablesCacheVar
+            , dmMethodVocabularyCache = methodVocabularyCacheVar
             , dmMethodTablesInflight = methodTablesInflightVar
             , dmMethodSetTablesCache = methodSetTablesCacheVar
             , dmMethodIndexCache = methodIndexCacheVar
@@ -4246,7 +4241,7 @@ warnReopenedBridges synDB =
 getMergedCompartmentMap :: DatabaseManager -> IO CompartmentMap
 getMergedCompartmentMap manager = do
     loaded <- readTVarIO (dmLoadedCompMaps manager)
-    return $ M.unions (M.elems loaded)
+    return $ mconcat (M.elems loaded)
 
 {- | Get the merged 'EnergyDensityMap' from all loaded energy-density sets.
 First-wins union over active CSVs, mirroring 'getMergedCompartmentMap'.
