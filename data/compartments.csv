@@ -1,4 +1,4 @@
-source_medium,source_sub,source_qualifier,target_medium,target_sub,target_qualifier
+source_medium,source_sub,source_qualifier,target_medium,target_sub,target_qualifier,kind
 emissions to water,groundwater,long-term,water,groundwater,long-term
 emissions to water,groundwater,,water,groundwater,
 emissions to water,unspecified,long-term,water,unspecified,long-term
@@ -7,13 +7,13 @@ Emissions to fresh water,,,water,surface water,
 Emissions to sea water,,,water,ocean,
 water,fresh water,,water,surface water,
 water,river,,water,surface water,
-water,ground-,,water,surface water,
+water,ground-,,water,groundwater,
 "water","ground-, long-term",,water,"groundwater, long-term",
 water,sea water,,water,ocean,
 water,sea,,water,ocean,
-Emissions to non-agricultural soil,,,soil,industrial,
+Emissions to non-agricultural soil,,,soil,non-agricultural,
 Emissions to agricultural soil,,,soil,agricultural,
-soil,non-agricultural soil,,soil,industrial,
+soil,non-agricultural soil,,soil,non-agricultural,
 soil,agricultural soil,,soil,agricultural,
 lower stratosphere and upper troposphere,,,air,lower stratosphere + upper troposphere,
 Emissions to air,,,air,,
@@ -36,3 +36,8 @@ air,high. pop.,,air,urban air close to ground,
 air,stratosphere + troposphere,,air,lower stratosphere + upper troposphere,
 air,lower stratosphere and upper troposphere,,air,lower stratosphere + upper troposphere,
 inventory indicator,waste,,waste,,
+soil,forestry,,soil,non-agricultural,,if_absent
+soil,industrial,,soil,non-agricultural,,if_absent
+water,groundwater,,water,surface water,,if_absent
+water,"groundwater, long-term",,water,unspecified (long-term),,if_absent
+air,"low population density, long-term",,air,unspecified (long-term),,if_absent

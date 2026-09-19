@@ -768,11 +768,12 @@ spec = do
         -- The ILCD package files its factors under "Emissions to agricultural
         -- soil", "Emissions to non-agricultural soil" and "Emissions to fresh
         -- water"; SimaPro writes agricultural, industrial and river, EcoSpold 2
-        -- agricultural, industrial and surface water. The SimaPro implementation
-        -- of the same method and the EcoSpold 2 release's own both give those
-        -- the ILCD subcompartment's factor, so a flow there must not fall back
-        -- to the unspecified one. The factors take their compartment through
-        -- 'parseCompartment', as an ILCD package loads them.
+        -- agricultural, forestry, industrial, surface water and ground-. The
+        -- published EcoSpold 2 mapping of EF 3.1 sends forestry and industrial
+        -- soil to non-agricultural, and ground- to fresh water; the if_absent
+        -- rows of compartments.csv write that down, for a method that has no
+        -- such subcompartment of its own. The factors take their compartment
+        -- through 'parseCompartment', as an ILCD package loads them.
         cmap <- runIO $ do
             csv <- BL.readFile "data/compartments.csv"
             either (fail . ("compartments.csv: " <>)) pure (buildCompartmentMapFromCSV csv)
@@ -789,12 +790,42 @@ spec = do
             scoreAt cfs medium sub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Silver (I)" medium (Just sub)
-                    tables = buildMethodTables cmap mempty M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
+                    tables = buildMethodTables cmap (methodVocabulary cmap cfs) M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
 
-        it "gives agricultural and industrial soil their own factors" $ do
+        it "gives agricultural soil its own factor, and forestry and industrial soil the non-agricultural one" $ do
             scoreAt soilCFs Soil "agricultural" `shouldReturn` 2.0
+            scoreAt soilCFs Soil "forestry" `shouldReturn` 3.0
             scoreAt soilCFs Soil "industrial" `shouldReturn` 3.0
+
+        it "keeps its own forestry and industrial factors for a method that writes them" $ do
+            let own = [mkCFComp "Silver (I)" "soil" "forestry" 4.0, mkCFComp "Silver (I)" "soil" "industrial" 5.0]
+            scoreAt (soilCFs ++ own) Soil "forestry" `shouldReturn` 4.0
+            scoreAt (soilCFs ++ own) Soil "industrial" `shouldReturn` 5.0
+
+        it "gives an EcoSpold 2 groundwater flow the fresh-water factor" $
+            scoreAt waterCFs Water "ground-" `shouldReturn` 2.0
+
+        it "keeps groundwater and surface water apart for a method that writes both" $ do
+            -- A method from the EcoSpold 2 matrix writes ground- and surface
+            -- water separately, and one spelling row once merged the two.
+            let matrix = [mkCFComp "1,1,1-Trichloroethane" "water" "ground-" 0.0, mkCFComp "1,1,1-Trichloroethane" "water" "surface water" 1700.0]
+                scoreOf sub = do
+                    fid <- nextRandom
+                    let flow = mkFlow fid "1,1,1-Trichloroethane" Water (Just sub)
+                        tables = buildMethodTables cmap (methodVocabulary cmap matrix) M.empty [(cf, Just (flow, ByName)) | cf <- matrix]
+                    pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
+            scoreOf "ground-" `shouldReturn` 0.0
+            scoreOf "surface water" `shouldReturn` 1700.0
+
+        it "lets a SimaPro method's unspecified line cover groundwater, before any if_absent row" $
+            scoreAt
+                [ mkCFComp "Silver (I)" "water" "" 1.0
+                , mkCFComp "Silver (I)" "water" "river" 2.0
+                ]
+                Water
+                "groundwater"
+                `shouldReturn` 1.0
 
         it "reads the same soils from a two-level category tree" $ do
             -- With no third level, the ILCD label itself is the medium.
@@ -813,7 +844,7 @@ spec = do
 
         it "gives surface water the river factor of a method written in SimaPro terms" $
             scoreAt
-                [ mkCFComp "Silver (I)" "water" "(unspecified)" 1.0
+                [ mkCFComp "Silver (I)" "water" "" 1.0
                 , mkCFComp "Silver (I)" "water" "river" 2.0
                 ]
                 Water
@@ -843,6 +874,19 @@ spec = do
         it "gives an EcoSpold 2 and a SimaPro high-altitude flow the ILCD high-altitude factor" $ do
             scoreAt highAltitudeILCD "lower stratosphere + upper troposphere" `shouldReturn` 2.0
             scoreAt highAltitudeILCD "stratosphere + troposphere" `shouldReturn` 2.0
+
+        it "gives a long-term non-urban flow the ILCD long-term default, whatever its spelling" $ do
+            let longTermILCD = [ilcd "Emissions to air, unspecified" 1.0, ilcd "Emissions to air, unspecified (long-term)" 0.5]
+                scoreLT sub = do
+                    fid <- nextRandom
+                    let flow = mkFlow fid "Nitrogen oxides" Air (Just sub)
+                        tables = buildMethodTables cmap (methodVocabulary cmap longTermILCD) M.empty [(cf, Just (flow, ByName)) | cf <- longTermILCD]
+                    pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
+            scoreLT "low population density, long-term" `shouldReturn` 0.5
+            scoreLT "low. pop., long-term" `shouldReturn` 0.5
+            -- The package has no non-urban line here, and nothing sends a
+            -- non-urban flow to the unspecified one.
+            scoreLT "non-urban air or from high stacks" `shouldReturn` 0.0
 
         it "gives a SimaPro long-term flow the factor written for the EcoSpold 2 spelling" $
             scoreAt
