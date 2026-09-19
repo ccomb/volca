@@ -1464,10 +1464,5 @@ explainCFToAPI db method flow explanation =
         ExplainedStepAPI
             { estRung = Explain.rungName (Explain.stRung step)
             , estResult = Explain.stepName (Explain.stResult step)
-            , estVeto = case Explain.stResult step of
-                Explain.StepVetoed reason -> Just (Explain.vetoName reason)
-                Explain.StepHit -> Nothing
-                Explain.StepMiss -> Nothing
-                Explain.StepNotApplicable -> Nothing
-                Explain.StepAmbiguous -> Nothing
+            , estVeto = Nothing
             }

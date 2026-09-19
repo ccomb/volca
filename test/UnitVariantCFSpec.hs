@@ -19,7 +19,7 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import Method.Mapping (MatchStrategy (..), MethodTables, buildMethodTables, cfValue, lookupCFForFlow)
-import Method.Types (CFFamily (..), Compartment (..), FlowDirection (..), MethodCF (..))
+import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import Types (
     BiosphereFlow (..),
     Medium (..),
@@ -75,7 +75,7 @@ m3Flow = mkFlow 2 "Gas, natural/m3"
 perUnitTables :: MethodTables
 perUnitTables =
     buildMethodTables
-        OtherCFFamily
+        mempty
         mempty
         M.empty
         [ (mkCF 1 "Gas, natural/kg" "kg" 43.1, Just (kgFlow, ByUUID))
@@ -99,7 +99,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
         -- exists) – the variant table must not get in the way.
         let baseOnly =
                 buildMethodTables
-                    OtherCFFamily
+                    mempty
                     mempty
                     M.empty
                     [(mkCF 1 "Gas, natural" "m3" 40.0, Just (mkFlow 1 "Gas, natural", ByUUID))]
@@ -108,7 +108,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
     it "refuses a variant name whose own rows disagree (true duplicate, never guesses)" $ do
         let dup =
                 buildMethodTables
-                    OtherCFFamily
+                    mempty
                     mempty
                     M.empty
                     [ (mkCF 1 "Gas, natural/kg" "kg" 10.0, Just (kgFlow, ByUUID))
@@ -130,7 +130,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
         -- a factor that scores beats one that cannot.
         let subExact =
                 buildMethodTables
-                    OtherCFFamily
+                    mempty
                     mempty
                     M.empty
                     [ (mkCF 1 "Gas, natural/m3" "m3" 34.5, Nothing)
@@ -138,33 +138,10 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
                     ]
         lookupFor subExact (mkFlowAt 5 "Gas, natural/m3" (Just "in water")) `shouldBe` Just 34.5
 
-    it "stays silent for a subcompartment no medium-level row may reach" $ do
-        -- Sub-blind like its siblings, so it takes the same gate: an ocean
-        -- emission is a foreign medium and must not borrow the freshwater
-        -- factor, unit-matched or not.
-        --
-        -- The gate applies because this method names the sea somewhere – one
-        -- row, for another substance, is enough. Deliberate: a method that
-        -- distinguishes the sea at all is trusted to have meant its silence on
-        -- the substances it left out, and the engine does not extrapolate for
-        -- it.
-        let oceanic =
-                buildMethodTables
-                    OtherCFFamily
-                    mempty
-                    M.empty
-                    [ (mkCF 1 "Water/m3" "m3" 42.95, Nothing)
-                    , (inSub "ocean" (mkCF 2 "Water, salt" "m3" 0.0), Nothing)
-                    ]
-        lookupFor oceanic (mkFlowAt 6 "Water/m3" (Just "ocean")) `shouldBe` Nothing
-
-    it "reaches the sea when the method never names it" $ do
-        -- The same row, from a method with no sea-water row anywhere. Its
-        -- medium-level factor is all it has to say, and withholding it would
-        -- score the emission as zero on an authority the method never gave.
+    it "reaches the sea with the line for the whole medium" $ do
         let silent =
                 buildMethodTables
-                    OtherCFFamily
+                    mempty
                     mempty
                     M.empty
                     [(mkCF 1 "Water/m3" "m3" 42.95, Nothing)]

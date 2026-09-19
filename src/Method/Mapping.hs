@@ -29,10 +29,11 @@ module Method.Mapping (
     -- * LCIA scoring
     CF (..),
     CFUnit (..),
-    CFFamily (..),
-    cfFamily,
-    SeaWaterCFs (..),
     MethodTables (..),
+    MethodVocabulary,
+    methodVocabulary,
+    SubReading (..),
+    subReadings,
     EnergyPrice (..),
     energyPriceOf,
     MethodIndex (..),
@@ -73,7 +74,6 @@ module Method.Mapping (
     lookupCascadeEntry,
     RungId (..),
     RungOutcome (..),
-    VetoReason (..),
     TableEntry (..),
     BuildProvenance (..),
     convertForCharacterization,
@@ -123,10 +123,12 @@ import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.DeepSeq (NFData)
 import Control.Exception (evaluate)
-import Control.Monad (unless, when)
+import Control.Monad (join, unless, when)
 import Control.Monad.ST (runST)
 import Data.Aeson (ToJSON)
+import Data.Bifunctor (first)
 import Data.Either (lefts, rights)
+import Data.Foldable (asum)
 import Data.List (find, partition, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -814,7 +816,7 @@ should be computed once per method and reused across inventories.
 data MethodTables = MethodTables
     { mtUuidCF :: !(M.Map UUID TableEntry)
     -- ^ UUID-matched CFs: exact flow id → CF
-    , mtUnitVariantCF :: !(M.Map (SR.NormName, MediumKey) TableEntry)
+    , mtUnitVariantCF :: !(M.Map (SR.NormName, MediumKey, Subcompartment) TableEntry)
     {- ^ (unit-suffix-preserving normalized name, medium) → CF, holding only
     rows whose name carries a SimaPro unit suffix (@"Gas, natural\/m3"@).
     'normalizeName' strips that suffix, so a method's own per-unit rows
@@ -827,39 +829,24 @@ data MethodTables = MethodTables
     same-key rows that disagree are dropped ('agreedValue' – never guess).
     -}
     , mtExactCF :: !(M.Map (SR.NormName, MediumKey, Subcompartment) TableEntry)
-    -- ^ (normalized name, medium, subcompartment) → CF
-    , mtFallbackCF :: !(M.Map (SR.NormName, MediumKey) TableEntry)
-    -- ^ (normalized name, medium) → CF for entries with unspecified subcompartment
-    , mtLongTermFallbackCF :: !(M.Map (SR.NormName, MediumKey) TableEntry)
-    {- ^ (normalized name, medium) → CF for entries with the long-term
-    UNSPECIFIED subcompartment ("unspecified (long-term)"). A long-term flow at an
-    uncovered specific subcompartment ("groundwater, long-term") inherits this –
-    the method's long-term default, often a deliberate zero – instead of the
-    immediate-emission 'mtFallbackCF', so JRC scores delayed emissions with the
-    method's own long-term factor rather than the immediate one.
+    {- ^ (normalized name, medium, subcompartment) → CF. A line written with no
+    subcompartment is keyed at the empty one: it is the substance's factor for
+    every subcompartment it has no line of its own for (see 'subReadings').
     -}
-    , mtSubBlindCF :: !(M.Map (SR.NormName, MediumKey) TableEntry)
-    {- ^ (normalized name, medium) → CF, but only where the substance's
-    factor is the SAME across every subcompartment – i.e. the subcompartment
-    genuinely doesn't change it (mineral/metal extraction: "Cadmium, in ground"
-    == any sub). Lets a flow whose sub matches no exact CF and has no
-    unspecified fallback still resolve, without guessing for a substance whose
-    factor DOES vary by sub (water by source), which is omitted as ambiguous.
-    -}
-    , mtCasCF :: !(M.Map (SR.CASNumber, MediumKey) TableEntry)
-    {- ^ (CAS, normalized medium) → CF, from non-regionalized CFs.
-    Read-path fallback after UUID and name. Without it, a CF resolves to a
+    , mtCasCF :: !(M.Map (SR.CASNumber, MediumKey, Subcompartment) (Maybe TableEntry))
+    {- ^ (CAS, normalized medium, subcompartment) → CF, from non-regionalized
+    CFs. Read-path fallback after UUID and name. Without it, a CF resolves to a
     single database flow at build time, so when many flows share one CAS in a
     compartment (e.g. every water flow shares 7732-18-5) only that one flow is
-    characterized and the rest score zero. Keyed by the CF's own CAS+medium so
-    the read path can reach every same-CAS flow by its own CAS+medium. The
-    bridge is deliberately subcompartment-blind: a resource flow and the CF
-    that characterizes it routinely disagree on subcompartment after
-    normalization, so requiring agreement zeroes whole resource categories
-    (minerals are reachable only through this bridge). Empty for methods whose
-    CFs carry no CAS.
+    characterized and the rest score zero. Keyed by the CF's own CAS, medium
+    and subcompartment, and read through 'subReadings' like the name table, so
+    the bridge reaches a subcompartment exactly where a name would. A key with
+    no entry is a place the substance has a line the bridge may not serve (one
+    matched by name, see below): the place is taken all the same, so the walk
+    stops there rather than reading the substance's line for the whole medium
+    over it. Empty for methods whose CFs carry no CAS.
     -}
-    , mtRegionalCasCF :: !(M.Map (SR.CASNumber, MediumKey) (M.Map Location CF))
+    , mtRegionalCasCF :: !(M.Map (SR.CASNumber, MediumKey, Subcompartment) (M.Map Location CF))
     {- ^ (CAS, normalized medium) → (location → CF), from regionalized
     CFs. The regionalized analogue of 'mtCasCF': lets the regionalized build
     characterize every same-CAS flow per location, not just the one a CF
@@ -870,16 +857,11 @@ data MethodTables = MethodTables
     Empty for non-regionalized methods. When non-empty, callers should dispatch
     to the regionalized scoring path (see 'Matrix.computeRegionalizedLCIAScore').
     -}
-    , mtCFFamily :: !CFFamily
-    {- ^ The CF family the method's result unit implies (see 'cfFamily'). The
-    subcompartment gates key off this – a USEtox toxicity method
-    ('USEtoxFamily') doesn't characterize groundwater, a nutrient method does.
-    -}
-    , mtSeaWaterCFs :: !SeaWaterCFs
-    {- ^ Whether this method writes any sea-water factor of its own
-    (see 'SeaWaterCFs'). The sea half of the medium-level gate keys off it, so
-    the engine defers to a method that distinguishes the sea and does not
-    invent a zero for one that never mentions it.
+    , mtIfAbsent :: !(M.Map (MediumKey, Subcompartment) Subcompartment)
+    {- ^ The @if_absent@ rows of the compartment table that hold for this
+    method: a flow at the key reads the factor written at the value, because
+    the method's collection never writes the key's subcompartment. Keys are
+    case-folded ('foldSub').
     -}
     , mtCompartmentMap :: !CompartmentMap
     {- ^ Compartment-normalization rules (e.g. @"Emissions to air" → "air"@).
@@ -1244,7 +1226,7 @@ regional path keys by activity location, not the flow's own origin region.
 
 For each such flow, if a located CF of the same substance (synonym group) and
 medium carries that exact region, emit a GLOBAL mapping (location nulled) so the
-flow resolves to its region's factor in 'mtExactCF'/'mtFallbackCF' – exactly as a
+flow resolves to its region's factor in 'mtExactCF' – exactly as a
 name-regionalized @"Water, river, FR"@ CF (the SimaPro convention) does today.
 
 Restricted to the water dimensions – the resource (withdrawal/input) and water
@@ -1402,14 +1384,6 @@ expandProxyEdges targets edges mappings =
     flowsMatching (SR.ByCAS (SR.CASNumber c)) = M.findWithDefault [] c (ptByCAS targets)
     flowsMatching (SR.ByUUID (SR.FlowUUID u)) = maybe [] pure (M.lookup u (ptByUUID targets))
 
-{- | How a CF's own subcompartment met the flow's: by naming it, or by naming
-none at all and standing as the method's medium-level default. Only
-'mtRegionalizedCF' needs to tell the two apart, because it is the one table
-where both compete for a single key.
--}
-data SubMatch = ExactSub | MediumLevelSub
-    deriving (Eq, Show)
-
 {- | Cascade-order rank of a match strategy (UUID → name → synonym → CAS →
 heuristic/expanded): when two CFs collide on one flow or table key, the lower
 rank – the more discriminating match – wins. What the score tables actually
@@ -1455,8 +1429,8 @@ their word with 'parseMedium', which folds.
 {- | A subcompartment as the matchers compare them: case-folded and trimmed.
 
 The lookup tables key on the subcompartment as its source spelled it, while
-every predicate that classifies one ('isUnspecifiedSub', 'isForeignMediumSub')
-folds first. That difference is older than this function and is not resolved
+every predicate that classifies one ('isUnspecifiedSub', 'subReadings') folds
+first. That difference is older than this function and is not resolved
 here – folding the table keys too would change which factors resolve, which
 wants its own change and its own test.
 -}
@@ -1543,8 +1517,8 @@ energyPriceOf cmap mappings = case priced of
         , Just (Just NaturalResource, _) <- [cfMediumSub cmap cf]
         ]
 
-buildMethodTables :: CFFamily -> CompartmentMap -> EnergyDensityMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> MethodTables
-buildMethodTables methodFamily cmap energyDensities mappings =
+buildMethodTables :: CompartmentMap -> MethodVocabulary -> EnergyDensityMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> MethodTables
+buildMethodTables cmap vocabulary energyDensities mappings =
     MethodTables
         { mtUuidCF =
             -- Non-regionalized rows only, like the name tables below: a
@@ -1564,18 +1538,18 @@ buildMethodTables methodFamily cmap energyDensities mappings =
             -- collapsed-name pick is exactly what this table corrects). Only
             -- names that actually carry a suffix enter ('normalizeNameKeepUnit'
             -- differs from 'normalizeName'), keeping the table tiny.
-            -- Subcompartment-blind like 'mtSubBlindCF', with the same
-            -- 'agreedValue' veto: a variant name whose rows disagree (across
-            -- subs or true duplicates) resolves nothing rather than guessing.
+            -- Keyed by subcompartment like 'mtExactCF', with the
+            -- 'agreedValue' veto: a variant name whose rows disagree at one
+            -- subcompartment resolves nothing rather than guessing.
             M.mapMaybe agreedValue $
                 M.fromListWith
                     (++)
-                    [ ((SR.NormName rawName, medium), [entryOf cf mflow])
+                    [ ((SR.NormName rawName, medium, sub), [entryOf cf mflow])
                     | (cf, mflow) <- mappings
                     , let rawName = normalizeNameKeepUnit (mcfFlowName cf)
                     , rawName /= normalizeName (mcfFlowName cf)
                     , Nothing <- [mcfConsumerLocation cf]
-                    , Just (medium, _) <- [cfMediumSub cmap cf]
+                    , Just (medium, sub) <- [cfMediumSub cmap cf]
                     ]
         , -- The broadcast name tables (exact + fallback) hold only
           -- non-regionalized CFs. Location-specific rows belong to
@@ -1587,70 +1561,16 @@ buildMethodTables methodFamily cmap energyDensities mappings =
             dropRank $
                 M.fromListWith
                     preferBetter
-                    [ ((SR.NormName (nameKey cf mflow), medium, Subcompartment normSub), (entryOf cf mflow, rawNameMatches cf mflow))
+                    [ ((SR.NormName (nameKey cf mflow), medium, sub), (entryOf cf mflow, rawNameMatches cf mflow))
                     | (cf, mflow) <- mappings
                     , Nothing <- [mcfConsumerLocation cf]
-                    , Just (medium, Subcompartment normSub) <- [cfMediumSub cmap cf]
-                    , not (T.null normSub)
-                    ]
-        , mtFallbackCF =
-            -- Medium-level default CF for a flow whose specific subcompartment
-            -- has no exact CF. Holds CFs whose own subcompartment is empty or
-            -- "unspecified" – the value a method intends as the catch-all for
-            -- that (name, medium). A flow at an uncovered subcompartment (e.g.
-            -- a radionuclide emitted to "low population density, long-term",
-            -- which EF leaves uncharacterized) thus picks up the unspecified CF,
-            -- as ecoinvent's own implementation does, instead of scoring zero.
-            -- This is safe against the long-term toxicity case: a substance
-            -- that DOES carry a "(long-term)" CF keeps it in 'mtExactCF', which
-            -- is consulted before this fallback, so long-term emissions still
-            -- resolve to their explicit (often zero) factor.
-            dropRank $
-                M.fromListWith
-                    preferBetter
-                    [ ((SR.NormName (nameKey cf mflow), medium), (entryOf cf mflow, rawNameMatches cf mflow))
-                    | (cf, mflow) <- mappings
-                    , Nothing <- [mcfConsumerLocation cf]
-                    , Just (medium, Subcompartment normSub) <- [cfMediumSub cmap cf]
-                    , isUnspecifiedSub normSub
-                    ]
-        , mtLongTermFallbackCF =
-            -- The long-term analogue of 'mtFallbackCF': the method's "unspecified
-            -- (long-term)" catch-all. A long-term flow at an uncovered specific
-            -- subcompartment ("groundwater, long-term") has no exact CF and must
-            -- pick up THIS, not the immediate-emission default, so a delayed
-            -- emission gets the method's own long-term factor (e.g. EF's explicit
-            -- zero) rather than the full immediate CF.
-            dropRank $
-                M.fromListWith
-                    preferBetter
-                    [ ((SR.NormName (nameKey cf mflow), medium), (entryOf cf mflow, rawNameMatches cf mflow))
-                    | (cf, mflow) <- mappings
-                    , Nothing <- [mcfConsumerLocation cf]
-                    , Just (medium, Subcompartment normSub) <- [cfMediumSub cmap cf]
-                    , isLongTermUnspecifiedSub normSub
-                    ]
-        , mtSubBlindCF =
-            -- Keep a (name, medium) entry only when every subcompartment's CF
-            -- agrees: then the sub is irrelevant and a sub-mismatched flow can
-            -- safely borrow it. A substance whose factor varies by sub is
-            -- dropped here, so this never guesses across a real distinction.
-            M.mapMaybe agreedValue $
-                M.fromListWith
-                    (++)
-                    [ ((SR.NormName (nameKey cf mflow), medium), [entryOf cf mflow])
-                    | (cf, mflow) <- mappings
-                    , Nothing <- [mcfConsumerLocation cf]
-                    , Just (medium, _) <- [cfMediumSub cmap cf]
+                    , Just (medium, sub) <- [cfMediumSub cmap cf]
                     ]
         , mtCasCF =
-            -- Keyed by the CF's own CAS + medium (not by a matched flow), so the
-            -- read path reaches every database flow sharing that CAS+medium –
-            -- the fix for many flows collapsing onto one CAS (e.g. water).
-            -- Subcompartment-blind on purpose: a resource flow and the CF that
-            -- characterizes it routinely disagree on subcompartment, so a
-            -- subcomp-strict bridge would zero whole resource categories.
-            -- Regionalized CFs stay out, whichever way they carry their
+            -- Keyed by the CF's own CAS, medium and subcompartment (not by a
+            -- matched flow), so the read path reaches every database flow
+            -- sharing them – the fix for many flows collapsing onto one CAS
+            -- (e.g. water). Regionalized CFs stay out, whichever way they carry their
             -- region: consumer-located rows go to 'mtRegionalCasCF', and
             -- name-regionalized rows ("Water, CH" – the SimaPro convention)
             -- are dropped via 'extractLocationSuffix'. The bridge is
@@ -1660,17 +1580,15 @@ buildMethodTables methodFamily cmap energyDensities mappings =
             -- value (an arid ~100 over AWARE's region-less 42.95) to every
             -- uncovered same-CAS flow.
             --
-            -- Only CFs that matched by CAS populate this table. A CF whose name
-            -- or synonym pinned a specific flow (e.g. "methane (biogenic)" →
-            -- "Methane, non-fossil") is name-discriminated: broadcasting it to
+            -- Only CFs that matched by CAS are served by this table. A CF whose
+            -- name or synonym pinned a specific flow (e.g. "methane (biogenic)"
+            -- → "Methane, non-fossil") is name-discriminated: broadcasting it to
             -- every same-CAS flow would leak it onto a sibling the method
             -- distinguishes (fossil methane), so it stays out of the CAS bridge.
-            --
-            -- When several CFs share one (CAS, medium), broadcast the
-            -- substance's medium-level default – its unspecified-subcompartment
-            -- factor – rather than the largest. The largest is often a niche
-            -- subcompartment (indoor air can be ~100x the outdoor value) that
-            -- would over-characterize every same-CAS flow the bridge reaches.
+            -- It still takes its place: a substance that writes 0 for
+            -- long-term groundwater on a line matched by name has said what a
+            -- long-term groundwater emission of it is worth, and the bridge
+            -- must not read its line for the whole medium instead.
             --
             -- And no bridge at all for a CAS class the method discriminates
             -- within ('casDiscriminated'): when rows at one (CAS, medium,
@@ -1681,48 +1599,49 @@ buildMethodTables methodFamily cmap energyDensities mappings =
             -- bridge would stamp an arbitrary one (AWARE's region-less 42.95)
             -- onto exactly the flows the method chose to distinguish or leave
             -- out. Same never-guess rule as 'agreedValue'.
-            (`M.withoutKeys` casDiscriminated) . M.map snd $
+            M.filterWithKey (\(casNo, medium, _) _ -> not (S.member (casNo, medium) casDiscriminated)) $
                 M.fromListWith
-                    (preferUnspecifiedBy teCF)
-                    [ ((casNo, medium), (casSubRank normSub, entryOf cf mflow))
-                    | (cf, mflow@(Just (_, ByCAS))) <- mappings
+                    (servedOver (preferLargerBy teCF))
+                    [ ((casNo, medium, sub), bridged)
+                    | (cf, mflow) <- mappings
+                    , let bridged = case mflow of
+                            Just (_, ByCAS) -> Just (entryOf cf mflow)
+                            _ -> Nothing
                     , Just cas <- [mcfCAS cf]
                     , Just casNo <- [SR.casKey cas]
                     , Nothing <- [mcfConsumerLocation cf]
                     , (_, Nothing) <- [extractLocationSuffix (mcfFlowName cf)]
-                    , Just (medium, Subcompartment normSub) <- [cfMediumSub cmap cf]
+                    , Just (medium, sub) <- [cfMediumSub cmap cf]
                     ]
         , mtRegionalCasCF =
-            -- Same unspecified-default preference as 'mtCasCF', applied per
-            -- location: when several subcompartment CFs collide on one
-            -- (CAS, medium, location) the medium-level default wins over a
-            -- niche subcompartment, rather than the largest magnitude.
-            --
-            -- And the same 'casDiscriminated' veto: this table feeds the
+            -- Keyed like 'mtCasCF', one map of locations per key (empty where
+            -- the substance's line is one the bridge may not serve), and with
+            -- the same 'casDiscriminated' veto: this table feeds the
             -- name-blind CAS fallback of the regionalized read path
             -- ('fillRegionalActivityWeights'), so serving a discriminated
             -- class here would hand an excluded flow (turbine water) the
             -- consuming activity's regional factor – and would regionalize
             -- a name-suffixed flow ("Water, lake, CH") by the consuming
             -- activity's location instead of the flow's own projected value.
-            (`M.withoutKeys` casDiscriminated) . M.map (M.map snd) $
+            M.filterWithKey (\(casNo, medium, _) _ -> not (S.member (casNo, medium) casDiscriminated)) $
                 M.fromListWith
-                    (M.unionWith (preferUnspecifiedBy id))
-                    [ ((casNo, medium), M.singleton (Location loc) (casSubRank normSub, cfOf cf))
-                    | (cf, Just (_, ByCAS)) <- mappings
+                    (M.unionWith (preferLargerBy id))
+                    [ ((casNo, medium, sub), bridged)
+                    | (cf, mflow) <- mappings
+                    , Just loc <- [mcfConsumerLocation cf]
+                    , let bridged = case mflow of
+                            Just (_, ByCAS) -> M.singleton (Location loc) (cfOf cf)
+                            _ -> M.empty
                     , Just cas <- [mcfCAS cf]
                     , Just casNo <- [SR.casKey cas]
-                    , Just loc <- [mcfConsumerLocation cf]
-                    , Just (medium, Subcompartment normSub) <- [cfMediumSub cmap cf]
+                    , Just (medium, sub) <- [cfMediumSub cmap cf]
                     ]
         , mtRegionalizedCF =
-            -- Filter: a CF whose own compartment carries a specific subcomp
-            -- (e.g. "groundwater, long-term" or "ocean") must only apply to
-            -- flows in that exact subcomp – otherwise a CF=0 set explicitly for
-            -- a niche subcomp leaks onto flows in other subcomps via
-            -- ByName/synonym fan-out and clobbers the correct (unspecified)
-            -- fallback CF. CFs with no specific subcomp ('isUnspecifiedSub')
-            -- are wildcards and match any flow subcomp.
+            -- A CF reaches a flow only at a subcompartment 'subReadings'
+            -- lets the flow read – otherwise a CF=0 set explicitly for a
+            -- niche subcomp leaks onto flows in other subcomps via
+            -- ByName/synonym fan-out and clobbers the factor the flow should
+            -- read.
             M.map snd $
                 M.fromListWith
                     preferRegional
@@ -1731,8 +1650,7 @@ buildMethodTables methodFamily cmap energyDensities mappings =
                     , Just m <- [cfSubcompMatchesFlow cf flow]
                     , Just loc <- [mcfConsumerLocation cf]
                     ]
-        , mtCFFamily = methodFamily
-        , mtSeaWaterCFs = seaWaterCFs
+        , mtIfAbsent = ifAbsent
         , mtCompartmentMap = cmap
         , mtEnergyPrice = energyPriceOf cmap mappings
         , mtEnergyDensities = energyDensities
@@ -1781,75 +1699,45 @@ buildMethodTables methodFamily cmap energyDensities mappings =
             , not (T.null cas)
             , Nothing <- [mcfConsumerLocation cf]
             , Just (medium, Subcompartment normSub) <- [cfMediumSub cmap cf]
-            , let subClass = if isUnspecifiedSub normSub then "" else normSub
+            , let subClass = normSub
             ]
 
-    -- For the CAS bridge: rank the unspecified / empty subcompartment ahead of
-    -- any specific one, so 'preferUnspecifiedCas' keeps the medium-level
-    -- default value when several subcompartment CFs collide on one key. On a
-    -- tie (no unspecified CF present) keep the larger magnitude – the bridge is
-    -- a last-resort fallback, so an overstated factor surfaces in validation
-    -- while an understated one would be invisible.
-    casSubRank s
-        | isUnspecifiedSub s = 0 :: Int
-        | otherwise = 1
-    preferUnspecifiedBy val a@(ra, ea) b@(rb, eb)
-        | ra /= rb = if ra < rb then a else b
-        | abs (cfValue (val ea)) >= abs (cfValue (val eb)) = a
+    -- Two rows colliding on one CAS key agree on their value unless
+    -- 'casDiscriminated' has already dropped the key; what is left to choose
+    -- between is a unit, and the larger magnitude is kept so an overstated
+    -- factor surfaces in validation where an understated one would not.
+    preferLargerBy :: (a -> CF) -> a -> a -> a
+    preferLargerBy val a b
+        | abs (cfValue (val a)) >= abs (cfValue (val b)) = a
         | otherwise = b
 
-    -- Counted from the method's own factor lines: does it name the sea
-    -- anywhere? Both sides go through 'cmap', like every other subcompartment
-    -- comparison here, so a compartments.csv rule that rewrites a spelling
-    -- cannot make the count disagree with the gate that reads it.
-    seaWaterCFs
-        | any namesTheSea mappings = MethodDeclaresSeaWater
-        | otherwise = MethodSilentOnSeaWater
-    namesTheSea (cf, _) =
-        maybe False (isForeignMediumSub . foldSub . snd) (cfMediumSub cmap cf)
+    -- A line the bridge may serve outranks one it may not, at one place.
+    servedOver :: (a -> a -> a) -> Maybe a -> Maybe a -> Maybe a
+    servedOver pick (Just a) (Just b) = Just (pick a b)
+    servedOver _ a b = a <|> b
 
-    -- A CF whose subcomp names no specific subcompartment ('isUnspecifiedSub')
-    -- is a wildcard. A CF with a specific subcomp must match the flow's subcomp
-    -- exactly – otherwise an explicit-zero niche-subcomp CF would clobber the
-    -- correct (unspecified) CF for flows in other subcomps via ByName/synonym
-    -- fan-out.
-    --
-    -- Both sides go through 'normalizeCompartment' so a compartments.csv rule
-    -- that rewrites a subcomp can't desynchronise the filter from the sibling
-    -- 'mtExactCF' / 'mtFallbackCF' tables or the 'lookupCascadeCF' read path.
-    -- Flow subcomp resolution mirrors 'lookupCascadeCF': prefer the explicit
-    -- 'compartmentSub' field, fall back to the tail of "<medium>/<sub>"
-    -- parsed from the compartment name.
-    cfSubcompMatchesFlow cf flow = case mcfCompartment cf of
-        Nothing -> Just MediumLevelSub
-        Just _ ->
-            let !cfSubN = maybe T.empty (unSub . foldSub . snd) (cfMediumSub cmap cf)
-                !flowSubN = unSub (foldSub (snd (flowMediumSub cmap flow)))
-             in -- A wildcard (unspecified) CF matches any subcompartment except
-                -- the ones the 'lookupCascadeCF' gate excludes on the
-                -- non-regional path – both tiers: a foreign medium (sea/ocean)
-                -- never borrows a freshwater CF, and long-term groundwater
-                -- borrows no surface USEtox CF. An explicit same-sub CF still
-                -- matches, and says so, because the two are ranked against each
-                -- other when both land on one (flow, location).
-                subMatch cfSubN flowSubN
+    ifAbsent :: M.Map (MediumKey, Subcompartment) Subcompartment
+    ifAbsent = ifAbsentInForce cmap vocabulary
 
-    subMatch cfSubN flowSubN
-        | cfSubN == flowSubN = Just ExactSub
-        | isUnspecifiedSub cfSubN
-        , wildcardReachesSub methodFamily seaWaterCFs (Subcompartment flowSubN) =
-            Just MediumLevelSub
-        | otherwise = Nothing
+    -- The rank at which a flow reads a CF's subcompartment, among the
+    -- places 'subReadings' lets it read; Nothing when it may not read there.
+    -- Both sides go through 'normalizeCompartment', so a compartments.csv
+    -- rule that rewrites a subcomp can't desynchronise this from the
+    -- broadcast tables and the 'lookupCascadeCF' read path.
+    cfSubcompMatchesFlow :: MethodCF -> BiosphereFlow -> Maybe SubReading
+    cfSubcompMatchesFlow cf flow =
+        let cfSub = maybe mediumWide snd (cfMediumSub cmap cf)
+            (flowMed, flowSub) = flowMediumSub cmap flow
+         in listToMaybe [r | (r, s) <- subReadings ifAbsent flowMed flowSub, s == cfSub]
 
-    -- Rank two CFs competing for one (flow, location) key. 'mtRegionalizedCF' is
-    -- the only table where an exact-subcompartment CF and a medium-level one
-    -- compete at all: 'mtExactCF' and 'mtFallbackCF' are kept apart by
-    -- construction and the read cascade orders them. Here both land on the same
-    -- key, so without a rank the winner is whichever row the method file listed
-    -- last. The method's more specific line wins; between two of the same kind,
-    -- the larger factor, as everywhere else in this module.
+    -- Rank two CFs competing for one (flow, location) key. 'mtRegionalizedCF'
+    -- is the only table where CFs at several subcompartments land on one key;
+    -- the broadcast tables keep them apart and the read cascade orders them.
+    -- The place the flow reads first wins; between two of the same rank, the
+    -- larger factor, as everywhere else in this module.
+    preferRegional :: (SubReading, CF) -> (SubReading, CF) -> (SubReading, CF)
     preferRegional a@(mA, CF va _) b@(mB, CF vb _)
-        | mA /= mB = if mA == ExactSub then a else b
+        | mA /= mB = if mA < mB then a else b
         | abs va >= abs vb = a
         | otherwise = b
 
@@ -2144,11 +2032,13 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
             -- the one a CF resolved to at build time.
             lookupRow fid =
                 M.lookup fid perFlow
-                    <|> ( M.lookup fid flowDB >>= \flow ->
-                            bfCAS flow
-                                >>= SR.casKey
-                                >>= \casNo -> M.lookup (casNo, fst (flowMediumSub cmap flow)) regionalCas
-                        )
+                    <|> (M.lookup fid flowDB >>= regionalCasFor)
+            regionalCasFor :: BiosphereFlow -> Maybe (M.Map Location CF)
+            regionalCasFor flow = do
+                casNo <- bfCAS flow >>= SR.casKey
+                let (medium, sub) = flowMediumSub cmap flow
+                located <- asum [M.lookup (casNo, medium, at) regionalCas | (_, at) <- subReadings (mtIfAbsent tables) medium sub]
+                if M.null located then Nothing else Just located
          in V.map lookupRow bioFlows
 
     -- ProcessId → matrix column index → activity's reference location.
@@ -2336,15 +2226,13 @@ computeLCIAScoreFromTables unitConfig unitDB flowDB inventory tables =
         Nothing -> Nothing
         Just cf -> Just (convertAndMultiply unitConfig unitDB (mtEnergyDensities tables) (M.lookup fid flowDB) cf qty)
 
-{- | Back-compat wrapper: build tables on the fly, with no compartment map,
-energy densities, or CF-family gating ('OtherCFFamily'). Prefer the cached path
-('mapMethodToTablesCached' + 'computeLCIAScoreFromTables') in hot loops, and
-'buildMethodTables' with the method's real 'cfFamily' wherever the method is
-in hand.
+{- | Back-compat wrapper: build tables on the fly, with no compartment map and
+no energy densities. Prefer the cached path ('mapMethodToTablesCached' +
+'computeLCIAScoreFromTables') in hot loops.
 -}
 computeLCIAScore :: UnitConfig -> UnitDB -> BioFlowDB -> Inventory -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> LCIAOutcome
 computeLCIAScore unitConfig unitDB flowDB inventory mappings =
-    computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables OtherCFFamily mempty M.empty mappings)
+    computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables mempty mempty M.empty mappings)
 
 {- | LCIA score with automatic dispatch.
 
@@ -2442,7 +2330,7 @@ Where @C[f, l]@ is resolved by hierarchical fallback:
   1. Exact regional cell @(f, l)@ in 'mtRegionalizedCF'.
   2. Cell at any parent region of @l@ (walked via the location hierarchy).
   3. Universal broadcast: the same lookup that 'computeLCIAScoreFromTables' uses
-     ('mtUuidCF' / 'mtExactCF' / 'mtFallbackCF').
+     ('mtUuidCF' / 'mtExactCF').
   4. If none of the above and @f@ is regionalized in this method (i.e. the
      regional table mentions @f@ for some other location), fail with a 'Left'
      surfacing the gap – silent zero would under-count.
@@ -2789,20 +2677,13 @@ data RungId
     = RungUuid
     | RungUnitVariant
     | RungExactName
-    | RungLongTermDefault
     | RungMediumDefault
+    | RungIfAbsent
     | RungCasBridge
-    | RungSubBlind
     | RungRegionBase
     | RungEnergyResource
     | RungOreGradeBase
     deriving (Eq, Show, Enum, Bounded)
-
-{- | Why a wildcard rung refused a flow's subcompartment – the two tiers of
-'wildcardVeto'.
--}
-data VetoReason = ForeignMediumVeto | LongTermUSEtoxVeto
-    deriving (Eq, Show)
 
 -- | One rung's verdict about one flow.
 data RungOutcome
@@ -2814,11 +2695,6 @@ data RungOutcome
       resource, no unit-suffixed rows in the method): nothing is looked up.
       -}
       RungNotApplicable
-    | {- | A wildcard rung the flow's subcompartment refuses. Whether an entry
-      sat behind the veto is deliberately not recorded: no surface reports
-      it, and not looking is what keeps a vetoed rung free on the score path.
-      -}
-      RungVetoed !VetoReason
     | {- | Several candidates disagree and the rung refuses to pick one by Map
       order (the method's energy lines naming no single price) – the "never
       guess" rule.
@@ -2834,15 +2710,14 @@ whole trail.
 Rung order, and why: a unit-suffixed flow first tries the method row declared
 in its own unit ('mtUnitVariantCF') – the collapsed-name tables below crown
 one winner per base name, which for a sibling unit variant is dimensionally
-wrong and zeroes on conversion; a right-unit, sub-blind factor beats a
-right-sub, wrong-unit one. Then the exact (name, medium, sub) entry. A
-long-term (delayed) emission then tries the method's long-term default
-('mtLongTermFallbackCF') so it inherits the long-term factor, not the
-immediate-emission one. UUID/name misses then fall back to the flow's own
-CAS + medium, so every flow sharing a CAS in a compartment is characterized,
-not just the one a CF resolved to at build time. The parametric rungs
-(region-stripped base name, energy family, ore grade) come last: they only
-fire when every direct lookup misses.
+wrong and zeroes on conversion; a right-unit factor beats a wrong-unit one.
+Then the flow's name at each place 'subReadings' lets it read, one rung per
+place: its own subcompartment, the line written for the whole medium, the one
+an @if_absent@ row sends it to. UUID/name misses then fall back to the flow's own
+CAS, read at the same places, so every flow sharing a CAS in a compartment is
+characterized, not just the one a CF resolved to at build time. The parametric
+rungs (region-stripped base name, energy family, ore grade) come last: they
+only fire when every direct lookup misses.
 -}
 cascadeTrail :: MethodTables -> BioFlowDB -> UUID -> [(RungId, RungOutcome)]
 cascadeTrail tables flowDB fid =
@@ -2853,34 +2728,25 @@ cascadeTrail tables flowDB fid =
 
     namedRungs flow =
         [ (RungUnitVariant, unitVariantOutcome)
-        , (RungExactName, plain (M.lookup (name, baseMed, normSub) (mtExactCF tables)))
-        , (RungLongTermDefault, longTermOutcome)
-        , (RungMediumDefault, gated (M.lookup (name, baseMed) (mtFallbackCF tables)))
+        , (RungExactName, plain (nameAt ownSub))
+        , (RungMediumDefault, plain (nameAt mediumWide))
+        , (RungIfAbsent, maybe RungNotApplicable (plain . nameAt) redirected)
         , (RungCasBridge, casOutcome)
-        , (RungSubBlind, gated (M.lookup (name, baseMed) (mtSubBlindCF tables)))
         , (RungRegionBase, regionOutcome)
         , (RungEnergyResource, energyOutcome)
         , (RungOreGradeBase, oreGradeOutcome)
         ]
       where
         name = SR.NormName (normalizeName (bfName flow))
-        (baseMed, normSub) = flowMediumSub (mtCompartmentMap tables) flow
+        (baseMed, ownSub) = flowMediumSub (mtCompartmentMap tables) flow
+        readings = subReadings (mtIfAbsent tables) baseMed ownSub
+        redirected = listToMaybe [sub | (SubIfAbsent, sub) <- readings]
 
-        -- The medium-level / CAS / sub-blind fallbacks all stand for a
-        -- surface, immediate emission, so gate a resolved one by the flow's
-        -- subcompartment: a foreign medium (sea/ocean) gets no freshwater CF
-        -- at all, but only from a method that names sea water somewhere and so
-        -- meant to leave this one out; a LONG-TERM groundwater emission drops a
-        -- surface-freshwater-fate USEtox CF (CTUe/CTUh) – the method's
-        -- explicit "groundwater, long-term" zero must win, never the CAS
-        -- bridge. An immediate groundwater emission keeps the fallback
-        -- (SimaPro semantics: an implicit sub inherits the unspecified CF),
-        -- as do nutrient/other freshwater CFs (phosphate migrates to
-        -- surface water, so the method characterizes it). An explicit
-        -- exact-sub CF and the method's own long-term default are never
-        -- gated.
-        mVeto = wildcardVeto (mtCFFamily tables) (mtSeaWaterCFs tables) normSub
-        gated r = maybe (plain r) RungVetoed mVeto
+        nameAt sub = M.lookup (name, baseMed, sub) (mtExactCF tables)
+
+        -- The first place the flow may read that the table answers.
+        firstReading :: (Subcompartment -> Maybe a) -> Maybe a
+        firstReading look = asum [look sub | (_, sub) <- readings]
 
         -- 'mtUnitVariantCF' is empty for every method whose factor lines
         -- carry no unit suffix – the common case – and 'M.lookup' is strict
@@ -2890,21 +2756,12 @@ cascadeTrail tables flowDB fid =
         unitVariantOutcome
             | M.null (mtUnitVariantCF tables) = RungNotApplicable
             | otherwise =
-                gated
-                    ( M.lookup
-                        (SR.NormName (normalizeNameKeepUnit (bfName flow)), baseMed)
-                        (mtUnitVariantCF tables)
-                    )
+                let kname = SR.NormName (normalizeNameKeepUnit (bfName flow))
+                 in plain (firstReading (\sub -> M.lookup (kname, baseMed, sub) (mtUnitVariantCF tables)))
 
-        longTermOutcome
-            | isLongTermSub normSub = plain (M.lookup (name, baseMed) (mtLongTermFallbackCF tables))
-            | otherwise = RungNotApplicable
-
-        casOutcome = case bfCAS flow of
+        casOutcome = case bfCAS flow >>= SR.casKey of
             Nothing -> RungNotApplicable
-            Just cas -> case SR.casKey cas of
-                Nothing -> RungNotApplicable
-                Just casNo -> gated (M.lookup (casNo, baseMed) (mtCasCF tables))
+            Just casNo -> plain (join (firstReading (\sub -> M.lookup (casNo, baseMed, sub) (mtCasCF tables))))
 
         -- A SimaPro region-suffixed flow ("Ammonia, FR") whose region the method
         -- doesn't tag falls back to the base substance's CF: an unregionalized CF
@@ -2917,15 +2774,9 @@ cascadeTrail tables flowDB fid =
         -- suffix with this same 'extractLocationSuffix' before looking a density
         -- up: whatever name lends the factor must also lend the density, or the
         -- flow holds a factor it cannot be converted to and scores 0.
-        regionOutcome = case mVeto of
-            Just veto -> RungVetoed veto
-            Nothing -> case extractLocationSuffix (bfName flow) of
-                (base, Just _) -> plain (regionLookupAt base)
-                (_, Nothing) -> RungNotApplicable
-        regionLookupAt base =
-            let bname = SR.NormName (normalizeName base)
-             in M.lookup (bname, baseMed, normSub) (mtExactCF tables)
-                    <|> M.lookup (bname, baseMed) (mtFallbackCF tables)
+        regionOutcome = case extractLocationSuffix (bfName flow) of
+            (base, Just _) -> plain (resourceCF (SR.NormName (normalizeName base)))
+            (_, Nothing) -> RungNotApplicable
 
         -- An extracted energy carrier whose name states its content ("Coal, 18 MJ
         -- per kg", "Uranium ore, 1.11 GJ per kg") is characterized by what the
@@ -2948,9 +2799,8 @@ cascadeTrail tables flowDB fid =
                 EnergyLinesDisagree -> RungAmbiguous
                 EnergyPriced e -> RungHit e
 
-        resourceCF rname =
-            M.lookup (rname, baseMed, normSub) (mtExactCF tables)
-                <|> M.lookup (rname, baseMed) (mtFallbackCF tables)
+        -- Another name's factor, read at the places this flow may read.
+        resourceCF rname = firstReading (\sub -> M.lookup (rname, baseMed, sub) (mtExactCF tables))
 
         -- An ecoinvent metal-ore resource flow ("Copper, 0.99% in sulfide, Cu 0.36%
         -- …, in ground", "Gold, Au 7.1E-4%, in ore") carries no CAS and matches no CF
@@ -2983,94 +2833,92 @@ lookupCascadeEntry tables flowDB fid =
 lookupCascadeCF :: MethodTables -> BioFlowDB -> UUID -> Maybe CF
 lookupCascadeCF tables flowDB fid = teCF . snd <$> lookupCascadeEntry tables flowDB fid
 
-{- | A subcompartment that names no specific subcompartment – empty, or either
-spelling of unspecified. Such a CF is the medium-level default: it
-characterizes any flow in that medium whose own subcompartment the method
-doesn't cover. The single source of truth for "is this the catch-all subcomp",
-so the fallback table, the CAS-bridge rank, and the regionalized wildcard
-filter can't drift apart on which spellings count (they did: the filter once
-omitted bare @unspecified@). Inputs are expected already lower-cased via
-'normalizeCompartment'.
+{- | A method row's subcompartment statement that constrains only the medium,
+when a row is matched to a database flow at build time: empty, or either
+spelling of unspecified. Only the flow a row resolves to depends on it; which
+flows the row characterizes is 'subReadings'' business. Inputs are expected
+already lower-cased via 'normalizeCompartment'.
 -}
 isUnspecifiedSub :: Text -> Bool
 isUnspecifiedSub s = T.null s || s == "unspecified" || s == "(unspecified)"
 
 {- | True when a subcompartment marks a long-term (delayed) emission, e.g.
-@"groundwater, long-term"@ or @"unspecified (long-term)"@. EF distinguishes the
-time horizon: a substance often carries a different (frequently zero) CF for its
-long-term emission than for its immediate one.
+@"groundwater, long-term"@ or @"unspecified (long-term)"@ – the emissions
+'ExcludeLongTerm' drops.
 -}
 isLongTermSub :: Subcompartment -> Bool
 isLongTermSub (Subcompartment s) = "long-term" `T.isInfixOf` s || "long term" `T.isInfixOf` s
 
-{- | A subcompartment that names a different fate than the surface / immediate
-emission a method's unspecified (medium-level) CF stands for, so that CF must
-not silently reach it. Two tiers, gated differently in 'lookupCascadeCF':
+-- | The subcompartment a factor line written for its whole medium is keyed at.
+mediumWide :: Subcompartment
+mediumWide = Subcompartment T.empty
 
-  * 'isDetachedSub' && 'isLongTermSub' – long-term emissions to groundwater
-    (ecoinvent tailings/landfill leachate). A surface-freshwater-fate USEtox CF
-    ('USEtoxFamily') does not apply: EF methods carry an explicit zero for
-    "groundwater, long-term", and a name-mismatched flow must not borrow the
-    immediate CF through the CAS bridge (that over-counted ecotoxicity by two
-    orders of magnitude on metal-intensive products). An IMMEDIATE groundwater
-    emission is NOT gated: SimaPro subcompartment semantics fall back to the
-    unspecified CF for any sub the method leaves implicit – EF exports zero out
-    only "groundwater, long-term" and ocean explicitly – and compartments.csv
-    already maps the ecoinvent spelling ("ground-") to surface water, so gating
-    the SimaPro spelling would characterize the same emission inconsistently.
-    Nutrient/other freshwater CFs stay ungated either way (phosphate migrates
-    to surface water, so the method characterizes it). Scoped to groundwater,
-    NOT every long-term sub: a "river, long-term" release is still surface
-    freshwater and stays characterized.
-  * 'isForeignMediumSub' – the sea/ocean, a different receiving medium
-    altogether: a freshwater CF does not apply at all (water released to the sea
-    is not freshwater depletion), and the method says so itself with an explicit
-    sea-water line. This tier applies only to a method that writes such lines
-    ('MethodDeclaresSeaWater'); see 'SeaWaterCFs' for why a method that never
-    mentions the sea must not have a zero invented for it.
-
-Names are the post-'normalizeCompartment' lower-cased subcompartment, so each
-tier names the canonical spelling only: the source spellings a database or a
-method file may use ("sea water", "Emissions to sea water") are translated by
-compartments.csv before they reach here, and a new one is added there.
+{- | Which written rule lets a flow read the factor at a place. Ordered as the
+flow tries them.
 -}
-isDetachedSub :: Subcompartment -> Bool
-isDetachedSub (Subcompartment s) = "groundwater" `T.isPrefixOf` s
+data SubReading
+    = -- | The flow's own subcompartment.
+      SubOwn
+    | -- | The line the substance writes for its whole medium.
+      SubMediumWide
+    | -- | Another one, by an @if_absent@ row of the compartment table.
+      SubIfAbsent
+    deriving (Eq, Ord, Show)
 
-isForeignMediumSub :: Subcompartment -> Bool
-isForeignMediumSub (Subcompartment s) = s == "ocean"
+{- | The places a flow at @(medium, sub)@ may read a factor, in the order it
+tries them. These are the only three, and each is written somewhere a method or
+database author can read:
 
-{- | The veto a medium-level (wildcard / fallback) CF meets at the given
-subcompartment, or 'Nothing' when it reaches – both tiers above, decided in
-one place. Shared by the read-path cascade gate (which also reports the
-reason in a trail) and the build-time regionalized wildcard match, so the
-two scoring paths apply the same rule, under the same name, and can't drift.
+  * its own subcompartment;
+  * the substance's line for the whole medium, a line written with no
+    subcompartment. That is how the SimaPro CSV format writes
+    @(unspecified)@, which its reader keys there, while @unspecified@ in an
+    ILCD package, a JSON-LD package or this engine's CSV names one
+    subcompartment like any other;
+  * the one an @if_absent@ row of the compartment table sends it to, when the
+    method's collection never writes its own ('ifAbsentInForce').
+
+The method's own line for the medium comes before the compartment table's
+row: it is what the method says about every subcompartment it leaves
+unwritten, where the row is a correspondence between two vocabularies written
+outside it. The SimaPro export of EF 3.1 and its ILCD package both leave
+groundwater unwritten; only the second has no line for the whole medium, so
+only there does a groundwater flow reach the row that sends it to fresh water.
+
+Nothing else: no subcompartment is guessed from another, and no factor is
+borrowed across subcompartments because a substance happens to have one.
 -}
-wildcardVeto :: CFFamily -> SeaWaterCFs -> Subcompartment -> Maybe VetoReason
-wildcardVeto family seaWater sub
-    | seaWater == MethodDeclaresSeaWater && isForeignMediumSub sub = Just ForeignMediumVeto
-    | isDetachedSub sub && isLongTermSub sub && family == USEtoxFamily = Just LongTermUSEtoxVeto
-    | otherwise = Nothing
+subReadings :: M.Map (MediumKey, Subcompartment) Subcompartment -> MediumKey -> Subcompartment -> [(SubReading, Subcompartment)]
+subReadings inForce medium sub =
+    (SubOwn, sub)
+        : [(SubMediumWide, mediumWide) | sub /= mediumWide]
+        ++ [(SubIfAbsent, target) | Just target <- [M.lookup (medium, foldSub sub) inForce]]
 
--- | 'wildcardVeto' for the caller that only asks whether the CF reaches.
-wildcardReachesSub :: CFFamily -> SeaWaterCFs -> Subcompartment -> Bool
-wildcardReachesSub family seaWater = isNothing . wildcardVeto family seaWater
-
-{- | A subcompartment that names the long-term catch-all: @"unspecified
-(long-term)"@, @"(long-term)"@ – i.e. unspecified once the time-horizon marker is
-removed. These hold a method's medium-level default for long-term emissions, so a
-long-term flow at an uncovered specific subcompartment ("groundwater, long-term")
-must inherit THIS, not the immediate-emission unspecified CF.
+{- | The places a method's collection writes factors at: every
+(medium, subcompartment) its lines name, case-folded. An @if_absent@ row holds
+for the method only where this says nothing, which is what lets a method that
+has its own forestry factors keep them while one whose flow list has no forest
+reads its non-agricultural soil. Read from the whole collection, not the one
+impact category: a category that happens to write no forestry line belongs to
+a method that does distinguish forests.
 -}
-isLongTermUnspecifiedSub :: Text -> Bool
-isLongTermUnspecifiedSub s =
-    isLongTermSub (Subcompartment s) && isUnspecifiedSub (stripLongTerm s)
-  where
-    stripLongTerm =
-        T.strip
-            . T.filter (`notElem` ("()" :: String))
-            . T.replace "long term" ""
-            . T.replace "long-term" ""
+newtype MethodVocabulary = MethodVocabulary (S.Set (MediumKey, Subcompartment))
+    deriving (Eq, Show)
+
+instance Semigroup MethodVocabulary where
+    MethodVocabulary a <> MethodVocabulary b = MethodVocabulary (S.union a b)
+
+instance Monoid MethodVocabulary where
+    mempty = MethodVocabulary S.empty
+
+methodVocabulary :: CompartmentMap -> [MethodCF] -> MethodVocabulary
+methodVocabulary cmap cfs =
+    MethodVocabulary (S.fromList [(medium, foldSub sub) | cf <- cfs, Just (medium, sub) <- [cfMediumSub cmap cf]])
+
+-- | The @if_absent@ rows that hold for a method whose collection writes the given places.
+ifAbsentInForce :: CompartmentMap -> MethodVocabulary -> M.Map (MediumKey, Subcompartment) Subcompartment
+ifAbsentInForce cmap (MethodVocabulary spoken) =
+    M.filterWithKey (\key _ -> not (S.member key spoken)) (M.mapKeysMonotonic (first Just) (cmIfAbsent cmap))
 
 {- | Whether delayed long-term (> 100 yr) biosphere emissions count toward the
 impact score. 'IncludeLongTerm' is the default and preserves the standard
@@ -3118,7 +2966,10 @@ applyLongTermMode flowDB ExcludeLongTerm = excludeLongTermFlows flowDB
 compartment normalization. Shared by the name/CAS read path
 ('lookupCascadeCF') and the regionalized CAS fallback so both key a flow the
 same way. Subcomp resolution prefers the explicit 'compartmentSub' field,
-falling back to the tail of a @"medium/sub"@ category name.
+falling back to the tail of a @"medium/sub"@ category name. A flow that states
+no subcompartment is an unspecified emission, which is the one thing its
+silence can mean; a factor line that states none is another matter
+('mediumWide').
 -}
 flowMediumSub :: CompartmentMap -> BiosphereFlow -> (MediumKey, Subcompartment)
 flowMediumSub cmap flow =
@@ -3126,7 +2977,7 @@ flowMediumSub cmap flow =
         rawSub = T.toLower (fromMaybe T.empty (VT.bfCompartmentSub flow))
         Compartment normMedRaw normSub _ =
             normalizeCompartment cmap (Compartment rawMed rawSub T.empty)
-     in (mediumKey normMedRaw, Subcompartment normSub)
+     in (mediumKey normMedRaw, Subcompartment (if T.null normSub then "unspecified" else normSub))
 
 {- | Flow→CF conversion factor for @qty@ units of flow, applying the
 energy-density bridge when it is needed and available.

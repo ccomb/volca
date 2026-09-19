@@ -100,7 +100,7 @@ spec = do
                 uidKg = mkUuid 200
                 cf = mkCF fid 1.0
                 m1 = mkMethod 1 "m1" [cf]
-                tables0 = buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (mkFlow fid "co2" uidKg, ByUUID))]
+                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (mkFlow fid "co2" uidKg, ByUUID))]
                 fdb = M.singleton fid (mkFlow fid "co2" uidKg)
                 udb = M.singleton uidKg (mkUnit uidKg "kg")
                 filled = fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb tables0
@@ -116,7 +116,7 @@ spec = do
                 uidKg = mkUuid 200
                 cf = mkCF fid 1.0
                 tables0 =
-                    (buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (mkFlow fid "co2" uidKg, ByUUID))])
+                    (buildMethodTables mempty mempty M.empty [(cf, Just (mkFlow fid "co2" uidKg, ByUUID))])
                         { mtRegionalizedCF = M.singleton (fid, Location "FR") (CF 2.0 (CFUnit "kg"))
                         }
                 m1 = mkMethod 1 "m1" [cf]
@@ -149,9 +149,9 @@ spec = do
                 mC = mkMethod 3 "C" [cfC1]
 
                 fill = fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb
-                tA = fill (buildMethodTables OtherCFFamily mempty M.empty [(cfA1, Just (flow1, ByUUID))])
-                tB = fill (buildMethodTables OtherCFFamily mempty M.empty [(cfB1, Just (flow1, ByUUID)), (cfB2, Just (flow2, ByUUID))])
-                tC = fill (buildMethodTables OtherCFFamily mempty M.empty [(cfC1, Just (flow1, ByUUID))])
+                tA = fill (buildMethodTables mempty mempty M.empty [(cfA1, Just (flow1, ByUUID))])
+                tB = fill (buildMethodTables mempty mempty M.empty [(cfB1, Just (flow1, ByUUID)), (cfB2, Just (flow2, ByUUID))])
+                tC = fill (buildMethodTables mempty mempty M.empty [(cfC1, Just (flow1, ByUUID))])
 
                 mst = buildMethodSetTables [(mA, tA), (mB, tB), (mC, tC)]
 
@@ -192,7 +192,7 @@ spec = do
                 fdb = M.singleton fid (mkFlow fid "co2" uidKg)
                 udb = M.singleton uidKg (mkUnit uidKg "kg")
                 fill = fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb
-                t = fill (buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (mkFlow fid "co2" uidKg, ByUUID))])
+                t = fill (buildMethodTables mempty mempty M.empty [(cf, Just (mkFlow fid "co2" uidKg, ByUUID))])
                 mst = buildMethodSetTables [(m1, t), (m2, t)]
                 results =
                     computeLCIAScoreSetFromTables
@@ -218,7 +218,7 @@ spec = do
                 udb = M.singleton uidKg (mkUnit uidKg "kg")
                 t =
                     fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb $
-                        buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (mkFlow fidIn "co2" uidKg, ByUUID))]
+                        buildMethodTables mempty mempty M.empty [(cf, Just (mkFlow fidIn "co2" uidKg, ByUUID))]
                 mst = buildMethodSetTables [(m1, t)]
                 inv = M.fromList [(fidIn, 2.0), (fidOut, 100.0)]
                 results =
@@ -262,7 +262,7 @@ spec = do
                 t =
                     fillBroadcastVector UnitConversion.defaultUnitConfig udb buildFlowDB $
                         buildMethodTables
-                            OtherCFFamily
+                            mempty
                             mempty
                             M.empty
                             [ (cfBuild, Just (mkFlow fidBuild "co2" uidKg, ByUUID))
@@ -305,7 +305,7 @@ spec = do
                 t =
                     fillBroadcastVector UnitConversion.defaultUnitConfig udb buildFlowDB $
                         buildMethodTables
-                            OtherCFFamily
+                            mempty
                             mempty
                             M.empty
                             [ (cfBuild, Just (mkFlow fidBuild "co2" uidKg, ByUUID))
@@ -334,7 +334,7 @@ spec = do
                 udb = M.singleton uidKg (mkUnit uidKg "kg")
                 t =
                     fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb $
-                        buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (mkFlow fid "co2" uidKg, ByUUID))]
+                        buildMethodTables mempty mempty M.empty [(cf, Just (mkFlow fid "co2" uidKg, ByUUID))]
                 mB = mkMethod 2 "B" [cf]
                 mA = mkMethod 1 "A" [cf]
                 mC = mkMethod 3 "C" [cf]
@@ -366,17 +366,17 @@ spec = do
                 cf3a = mkCF fid1 1.0
                 cf3b = (mkCF fid2 25.0){mcfFlowName = "ch4"}
                 tNonRegio1 =
-                    fill (buildMethodTables OtherCFFamily mempty M.empty [(cf1a, Just (flow1, ByUUID))])
+                    fill (buildMethodTables mempty mempty M.empty [(cf1a, Just (flow1, ByUUID))])
                 tRegio =
                     fill
-                        ( (buildMethodTables OtherCFFamily mempty M.empty [(cf2a, Just (flow1, ByUUID))])
+                        ( (buildMethodTables mempty mempty M.empty [(cf2a, Just (flow1, ByUUID))])
                             { mtRegionalizedCF = M.singleton (fid1, Location "FR") (CF 7.0 (CFUnit "kg"))
                             }
                         )
                 tNonRegio2 =
                     fill
                         ( buildMethodTables
-                            OtherCFFamily
+                            mempty
                             mempty
                             M.empty
                             [ (cf3a, Just (flow1, ByUUID))
@@ -459,7 +459,7 @@ spec = do
                     , (cfOcean, Just (flowUns, ByName))
                     , (cfOcean, Just (flowOcean, ByName))
                     ]
-                tables = buildMethodTables OtherCFFamily mempty M.empty mappings
+                tables = buildMethodTables mempty mempty M.empty mappings
                 regio = mtRegionalizedCF tables
             -- Pre-fix: this was (0.0, "kg") – clobbered by cfOcean. The
             -- filter drops (cfOcean, flowUns) so the wildcard cfUns survives.
@@ -488,23 +488,22 @@ spec = do
                         , mcfCompartment = Just (Compartment "water" "(unspecified)" "")
                         , mcfConsumerLocation = Just "DE"
                         }
-                -- Bare "unspecified" (no parens) is the spelling 'compartments.csv'
-                -- emits (e.g. "emissions to water,unspecified,long-term,…"); the
-                -- filter once treated only "" / "(unspecified)" as wildcards and
-                -- silently dropped this one. It must also act as a wildcard.
                 cfUnspecBare =
                     (mkCF fid 9.0)
                         { mcfFlowName = "water"
                         , mcfCompartment = Just (Compartment "water" "unspecified" "")
                         , mcfConsumerLocation = Just "DE"
                         }
-                tEmpty = buildMethodTables OtherCFFamily mempty M.empty [(cfEmpty, Just (flowRiver, ByName))]
-                tUnspec = buildMethodTables OtherCFFamily mempty M.empty [(cfUnspecified, Just (flowRiver, ByName))]
-                tUnspecBare = buildMethodTables OtherCFFamily mempty M.empty [(cfUnspecBare, Just (flowRiver, ByName))]
-            -- All three wildcard forms apply to a specific-subcomp flow.
+                tEmpty = buildMethodTables mempty mempty M.empty [(cfEmpty, Just (flowRiver, ByName))]
+                tUnspec = buildMethodTables mempty mempty M.empty [(cfUnspecified, Just (flowRiver, ByName))]
+                tUnspecBare = buildMethodTables mempty mempty M.empty [(cfUnspecBare, Just (flowRiver, ByName))]
+            -- A line written with no subcompartment stands for the whole
+            -- medium. One written at unspecified, either spelling, names a
+            -- subcompartment: the SimaPro reader is what turns its
+            -- "(unspecified)" into the first form, before any table is built.
             M.lookup (fid, Location "DE") (mtRegionalizedCF tEmpty) `shouldBe` Just (CF 2.0 (CFUnit "kg"))
-            M.lookup (fid, Location "DE") (mtRegionalizedCF tUnspec) `shouldBe` Just (CF 7.0 (CFUnit "kg"))
-            M.lookup (fid, Location "DE") (mtRegionalizedCF tUnspecBare) `shouldBe` Just (CF 9.0 (CFUnit "kg"))
+            M.lookup (fid, Location "DE") (mtRegionalizedCF tUnspec) `shouldBe` Nothing
+            M.lookup (fid, Location "DE") (mtRegionalizedCF tUnspecBare) `shouldBe` Nothing
 
         it "prefers the CF that names the flow's subcompartment, whatever the row order" $ do
             -- Both a medium-level CF and an exact-subcompartment one apply to a
@@ -524,19 +523,15 @@ spec = do
                         , mcfConsumerLocation = Just "DE"
                         }
                 tablesFrom rows =
-                    mtRegionalizedCF (buildMethodTables OtherCFFamily mempty M.empty rows)
-                medium = (cfAt "(unspecified)" 7.0, Just (flowRiver, ByName))
+                    mtRegionalizedCF (buildMethodTables mempty mempty M.empty rows)
+                medium = (cfAt "" 7.0, Just (flowRiver, ByName))
                 exact = (cfAt "river" 3.0, Just (flowRiver, ByName))
             M.lookup (fid, Location "DE") (tablesFrom [medium, exact])
                 `shouldBe` Just (CF 3.0 (CFUnit "kg"))
             M.lookup (fid, Location "DE") (tablesFrom [exact, medium])
                 `shouldBe` Just (CF 3.0 (CFUnit "kg"))
 
-        it "does not let a wildcard CF reach a sea/ocean flow (foreign medium)" $ do
-            -- A freshwater CF must not characterize a sea-water release via the
-            -- regionalized wildcard. The method says so itself: EF writes a
-            -- sea-water factor of its own, and that line – not the freshwater
-            -- one – is what a release to the sea gets.
+        it "lets the sea line win over the line for the whole medium" $ do
             let fid = mkUuid 130
                 uidKg = mkUuid 200
                 flowOcean =
@@ -551,21 +546,16 @@ spec = do
                         }
                 declaring =
                     buildMethodTables
-                        OtherCFFamily
+                        mempty
                         mempty
                         M.empty
-                        [ (cfAt "(unspecified)" 7.0, Just (flowOcean, ByName))
+                        [ (cfAt "" 7.0, Just (flowOcean, ByName))
                         , (cfAt "ocean" 0.0, Just (flowOcean, ByName))
                         ]
             M.lookup (fid, Location "DE") (mtRegionalizedCF declaring)
                 `shouldBe` Just (CF 0.0 (CFUnit "kg"))
 
-        it "lets a wildcard CF reach a sea/ocean flow when the method never names the sea" $ do
-            -- The same shape from a method with no sea-water line anywhere. Its
-            -- medium-level factor is the only thing it wrote, and refusing it
-            -- would score the release as zero on an authority the method never
-            -- gave. EF 3.1 has one such category, marine eutrophication, whose
-            -- receiving medium is the sea.
+        it "reads the line for the whole medium at the sea when the substance has no sea line" $ do
             let fid = mkUuid 132
                 uidKg = mkUuid 200
                 flowOcean =
@@ -575,39 +565,32 @@ spec = do
                 cfUnspecified =
                     (mkCF fid 1.0)
                         { mcfFlowName = "nitrogen, total"
-                        , mcfCompartment = Just (Compartment "water" "(unspecified)" "")
+                        , mcfCompartment = Just (Compartment "water" "" "")
                         , mcfConsumerLocation = Just "DE"
                         }
-                silent = buildMethodTables OtherCFFamily mempty M.empty [(cfUnspecified, Just (flowOcean, ByName))]
+                silent = buildMethodTables mempty mempty M.empty [(cfUnspecified, Just (flowOcean, ByName))]
             M.lookup (fid, Location "DE") (mtRegionalizedCF silent)
                 `shouldBe` Just (CF 1.0 (CFUnit "kg"))
 
-        it "does not let a wildcard CF reach a long-term groundwater flow for a USEtox method" $ do
-            -- The USEtox gate is scoped to LONG-TERM groundwater: EF methods
-            -- zero "groundwater, long-term" explicitly, so the surface CF must
-            -- not sneak back in via the regionalized wildcard – same rule as
-            -- the non-regional cascade gate. An IMMEDIATE groundwater emission
-            -- inherits the unspecified CF (SimaPro subcompartment semantics;
-            -- EF exports leave it implicit on purpose). A non-USEtox (e.g.
-            -- nutrient) method keeps characterizing both, since phosphate
-            -- migrates to surface water.
+        it "reads the line for the whole medium at groundwater, long-term or not" $ do
+            -- No subcompartment is kept from the medium's line by what it is
+            -- called: a method that means a long-term emission to count for
+            -- nothing writes that line, as EF does.
             let fid = mkUuid 131
                 uidKg = mkUuid 200
-                flowSub s =
+                flowSub sub' =
                     (mkFlow fid "nickel" uidKg)
-                        { bfCompartment = Just (VT.Compartment Water (Just s))
+                        { bfCompartment = Just (VT.Compartment Water (Just sub'))
                         }
-                cfUnspecified =
+                cfMedium =
                     (mkCF fid 7.0)
                         { mcfFlowName = "nickel"
-                        , mcfCompartment = Just (Compartment "water" "(unspecified)" "")
+                        , mcfCompartment = Just (Compartment "water" "" "")
                         , mcfConsumerLocation = Just "DE"
                         }
-                tablesFor fam sub = buildMethodTables fam mempty M.empty [(cfUnspecified, Just (flowSub sub, ByName))]
-            M.lookup (fid, Location "DE") (mtRegionalizedCF (tablesFor USEtoxFamily "groundwater, long-term")) `shouldBe` Nothing
-            M.lookup (fid, Location "DE") (mtRegionalizedCF (tablesFor USEtoxFamily "groundwater")) `shouldBe` Just (CF 7.0 (CFUnit "kg"))
-            M.lookup (fid, Location "DE") (mtRegionalizedCF (tablesFor OtherCFFamily "groundwater, long-term")) `shouldBe` Just (CF 7.0 (CFUnit "kg"))
-            M.lookup (fid, Location "DE") (mtRegionalizedCF (tablesFor OtherCFFamily "groundwater")) `shouldBe` Just (CF 7.0 (CFUnit "kg"))
+                tablesAt sub' = buildMethodTables mempty mempty M.empty [(cfMedium, Just (flowSub sub', ByName))]
+            M.lookup (fid, Location "DE") (mtRegionalizedCF (tablesAt "groundwater, long-term")) `shouldBe` Just (CF 7.0 (CFUnit "kg"))
+            M.lookup (fid, Location "DE") (mtRegionalizedCF (tablesAt "groundwater")) `shouldBe` Just (CF 7.0 (CFUnit "kg"))
 
         it "keeps CF when mcfCompartment is Nothing (no subcomp info)" $ do
             let fid = mkUuid 120
@@ -622,5 +605,5 @@ spec = do
                         , mcfCompartment = Nothing
                         , mcfConsumerLocation = Just "IT"
                         }
-                tables = buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (flowAny, ByName))]
+                tables = buildMethodTables mempty mempty M.empty [(cf, Just (flowAny, ByName))]
             M.lookup (fid, Location "IT") (mtRegionalizedCF tables) `shouldBe` Just (CF 4.0 (CFUnit "kg"))

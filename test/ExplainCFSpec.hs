@@ -30,11 +30,11 @@ import Method.Mapping (
     RefusalReason (..),
     RungId (..),
     UnitBridge (..),
-    VetoReason (..),
     buildMethodTables,
     fillBroadcastVector,
+    methodVocabulary,
  )
-import Method.Types (CFFamily (..), Compartment (..), EnergyDensity (..), EnergyDensityMap, FlowDirection (..), MethodCF (..))
+import Method.Types (Compartment (..), CompartmentMap (..), EnergyDensity (..), EnergyDensityMap, FlowDirection (..), MethodCF (..), Subcompartment (..))
 import SynonymDB (normalizeName)
 import TestHelpers (unitDef)
 import Types (
@@ -108,7 +108,7 @@ explainOf cfg tables flow = explainFlowCF cfg unitDB tables (bfId flow) flow
 tablesFor :: EnergyDensityMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [BiosphereFlow] -> MethodTables
 tablesFor densities mappings flows =
     fillBroadcastVector defaultUnitConfig unitDB (flowDBOf flows) $
-        buildMethodTables OtherCFFamily mempty densities mappings
+        buildMethodTables mempty mempty densities mappings
 
 flowDBOf :: [BiosphereFlow] -> M.Map UUID BiosphereFlow
 flowDBOf flows = M.fromList [(bfId f, f) | f <- flows]
@@ -235,8 +235,7 @@ spec = do
                         , NoCanonicalBase "kg"
                         , EnergyBridgeRefused (EnergyDensity 18.0 "MJ" "kg")
                         ]
-                vetoes = map vetoName [ForeignMediumVeto, LongTermUSEtoxVeto]
-                undocumented = [n | n <- bridges ++ refusals ++ vetoes, not (n `T.isInfixOf` told)]
+                undocumented = [n | n <- bridges ++ refusals, not (n `T.isInfixOf` told)]
             undocumented `shouldBe` []
 
     describe "explainFlowCF (replaying the cascade)" $ do
@@ -267,33 +266,45 @@ spec = do
             -- Nothing below the rung that answered was tried.
             lookup RungCasBridge results `shouldBe` Nothing
 
-        it "records the sea-water veto on every wildcard rung it blocks" $ do
-            -- A method that names the sea somewhere meant to leave this
-            -- emission out, so its freshwater factor must not reach the ocean,
-            -- and the trail must say the veto is what stopped it.
-            let ocean = flowIn 2 "Water" Water (Just "ocean")
-                fresh = flowIn 3 "Water" Water Nothing
+        it "names the subcompartment an if_absent row sent the flow to" $ do
+            -- The method writes forestry nowhere, so the row holds: the flow
+            -- at forestry reads the non-agricultural line, and says which.
+            let forest = flowIn 4 "Zinc" Soil (Just "forestry")
+                soilLine sub v = (cfLine "Zinc" "" "kg" v){mcfCompartment = Just (Compartment "soil" sub "")}
+                lines' = [soilLine "non-agricultural" 3.0]
+                cmap = mempty{cmIfAbsent = M.singleton (Soil, Subcompartment "forestry") (Subcompartment "non-agricultural")}
                 tables =
-                    tablesFor
-                        M.empty
-                        [ (waterLine "Water" "" 1.0, Just (fresh, ByName))
-                        , (waterLine "Sea water" "ocean" 0.0, Nothing)
-                        ]
-                        [ocean, fresh]
-                explained = explainOf defaultUnitConfig tables ocean
-                vetoed = [rung | (rung, StepVetoed ForeignMediumVeto) <- resultsFor explained]
-            ceResolution explained `shouldBe` Uncharacterized
-            vetoed `shouldContain` [RungMediumDefault]
-            vetoed `shouldContain` [RungSubBlind]
+                    fillBroadcastVector defaultUnitConfig unitDB (flowDBOf [forest]) $
+                        buildMethodTables cmap (methodVocabulary cmap lines') M.empty [(l, Just (forest, ByName)) | l <- lines']
+                explained = explainOf defaultUnitConfig tables forest
+            case ceResolution explained of
+                Characterized m _ -> do
+                    cmRung m `shouldBe` RungIfAbsent
+                    cfValue (cmCF m) `shouldBe` 3.0
+                other -> expectationFailure ("expected the non-agricultural factor, got " <> show other)
+            lookup RungExactName (resultsFor explained) `shouldBe` Just StepMiss
+            renderResolution (ceResolution explained) `shouldSatisfy` any ("\"non-agricultural\"" `T.isInfixOf`)
 
-        it "lets a method that never names the sea characterize an ocean flow" $ do
-            -- The mirror case: silence about sea water is not an exclusion, so
-            -- the freshwater default applies and no veto appears in the trail.
+        it "lets the substance's line for the whole medium answer before an if_absent row" $ do
+            -- The SimaPro export of a method leaves forestry unwritten too, but
+            -- writes "(unspecified)", which covers it: the method's own word
+            -- comes before a correspondence written outside it.
+            let forest = flowIn 5 "Zinc" Soil (Just "forestry")
+                soilLine sub v = (cfLine "Zinc" "" "kg" v){mcfCompartment = Just (Compartment "soil" sub "")}
+                lines' = [soilLine "non-agricultural" 3.0, soilLine "" 1.0]
+                cmap = mempty{cmIfAbsent = M.singleton (Soil, Subcompartment "forestry") (Subcompartment "non-agricultural")}
+                tables =
+                    fillBroadcastVector defaultUnitConfig unitDB (flowDBOf [forest]) $
+                        buildMethodTables cmap (methodVocabulary cmap lines') M.empty [(l, Just (forest, ByName)) | l <- lines']
+            case ceResolution (explainOf defaultUnitConfig tables forest) of
+                Characterized m _ -> cmRung m `shouldBe` RungMediumDefault
+                other -> expectationFailure ("expected the line for the whole medium, got " <> show other)
+
+        it "reads the line written for the whole medium at the sea, like at any subcompartment it has no line for" $ do
             let ocean = flowIn 12 "Water" Water (Just "ocean")
                 fresh = flowIn 13 "Water" Water Nothing
                 tables = tablesFor M.empty [(waterLine "Water" "" 1.0, Just (fresh, ByName))] [ocean, fresh]
                 explained = explainOf defaultUnitConfig tables ocean
-            [rung | (rung, StepVetoed ForeignMediumVeto) <- resultsFor explained] `shouldBe` []
             case ceResolution explained of
                 Characterized m _ -> cmRung m `shouldBe` RungMediumDefault
                 other -> expectationFailure ("expected the freshwater factor to apply, got " <> show other)
@@ -367,7 +378,7 @@ spec = do
             agreesFor cfg densities mappings flows =
                 let tables =
                         fillBroadcastVector cfg unitDB (flowDBOf flows) $
-                            buildMethodTables OtherCFFamily mempty densities mappings
+                            buildMethodTables mempty mempty densities mappings
                  in for_ flows $ \f ->
                         (bfName f, flowMatchKind tables (bfId f))
                             `shouldBe` (bfName f, replayedKind cfg tables f)

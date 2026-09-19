@@ -164,7 +164,7 @@ regionWaterFlowIn unitId = (waterFlowIn unitId){bfId = regionWaterId, bfName = "
 tablesFor :: BiosphereFlow -> EnergyDensityMap -> MethodCF -> MethodTables
 tablesFor flow densities cf =
     let fdb = M.singleton (bfId flow) flow
-        raw = buildMethodTables OtherCFFamily mempty densities [(cf, Just (flow, ByUUID))]
+        raw = buildMethodTables mempty mempty densities [(cf, Just (flow, ByUUID))]
      in fillBroadcastVector unitConfig unitDB fdb raw
 
 {- | Tables where the CF is name-matched to the __base__ substance while the
@@ -175,7 +175,7 @@ region rung of both the CF lookup and the density lookup.
 tablesForRegion :: BiosphereFlow -> BiosphereFlow -> EnergyDensityMap -> MethodCF -> MethodTables
 tablesForRegion baseFlow regionFlow densities cf =
     let fdb = M.singleton (bfId regionFlow) regionFlow
-        raw = buildMethodTables OtherCFFamily mempty densities [(cf, Just (baseFlow, ByName))]
+        raw = buildMethodTables mempty mempty densities [(cf, Just (baseFlow, ByName))]
      in fillBroadcastVector unitConfig unitDB fdb raw
 
 -- Score a @qty@-unit inventory of @flow@ against the given tables.

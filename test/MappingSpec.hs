@@ -18,7 +18,7 @@ import Method.ChemSynonyms (emptyChemSynonyms, parseChemSynonymsCSV)
 import Method.FlowResolver (parseCompartment)
 import Method.Mapping
 import Method.ParserCSV (parseMethodCSVBytes)
-import Method.Types (Compartment (..), CompartmentMap (..), Subcompartment (..), EnergyDensity (..), FlowDirection (..), Method (..), MethodCF (..), buildCompartmentMapFromCSV)
+import Method.Types (Compartment (..), CompartmentMap (..), EnergyDensity (..), FlowDirection (..), Method (..), MethodCF (..), Subcompartment (..), buildCompartmentMapFromCSV)
 import SynonymDB (BridgeDirection (..), SynEdge (..), buildFromEdges, buildFromPairs, emptySynonymDB, normalizeName)
 import TestHelpers (unitDef)
 import Types (
@@ -434,7 +434,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air (Just "low. pop.")
                 cf = mkCFComp "ammonia" "emissions to air" "low. pop." 0.747
-                tables = buildMethodTables OtherCFFamily mempty M.empty [(cf, Nothing)]
+                tables = buildMethodTables mempty mempty M.empty [(cf, Nothing)]
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
                 score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
@@ -444,7 +444,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air (Just "low. pop.")
                 cf = mkCFComp "ammonia" "urban air" "low. pop." 0.747
-                tables = buildMethodTables OtherCFFamily mempty M.empty [(cf, Nothing)]
+                tables = buildMethodTables mempty mempty M.empty [(cf, Nothing)]
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
                 score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
@@ -455,7 +455,7 @@ spec = do
             let flow = mkFlow fid "ammonia" Air (Just "low. pop.")
                 cf = mkCFComp "ammonia" "urban air" "low. pop." 0.747
                 cmap = mempty{cmSpellings = M.singleton ("urban air", "", "") (Compartment "air" "" "")}
-                tables = buildMethodTables OtherCFFamily cmap M.empty [(cf, Nothing)]
+                tables = buildMethodTables cmap mempty M.empty [(cf, Nothing)]
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
                 score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
@@ -474,7 +474,7 @@ spec = do
                                 ("emissions to air", "low. pop.", "")
                                 (Compartment "air" "non-urban air or from high stacks" "")
                         }
-                tables = buildMethodTables OtherCFFamily cmap M.empty [(cf, Nothing)]
+                tables = buildMethodTables cmap mempty M.empty [(cf, Nothing)]
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
                 score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
@@ -529,7 +529,7 @@ spec = do
                 mappings = [(cfPerKg, Just (flow, ByName)), (cfPerM3, Just (flow, ByName))]
                 unitDB = M.singleton uidM3 Unit{unitId = uidM3, unitName = "m3", unitSymbol = "m3", unitComment = ""}
                 flowDB = M.singleton fid flow
-                score ms = loScore (computeLCIAScoreFromTables cfg unitDB flowDB (M.singleton fid 2.0) (buildMethodTables OtherCFFamily mempty M.empty ms))
+                score ms = loScore (computeLCIAScoreFromTables cfg unitDB flowDB (M.singleton fid 2.0) (buildMethodTables mempty mempty M.empty ms))
             score mappings `shouldBe` 2.0 * 34.5
             -- insertion order must not matter
             score (reverse mappings) `shouldBe` 2.0 * 34.5
@@ -574,7 +574,7 @@ spec = do
                             , methodMethodology = Nothing
                             , methodFactors = rows
                             }
-                let tables = buildMethodTables USEtoxFamily mempty M.empty mappings
+                let tables = buildMethodTables mempty mempty M.empty mappings
                 pure [cfValue <$> lookupCFForFlow tables (bfId f) (Just f) | f <- [trivalent, hexavalent]]
             spelled unstated iii vi =
                 [ mkCFComp unstated "air" "" 7.9836e-5
@@ -619,7 +619,7 @@ spec = do
                 probeId <- nextRandom
                 let target = mkFlow targetId "phosphate" Water Nothing
                     probe = mkFlow probeId "phosphate" Water Nothing
-                    tables = buildMethodTables OtherCFFamily mempty M.empty (mappings target)
+                    tables = buildMethodTables mempty mempty M.empty (mappings target)
                 pure (cfValue <$> lookupCFForFlow tables probeId (Just probe))
 
         it "loses the key to a larger factor a proxy match carries" $ do
@@ -645,29 +645,19 @@ spec = do
             served <- servedFor $ \target -> [(borrowedAt 5.0, Just (target, ByProxy))]
             served `shouldBe` Just 5.0
 
-    describe "sea-water gate on wildcard fallbacks" $ do
-        -- The same emission to the sea, under two methods that differ in one
-        -- thing: whether they write a sea-water factor of their own. A method
-        -- that does has an opinion about the sea and the engine defers to it,
-        -- keeping the medium-level factor away so the explicit line scores. A
-        -- method that never mentions the sea has given nothing to defer to, and
-        -- refusing its medium-level factor would score the emission as zero on
-        -- an authority the method never gave.
-        --
-        -- EF 3.1 has both kinds. Freshwater ecotoxicity writes an explicit
-        -- near-zero for the sea, so a chromium discharge there must not take
-        -- the freshwater factor. Marine eutrophication writes no subcompartment
-        -- line at all, because the JRC original gives it the same factor for
-        -- fresh water, unspecified water and sea water alike: there was nothing
-        -- different to write, and the medium-level factor is the answer.
-        let uns = mkCFComp "Nitrogen, total" "water" "(unspecified)" 1.0
+    describe "the sea is a subcompartment like any other" $ do
+        -- A substance's sea line scores a release to the sea; a substance with
+        -- no sea line reads its line for the whole medium there, as at any
+        -- subcompartment it writes nothing for. Whether the method writes sea
+        -- lines for other substances changes nothing.
+        let uns = mkCFComp "Nitrogen, total" "water" "" 1.0
             sea = mkCFComp "Nitrogen, total" "water" "ocean" 0.0
             scoreWith cfs sub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Nitrogen, total" Water (Just sub)
                     tables =
                         buildMethodTables
-                            OtherCFFamily
+                            mempty
                             mempty
                             M.empty
                             [(cf, Just (flow, ByName)) | cf <- cfs]
@@ -677,10 +667,10 @@ spec = do
                         (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB (M.singleton fid 1.0) tables)
                     )
 
-        it "keeps the medium-level factor away from the sea when the method names it" $
+        it "scores a release to the sea with the substance's sea line" $
             scoreWith [uns, sea] "ocean" `shouldReturn` 0.0
 
-        it "lets the medium-level factor reach the sea when the method never names it" $
+        it "reads the line for the whole medium at the sea when the substance has no sea line" $ do
             scoreWith [uns] "ocean" `shouldReturn` 1.0
 
         it "leaves every other subcompartment alone, either way" $ do
@@ -689,10 +679,7 @@ spec = do
             scoreWith [uns, sea] "(unspecified)" `shouldReturn` 1.0
             scoreWith [uns] "(unspecified)" `shouldReturn` 1.0
 
-        it "still prefers the sea line itself over the medium-level one" $
-            -- Naming the sea with a \*larger* factor proves the explicit line is
-            -- what scores, not merely that the wildcard was blocked: a gate that
-            -- only blocked would leave this uncharacterized, at 0.
+        it "prefers the sea line itself over the medium-level one" $
             scoreWith [uns, mkCFComp "Nitrogen, total" "water" "ocean" 5.0] "ocean" `shouldReturn` 5.0
 
         -- The key is lowercased and stripped, so two rows that differ only in
@@ -724,10 +711,6 @@ spec = do
                 buildCompartmentMapFromCSV (header <> "water,sea,,water,ocean,,proxy\n") `shouldSatisfy` isLeft
 
         it "recognizes the sea through the spelling compartments.csv translates" $ do
-            -- 'isForeignMediumSub' names the canonical subcompartment only, so
-            -- the source spellings are compartments.csv's job. This is the test
-            -- that fails if that translation is dropped: both the method's line
-            -- and the flow say "sea water", and the gate must still see the sea.
             cmap <-
                 either
                     (fail . ("compartments.csv: " <>))
@@ -742,63 +725,44 @@ spec = do
                             M.empty
                             (M.singleton fid flow)
                             (M.singleton fid 1.0)
-                            (buildMethodTables OtherCFFamily cmap M.empty [(cf, Just (flow, ByName)) | cf <- cfs])
+                            (buildMethodTables cmap mempty M.empty [(cf, Just (flow, ByName)) | cf <- cfs])
             score [uns, mkCFComp "Nitrogen, total" "water" "sea water" 0.0] `shouldBe` 0.0
             score [uns] `shouldBe` 1.0
 
-    describe "groundwater gate on wildcard fallbacks (read path)" $ do
-        -- EF SimaPro exports leave immediate groundwater implicit (only
-        -- "groundwater, long-term" carries an explicit zero), so SimaPro
-        -- subcompartment semantics apply: an implicit sub inherits the
-        -- unspecified CF. The USEtox gate must therefore block only the
-        -- LONG-TERM groundwater fate – otherwise the method's explicit zero
-        -- would be bypassed via the CAS bridge – and never the immediate one.
-        cmap <- runIO $ do
-            csv <- BL.readFile "data/compartments.csv"
-            either (fail . ("compartments.csv: " <>)) pure (buildCompartmentMapFromCSV csv)
-        let cfUns = (mkCFComp "Iron, ion" "water" "(unspecified)" 2108.5){mcfCAS = Just "7439-89-6"}
-            cfLt = mkCFComp "Iron, ion" "water" "groundwater, long-term" 0.0
-            scoreVia cm fam name mCas sub = do
+    describe "groundwater, long-term or not, under the three rules (read path)" $ do
+        -- The method writes the substance's line for the whole medium and an
+        -- explicit zero for long-term groundwater, as the SimaPro export of EF
+        -- does, both carrying the CAS. Only the second names long-term
+        -- groundwater, so every other subcompartment reads the first.
+        let cfUns = (mkCFComp "Iron, ion" "water" "" 2108.5){mcfCAS = Just "7439-89-6"}
+            cfLt = (mkCFComp "Iron, ion" "water" "groundwater, long-term" 0.0){mcfCAS = Just "7439-89-6"}
+            scoreFor name mCas sub = do
                 fid <- nextRandom
                 mid <- nextRandom
                 let flow = (mkFlow fid name Water (Just sub)){bfCAS = mCas}
-                    -- cfUns matched ByCAS on a sibling flow, so it also
-                    -- populates the CAS bridge (mtCasCF).
+                    -- cfUns matched ByCAS on a sibling flow, so the CAS bridge
+                    -- serves it; cfLt matched nothing, and only takes its place.
                     matched = (mkFlow mid "Iron, ion" Water Nothing){bfCAS = Just "7439-89-6"}
-                    tables = buildMethodTables fam cm M.empty [(cfUns, Just (matched, ByCAS)), (cfLt, Nothing)]
+                    tables = buildMethodTables mempty mempty M.empty [(cfUns, Just (matched, ByCAS)), (cfLt, Nothing)]
                     flowDB = M.singleton fid flow
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB (M.singleton fid 1.0) tables))
-            scoreFor = scoreVia mempty
 
-        it "lets a USEtox wildcard reach river, lake and IMMEDIATE groundwater" $ do
-            scoreFor USEtoxFamily "Iron, ion" Nothing "river" `shouldReturn` 2108.5
-            scoreFor USEtoxFamily "Iron, ion" Nothing "lake" `shouldReturn` 2108.5
-            scoreFor USEtoxFamily "Iron, ion" Nothing "groundwater" `shouldReturn` 2108.5
+        it "reads the line for the whole medium at river, lake and immediate groundwater" $ do
+            scoreFor "Iron, ion" Nothing "river" `shouldReturn` 2108.5
+            scoreFor "Iron, ion" Nothing "lake" `shouldReturn` 2108.5
+            scoreFor "Iron, ion" Nothing "groundwater" `shouldReturn` 2108.5
 
-        it "keeps the method's explicit long-term zero for a USEtox method" $
-            scoreFor USEtoxFamily "Iron, ion" Nothing "groundwater, long-term" `shouldReturn` 0.0
+        it "keeps the method's explicit long-term zero" $
+            scoreFor "Iron, ion" Nothing "groundwater, long-term" `shouldReturn` 0.0
 
-        it "blocks the CAS bridge for a long-term groundwater flow under USEtox" $
-            -- Name-mismatched flow sharing the CAS: without the gate it would
-            -- borrow the immediate 2108.5 and bypass the explicit zero.
-            scoreFor USEtoxFamily "Iron(2+)" (Just "7439-89-6") "groundwater, long-term" `shouldReturn` 0.0
+        it "does not let the CAS bridge read over a place the substance writes" $
+            -- A flow of another name sharing the CAS: the substance writes
+            -- long-term groundwater on a line the bridge may not serve, and the
+            -- bridge stops there rather than lending the immediate 2108.5.
+            scoreFor "Iron(2+)" (Just "7439-89-6") "groundwater, long-term" `shouldReturn` 0.0
 
-        it "keeps every groundwater fallback for a non-USEtox method" $ do
-            scoreFor OtherCFFamily "Iron, ion" Nothing "groundwater" `shouldReturn` 2108.5
-            scoreFor OtherCFFamily "Iron(2+)" (Just "7439-89-6") "groundwater, long-term" `shouldReturn` 2108.5
-
-        it "lands the ecoinvent spellings on the same gate (compartments.csv)" $ do
-            -- "ground-" / "ground-, long-term" are the ecoinvent spellings of
-            -- the same emissions. compartments.csv must map the immediate one
-            -- to surface water (inherits the wildcard CF, like the SimaPro
-            -- spelling) and the long-term one to "groundwater, long-term"
-            -- (explicit zero wins, CAS bridge blocked) – otherwise the same
-            -- emission scores differently depending on the source database.
-            -- Uses the shipped CSV so the mapping itself is pinned.
-            scoreVia cmap USEtoxFamily "Iron, ion" Nothing "ground-" `shouldReturn` 2108.5
-            scoreVia cmap USEtoxFamily "Iron, ion" Nothing "ground-, long-term" `shouldReturn` 0.0
-            scoreVia cmap USEtoxFamily "Iron(2+)" (Just "7439-89-6") "ground-, long-term" `shouldReturn` 0.0
-            scoreVia cmap OtherCFFamily "Iron(2+)" (Just "7439-89-6") "ground-, long-term" `shouldReturn` 2108.5
+        it "lets the CAS bridge read the line for the whole medium where the substance writes nothing" $
+            scoreFor "Iron(2+)" (Just "7439-89-6") "groundwater" `shouldReturn` 2108.5
 
     describe "ILCD soil and fresh-water subcompartments (compartments.csv)" $ do
         -- The ILCD package files its factors under "Emissions to agricultural
@@ -825,7 +789,7 @@ spec = do
             scoreAt cfs medium sub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Silver (I)" medium (Just sub)
-                    tables = buildMethodTables USEtoxFamily cmap M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
+                    tables = buildMethodTables cmap mempty M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
 
         it "gives agricultural and industrial soil their own factors" $ do
@@ -868,7 +832,7 @@ spec = do
         let scoreAt cfs sub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Nitrogen oxides" Air (Just sub)
-                    tables = buildMethodTables OtherCFFamily cmap M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
+                    tables = buildMethodTables cmap mempty M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
             ilcd sub val = (mkCF "Nitrogen oxides" Nothing val){mcfCompartment = parseCompartment ["Emissions", "Emissions to air", sub]}
             highAltitudeILCD =
@@ -902,7 +866,7 @@ spec = do
             scoreOf medium msub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Landfilled waste mass" medium msub
-                    tables = buildMethodTables OtherCFFamily cmap M.empty [(cf, Nothing)]
+                    tables = buildMethodTables cmap mempty M.empty [(cf, Nothing)]
                 pure . loScore $
                     computeLCIAScoreFromTables
                         defaultUnitConfig
@@ -930,7 +894,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = mkCF "co2" Nothing 1.0
-                tables = buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (flow, ByUUID))]
+                tables = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByUUID))]
                 inventory = M.singleton fid 100.0
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton nil (unitNamed "m")
@@ -1041,7 +1005,7 @@ spec = do
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air Nothing){bfUnitId = uidKg}
                 cf = (mkCF "co2" Nothing 2.5){mcfUnit = "kg"}
-                rawTables = buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (flow, ByUUID))]
+                rawTables = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByUUID))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 4.0 :: Double)]
@@ -1066,7 +1030,7 @@ spec = do
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air Nothing){bfUnitId = uidKg}
                 cf = (mkCF "co2" Nothing 1.0e-3){mcfUnit = "g"}
-                tables0 = buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (flow, ByUUID))]
+                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByUUID))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 1.0 :: Double)]
@@ -1085,7 +1049,7 @@ spec = do
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air (Just "high pop")){bfUnitId = uidKg}
                 cf = (mkCFComp "co2" "air" "high pop" 3.0){mcfUnit = "kg"}
-                tables0 = buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (flow, ByName))]
+                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByName))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 2.0 :: Double)]
@@ -1101,7 +1065,7 @@ spec = do
             -- Flow has subcomp "high pop", but CF only has medium-level entry (subcomp "")
             let flow = (mkFlow fid "co2" Air (Just "high pop")){bfUnitId = uidKg}
                 cf = (mkCFComp "co2" "air" "" 5.0){mcfUnit = "kg"}
-                tables0 = buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (flow, ByName))]
+                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByName))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 1.0 :: Double)]
@@ -1117,7 +1081,7 @@ spec = do
             uidKg <- nextRandom
             let flowLocal = (mkFlow fidLocal "co2" Air Nothing){bfUnitId = uidKg}
                 cf = (mkCF "co2" Nothing 1.5){mcfUnit = "kg"}
-                tables0 = buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (flowLocal, ByUUID))]
+                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (flowLocal, ByUUID))]
                 flowDBAtBuild = M.singleton fidLocal flowLocal
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 filled = fillBroadcastVector defaultUnitConfig unitDB flowDBAtBuild tables0
@@ -1149,7 +1113,7 @@ spec = do
                     unitDB = M.singleton uid ((unitNamed unitName'){unitId = uid})
                     filled =
                         fillBroadcastVector cfg unitDB flowDB $
-                            buildMethodTables OtherCFFamily mempty densities [(cf, Just (flow, ByUUID))]
+                            buildMethodTables mempty mempty densities [(cf, Just (flow, ByUUID))]
                 pure (fid, [bfId f | (f, _, _) <- zeroedMatchedCFs cfg unitDB flowDB filled])
             fillFor = fillWith M.empty
 
@@ -1286,7 +1250,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 inv = M.singleton fid 100.0
-                tables = buildMethodTables OtherCFFamily mempty M.empty []
+                tables = buildMethodTables mempty mempty M.empty []
                 idx = buildMethodIndex (mkMethod [])
                 opts = defaultUncharacterizedOpts{uoMaxFlows = 0}
             findUncharacterized
@@ -1307,7 +1271,7 @@ spec = do
                 smallFlow = mkFlow small "huge stuff" Air Nothing
                 inv = M.fromList [(big, 999.0), (small, 1.0)]
                 flowDB = M.fromList [(big, bigFlow), (small, smallFlow)]
-                tables = buildMethodTables OtherCFFamily mempty M.empty []
+                tables = buildMethodTables mempty mempty M.empty []
                 idx = buildMethodIndex (mkMethod [])
                 opts = defaultUncharacterizedOpts{uoMinAbsWeight = 0.5}
                 result =
@@ -1327,7 +1291,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = (mkCF "co2" Nothing 1.0){mcfFlowRef = fid}
-                tables = buildMethodTables OtherCFFamily mempty M.empty [(cf, Just (flow, ByUUID))]
+                tables = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByUUID))]
                 idx = buildMethodIndex (mkMethod [cf])
                 inv = M.singleton fid 100.0
                 flowDB = M.singleton fid flow
@@ -1341,16 +1305,6 @@ spec = do
                 idx
                 defaultUncharacterizedOpts
                 `shouldBe` []
-
-    describe "cfFamily" $ do
-        it "classifies USEtox toxicity units, case/whitespace-insensitively" $ do
-            cfFamily "CTUe" `shouldBe` USEtoxFamily
-            cfFamily "CTUh" `shouldBe` USEtoxFamily
-            cfFamily " ctue " `shouldBe` USEtoxFamily
-        it "classifies every other unit (incl. unknown/empty) as OtherCFFamily" $ do
-            cfFamily "kg P eq" `shouldBe` OtherCFFamily
-            cfFamily "unknown" `shouldBe` OtherCFFamily
-            cfFamily "" `shouldBe` OtherCFFamily
 
     describe "wildcard (pattern) CFs" $ do
         let flowDB = M.fromList [(bfId f, f) | f <- allFlows]

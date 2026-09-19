@@ -192,7 +192,6 @@ import Method.Mapping (
     ProxyTargets (..),
     RefusalReason,
     RegionalActivityWeights (..),
-    SeaWaterCFs (..),
     buildMethodIndex,
     buildMethodSetTables,
     buildMethodTables,
@@ -206,11 +205,9 @@ import Method.Mapping (
     isExclusionCF,
     mapContextFor,
     mapMethodFlows,
-    mtExactCF,
-    mtFallbackCF,
+    methodVocabulary,
     mtRegionalActivityWeights,
     mtRegionalizedCF,
-    mtSeaWaterCFs,
     projectRegionalResourceFlows,
     zeroedMatchedCFs,
  )
@@ -224,7 +221,6 @@ import Method.Types (
     ScoringSet (..),
     buildCompartmentMapFromCSV,
     buildEnergyDensityMapFromCSV,
-    cfFamily,
     compartmentMapSize,
     energyDensityMapSize,
  )
@@ -252,7 +248,6 @@ import Types (
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
-    Medium (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierAmbiguity (..),
@@ -817,7 +812,12 @@ buildMethodTablesFor manager dbName collection db method = do
     globalMethods <-
         maybe [] mcGlobalMethods . M.lookup (unCollectionName collection)
             <$> readTVarIO (dmAvailableMethods manager)
-    let !raw0 = buildMethodTables (cfFamily (methodUnit method)) cmap energyDensities expanded
+    -- The places the whole collection writes factors at decide which
+    -- if_absent rows hold. A method is only ever built from a loaded
+    -- collection; were it not, its own lines are the one place left to read.
+    siblings <- maybe [method] mcMethods <$> getMethodCollection manager (unCollectionName collection)
+    let vocabulary = methodVocabulary cmap (concatMap methodFactors siblings)
+        !raw0 = buildMethodTables cmap vocabulary energyDensities expanded
         !raw =
             if methodName method `elem` globalMethods
                 then raw0{mtRegionalizedCF = M.empty}
@@ -827,7 +827,6 @@ buildMethodTablesFor manager dbName collection db method = do
         -- scoring is a dot product instead of one biosphere-triple walk per pid.
         !tables = fillRegionalActivityWeights unitConfig mUnits mFlows db hier withBroadcast
     mapM_ (reportProgress Warning) (regionalGapWarning (mtRegionalActivityWeights tables))
-    mapM_ (reportProgress Warning) (seaWaterWarning raw0)
     mapM_
         (reportProgress Warning)
         (zeroedWarning mUnits (zeroedMatchedCFs unitConfig mUnits mFlows withBroadcast))
@@ -865,32 +864,6 @@ buildMethodTablesFor manager dbName collection db method = do
                     <> "(after walking parent regions and universal broadcast). "
                     <> "Samples: "
                     <> show (take 3 [(show fid, T.unpack loc) | (fid, Location loc) <- missing])
-
-    -- Which side of the sea-water gate this method landed on, said out loud.
-    -- A method with no sea-water factor of its own has its medium-level factor
-    -- applied to sea emissions, and that is only right when the method had
-    -- nothing different to say there. When its sea lines were instead lost on
-    -- import, the same silence overstates every sea emission it covers - and
-    -- the two cases are indistinguishable from the outside. Report the regime
-    -- so a method author can tell them apart; only for a method that writes
-    -- water factors at all, since the others have no stake in it.
-    seaWaterWarning :: MethodTables -> Maybe String
-    seaWaterWarning tables = case mtSeaWaterCFs tables of
-        MethodDeclaresSeaWater -> Nothing
-        MethodSilentOnSeaWater
-            | waterCFs == 0 -> Nothing
-            | otherwise ->
-                Just . lcia $
-                    "no sea-water factor among "
-                        <> show waterCFs
-                        <> " water factor(s): the medium-level factor will be applied to sea "
-                        <> "emissions. Right when the method draws no distinction there, wrong "
-                        <> "when its sea lines were lost on import."
-      where
-        waterCFs :: Int
-        waterCFs =
-            length [() | (_, Just Water, _) <- M.keys (mtExactCF tables)]
-                + length [() | (_, Just Water) <- M.keys (mtFallbackCF tables)]
 
     -- A CF that matched (broadcast or regionalized) but cannot be
     -- unit-converted scores an (intentional) 0 - refusing wrong-dimension data

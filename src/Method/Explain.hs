@@ -45,7 +45,6 @@ module Method.Explain (
     rungName,
     regionalName,
     outcomeName,
-    vetoName,
     stepName,
     bridgeName,
     refusalName,
@@ -70,11 +69,10 @@ import Method.Mapping (
     RungOutcome (..),
     TableEntry (..),
     UnitBridge (..),
-    VetoReason (..),
     cascadeTrail,
     flowToCFOutcome,
  )
-import Method.Types (EnergyDensity (..), Location (..), MethodCF (..))
+import Method.Types (Compartment (..), EnergyDensity (..), Location (..), MethodCF (..))
 import Types (BiosphereFlow, UUID, UnitDB)
 import UnitConversion (UnitConfig)
 
@@ -111,8 +109,6 @@ data StepResult
       density suffix, not a long-term emission, not a graded ore).
       -}
       StepNotApplicable
-    | -- | A wildcard rung the flow's subcompartment refuses.
-      StepVetoed !VetoReason
     | -- | Candidates disagreed and the rung refused to pick one.
       StepAmbiguous
     deriving (Eq, Show)
@@ -159,13 +155,11 @@ explainFlowCF unitCfg unitDB tables fid flow =
     isHit (RungHit _) = True
     isHit RungMiss = False
     isHit RungNotApplicable = False
-    isHit (RungVetoed _) = False
     isHit RungAmbiguous = False
 
     stepResult (RungHit _) = StepHit
     stepResult RungMiss = StepMiss
     stepResult RungNotApplicable = StepNotApplicable
-    stepResult (RungVetoed reason) = StepVetoed reason
     stepResult RungAmbiguous = StepAmbiguous
 
     resolution = case [(rung, entry) | (rung, RungHit entry) <- walked] of
@@ -216,10 +210,9 @@ rungName :: RungId -> Text
 rungName RungUuid = "flow_id"
 rungName RungUnitVariant = "same_unit_name"
 rungName RungExactName = "exact_name"
-rungName RungLongTermDefault = "long_term_default"
+rungName RungIfAbsent = "if_absent"
 rungName RungMediumDefault = "compartment_default"
 rungName RungCasBridge = "cas_number"
-rungName RungSubBlind = "subcompartment_blind"
 rungName RungRegionBase = "region_base_name"
 rungName RungEnergyResource = "energy_content"
 rungName RungOreGradeBase = "ore_base_element"
@@ -236,17 +229,11 @@ outcomeName (Characterized _ _) = "characterized"
 outcomeName (ConversionRefused _ _) = "conversion_refused"
 outcomeName Uncharacterized = "no_factor"
 
--- | Stable name for a wildcard veto.
-vetoName :: VetoReason -> Text
-vetoName ForeignMediumVeto = "different_receiving_medium"
-vetoName LongTermUSEtoxVeto = "long_term_groundwater"
-
 -- | Stable name for what one rung made of the flow.
 stepName :: StepResult -> Text
 stepName StepHit = "hit"
 stepName StepMiss = "miss"
 stepName StepNotApplicable = "not_applicable"
-stepName (StepVetoed _) = "vetoed"
 stepName StepAmbiguous = "ambiguous"
 
 {- | Stable name for how the amount reached the factor's basis. The numbers
@@ -294,14 +281,12 @@ rungSentence (CFMatch rung _ provenance) = case rung of
         "No factor carries this flow's name on its own, but " <> lineName <> " is declared in this flow's unit, so that one applies."
     RungExactName ->
         "The factor line " <> lineName <> " matches this flow's name and compartment."
-    RungLongTermDefault ->
-        "This is a long-term emission and the method sets no factor for its exact subcompartment, so its long-term default, " <> lineName <> ", applies."
+    RungIfAbsent ->
+        "The method writes no factor anywhere for this flow's subcompartment, and the compartment table says such a flow reads the factor written at " <> quoted sourceSub <> ", so " <> lineName <> " applies."
     RungMediumDefault ->
-        "The method sets no factor for this flow's subcompartment, so its default for the whole compartment, " <> lineName <> ", applies."
+        "The method sets no factor for this flow's subcompartment, and " <> lineName <> " is written for the whole compartment, so it applies."
     RungCasBridge ->
         "No factor carries this flow's name. " <> lineName <> " describes the same substance" <> casClause <> " in the same compartment, so its factor applies."
-    RungSubBlind ->
-        "The method gives " <> lineName <> " the same factor in every subcompartment of this compartment, so the subcompartment makes no difference here."
     RungRegionBase ->
         "This flow's name ends in a region the method does not distinguish, so the factor of the base substance, " <> lineName <> ", applies."
     RungEnergyResource ->
@@ -311,6 +296,7 @@ rungSentence (CFMatch rung _ provenance) = case rung of
   where
     source = bpSource provenance
     lineName = quoted (mcfFlowName source)
+    sourceSub = maybe T.empty (\(Compartment _ sub _) -> sub) (mcfCompartment source)
     casClause = case mcfCAS source of
         Just cas | not (T.null cas) -> " (CAS " <> cas <> ")"
         _ -> ""

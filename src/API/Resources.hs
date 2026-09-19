@@ -456,17 +456,17 @@ description r = case r of
         \flow). 'match.rung' names how the factor was found: 'flow_id' (the \
         \method names this exact flow), 'same_unit_name' (a factor line \
         \declared in this flow's own unit), 'exact_name' (name and compartment \
-        \match), 'long_term_default' (the method's default for long-term \
-        \emissions), 'compartment_default' (the method's default for the whole \
-        \compartment), 'cas_number' (a factor for the same substance by CAS), \
-        \'subcompartment_blind' (the factor is the same in every \
-        \subcompartment), 'region_base_name' (the base substance, the name's \
+        \match), 'compartment_default' (the line the method writes for the \
+        \whole compartment), 'if_absent' (the method writes nothing for this \
+        \flow's subcompartment, and a row of the compartment table sends it to \
+        \another one), 'cas_number' (a factor for the same substance by CAS), \
+        \'region_base_name' (the base substance, the name's \
         \region suffix being untagged by the method), 'energy_content' (what \
         \the method charges for a unit of energy, applied to the content the \
         \flow's own name states), 'ore_base_element' (the base element of a \
         \graded ore). \
-        \'steps_tried' lists the rungs tried before that one, including any \
-        \refused by a subcompartment veto. 'match.unitConversion' names the \
+        \'steps_tried' lists the rungs tried before that one. \
+        \'match.unitConversion' names the \
         \bridge that carried the amount onto the factor's basis: 'same_unit', \
         \'unknown_unit' (the flow's unit is not in the unit table, so the \
         \amount passed as declared), 'unit_converted', \
@@ -474,11 +474,7 @@ description r = case r of
         \expression like 'kg CO2 eq', so the amount was brought to the flow's \
         \base unit), 'energy_content' (carried across dimensions by the flow's \
         \energy density). 'match.refusal' names why no bridge could: \
-        \'different_dimensions', 'no_base_unit', 'energy_bridge_failed'. A \
-        \vetoed step names its rule in 'veto': 'different_receiving_medium' \
-        \(the method writes sea-water lines and so meant to leave this foreign \
-        \medium out), 'long_term_groundwater' (a long-term groundwater \
-        \emission must not borrow a surface-fate factor)."
+        \'different_dimensions', 'no_base_unit', 'energy_bridge_failed'."
             <> webUrlTip "explain-cf"
     GetContributingFlows ->
         "LCA / ACV: identify which elementary flows (emissions/resources) \

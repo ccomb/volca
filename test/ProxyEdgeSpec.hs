@@ -18,7 +18,7 @@ import Method.Mapping (
     expandProxyEdges,
     lookupCFForFlow,
  )
-import Method.Types (CFFamily (..), Compartment (..), FlowDirection (..), MethodCF (..))
+import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import qualified SubstanceRegistry as SR
 import Types (
     BiosphereFlow (..),
@@ -123,8 +123,8 @@ spec = describe "expandProxyEdges" $ do
     -- lookup, exactly as a real score queries it.
     it "characterizes an otherwise-uncharacterized flow through the method tables" $ do
         let edges = [proxyEdge (nameKey "phosphorus") (nameKey "phosphate") 0.5]
-            tablesNoProxy = buildMethodTables OtherCFFamily mempty M.empty baseMappings
-            tablesProxy = buildMethodTables OtherCFFamily mempty M.empty (expandProxyEdges byNameTargets edges baseMappings)
+            tablesNoProxy = buildMethodTables mempty mempty M.empty baseMappings
+            tablesProxy = buildMethodTables mempty mempty M.empty (expandProxyEdges byNameTargets edges baseMappings)
             lookup' ts = lookupCFForFlow ts (bfId phosphateFlow) (Just phosphateFlow)
         lookup' tablesNoProxy `shouldBe` Nothing
         fmap cfValue (lookup' tablesProxy) `shouldBe` Just 1.0 -- 2.0 * 0.5

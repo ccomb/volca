@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module SubBlindCFSpec (spec) where
+module CrossSubcompartmentSpec (spec) where
 
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -9,7 +9,7 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import Method.Mapping (MatchStrategy (..), buildMethodTables, cfValue, lookupCFForFlow)
-import Method.Types (CFFamily (..), Compartment (..), FlowDirection (..), MethodCF (..))
+import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import Types (
     BiosphereFlow (..),
     Medium (..),
@@ -47,20 +47,21 @@ mkFlow i name sub =
 
 score :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> BiosphereFlow -> Maybe Double
 score mappings flow =
-    fmap cfValue (lookupCFForFlow (buildMethodTables OtherCFFamily mempty M.empty mappings) (bfId flow) (Just flow))
+    fmap cfValue (lookupCFForFlow (buildMethodTables mempty mempty M.empty mappings) (bfId flow) (Just flow))
 
 spec :: Spec
-spec = describe "sub-blind CF fallback" $ do
-    it "borrows a sub-specific CF for an unspecified-sub flow when the factor is sub-independent" $ do
-        -- "Cadmium, in ground" = 0.157; the method has no unspecified entry.
+spec = describe "no factor borrowed across subcompartments" $ do
+    it "leaves a flow uncharacterized where its substance has a line only at another subcompartment" $ do
+        -- "Cadmium, in ground" = 0.157, and nothing for the whole medium. A
+        -- single line says nothing about the other subcompartments.
         let mappings = [(mkCF 1 "Cadmium" "in ground" 0.157, Just (mkFlow 1 "Cadmium" (Just "in ground"), ByName))]
-        score mappings (mkFlow 99 "Cadmium" Nothing) `shouldBe` Just 0.157
+        score mappings (mkFlow 99 "Cadmium" Nothing) `shouldBe` Nothing
 
     it "still resolves the sub-specific flow itself" $ do
         let mappings = [(mkCF 1 "Cadmium" "in ground" 0.157, Just (mkFlow 1 "Cadmium" (Just "in ground"), ByName))]
         score mappings (mkFlow 1 "Cadmium" (Just "in ground")) `shouldBe` Just 0.157
 
-    it "does NOT guess when the factor varies by subcompartment (ambiguous)" $ do
+    it "nor when several lines disagree" $ do
         -- Mercury differs by sub: in ground 1.0, in water 2.0 – no safe default.
         let mappings =
                 [ (mkCF 1 "Mercury" "in ground" 1.0, Just (mkFlow 1 "Mercury" (Just "in ground"), ByName))

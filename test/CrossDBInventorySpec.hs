@@ -27,7 +27,7 @@ import qualified Data.Vector.Unboxed as U
 import Matrix (Demand (..), DepDemands, accumulateDepDemands, depDemandsToVector)
 import Method.Mapping (CF (..), CFUnit (..), EnergyPrice (..), FlowContribution (..), MethodTables (..), inventoryContributions)
 import qualified Method.Mapping as Mapping
-import Method.Types (CFFamily (..), FlowDirection (..), MethodCF (..))
+import Method.Types (FlowDirection (..), MethodCF (..))
 import SharedSolver (
     computeInventoryMatrixBatchCached,
     computeInventoryMatrixBatchWithDepsCached,
@@ -217,14 +217,10 @@ spec = do
                             ]
                     , mtUnitVariantCF = M.empty
                     , mtExactCF = M.empty
-                    , mtFallbackCF = M.empty
-                    , mtLongTermFallbackCF = M.empty
-                    , mtSubBlindCF = M.empty
                     , mtCasCF = M.empty
                     , mtRegionalCasCF = M.empty
                     , mtRegionalizedCF = M.empty
-                    , mtCFFamily = OtherCFFamily
-                    , mtSeaWaterCFs = Mapping.MethodSilentOnSeaWater
+                    , mtIfAbsent = M.empty
                     , mtCompartmentMap = mempty
                     , mtEnergyPrice = NoEnergyLines
                     , mtEnergyDensities = M.empty
