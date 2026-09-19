@@ -152,7 +152,7 @@ mapCtx =
         , mcBioFlowsByCAS = M.fromList [(waterCAS, allFlows)]
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
-        , mcCompartmentMap = M.empty
+        , mcCompartmentMap = mempty
         , mcSynGroupFlows = M.empty
         }
 
@@ -160,7 +160,7 @@ mapCtx =
 buildTablesFor :: Method -> IO MethodTables
 buildTablesFor method = do
     mappings <- mapMethodFlows mapCtx method
-    let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let raw = buildMethodTables OtherCFFamily mempty M.empty mappings
     pure (fillBroadcastVector defaultUnitConfig M.empty flowDB raw)
 
 buildTables :: IO MethodTables
@@ -233,14 +233,14 @@ carbonSynonyms =
         , mcBioFlowsByCAS = M.fromList [(methaneCAS, [methaneNonFossil, methaneFossil])]
         , mcSynonymDB = buildFromPairs [("Methane, biogenic", "Methane, non-fossil")]
         , mcActivities = M.empty
-        , mcCompartmentMap = M.empty
+        , mcCompartmentMap = mempty
         , mcSynGroupFlows = M.empty
         }
 
 buildCarbonTables :: IO MethodTables
 buildCarbonTables = do
     mappings <- mapMethodFlows carbonSynonyms biogenicMethaneMethod
-    let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let raw = buildMethodTables OtherCFFamily mempty M.empty mappings
     pure (fillBroadcastVector defaultUnitConfig M.empty carbonFlows raw)
 
 -- ---------------------------------------------------------------------------
@@ -347,14 +347,14 @@ fallbackCtx =
         , mcBioFlowsByCAS = M.empty
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
-        , mcCompartmentMap = M.empty
+        , mcCompartmentMap = mempty
         , mcSynGroupFlows = M.empty
         }
 
 buildFallbackTables :: IO MethodTables
 buildFallbackTables = do
     mappings <- mapMethodFlows fallbackCtx fallbackMethod
-    let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let raw = buildMethodTables OtherCFFamily mempty M.empty mappings
     pure (fillBroadcastVector defaultUnitConfig M.empty fallbackFlowDB raw)
 
 -- ---------------------------------------------------------------------------
@@ -393,7 +393,7 @@ acrCtx =
         , mcBioFlowsByCAS = M.fromList [(acrCAS, [acrFlow])]
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
-        , mcCompartmentMap = M.empty
+        , mcCompartmentMap = mempty
         , mcSynGroupFlows = M.empty
         }
 
@@ -468,14 +468,14 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
     describe "regionalized rows stay out of the global tables" $ do
         it "routes a location-bearing CAS-matched CF to mtRegionalCasCF only" $ do
             mappings <- mapMethodFlows mapCtx regionalCasMethod
-            let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
+            let tables = buildMethodTables OtherCFFamily mempty M.empty mappings
             M.lookup (CASNumber waterCAS, Just NaturalResource) (mtRegionalCasCF tables)
                 `shouldBe` Just (M.fromList [(Location "FR", CF 9 (CFUnit "m3"))])
             M.member (CASNumber waterCAS, Just NaturalResource) (mtCasCF tables) `shouldBe` False
 
         it "keeps regionalized UUID-matched rows out of mtUuidCF" $ do
             mappings <- mapMethodFlows mapCtx uuidRegionalMethod
-            let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
+            let tables = buildMethodTables OtherCFFamily mempty M.empty mappings
             -- The global row stands; the location row lives in the regional
             -- table instead of clobbering the flow's universal value.
             fmap teCF (M.lookup (bfId river) (mtUuidCF tables)) `shouldBe` Just (CF 5 (CFUnit "m3"))
@@ -514,7 +514,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
                 Left err -> expectationFailure ("Parse failed: " ++ err)
                 Right coll -> do
                     mappings <- concat <$> mapM (mapMethodFlows mapCtx) (mcMethods coll)
-                    let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
+                    let tables = buildMethodTables OtherCFFamily mempty M.empty mappings
                     M.lookup (CASNumber waterCAS, Just NaturalResource) (mtCasCF tables)
                         `shouldBe` Nothing
                     M.lookup (CASNumber waterCAS, Just Water) (mtCasCF tables)
@@ -541,13 +541,13 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
     describe "CAS bridge broadcasts the unspecified value, not the niche max" $ do
         it "keeps the unspecified factor when subcompartment CFs diverge" $ do
             mappings <- mapMethodFlows acrCtx acrMethod
-            let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
+            let tables = buildMethodTables OtherCFFamily mempty M.empty mappings
             -- indoor air is 100x; the bridge must not broadcast it.
             fmap teCF (M.lookup (CASNumber acrCAS, Just Air) (mtCasCF tables)) `shouldBe` Just (CF 1 (CFUnit "kg"))
 
         it "reaches the flow with the unspecified factor, not the indoor max" $ do
             mappings <- mapMethodFlows acrCtx acrMethod
-            let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+            let raw = buildMethodTables OtherCFFamily mempty M.empty mappings
                 tables = fillBroadcastVector defaultUnitConfig M.empty (mcBioFlowsByUUID acrCtx) raw
             M.lookup (bfId acrFlow) (mtBroadcast tables) `shouldBe` Just 1
 
@@ -556,6 +556,6 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
             -- regionalized bridge must keep the medium-level default, not the
             -- niche max – same rule as the non-regional 'mtCasCF'.
             mappings <- mapMethodFlows acrCtx acrRegionalMethod
-            let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
+            let tables = buildMethodTables OtherCFFamily mempty M.empty mappings
             M.lookup (CASNumber acrCAS, Just Air) (mtRegionalCasCF tables)
                 `shouldBe` Just (M.fromList [(Location "FR", CF 1 (CFUnit "kg"))])

@@ -4246,7 +4246,7 @@ warnReopenedBridges synDB =
 getMergedCompartmentMap :: DatabaseManager -> IO CompartmentMap
 getMergedCompartmentMap manager = do
     loaded <- readTVarIO (dmLoadedCompMaps manager)
-    return $ M.unions (M.elems loaded)
+    return $ mconcat (M.elems loaded)
 
 {- | Get the merged 'EnergyDensityMap' from all loaded energy-density sets.
 First-wins union over active CSVs, mirroring 'getMergedCompartmentMap'.

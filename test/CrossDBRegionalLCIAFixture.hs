@@ -211,7 +211,7 @@ regionalMappings = map (\(loc, v) -> (cf loc v, Just (testFlow, ByName)))
 
 buildTables :: Database -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> MethodTables
 buildTables db mappings =
-    let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let raw = buildMethodTables OtherCFFamily mempty M.empty mappings
         withBroadcast = fillBroadcastVector kgUnitConfig (dbUnits db) (dbBioFlows db) raw
      in fillRegionalActivityWeights
             kgUnitConfig

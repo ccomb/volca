@@ -59,7 +59,7 @@ mkFlow = mkFlowIn NaturalResource
 
 tablesOf :: EnergyDensityMap -> [MethodCF] -> MethodTables
 tablesOf eds cfs =
-    buildMethodTables OtherCFFamily M.empty eds [(cf, Just (mkFlow 1 (mcfFlowName cf), ByName)) | cf <- cfs]
+    buildMethodTables OtherCFFamily mempty eds [(cf, Just (mkFlow 1 (mcfFlowName cf), ByName)) | cf <- cfs]
 
 -- Tables where the method prices a unit of energy, the way both the JRC's own
 -- fossil method and its SimaPro adaptation do.

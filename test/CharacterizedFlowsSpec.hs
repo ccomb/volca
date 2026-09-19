@@ -66,11 +66,11 @@ bioFlows = M.fromList [(bfId f, f) | f <- [ammoniaUrban, ammoniaRural, methane]]
 -- build side pairs each factor with at most one flow.
 ammoniaTables :: MethodTables
 ammoniaTables =
-    buildMethodTables OtherCFFamily M.empty M.empty [(airCF "Ammonia" 2.7, Just (ammoniaUrban, ByName))]
+    buildMethodTables OtherCFFamily mempty M.empty [(airCF "Ammonia" 2.7, Just (ammoniaUrban, ByName))]
 
 methaneTables :: MethodTables
 methaneTables =
-    buildMethodTables OtherCFFamily M.empty M.empty [(airCF "Methane" 28.0, Just (methane, ByName))]
+    buildMethodTables OtherCFFamily mempty M.empty [(airCF "Methane" 28.0, Just (methane, ByName))]
 
 spec :: Spec
 spec = describe "characterizedFlowIds" $ do

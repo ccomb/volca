@@ -73,7 +73,7 @@ the land transformation row is mapped onto it.
 factors :: SynonymDB -> [BiosphereFlow] -> IO [Maybe Double]
 factors synDB flows = do
     mappings <- mapMethodFlows context method
-    let tables = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let tables = buildMethodTables OtherCFFamily mempty M.empty mappings
     pure [cfValue <$> lookupCFForFlow tables (bfId f) (Just f) | f <- flows]
   where
     context =
@@ -83,7 +83,7 @@ factors synDB flows = do
             , mcBioFlowsByCAS = M.fromListWith (++) [(cas, [f]) | f <- flows, Just cas <- [bfCAS f]]
             , mcSynonymDB = synDB
             , mcActivities = M.empty
-            , mcCompartmentMap = M.empty
+            , mcCompartmentMap = mempty
             , mcSynGroupFlows = M.empty
             }
     method =

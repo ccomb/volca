@@ -166,7 +166,7 @@ buildTables ::
     [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] ->
     MethodTables
 buildTables db hier mappings =
-    let raw = buildMethodTables OtherCFFamily M.empty M.empty mappings
+    let raw = buildMethodTables OtherCFFamily mempty M.empty mappings
         withBroadcast =
             fillBroadcastVector kgUnitConfig (dbUnits db) (dbBioFlows db) raw
      in fillRegionalActivityWeights

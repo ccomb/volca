@@ -108,7 +108,7 @@ explainOf cfg tables flow = explainFlowCF cfg unitDB tables (bfId flow) flow
 tablesFor :: EnergyDensityMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [BiosphereFlow] -> MethodTables
 tablesFor densities mappings flows =
     fillBroadcastVector defaultUnitConfig unitDB (flowDBOf flows) $
-        buildMethodTables OtherCFFamily M.empty densities mappings
+        buildMethodTables OtherCFFamily mempty densities mappings
 
 flowDBOf :: [BiosphereFlow] -> M.Map UUID BiosphereFlow
 flowDBOf flows = M.fromList [(bfId f, f) | f <- flows]
@@ -367,7 +367,7 @@ spec = do
             agreesFor cfg densities mappings flows =
                 let tables =
                         fillBroadcastVector cfg unitDB (flowDBOf flows) $
-                            buildMethodTables OtherCFFamily M.empty densities mappings
+                            buildMethodTables OtherCFFamily mempty densities mappings
                  in for_ flows $ \f ->
                         (bfName f, flowMatchKind tables (bfId f))
                             `shouldBe` (bfName f, replayedKind cfg tables f)

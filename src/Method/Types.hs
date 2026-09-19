@@ -31,7 +31,7 @@ module Method.Types (
     computeFormulaScores,
 
     -- * Compartment Mapping
-    CompartmentMap,
+    CompartmentMap (..),
     buildCompartmentMapFromCSV,
     normalizeCompartment,
     compartmentMapSize,
@@ -70,6 +70,7 @@ import qualified Data.Vector as V
 import qualified Expr
 import GHC.Generics (Generic)
 import SynonymDB (normalizeName)
+import Types (Medium, mediumText, parseMedium)
 import Text.Read (readMaybe)
 
 -- | Direction of a biosphere flow (input from or output to environment)
@@ -93,7 +94,7 @@ data Compartment = Compartment !Text !Text !Text
 name; a newtype so it can't be swapped with either in a key tuple.
 -}
 newtype Subcompartment = Subcompartment Text
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Generic, NFData)
 
 {- | A location / geography code (@"FR"@, @"CN-SC"@, @"RER"@, @"GLO"@) as used
 by regionalized CFs and the location hierarchy. A newtype so a location can't
@@ -297,38 +298,87 @@ resolveComputed env formulas = foldl step (Right env) sorted
                         <> T.unpack (Expr.describeRefusal err)
             Right val -> Right $ M.insert varName val currentEnv
 
-{- | Compartment normalization map.
-Maps (lowercase source_medium, source_sub, source_qualifier) to target Compartment.
+{- | What @compartments.csv@ says about compartments, in its two kinds of row.
+
+A @same@ row names one place written another way – SimaPro's @low. pop.@ is
+ecoinvent's @non-urban air or from high stacks@ – and rewrites both a flow and
+a method line to the one spelling, so the two meet. It changes no meaning, so a
+@same@ row never joins two places one vocabulary keeps apart.
+
+An @if_absent@ row names two different places, written canonically: a flow at
+the first reads the factor written at the second, but only for a method that
+never writes the first. The EF 3.1 flow list has no forestry soil, so a flow
+emitted to it reads the method's non-agricultural soil, while a method with its
+own forestry factors keeps them. It rewrites no method line.
 -}
-type CompartmentMap = M.Map (Text, Text, Text) Compartment
+data CompartmentMap = CompartmentMap
+    { cmSpellings :: !(M.Map (Text, Text, Text) Compartment)
+    -- ^ @same@ rows: (lowercase source medium, sub, qualifier) → target.
+    , cmIfAbsent :: !(M.Map (Medium, Subcompartment) Subcompartment)
+    -- ^ @if_absent@ rows: (medium, lowercase sub) → the sub read instead.
+    }
+    deriving (Eq, Show, Generic, NFData)
+
+-- | First wins on either kind, as the merged tables have always been read.
+instance Semigroup CompartmentMap where
+    CompartmentMap a b <> CompartmentMap c d = CompartmentMap (M.union a c) (M.union b d)
+
+instance Monoid CompartmentMap where
+    mempty = CompartmentMap M.empty M.empty
+
+-- | The two kinds of row a compartment table holds; see 'CompartmentMap'.
+data RowKind = SameRow | IfAbsentRow
 
 {- | Build a CompartmentMap from CSV content.
-CSV columns: source_medium, source_sub, source_qualifier, target_medium, target_sub, target_qualifier
+CSV columns: source_medium, source_sub, source_qualifier, target_medium,
+target_sub, target_qualifier, and an optional seventh, kind (@same@, the
+default, or @if_absent@).
 -}
 buildCompartmentMapFromCSV :: BL.ByteString -> Either String CompartmentMap
-buildCompartmentMapFromCSV csvData =
-    case decode HasHeader csvData of
-        Left err -> Left $ "CSV parse error: " <> err
-        Right rows ->
-            let entries = V.toList (rows :: V.Vector (Text, Text, Text, Text, Text, Text))
-                pairs =
-                    [ (
-                          ( T.toLower (T.strip sm)
-                          , T.toLower (T.strip ss)
-                          , T.toLower (T.strip sq)
-                          )
-                      , Compartment (T.strip tm) (T.strip ts) (T.strip tq)
-                      )
-                    | (sm, ss, sq, tm, ts, tq) <- entries
-                    ]
-             in first repeatedCompartments (uniqueIndex pairs)
+buildCompartmentMapFromCSV csvData = do
+    rows <- first ("CSV parse error: " <>) (decode HasHeader csvData)
+    parsed <- traverse parseRow (V.toList (rows :: V.Vector [Text]))
+    spellings <- first repeatedCompartments (uniqueIndex [(k, c) | Left (k, c) <- parsed])
+    ifAbsent <- first repeatedIfAbsent (uniqueIndex [(k, t) | Right (k, t) <- parsed])
+    pure (CompartmentMap spellings ifAbsent)
   where
+    parseRow :: [Text] -> Either String (Either ((Text, Text, Text), Compartment) ((Medium, Subcompartment), Subcompartment))
+    parseRow cells = case map T.strip cells of
+        [sm, ss, sq, tm, ts, tq] -> row SameRow sm ss sq tm ts tq
+        [sm, ss, sq, tm, ts, tq, kind] -> kindOf kind >>= \k -> row k sm ss sq tm ts tq
+        _ -> Left ("a row needs six or seven columns: " <> T.unpack (T.intercalate (T.pack ",") cells))
+
+    kindOf :: Text -> Either String RowKind
+    kindOf k = case T.unpack (T.toLower k) of
+        "" -> Right SameRow
+        "same" -> Right SameRow
+        "if_absent" -> Right IfAbsentRow
+        other -> Left ("unknown kind \"" <> other <> "\", expected same or if_absent")
+
+    row kind sm ss sq tm ts tq = case kind of
+        SameRow -> Right (Left ((T.toLower sm, T.toLower ss, T.toLower sq), Compartment tm ts tq))
+        IfAbsentRow
+            | not (T.null sq && T.null tq) -> refuse "takes no qualifier"
+            | T.null ss || T.null ts -> refuse "names a subcompartment on both sides"
+            | T.toLower sm /= T.toLower tm -> refuse "stays in one medium"
+            | T.toLower ss == T.toLower ts -> refuse "names two different subcompartments"
+            | otherwise -> case parseMedium sm of
+                Left _ -> refuse "names a medium this reader knows"
+                Right medium -> Right (Right ((medium, Subcompartment (T.toLower ss)), Subcompartment (T.toLower ts)))
+      where
+        refuse why = Left ("an if_absent row " <> why <> ": " <> T.unpack (T.intercalate (T.pack ",") [sm, ss, sq, tm, ts, tq]))
+
     -- Two rows for one source compartment give two targets, and the file says
     -- nothing about which was meant.
     repeatedCompartments :: NonEmpty (Text, Text, Text) -> String
     repeatedCompartments keys =
         "two rows normalize the same compartment: "
             <> T.unpack (T.intercalate (T.pack "; ") (map spelt (NE.toList keys)))
+
+    repeatedIfAbsent :: NonEmpty (Medium, Subcompartment) -> String
+    repeatedIfAbsent keys =
+        "two if_absent rows redirect the same compartment: "
+            <> T.unpack (T.intercalate (T.pack "; ") [mediumText m <> T.pack "," <> s | (m, Subcompartment s) <- NE.toList keys])
 
     spelt :: (Text, Text, Text) -> Text
     spelt (sm, ss, sq) = T.intercalate (T.pack ",") [sm, ss, sq]
@@ -347,15 +397,15 @@ normalizeCompartment cmap (Compartment med sub qual) =
     let lmed = T.toLower med
         lsub = T.toLower sub
         lqual = T.toLower qual
-     in case M.lookup (lmed, lsub, lqual) cmap of
+     in case M.lookup (lmed, lsub, lqual) (cmSpellings cmap) of
             Just c -> c
-            Nothing -> case M.lookup (lmed, T.empty, T.empty) cmap of
+            Nothing -> case M.lookup (lmed, T.empty, T.empty) (cmSpellings cmap) of
                 Just (Compartment med' _ _) -> Compartment med' sub qual
                 Nothing -> Compartment med sub qual
 
 -- | Number of entries in the compartment map.
 compartmentMapSize :: CompartmentMap -> Int
-compartmentMapSize = M.size
+compartmentMapSize cmap = M.size (cmSpellings cmap) + M.size (cmIfAbsent cmap)
 
 {- | The CF family a method's result unit implies, for read-path gating.
 
