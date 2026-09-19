@@ -733,7 +733,8 @@ does not describe, and stopped the cascade before CAS could try.
 The catch-all rung is what keeps the remaining choice from being arbitrary: a
 row stating "low. pop." against candidates at "low. pop., long-term" and at no
 subcompartment takes the second, the one that claims nothing, rather than
-whichever the index listed first.
+whichever the index listed first. A row stating no subcompartment reaches it
+the same way.
 -}
 pickByCompartment :: CompartmentMap -> [BiosphereFlow] -> Maybe Compartment -> Maybe BiosphereFlow
 pickByCompartment _ [] _ = Nothing
@@ -747,7 +748,10 @@ pickByCompartment cmap flows (Just stated) =
     inMedium :: BiosphereFlow -> Bool
     inMedium fl = mediumFits statedMed (fst (flowMediumSub cmap fl))
     exactMatch :: BiosphereFlow -> Bool
-    exactMatch fl = inMedium fl && subcompartmentFits statedSub (flowSub fl)
+    -- "unspecified" is a place like any other here, as in the tables: read
+    -- as "any", it attached a row to whichever flow the index listed first,
+    -- and a located row reaches only the flow it is attached to.
+    exactMatch fl = inMedium fl && T.toCaseFold statedSub == T.toCaseFold (flowSub fl)
     catchAllSub :: BiosphereFlow -> Bool
     catchAllSub fl = inMedium fl && isUnspecifiedSub (flowSub fl)
 

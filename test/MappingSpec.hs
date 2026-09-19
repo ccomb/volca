@@ -135,6 +135,18 @@ spec = do
                 comp = Compartment "air" "unspecified" ""
             fmap bfId (findFlowByNameComp mempty byName "co2" (Just comp)) `shouldBe` Just fid1
 
+        it "takes the flow at unspecified for a row written at unspecified" $ do
+            -- A row whose factors differ by location reaches only the flow it
+            -- is attached to, so "unspecified" must not read as "any" and hand
+            -- the row to whichever flow the index lists first.
+            fidSurface <- nextRandom
+            fidUnspec <- nextRandom
+            let fSurface = mkFlow fidSurface "water" Water (Just "surface water")
+                fUnspec = mkFlow fidUnspec "water" Water (Just "unspecified")
+                byName = M.singleton "water" [fSurface, fUnspec]
+                comp = Compartment "water" "unspecified" ""
+            fmap bfId (findFlowByNameComp mempty byName "water" (Just comp)) `shouldBe` Just fidUnspec
+
         it "answers nothing when no candidate is in the stated medium" $ do
             -- A row for an emission to air does not describe a water flow of
             -- the same name, so the name matcher has found nothing and the
