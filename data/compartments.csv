@@ -23,6 +23,18 @@ Resources,,,natural resource,,
 natural resource,non-renewable element resources from ground,,natural resource,in ground,
 natural resource,renewable element resources from ground,,natural resource,in ground,
 natural resource,non-renewable energy resources from ground,,natural resource,in ground,
+natural resource,non-renewable material resources from ground,,natural resource,in ground,
+natural resource,renewable material resources from ground,,natural resource,in ground,
+natural resource,renewable energy resources from ground,,natural resource,in ground,
+natural resource,non-renewable element resources from water,,natural resource,in water,
+natural resource,non-renewable material resources from water,,natural resource,in water,
+natural resource,renewable material resources from water,,natural resource,in water,
+natural resource,renewable energy resources from water,,natural resource,in water,
+natural resource,renewable element resources from air,,natural resource,in air,
+natural resource,renewable material resources from air,,natural resource,in air,
+natural resource,renewable energy resources from air,,natural resource,in air,
+natural resource,renewable material resources from biosphere,,natural resource,biotic,
+natural resource,renewable energy resources from biosphere,,natural resource,biotic,
 land occupation,,,natural resource,land,
 land transformation,,,natural resource,land,
 resources,land,,natural resource,land,
@@ -39,5 +51,6 @@ inventory indicator,waste,,waste,,
 soil,forestry,,soil,non-agricultural,,if_absent
 soil,industrial,,soil,non-agricultural,,if_absent
 water,groundwater,,water,surface water,,if_absent
+water,lake,,water,surface water,,if_absent
 water,"groundwater, long-term",,water,unspecified (long-term),,if_absent
 air,"low population density, long-term",,air,unspecified (long-term),,if_absent

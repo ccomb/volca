@@ -54,7 +54,11 @@
   rows, from the published EcoSpold 2 mapping of the EF 3.1 flow list: forest
   and industrial soil read non-agricultural soil, groundwater reads fresh
   water, and long-term groundwater and long-term non-urban air read the
-  long-term unspecified line. `ground-` is now spelt `groundwater`, and the
+  long-term unspecified line. A sixth sends the SimaPro lake to surface water,
+  and the ILCD resource categories ("Renewable material resources from
+  water", …) are now spelt as the place they name (`in water`, `in ground`,
+  `in air`, `biotic`), which only a factor borrowed across subcompartments
+  used to reach. `ground-` is now spelt `groundwater`, and the
   ILCD non-agricultural soil keeps its own name: both used to be merged into a
   neighbour for every method, so that under a method from the EcoSpold 2
   matrix a groundwater release of 1,1,1-trichloroethane took the surface-water

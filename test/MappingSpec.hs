@@ -813,6 +813,15 @@ spec = do
             loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables)
                 `shouldBe` 3.0
 
+        it "reads an ILCD resource category as the place it names" $ do
+            let fromWater = (mkCF "Silver (I)" Nothing 4.0){mcfCompartment = parseCompartment ["Resources", "Resources from water", "Non-renewable element resources from water"]}
+                fromGround = (mkCF "Silver (I)" Nothing 5.0){mcfCompartment = parseCompartment ["Resources", "Resources from ground", "Non-renewable material resources from ground"]}
+            scoreAt [fromWater, fromGround] NaturalResource "in water" `shouldReturn` 4.0
+            scoreAt [fromWater, fromGround] NaturalResource "in ground" `shouldReturn` 5.0
+
+        it "gives a SimaPro lake flow the fresh-water factor of a method with no lake" $
+            scoreAt waterCFs Water "lake" `shouldReturn` 2.0
+
         it "gives an EcoSpold 2 groundwater flow the fresh-water factor" $
             scoreAt waterCFs Water "ground-" `shouldReturn` 2.0
 
