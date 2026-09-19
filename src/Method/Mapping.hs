@@ -15,7 +15,6 @@ module Method.Mapping (
     -- * Mapping functions
     MapContext (..),
     mapMethodFlows,
-    mapMethodToFlows,
     resolveCF,
     isPatternCF,
     isExclusionCF,
@@ -88,6 +87,7 @@ module Method.Mapping (
     DensityDirection (..),
     RefusalReason (..),
     expandSynonymMappings,
+    spreadLocatedRows,
     directionExcludedCFs,
     projectRegionalResourceFlows,
     ProxyTargets (..),
@@ -341,7 +341,7 @@ CAS number is the evidence there is.
 findFlowByCASWithinSubstance :: MapContext -> MethodCF -> Maybe BiosphereFlow
 findFlowByCASWithinSubstance ctx cf =
     mcfCAS cf >>= nonEmptyCAS >>= (`M.lookup` mcBioFlowsByCAS ctx) >>= \flows ->
-        pickByCompartment (mcPlacing ctx) (filter sameSubstance flows) (mcfCompartment cf)
+        pickByCompartment (mcPlacing ctx) (mcfFlowName cf) (filter sameSubstance flows) (mcfCompartment cf)
   where
     substanceOf :: Text -> Maybe Int
     substanceOf = lookupSynonymGroup (viewFor (mcfDirection cf) (mcSynonymDB ctx))
@@ -349,14 +349,6 @@ findFlowByCASWithinSubstance ctx cf =
     sameSubstance flow = case (substanceOf (mcfFlowName cf), substanceOf (bfName flow)) of
         (Just row, Just other) -> row == other
         _ -> True
-
-{- | Convenience wrapper: map method CFs using the built-in cascade + DB. The
-@if_absent@ rows in force are read from the method's own lines, having no
-collection to read them from.
--}
-mapMethodToFlows :: CompartmentMap -> Database -> Method -> IO [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
-mapMethodToFlows cmap db method =
-    mapMethodFlows (buildMapContext (Placing cmap (methodVocabulary cmap (methodFactors method))) db) method
 
 {- | A CF whose substance is a wildcard pattern rather than a literal flow
 name. A trailing @*@ makes the text before it a case-insensitive prefix
@@ -415,7 +407,9 @@ selectsFlow cf = \f -> prefix `T.isPrefixOf` T.toCaseFold (bfName f) && casFits 
         Nothing -> True
         Just (Compartment med sub _) ->
             maybe False (\c -> mediumEq med (VT.compartmentName c) && subFits sub c) (bfCompartment f)
-    subFits sub c = subcompartmentFits sub (fromMaybe "" (VT.compartmentSub c))
+    -- A flow that states no subcompartment is an unspecified emission, as
+    -- 'flowMediumSub' files it for every other reader.
+    subFits sub c = subcompartmentFits sub (fromMaybe "unspecified" (mfilter (not . T.null) (VT.compartmentSub c)))
     -- The stated word against the flow's own value: a statement this reader
     -- cannot place names no medium the flow could be filed under.
     mediumEq :: Text -> Medium -> Bool
@@ -640,9 +634,9 @@ way in, as 'findFlowByNameComp' does for names: the index is keyed canonically,
 and a method that states a padded CAS must still meet the flow that states it
 unpadded.
 -}
-findFlowByCAS :: Placing -> M.Map Text [BiosphereFlow] -> Text -> Maybe Compartment -> Maybe BiosphereFlow
-findFlowByCAS place flowsByCAS cas mComp =
-    nonEmptyCAS cas >>= (`M.lookup` flowsByCAS) >>= \flows -> pickByCompartment place flows mComp
+findFlowByCAS :: Placing -> M.Map Text [BiosphereFlow] -> Text -> Text -> Maybe Compartment -> Maybe BiosphereFlow
+findFlowByCAS place flowsByCAS name cas mComp =
+    nonEmptyCAS cas >>= (`M.lookup` flowsByCAS) >>= \flows -> pickByCompartment place name flows mComp
 
 -- | Find flow by normalized name match (compartment-aware)
 findFlowByName :: Placing -> M.Map Text [BiosphereFlow] -> Text -> Maybe BiosphereFlow
@@ -651,7 +645,7 @@ findFlowByName place flowsByName name = findFlowByNameComp place flowsByName nam
 -- | Find flow by normalized name with compartment preference
 findFlowByNameComp :: Placing -> M.Map Text [BiosphereFlow] -> Text -> Maybe Compartment -> Maybe BiosphereFlow
 findFlowByNameComp place flowsByName name mComp =
-    M.lookup (normalizeName name) flowsByName >>= \flows -> pickByCompartment place flows mComp
+    M.lookup (normalizeName name) flowsByName >>= \flows -> pickByCompartment place name flows mComp
 
 {- | What a synonym search reads: the group table it expands a name in, the
 flows it can land on, and what it judges a landing with.
@@ -673,7 +667,7 @@ findFlowBySynonymComp (SynonymSearch synDB flowsByName place) name mComp =
         Nothing -> Nothing
         Just gid ->
             getSynonyms synDB gid >>= \synonyms ->
-                pickByCompartment place (concatMap (lookupFlows flowsByName) synonyms) mComp
+                pickByCompartment place name (concatMap (lookupFlows flowsByName) synonyms) mComp
   where
     lookupFlows :: M.Map Text [BiosphereFlow] -> Text -> [BiosphereFlow]
     lookupFlows fbn syn = M.findWithDefault [] (normalizeName syn) fbn
@@ -701,7 +695,7 @@ findFlowBySynonymMemo ctx cf =
     case lookupSynonymGroup dirDB name of
         Nothing -> Nothing
         Just gid -> case M.lookup (dir, gid) (mcSynGroupFlows ctx) of
-            Just flows -> pickByCompartment (mcPlacing ctx) flows mComp
+            Just flows -> pickByCompartment (mcPlacing ctx) name flows mComp
             Nothing -> findFlowBySynonymComp (SynonymSearch dirDB (mcBioFlowsByName ctx) (mcPlacing ctx)) name mComp
   where
     dir = mcfDirection cf
@@ -738,8 +732,15 @@ buildSynGroupFlows ctx cfs =
 name: the one that reads the row's place first, by the rule every table reads
 with ('subReadings'). That is the flow at the very subcompartment the row
 states; for a row written for the whole medium, any flow of that medium; then a
-flow an @if_absent@ row in force sends to the row's subcompartment. Between two
-that read it alike, the first the index lists.
+flow an @if_absent@ row in force sends to the row's subcompartment.
+
+Between two that read it alike, the one bearing the row's own name, case aside.
+Two rows can share a name once its unit suffix is dropped, as @Waste water@ and
+@Waste water/m3@ do, and each then stays on the flow written in its own unit,
+whatever order the index lists them in. Past that, the candidates bear one
+name, the name tables serve every one of them under it, and which one is
+attached decides only where a located row's factors go; that is the order of
+the index.
 
 A flow that would not read the row's factor is never the one it names: a
 located row reaches only the flow it is attached to, and a row no flow reads is
@@ -756,21 +757,25 @@ a compartment is.
 A compartment a row states is a condition, not a preference. When no candidate
 reads it this answers Nothing, so 'resolveCF' moves on to the next matcher.
 -}
-pickByCompartment :: Placing -> [BiosphereFlow] -> Maybe Compartment -> Maybe BiosphereFlow
-pickByCompartment _ [] _ = Nothing
-pickByCompartment _ (f : _) Nothing = Just f
-pickByCompartment (Placing cmap vocabulary) flows (Just stated) =
+pickByCompartment :: Placing -> Text -> [BiosphereFlow] -> Maybe Compartment -> Maybe BiosphereFlow
+pickByCompartment _ _ [] _ = Nothing
+pickByCompartment _ _ (f : _) Nothing = Just f
+pickByCompartment (Placing cmap vocabulary) name flows (Just stated) =
     snd <$> listToMaybe (sortOn fst (mapMaybe reading flows))
   where
     inForce :: M.Map (MediumKey, Subcompartment) Subcompartment
     inForce = ifAbsentInForce cmap vocabulary
     Compartment statedMed statedSub _ = normalizeCompartment cmap stated
-    reading :: BiosphereFlow -> Maybe (SubReading, BiosphereFlow)
+    -- False sorts first: at one reading rank, the flow bearing the row's name.
+    reading :: BiosphereFlow -> Maybe ((SubReading, Bool), BiosphereFlow)
     reading fl = do
         let (flowMed, flowSub) = flowMediumSub cmap fl
         guard (mediumFits statedMed flowMed)
         listToMaybe
-            [(r, fl) | (r, s) <- subReadings inForce flowMed flowSub, foldSub s == foldSub (Subcompartment statedSub)]
+            [ ((r, T.toCaseFold (bfName fl) /= T.toCaseFold name), fl)
+            | (r, s) <- subReadings inForce flowMed flowSub
+            , foldSub s == foldSub (Subcompartment statedSub)
+            ]
 
 {- | Per-strategy counts of mapping results in one pass.
 Each 'MatchStrategy' must be named below – adding a new variant is a
@@ -1167,6 +1172,36 @@ compartments at query time and meet at the same canonical keys.
 Pass 'M.empty' for the compartment map when no normalization is desired
 (behaves identically to the pre-CompartmentMap implementation).
 -}
+
+{- | Hand each located row to every flow of the same medium bearing the name of
+the flow it resolved to. The cascade attaches a row to one flow, and the name tables serve
+all the flows of that name through it; the regional table is keyed by flow
+('mtRegionalizedCF'), so a located row would otherwise reach that one flow and
+leave its namesakes at the global value. Which namesakes actually read the
+row's place is still the regional table's call ('subReadings'), which judges
+the subcompartment alone: the medium is held here, as the cascade held it.
+
+An ILCD water line written at "unspecified" is located in some two hundred
+countries; a database drawing on another, and both holding a water release at
+unspecified, has two flows of that name, and only the one the cascade listed
+first used to get the country factors.
+-}
+spreadLocatedRows ::
+    M.Map Text [BiosphereFlow] ->
+    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] ->
+    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+spreadLocatedRows flowsByName mappings =
+    mappings
+        ++ [ (cf, Just (namesake, strategy))
+           | (cf, Just (flow, strategy)) <- mappings
+           , isJust (mcfConsumerLocation cf)
+           , namesake <- M.findWithDefault [] (normalizeName (bfName flow)) flowsByName
+           , bfId namesake /= bfId flow
+           , medium namesake == medium flow
+           ]
+  where
+    medium :: BiosphereFlow -> Maybe Medium
+    medium = fmap VT.compartmentName . bfCompartment
 
 {- | Fan out one-to-many synonym matches: for each CF, look up the
 synonym group of the CF name and emit one extra @(cf, Just (peerFlow,

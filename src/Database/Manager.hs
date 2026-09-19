@@ -110,6 +110,7 @@ module Database.Manager (
     -- * Cached flow mapping
     CollectionName (..),
     mapMethodToFlowsCached,
+    collectionVocabulary,
     effectiveMethodMappings,
     mapMethodToTablesCached,
     mapMethodSetToTablesCached,
@@ -211,6 +212,7 @@ import Method.Mapping (
     mtRegionalActivityWeights,
     mtRegionalizedCF,
     projectRegionalResourceFlows,
+    spreadLocatedRows,
     zeroedMatchedCFs,
  )
 import Method.Types (
@@ -774,7 +776,8 @@ effectiveMethodMappings manager dbName collection db method = do
         dropExcludedMappings (filter isExclusionCF (methodFactors method)) $
             expandProxyEdges proxyTargets (dmSubstanceEdges manager) $
                 projectRegionalResourceFlows synDB (clByUUID closure) $
-                    expandSynonymMappings synDB (clByName closure) mappings
+                    expandSynonymMappings synDB (clByName closure) $
+                        spreadLocatedRows (clByName closure) mappings
 
 -- | Cached prepared CF tables: built once per (db, method), reused across inventories.
 mapMethodToTablesCached :: DatabaseManager -> Text -> CollectionName -> Database -> Method -> IO MethodTables

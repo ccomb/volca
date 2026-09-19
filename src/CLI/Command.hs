@@ -39,7 +39,7 @@ import Database.RelinkMapping (relinkWithMappingFile)
 import Database.Upload (UploadData (..), UploadResult (..), findMethodDirectory, handleUpload)
 import qualified Database.Upload
 import qualified Database.UploadedDatabase as UploadedDB
-import Method.Mapping (MappingStats (..), computeMappingStats, mapMethodToFlows, strategyToText)
+import Method.Mapping (MappingStats (..), Placing (..), buildMapContext, computeMappingStats, mapMethodFlows, strategyToText)
 import Method.Types (MethodCF (..))
 import qualified Method.Types
 import Progress
@@ -744,19 +744,20 @@ executeFlowMappingCommand :: OutputFormat -> Types.Database -> DatabaseManager -
 executeFlowMappingCommand fmt database manager opts = do
     -- Find method by UUID
     loadedMethods <- DM.getLoadedMethods manager
-    let allMethods = map snd loadedMethods
     case UUID.fromText (mappingMethodId opts) of
         Nothing -> do
             reportError $ "Invalid method UUID: " ++ T.unpack (mappingMethodId opts)
             exitFailure
         Just uuid ->
-            case filter (\m -> Method.Types.methodId m == uuid) allMethods of
+            case filter ((== uuid) . Method.Types.methodId . snd) loadedMethods of
                 [] -> do
                     reportError $ "Method not found: " ++ T.unpack (mappingMethodId opts)
                     exitFailure
-                (method : _) -> do
+                ((collection, method) : _) -> do
                     cmap <- DM.getMergedCompartmentMap manager
-                    mappings <- mapMethodToFlows cmap database method
+                    -- The rows in force are the collection's, as the server reads them.
+                    vocabulary <- DM.collectionVocabulary manager (DM.CollectionName collection) cmap method
+                    mappings <- mapMethodFlows (buildMapContext (Placing cmap vocabulary) database) method
                     let stats = computeMappingStats mappings
                         totalMatched = msTotal stats - msUnmatched stats
                         coverage =

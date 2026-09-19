@@ -72,9 +72,17 @@
   three places, and to none when no flow does. It used to fall back on the
   flow filed under no subcompartment, then on any flow of the medium, so the
   mapping counted as matched a line no flow reads, and a line carrying factors
-  per location gave them to a flow that did not read it. A line whose name ends
-  in `*` and that is written at `unspecified` now selects the flows filed
-  there, where it used to select every subcompartment of the medium.
+  per location gave them to a flow that did not read it. Between flows that
+  read it alike, the line goes to the one bearing its name, so `Waste water`
+  and `Waste water/m3` each stay on the flow written in their unit whatever
+  the index order. A line carrying factors per location now reaches every flow
+  of the same name and medium that reads it, not only the one it was matched
+  to: a database drawing on another has two water releases at unspecified, and
+  only one used to get the country factors. A line whose name ends in `*` and
+  that is written at `unspecified` now selects the flows filed there, a flow
+  stating no subcompartment included, where it used to select every
+  subcompartment of the medium. The `mapping` command reads the `if_absent`
+  rows in force for the method's collection, as the server does.
 
 - Loading a database says which pass is speaking. A database is first linked to
   itself, then to its dependencies, and the first pass used to call everything

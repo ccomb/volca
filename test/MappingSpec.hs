@@ -202,6 +202,18 @@ spec = do
                 comp = Compartment "Emissions to air" "" ""
             fmap bfId (findFlowByNameComp (Placing cmap mempty) byName "co2" (Just comp)) `shouldBe` Just fid
 
+        it "gives a row, among flows reading it alike, to the one bearing its name" $ do
+            -- Both rows lose their unit suffix to one name; each must stay on
+            -- the flow written in its own unit, whatever the index order.
+            fidKg <- nextRandom
+            fidM3 <- nextRandom
+            let fKg = mkFlow fidKg "Waste water" Water (Just "river")
+                fM3 = mkFlow fidM3 "Waste water/m3" Water (Just "unspecified")
+                comp = Compartment "water" "" ""
+                pick name order = fmap bfId (findFlowByNameComp mempty (M.singleton "waste water" order) name (Just comp))
+            pick "Waste water" [fM3, fKg] `shouldBe` Just fidKg
+            pick "Waste water/m3" [fKg, fM3] `shouldBe` Just fidM3
+
         it "gives a row to no flow that would not read it" $ do
             -- Neither candidate is at "low. pop.", and neither reads a factor
             -- written there: not the long-term one, and not the one filed
@@ -229,15 +241,31 @@ spec = do
             fmap bfId (findFlowByNameComp (Placing cmap mempty) byName "zinc" (Just comp)) `shouldBe` Just fidForest
             fmap bfId (findFlowByNameComp (Placing cmap speaksForest) byName "zinc" (Just comp)) `shouldBe` Nothing
 
+    describe "spreadLocatedRows" $ do
+        it "hands a located row to every flow of its flow's name and medium, an unlocated one to none" $ do
+            fidRoot <- nextRandom
+            fidDep <- nextRandom
+            fidVapour <- nextRandom
+            let fRoot = mkFlow fidRoot "Water/m3" Water (Just "unspecified")
+                fDep = mkFlow fidDep "Water" Water (Just "unspecified")
+                fVapour = mkFlow fidVapour "Water" Air (Just "unspecified")
+                byName = M.singleton "water" [fDep, fVapour, fRoot]
+                located = (mkCFComp "Water" "water" "unspecified" (-12.1)){mcfConsumerLocation = Just "FR"}
+                global = mkCFComp "Water" "water" "unspecified" (-42.955)
+                flowsOf = map (fmap (bfId . fst) . snd)
+            flowsOf (spreadLocatedRows byName [(located, Just (fDep, ByName))])
+                `shouldMatchList` [Just fidDep, Just fidRoot]
+            flowsOf (spreadLocatedRows byName [(global, Just (fDep, ByName))]) `shouldBe` [Just fidDep]
+
     describe "findFlowByCAS" $ do
         it "finds flow by CAS number" $ do
             fid <- nextRandom
             let flow = mkFlow fid "Carbon dioxide" Air Nothing
                 byCAS = M.singleton "124-38-9" [flow]
-            fmap bfId (findFlowByCAS mempty byCAS "124-38-9" Nothing) `shouldBe` Just fid
+            fmap bfId (findFlowByCAS mempty byCAS "co2" "124-38-9" Nothing) `shouldBe` Just fid
 
         it "returns Nothing for unknown CAS" $
-            fmap bfId (findFlowByCAS mempty M.empty "000-00-0" Nothing) `shouldBe` Nothing
+            fmap bfId (findFlowByCAS mempty M.empty "co2" "000-00-0" Nothing) `shouldBe` Nothing
 
         -- The index is keyed canonically; a method whose parser kept the
         -- source's zero-padding still has to reach the same flow, or its
@@ -246,7 +274,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "Carbon dioxide" Air Nothing
                 byCAS = M.singleton "124-38-9" [flow]
-            fmap bfId (findFlowByCAS mempty byCAS "000124-38-9" Nothing) `shouldBe` Just fid
+            fmap bfId (findFlowByCAS mempty byCAS "co2" "000124-38-9" Nothing) `shouldBe` Just fid
 
         -- An all-zeros placeholder is not a substance anchor: indexing it
         -- would collide every CAS-less flow onto one key.
@@ -254,7 +282,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "Unknown" Air Nothing
                 byCAS = M.singleton "0-00-0" [flow]
-            fmap bfId (findFlowByCAS mempty byCAS "000-00-0" Nothing) `shouldBe` Nothing
+            fmap bfId (findFlowByCAS mempty byCAS "co2" "000-00-0" Nothing) `shouldBe` Nothing
 
     describe "findFlowByName" $ do
         it "finds a flow by name (case-insensitive via normalization)" $ do
@@ -1461,10 +1489,10 @@ spec = do
                 `shouldMatchList` map (Just . bfId) [waterRiver, waterWell]
 
         it "reads a pattern row written at unspecified as that place, not as any" $ do
-            -- Neither water flow is filed at "unspecified": one names no
-            -- subcompartment, the other "in ground".
+            -- The river water names no subcompartment, which is an unspecified
+            -- flow; the well water is "in ground", another place.
             let atUnspecified = mkCFComp "Water*" "natural resource" "unspecified" 1.0
-            expandedIds (expandPatternCF flowDB [] atUnspecified) `shouldBe` [Nothing]
+            expandedIds (expandPatternCF flowDB [] atUnspecified) `shouldBe` [Just (bfId waterRiver)]
 
         it "a bare * with a CAS expands by CAS, filtered by the row's compartment" $ do
             let cf = (mkCFComp "*" "air" "" 1.0){mcfCAS = Just "74-82-8"}
