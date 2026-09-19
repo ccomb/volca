@@ -2727,8 +2727,11 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
             CrossDBNotLinked blocker
                 -- An input designating by its product row reports a rich blocker;
                 -- one that named an identity and matched nothing (no identity, no
-                -- attribute match) is left for the dangling scan.
+                -- attribute match) is left for the dangling scan. An input of zero
+                -- is linked when a supplier answers it, but one that finds none
+                -- leaves no demand unmet ('isSupplierDemand').
                 | claimsAnActivityUUID claim -> mempty
+                | not (isSupplierDemand ex) -> mempty
                 | otherwise -> unresolvedStats flow blocker
     unresolvedStats flow blocker =
         let unresolved = case blocker of

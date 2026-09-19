@@ -114,6 +114,14 @@
 
 ### Fixed
 
+- An input of zero that no dependency supplies is no longer counted as an unmet
+  demand. An EcoSpold 2 file that lists inputs at zero with no supplier named
+  loaded ready, but read back from its matrix cache it listed thousands of
+  missing suppliers and refused every impact computation: the pass over the
+  dependencies, which a cached load always runs, counted those inputs where a
+  first load had skipped them. They are still linked when a dependency answers
+  them, so an author who gives one an amount finds the link in place.
+
 - Two subcompartments are now spelt one way whichever format names them, so a
   flow reaches the factor a method writes for its subcompartment instead of the
   unspecified one. High altitude was `lower stratosphere + upper troposphere`

@@ -39,6 +39,12 @@ spec = do
                 [(msReason r, msCount r) | r <- rows]
                     `shouldBe` [("location_rejected", 1), ("unit_incompatible", 1)]
 
+    {- An input of zero demands nothing, so a supplier nobody ships leaves no
+    gap: counted, it would refuse every impact computation on the database.
+    -}
+    it "leaves an input of zero that nothing answers out of the unmet demands" $
+        unresolvedCount stats `shouldBe` 2
+
 {- | The setup page of the consumer, carrying the refusals of one relink against
 the background. 'buildLoadedSetupInfo' reads those off the record, so writing
 them on is enough to reach the page.
@@ -74,6 +80,7 @@ consumerDB =
                 [ (breadFlow, techFlow breadFlow "bread" kgUnit)
                 , (wheatByVolume, techFlow wheatByVolume "wheat" m3Unit)
                 , (wheatByMass, techFlow wheatByMass "wheat" kgUnit)
+                , (salt, techFlow salt "salt" kgUnit)
                 ]
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
@@ -91,6 +98,8 @@ consumerDB =
               techInput wheatByVolume m3Unit "GLO"
             , -- ... and this one is refused before the unit is ever read.
               techInput wheatByMass kgUnit "FR"
+            , -- ... and nobody makes salt, which the recipe asks none of.
+              (techInput salt kgUnit "FR"){techAmount = 0}
             ]
 
 -- | The background: wheat at GLO, by mass, and nothing else.
@@ -114,12 +123,13 @@ supplierDB =
 u :: String -> UUID
 u suffix = read ("00000000-0000-0000-0000-0000000000" <> suffix)
 
-kgUnit, m3Unit, breadFlow, wheatByVolume, wheatByMass, actBread, actGrower :: UUID
+kgUnit, m3Unit, breadFlow, wheatByVolume, wheatByMass, salt, actBread, actGrower :: UUID
 kgUnit = u "01"
 m3Unit = u "02"
 breadFlow = u "03"
 wheatByVolume = u "04"
 wheatByMass = u "05"
+salt = u "06"
 actBread = u "0a"
 actGrower = u "0b"
 
