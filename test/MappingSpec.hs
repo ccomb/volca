@@ -832,6 +832,38 @@ spec = do
                 "surface water"
                 `shouldReturn` 2.0
 
+    describe "one spelling for high altitude and for long-term non-urban air (compartments.csv)" $ do
+        -- EcoSpold 2 writes "lower stratosphere + upper troposphere" and
+        -- "low population density, long-term"; the ILCD package writes the
+        -- first with "and", SimaPro writes "stratosphere + troposphere" and
+        -- "low. pop., long-term". Each spelling must reach the factor the
+        -- method writes for that subcompartment, not its unspecified one.
+        cmap <- runIO $ do
+            csv <- BL.readFile "data/compartments.csv"
+            either (fail . ("compartments.csv: " <>)) pure (buildCompartmentMapFromCSV csv)
+        let scoreAt cfs sub = do
+                fid <- nextRandom
+                let flow = mkFlow fid "Nitrogen oxides" Air (Just sub)
+                    tables = buildMethodTables OtherCFFamily cmap M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
+                pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
+            ilcd sub val = (mkCF "Nitrogen oxides" Nothing val){mcfCompartment = parseCompartment ["Emissions", "Emissions to air", sub]}
+            highAltitudeILCD =
+                [ ilcd "Emissions to air, unspecified" 1.0
+                , ilcd "Emissions to lower stratosphere and upper troposphere" 2.0
+                ]
+
+        it "gives an EcoSpold 2 and a SimaPro high-altitude flow the ILCD high-altitude factor" $ do
+            scoreAt highAltitudeILCD "lower stratosphere + upper troposphere" `shouldReturn` 2.0
+            scoreAt highAltitudeILCD "stratosphere + troposphere" `shouldReturn` 2.0
+
+        it "gives a SimaPro long-term flow the factor written for the EcoSpold 2 spelling" $
+            scoreAt
+                [ mkCFComp "Nitrogen oxides" "air" "unspecified" 1.0
+                , mkCFComp "Nitrogen oxides" "air" "low population density, long-term" 3.0
+                ]
+                "low. pop., long-term"
+                `shouldReturn` 3.0
+
     describe "final waste flows and inventory indicators meet the same factor" $ do
         -- A method writing an ecofactor for landfilled waste puts "Waste" in
         -- its compartment column. One format files that flow under a medium

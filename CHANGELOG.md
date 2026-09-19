@@ -61,6 +61,25 @@
 
 ### Fixed
 
+- Two subcompartments are now spelt one way whichever format names them, so a
+  flow reaches the factor a method writes for its subcompartment instead of the
+  unspecified one. High altitude was `lower stratosphere + upper troposphere`
+  in EcoSpold 2 and `lower stratosphere and upper troposphere` for an ILCD
+  package and for SimaPro's `stratosphere + troposphere`; long-term emissions
+  to non-urban air were `low population density, long-term` in EcoSpold 2 and
+  a spelling nothing else used for SimaPro's `low. pop., long-term`.
+  `data/compartments.csv` now translates each to the EcoSpold 2 spelling
+  (data version 5).
+
+  Scored against an EcoSpold 2 database, a SimaPro implementation of EF 3.1
+  used to give a long-term metal emission the factor for air in general, where
+  it writes an explicit zero: Swiss high-voltage electricity came out at twice
+  the non-cancer human toxicity of the ILCD package of the same method, and
+  now matches it. The other way round, an aircraft emission of fossil carbon
+  dioxide filed under `stratosphere + troposphere`, as SimaPro and some
+  EcoSpold 1 databases file it, takes the high-altitude factor an EcoSpold 2
+  method writes for it (3,100 instead of 1,000 in Ecological Scarcity 2021).
+
 - An EcoSpold 2 export names the supplier each input asked for, even where
   the supplying dataset is not in the file. The writer emitted
   `activityLinkId` only when the load had resolved the link, so a model
