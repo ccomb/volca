@@ -359,6 +359,78 @@ spec = do
             dsiCompleteness info `shouldBe` 100.0
             dsiMissingSuppliers info `shouldBe` []
 
+        {- A link answers one demand at most, and an input of zero is no demand
+        ('Loader.isSupplierDemand'). Counted as links, the one made for the
+        zero input cancelled the demand left unanswered beside it, and the page
+        reported a database the impact routes refuse as complete and ready.
+        -}
+        it "does not let a link made for an input of zero answer another demand" $ do
+            let consumer =
+                    minimalActivity
+                        "lyocell fibre"
+                        [ refExchange consumerProd
+                        , linkedInput missingAct supplierProd
+                        , (linkedInput missingAct gapProdA){techAmount = 0}
+                        ]
+                link =
+                    CrossDBLink
+                        { cdlConsumerActUUID = consumerAct
+                        , cdlConsumerProdUUID = consumerProd
+                        , cdlConsumerFlowId = gapProdA
+                        , cdlSupplierActUUID = supplierAct
+                        , cdlSupplierProdUUID = gapProdA
+                        , cdlCoefficient = 0
+                        , cdlExchangeUnit = "kg"
+                        , cdlFlowName = "dye"
+                        , cdlLocation = "GLO"
+                        , cdlSourceDatabase = "background"
+                        , cdlTiedAlternatives = []
+                        }
+            db <-
+                buildDb
+                    [((consumerAct, consumerProd), consumer)]
+                    [(consumerProd, "lyocell fibre"), (supplierProd, "chemical, inorganic"), (gapProdA, "dye")]
+            let info = setupInfoFor db{dbCrossDBLinks = [link]}
+            dsiCrossDBLinks info `shouldBe` 0
+            dsiUnresolvedLinks info `shouldBe` 1
+            dsiIsReady info `shouldBe` False
+
+        {- The same product asked for twice at one consumer, once at zero and
+        answered, once for real and not: the two demands share a triple, so the
+        cap alone would let the answer to the first stand for the second. The
+        solve drops the link carrying no amount, and so does this count.
+        -}
+        it "does not let a link carrying no amount answer a sibling asking for the same product" $ do
+            let consumer =
+                    minimalActivity
+                        "lyocell fibre"
+                        [ refExchange consumerProd
+                        , linkedInput missingAct supplierProd
+                        , (linkedInput supplierAct supplierProd){techAmount = 0}
+                        ]
+                link =
+                    CrossDBLink
+                        { cdlConsumerActUUID = consumerAct
+                        , cdlConsumerProdUUID = consumerProd
+                        , cdlConsumerFlowId = supplierProd
+                        , cdlSupplierActUUID = supplierAct
+                        , cdlSupplierProdUUID = supplierProd
+                        , cdlCoefficient = 0
+                        , cdlExchangeUnit = "kg"
+                        , cdlFlowName = "chemical, inorganic"
+                        , cdlLocation = "GLO"
+                        , cdlSourceDatabase = "background"
+                        , cdlTiedAlternatives = []
+                        }
+            db <-
+                buildDb
+                    [((consumerAct, consumerProd), consumer)]
+                    [(consumerProd, "lyocell fibre"), (supplierProd, "chemical, inorganic")]
+            let info = setupInfoFor db{dbCrossDBLinks = [link]}
+            dsiCrossDBLinks info `shouldBe` 0
+            dsiUnresolvedLinks info `shouldBe` 1
+            dsiIsReady info `shouldBe` False
+
     -- The wire-level contract between GET /setup and POST /finalize: the two
     -- must never disagree about a loaded database.
     describe "setup / finalize coherence (loaded databases)" $ do

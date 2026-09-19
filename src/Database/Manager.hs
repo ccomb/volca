@@ -2112,7 +2112,7 @@ loadDatabaseRawWithCrossDB RawLoad{..} = do
         UseCache -> Loader.loadCachedDatabaseWithMatrices rlDbName rlSourcePath inputs
     case cacheVerdict rlOtherIndexes mCachedDb of
         Fresh db -> do
-            Loader.reportCrossDBLinkingStats (fromIntegral (dbActivityCount db)) (dbLinkingStats db)
+            Loader.reportCrossDBLinkingStats (toSimpleDatabase db) (dbLinkingStats db)
             return $ Right (db, FromCache)
         Stale -> do
             reportProgress Info "Cache has unresolved links, rebuilding with available dependencies..."
@@ -3233,15 +3233,21 @@ data LinkCounts = LinkCounts
     , lcTotalInputs :: !Int
     , lcUnlinked :: !Int
     , lcCrossDBLinks :: !Int
+    {- ^ Demands a dependency answered, never the links made
+    ('Loader.countAnsweredDemands').
+    -}
     }
 
 -- | Inputs resolved inside the database itself.
 lcInternalLinks :: LinkCounts -> Int
 lcInternalLinks lc = max 0 (lcTotalInputs lc - lcUnlinked lc)
 
--- | Inputs no link, internal or cross-DB, resolves.
+{- | Inputs no link, internal or cross-DB, resolves. The subtraction needs no
+floor: 'Loader.countAnsweredDemands' answers demands, and it reads the same
+inputs 'Loader.countUnlinkedExchanges' counts, so it can never exceed them.
+-}
 lcUnresolvedLinks :: LinkCounts -> Int
-lcUnresolvedLinks lc = max 0 (lcUnlinked lc - lcCrossDBLinks lc)
+lcUnresolvedLinks lc = lcUnlinked lc - lcCrossDBLinks lc
 
 -- | Tally for a staged database, from its parsed activities and linking stats.
 stagedLinkCounts :: StagedDatabase -> LinkCounts
@@ -3250,7 +3256,7 @@ stagedLinkCounts staged =
         { lcActivityCount = M.size (sdbActivities sdb)
         , lcTotalInputs = Loader.countTotalTechInputs sdb
         , lcUnlinked = Loader.countUnlinkedExchanges sdb
-        , lcCrossDBLinks = Loader.crossDBLinksCount (sdLinkingStats staged)
+        , lcCrossDBLinks = Loader.countAnsweredDemands sdb (Loader.cdlLinks (sdLinkingStats staged))
         }
   where
     sdb :: SimpleDatabase
@@ -3271,19 +3277,19 @@ loadedLinkCounts db =
         { lcActivityCount = fromIntegral (dbActivityCount db)
         , lcTotalInputs = Loader.countTotalTechInputs sdb
         , lcUnlinked = Loader.countUnlinkedExchanges sdb
-        , lcCrossDBLinks = length (dbCrossDBLinks db)
+        , lcCrossDBLinks = Loader.countAnsweredDemands sdb (dbCrossDBLinks db)
         }
   where
     sdb = toSimpleDatabase db
 
 {- | Percentage of resolved inputs (0-100); an inputless database is complete.
-Clamped: stats recording more cross-DB links than unlinked inputs must not
-report above 100%.
+No ceiling is needed: every count here is a count of inputs, and the two
+resolved ones split the inputs rather than overlap.
 -}
 lcCompleteness :: LinkCounts -> Double
 lcCompleteness lc
     | lcTotalInputs lc > 0 =
-        min 100.0 $ 100.0 * fromIntegral (lcInternalLinks lc + lcCrossDBLinks lc) / fromIntegral (lcTotalInputs lc)
+        100.0 * fromIntegral (lcInternalLinks lc + lcCrossDBLinks lc) / fromIntegral (lcTotalInputs lc)
     | otherwise = 100.0
 
 {- | Why a database cannot be finalized: 'Nothing' means ready. The setup
