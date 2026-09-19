@@ -127,7 +127,10 @@
   compartment. It was read with none and reported as an unknown medium, so a
   matrix export listed it without a compartment. `social` is now one of the
   media a compartment can name, on the wire as everywhere else. A matrix cache
-  written before this is rebuilt.
+  written before this is rebuilt. An export to SimaPro CSV of such a database
+  is now refused and names the flow, as it is for a flow filed under
+  `economic`: the flow used to go out, without a word, among the emissions to
+  air.
 
 - Two subcompartments are now spelt one way whichever format names them, so a
   flow reaches the factor a method writes for its subcompartment instead of the
