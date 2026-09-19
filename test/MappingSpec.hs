@@ -126,14 +126,24 @@ spec = do
                 comp = Compartment "air" "urban air" ""
             fmap bfId (findFlowByNameComp mempty byName "co2" (Just comp)) `shouldBe` Just fid1
 
-        it "falls back to medium match when no exact subcomp" $ do
+        it "gives a row written for the whole medium to a flow of that medium" $ do
+            -- Every flow of the medium reads that line, whatever its own
+            -- subcompartment.
             fid1 <- nextRandom
             fid2 <- nextRandom
             let fAir = mkFlow fid1 "co2" Air (Just "non-urban air")
                 fWater = mkFlow fid2 "co2" Water Nothing
                 byName = M.singleton "co2" [fWater, fAir]
-                comp = Compartment "air" "unspecified" ""
+                comp = Compartment "air" "" ""
             fmap bfId (findFlowByNameComp mempty byName "co2" (Just comp)) `shouldBe` Just fid1
+
+        it "gives a row written at unspecified to no flow at another subcompartment" $ do
+            -- "unspecified" is a place: the flow at "non-urban air" does not
+            -- read its factor, so the row is not attached to it.
+            fid <- nextRandom
+            let fAir = mkFlow fid "co2" Air (Just "non-urban air")
+                comp = Compartment "air" "unspecified" ""
+            fmap bfId (findFlowByNameComp mempty (M.singleton "co2" [fAir]) "co2" (Just comp)) `shouldBe` Nothing
 
         it "takes the flow at unspecified for a row written at unspecified" $ do
             -- A row whose factors differ by location reaches only the flow it
@@ -190,21 +200,34 @@ spec = do
                 byName = M.singleton "co2" [fAir]
                 cmap = mempty{cmSpellings = M.singleton ("emissions to air", "", "") (Compartment "air" "" "")}
                 comp = Compartment "Emissions to air" "" ""
-            fmap bfId (findFlowByNameComp cmap byName "co2" (Just comp)) `shouldBe` Just fid
+            fmap bfId (findFlowByNameComp (Placing cmap mempty) byName "co2" (Just comp)) `shouldBe` Just fid
 
-        it "takes the flow claiming no subcompartment over an unrelated sibling" $ do
-            -- Neither candidate is at "low. pop.". One is at a subcompartment
-            -- the row does not name, the other at none: the second is what the
-            -- row is left with, and it must not depend on the index order.
+        it "gives a row to no flow that would not read it" $ do
+            -- Neither candidate is at "low. pop.", and neither reads a factor
+            -- written there: not the long-term one, and not the one filed
+            -- under no subcompartment, which reads only its medium's line.
             fidLongTerm <- nextRandom
             fidPlain <- nextRandom
             let fLongTerm = mkFlow fidLongTerm "co2" Air (Just "low. pop., long-term")
                 fPlain = mkFlow fidPlain "co2" Air Nothing
                 comp = Compartment "air" "low. pop." ""
             fmap bfId (findFlowByNameComp mempty (M.singleton "co2" [fLongTerm, fPlain]) "co2" (Just comp))
-                `shouldBe` Just fidPlain
-            fmap bfId (findFlowByNameComp mempty (M.singleton "co2" [fPlain, fLongTerm]) "co2" (Just comp))
-                `shouldBe` Just fidPlain
+                `shouldBe` Nothing
+
+        it "gives a row to the flow an if_absent row sends to it, while that row holds" $ do
+            -- A method writing no forestry reads its non-agricultural line
+            -- for a flow in forest soil, so that flow is the one the line names.
+            -- A method that writes forestry keeps the two apart.
+            fidForest <- nextRandom
+            fidAgri <- nextRandom
+            let fForest = mkFlow fidForest "zinc" Soil (Just "forestry")
+                fAgri = mkFlow fidAgri "zinc" Soil (Just "agricultural")
+                byName = M.singleton "zinc" [fAgri, fForest]
+                cmap = mempty{cmIfAbsent = M.singleton (Soil, Subcompartment "forestry") (Subcompartment "non-agricultural")}
+                comp = Compartment "soil" "non-agricultural" ""
+                speaksForest = methodVocabulary cmap [mkCFComp "zinc" "soil" "forestry" 1.0]
+            fmap bfId (findFlowByNameComp (Placing cmap mempty) byName "zinc" (Just comp)) `shouldBe` Just fidForest
+            fmap bfId (findFlowByNameComp (Placing cmap speaksForest) byName "zinc" (Just comp)) `shouldBe` Nothing
 
     describe "findFlowByCAS" $ do
         it "finds flow by CAS number" $ do
@@ -570,7 +593,7 @@ spec = do
                     , mcBioFlowsByCAS = M.empty
                     , mcSynonymDB = emptySynonymDB
                     , mcActivities = M.empty
-                    , mcCompartmentMap = mempty
+                    , mcPlacing = mempty
                     , mcSynGroupFlows = M.empty
                     }
             factors rows = do
@@ -1041,7 +1064,7 @@ spec = do
                 comp = Compartment "urban air" "" ""
                 rule = mempty{cmSpellings = M.singleton ("urban air", "", "") (Compartment "air" "urban" "")}
             fmap bfId (findFlowByNameComp mempty byName "nox" (Just comp)) `shouldBe` Nothing
-            fmap bfId (findFlowByNameComp rule byName "nox" (Just comp)) `shouldBe` Just fid1
+            fmap bfId (findFlowByNameComp (Placing rule mempty) byName "nox" (Just comp)) `shouldBe` Just fid1
 
     describe "compartmentGapWarning" $ do
         it "names both vocabularies when a factor's name is filed under another medium" $ do
@@ -1436,6 +1459,12 @@ spec = do
             expandedIds (expandPatternCF flowDB [] inGround) `shouldBe` [Just (bfId waterWell)]
             expandedIds (expandPatternCF flowDB [] anySub)
                 `shouldMatchList` map (Just . bfId) [waterRiver, waterWell]
+
+        it "reads a pattern row written at unspecified as that place, not as any" $ do
+            -- Neither water flow is filed at "unspecified": one names no
+            -- subcompartment, the other "in ground".
+            let atUnspecified = mkCFComp "Water*" "natural resource" "unspecified" 1.0
+            expandedIds (expandPatternCF flowDB [] atUnspecified) `shouldBe` [Nothing]
 
         it "a bare * with a CAS expands by CAS, filtered by the row's compartment" $ do
             let cf = (mkCFComp "*" "air" "" 1.0){mcfCAS = Just "74-82-8"}

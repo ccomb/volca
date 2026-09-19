@@ -190,6 +190,7 @@ import Method.Mapping (
     MethodSetTables,
     MethodTables,
     MethodVocabulary,
+    Placing (..),
     ProxyTargets (..),
     RefusalReason,
     RegionalActivityWeights (..),
@@ -744,7 +745,8 @@ mapMethodToFlowsCached manager dbName collection db method = do
         Nothing -> do
             closure <- getFlowClosure manager dbName db
             cmap <- getMergedCompartmentMap manager
-            let ctx = mapContextFor closure (fromMaybe emptySynonymDB (dbSynonymDB db)) cmap
+            vocabulary <- collectionVocabulary manager collection cmap method
+            let ctx = mapContextFor closure (fromMaybe emptySynonymDB (dbSynonymDB db)) (Placing cmap vocabulary)
             result <- mapMethodFlows ctx method
             atomically $ modifyTVar' (dmMethodMappingCache manager) (M.insert key result)
             return result
@@ -819,8 +821,9 @@ buildMethodTablesFor manager dbName collection db method = do
     expanded <- effectiveMethodMappings manager dbName collection db method
     closure <- getFlowClosure manager dbName db
     cmap <- getMergedCompartmentMap manager
+    vocabulary <- collectionVocabulary manager collection cmap method
     let dirExcluded =
-            directionExcludedCFs cmap (fromMaybe emptySynonymDB (dbSynonymDB db)) (clByName closure) expanded
+            directionExcludedCFs (Placing cmap vocabulary) (fromMaybe emptySynonymDB (dbSynonymDB db)) (clByName closure) expanded
     mapM_ (reportProgress Warning) (directionWarning dirExcluded)
     energyDensities <- getMergedEnergyDensities manager
     unitConfig <- getMergedUnitConfig manager
@@ -835,7 +838,6 @@ buildMethodTablesFor manager dbName collection db method = do
     globalMethods <-
         maybe [] mcGlobalMethods . M.lookup (unCollectionName collection)
             <$> readTVarIO (dmAvailableMethods manager)
-    vocabulary <- collectionVocabulary manager collection cmap method
     let !raw0 = buildMethodTables cmap vocabulary energyDensities expanded
         !raw =
             if methodName method `elem` globalMethods

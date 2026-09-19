@@ -83,7 +83,7 @@ factors synDB flows = do
             , mcBioFlowsByCAS = M.fromListWith (++) [(cas, [f]) | f <- flows, Just cas <- [bfCAS f]]
             , mcSynonymDB = synDB
             , mcActivities = M.empty
-            , mcCompartmentMap = mempty
+            , mcPlacing = mempty
             , mcSynGroupFlows = M.empty
             }
     method =

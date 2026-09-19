@@ -152,7 +152,7 @@ mapCtx =
         , mcBioFlowsByCAS = M.fromList [(waterCAS, allFlows)]
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
-        , mcCompartmentMap = mempty
+        , mcPlacing = mempty
         , mcSynGroupFlows = M.empty
         }
 
@@ -233,7 +233,7 @@ carbonSynonyms =
         , mcBioFlowsByCAS = M.fromList [(methaneCAS, [methaneNonFossil, methaneFossil])]
         , mcSynonymDB = buildFromPairs [("Methane, biogenic", "Methane, non-fossil")]
         , mcActivities = M.empty
-        , mcCompartmentMap = mempty
+        , mcPlacing = mempty
         , mcSynGroupFlows = M.empty
         }
 
@@ -349,7 +349,7 @@ fallbackCtx =
         , mcBioFlowsByCAS = M.empty
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
-        , mcCompartmentMap = mempty
+        , mcPlacing = mempty
         , mcSynGroupFlows = M.empty
         }
 
@@ -395,7 +395,7 @@ acrCtx =
         , mcBioFlowsByCAS = M.fromList [(acrCAS, [acrFlow])]
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
-        , mcCompartmentMap = mempty
+        , mcPlacing = mempty
         , mcSynGroupFlows = M.empty
         }
 
@@ -549,7 +549,15 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
 
     describe "CAS bridge reads the subcompartments a name would" $ do
         it "keeps each subcompartment's factor apart" $ do
-            mappings <- mapMethodFlows acrCtx acrMethod
+            -- A line enters the bridge through a flow that reads it, so the
+            -- database needs one at "indoor" for that line to be there.
+            let indoor = (mkAirFlow 22 "Acrylonitrile" "indoor"){bfCAS = Just acrCAS}
+                ctx =
+                    acrCtx
+                        { mcBioFlowsByUUID = M.insert (bfId indoor) indoor (mcBioFlowsByUUID acrCtx)
+                        , mcBioFlowsByCAS = M.fromList [(acrCAS, [acrFlow, indoor])]
+                        }
+            mappings <- mapMethodFlows ctx acrMethod
             let tables = buildMethodTables mempty mempty M.empty mappings
             fmap (fmap teCF) (M.lookup (CASNumber acrCAS, Just Air, Subcompartment "") (mtCasCF tables)) `shouldBe` Just (Just (CF 1 (CFUnit "kg")))
             fmap (fmap teCF) (M.lookup (CASNumber acrCAS, Just Air, Subcompartment "indoor") (mtCasCF tables)) `shouldBe` Just (Just (CF 100 (CFUnit "kg")))

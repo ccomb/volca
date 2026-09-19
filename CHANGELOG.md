@@ -68,6 +68,14 @@
   `subcompartment_blind` no longer occur, and no step is `vetoed`. The `veto`
   field of a step stays, always empty, and goes in 0.15.
 
+- A method line is matched to the database flow that reads it, by the same
+  three places, and to none when no flow does. It used to fall back on the
+  flow filed under no subcompartment, then on any flow of the medium, so the
+  mapping counted as matched a line no flow reads, and a line carrying factors
+  per location gave them to a flow that did not read it. A line whose name ends
+  in `*` and that is written at `unspecified` now selects the flows filed
+  there, where it used to select every subcompartment of the medium.
+
 - Loading a database says which pass is speaking. A database is first linked to
   itself, then to its dependencies, and the first pass used to call everything
   it had not answered a missing supplier, at warning level, listing products the
