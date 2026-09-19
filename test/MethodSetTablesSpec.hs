@@ -505,6 +505,22 @@ spec = do
             M.lookup (fid, Location "DE") (mtRegionalizedCF tUnspec) `shouldBe` Nothing
             M.lookup (fid, Location "DE") (mtRegionalizedCF tUnspecBare) `shouldBe` Nothing
 
+        it "meets a flow's subcompartment whatever the case the line writes it in" $ do
+            let fid = mkUuid 135
+                uidKg = mkUuid 200
+                flowSurface =
+                    (mkFlow fid "water" uidKg)
+                        { bfCompartment = Just (VT.Compartment Water (Just "surface water"))
+                        }
+                cf =
+                    (mkCF fid 3.0)
+                        { mcfFlowName = "water"
+                        , mcfCompartment = Just (Compartment "water" "Surface water" "")
+                        , mcfConsumerLocation = Just "DE"
+                        }
+            M.lookup (fid, Location "DE") (mtRegionalizedCF (buildMethodTables mempty mempty M.empty [(cf, Just (flowSurface, ByName))]))
+                `shouldBe` Just (CF 3.0 (CFUnit "kg"))
+
         it "prefers the CF that names the flow's subcompartment, whatever the row order" $ do
             -- Both a medium-level CF and an exact-subcompartment one apply to a
             -- river flow, and both land on the same (flow, location) key. The

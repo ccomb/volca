@@ -803,6 +803,16 @@ spec = do
             scoreAt (soilCFs ++ own) Soil "forestry" `shouldReturn` 4.0
             scoreAt (soilCFs ++ own) Soil "industrial" `shouldReturn` 5.0
 
+        it "does not count an exclusion line as a place the method writes" $ do
+            -- The tables never hold an exclusion line (they are built after
+            -- 'dropExcludedMappings'); only the collection's vocabulary sees it.
+            fid <- nextRandom
+            let flow = mkFlow fid "Silver (I)" Soil (Just "forestry")
+                exclusion = mkCFComp "!Silver*" "soil" "forestry" 0.0
+                tables = buildMethodTables cmap (methodVocabulary cmap (exclusion : soilCFs)) M.empty [(cf, Just (flow, ByName)) | cf <- soilCFs]
+            loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables)
+                `shouldBe` 3.0
+
         it "gives an EcoSpold 2 groundwater flow the fresh-water factor" $
             scoreAt waterCFs Water "ground-" `shouldReturn` 2.0
 

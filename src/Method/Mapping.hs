@@ -123,7 +123,7 @@ import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.DeepSeq (NFData)
 import Control.Exception (evaluate)
-import Control.Monad (join, unless, when)
+import Control.Monad (join, mfilter, unless, when)
 import Control.Monad.ST (runST)
 import Data.Aeson (ToJSON)
 import Data.Bifunctor (first)
@@ -817,7 +817,7 @@ data MethodTables = MethodTables
     { mtUuidCF :: !(M.Map UUID TableEntry)
     -- ^ UUID-matched CFs: exact flow id → CF
     , mtUnitVariantCF :: !(M.Map (SR.NormName, MediumKey, Subcompartment) TableEntry)
-    {- ^ (unit-suffix-preserving normalized name, medium) → CF, holding only
+    {- ^ (unit-suffix-preserving normalized name, medium, subcompartment) → CF, holding only
     rows whose name carries a SimaPro unit suffix (@"Gas, natural\/m3"@).
     'normalizeName' strips that suffix, so a method's own per-unit rows
     (@\/kg@ 43.1 vs @\/m3@ 34.5 – same substance, different densities)
@@ -847,7 +847,7 @@ data MethodTables = MethodTables
     over it. Empty for methods whose CFs carry no CAS.
     -}
     , mtRegionalCasCF :: !(M.Map (SR.CASNumber, MediumKey, Subcompartment) (M.Map Location CF))
-    {- ^ (CAS, normalized medium) → (location → CF), from regionalized
+    {- ^ (CAS, normalized medium, subcompartment) → (location → CF), from regionalized
     CFs. The regionalized analogue of 'mtCasCF': lets the regionalized build
     characterize every same-CAS flow per location, not just the one a CF
     resolved to. Empty for methods with no regionalized CAS-bearing CFs.
@@ -1604,9 +1604,7 @@ buildMethodTables cmap vocabulary energyDensities mappings =
                     (servedOver (preferLargerBy teCF))
                     [ ((casNo, medium, sub), bridged)
                     | (cf, mflow) <- mappings
-                    , let bridged = case mflow of
-                            Just (_, ByCAS) -> Just (entryOf cf mflow)
-                            _ -> Nothing
+                    , let bridged = entryOf cf mflow <$ mfilter (servedByCasBridge . snd) mflow
                     , Just cas <- [mcfCAS cf]
                     , Just casNo <- [SR.casKey cas]
                     , Nothing <- [mcfConsumerLocation cf]
@@ -1629,9 +1627,7 @@ buildMethodTables cmap vocabulary energyDensities mappings =
                     [ ((casNo, medium, sub), bridged)
                     | (cf, mflow) <- mappings
                     , Just loc <- [mcfConsumerLocation cf]
-                    , let bridged = case mflow of
-                            Just (_, ByCAS) -> M.singleton (Location loc) (cfOf cf)
-                            _ -> M.empty
+                    , let bridged = maybe M.empty (const (M.singleton (Location loc) (cfOf cf))) (mfilter (servedByCasBridge . snd) mflow)
                     , Just cas <- [mcfCAS cf]
                     , Just casNo <- [SR.casKey cas]
                     , Just (medium, sub) <- [cfMediumSub cmap cf]
@@ -1672,8 +1668,8 @@ buildMethodTables cmap vocabulary energyDensities mappings =
     -- "Water, lake, AT" row still proves the method regionalizes water.
     -- Two deliberate non-voters: consumer-located rows, whose variance the
     -- regional tables dispatch by the flow's own location, and rows at
-    -- \*different* subcompartments, whose variance 'preferUnspecifiedCas'
-    -- already arbitrates to the medium-level default. The rule behind both:
+    -- \*different* subcompartments, which the bridge keys apart and reads
+    -- through 'subReadings' like a name. The rule behind both:
     -- a value votes exactly when the method can serve it with no location
     -- attached. So located rows abstain only as such – against a database
     -- that writes its regions into flow names,
@@ -1711,6 +1707,15 @@ buildMethodTables cmap vocabulary energyDensities mappings =
         | abs (cfValue (val a)) >= abs (cfValue (val b)) = a
         | otherwise = b
 
+    -- Only a line matched by CAS names no particular flow, so only it may be
+    -- lent to every flow sharing the CAS.
+    servedByCasBridge :: MatchStrategy -> Bool
+    servedByCasBridge ByCAS = True
+    servedByCasBridge ByUUID = False
+    servedByCasBridge ByName = False
+    servedByCasBridge BySynonym = False
+    servedByCasBridge ByProxy = False
+
     -- A line the bridge may serve outranks one it may not, at one place.
     servedOver :: (a -> a -> a) -> Maybe a -> Maybe a -> Maybe a
     servedOver pick (Just a) (Just b) = Just (pick a b)
@@ -1723,12 +1728,13 @@ buildMethodTables cmap vocabulary energyDensities mappings =
     -- places 'subReadings' lets it read; Nothing when it may not read there.
     -- Both sides go through 'normalizeCompartment', so a compartments.csv
     -- rule that rewrites a subcomp can't desynchronise this from the
-    -- broadcast tables and the 'lookupCascadeCF' read path.
+    -- broadcast tables and the 'lookupCascadeCF' read path, and both are
+    -- case-folded, as this match always was.
     cfSubcompMatchesFlow :: MethodCF -> BiosphereFlow -> Maybe SubReading
     cfSubcompMatchesFlow cf flow =
         let cfSub = maybe mediumWide snd (cfMediumSub cmap cf)
             (flowMed, flowSub) = flowMediumSub cmap flow
-         in listToMaybe [r | (r, s) <- subReadings ifAbsent flowMed flowSub, s == cfSub]
+         in listToMaybe [r | (r, s) <- subReadings ifAbsent flowMed flowSub, foldSub s == foldSub cfSub]
 
     -- Rank two CFs competing for one (flow, location) key. 'mtRegionalizedCF'
     -- is the only table where CFs at several subcompartments land on one key;
@@ -2913,7 +2919,15 @@ instance Monoid MethodVocabulary where
 
 methodVocabulary :: CompartmentMap -> [MethodCF] -> MethodVocabulary
 methodVocabulary cmap cfs =
-    MethodVocabulary (S.fromList [(medium, foldSub sub) | cf <- cfs, Just (medium, sub) <- [cfMediumSub cmap cf]])
+    MethodVocabulary
+        ( S.fromList
+            [ (medium, foldSub sub)
+            | cf <- cfs
+            , -- An exclusion line takes a factor away and writes none.
+            not (isExclusionCF cf)
+            , Just (medium, sub) <- [cfMediumSub cmap cf]
+            ]
+        )
 
 -- | The @if_absent@ rows that hold for a method whose collection writes the given places.
 ifAbsentInForce :: CompartmentMap -> MethodVocabulary -> M.Map (MediumKey, Subcompartment) Subcompartment
