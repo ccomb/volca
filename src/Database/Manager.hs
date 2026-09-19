@@ -189,6 +189,7 @@ import Method.Mapping (
     MethodIndex,
     MethodSetTables,
     MethodTables,
+    MethodVocabulary,
     ProxyTargets (..),
     RefusalReason,
     RegionalActivityWeights (..),
@@ -618,6 +619,12 @@ data DatabaseManager = DatabaseManager
     These depend only on (db, collection, method), so building them once per
     triple saves O(n log n) Map constructions on every LCIA call.
     -}
+    , dmMethodVocabularyCache :: !(TVar (Map CollectionName MethodVocabulary))
+    {- ^ The places each collection writes factors at ('methodVocabulary'),
+    which decide the @if_absent@ rows its tables follow. One pass over the
+    whole collection, shared by every method and database its tables are
+    built for, and invalidated with them.
+    -}
     , dmMethodTablesInflight :: !(TVar (Map (Text, CollectionName, UUID) (TMVar (Either SomeException MethodTables))))
     {- ^ Single-flight slots guarding 'dmMethodTablesCache' builds. The first
     caller for a key installs an empty 'TMVar' and runs the (expensive) build;
@@ -783,6 +790,22 @@ mapMethodToTablesCached manager dbName collection db method = do
                 (modifyTVar' (dmMethodTablesCache manager) . M.insert key)
                 (buildMethodTablesFor manager dbName collection db method)
 
+{- | The places a collection writes factors at, which decide the @if_absent@
+rows its tables follow; computed once per collection ('dmMethodVocabularyCache').
+A method is only ever built from a loaded collection; were it not, its own
+lines are the one place left to read.
+-}
+collectionVocabulary :: DatabaseManager -> CollectionName -> CompartmentMap -> Method -> IO MethodVocabulary
+collectionVocabulary manager collection cmap method = do
+    cached <- M.lookup collection <$> readTVarIO (dmMethodVocabularyCache manager)
+    case cached of
+        Just vocabulary -> pure vocabulary
+        Nothing -> do
+            siblings <- maybe [method] mcMethods <$> getMethodCollection manager (unCollectionName collection)
+            vocabulary <- Control.Exception.evaluate (methodVocabulary cmap (concatMap methodFactors siblings))
+            atomically $ modifyTVar' (dmMethodVocabularyCache manager) (M.insert collection vocabulary)
+            pure vocabulary
+
 {- | Build the LCIA lookup tables for one method against a database: resolve the
 CF→flow mappings, stack them into the broadcast/CAS/regional tables, and
 precompute the regionalized per-activity weights. The deduplicated regional
@@ -812,12 +835,8 @@ buildMethodTablesFor manager dbName collection db method = do
     globalMethods <-
         maybe [] mcGlobalMethods . M.lookup (unCollectionName collection)
             <$> readTVarIO (dmAvailableMethods manager)
-    -- The places the whole collection writes factors at decide which
-    -- if_absent rows hold. A method is only ever built from a loaded
-    -- collection; were it not, its own lines are the one place left to read.
-    siblings <- maybe [method] mcMethods <$> getMethodCollection manager (unCollectionName collection)
-    let vocabulary = methodVocabulary cmap (concatMap methodFactors siblings)
-        !raw0 = buildMethodTables cmap vocabulary energyDensities expanded
+    vocabulary <- collectionVocabulary manager collection cmap method
+    let !raw0 = buildMethodTables cmap vocabulary energyDensities expanded
         !raw =
             if methodName method `elem` globalMethods
                 then raw0{mtRegionalizedCF = M.empty}
@@ -1053,6 +1072,7 @@ clearMethodMappingCache :: DatabaseManager -> IO ()
 clearMethodMappingCache manager = atomically $ do
     writeTVar (dmMethodMappingCache manager) M.empty
     writeTVar (dmMethodTablesCache manager) M.empty
+    writeTVar (dmMethodVocabularyCache manager) M.empty
     writeTVar (dmMethodTablesInflight manager) M.empty
     writeTVar (dmMethodSetTablesCache manager) M.empty
     writeTVar (dmMethodIndexCache manager) M.empty
@@ -1338,6 +1358,7 @@ newManager ManagerSeed{..} = do
     loadedEnergyDensitiesVar <- newTVarIO M.empty
     methodMappingCacheVar <- newTVarIO M.empty
     methodTablesCacheVar <- newTVarIO M.empty
+    methodVocabularyCacheVar <- newTVarIO M.empty
     methodTablesInflightVar <- newTVarIO M.empty
     methodSetTablesCacheVar <- newTVarIO M.empty
     methodIndexCacheVar <- newTVarIO M.empty
@@ -1366,6 +1387,7 @@ newManager ManagerSeed{..} = do
             , dmLocationHierarchy = hierarchyFromGeographies msGeographies
             , dmMethodMappingCache = methodMappingCacheVar
             , dmMethodTablesCache = methodTablesCacheVar
+            , dmMethodVocabularyCache = methodVocabularyCacheVar
             , dmMethodTablesInflight = methodTablesInflightVar
             , dmMethodSetTablesCache = methodSetTablesCacheVar
             , dmMethodIndexCache = methodIndexCacheVar
