@@ -18,6 +18,23 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
+## [0.12.1] - 2026-09-20
+
+### Changed
+
+- This build knows wire revisions 26 and 27, so it no longer warns that an
+  engine running v0.14.0 speaks a format newer than it understands. Revision 26
+  adds the activity a gap entry and a missing supplier name, and the locations
+  a missing supplier's inputs stated; revision 27 adds the `regional` match
+  kind a contributing flow can carry. Nothing else moves: the oldest revision
+  this client accepts is still 2, and it still runs against any engine from
+  v0.9.1 on.
+- `ContributingFlow.cf_value` is documented as the factor the score applied.
+  Under a method whose factors depend on where a flow occurs, one flow has as
+  many factors as it has origins, and the row carries the effective one, its
+  contribution divided by its quantity. The field used to be described as the
+  raw factor, which for such a method named no single number.
+
 ## [0.12.0] - 2026-09-15
 
 The minor is for a deprecation and for a client that had fallen eleven wire

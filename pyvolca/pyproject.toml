@@ -1,6 +1,6 @@
 [project]
 name = "pyvolca"
-version = "0.12.0"
+version = "0.12.1"
 description = "Python client for VoLCA, the Life Cycle Assessment engine"
 requires-python = ">=3.10"
 license = "Apache-2.0"
