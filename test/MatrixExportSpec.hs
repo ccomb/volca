@@ -270,6 +270,20 @@ spec = do
                         , co2 <> ",carbon dioxide,kg," <> treatment <> ",treatment of waste W,-2.0," <> shown (-2.0 * supplyAt 1)
                         ]
 
+        it "quotes a name that holds a comma, so the columns stay where the header says" $ do
+            -- An activity name with a comma in it is the ordinary case in every
+            -- database this reads, and written bare it shifts every field after
+            -- it: the file then parses, silently, into the wrong columns.
+            db <- treatmentDatabaseNaming "producer of Y, at plant"
+            info <- either (fail . show) pure =<< extractMatrixDebugInfo db (rowOf db treatmentUUID) Nothing
+            withSystemTempDirectory "acv-debug-comma" $ \tmpDir -> do
+                let base = tmpDir </> "debug"
+                exportMatrixDebugCSVs base info
+                supplyChain <- TIO.readFile (base ++ "_supply_chain.csv")
+                biosphere <- TIO.readFile (base ++ "_biosphere_matrix.csv")
+                T.isInfixOf "\"producer of Y, at plant\"" supplyChain `shouldBe` True
+                T.isInfixOf "\"producer of Y, at plant\"" biosphere `shouldBe` True
+
 {- | The row SAMPLE.min3's activity X sits at. Row 0 when it is missing, which
 only happens if the fixture changes: the assertions below would then fail on a
 different activity rather than on a resolution error, which is the shape hspec
@@ -297,13 +311,17 @@ is why this is built here rather than loaded from a fixture: a sample file would
 be read first to know what the answer should be.
 -}
 treatmentDatabase :: IO Database
-treatmentDatabase =
+treatmentDatabase = treatmentDatabaseNaming "producer of Y"
+
+-- | The same two activities, with the producer under a name of the caller's choosing.
+treatmentDatabaseNaming :: Text -> IO Database
+treatmentDatabaseNaming producerName =
     buildDatabaseWithMatrices
         (BuildInputs defaultUnitConfig mempty Declared [])
         SimpleDatabase
             { sdbActivities =
                 M.fromList
-                    [ ((producerUUID, productY), producerOfY)
+                    [ ((producerUUID, productY), producerOfY producerName)
                     , ((treatmentUUID, wasteW), treatmentOfW)
                     ]
             , sdbTechFlows =
@@ -339,8 +357,8 @@ kilogram = testUUID "66666666-6666-6666-6666-666666666666"
 testUUID :: String -> UUID
 testUUID = fromMaybe UUID.nil . UUID.fromString
 
-producerOfY :: Activity
-producerOfY = blankActivity "producer of Y" [reference productY 1.0, emits 3.0]
+producerOfY :: Text -> Activity
+producerOfY name = blankActivity name [reference productY 1.0, emits 3.0]
 
 treatmentOfW :: Activity
 treatmentOfW =

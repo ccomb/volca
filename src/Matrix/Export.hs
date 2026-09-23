@@ -140,9 +140,9 @@ exportSupplyChainData filePath debugInfo = do
             ]
 
         csvRow processId activity idx supply =
-            [ T.unpack (processIdToText database processId)
-            , T.unpack (activityName activity)
-            , T.unpack (activityLocation activity)
+            [ debugCsvField (processIdToText database processId)
+            , debugCsvField (activityName activity)
+            , debugCsvField (activityLocation activity)
             , show supply
             , show idx
             ]
@@ -196,10 +196,10 @@ exportBiosphereMatrixData filePath debugInfo = do
                 colInt = fromIntegral col :: Int
                 owner = IM.lookup colInt owners
              in [ maybe "unknown" show (getFlowUUID rowInt)
-                , maybe "unknown" (T.unpack . bfName) (getFlow rowInt)
-                , maybe "unknown" T.unpack (getFlowUnit rowInt)
-                , maybe "unknown" (T.unpack . processIdToText database) owner
-                , maybe "unknown" (T.unpack . activityName) (owner >>= ownedActivity)
+                , maybe "unknown" (debugCsvField . bfName) (getFlow rowInt)
+                , maybe "unknown" debugCsvField (getFlowUnit rowInt)
+                , maybe "unknown" (debugCsvField . processIdToText database) owner
+                , maybe "unknown" (debugCsvField . activityName) (owner >>= ownedActivity)
                 , show value
                 , show (realContribution colInt)
                 ]
@@ -235,12 +235,24 @@ exportUniversalMatrixFormat outputDir db = do
     exportBMatrix (outputDir ++ "/B_public.csv") db
     reportProgress Info "Universal matrix export completed"
 
--- | Escape text for CSV output (semicolon delimiter)
-escapeCsvField :: Text -> Text
-escapeCsvField text
-    | T.any (\c -> c == ';' || c == '"' || c == '\n' || c == '\r') text =
+{- | Quote a CSV field when it carries the delimiter, a quote or a line break.
+
+An activity name holding a comma is the common case, and left unquoted it shifts
+every column after it, which makes the file unreadable rather than merely ugly.
+-}
+escapeCsvFieldWith :: Char -> Text -> Text
+escapeCsvFieldWith delimiter text
+    | T.any (\c -> c == delimiter || c == '"' || c == '\n' || c == '\r') text =
         "\"" <> T.replace "\"" "\"\"" text <> "\""
     | otherwise = text
+
+-- | Escape text for CSV output (semicolon delimiter)
+escapeCsvField :: Text -> Text
+escapeCsvField = escapeCsvFieldWith ';'
+
+-- | Escape text for the comma-delimited debug exports.
+debugCsvField :: Text -> String
+debugCsvField = T.unpack . escapeCsvFieldWith ','
 
 -- | Export ie_index.csv (Intermediate Exchanges)
 exportIEIndex :: FilePath -> Database -> IO ()
