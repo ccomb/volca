@@ -53,7 +53,7 @@ spec = do
 armed :: IO IdleState
 armed = do
     idle <- newIdleState
-    writeIORef (idleArmed idle) True
+    writeIORef (idleArmed idle) (Just 60)
     pure idle
 
 -- | An application that takes its time before answering.

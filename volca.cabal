@@ -254,6 +254,7 @@ test-suite lca-tests
                      , CrossSubcompartmentSpec
                      , ServerSpec
                      , IdleSpec
+                     , ReplSpec
                      , ILCDParserSpec
                      , SupplyChainSpec
                      , HotspotSpec
