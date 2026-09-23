@@ -7,12 +7,13 @@ import CLI.Parser (commandParser)
 import CLI.Types
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, bracket, try)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (Value)
 import qualified Data.Aeson
 import Data.IORef
 import Data.List (isPrefixOf)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Network.HTTP.Client (Manager)
@@ -48,12 +49,13 @@ runRepl mgr rc globalOpts cfgFile = do
                 , rsFormat = Just Table
                 , rsServerPH = mServerPH
                 }
-    -- Cancel any existing idle timeout (in case we're reconnecting to a server with active timeout)
-    case mServerPH of
-        Just _ -> pure ()
-        Nothing -> cancelIdleTimeout mgr rc
-    -- Run REPL, activate idle timeout on exit
-    bracket (pure ()) (\_ -> activateIdleTimeout mgr rc >> cleanupServer stateRef) $ \_ -> do
+    -- The idle shutdown is how a server this REPL started goes away, and it is
+    -- also what keeps it warm for a quick reconnect. A server the user started
+    -- by hand is theirs: cancel any timeout left on it, and arm none on the way
+    -- out, or quitting the REPL would take their server down with it.
+    let startedTheServer = isJust mServerPH
+    unless startedTheServer $ cancelIdleTimeout mgr rc
+    bracket (pure ()) (\_ -> when startedTheServer $ activateIdleTimeout mgr rc) $ \_ -> do
         putStrLn "Type :help for available commands, :quit to exit."
         runInputT (setComplete (completionFunc stateRef) defaultSettings) (loop stateRef)
   where
@@ -127,12 +129,6 @@ runRepl mgr rc globalOpts cfgFile = do
         return True
 
     unknownCommand = "Unknown command. Type :help for usage."
-
-    cleanupServer _stateRef = pure ()
-
--- Server cleanup is handled by idle timeout – the server shuts itself down
--- after replIdleTimeoutSeconds of inactivity. This keeps the server warm
--- if the user opens another REPL session quickly.
 
 {- | Check if the server is reachable; if not, start it and wait.
 Returns the ProcessHandle if we started it, Nothing if it was already running.

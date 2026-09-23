@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Quitting the REPL no longer stops a server someone else started. The REPL
+  asks the server to shut down after ten idle seconds when it exits, so that a
+  server it launched itself does not outlive the session while staying warm for
+  a quick reconnect. It asked that of every server it had been talking to,
+  including one started by hand in another terminal for a web page or a series
+  of commands: that server went down ten seconds after an unrelated REPL was
+  closed. A REPL now arms the idle shutdown only on a server it started.
+
 ## [0.14.0] - 2026-09-20
 
 ### Added
