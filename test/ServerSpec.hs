@@ -245,3 +245,16 @@ serverSpecs = do
                     threadDelay 3500000 -- 3.5s
                     -- Server should still be alive
                     isAlive mgr `shouldReturn` True
+
+        it "says what a cancellation took away, so a caller can put it back" $ do
+            -- A client that only wants the countdown held off while it works
+            -- has no other way to learn what was running: told nothing, it
+            -- either leaves a server nobody owns running for ever or ends one
+            -- its user started by hand.
+            withMinimalConfig $ \cfgPath ->
+                withServer cfgPath $ \_ph mgr -> do
+                    (_, nothingArmed) <- postEndpointWithBody mgr "/api/v1/idle-timeout/0"
+                    nothingArmed `shouldSatisfy` T.isInfixOf "\"cancelled\":0"
+                    _ <- postEndpoint mgr "/api/v1/idle-timeout/600"
+                    (_, armed) <- postEndpointWithBody mgr "/api/v1/idle-timeout/0"
+                    armed `shouldSatisfy` T.isInfixOf "\"cancelled\":600"

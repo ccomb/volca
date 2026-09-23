@@ -10,7 +10,7 @@ import Control.Monad (forM_, unless, when)
 import Data.IORef
 import Data.List (intercalate)
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Foreign.C.Types (CInt (..))
@@ -45,6 +45,7 @@ import API.MCP (WhileWorking, mcpApp, toolDefinitions)
 import API.Routes (lcaAPI, lcaServer, volcaOpenApi)
 import App.Env (AppEnv (..))
 import Data.Aeson (encode, object, (.=))
+import Data.Aeson.Types (Pair)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Char8 as C8
@@ -232,7 +233,7 @@ setupIdleTimeout serverOpts = do
     let idleTimeout = serverIdleTimeout serverOpts
     when (idleTimeout > 0) $ do
         reportProgress Info ("Idle timeout: " ++ show idleTimeout ++ "s")
-        writeIORef (idleArmed idle) True
+        writeIORef (idleArmed idle) (Just idleTimeout)
         _ <- forkIO (idleWatchdog idle idleTimeout (shutDownIdle idleTimeout))
         pure ()
     pure idle
@@ -480,22 +481,31 @@ shutdownEndpoint mHosting idle app req respond =
                 let seconds = fromMaybe 30 (readMaybe (C8.unpack secondsBS)) :: Int
                 if seconds <= 0
                     then do
-                        writeIORef (idleArmed idle) False
+                        cancelled <- readIORef (idleArmed idle)
+                        writeIORef (idleArmed idle) Nothing
                         reportProgress Info "Idle timeout cancelled"
+                        -- What was cancelled goes back to the caller, so a client
+                        -- that only wanted the countdown held off while it works
+                        -- can put back the one it found.
+                        okWith ["cancelled" .= fromMaybe 0 cancelled]
                     else do
-                        alreadyActive <- readIORef (idleArmed idle)
-                        writeIORef (idleArmed idle) True
+                        alreadyActive <- isJust <$> readIORef (idleArmed idle)
+                        writeIORef (idleArmed idle) (Just seconds)
                         stampIdle idle
                         unless alreadyActive $ do
                             _ <- forkIO $ idleWatchdog idle seconds (shutDownIdle seconds)
                             pure ()
                         reportProgress Info $ "Idle timeout: " ++ show seconds ++ "s"
-                ok
+                        ok
         (_, _, _) -> app req respond
   where
     path = rawPathInfo req
     readOnly = hostingReadOnly mHosting
-    ok = respond $ responseLBS status200 [(hContentType, "application/json")] "{\"ok\":true}"
+    ok = okWith []
+    okWith :: [Pair] -> IO ResponseReceived
+    okWith extra =
+        respond $
+            responseLBS status200 [(hContentType, "application/json")] (encode (object (("ok" .= True) : extra)))
     refuse =
         respond $
             responseLBS

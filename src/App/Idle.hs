@@ -26,6 +26,7 @@ import Control.Exception (bracket_)
 import Control.Monad (when)
 import Data.ByteString (ByteString)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
+import Data.Maybe (isJust)
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Network.Wai (Application, rawPathInfo)
 
@@ -37,12 +38,15 @@ data IdleState = IdleState
     -- ^ When the server was last known to be in use.
     , idleInFlight :: !(IORef Int)
     -- ^ How many requests are running right now.
-    , idleArmed :: !(IORef Bool)
-    -- ^ Whether a watchdog is watching at all.
+    , idleArmed :: !(IORef (Maybe Int))
+    {- ^ The timeout a watchdog is counting down, or Nothing when none is
+    watching. It holds the seconds rather than a flag so that a client which
+    cancels a timeout can be told what it cancelled, and put it back.
+    -}
     }
 
 newIdleState :: IO IdleState
-newIdleState = IdleState <$> (newIORef =<< getCurrentTime) <*> newIORef 0 <*> newIORef False
+newIdleState = IdleState <$> (newIORef =<< getCurrentTime) <*> newIORef 0 <*> newIORef Nothing
 
 -- | Move the idle deadline to now.
 stampIdle :: IdleState -> IO ()
@@ -115,7 +119,7 @@ idleWatchdog idle timeoutSecs onIdle = go =<< Matrix.readSolveCounter
     go :: Int -> IO ()
     go lastSeen = do
         threadDelay checkInterval
-        armed <- readIORef (idleArmed idle)
+        armed <- isJust <$> readIORef (idleArmed idle)
         when armed $ do
             solves <- Matrix.readSolveCounter
             running <- readIORef (idleInFlight idle)

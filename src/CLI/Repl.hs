@@ -1,19 +1,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module CLI.Repl (runRepl) where
+module CLI.Repl (
+    runRepl,
+
+    -- * What a leaving session leaves behind
+    ServerOwner (..),
+    idleOnExit,
+    replIdleTimeoutSeconds,
+) where
 
 import CLI.Client (RemoteConfig (..), apiGet, apiPost, executeRemoteCommand)
 import CLI.Parser (commandParser)
 import CLI.Types
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, bracket, try)
-import Control.Monad (unless, when)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson (Value)
+import Data.Aeson (Value, withObject, (.:))
 import qualified Data.Aeson
+import Data.Aeson.Types (parseMaybe)
 import Data.IORef
 import Data.List (isPrefixOf)
-import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Network.HTTP.Client (Manager)
@@ -38,6 +45,27 @@ data ReplState = ReplState
 replIdleTimeoutSeconds :: Int
 replIdleTimeoutSeconds = 10
 
+-- | Whether the server a session talked to is the one that session started.
+data ServerOwner = StartedByThisRepl | FoundRunning
+    deriving (Eq, Show)
+
+{- | Who owns the server, read off the session as it ends rather than as it began:
+@:server start@ and @:server stop@ both change the answer mid-session.
+-}
+ownerOf :: ReplState -> ServerOwner
+ownerOf = maybe FoundRunning (const StartedByThisRepl) . rsServerPH
+
+{- | The countdown a leaving session leaves running.
+
+A server this REPL started is its own to end, and gets the grace period: long
+enough to reconnect to, short enough not to outlive the session. Any other
+server keeps exactly the countdown it was found running, which is none at all
+for one started by hand, and that is what leaves it standing.
+-}
+idleOnExit :: ServerOwner -> Maybe Int -> Maybe Int
+idleOnExit StartedByThisRepl _ = Just replIdleTimeoutSeconds
+idleOnExit FoundRunning found = found
+
 -- | Run the interactive REPL, auto-starting the server if needed
 runRepl :: Manager -> RemoteConfig -> GlobalOptions -> FilePath -> IO ()
 runRepl mgr rc globalOpts cfgFile = do
@@ -49,16 +77,20 @@ runRepl mgr rc globalOpts cfgFile = do
                 , rsFormat = Just Table
                 , rsServerPH = mServerPH
                 }
-    -- The idle shutdown is how a server this REPL started goes away, and it is
-    -- also what keeps it warm for a quick reconnect. A server the user started
-    -- by hand is theirs: cancel any timeout left on it, and arm none on the way
-    -- out, or quitting the REPL would take their server down with it.
-    let startedTheServer = isJust mServerPH
-    unless startedTheServer $ cancelIdleTimeout mgr rc
-    bracket (pure ()) (\_ -> when startedTheServer $ activateIdleTimeout mgr rc) $ \_ -> do
+    -- Any countdown is held off while the REPL is connected, since a prompt
+    -- nobody is typing at reads as inactivity, and 'idleOnExit' says what to
+    -- leave running in its place.
+    found <- cancelIdleTimeout mgr rc
+    bracket (pure ()) (\_ -> restoreIdleTimeout stateRef found) $ \_ -> do
         putStrLn "Type :help for available commands, :quit to exit."
         runInputT (setComplete (completionFunc stateRef) defaultSettings) (loop stateRef)
   where
+    -- \| Leave the server counting down whatever 'idleOnExit' names, or nothing.
+    restoreIdleTimeout :: IORef ReplState -> Maybe Int -> IO ()
+    restoreIdleTimeout stateRef found = do
+        owner <- ownerOf <$> readIORef stateRef
+        mapM_ (activateIdleTimeout mgr rc) (idleOnExit owner found)
+
     loop stateRef = do
         st <- liftIO $ readIORef stateRef
         let prompt = "volca" ++ maybe "" (\db -> "[" ++ T.unpack db ++ "]") (rsDb st) ++ "> "
@@ -207,18 +239,30 @@ waitForServer mgr rc remaining
                 hFlush stdout
                 waitForServer mgr rc (remaining - 1)
 
--- | Tell the server to shut down after idle timeout (called on REPL exit)
-activateIdleTimeout :: Manager -> RemoteConfig -> IO ()
-activateIdleTimeout mgr rc = do
-    let url = "/api/v1/idle-timeout/" ++ show replIdleTimeoutSeconds
+-- | Ask the server to shut down after @seconds@ of inactivity.
+activateIdleTimeout :: Manager -> RemoteConfig -> Int -> IO ()
+activateIdleTimeout mgr rc seconds = do
+    let url = "/api/v1/idle-timeout/" ++ show seconds
     _ <- try (apiPost mgr rc url (Data.Aeson.object [])) :: IO (Either SomeException (Either String Value))
     pure ()
 
--- | Cancel idle timeout on the server (called on REPL connect)
-cancelIdleTimeout :: Manager -> RemoteConfig -> IO ()
+{- | Hold off any idle shutdown while the REPL is connected, and report the one
+it cancelled so that the exit can put it back. A prompt nobody is typing at
+counts as inactivity, so a session left open would otherwise be cut off under
+its user.
+-}
+cancelIdleTimeout :: Manager -> RemoteConfig -> IO (Maybe Int)
 cancelIdleTimeout mgr rc = do
-    _ <- try (apiPost mgr rc "/api/v1/idle-timeout/0" (Data.Aeson.object [])) :: IO (Either SomeException (Either String Value))
-    pure ()
+    answer <- try (apiPost mgr rc "/api/v1/idle-timeout/0" (Data.Aeson.object [])) :: IO (Either SomeException (Either String Value))
+    pure $ case answer of
+        Right (Right value) -> cancelledSeconds value
+        _ -> Nothing
+
+-- | The timeout a cancellation says it took away, when it took one away.
+cancelledSeconds :: Value -> Maybe Int
+cancelledSeconds value = case parseMaybe (withObject "cancel" (.: "cancelled")) value of
+    Just seconds | seconds > 0 -> Just seconds
+    _ -> Nothing
 
 -- | Tab completion for command names and flags
 completionFunc :: IORef ReplState -> CompletionFunc IO

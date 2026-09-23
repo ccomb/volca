@@ -10,7 +10,11 @@
   a quick reconnect. It asked that of every server it had been talking to,
   including one started by hand in another terminal for a web page or a series
   of commands: that server went down ten seconds after an unrelated REPL was
-  closed. A REPL now arms the idle shutdown only on a server it started.
+  closed. A session now leaves the countdown it found: the ten seconds on a
+  server it started itself, whatever an earlier session or an `--idle-timeout`
+  left running on any other, and nothing at all on a server that had nothing
+  counting down. Cancelling a timeout over the API answers with the one it took
+  away, which is what lets a client put it back.
 
 ## [0.14.0] - 2026-09-20
 
