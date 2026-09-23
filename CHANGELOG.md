@@ -16,6 +16,14 @@
   counting down. Cancelling a timeout over the API answers with the one it took
   away, which is what lets a client put it back.
 
+- The two CSV files `debug-matrices` writes now quote a field that holds a
+  comma. An activity name with a comma in it, which most databases have in
+  quantity, shifted every field after it onto the next column: the file still
+  parsed, into the wrong columns, so a name was read as several fields and the
+  contribution column came back empty or absent. Both files are read by
+  spreadsheet or script, so a file that parses wrongly is worse than one that
+  refuses to parse at all.
+
 ## [0.14.0] - 2026-09-20
 
 ### Added
