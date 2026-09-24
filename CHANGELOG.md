@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- The REPL reads quotes, so `activities --name "tomato juice"` searches for
+  the name `tomato juice`. It split every line on blanks, which handed the
+  parser `"tomato` and `juice"` as two arguments and turned the command down.
+  A quote left open is now refused with a message rather than run.
 - Quitting the REPL no longer stops a server someone else started. The REPL
   asks the server to shut down after ten idle seconds when it exits, so that a
   server it launched itself does not outlive the session while staying warm for
