@@ -45,4 +45,3 @@ spec = do
 
         it "refuses a quote left open" $
             replArgs "activities --name \"tomato" `shouldBe` Left "Unterminated \" quote."
-
