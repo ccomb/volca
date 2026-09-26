@@ -43,7 +43,7 @@ module Service.Compare (
     limitComparison,
 ) where
 
-import Control.Monad (guard)
+import Control.Monad (mfilter)
 import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -72,7 +72,7 @@ import API.Types (
     WasteSide (..),
     unresolvedFlowName,
  )
-import Service (ServiceError, getReferenceProductInfo, mkActivitySummary, resolveActivityAndProcessId)
+import Service (ReferenceProductInfo (..), ServiceError, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId)
 import Types (
     Activity (..),
     Compartment,
@@ -406,14 +406,7 @@ processesOf db = zipWith (ProcessIn db) [0 ..] (V.toList (dbActivities db))
 activityKey :: ActivityMatch -> ProcessIn -> Maybe ActivityKey
 activityKey match p = case match of
     SameProcessId -> ByProcess <$> processIdToRef db (inProcessId p)
-    SameNames ->
-        ByNames
-            NamesKey
-                { nkActivity = normalName (activityName act)
-                , nkLocation = activityLocation act
-                , nkProduct = normalName productName
-                }
-            <$ guard (not (T.null productName))
+    SameNames -> byNames <$> productName
     SameProduct ->
         byProduct . exchangeFlowId <$> L.find exchangeIsReference (exchanges act)
   where
@@ -421,8 +414,17 @@ activityKey match p = case match of
     db = inDatabase p
     act :: Activity
     act = inActivity p
-    productName :: Text
-    (productName, _, _) = getReferenceProductInfo (dbTechFlows db) (dbUnits db) act
+    -- A reference whose flow is unknown has no name to pair on.
+    productName :: Maybe Text
+    productName = mfilter (not . T.null) (rpName <$> referenceProductOf (dbTechFlows db) (dbUnits db) act)
+    byNames :: Text -> ActivityKey
+    byNames name =
+        ByNames
+            NamesKey
+                { nkActivity = normalName (activityName act)
+                , nkLocation = activityLocation act
+                , nkProduct = normalName name
+                }
     byProduct :: UUID -> ActivityKey
     byProduct flow =
         ByProduct

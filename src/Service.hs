@@ -10,7 +10,7 @@ import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (SomeException, try)
-import Control.Monad (foldM, guard)
+import Control.Monad (foldM, guard, mfilter)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Either (fromRight, lefts, rights)
@@ -294,7 +294,7 @@ convertToInventoryExport db bioFlowDB unitDB processId rootActivity inventory =
                 M.toList $
                     M.fromListWith (+) [(ifdCategory f, 1) | f <- flowDetails]
 
-        !(prodName, prodAmount, prodUnit) = getReferenceProductInfo (dbTechFlows db) unitDB rootActivity
+        !rootProduct = summaryProduct (referenceProductOf (dbTechFlows db) unitDB rootActivity)
         !rootBlock = sourceBlockOf db processId
 
         !metadata =
@@ -304,9 +304,9 @@ convertToInventoryExport db bioFlowDB unitDB processId rootActivity inventory =
                         { prsProcessId = processIdToText db processId
                         , prsActivityName = activityName rootActivity
                         , prsLocation = activityLocation rootActivity
-                        , prsProductName = prodName
-                        , prsProductAmount = prodAmount
-                        , prsProductUnit = prodUnit
+                        , prsProductName = rpName rootProduct
+                        , prsProductAmount = rpAmount rootProduct
+                        , prsProductUnit = rpUnit rootProduct
                         , prsAllocationPercent = dsPercent <$> activityReferenceShare rootActivity
                         , prsAllocationFormula = dsFormula =<< activityReferenceShare rootActivity
                         , prsMassAllocationPercent = Nothing
@@ -1155,7 +1155,8 @@ convertActivityForAPI db processId activity =
     let allProducts = case processIdToRef db processId of
             Just ref -> getAllProductsForActivity db (prActivity ref)
             Nothing -> []
-        (refProdName, refProdAmount, refProdUnit) = getReferenceProductInfo (dbTechFlows db) (dbUnits db) activity
+        -- A reference whose flow is unknown has no name, and is reported as absent.
+        namedProduct = mfilter (not . T.null . rpName) (referenceProductOf (dbTechFlows db) (dbUnits db) activity)
         linkMap = buildCrossDBLinkMap db processId
      in ActivityForAPI
             { pfaProcessId = processIdToText db processId
@@ -1166,9 +1167,9 @@ convertActivityForAPI db processId activity =
             , pfaClassifications = activityClassification activity
             , pfaLocation = activityLocation activity
             , pfaUnit = activityUnit activity
-            , pfaProductName = if T.null refProdName then Nothing else Just refProdName
-            , pfaProductAmount = if T.null refProdName then Nothing else Just refProdAmount
-            , pfaProductUnit = if T.null refProdName then Nothing else Just refProdUnit
+            , pfaProductName = rpName <$> namedProduct
+            , pfaProductAmount = rpAmount <$> namedProduct
+            , pfaProductUnit = rpUnit <$> namedProduct
             , pfaAllProducts = allProducts
             , pfaExchanges = map (toExchangeWithUnit db linkMap) (exchanges activity)
             , pfaNativeType = activityNativeType activity
@@ -1346,17 +1347,34 @@ getReferenceProductName flows activity = do
     ex <- L.find exchangeIsReference (exchanges activity)
     tfName <$> M.lookup (exchangeFlowId ex) flows
 
--- | Get reference product info (name, amount, unit) from activity exchanges
-getReferenceProductInfo :: TechFlowDB -> UnitDB -> Activity -> (Text, Double, Text)
-getReferenceProductInfo flows units activity =
-    maybe ("", 1.0, "") describe (L.find exchangeIsReference (exchanges activity))
+{- | The product an activity's reference exchange declares: what it makes, how
+much of it the source states, in which unit.
+-}
+data ReferenceProductInfo = ReferenceProductInfo
+    { rpName :: !Text
+    -- ^ Empty when the reference exchange names a flow the tech-flow table does not hold.
+    , rpAmount :: !Double
+    , rpUnit :: !Text
+    }
+
+-- | 'Nothing' when no exchange of the activity is its reference.
+referenceProductOf :: TechFlowDB -> UnitDB -> Activity -> Maybe ReferenceProductInfo
+referenceProductOf flows units activity = describe <$> L.find exchangeIsReference (exchanges activity)
   where
-    describe :: Exchange -> (Text, Double, Text)
+    describe :: Exchange -> ReferenceProductInfo
     describe ex =
-        ( maybe "" tfName (M.lookup (exchangeFlowId ex) flows)
-        , exchangeAmount ex
-        , getUnitNameForExchange units ex
-        )
+        ReferenceProductInfo
+            { rpName = maybe "" tfName (M.lookup (exchangeFlowId ex) flows)
+            , rpAmount = exchangeAmount ex
+            , rpUnit = getUnitNameForExchange units ex
+            }
+
+{- | What a wire record whose product fields are not optional ('ActivitySummary',
+'ConsumerResult') says of an activity with no reference product: an unnamed
+product, one of it, in no unit.
+-}
+summaryProduct :: Maybe ReferenceProductInfo -> ReferenceProductInfo
+summaryProduct = fromMaybe (ReferenceProductInfo "" 1.0 "")
 
 {- | The functional unit a score is reported against: one unit of the
 activity's reference product, named in the unit its matrix column was
@@ -1369,10 +1387,10 @@ as 3.6 mj is still scored per megajoule. Reporting the declared amount here
 described the block, not the number beside it.
 -}
 functionalUnitOf :: TechFlowDB -> UnitDB -> Activity -> Text
-functionalUnitOf flows units activity = "1.00 " <> prodUnit <> " of " <> prodName
+functionalUnitOf flows units activity = "1.00 " <> maybe "" rpUnit refProduct <> " of " <> maybe "" rpName refProduct
   where
-    prodName, prodUnit :: Text
-    (prodName, _, prodUnit) = getReferenceProductInfo flows units activity
+    refProduct :: Maybe ReferenceProductInfo
+    refProduct = referenceProductOf flows units activity
 
 {- | Build an 'ActivitySummary' from a (ProcessId, Activity) pair. Encapsulates
 the reference-product + allocation + native-type projection shared by
@@ -1382,15 +1400,15 @@ cross-DB unit DB build the record by hand.
 -}
 mkActivitySummary :: Database -> ProcessId -> Activity -> ActivitySummary
 mkActivitySummary db processId activity =
-    let (prodName, prodAmount, prodUnit) = getReferenceProductInfo (dbTechFlows db) (dbUnits db) activity
+    let refProduct = summaryProduct (referenceProductOf (dbTechFlows db) (dbUnits db) activity)
         block = sourceBlockOf db processId
      in ActivitySummary
             { prsProcessId = processIdToText db processId
             , prsActivityName = activityName activity
             , prsLocation = activityLocation activity
-            , prsProductName = prodName
-            , prsProductAmount = prodAmount
-            , prsProductUnit = prodUnit
+            , prsProductName = rpName refProduct
+            , prsProductAmount = rpAmount refProduct
+            , prsProductUnit = rpUnit refProduct
             , prsAllocationPercent = dsPercent <$> activityReferenceShare activity
             , prsAllocationFormula = dsFormula =<< activityReferenceShare activity
             , prsMassAllocationPercent = Nothing
@@ -3082,9 +3100,9 @@ getConsumers geographies db dbName processIdText cnf = do
                 (processIdToText db pid)
                 (activityName activity)
                 (activityLocation activity)
-                prodName
-                prodAmount
-                prodUnit
+                (rpName refProduct)
+                (rpAmount refProduct)
+                (rpUnit refProduct)
                 depth
                 (activityClassification activity)
             | (pid, depth) <- M.toAscList allConsumers
@@ -3092,9 +3110,8 @@ getConsumers geographies db dbName processIdText cnf = do
             , let activity = dbActivities db V.! fromIntegral pid
             , locationMatches activity
             , classMatches activity
-            , let (prodName, prodAmount, prodUnit) =
-                    getReferenceProductInfo (dbTechFlows db) (dbUnits db) activity
-            , productMatches prodName
+            , let refProduct = summaryProduct (referenceProductOf (dbTechFlows db) (dbUnits db) activity)
+            , productMatches (rpName refProduct)
             ]
 
         isDesc = afcOrder core == Just "desc"
