@@ -14,7 +14,7 @@ A single score weighing that indicator twice reads 54 per kilogram and 108.
 module FlowContributionSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar')
-import Data.Aeson (Value (..), decodeStrict)
+import Data.Aeson (Object, Value (..), decodeStrict)
 import Data.Aeson.Key (Key)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -156,12 +156,14 @@ runOk handler = do
 restRows :: [FlowContributionEntry] -> [FactorAndContribution]
 restRows entries = [(fcoCfValue e, fcoContribution e) | e <- entries]
 
--- | Call an MCP tool on product D, and read the two numbers of every @top_flows@ row.
-mcpRows :: Text -> [(Key, Value)] -> IO [FactorAndContribution]
-mcpRows tool extraArgs = do
+{- | Call an MCP tool on product D, with the web UI served at the base given,
+and read the payload of its reply.
+-}
+mcpPayload :: Maybe Text -> Text -> [(Key, Value)] -> IO Object
+mcpPayload mBaseUrl tool extraArgs = do
     manager <- loadedManager
     reply <-
-        callTool manager [] Nothing Nothing noRequestId tool $
+        callTool manager [] Nothing mBaseUrl noRequestId tool $
             KM.fromList $
                 [ ("database", String "sample")
                 , ("process_id", String productD)
@@ -169,16 +171,25 @@ mcpRows tool extraArgs = do
                 , ("collection", String collectionName)
                 ]
                     ++ extraArgs
-    maybe (fail ("unexpected " <> T.unpack tool <> " reply: " <> show reply)) pure (topFlows reply)
+    maybe (fail ("unexpected " <> T.unpack tool <> " reply: " <> show reply)) pure (payloadOf reply)
   where
-    topFlows :: Value -> Maybe [FactorAndContribution]
-    topFlows reply = do
+    payloadOf :: Value -> Maybe Object
+    payloadOf reply = do
         Object o <- Just reply
         Object r <- KM.lookup "result" o
         Array content <- KM.lookup "content" r
         Object c <- listToMaybe (toList content)
         String text <- KM.lookup "text" c
-        Object payload <- decodeStrict (encodeUtf8 text)
+        decodeStrict (encodeUtf8 text)
+
+-- | Call an MCP tool on product D, and read the two numbers of every @top_flows@ row.
+mcpRows :: Text -> [(Key, Value)] -> IO [FactorAndContribution]
+mcpRows tool extraArgs = do
+    payload <- mcpPayload Nothing tool extraArgs
+    maybe (fail ("no top_flows in " <> show payload)) pure (topFlows payload)
+  where
+    topFlows :: Object -> Maybe [FactorAndContribution]
+    topFlows payload = do
         Array rows <- KM.lookup "top_flows" payload
         traverse row (toList rows)
     row :: Value -> Maybe FactorAndContribution
@@ -216,3 +227,9 @@ spec = describe "a contributing flow's factor and contribution" $ do
     it "land in their own fields in the MCP get_score_contributing_flows reply" $
         mcpRows "get_score_contributing_flows" [("scoring_set", String "Single"), ("score", String "total")]
             `shouldReturn` expectedInScore
+
+    -- The web UI shows them on a tab of the Impacts page, named in its fragment.
+    it "are linked to the tab of the web UI that shows them" $ do
+        payload <- mcpPayload (Just "http://ui") "get_contributing_flows" []
+        KM.lookup "web_url" payload
+            `shouldBe` Just (String ("http://ui/db/sample/activity/" <> productD <> "/impacts/" <> collectionName <> "#contributing-flows/" <> methodIdText))
