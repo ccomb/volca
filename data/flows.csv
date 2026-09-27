@@ -173,6 +173,7 @@ Actinium,"Actinium, in ground"
 Aldicarb,UC21149
 Aldrin,Aldrosol
 Aluminium,"Aluminium, in ground"
+Aluminium,"Aluminium, resource correction",,,ecoinvent 2 correction of the metal content still written by EcoSpold 1 sources; SimaPro imports it as the metal
 Ametryn,Evik
 Amitraz,Triazid
 Ammonium sulfate,Diammonium sulfate
@@ -287,6 +288,7 @@ Chlorosulfonic acid,"chlorosulphuric acid, chloridosulfonic acid, sulfuric chlor
 Chlorothalonil,tetrachloroisophthalonitrile
 Chlorotoluron,Chlortoluron
 Chromium,"Chromium, in ground"
+Chromium,"Chromium, resource correction",,,ecoinvent 2 correction of the metal content still written by EcoSpold 1 sources; SimaPro imports it as the metal
 Chromium,"Chromium (III)",,016065-83-1,older SimaPro name for trivalent chromium: the amounts EcoSpold 2 records as Chromium III and later exports write Chromium (III); EF 3.1 itself gives chromium of unstated valence the hexavalent factors (report JRC130796 table 6 note c)
 Chrysotile,"Chrysotile, in ground"
 Cinnabar,"Cinnabar, in ground"
@@ -459,6 +461,7 @@ Intensiver Weinbau,"Occupation, permanent crop, non-irrigated, intensive"
 Iprodion,Iprodione
 Iridium,"Iridium, in ground"
 Iron,"Iron, in ground"
+Iron,"Iron, resource correction",,,ecoinvent 2 correction of the metal content still written by EcoSpold 1 sources; SimaPro imports it as the metal
 Iron,"Iron, ion"
 Iron II,"Iron, ion"
 Isobutane,refrigerant R-600a
@@ -475,6 +478,7 @@ Lanox 216,Methomyl
 Lanthanum,"Lanthanum, in ground"
 Laterite,"Laterite, in ground"
 Lead,"Lead, in ground"
+Lead,"Lead, resource correction",,,ecoinvent 2 correction of the metal content still written by EcoSpold 1 sources; SimaPro imports it as the metal
 Lead,"Lead (II)",,014280-50-3,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 "Lead, Pb 3.6E-1%, in mixed ore","Lead, Pb 3.6E-1%, in mixed ore, in ground"
 Lead-210,Lead-210/kg
@@ -635,6 +639,7 @@ Selenium,"Selenium, in ground"
 Shale,"Shale, in ground"
 Silicon,"Silicon, in ground"
 Silver,"Silver, in ground"
+Silver,"Silver, 3.2ppm in sulfide, Ag 1.2ppm, Cu and Te, in crude ore",,,ecoinvent 2 ore name still written by EcoSpold 1 sources; SimaPro imports it as the metal
 Silver,"Silver, ion"
 Silver,"Silver (I)",,014701-21-4,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 "Silver, 0.007% in sulfide, Ag 0.004%, Pb, Zn, Cd, In","Silver, 0.007% in sulfide, Ag 0.004%, Pb, Zn, Cd, In, in ground"
@@ -699,6 +704,7 @@ Vermiculite,"Vermiculite, in ground"
 Ytterbium,"Ytterbium, in ground"
 Yttrium,"Yttrium, in ground"
 Zinc,"Zinc, in ground"
+Zinc,"Zinc, resource correction",,,ecoinvent 2 correction of the metal content still written by EcoSpold 1 sources; SimaPro imports it as the metal
 Zinc,"Zinc, ion"
 Zinc,"Zinc (II)",,023713-49-7,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 "Zinc, Zn 3.1%, in mixed ore","Zinc, Zn 3.1%, in mixed ore, in ground"
@@ -795,6 +801,8 @@ natural gas,"Gas, natural"
 "Transformation, from annual crop, non-irrigated","from arable, non-irrigated"
 "Transformation, from annual crop, non-irrigated, extensive","from arable, non-irrigated, extensive"
 "Transformation, from annual crop, non-irrigated, intensive","from arable, non-irrigated, intensive"
+"Transformation, from annual crop, non-irrigated, diverse-intensive","Transformation, from arable, non-irrigated, diverse-intensive",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
+"Transformation, from annual crop, organic","Transformation, from arable, organic",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
 "Transformation, from arable land, unspecified use",from arable
 "Transformation, from cropland fallow (non-use)","from arable, fallow"
 "Transformation, from dump site",from dump site
@@ -815,6 +823,8 @@ natural gas,"Gas, natural"
 "Transformation, from pasture, man made",from pasture/meadow
 "Transformation, from pasture, man made, extensive","from pasture/meadow, extensive"
 "Transformation, from pasture, man made, intensive","from pasture/meadow, intensive"
+"Transformation, from grassland/pasture/meadow","Transformation, from pasture and meadow",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
+"Transformation, from grassland/pasture/meadow","Transformation, from pasture and meadow, organic",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
 "Transformation, from permanent crop",from permanent crops
 "Transformation, from permanent crop, irrigated","from permanent crops, irrigated"
 "Transformation, from permanent crop, irrigated, intensive","from permanent crops, irrigated, intensive"
@@ -825,6 +835,7 @@ natural gas,"Gas, natural"
 "Transformation, from traffic area, rail/road embankment","from traffic area, rail/road embankment"
 "Transformation, from traffic area, road network","from traffic area, road network"
 "Transformation, from unspecified",from unspecified
+"Transformation, from unspecified","Transformation, from unknown",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
 "Transformation, from unspecified, natural (non-use)","from unspecified, natural"
 "Transformation, from urban, continuously built","from urban, continuously built"
 "Transformation, from urban, green area","from urban, green areas"
@@ -837,6 +848,9 @@ natural gas,"Gas, natural"
 "Transformation, to annual crop, non-irrigated","to arable, non-irrigated"
 "Transformation, to annual crop, non-irrigated, extensive","to arable, non-irrigated, extensive"
 "Transformation, to annual crop, non-irrigated, intensive","to arable, non-irrigated, intensive"
+"Transformation, to annual crop, non-irrigated, diverse-intensive","Transformation, to arable, non-irrigated, diverse-intensive",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
+"Transformation, to annual crop, non-irrigated, fallow","Transformation, to arable, non-irrigated, fallow",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
+"Transformation, to annual crop, organic","Transformation, to arable, organic",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
 "Transformation, to arable land, unspecified use",to arable
 "Transformation, to bare area (non-use)",to bare area
 "Transformation, to cropland fallow (non-use)","to arable, fallow"
@@ -857,6 +871,7 @@ natural gas,"Gas, natural"
 "Transformation, to pasture, man made",to pasture/meadow
 "Transformation, to pasture, man made, extensive","to pasture/meadow, extensive"
 "Transformation, to pasture, man made, intensive","to pasture/meadow, intensive"
+"Transformation, to grassland/pasture/meadow","Transformation, to pasture and meadow, organic",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
 "Transformation, to permanent crop",to permanent crops
 "Transformation, to permanent crop, irrigated","to permanent crops, irrigated"
 "Transformation, to permanent crop, irrigated, intensive","to permanent crops, irrigated, intensive"
@@ -867,6 +882,7 @@ natural gas,"Gas, natural"
 "Transformation, to traffic area, rail/road embankment","to traffic area, rail/road embankment"
 "Transformation, to traffic area, road network","to traffic area, road network"
 "Transformation, to unspecified",to unspecified
+"Transformation, to unspecified","Transformation, to unknown",,,ecoinvent 2 land-use name still written by EcoSpold 1 sources; SimaPro imports it under the first name
 "Transformation, to unspecified, natural (non-use)","to unspecified, natural"
 "Transformation, to urban, continuously built","to urban, continuously built"
 "Transformation, to urban, discontinuously built","to urban, discontinuously built"
@@ -941,6 +957,7 @@ ground water,"Water, well",input
 Water to turbine,"Water, turbine use, unspecified natural origin",input
 Water to Cooling,"Water, cooling, unspecified natural origin",input
 freshwater,"Water, unspecified natural origin",input
+"Water, unspecified natural origin, RER","Water, unspecified, Europe",,,ecoinvent 2 regional water name still written by EcoSpold 1 sources; SimaPro imports it under the first name
 CFC-10,"Methane, tetrachloro-, CFC-10",,56-23-5
 CFC-11,"Methane, trichlorofluoro-, CFC-11",,75-69-4
 CFC-12,"Methane, dichlorodifluoro-, CFC-12",,75-71-8
