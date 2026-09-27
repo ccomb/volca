@@ -158,13 +158,10 @@ runRepl mgr rc globalOpts cfgFile = do
         case OA.execParserPure OA.defaultPrefs (OA.info (commandParser OA.<**> OA.helper) mempty) tokens of
             OA.Success cmd -> keepSession (executeRemoteCommand mgr rc opts cmd)
             OA.CompletionInvoked _ -> putStrLn unknownCommand
-            -- A parser answers --help by failing with the help text and an
-            -- exit code of zero. Reading only the success case, as
-            -- getParseResult does, made every --help here read as a command
-            -- nobody knows - in the one place a user types it by reflex.
-            OA.Failure failure -> case OA.renderFailure failure "volca" of
-                (helpText, ExitSuccess) -> putStrLn helpText
-                (_, ExitFailure _) -> putStrLn unknownCommand
+            -- A parser answers --help and a mistyped line alike by failing
+            -- with the text to show: the help itself, or what was wrong and
+            -- the usage of the command. Both are what the user needs to read.
+            OA.Failure failure -> putStrLn (fst (OA.renderFailure failure "volca"))
         return True
 
     unknownCommand = "Unknown command. Type :help for usage."
