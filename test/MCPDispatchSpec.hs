@@ -20,7 +20,7 @@ import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import Test.Hspec
 
-import API.MCP (RpcRequest (..), callTool, handleInitialize, mcpCountsAsActivity, toolDefinitions, webUrlBase)
+import API.MCP (RequestId (..), RpcRequest (..), callTool, handleInitialize, mcpCountsAsActivity, noRequestId, toolDefinitions, webUrlBase)
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), ReadOnly (..), ServerName (..), defaultConfig)
 import Database.Manager (CachePolicy (..), addDatabase, initDatabaseManager, loadDatabase)
 import Types (AllocationKey (..), GeographyPolicy (..))
@@ -81,7 +81,7 @@ isError _ = False
 call :: Text -> IO Value
 call name = do
     manager <- initDatabaseManager defaultConfig NoCache
-    callTool manager [] Nothing Nothing Null name (KM.singleton "database" (String "no-such-db"))
+    callTool manager [] Nothing Nothing noRequestId name (KM.singleton "database" (String "no-such-db"))
 
 {- | Call the edit tool with one line named. An edit that names nothing is
 refused before the database is even looked up, which would mask the refusal a
@@ -90,7 +90,7 @@ test is actually about.
 callEdit :: IO Value
 callEdit = do
     manager <- initDatabaseManager defaultConfig NoCache
-    callTool manager [] Nothing Nothing Null "edit_exchanges" $
+    callTool manager [] Nothing Nothing noRequestId "edit_exchanges" $
         KM.fromList
             [ ("database", String "no-such-db")
             , ("process_id", String "a_b")
@@ -128,7 +128,7 @@ callOnSampleWith name extraArgs = do
     manager <- initDatabaseManager defaultConfig NoCache
     addDatabase manager sampleConfig
     loadDatabase manager "sample" >>= either (expectationFailure . T.unpack) (const (pure ()))
-    callTool manager [] Nothing Nothing Null name $
+    callTool manager [] Nothing Nothing noRequestId name $
         KM.fromList (("database", String "sample") : extraArgs)
 
 -- | The flow names of the exchanges a get_activity reply carries.
@@ -250,7 +250,7 @@ spec = describe "MCP database load/unload tools" $ do
                     }
             callWithPreset name = do
                 manager <- initDatabaseManager defaultConfig NoCache
-                callTool manager [configured] Nothing Nothing Null name $
+                callTool manager [configured] Nothing Nothing noRequestId name $
                     KM.fromList
                         [ ("database", String "no-such-db")
                         , ("process_id", String "no-such-pid")
@@ -277,7 +277,7 @@ spec = describe "MCP database load/unload tools" $ do
                     manager <- initDatabaseManager defaultConfig NoCache
                     addDatabase manager sampleConfig
                     loadDatabase manager "sample" >>= either (expectationFailure . T.unpack) (const (pure ()))
-                    callTool manager [configured] Nothing Nothing Null name $
+                    callTool manager [configured] Nothing Nothing noRequestId name $
                         KM.fromList $
                             [ ("database", String "sample")
                             , ("process_id", String "aa000001-0000-0000-0000-000000000000")
@@ -427,7 +427,7 @@ spec = describe "MCP database load/unload tools" $ do
             fmap (T.isInfixOf "instance named") (instructionsOf resp) `shouldBe` Just False
 
 initRequest :: RpcRequest
-initRequest = RpcRequest{rpcId = Just (Number 1), rpcMethod = "initialize", rpcParams = Nothing}
+initRequest = RpcRequest{rpcId = RequestId (Number 1), rpcMethod = "initialize", rpcParams = Nothing}
 
 -- | Dig @result.serverInfo.name@ out of a JSON-RPC reply.
 serverInfoName :: Value -> Maybe Value
