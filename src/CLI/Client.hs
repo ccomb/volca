@@ -241,9 +241,7 @@ executeRemoteCommand mgr rc globalOpts cmd = do
         -- and carrying on, rather than ending the session over it.
         Dump _ -> reportError "A dump command writes to stdout; run it outside the REPL."
 
-{- | Look up the collection name for a given method UUID via /api/v1/methods
-| One loaded method, as the method list names it.
--}
+-- | One loaded method, as the method list names it.
 data MethodRow = MethodRow
     { mrId :: Text
     , mrName :: Text
@@ -267,6 +265,7 @@ refused and listed, so that a method named like its collection, or one name
 carried by two collections, is never settled by list order.
 -}
 resolveImpactTarget :: Text -> [MethodRow] -> Either Text ImpactTarget
+resolveImpactTarget _ [] = Left "No method collection is loaded."
 resolveImpactTarget wanted rows = case candidates of
     [target] -> Right target
     [] ->

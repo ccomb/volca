@@ -600,8 +600,8 @@ volca method delete ef-31                        # delete
 | Path to target | `GET /db/{db}/activity/{id}/path-to?target=` | – |
 | Aggregate | `GET /db/{db}/activity/{id}/aggregate` | – |
 | Life cycle inventory | `GET\|POST /db/{db}/activity/{id}/inventory` | `inventory ID` |
-| LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | – |
-| LCIA single method | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}/{methodId}` | `impacts ID --method METHOD_UUID` |
+| LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | `impacts ID --method COLLECTION` |
+| LCIA single method | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}/{methodId}` | `impacts ID --method METHOD` |
 | LCIA batch over many activities | `POST /db/{db}/impacts/{collection}` | – |
 | Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | – |
 | Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | – |

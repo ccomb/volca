@@ -296,3 +296,6 @@ spec = do
 
         it "lists the collections when nothing matches" $
             resolveImpactTarget "nope" rows `shouldBe` Left "No loaded method or collection is called \"nope\". Collections: plain-indicators, EF-3.1"
+
+        it "says no collection is loaded rather than listing none" $
+            resolveImpactTarget "Climate change" [] `shouldBe` Left "No method collection is loaded."
