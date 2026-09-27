@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 
 module API.Routes where
@@ -2075,19 +2074,25 @@ activitiesResult dbManager dbName heading lim contributions = do
     top :: [((Text, ProcessId), Double)]
     top = take lim (sortOn (\(_, c) -> negate (abs c)) (M.toList contributions))
 
+-- | What a single-score route is asked, as its path and query name it.
+data ScoreQuery = ScoreQuery
+    { sqDbName :: Text
+    , sqCollection :: DM.CollectionName
+    , sqProcessId :: Text
+    , sqRef :: ScoreRef
+    , sqExcludeLongTerm :: Maybe Bool
+    }
+
 {- | Resolve the activity and the score, solve, then dispatch. A name that
 matches nothing is a 404; a score that names something but does not split into
-its indicators' parts is a 422.
+its indicators' parts is a 422. The score comes back with the answer, for the
+heading it is published under.
 -}
 withActivityAndScore ::
-    Text ->
-    DM.CollectionName ->
-    Text ->
-    ScoreRef ->
-    Maybe Bool ->
+    ScoreQuery ->
     (Score.Source -> Score.ResolvedScore -> SharedSolver.CrossDBSolution -> IO (Either Score.ScoreRefusal a)) ->
-    AppM a
-withActivityAndScore dbName collectionName processIdText ref mExcludeLT k = do
+    AppM (Score.ResolvedScore, a)
+withActivityAndScore ScoreQuery{sqDbName = dbName, sqCollection = collectionName, sqProcessId = processIdText, sqRef = ref, sqExcludeLongTerm = mExcludeLT} k = do
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     (methods, _, _, scoringSets) <- loadCollection collectionName
@@ -2097,7 +2102,7 @@ withActivityAndScore dbName collectionName processIdText ref mExcludeLT k = do
         solutionWithDeps dbName db sharedSolver pid
             >>= liftIO . Impact.withLongTermPolicy dbManager (longTermModeFromExclude (fromMaybe False mExcludeLT))
     liftIO (k Score.Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = db, srcCollection = collectionName} rs sol)
-        >>= either refused pure
+        >>= either refused (pure . (,) rs)
   where
     refused :: Score.ScoreRefusal -> AppM b
     refused = \case
@@ -2115,15 +2120,29 @@ getScoreContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> T
 getScoreContributingActivities dbName processIdText collectionName setName scoreName limitParam mExcludeLT = do
     dbManager <- asks aeDbManager
     (rs, parts) <-
-        withActivityAndScore dbName collectionName processIdText ScoreRef{srSet = setName, srScore = scoreName} mExcludeLT $ \src rs sol ->
-            fmap (rs,) <$> Score.activityParts src rs sol
+        withActivityAndScore
+            ScoreQuery
+                { sqDbName = dbName
+                , sqCollection = collectionName
+                , sqProcessId = processIdText
+                , sqRef = ScoreRef{srSet = setName, srScore = scoreName}
+                , sqExcludeLongTerm = mExcludeLT
+                }
+            Score.activityParts
     liftIO $ activitiesResult dbManager dbName (scoreHeading rs) (fromMaybe 10 limitParam) parts
 
 getScoreContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
 getScoreContributingFlows dbName processIdText collectionName setName scoreName limitParam mExcludeLT = do
     (rs, (total, rows)) <-
-        withActivityAndScore dbName collectionName processIdText ScoreRef{srSet = setName, srScore = scoreName} mExcludeLT $ \src rs sol ->
-            fmap (rs,) <$> Score.flowParts src rs sol
+        withActivityAndScore
+            ScoreQuery
+                { sqDbName = dbName
+                , sqCollection = collectionName
+                , sqProcessId = processIdText
+                , sqRef = ScoreRef{srSet = setName, srScore = scoreName}
+                , sqExcludeLongTerm = mExcludeLT
+                }
+            (Score.flowParts "contributing-flows")
     let heading = scoreHeading rs
     pure
         ContributingFlowsResult

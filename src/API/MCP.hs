@@ -2212,7 +2212,7 @@ callGetScoreContributingFlows :: DatabaseManager -> Maybe Text -> RequestId -> K
 callGetScoreContributingFlows dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadScoreRequest dbManager args
-        (score, contribs) <- ExceptT (first Score.refusalMessage <$> Score.flowParts (scrSource req) (scrScore req) (scrSolution req))
+        (score, contribs) <- ExceptT (first Score.refusalMessage <$> Score.flowParts "MCP get_score_contributing_flows" (scrSource req) (scrScore req) (scrSolution req))
         let top = take (fromMaybe 20 (intArg "limit" args)) (L.sortOn (negate . abs . fcContribution) contribs)
         pure $
             toolSuccessJson rid $

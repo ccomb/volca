@@ -139,13 +139,19 @@ its part over its quantity: each indicator may apply its own factor to the flow
 in a unit of its own (per MJ where the flow is in kg), so the factors
 themselves do not add up.
 -}
-flowParts :: Source -> ResolvedScore -> SharedSolver.CrossDBSolution -> IO (Either ScoreRefusal (Double, [FlowContribution]))
-flowParts src rs sol = runExceptT $ do
+flowParts ::
+    -- | the surface that asks, named in the log line about unknown flows
+    Text ->
+    Source ->
+    ResolvedScore ->
+    SharedSolver.CrossDBSolution ->
+    IO (Either ScoreRefusal (Double, [FlowContribution]))
+flowParts surface src rs sol = runExceptT $ do
     perIndicator <- forM (rsIndicators rs) $ \method -> do
         tables <- liftIO $ tablesOf src method
         score <- withExceptT ScoringFailed (ExceptT (Impact.scoreSolution (srcManager src) (srcCollection src) method tables sol))
         (parts, unknown) <- withExceptT ScoringFailed (ExceptT (Impact.contributionsOf (srcManager src) (srcCollection src) method tables sol))
-        liftIO $ Impact.warnUnknownFlowIds ("single score " <> methodName method) unknown
+        liftIO $ Impact.warnUnknownFlowIds (surface <> " " <> methodName method) unknown
         pure (methodName method, score, parts)
     let scores = M.fromList [(name, score) | (name, score, _) <- perIndicator]
     weights <- except (weightsOf rs scores)
