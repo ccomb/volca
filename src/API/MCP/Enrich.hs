@@ -16,6 +16,7 @@ Callers stay free of wildcard patterns on the sum.
 module API.MCP.Enrich (
     -- * URL helpers
     encodeSegment,
+    impactsPath,
     scoreActivityWebUrl,
 
     -- * web_url enrichment
@@ -85,10 +86,14 @@ overArray f = \case
 encodeSegment :: Text -> Text
 encodeSegment = T.pack . escapeURIString isUnreserved . T.unpack
 
+{- | The web UI's Impacts page of an activity, on a collection; a fragment
+appended to it names the tab and the indicator. Every segment is
+percent-encoded, so a name holding @/@ or @?@ does not fracture the path.
+-}
+impactsPath :: Text -> Text -> Text -> Text
+impactsPath dbName pidText coll = "/db/" <> encodeSegment dbName <> "/activity/" <> encodeSegment pidText <> "/impacts/" <> encodeSegment coll
+
 {- | Activity-level impacts page URL (the LCIA batch view in the web UI).
-Every dynamic segment is percent-encoded so a 'dbName' \/ 'processId' \/
-'collection' that contains @/@ or @?@ does not silently fracture the
-URL.
 
 The 'Maybe' on 'baseUrl' threads frontend availability through callers:
 'Nothing' means the SPA is not bundled (backend-only image), and the
@@ -96,16 +101,7 @@ URL would point at a 404. We propagate the absence rather than emit a
 dead link.
 -}
 scoreActivityWebUrl :: Maybe Text -> Text -> Text -> Text -> Maybe Text
-scoreActivityWebUrl mBaseUrl dbName pidText coll = do
-    base <- mBaseUrl
-    pure $
-        base
-            <> "/db/"
-            <> encodeSegment dbName
-            <> "/activity/"
-            <> encodeSegment pidText
-            <> "/impacts/"
-            <> encodeSegment coll
+scoreActivityWebUrl mBaseUrl dbName pidText coll = (<> impactsPath dbName pidText coll) <$> mBaseUrl
 
 -- ---------------------------------------------------------------------------
 -- web_url enrichment

@@ -483,7 +483,7 @@ description r = case r of
         \base unit), 'energy_content' (carried across dimensions by the flow's \
         \energy density). 'match.refusal' names why no bridge could: \
         \'different_dimensions', 'no_base_unit', 'energy_bridge_failed'."
-            <> webUrlTip "explain-cf"
+            <> webUrlTip "characterization"
     GetContributingFlows ->
         "LCA / ACV: identify which elementary flows (emissions/resources) \
         \contribute most to a specific impact category. Answers 'which emissions \

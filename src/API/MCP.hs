@@ -45,7 +45,7 @@ import qualified Impact.Score as Score
 import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
-import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, scoreActivityWebUrl, slimLCIAPanel, webUrlField)
+import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, slimLCIAPanel, webUrlField)
 import API.Routes (collectionNotLoadedMessage)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits)
 import Control.Monad (mfilter)
@@ -1340,7 +1340,7 @@ callGetImpacts dbManager mBaseUrl rid args =
             functionalUnit = irFunctionalUnit ir
             contribs = irContribs ir
             topFlows = take topN contribs
-            webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/impacts/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
+            webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
             hasNeg = any ((< 0) . fcContribution) contribs
             unknownUuids = irUnknownUuids ir
         liftIO $ Impact.warnUnknownFlowIds ("MCP get_impacts " <> methodName method) unknownUuids
@@ -1423,7 +1423,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
         baselineScore <- case scoreOf baselineX of
             Right s -> pure s
             Left e -> throwE ("baseline scoring failed: " <> e)
-        let webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/sensitivity/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
+        let webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/sensitivity")
             pertEntry (p, eitherX) =
                 let base =
                         [ "perturbation"
@@ -1836,7 +1836,16 @@ callExplainCF dbManager mBaseUrl rid args = runTool rid $ do
     fid <- except $ maybe (Left ("Malformed flow id: " <> flowIdText)) Right (UUID.fromText (T.strip flowIdText))
     let db = ldDatabase ld
     (flow, explanation) <- ExceptT (DM.explainFlowFactor dbManager dbName collection db method fid)
-    let deepLink = (<> "/db/" <> dbName <> "/method/" <> methodIdText <> "/flow-mapping") <$> mBaseUrl
+    let deepLink = (<> characterizationPath) <$> mBaseUrl
+        characterizationPath =
+            "/methods/"
+                <> encodeSegment (DM.unCollectionName collection)
+                <> "/method/"
+                <> methodIdText
+                <> "/characterization/"
+                <> dbName
+                <> "?flow="
+                <> encodeSegment (bfName flow)
     pure $ toolSuccessJson rid (addWebUrlMaybe deepLink (toJSON (explainCFToAPI db method flow explanation)))
 
 callGetCharacterization :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
@@ -2058,7 +2067,7 @@ callGetContributingFlows dbManager mBaseUrl rid args =
             hasNeg = any ((< 0) . fcContribution) contribs
             tables = irTables ir
             outcome = irOutcome ir
-            webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/contributing-flows/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
+            webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (DM.unCollectionName (lrCollection req)) <> "#contributing-flows/" <> lrMethodIdText req)
             diagnosticsFields
                 | fromMaybe False (boolArg "include_diagnostics" args) =
                     [ "uncharacterized_flows" .= map encodeUncharacterized (loUncharacterized outcome)
@@ -2126,7 +2135,7 @@ callGetContributingActivities dbManager mBaseUrl rid args =
             sorted = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
             top = take lim sorted
             hasNeg = any (\(_, c) -> c < 0) top
-            viewPath pidText = "/db/" <> dbName <> "/activity/" <> pidText <> "/contributing-activities/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req
+            viewPath pidText = impactsPath dbName pidText (DM.unCollectionName (lrCollection req)) <> "#contributing-activities/" <> lrMethodIdText req
         rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl viewPath mUnits score) top
         pure $
             toolSuccessJson rid $
@@ -2190,12 +2199,7 @@ process id: the Impacts page, on the tab and the score its fragment names.
 -}
 scoreViewPath :: ScoreRequest -> ContributionTab -> Text -> Text
 scoreViewPath req tab pidText =
-    "/db/"
-        <> srcDbName (scrSource req)
-        <> "/activity/"
-        <> pidText
-        <> "/impacts/"
-        <> encodeSegment (DM.unCollectionName (srcCollection (scrSource req)))
+    impactsPath (srcDbName (scrSource req)) pidText (DM.unCollectionName (srcCollection (scrSource req)))
         <> "#"
         <> tabSegment
         <> "/score/"
