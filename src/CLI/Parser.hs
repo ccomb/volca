@@ -99,7 +99,7 @@ commandParser =
             <> cmd "tree" (Tree <$> processIdArg) "Show the supply chain upstream of a process as a tree"
             <> cmd "supply-chain" (SupplyChain <$> processIdArg <*> supplyChainOptionsParser) "List the processes upstream of a process"
             <> cmd "consumers" (Consumers <$> processIdArg <*> reachOptionsParser) "List the processes downstream of a process, that consume what it makes"
-            <> cmd "path-to" (PathTo <$> processIdArg <*> textArg "NAME" "Part of the name of the upstream process to reach, case-blind") "Show the shortest upstream path from a process to one whose name matches"
+            <> cmd "path-to" (PathTo <$> processIdArg <*> fmap NamePart (textArg "NAME" "Part of the name of the upstream process to reach, case-blind")) "Show the shortest upstream path from a process to one whose name matches"
             <> cmd "flow" flowParser "Query flow information"
             <> cmd "activities" searchActivitiesParser "Search activities"
             <> cmd "flows" searchFlowsParser "Search flows"
@@ -328,7 +328,7 @@ reachOptionsParser = do
 supplyChainOptionsParser :: Parser SupplyChainOptions
 supplyChainOptionsParser = do
     scReach <- reachOptionsParser
-    scMinQuantity <- optional (option auto (long "min-quantity" <> metavar "QTY" <> help "Keep processes whose scaled quantity is at least QTY"))
+    scMinQuantity <- optional (option auto (long "min-quantity" <> metavar "QTY" <> help "Keep processes whose scaling factor, per unit of the reference product, is above QTY"))
     pure SupplyChainOptions{..}
 
 -- | Search flows parser (now top-level)

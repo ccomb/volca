@@ -190,7 +190,7 @@ executeRemoteCommand mgr rc globalOpts cmd = do
         Consumers uuid opts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/consumers" ++ buildQuery (reachQuery opts)) >>= output fmt jp
-        PathTo uuid target -> do
+        PathTo uuid (NamePart target) -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/path-to" ++ buildQuery [("target", Just (T.unpack target))]) >>= output fmt jp
         SearchActivities opts -> do

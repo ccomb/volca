@@ -517,7 +517,7 @@ volca export-matrices ./output_dir
 ```bash
 # Upstream, as a tree or as a flat list
 volca tree "12345678-..."
-volca supply-chain "12345678-..." --max-depth 2 --geo FR --min-quantity 0.01
+volca supply-chain "12345678-..." --max-depth 2 --geo FR --min-quantity 0.01   # scaling factor above 0.01
 
 # Downstream: the processes that consume what this one makes
 volca consumers "12345678-..." --max-depth 1

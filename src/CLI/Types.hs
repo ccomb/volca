@@ -39,7 +39,7 @@ data Command
     | Tree Text -- Upstream tree, as the server cuts it
     | SupplyChain Text SupplyChainOptions -- Upstream processes, flat
     | Consumers Text ReachOptions -- Downstream processes, flat
-    | PathTo Text Text -- Shortest upstream path to the first process whose name matches
+    | PathTo Text NamePart -- Shortest upstream path to the first process whose name matches
     -- Search commands promoted to top-level
     | SearchActivities SearchActivitiesOptions -- Search activities
     | SearchFlows SearchFlowsOptions -- Search flows
@@ -239,6 +239,10 @@ data ReachOptions = ReachOptions
     , reachLimit :: Maybe Int -- --limit
     , reachOffset :: Maybe Int -- --offset
     }
+    deriving (Eq, Show, Generic)
+
+-- | Part of a process name, matched case-blind; kept apart from the process id it sits beside.
+newtype NamePart = NamePart Text
     deriving (Eq, Show, Generic)
 
 -- | @supply-chain@ reads a quantity threshold that @consumers@ has no use for.

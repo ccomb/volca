@@ -268,7 +268,7 @@ spec = do
             runParse ["consumers", "p", "--min-quantity", "1"] `shouldSatisfy` isLeft
 
         it "parses `path-to PROCESS_ID NAME`" $
-            parseCmd ["path-to", "p", "electricity"] `shouldReturn` PathTo "p" "electricity"
+            parseCmd ["path-to", "p", "electricity"] `shouldReturn` PathTo "p" (NamePart "electricity")
 
         it "reads what `flow-mapping` lists" $ do
             let parsed argv = parseCmd ("flow-mapping" : "m" : argv)
