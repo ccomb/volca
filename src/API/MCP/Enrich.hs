@@ -51,6 +51,8 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.URI (escapeURIString, isUnreserved)
 
+import Database.Manager (CollectionName (..))
+
 -- ---------------------------------------------------------------------------
 -- Value combinators -- single point of exhaustive Aeson pattern matching
 -- ---------------------------------------------------------------------------
@@ -90,8 +92,8 @@ encodeSegment = T.pack . escapeURIString isUnreserved . T.unpack
 appended to it names the tab and the indicator. Every segment is
 percent-encoded, so a name holding @/@ or @?@ does not fracture the path.
 -}
-impactsPath :: Text -> Text -> Text -> Text
-impactsPath dbName pidText coll = "/db/" <> encodeSegment dbName <> "/activity/" <> encodeSegment pidText <> "/impacts/" <> encodeSegment coll
+impactsPath :: Text -> Text -> CollectionName -> Text
+impactsPath dbName pidText coll = "/db/" <> encodeSegment dbName <> "/activity/" <> encodeSegment pidText <> "/impacts/" <> encodeSegment (unCollectionName coll)
 
 {- | Activity-level impacts page URL (the LCIA batch view in the web UI).
 
@@ -101,7 +103,7 @@ URL would point at a 404. We propagate the absence rather than emit a
 dead link.
 -}
 scoreActivityWebUrl :: Maybe Text -> Text -> Text -> Text -> Maybe Text
-scoreActivityWebUrl mBaseUrl dbName pidText coll = (<> impactsPath dbName pidText coll) <$> mBaseUrl
+scoreActivityWebUrl mBaseUrl dbName pidText coll = (<> impactsPath dbName pidText (CollectionName coll)) <$> mBaseUrl
 
 -- ---------------------------------------------------------------------------
 -- web_url enrichment

@@ -1340,7 +1340,7 @@ callGetImpacts dbManager mBaseUrl rid args =
             functionalUnit = irFunctionalUnit ir
             contribs = irContribs ir
             topFlows = take topN contribs
-            webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
+            webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (lrCollection req) <> "/" <> lrMethodIdText req)
             hasNeg = any ((< 0) . fcContribution) contribs
             unknownUuids = irUnknownUuids ir
         liftIO $ Impact.warnUnknownFlowIds ("MCP get_impacts " <> methodName method) unknownUuids
@@ -1891,9 +1891,23 @@ callGetCharacterization dbManager rid args = runTool rid $ do
     matchQuery Nothing _ _ = True
     matchQuery (Just q) cfName dbFlowName = T.isInfixOf q (T.toLower cfName) || T.isInfixOf q (T.toLower dbFlowName)
 
+{- | Where the web UI shows a breakdown: a collection of the Impacts page, and
+the fragment naming its tab and indicator.
+-}
+data ImpactsView = ImpactsView
+    { ivCollection :: DM.CollectionName
+    , ivFragment :: Text
+    }
+
+-- | The page of a view for one activity, named by its database and process id.
+impactsViewPath :: Text -> Text -> ImpactsView -> Text
+impactsViewPath dbName pidText view = impactsPath dbName pidText (ivCollection view) <> "#" <> ivFragment view
+
 {- | Build the MCP JSON object for a cross-DB activity contribution. Dep-DB
-process IDs are qualified as @"dbName::actUUID_prodUUID"@ -- same convention
-as the activity-detail endpoint, so the @web_url@ round-trips.
+process IDs are qualified as @"dbName::actUUID_prodUUID"@, the convention
+of the activity-detail endpoint. The @web_url@ instead opens the activity in
+its own database, the only address the web UI's pages read; a row whose
+database is not loaded has no page, so no link.
 -}
 mkMcpCrossDBEntry ::
     DatabaseManager ->
@@ -1901,14 +1915,14 @@ mkMcpCrossDBEntry ::
     Text ->
     -- | base URL (Nothing when no frontend is bundled)
     Maybe Text ->
-    -- | the page of this view for a row, from the row's process id
-    (Text -> Text) ->
+    -- | where the web UI shows this breakdown for each row's activity
+    ImpactsView ->
     UnitDB ->
     -- | total score (for share %)
     Double ->
     ((Text, ProcessId), Double) ->
     IO Value
-mkMcpCrossDBEntry dbManager rootDbName mBaseUrl viewPath unitDB score ((depDbName, pid), c) = do
+mkMcpCrossDBEntry dbManager rootDbName mBaseUrl view unitDB score ((depDbName, pid), c) = do
     mLd <- getDatabase dbManager depDbName
     let (actName, actLoc, prodName, pidText) = case mLd of
             Just ld ->
@@ -1923,7 +1937,8 @@ mkMcpCrossDBEntry dbManager rootDbName mBaseUrl viewPath unitDB score ((depDbNam
                  in (maybe "" activityName mAct, maybe "" activityLocation mAct, pn, txt)
             Nothing ->
                 ("", "", "", depDbName <> "::<unloaded>")
-        webUrlPair = webUrlField mBaseUrl (viewPath pidText)
+        webUrlPair = maybe [] (webUrlField mBaseUrl . activityPage . ldDatabase) mLd
+        activityPage d = impactsViewPath depDbName (processIdToText d pid) view
     pure $
         object $
             [ "process_id" .= pidText
@@ -2067,7 +2082,7 @@ callGetContributingFlows dbManager mBaseUrl rid args =
             hasNeg = any ((< 0) . fcContribution) contribs
             tables = irTables ir
             outcome = irOutcome ir
-            webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (DM.unCollectionName (lrCollection req)) <> "#contributing-flows/" <> lrMethodIdText req)
+            webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (lrCollection req) <> "#contributing-flows/" <> lrMethodIdText req)
             diagnosticsFields
                 | fromMaybe False (boolArg "include_diagnostics" args) =
                     [ "uncharacterized_flows" .= map encodeUncharacterized (loUncharacterized outcome)
@@ -2135,8 +2150,8 @@ callGetContributingActivities dbManager mBaseUrl rid args =
             sorted = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
             top = take lim sorted
             hasNeg = any (\(_, c) -> c < 0) top
-            viewPath pidText = impactsPath dbName pidText (DM.unCollectionName (lrCollection req)) <> "#contributing-activities/" <> lrMethodIdText req
-        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl viewPath mUnits score) top
+            view = ImpactsView{ivCollection = lrCollection req, ivFragment = "contributing-activities/" <> lrMethodIdText req}
+        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl view mUnits score) top
         pure $
             toolSuccessJson rid $
                 object
@@ -2194,18 +2209,13 @@ loadScoreRequest dbManager args = do
             , scrSolution = sol
             }
 
-{- | The web UI page that shows this breakdown for an activity, named by its
-process id: the Impacts page, on the tab and the score its fragment names.
--}
-scoreViewPath :: ScoreRequest -> ContributionTab -> Text -> Text
-scoreViewPath req tab pidText =
-    impactsPath (srcDbName (scrSource req)) pidText (DM.unCollectionName (srcCollection (scrSource req)))
-        <> "#"
-        <> tabSegment
-        <> "/score/"
-        <> encodeSegment (srSet (scrRef req))
-        <> "/"
-        <> encodeSegment (srScore (scrRef req))
+-- | Where the web UI shows this breakdown: the tab and the score its fragment names.
+scoreView :: ScoreRequest -> ContributionTab -> ImpactsView
+scoreView req tab =
+    ImpactsView
+        { ivCollection = srcCollection (scrSource req)
+        , ivFragment = tabSegment <> "/score/" <> encodeSegment (srSet (scrRef req)) <> "/" <> encodeSegment (srScore (scrRef req))
+        }
   where
     tabSegment :: Text
     tabSegment = case tab of
@@ -2238,7 +2248,7 @@ callGetScoreContributingFlows dbManager mBaseUrl rid args =
                            | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- top
                            ]
                     ]
-                        ++ webUrlField mBaseUrl (scoreViewPath req ByFlow (raText (scrActivity req)))
+                        ++ webUrlField mBaseUrl (impactsViewPath (srcDbName (scrSource req)) (raText (scrActivity req)) (scoreView req ByFlow))
 
 callGetScoreContributingActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetScoreContributingActivities dbManager mBaseUrl rid args =
@@ -2250,7 +2260,7 @@ callGetScoreContributingActivities dbManager mBaseUrl rid args =
         let score = sum (M.elems contributions)
             top = take (fromMaybe 10 (intArg "limit" args)) (L.sortOn (negate . abs . snd) (M.toList contributions))
             dbName = srcDbName (scrSource req)
-        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl (scoreViewPath req ByActivity) mUnits score) top
+        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl (scoreView req ByActivity) mUnits score) top
         pure $
             toolSuccessJson rid $
                 object
