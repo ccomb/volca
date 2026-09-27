@@ -45,6 +45,8 @@ data Command
     | SearchFlows SearchFlowsOptions -- Search flows
     -- No separate synonyms command - synonyms are included in flow responses
     | Impacts Text LCIAOptions -- LCIA (impact assessment) computation
+    | Contributing Contributor Text ContributionOptions -- What one method's score is made of
+    | ExplainCF Text LCIAOptions -- How a database flow met, or missed, a method's factor
     | DebugMatrices Text DebugMatricesOptions -- Matrix debugging for activity
     | ExportMatrices FilePath -- Export matrices in universal format
     -- Resource management (symmetric subcommands)
@@ -270,6 +272,21 @@ data LCIAOptions = LCIAOptions
     }
     deriving (Eq, Show, Generic)
 
+-- | What a contribution breakdown lists: the inventory flows, or the processes upstream.
+data Contributor = ContributingFlows | ContributingActivities
+    deriving (Eq, Show, Generic)
+
+-- | Whether long-term emissions count toward a score (@--exclude-long-term@ leaves them out).
+data LongTermEmissions = IncludeLongTerm | ExcludeLongTerm
+    deriving (Eq, Show, Generic)
+
+data ContributionOptions = ContributionOptions
+    { contribMethod :: LCIAOptions
+    , contribLimit :: Maybe Int -- --limit
+    , contribLongTerm :: LongTermEmissions
+    }
+    deriving (Eq, Show, Generic)
+
 {- | Options of the computed quality report. The collection may be left out
 when exactly one is loaded - the server picks it, and says so when it can't.
 -}
@@ -335,6 +352,8 @@ rendersOwnCsv cmd = case cmd of
     SearchActivities _ -> False
     SearchFlows _ -> False
     Impacts _ _ -> False
+    Contributing{} -> False
+    ExplainCF _ _ -> False
     DebugMatrices _ _ -> False
     ExportMatrices _ -> False
     Database _ -> False

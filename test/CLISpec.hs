@@ -11,7 +11,7 @@ import Options.Applicative (
 import System.Exit (ExitCode (..))
 import Test.Hspec
 
-import CLI.Client (ImpactTarget (..), MethodRow (..), resolveImpactTarget)
+import CLI.Client (ImpactTarget (..), MethodRow (..), contributionPath, resolveImpactTarget)
 import CLI.Parser (cliParserInfo)
 import CLI.Types
 import Data.Either (isLeft)
@@ -53,6 +53,9 @@ spec = do
                 , ["supply-chain", "x"]
                 , ["consumers", "x"]
                 , ["path-to", "x", "y"]
+                , ["contributing-flows", "x"]
+                , ["contributing-activities", "x"]
+                , ["explain-cf", "x"]
                 , ["flow", "x"]
                 , ["flow", "x", "activities"]
                 , ["activities"]
@@ -266,6 +269,16 @@ spec = do
             cmd <- parseCmd ["consumers", "p", "--name", "tomato"]
             cmd `shouldBe` Consumers "p" (ReachOptions (Just "tomato") Nothing Nothing Nothing Nothing Nothing)
             runParse ["consumers", "p", "--min-quantity", "1"] `shouldSatisfy` isLeft
+
+        it "parses `contributing-flows` and asks for the method's breakdown" $ do
+            cmd <- parseCmd ["contributing-flows", "p", "--method", "Climate change", "--limit", "3", "--exclude-long-term"]
+            let opts = ContributionOptions (LCIAOptions "Climate change" Nothing) (Just 3) ExcludeLongTerm
+            cmd `shouldBe` Contributing ContributingFlows "p" opts
+            contributionPath "db" "p" ContributingFlows opts (MethodRow "m1" "Climate change" "EF 3.1")
+                `shouldBe` "/api/v1/db/db/activity/p/contributing-flows/EF%203.1/m1?limit=3&exclude-long-term=true"
+
+        it "parses `explain-cf FLOW_ID --method M`" $
+            parseCmd ["explain-cf", "f", "--method", "m"] `shouldReturn` ExplainCF "f" (LCIAOptions "m" Nothing)
 
         it "parses `path-to PROCESS_ID NAME`" $
             parseCmd ["path-to", "p", "electricity"] `shouldReturn` PathTo "p" (NamePart "electricity")

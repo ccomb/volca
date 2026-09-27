@@ -42,6 +42,8 @@ localCommand = \case
     SearchActivities _ -> Nothing
     SearchFlows _ -> Nothing
     Impacts _ _ -> Nothing
+    Contributing{} -> Nothing
+    ExplainCF _ _ -> Nothing
     Database _ -> Nothing
     Method _ -> Nothing
     Methods -> Nothing
