@@ -75,11 +75,13 @@ import qualified Data.Vector as V
 import EcoSpold.Common (numericRefChar)
 import Progress (ProgressLevel (..), reportProgress)
 import SimaPro.Parser (
+    bioFlowInUnit,
     canonicalRow,
     generateFlowUUID,
     generateUnitUUID,
     indexFlows,
     normalizeSimaProCompartment,
+    techFlowInUnit,
  )
 import Types
 import qualified UnitConversion as UC
@@ -145,8 +147,8 @@ parseBrightwayExcel cfg path = do
             mapM_ (reportProgress Warning . T.unpack) warnings
             pure $ do
                 mapM_ refuseConflictingMeta blocks
-                techFlowDB <- indexFlows unitNames (\f -> (tfId f, tfUnitId f, tfName f)) techFlows
-                bioFlowDB <- indexFlows unitNames (\f -> (bfId f, bfUnitId f, bfName f)) bioFlows
+                techFlowDB <- indexFlows unitNames techFlowInUnit tfName techFlows
+                bioFlowDB <- indexFlows unitNames bioFlowInUnit bfName bioFlows
                 pure (activities, techFlowDB, bioFlowDB, M.empty, unitDB)
 
 {- | A worksheet is imported only when its first cell (A1) is a non-empty string

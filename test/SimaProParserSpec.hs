@@ -41,6 +41,7 @@ import SimaPro.Parser (
     parseSimaProCSV,
     parseTechRow,
     splitCSV,
+    techFlowInUnit,
     unitDeclarations,
     workerRanges,
  )
@@ -1411,11 +1412,11 @@ spec = do
             names = M.fromList [(kg, "kg"), (mj, "mj")]
 
         it "folds two rows of one flow into a single entry when the unit agrees" $
-            M.size <$> indexFlows names (\f -> (tfId f, tfUnitId f, tfName f)) [flow "steel" kg, flow "steel" kg]
+            M.size <$> indexFlows names techFlowInUnit tfName [flow "steel" kg, flow "steel" kg]
                 `shouldBe` Right 1
 
         it "refuses two rows of one flow written in units no conversion relates" $
-            case indexFlows names (\f -> (tfId f, tfUnitId f, tfName f)) [flow "heat" mj, flow "heat" kg] of
+            case indexFlows names techFlowInUnit tfName [flow "heat" mj, flow "heat" kg] of
                 Left err -> err `shouldSatisfy` \e -> "heat" `T.isInfixOf` e && "mj" `T.isInfixOf` e && "kg" `T.isInfixOf` e
                 Right db -> expectationFailure ("expected a refusal, got " ++ show (M.size db))
 
@@ -1688,6 +1689,14 @@ spec = do
             bioAmount resource `shouldBe` 3.6
             fmap bfUnitId (M.lookup (exchangeFlowId resource) bioFlows)
                 `shouldBe` Just (generateUnitUUID "MJ")
+
+        it "names the same flow and units when several flows are written in units no conversion relates" $ do
+            refused <- withSystemTempFile "two-refused-flows.csv" $ \path handle -> do
+                BS.hPut handle twoRefusedFlowsCSV
+                hClose handle
+                parseSimaProCSV mixedUnitConfig path
+            either Just (const Nothing) refused
+                `shouldBe` Just "flow 'Beta feedstock' is written in two units that no conversion relates ('MJ' and 'kg'), so they cannot be one flow"
 
     describe "what a process identifier is made of" $ do
         let processIds = map (\a -> (generateActivityUUID a, getReferenceProductUUID a))
@@ -2126,6 +2135,42 @@ mixedUnitsCSV =
         , ""
         , "Resources"
         , "Energy, from nature;;kWh;1;Undefined;;;;;;"
+        , ""
+        , "End"
+        ]
+
+{- | Two flows, each written once in kg and once in MJ, which no conversion
+relates. The refusal names one conflict only, the one the gathered flows put
+first, which is the order of their identifiers and not of the file: the example
+pins that message so a change to how flows are gathered cannot move it unseen.
+-}
+twoRefusedFlowsCSV :: BS.ByteString
+twoRefusedFlowsCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Two refused flows {FR} U"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Products"
+        , "Two refused flows {FR} U;kg;1.0;100;not defined;material;"
+        , ""
+        , "Materials/fuels"
+        , "Alpha feedstock;kg;1;Undefined;;;;;;"
+        , "Alpha feedstock;MJ;1;Undefined;;;;;;"
+        , "Beta feedstock;kg;1;Undefined;;;;;;"
+        , "Beta feedstock;MJ;1;Undefined;;;;;;"
         , ""
         , "End"
         ]
