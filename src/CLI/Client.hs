@@ -9,7 +9,6 @@ module CLI.Client (
     apiGet,
     apiPost,
     deleteSelectionBody,
-    readJsonFile,
 ) where
 
 import CLI.Render (renderResult)
@@ -517,9 +516,7 @@ sendJsonFile send fmt jp file =
         Left err -> output fmt jp (Left err)
         Right body -> send body >>= output fmt jp
 
-{- | Read and decode a JSON file, naming the file in any complaint about it.
-Shared by the remote and local write commands, which read the same document.
--}
+-- | Read and decode a JSON file, naming the file in any complaint about it.
 readJsonFile :: (FromJSON a) => FilePath -> IO (Either String a)
 readJsonFile path = do
     bytes <- try (BL.readFile path)

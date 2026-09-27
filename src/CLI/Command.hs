@@ -21,9 +21,11 @@ import qualified Service
 import System.Exit (exitFailure)
 import Types (Database)
 
-{- | What a command does with a database loaded here, or 'Nothing' when it is
-answered by a server. Every constructor is named, so a new command has to be
-placed on one side or the other.
+{- | What a command does with a database loaded here, or 'Nothing' when it
+runs elsewhere: on a server, or in @main@ itself for @server@, @repl@, @stop@
+and the hidden dumps, which @main@ matches before asking this. Every
+constructor is named, so a new command has to be placed on one side or the
+other.
 -}
 localCommand :: Command -> Maybe (Database -> IO ())
 localCommand = \case
