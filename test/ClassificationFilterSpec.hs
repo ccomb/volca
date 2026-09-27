@@ -14,7 +14,7 @@ module ClassificationFilterSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Monad (foldM, forM_)
-import Data.Aeson (Value (..), decodeStrict, toJSON)
+import Data.Aeson (Result (..), Value (..), decodeStrict, fromJSON, toJSON)
 import Data.Aeson.Key (Key)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Foldable (toList)
@@ -40,8 +40,8 @@ import API.Types (
     SearchResults (..),
  )
 import App.Env (AppEnv (..), AppM, runApp)
-import CLI.Command (executeDbDeleteActivities)
-import CLI.Types (DbDeleteArgs (..), OutputFormat (..))
+import CLI.Client (deleteSelectionBody)
+import CLI.Types (DbDeleteArgs (..))
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), defaultConfig)
 import Database (buildDatabaseWithMatrices)
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), initDatabaseManager)
@@ -128,8 +128,12 @@ spec = describe "classification filter match mode" $ do
                 (httpManager, _) <- loadedFixture
                 http <- runRest httpManager (deleteActivitiesHandler fixtureName (deleteRequest exact))
                 fmap dsrDeleted http `shouldBe` Right n
+                -- The command line sends this body to the same route.
                 (cliManager, _) <- loadedFixture
-                executeDbDeleteActivities JSON cliManager (deleteArgs exact)
+                cli <- case fromJSON (deleteSelectionBody (deleteArgs exact)) of
+                    Success body -> runRest cliManager (deleteActivitiesHandler fixtureName body)
+                    Error err -> fail err
+                fmap dsrDeleted cli `shouldBe` Right n
                 activitiesLeft cliManager `shouldReturn` Just (activityTotal - n)
 
 -- ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ import Text.Read (readMaybe)
 import API.Auth (authMiddleware)
 import App.Idle (IdleState (..), idleTrackingMiddleware, idleWatchdog, newIdleState, stampIdle, whileWorking)
 import CLI.Client (executeRemoteCommand, resolveRemoteConfig)
-import CLI.Command (executeCommand)
+import CLI.Command (localCommand, requireDatabase)
 import CLI.Parser (cliParserInfo)
 import CLI.Repl (runRepl)
 import CLI.Types
@@ -36,6 +36,7 @@ import Database.Manager (DatabaseManager (..), initDatabaseManager)
 import qualified Database.Manager as DM
 import Network.HTTP.Client (Manager, defaultManagerSettings, managerResponseTimeout, newManager, responseTimeoutNone)
 import Progress
+import qualified Types
 
 -- For server mode
 
@@ -84,7 +85,7 @@ main = do
         (Just (Dump target), _) -> BSL.putStrLn (dumpDocument target)
         (Just (Server serverOpts), mCfgFile) -> runServerWithConfig cliConfig serverOpts mCfgFile
         (Just Repl, Just cfgFile) -> runReplMode cliConfig cfgFile
-        (Just cmd, Just cfgFile) | isLocalCommand cmd -> runCLIWithConfig cliConfig cmd cfgFile
+        (Just cmd, Just cfgFile) | Just run <- localCommand cmd -> runCLIWithConfig cliConfig run cfgFile
         (Just cmd, Just cfgFile) -> runCLIViaAPI cliConfig cmd cfgFile
         (Nothing, Just cfgFile) -> runConfigLoadOnly cliConfig cfgFile
         (Just Stop, Nothing) -> runStopWithoutConfig cliConfig
@@ -106,12 +107,6 @@ loadConfigOrDie mCfgFile = do
             exitFailure
         Right config -> return config
 
--- | Commands that require local database access (not available via HTTP)
-isLocalCommand :: Command -> Bool
-isLocalCommand (DebugMatrices _ _) = True
-isLocalCommand (ExportMatrices _) = True
-isLocalCommand _ = False
-
 -- | What @--no-cache@ asks of every load this run makes.
 cachePolicyOf :: CLIConfig -> DM.CachePolicy
 cachePolicyOf cliConfig
@@ -119,11 +114,11 @@ cachePolicyOf cliConfig
     | otherwise = DM.UseCache
 
 -- | Run local-only CLI commands through DatabaseManager (loads DBs, matrix solver)
-runCLIWithConfig :: CLIConfig -> Command -> FilePath -> IO ()
-runCLIWithConfig cliConfig cmd cfgFile = do
+runCLIWithConfig :: CLIConfig -> (Types.Database -> IO ()) -> FilePath -> IO ()
+runCLIWithConfig cliConfig run cfgFile = do
     config <- loadConfigOrDie (Just cfgFile)
     dbManager <- initDatabaseManager config (cachePolicyOf cliConfig)
-    executeCommand cliConfig cmd dbManager
+    requireDatabase dbManager (dbName (globalOptions cliConfig)) >>= run
 
 {- | HTTP manager for client-mode commands, with the 30 s default response
 timeout lifted: the server legitimately computes for minutes before the first
