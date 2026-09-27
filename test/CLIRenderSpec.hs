@@ -149,3 +149,7 @@ spec = do
             out `shouldSatisfy` isInfixOf (T.unpack longId)
             out `shouldNotSatisfy` isInfixOf (T.unpack prose)
             out `shouldSatisfy` isInfixOf "…"
+
+        it "keeps a value with a line break on its own row" $
+            table (arr [object ["comment" .= T.pack "first\nsecond", "unit" .= T.pack "kg"]])
+                `shouldBe` unlines ["comment      | unit", "-------------+-----", "first second | kg"]

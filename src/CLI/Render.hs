@@ -214,12 +214,17 @@ flatRow v = [("value", v)]
 
 {- | A table cell. Unlike a CSV cell, false is written: a blank there reads as
 "unknown". A list of plain values is spelled out rather than shown as JSON.
+A line break inside a value (a comment carried over from the source file)
+becomes a space, or it would push the rest of its row onto the next line.
 -}
 tableCell :: Value -> Text
-tableCell v = case v of
-    Bool False -> "no"
-    Array arr | all isScalar arr -> T.intercalate ", " (map tableCell (V.toList arr))
-    _ -> cellValue v
+tableCell = T.map (\c -> if c == '\n' || c == '\r' then ' ' else c) . cellText
+  where
+    cellText :: Value -> Text
+    cellText v = case v of
+        Bool False -> "no"
+        Array arr | all isScalar arr -> T.intercalate ", " (map cellText (V.toList arr))
+        _ -> cellValue v
 
 {- | Long prose is cut to keep a table on the screen. A value with no space in
 it, an identifier or a path, is left whole: it is there to be copied, and a
