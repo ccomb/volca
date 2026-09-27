@@ -49,7 +49,8 @@
   pointed at pages the web UI does not have; they now open the matching tab of
   the Impacts page, on the indicator asked about. `explain_cf` now opens the
   method's characterization page filtered on the flow, and
-  `compute_sensitivity` the activity's sensitivity page.
+  `compute_sensitivity` the activity's sensitivity page, on the indicator
+  asked about.
 
 - Quitting the REPL no longer stops a server someone else started. The REPL
   asks the server to shut down after ten idle seconds when it exits, so that a

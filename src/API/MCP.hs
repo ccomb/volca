@@ -1423,7 +1423,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
         baselineScore <- case scoreOf baselineX of
             Right s -> pure s
             Left e -> throwE ("baseline scoring failed: " <> e)
-        let webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/sensitivity")
+        let webUrlPair = webUrlField mBaseUrl ("/db/" <> dbName <> "/activity/" <> raText ra <> "/sensitivity/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req)
             pertEntry (p, eitherX) =
                 let base =
                         [ "perturbation"
