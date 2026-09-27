@@ -152,6 +152,10 @@ runRepl mgr rc globalOpts cfgFile = do
                 then "Server running at " ++ rcBaseUrl rc
                 else "Server not reachable at " ++ rcBaseUrl rc
         return True
+    -- A session command with the wrong arguments is not the engine's to
+    -- judge: its usage lists none of them, and :help does.
+    dispatch _ (t : _)
+        | t == "use" || ":" `isPrefixOf` t = liftIO (putStrLn unknownCommand) >> return True
     dispatch stateRef tokens = liftIO $ do
         st <- readIORef stateRef
         let opts = globalOpts{dbName = rsDb st, format = rsFormat st}
