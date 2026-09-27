@@ -327,6 +327,7 @@ impactsParser =
 lciaOptionsParser :: Parser LCIAOptions
 lciaOptionsParser = do
     lciaMethod <- textOpt "method" (Just 'm') "METHOD" "A loaded method, by UUID or name, or a collection name to score every method in it"
+    lciaCollection <- optTextOpt "collection" Nothing "NAME" "Look for the method in this collection only, when several carry it"
     pure LCIAOptions{..}
 
 -- | Debug matrices command parser

@@ -505,6 +505,8 @@ volca inventory "12345678-..."
 # collection, whose every method is then scored
 volca impacts "12345678-..." --method "Climate change"
 volca impacts "12345678-..." --method EF-3.1
+# ... and --collection picks among collections carrying the same method
+volca impacts "12345678-..." --method "Climate change" --collection EF-3.1
 
 # Matrix export (Ecoinvent universal format – runs locally, not via HTTP)
 volca export-matrices ./output_dir

@@ -276,26 +276,35 @@ spec = do
             rows = [land, water, climate]
 
         it "takes a method by its UUID" $
-            resolveImpactTarget "6f11" rows `shouldBe` Right (OneMethod water)
+            resolveImpactTarget Nothing "6f11" rows `shouldBe` Right (OneMethod water)
 
         it "takes a method by its name, whatever the case" $
-            resolveImpactTarget "climate CHANGE" rows `shouldBe` Right (OneMethod climate)
+            resolveImpactTarget Nothing "climate CHANGE" rows `shouldBe` Right (OneMethod climate)
 
         it "takes a collection by its name, to score every method in it" $
-            resolveImpactTarget "EF-3.1" rows `shouldBe` Right (WholeCollection "EF-3.1")
+            resolveImpactTarget Nothing "EF-3.1" rows `shouldBe` Right (WholeCollection "EF-3.1")
 
         it "refuses a name two collections carry, naming both" $
-            case resolveImpactTarget "Climate change" (rows ++ [MethodRow "c2c2" "Climate change" "EF-3.0"]) of
+            case resolveImpactTarget Nothing "Climate change" (rows ++ [MethodRow "c2c2" "Climate change" "EF-3.0"]) of
                 Left err -> do
                     err `shouldSatisfy` T.isInfixOf "EF-3.0"
                     err `shouldSatisfy` T.isInfixOf "EF-3.1"
+                    err `shouldSatisfy` T.isInfixOf "--collection"
                 Right t -> expectationFailure ("expected a refusal, got " <> show t)
 
         it "refuses a name shared by a method and a collection" $
-            resolveImpactTarget "EF-3.1" (rows ++ [MethodRow "e5e5" "EF-3.1" "custom"]) `shouldSatisfy` isLeft
+            resolveImpactTarget Nothing "EF-3.1" (rows ++ [MethodRow "e5e5" "EF-3.1" "custom"]) `shouldSatisfy` isLeft
 
         it "lists the collections when nothing matches" $
-            resolveImpactTarget "nope" rows `shouldBe` Left "No loaded method or collection is called \"nope\". Collections: plain-indicators, EF-3.1"
+            resolveImpactTarget Nothing "nope" rows `shouldBe` Left "No loaded method or collection is called \"nope\". Collections: plain-indicators, EF-3.1"
 
         it "says no collection is loaded rather than listing none" $
-            resolveImpactTarget "Climate change" [] `shouldBe` Left "No method collection is loaded."
+            resolveImpactTarget Nothing "Climate change" [] `shouldBe` Left "No method collection is loaded."
+
+        it "takes the one of two same-named methods --collection names" $
+            resolveImpactTarget (Just "ef-3.0") "Climate change" (rows ++ [MethodRow "c2c2" "Climate change" "EF-3.0"])
+                `shouldBe` Right (OneMethod (MethodRow "c2c2" "Climate change" "EF-3.0"))
+
+        it "refuses a --collection that is not loaded, listing those that are" $
+            resolveImpactTarget (Just "EF-9") "Climate change" rows
+                `shouldBe` Left "No loaded collection is called \"EF-9\". Collections: plain-indicators, EF-3.1"

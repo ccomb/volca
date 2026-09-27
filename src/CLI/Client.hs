@@ -204,7 +204,7 @@ executeRemoteCommand mgr rc globalOpts cmd = do
         Impacts uuid lciaOpts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             methods <- apiGet mgr rc "/api/v1/methods"
-            case methods >>= parseEither parseJSON >>= either (Left . T.unpack) Right . resolveImpactTarget (lciaMethod lciaOpts) of
+            case methods >>= parseEither parseJSON >>= either (Left . T.unpack) Right . resolveImpactTarget (lciaCollection lciaOpts) (lciaMethod lciaOpts) of
                 Left err -> reportError err >> exitFailure
                 Right target ->
                     apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/impacts/" ++ impactPath target)
@@ -262,28 +262,38 @@ data ImpactTarget
 text is a method's name or a collection's, compared without regard to case,
 since a name is what a person types. One candidate is taken; several are
 refused and listed, so that a method named like its collection, or one name
-carried by two collections, is never settled by list order.
+carried by two collections, is never settled by list order. @--collection@
+settles it: the search then looks in that collection only.
 -}
-resolveImpactTarget :: Text -> [MethodRow] -> Either Text ImpactTarget
-resolveImpactTarget _ [] = Left "No method collection is loaded."
-resolveImpactTarget wanted rows = case candidates of
-    [target] -> Right target
-    [] ->
-        Left $
-            "No loaded method or collection is called \""
-                <> wanted
-                <> "\". Collections: "
-                <> T.intercalate ", " (nubOrd (map mrCollection rows))
-    several -> Left ("\"" <> wanted <> "\" could mean " <> T.intercalate ", or " (map describe several))
+resolveImpactTarget :: Maybe Text -> Text -> [MethodRow] -> Either Text ImpactTarget
+resolveImpactTarget _ _ [] = Left "No method collection is loaded."
+resolveImpactTarget mCollection wanted rows = maybe (Right rows) scope mCollection >>= pick
   where
-    candidates :: [ImpactTarget]
-    candidates = case [OneMethod r | r <- rows, mrId r == wanted] of
+    collections :: Text
+    collections = T.intercalate ", " (nubOrd (map mrCollection rows))
+    scope :: Text -> Either Text [MethodRow]
+    scope c = case filter (same c . mrCollection) rows of
+        [] -> Left ("No loaded collection is called \"" <> c <> "\". Collections: " <> collections)
+        inside -> Right inside
+    pick :: [MethodRow] -> Either Text ImpactTarget
+    pick scoped = case candidates scoped of
+        [target] -> Right target
+        [] -> Left ("No loaded method or collection is called \"" <> wanted <> "\". Collections: " <> collections)
+        several ->
+            Left $
+                "\""
+                    <> wanted
+                    <> "\" could mean "
+                    <> T.intercalate ", or " (map describe several)
+                    <> maybe ". Name one with --collection." (const ".") mCollection
+    candidates :: [MethodRow] -> [ImpactTarget]
+    candidates scoped = case [OneMethod r | r <- scoped, mrId r == wanted] of
         [] ->
-            [OneMethod r | r <- rows, same (mrName r)]
-                ++ [WholeCollection c | c <- nubOrd (map mrCollection rows), same c]
+            [OneMethod r | r <- scoped, same wanted (mrName r)]
+                ++ [WholeCollection c | c <- nubOrd (map mrCollection scoped), same wanted c]
         byId -> byId
-    same :: Text -> Bool
-    same name = T.toCaseFold name == T.toCaseFold wanted
+    same :: Text -> Text -> Bool
+    same a b = T.toCaseFold a == T.toCaseFold b
     describe :: ImpactTarget -> Text
     describe = \case
         OneMethod r -> "the method " <> mrName r <> " (" <> mrId r <> ") of " <> mrCollection r
