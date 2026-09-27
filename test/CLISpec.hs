@@ -49,6 +49,10 @@ spec = do
                 [ ["server"]
                 , ["activity", "x"]
                 , ["inventory", "x"]
+                , ["tree", "x"]
+                , ["supply-chain", "x"]
+                , ["consumers", "x"]
+                , ["path-to", "x", "y"]
                 , ["flow", "x"]
                 , ["flow", "x", "activities"]
                 , ["activities"]
@@ -247,6 +251,24 @@ spec = do
                     uuid `shouldBe` "abc-123"
                     lciaMethod opts `shouldBe` "method-uuid"
                 _ -> expectationFailure ("Unexpected command: " <> show cmd)
+
+        it "parses `supply-chain` with its filters and threshold" $ do
+            cmd <- parseCmd ["supply-chain", "p", "--geo", "FR", "--max-depth", "2", "--min-quantity", "0.5"]
+            cmd
+                `shouldBe` SupplyChain
+                    "p"
+                    SupplyChainOptions
+                        { scReach = ReachOptions Nothing (Just "FR") Nothing (Just 2) Nothing Nothing
+                        , scMinQuantity = Just 0.5
+                        }
+
+        it "parses `consumers` and refuses a threshold it has no use for" $ do
+            cmd <- parseCmd ["consumers", "p", "--name", "tomato"]
+            cmd `shouldBe` Consumers "p" (ReachOptions (Just "tomato") Nothing Nothing Nothing Nothing Nothing)
+            runParse ["consumers", "p", "--min-quantity", "1"] `shouldSatisfy` isLeft
+
+        it "parses `path-to PROCESS_ID NAME`" $
+            parseCmd ["path-to", "p", "electricity"] `shouldReturn` PathTo "p" "electricity"
 
         it "reads what `flow-mapping` lists" $ do
             let parsed argv = parseCmd ("flow-mapping" : "m" : argv)

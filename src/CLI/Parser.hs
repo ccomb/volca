@@ -96,6 +96,10 @@ commandParser =
         ( cmd "server" serverParser "Start API server"
             <> cmd "activity" activityParser "Get basic activity information"
             <> cmd "inventory" inventoryParser "Get life cycle inventory for activity"
+            <> cmd "tree" (Tree <$> processIdArg) "Show the supply chain upstream of a process as a tree"
+            <> cmd "supply-chain" (SupplyChain <$> processIdArg <*> supplyChainOptionsParser) "List the processes upstream of a process"
+            <> cmd "consumers" (Consumers <$> processIdArg <*> reachOptionsParser) "List the processes downstream of a process, that consume what it makes"
+            <> cmd "path-to" (PathTo <$> processIdArg <*> textArg "NAME" "Part of the name of the upstream process to reach, case-blind") "Show the shortest upstream path from a process to one whose name matches"
             <> cmd "flow" flowParser "Query flow information"
             <> cmd "activities" searchActivitiesParser "Search activities"
             <> cmd "flows" searchFlowsParser "Search flows"
@@ -306,6 +310,26 @@ searchActivitiesParser = do
     searchLimit <- optIntOpt "limit" Nothing "N" "Limit number of results (max 1000, default 50)"
     searchOffset <- optIntOpt "offset" Nothing "N" "Offset for pagination (default 0)"
     pure $ SearchActivities SearchActivitiesOptions{..}
+
+processIdArg :: Parser Text
+processIdArg = textArg "PROCESS_ID" "ProcessId (activity_uuid_product_uuid format)"
+
+-- | The filters @supply-chain@ and @consumers@ share.
+reachOptionsParser :: Parser ReachOptions
+reachOptionsParser = do
+    reachName <- optTextOpt "name" Nothing "TERM" "Keep processes whose name contains this, case-blind"
+    reachLocation <- optTextOpt "geo" Nothing "LOCATION" "Keep processes at this location, or at a location inside it"
+    reachProduct <- optTextOpt "product" Nothing "PRODUCT" "Keep processes whose product name contains this, case-blind"
+    reachMaxDepth <- optIntOpt "max-depth" Nothing "N" "Go at most N links away (1 = direct neighbours only)"
+    reachLimit <- optIntOpt "limit" Nothing "N" "List at most N processes"
+    reachOffset <- optIntOpt "offset" Nothing "N" "Skip the first N processes"
+    pure ReachOptions{..}
+
+supplyChainOptionsParser :: Parser SupplyChainOptions
+supplyChainOptionsParser = do
+    scReach <- reachOptionsParser
+    scMinQuantity <- optional (option auto (long "min-quantity" <> metavar "QTY" <> help "Keep processes whose scaled quantity is at least QTY"))
+    pure SupplyChainOptions{..}
 
 -- | Search flows parser (now top-level)
 searchFlowsParser :: Parser Command

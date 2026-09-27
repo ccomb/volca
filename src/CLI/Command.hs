@@ -35,6 +35,10 @@ localCommand = \case
     Activity _ -> Nothing
     Flow _ _ -> Nothing
     Inventory _ -> Nothing
+    Tree _ -> Nothing
+    SupplyChain _ _ -> Nothing
+    Consumers _ _ -> Nothing
+    PathTo _ _ -> Nothing
     SearchActivities _ -> Nothing
     SearchFlows _ -> Nothing
     Impacts _ _ -> Nothing

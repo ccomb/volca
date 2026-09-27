@@ -35,6 +35,11 @@ data Command
       Activity Text -- Basic activity info
     | Flow Text (Maybe FlowSubCommand) -- Flow info (keep subcommands for now)
     | Inventory Text -- Life cycle inventory
+    -- Walking the supply chain from one process
+    | Tree Text -- Upstream tree, as the server cuts it
+    | SupplyChain Text SupplyChainOptions -- Upstream processes, flat
+    | Consumers Text ReachOptions -- Downstream processes, flat
+    | PathTo Text Text -- Shortest upstream path to the first process whose name matches
     -- Search commands promoted to top-level
     | SearchActivities SearchActivitiesOptions -- Search activities
     | SearchFlows SearchFlowsOptions -- Search flows
@@ -225,6 +230,24 @@ data SearchActivitiesOptions = SearchActivitiesOptions
     }
     deriving (Eq, Show, Generic)
 
+-- | Which of the processes reached from one process to list, upstream or downstream.
+data ReachOptions = ReachOptions
+    { reachName :: Maybe Text -- --name
+    , reachLocation :: Maybe Text -- --geo
+    , reachProduct :: Maybe Text -- --product
+    , reachMaxDepth :: Maybe Int -- --max-depth
+    , reachLimit :: Maybe Int -- --limit
+    , reachOffset :: Maybe Int -- --offset
+    }
+    deriving (Eq, Show, Generic)
+
+-- | @supply-chain@ reads a quantity threshold that @consumers@ has no use for.
+data SupplyChainOptions = SupplyChainOptions
+    { scReach :: ReachOptions
+    , scMinQuantity :: Maybe Double -- --min-quantity
+    }
+    deriving (Eq, Show, Generic)
+
 -- | Search flows options
 data SearchFlowsOptions = SearchFlowsOptions
     { searchQuery :: Maybe Text -- --query search term
@@ -301,6 +324,10 @@ rendersOwnCsv cmd = case cmd of
     Activity _ -> False
     Flow _ _ -> False
     Inventory _ -> False
+    Tree _ -> False
+    SupplyChain _ _ -> False
+    Consumers _ _ -> False
+    PathTo _ _ -> False
     SearchActivities _ -> False
     SearchFlows _ -> False
     Impacts _ _ -> False
