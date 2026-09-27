@@ -7,6 +7,9 @@ module CLI.Repl (
     ServerOwner (..),
     idleOnExit,
     replIdleTimeoutSeconds,
+
+    -- * Reading a line
+    replArgs,
 ) where
 
 import CLI.Client (RemoteConfig (..), apiGet, apiPost, executeRemoteCommand)
@@ -19,6 +22,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (Value, withObject, (.:))
 import qualified Data.Aeson
 import Data.Aeson.Types (parseMaybe)
+import Data.Char (isSpace)
 import Data.IORef
 import Data.List (isPrefixOf)
 import Data.Text (Text)
@@ -98,7 +102,7 @@ runRepl mgr rc globalOpts cfgFile = do
         case minput of
             Nothing -> return () -- Ctrl+D
             Just input -> do
-                cont <- dispatch stateRef (words input)
+                cont <- either (\err -> liftIO (putStrLn err) >> pure True) (dispatch stateRef) (replArgs input)
                 when cont $ loop stateRef
 
     dispatch _ [] = return True
@@ -161,6 +165,35 @@ runRepl mgr rc globalOpts cfgFile = do
         return True
 
     unknownCommand = "Unknown command. Type :help for usage."
+
+{- | Split a REPL line into arguments the way a shell does, so that
+@activities --name "tomato juice"@ passes one name and not two words.
+Double and single quotes group; a quote of either kind stands literally
+inside the other. Backslash is not an escape: it is a path separator on
+Windows, and a REPL argument can be a file path. A quote
+left open has no one reading, so the line is refused rather than run.
+-}
+replArgs :: String -> Either String [String]
+replArgs = between []
+  where
+    between :: [String] -> String -> Either String [String]
+    between done s = case dropWhile isSpace s of
+        [] -> Right (reverse done)
+        rest -> word done "" rest
+
+    -- The word being read is kept reversed; a quoted part may be empty,
+    -- which is how @--name ""@ passes an empty argument.
+    word :: [String] -> String -> String -> Either String [String]
+    word done cur [] = Right (reverse (reverse cur : done))
+    word done cur (c : rest)
+        | isSpace c = between (reverse cur : done) rest
+        | c == '"' || c == '\'' = quoted c done cur rest
+        | otherwise = word done (c : cur) rest
+
+    quoted :: Char -> [String] -> String -> String -> Either String [String]
+    quoted q done cur s = case break (== q) s of
+        (_, []) -> Left ("Unterminated " ++ [q] ++ " quote.")
+        (inside, _ : rest) -> word done (reverse inside ++ cur) rest
 
 {- | Check if the server is reachable; if not, start it and wait.
 Returns the ProcessHandle if we started it, Nothing if it was already running.
@@ -349,4 +382,6 @@ printHelp = do
     putStrLn "  :server status             Check server status"
     putStrLn "  :help                      This help"
     putStrLn "  :quit / Ctrl+D             Exit (stops server)"
+    putStrLn ""
+    putStrLn "Quote an argument that holds spaces: activities --name \"tomato juice\""
     hFlush stdout

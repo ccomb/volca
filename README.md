@@ -100,7 +100,7 @@ volca --config volca.toml --db agribalyse impacts "12345678-..." --method METHOD
 volca --config volca.toml repl
 
 # Inside the REPL:
-# volca> activities --name "wheat"
+# volca> activities --name "wheat grain"
 # volca> use agribalyse
 # volca[agribalyse]> inventory UUID
 # volca[agribalyse]> :format table
