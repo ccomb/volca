@@ -26,7 +26,7 @@ import Data.Aeson
 import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isAscii, isControl)
 import Data.Foldable (asum)
-import Data.List (intercalate, sortOn)
+import Data.List (find, intercalate, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
@@ -53,7 +53,7 @@ import qualified Matrix
 import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
-import Method.Types (DamageCategory (..), Method (..), MethodCF (..), MethodCollection (..), NormWeightSet (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
+import Method.Types (DamageCategory (..), Method (..), MethodCF (..), MethodCollection (..), NormWeightSet (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores, scoreWeights)
 import qualified Method.Types as MT
 import Numeric (showFFloat)
 import Progress (ProgressLevel (Info, Warning), getLogLines, reportProgress)
@@ -115,6 +115,8 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> QueryParam "role" Text :> Get '[JSON] [ActivitySummary]
                 :<|> "methods" :> Get '[JSON] [MethodSummary]
@@ -742,7 +744,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
         | topFlows <= 0 = pure (Right [])
         | otherwise = do
             contribsE <- Impact.contributionsOf dbManager collection method tables sol
-            pure (fmap (topContributorRows tables score topFlows . fst) contribsE)
+            pure (fmap (topContributorRows (Explain.flowMatchKind tables) score topFlows . fst) contribsE)
 
     result :: MappingStats -> Double -> Text -> [FlowContributionEntry] -> LCIAResult
     result stats score functionalUnit topContributors =
@@ -773,8 +775,8 @@ regionalized method applies one per location, so the row carries the effective
 factor its contribution divided by its quantity – see
 'Method.Mapping.regionalizedContributionsCrossDB'.
 -}
-topContributorRows :: MethodTables -> Double -> Int -> [FlowContribution] -> [FlowContributionEntry]
-topContributorRows tables score topFlows rawContribs =
+topContributorRows :: (UUID -> Maybe Text) -> Double -> Int -> [FlowContribution] -> [FlowContributionEntry]
+topContributorRows matchKind score topFlows rawContribs =
     [ FlowContributionEntry
         { fcoFlowName = bfName f
         , fcoContribution = c
@@ -783,7 +785,7 @@ topContributorRows tables score topFlows rawContribs =
         , fcoCategory = bfCompartmentName f
         , fcoCompartment = bfCompartmentSub f
         , fcoCfValue = cfVal
-        , fcoMatchKind = Explain.flowMatchKind tables (bfId f)
+        , fcoMatchKind = matchKind (bfId f)
         }
     | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <-
         take topFlows (sortOn (negate . abs . fcContribution) rawContribs)
@@ -834,7 +836,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
             | otherwise = do
                 tables <- DM.mapMethodToTablesCached dbManager dbName collectionName db method
                 contribsE <- Impact.contributionsOf dbManager collectionName method tables sol
-                pure (fmap (topContributorRows tables score topFlows . fst) contribsE)
+                pure (fmap (topContributorRows (Explain.flowMatchKind tables) score topFlows . fst) contribsE)
         mkResultForScore ctx method score topContributors =
             enrichWithNW dcLookup mNW $
                 LCIAResult
@@ -1394,7 +1396,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 27: the @regional@ match kind a contributing flow can carry, naming a
+(revision 28: the contributing flows and activities of a single score, under
+@score/{set}/{score}@;
+revision 27: the @regional@ match kind a contributing flow can carry, naming a
 factor the method states per location, where the cascade recorded no rung and
 the absent field used to say no factor reached the flow at all;
 revision 26: the @supplierActivity@ a gap entry and a missing supplier
@@ -1452,7 +1456,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 27
+currentWireVersion = 28
 
 getVersion :: AppM Value
 getVersion = do
@@ -2015,7 +2019,7 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
                 { cfrMethod = methodName method
                 , cfrUnit = methodUnit method
                 , cfrTotalScore = score
-                , cfrTopFlows = topContributorRows tables score lim rawContribs
+                , cfrTopFlows = topContributorRows (Explain.flowMatchKind tables) score lim rawContribs
                 }
 
 getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
@@ -2032,17 +2036,157 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
         contributions <-
             liftIO (Impact.processContributionsOf dbManager collectionName method tables sol)
                 >>= either scoringError pure
-        -- The terms of the score, so their sum is it.
-        let score = sum (M.elems contributions)
-            top = take lim (sortOn (\(_, c) -> negate (abs c)) (M.toList contributions))
-        rows <- liftIO $ mapM (mkCrossDBContrib dbManager dbName mFlows mUnits score) top
-        return
-            ContributingActivitiesResult
-                { carMethod = methodName method
-                , carUnit = methodUnit method
-                , carTotalScore = score
-                , carActivities = rows
+        liftIO $ activitiesResult dbManager dbName (mFlows, mUnits) (methodName method, methodUnit method) lim contributions
+
+{- | The biggest contributing activities of a score, from every activity's
+part of it. The parts are the terms of the score, so their sum is it.
+-}
+activitiesResult ::
+    DatabaseManager ->
+    -- | root DB name
+    Text ->
+    (BioFlowDB, UnitDB) ->
+    -- | what is scored, and its unit
+    (Text, Text) ->
+    Int ->
+    M.Map (Text, ProcessId) Double ->
+    IO ContributingActivitiesResult
+activitiesResult dbManager dbName (mFlows, mUnits) (name, unit) lim contributions = do
+    rows <- mapM (mkCrossDBContrib dbManager dbName mFlows mUnits score) top
+    pure
+        ContributingActivitiesResult
+            { carMethod = name
+            , carUnit = unit
+            , carTotalScore = score
+            , carActivities = rows
+            }
+  where
+    score :: Double
+    score = sum (M.elems contributions)
+
+    top :: [((Text, ProcessId), Double)]
+    top = take lim (sortOn (\(_, c) -> negate (abs c)) (M.toList contributions))
+
+-- | One score of a scoring set: two names side by side, kept apart so they cannot be swapped.
+data ScoreRef = ScoreRef
+    { srSet :: Text
+    , srScore :: Text
+    }
+
+-- | The name a single score is shown under, and its unit.
+scoreLabel :: ScoringSet -> ScoreRef -> (Text, Text)
+scoreLabel ss ref = (ssName ss <> " " <> srScore ref, ssUnit ss)
+
+{- | Resolve the activity, the scoring set and the method behind each of its
+indicators, then dispatch. An indicator the collection does not hold, or holds
+twice, is refused: scored as zero it would quietly shrink the score.
+-}
+withActivityAndScore ::
+    Text ->
+    DM.CollectionName ->
+    Text ->
+    ScoreRef ->
+    (Database -> SharedSolver -> ProcessId -> ScoringSet -> [Method] -> AppM a) ->
+    AppM a
+withActivityAndScore dbName collectionName processIdText ref k = do
+    (db, sharedSolver) <- requireDatabaseByName dbName
+    (methods, _, _, scoringSets) <- loadCollection collectionName
+    ss <- maybe (throwError err404{errBody = utf8 (noSuchSet scoringSets)}) pure (find ((== srSet ref) . ssName) scoringSets)
+    indicators <- either (\msg -> throwError err422{errBody = utf8 msg}) pure (traverse (indicatorMethod methods) (S.toList (S.fromList (M.elems (ssVariables ss)))))
+    (pid, _) <- resolveOrThrow db processIdText
+    k db sharedSolver pid ss indicators
+  where
+    utf8 :: Text -> BSL.ByteString
+    utf8 = BSL.fromStrict . T.encodeUtf8
+
+    noSuchSet :: [ScoringSet] -> Text
+    noSuchSet sets =
+        "No scoring set named '"
+            <> srSet ref
+            <> "' in this collection. Its scoring sets: "
+            <> T.intercalate ", " (map ssName sets)
+
+    indicatorMethod :: [Method] -> Text -> Either Text Method
+    indicatorMethod methods name = case filter ((== name) . methodName) methods of
+        [m] -> Right m
+        [] -> Left ("Scoring set '" <> srSet ref <> "' weighs '" <> name <> "', which this collection has no method for.")
+        _ -> Left ("Scoring set '" <> srSet ref <> "' weighs '" <> name <> "', which names several methods of this collection.")
+
+-- | The weights of a single score, or a 422 saying why it has none.
+requireScoreWeights :: ScoringSet -> ScoreRef -> M.Map Text Double -> AppM (M.Map Text Double)
+requireScoreWeights ss ref rawScores =
+    either
+        (\msg -> throwError err422{errBody = BSL.fromStrict (T.encodeUtf8 msg)})
+        pure
+        (scoreWeights ss (srScore ref) rawScores)
+
+{- | Each indicator's parts, weighed into the score's: a part of the score is
+the weighted sum of that part in every indicator.
+-}
+weighParts :: (Ord k) => M.Map Text Double -> [(Text, M.Map k Double)] -> M.Map k Double
+weighParts weights perIndicator =
+    M.unionsWith (+) [M.map (* w) parts | (name, parts) <- perIndicator, Just w <- [M.lookup name weights]]
+
+getScoreContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
+getScoreContributingActivities dbName processIdText collectionName setName scoreName limitParam mExcludeLT =
+    withActivityAndScore dbName collectionName processIdText ref $ \db sharedSolver actProcessId ss indicators -> do
+        dbManager <- asks aeDbManager
+        let ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
+        metadata <- liftIO $ DM.getMergedFlowMetadata dbManager
+        sol <-
+            solutionWithDeps dbName db sharedSolver actProcessId
+                >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
+        perIndicator <- forM indicators $ \method -> do
+            tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
+            parts <-
+                liftIO (Impact.processContributionsOf dbManager collectionName method tables sol)
+                    >>= either scoringError pure
+            pure (methodName method, parts)
+        weights <- requireScoreWeights ss ref (M.fromList [(name, sum (M.elems parts)) | (name, parts) <- perIndicator])
+        liftIO $ activitiesResult dbManager dbName metadata (scoreLabel ss ref) (fromMaybe 10 limitParam) (weighParts weights perIndicator)
+  where
+    ref = ScoreRef{srSet = setName, srScore = scoreName}
+
+{- | A flow's part of a single score, like an activity's, is the weighted sum
+of its parts in the indicators. Its factor is read back as that part over the
+flow's quantity: each indicator may apply its own factor to the flow in a unit
+of its own (per MJ where the flow is in kg), so the factors themselves do not
+add up.
+-}
+getScoreContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
+getScoreContributingFlows dbName processIdText collectionName setName scoreName limitParam mExcludeLT =
+    withActivityAndScore dbName collectionName processIdText ref $ \db sharedSolver actProcessId ss indicators -> do
+        dbManager <- asks aeDbManager
+        let ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
+        sol <-
+            solutionWithDeps dbName db sharedSolver actProcessId
+                >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
+        perIndicator <- forM indicators $ \method -> do
+            tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
+            score <- liftIO (Impact.scoreSolution dbManager collectionName method tables sol) >>= either scoringError pure
+            (parts, _) <- liftIO (Impact.contributionsOf dbManager collectionName method tables sol) >>= either scoringError pure
+            pure (methodName method, score, parts)
+        weights <- requireScoreWeights ss ref (M.fromList [(name, score) | (name, score, _) <- perIndicator])
+        let flows = M.fromList [(bfId (fcFlow fc), fcFlow fc) | (_, _, parts) <- perIndicator, fc <- parts]
+            weighed = weighParts weights [(name, M.fromListWith (+) [(bfId (fcFlow fc), fcContribution fc) | fc <- parts]) | (name, _, parts) <- perIndicator]
+            total = sum (M.intersectionWith (*) weights (M.fromList [(name, score) | (name, score, _) <- perIndicator]))
+        contributions <- either scoringError pure (M.traverseWithKey (flowPart (SharedSolver.csInventory sol)) (M.intersectionWith (,) flows weighed))
+        let (name, unit) = scoreLabel ss ref
+        pure
+            ContributingFlowsResult
+                { cfrMethod = name
+                , cfrUnit = unit
+                , cfrTotalScore = total
+                , cfrTopFlows = topContributorRows (const Nothing) total (fromMaybe 20 limitParam) (M.elems contributions)
                 }
+  where
+    ref = ScoreRef{srSet = setName, srScore = scoreName}
+
+    flowPart :: Inventory -> UUID -> (BiosphereFlow, Double) -> Either Text FlowContribution
+    flowPart inventory fid (f, c)
+        | c == 0 = Right FlowContribution{fcFlow = f, fcFactor = 0, fcContribution = 0}
+        | Just q <- M.lookup fid inventory, q /= 0 = Right FlowContribution{fcFlow = f, fcFactor = c / q, fcContribution = c}
+        | otherwise = Left ("Flow " <> UUID.toText fid <> " contributes to the score but has no quantity in the inventory.")
 
 getFlowDetail :: Text -> Text -> AppM FlowDetail
 getFlowDetail dbName flowIdText = do
@@ -2367,6 +2511,8 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getActivityComparison
             :<|> getContributingFlows
             :<|> getContributingActivities
+            :<|> getScoreContributingFlows
+            :<|> getScoreContributingActivities
             :<|> getFlowDetail
             :<|> getFlowActivities
             :<|> getMethods
