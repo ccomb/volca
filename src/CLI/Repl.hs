@@ -10,6 +10,9 @@ module CLI.Repl (
 
     -- * Reading a line
     replArgs,
+
+    -- * Running a line
+    keepSession,
 ) where
 
 import CLI.Client (RemoteConfig (..), apiGet, apiPost, executeRemoteCommand)
@@ -153,7 +156,7 @@ runRepl mgr rc globalOpts cfgFile = do
         st <- readIORef stateRef
         let opts = globalOpts{dbName = rsDb st, format = rsFormat st}
         case OA.execParserPure OA.defaultPrefs (OA.info (commandParser OA.<**> OA.helper) mempty) tokens of
-            OA.Success cmd -> executeRemoteCommand mgr rc opts cmd
+            OA.Success cmd -> keepSession (executeRemoteCommand mgr rc opts cmd)
             OA.CompletionInvoked _ -> putStrLn unknownCommand
             -- A parser answers --help by failing with the help text and an
             -- exit code of zero. Reading only the success case, as
@@ -165,6 +168,16 @@ runRepl mgr rc globalOpts cfgFile = do
         return True
 
     unknownCommand = "Unknown command. Type :help for usage."
+
+{- | Run one command without letting its failure end the session. A command
+reports its error and exits, which is right for a single call from a shell
+and ended the whole REPL here over one mistyped identifier. The error is
+already on screen when the exit arrives, so it only has to be stopped.
+-}
+keepSession :: IO () -> IO ()
+keepSession run = do
+    _ <- try run :: IO (Either ExitCode ())
+    pure ()
 
 {- | Split a REPL line into arguments the way a shell does, so that
 @activities --name "tomato juice"@ passes one name and not two words.

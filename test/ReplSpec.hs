@@ -1,6 +1,7 @@
 module ReplSpec (spec) where
 
-import CLI.Repl (ServerOwner (..), idleOnExit, replArgs, replIdleTimeoutSeconds)
+import CLI.Repl (ServerOwner (..), idleOnExit, keepSession, replArgs, replIdleTimeoutSeconds)
+import System.Exit (exitFailure)
 import Test.Hspec
 
 spec :: Spec
@@ -45,3 +46,9 @@ spec = do
 
         it "refuses a quote left open" $
             replArgs "activities --name \"tomato" `shouldBe` Left "Unterminated \" quote."
+
+    describe "running a line" $
+        it "keeps the session going when a command exits on its error" $
+            -- A command reports its error and exits; before, that exit ended
+            -- the whole REPL over one mistyped identifier.
+            keepSession exitFailure `shouldReturn` ()
