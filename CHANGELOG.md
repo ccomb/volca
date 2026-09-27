@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- Contributing flows and contributing activities for a single score. A
+  scoring set weighs every indicator into one number, and until now nothing
+  said where that number came from: the contributions were only available one
+  indicator at a time. `contributing-flows/{collection}/score/{set}/{score}`
+  and its `contributing-activities` twin answer with the same rows as for an
+  indicator, in the score's unit, and every activity's parts add up to the
+  score the batch reports. A flow's factor is read as its part over its
+  quantity, since the indicators may apply theirs in different units. A score
+  whose formula is not a weighted sum of its indicators (a product of two, a
+  constant term) has no such parts and is refused with a 422 that says so.
+  A single score's flow rows carry no `matchKind`, since there is no one way
+  its factor was found. Wire revision 28.
+
 ### Fixed
 
 - Quitting the REPL no longer stops a server someone else started. The REPL

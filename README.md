@@ -331,6 +331,8 @@ GET    /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}/{methodId} 
 POST   /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}/{methodId}   Same, with substitutions
 GET    /api/v1/db/{dbName}/activity/{processId}/contributing-flows/{collection}/{methodId}        Top biosphere flows by score share
 GET    /api/v1/db/{dbName}/activity/{processId}/contributing-activities/{collection}/{methodId}   Top upstream activities by score share
+GET    /api/v1/db/{dbName}/activity/{processId}/contributing-flows/{collection}/score/{set}/{score}        Same, for one single score of a scoring set
+GET    /api/v1/db/{dbName}/activity/{processId}/contributing-activities/{collection}/score/{set}/{score}   Same, for one single score of a scoring set
 POST   /api/v1/db/{dbName}/impacts/{collection}                          Batch-impacts for many activities (multi-RHS solve)
 
 # Search and reference data
@@ -599,6 +601,8 @@ volca method delete ef-31                        # delete
 | LCIA batch over many activities | `POST /db/{db}/impacts/{collection}` | – |
 | Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | – |
 | Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | – |
+| Contributing flows to a single score | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/score/{set}/{score}` | – |
+| Contributing activities to a single score | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/score/{set}/{score}` | – |
 | Flow details | `GET /db/{db}/flow/{flowId}` | `flow FLOW_ID` |
 | Flow activities | `GET /db/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
 | **Flow Mapping** | | |

@@ -26,6 +26,7 @@ module Method.Types (
     ScoringSet (..),
     ScoringEvaluation (..),
     computeFormulaScores,
+    scoreWeights,
 
     -- * Compartment Mapping
     CompartmentMap (..),
@@ -48,6 +49,7 @@ module Method.Types (
 
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
+import Control.Monad (unless)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
@@ -274,6 +276,62 @@ computeFormulaScores ss rawScores = do
             { seNwEnv = M.map (* mul) nwEnv
             , seScores = M.map (* mul) scores
             }
+
+{- | How much one unit of each indicator adds to one score of a set, when that
+score is a weighted sum of its indicators. Whatever splits every indicator the
+same way, by flow or by activity, then splits the score: a part of it is that
+part of each indicator times the indicator's weight.
+
+The weights are read from the set's own formulas, by scoring each indicator
+alone at one unit. The formula language can also write a score that is no
+weighted sum (a product of two indicators, a constant, a threshold), and such a
+score has no parts to show. It is refused on the evidence that matters here:
+the weights must give back the score of the raw scores at hand, and nothing
+when every indicator is at zero.
+
+Keyed by indicator name like the raw scores, in the score's display scale.
+-}
+scoreWeights :: ScoringSet -> Text -> M.Map Text Double -> Either Text (M.Map Text Double)
+scoreWeights ss scoreName rawScores = do
+    unless (M.member scoreName (ssScores ss)) (Left noSuchScore)
+    atZero <- scoreAt zeros
+    weights <- traverse scoreAt (M.mapWithKey (\name _ -> M.insert name 1 zeros) zeros)
+    actual <- scoreAt rawScores
+    let terms = M.intersectionWith (*) weights rawScores
+        tolerance = 1e-9 * (abs actual + sum (M.map abs terms))
+    if atZero == 0 && abs (actual - sum terms) <= tolerance
+        then Right weights
+        else Left notWeightedSum
+  where
+    -- Two variables may read the same indicator; it is at zero for both.
+    zeros :: M.Map Text Double
+    zeros = M.fromListWith const [(name, 0) | name <- M.elems (ssVariables ss)]
+
+    scoreAt :: M.Map Text Double -> Either Text Double
+    scoreAt raw =
+        first T.pack (computeFormulaScores ss raw)
+            >>= maybe (Left noSuchScore) Right . M.lookup scoreName . seScores
+
+    noSuchScore :: Text
+    noSuchScore =
+        T.concat
+            [ T.pack "Scoring set '"
+            , ssName ss
+            , T.pack "' has no score named '"
+            , scoreName
+            , T.pack "'. Its scores: "
+            , T.intercalate (T.pack ", ") (M.keys (ssScores ss))
+            ]
+
+    notWeightedSum :: Text
+    notWeightedSum =
+        T.concat
+            [ T.pack "Score '"
+            , scoreName
+            , T.pack "' of scoring set '"
+            , ssName ss
+            , T.pack "' is not a weighted sum of its indicators, so it cannot be split by flow or by activity."
+            ]
 
 {- | Resolve computed variables by evaluating formulas.
 Uses topological sort to handle dependencies between computed variables.
