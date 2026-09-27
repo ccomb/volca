@@ -314,8 +314,9 @@ record per rather than one per exchange row.
 The pair and not the flow alone: a file that writes one flow in two units must
 still reach 'indexFlows' as two records, because refusing that is 'indexFlows''
 job and this is only meant to stop the same record being built a million times.
-The flow comes first in the order, as it did when this was a pair, so the
-records reach 'indexFlows' in the order that decides which conflict it names.
+The flow comes first in the order, as it did when this was a pair: the records
+reach 'indexFlows' sorted by flow identifier, and that, not the order of the
+file, is what decides which conflict its refusal names.
 -}
 data FlowInUnit = FlowInUnit
     { fiuFlow :: !UUID.UUID
@@ -327,13 +328,13 @@ instance NFData FlowInUnit
 
 -- | The one identity of each kind of flow: its identifier, in the unit it is written in.
 techFlowInUnit :: TechnosphereFlow -> FlowInUnit
-techFlowInUnit f = FlowInUnit (tfId f) (tfUnitId f)
+techFlowInUnit f = FlowInUnit{fiuFlow = tfId f, fiuUnit = tfUnitId f}
 
 bioFlowInUnit :: BiosphereFlow -> FlowInUnit
-bioFlowInUnit f = FlowInUnit (bfId f) (bfUnitId f)
+bioFlowInUnit f = FlowInUnit{fiuFlow = bfId f, fiuUnit = bfUnitId f}
 
 wasteFlowInUnit :: WasteFlow -> FlowInUnit
-wasteFlowInUnit f = FlowInUnit (wfId f) (wfUnitId f)
+wasteFlowInUnit f = FlowInUnit{fiuFlow = wfId f, fiuUnit = wfUnitId f}
 
 -- ============================================================================
 -- Global parameter bundle
@@ -1767,7 +1768,7 @@ indexFlows :: M.Map UUID.UUID Text -> (a -> FlowInUnit) -> (a -> Text) -> [a] ->
 indexFlows unitNames key nameOfFlow = foldM add M.empty
   where
     add acc flow =
-        let FlowInUnit flowId unitRef = key flow
+        let FlowInUnit{fiuFlow = flowId, fiuUnit = unitRef} = key flow
          in case fiuUnit . key <$> M.lookup flowId acc of
                 Just seen
                     | seen /= unitRef ->
