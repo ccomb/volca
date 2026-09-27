@@ -37,9 +37,10 @@
   a silver ore by its grade, or `Water, unspecified, Europe`, and the adapted
   EF 3.1 method knows none of them: each reached no factor, so the same
   database read from its SimaPro CSV export scored differently. The registry
-  bridges each to the name SimaPro gives it on import. On a database of that
-  kind, land use now lands within 1 % of the published results for most
-  processes, where fewer than one in five did.
+  bridges each to the name SimaPro gives it on import, the ores and
+  corrections on the resource side only. On a database of that kind, land
+  use now lands within 1 % of the published results for most processes,
+  where fewer than one in five did (data version 6).
 - `flow-mapping --matched` and `--uncharacterized` are answered by a server.
   Whenever a server answered the command, both were ignored and every call
   printed the same summary.
