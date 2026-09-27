@@ -77,6 +77,8 @@ data Resource
     | ExplainCF
     | GetContributingFlows
     | GetContributingActivities
+    | GetScoreContributingFlows
+    | GetScoreContributingActivities
     | ListGeographies
     | ListClassifications
     | GetPathTo
@@ -161,6 +163,8 @@ resourceMutates r = case r of
     ExplainCF -> False
     GetContributingFlows -> False
     GetContributingActivities -> False
+    GetScoreContributingFlows -> False
+    GetScoreContributingActivities -> False
     ListGeographies -> False
     ListClassifications -> False
     GetPathTo -> False
@@ -220,6 +224,8 @@ apiPath r = case r of
     ExplainCF -> Just (GET, ["db", "{dbName}", "method", "{methodId}", "explain-cf", "{flowId}"])
     GetContributingFlows -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-flows", "{collection}", "{methodId}"])
     GetContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "{methodId}"])
+    GetScoreContributingFlows -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-flows", "{collection}", "score", "{scoringSet}", "{score}"])
+    GetScoreContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "score", "{scoringSet}", "{score}"])
     ListGeographies -> Nothing -- MCP-only: synthesizes geography list from in-memory database, no HTTP route
     ListClassifications -> Just (GET, ["db", "{dbName}", "classifications"])
     GetPathTo -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "path-to"])
@@ -272,6 +278,8 @@ mcpName r = case r of
     ExplainCF -> "explain_cf"
     GetContributingFlows -> "get_contributing_flows"
     GetContributingActivities -> "get_contributing_activities"
+    GetScoreContributingFlows -> "get_score_contributing_flows"
+    GetScoreContributingActivities -> "get_score_contributing_activities"
     ListGeographies -> "list_geographies"
     ListClassifications -> "list_classifications"
     GetPathTo -> "get_path_to"
@@ -491,6 +499,26 @@ description r = case r of
         \chains. Each contributing activity carries a 'web_url' deep link to its \
         \page in the VoLCA web UI: render these as clickable markdown links when \
         \presenting results to a human so they can drill into a specific supplier."
+    GetScoreContributingFlows ->
+        "LCA / ACV: identify which elementary flows contribute most to one \
+        \score of a scoring set (a single score weighing every indicator of a \
+        \collection into one number, as listed by list_scoring_sets). Answers \
+        \'which emissions drive my single score?'. A flow's contribution is the \
+        \weighted sum of its contributions to each indicator, so the \
+        \contributions add up to the score score_activity reports. 'cf_value' \
+        \is what one unit of the flow adds to the score. A score that is not a \
+        \weighted sum of its indicators has no such split and is refused."
+            <> webUrlTip "contributing-flows"
+    GetScoreContributingActivities ->
+        "LCA / ACV: identify which upstream activities contribute most to one \
+        \score of a scoring set (see list_scoring_sets). Answers 'which \
+        \suppliers drive my single score?'. An activity's contribution is the \
+        \weighted sum of its contributions to each indicator, so the \
+        \contributions add up to the score score_activity reports. Each \
+        \activity carries a 'web_url' deep link to its page in the VoLCA web \
+        \UI: render these as clickable markdown links when presenting results \
+        \to a human. A score that is not a weighted sum of its indicators has \
+        \no such split and is refused."
     ListGeographies ->
         "LCA / ACV: list all geography codes present in a database, with display \
         \names and parent regions. Use the 'geo' value as the geography filter in \
@@ -728,6 +756,16 @@ pCollection =
         \versions); otherwise the single match is used, and an ambiguous UUID \
         \fails with the list of collections to choose from."
 
+-- | The collection a scoring set is configured on.
+pScoreCollection :: Param
+pScoreCollection = Param "collection" "string" Required "Method collection name the scoring set is configured on (from list_scoring_sets)"
+
+pScoringSet :: Param
+pScoringSet = Param "scoring_set" "string" Required "Scoring set name (from list_scoring_sets)"
+
+pScore :: Param
+pScore = Param "score" "string" Required "Name of one score of that scoring set (from list_scoring_sets)"
+
 pLimit :: Text -> Param
 pLimit = Param "limit" "integer" Optional
 
@@ -947,6 +985,24 @@ params r = case r of
         , pProcessId
         , Param "method_id" "string" Required "Method UUID for the impact category"
         , pCollection
+        , pLimit "Max processes to return, sorted by contribution (default 10)"
+        , pExcludeLongTerm
+        ]
+    GetScoreContributingFlows ->
+        [ pDatabase
+        , pProcessId
+        , pScoreCollection
+        , pScoringSet
+        , pScore
+        , pLimit "Max flows to return, sorted by contribution (default 20)"
+        , pExcludeLongTerm
+        ]
+    GetScoreContributingActivities ->
+        [ pDatabase
+        , pProcessId
+        , pScoreCollection
+        , pScoringSet
+        , pScore
         , pLimit "Max processes to return, sorted by contribution (default 10)"
         , pExcludeLongTerm
         ]

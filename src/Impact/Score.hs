@@ -16,6 +16,7 @@ module Impact.Score (
     ResolvedScore,
     ScoreRefusal (..),
     Source (..),
+    refusalMessage,
     resolveScore,
     scoreTitle,
     scoreUnit,
@@ -66,6 +67,12 @@ data ScoreRefusal
       Unsplittable Text
     | -- | An indicator could not be scored.
       ScoringFailed Text
+
+-- | What the refusal says, for a surface that has one way to say no.
+refusalMessage :: ScoreRefusal -> Text
+refusalMessage (UnknownScore msg) = msg
+refusalMessage (Unsplittable msg) = msg
+refusalMessage (ScoringFailed msg) = msg
 
 {- | Find the score and the method behind each of its indicators. An indicator
 the collection does not hold, or holds twice, is refused: scored as zero it

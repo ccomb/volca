@@ -9,6 +9,7 @@ both, and publishing one in the other's place would compile and serialise just
 as well. These specs pin each surface on a fixture where the two differ: the
 sample database's product D emits 2 kg of fossil carbon dioxide and the method
 gives that flow a factor of 27, so the factor is 27 and the contribution 54.
+A single score weighing that indicator twice reads 54 per kilogram and 108.
 -}
 module FlowContributionSpec (spec) where
 
@@ -28,7 +29,7 @@ import Servant (errBody, errHTTPCode, runHandler)
 import Test.Hspec
 
 import API.MCP (callTool, noRequestId)
-import API.Routes (getActivityLCIA, getContributingFlows, postImpactsBatch)
+import API.Routes (getActivityLCIA, getContributingFlows, getScoreContributingFlows, postImpactsBatch)
 import API.Types (
     BatchImpactsEntry (..),
     BatchImpactsRequest (..),
@@ -41,7 +42,7 @@ import API.Types (
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), addDatabase, initDatabaseManager, loadDatabase)
-import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..))
+import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Types (AllocationKey (..), GeographyPolicy (..))
 
 -- | The factor and the contribution, in that order, as every surface reports them.
@@ -84,6 +85,25 @@ climateChange =
 methodIdText :: Text
 methodIdText = UUID.toText (methodId climateChange)
 
+-- | What each surface must report for that flow's part of the single score.
+expectedInScore :: [FactorAndContribution]
+expectedInScore = [(54, 108)]
+
+-- | A single score weighing climate change twice.
+singleScore :: ScoringSet
+singleScore =
+    ScoringSet
+        { ssName = "Single"
+        , ssUnit = "Pts"
+        , ssVariables = M.fromList [("cc", "Climate change")]
+        , ssComputed = M.empty
+        , ssLabels = M.empty
+        , ssNormalization = M.empty
+        , ssWeighting = M.fromList [("cc", 2)]
+        , ssScores = M.fromList [("total", "cc")]
+        , ssDisplayMultiplier = Nothing
+        }
+
 -- | The four-activity fixture, as a database the manager can load.
 sampleConfig :: DatabaseConfig
 sampleConfig =
@@ -113,7 +133,7 @@ loadedManager = do
     loadDatabase manager "sample" >>= either (fail . T.unpack) (const (pure ()))
     atomically $
         modifyTVar' (dmLoadedMethods manager) $
-            M.insert collectionName (MethodCollection [climateChange] [] [] [])
+            M.insert collectionName (MethodCollection [climateChange] [] [] [singleScore])
     pure manager
 
 -- | Run a REST handler against that manager, failing the test on an error status.
@@ -188,3 +208,11 @@ spec = describe "a contributing flow's factor and contribution" $ do
 
     it "land in their own fields in the MCP get_impacts reply" $
         mcpRows "get_impacts" [("top_flows", Number 5)] `shouldReturn` expected
+
+    it "land in their own fields in the REST contributing flows of a single score" $ do
+        result <- runOk (getScoreContributingFlows "sample" productD (CollectionName collectionName) "Single" "total" Nothing Nothing)
+        restRows (cfrTopFlows result) `shouldBe` expectedInScore
+
+    it "land in their own fields in the MCP get_score_contributing_flows reply" $
+        mcpRows "get_score_contributing_flows" [("scoring_set", String "Single"), ("score", String "total")]
+            `shouldReturn` expectedInScore
