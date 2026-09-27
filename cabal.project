@@ -23,3 +23,9 @@ package *
 -- Our schema code builds `properties` with the plain type, so the two no longer
 -- meet. Hold the old library until that code moves to openapi3's compat module.
 constraints: insert-ordered-containers < 0.3
+
+-- crypton 2.x routes RSA through s2n-bignum's x86-64 assembly, which Apple's
+-- assembler rejects ("unknown token in expression" in bignum_emontredc_8n.S),
+-- so a macOS Intel build that resolves afresh fails. Hold the 1.x series until
+-- an upstream release assembles there.
+constraints: crypton < 2
