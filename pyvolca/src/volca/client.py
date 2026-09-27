@@ -2248,6 +2248,59 @@ class Client:
             limit=limit,
         ))
 
+    def get_score_contributing_flows(
+        self,
+        process_id: str,
+        collection: str,
+        scoring_set: str,
+        score: str,
+        *,
+        limit: int | None = None,
+    ) -> ContributingFlows:
+        """Which elementary flows drive one score of a scoring set.
+
+        A flow's contribution is the weighted sum of its contributions to each
+        indicator, so the contributions add up to the score, in the set's
+        unit. A row's factor is what one unit of the flow adds to the score,
+        and its ``match_kind`` is ``None``: a single score weighs several
+        factors into one. A score that is not a weighted sum of its indicators
+        has no such split, and the engine refuses it.
+        """
+        return ContributingFlows.from_json(
+            self._call(
+                "get_score_contributing_flows",
+                process_id=process_id,
+                collection=collection,
+                scoring_set=scoring_set,
+                score=score,
+                limit=limit,
+            )
+        )
+
+    def get_score_contributing_activities(
+        self,
+        process_id: str,
+        collection: str,
+        scoring_set: str,
+        score: str,
+        *,
+        limit: int | None = None,
+    ) -> ContributingActivities:
+        """Which upstream activities drive one score of a scoring set.
+
+        Same split as :meth:`get_score_contributing_flows`: an activity's
+        contribution is the weighted sum of its contributions to each
+        indicator, and the contributions add up to the score.
+        """
+        return ContributingActivities.from_json(self._call(
+            "get_score_contributing_activities",
+            process_id=process_id,
+            collection=collection,
+            scoring_set=scoring_set,
+            score=score,
+            limit=limit,
+        ))
+
     # -- Method collections --
     #
     # A method collection is an uploaded ILCD method file staged and loaded

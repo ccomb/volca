@@ -304,7 +304,7 @@ class FlowContribution(FromJson):
     category: str  # e.g. "air/urban air"
     cf_value: float = 0.0  # the factor the score applied; effective (contribution / quantity) where factors depend on location
     compartment: str | None = None
-    match_kind: str | None = None  # how the factor was found; None when no factor in the method reaches this flow
+    match_kind: str | None = None  # how the factor was found; None when no factor in the method reaches this flow, and on every row of a single score
 
 
 @dataclass

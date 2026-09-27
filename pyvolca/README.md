@@ -860,6 +860,25 @@ Returns a PathResult whose path is ordered root → target. Each step
 includes cumulative_quantity, scaling_factor, and (except the root)
 local_step_ratio.
 
+##### `Client.get_score_contributing_activities(process_id: str, collection: str, scoring_set: str, score: str, *, limit: int | None = None) -> ContributingActivities`
+
+Which upstream activities drive one score of a scoring set.
+
+Same split as `get_score_contributing_flows`: an activity's
+contribution is the weighted sum of its contributions to each
+indicator, and the contributions add up to the score.
+
+##### `Client.get_score_contributing_flows(process_id: str, collection: str, scoring_set: str, score: str, *, limit: int | None = None) -> ContributingFlows`
+
+Which elementary flows drive one score of a scoring set.
+
+A flow's contribution is the weighted sum of its contributions to each
+indicator, so the contributions add up to the score, in the set's
+unit. A row's factor is what one unit of the flow adds to the score,
+and its ``match_kind`` is ``None``: a single score weighs several
+factors into one. A score that is not a weighted sum of its indicators
+has no such split, and the engine refuses it.
+
 ##### `Client.get_setup(db_name: str | None = None) -> dict`
 
 Setup status of a staged or loaded database (``DatabaseSetupInfo``).

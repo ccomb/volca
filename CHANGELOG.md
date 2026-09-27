@@ -15,7 +15,11 @@
   whose formula is not a weighted sum of its indicators (a product of two, a
   constant term) has no such parts and is refused with a 422 that says so.
   A single score's flow rows carry no `matchKind`, since there is no one way
-  its factor was found. Wire revision 28.
+  its factor was found. Wire revision 28. The assistant tools
+  `get_score_contributing_flows` and `get_score_contributing_activities`
+  give the same answer, and pyvolca calls them through
+  `Client.get_score_contributing_flows` and
+  `Client.get_score_contributing_activities`.
 
 ### Fixed
 

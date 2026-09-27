@@ -448,6 +448,8 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `list_scoring_sets` | List formula-based scoring sets configured on every loaded method collection |
 | `get_contributing_flows` | Top biosphere flows contributing to an LCIA score |
 | `get_contributing_activities` | Top upstream activities contributing to an LCIA score |
+| `get_score_contributing_flows` | Top biosphere flows contributing to one score of a scoring set |
+| `get_score_contributing_activities` | Top upstream activities contributing to one score of a scoring set |
 | `get_flow_mapping` | CF-to-flow mapping coverage for a method |
 | `get_characterization` | Characterization factors for a flow under a method |
 

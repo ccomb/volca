@@ -42,6 +42,8 @@ WRAPPER_OPERATIONS = [
     "get_characterization",
     "get_contributing_flows",
     "get_contributing_activities",
+    "get_score_contributing_flows",
+    "get_score_contributing_activities",
     "compute_sensitivity",
     "score_activities",
 ]

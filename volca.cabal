@@ -49,6 +49,7 @@ library
                      , Service.Aggregate
                      , Service.Compare
                      , Impact
+                     , Impact.Score
                      , Tree
                      , Matrix
                      , Matrix.Export

@@ -39,6 +39,8 @@ import Database.Edit (deriveDatabase, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
 import qualified Impact
+import Impact.Score (ScoreRef (..), Source (..))
+import qualified Impact.Score as Score
 
 import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
@@ -517,6 +519,8 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "explain_cf" -> callExplainCF dbManager mBaseUrl rid args
     "get_contributing_flows" -> callGetContributingFlows dbManager mBaseUrl rid args
     "get_contributing_activities" -> callGetContributingActivities dbManager mBaseUrl rid args
+    "get_score_contributing_flows" -> callGetScoreContributingFlows dbManager mBaseUrl rid args
+    "get_score_contributing_activities" -> callGetScoreContributingActivities dbManager mBaseUrl rid args
     "list_geographies" -> callListGeographies dbManager rid args
     "list_classifications" -> withDb dbManager rid args $ callListClassifications rid args
     "get_path_to" -> withDb dbManager rid args $ callGetPathTo rid args
@@ -1888,15 +1892,14 @@ mkMcpCrossDBEntry ::
     Text ->
     -- | base URL (Nothing when no frontend is bundled)
     Maybe Text ->
-    DM.CollectionName ->
-    -- | method UUID text
-    Text ->
+    -- | the page of this view for a row, from the row's process id
+    (Text -> Text) ->
     UnitDB ->
     -- | total score (for share %)
     Double ->
     ((Text, ProcessId), Double) ->
     IO Value
-mkMcpCrossDBEntry dbManager rootDbName mBaseUrl colName methodIdText unitDB score ((depDbName, pid), c) = do
+mkMcpCrossDBEntry dbManager rootDbName mBaseUrl viewPath unitDB score ((depDbName, pid), c) = do
     mLd <- getDatabase dbManager depDbName
     let (actName, actLoc, prodName, pidText) = case mLd of
             Just ld ->
@@ -1911,18 +1914,7 @@ mkMcpCrossDBEntry dbManager rootDbName mBaseUrl colName methodIdText unitDB scor
                  in (maybe "" activityName mAct, maybe "" activityLocation mAct, pn, txt)
             Nothing ->
                 ("", "", "", depDbName <> "::<unloaded>")
-        webUrlPair =
-            webUrlField
-                mBaseUrl
-                ( "/db/"
-                    <> rootDbName
-                    <> "/activity/"
-                    <> pidText
-                    <> "/contributing-activities/"
-                    <> encodeSegment (DM.unCollectionName colName)
-                    <> "/"
-                    <> methodIdText
-                )
+        webUrlPair = webUrlField mBaseUrl (viewPath pidText)
     pure $
         object $
             [ "process_id" .= pidText
@@ -2134,7 +2126,8 @@ callGetContributingActivities dbManager mBaseUrl rid args =
             sorted = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
             top = take lim sorted
             hasNeg = any (\(_, c) -> c < 0) top
-        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl (lrCollection req) (lrMethodIdText req) mUnits score) top
+            viewPath pidText = "/db/" <> dbName <> "/activity/" <> pidText <> "/contributing-activities/" <> encodeSegment (DM.unCollectionName (lrCollection req)) <> "/" <> lrMethodIdText req
+        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl viewPath mUnits score) top
         pure $
             toolSuccessJson rid $
                 object
@@ -2142,6 +2135,125 @@ callGetContributingActivities dbManager mBaseUrl rid args =
                     , "unit" .= methodUnit method
                     , "total_score" .= score
                     , "has_negative_contributions" .= hasNeg
+                    , "processes" .= rows
+                    ]
+
+-- | One score of a scoring set, with the activity it is asked of, solved.
+data ScoreRequest = ScoreRequest
+    { scrSource :: !Source
+    , scrActivity :: !ResolvedActivity
+    , scrRef :: !ScoreRef
+    , scrScore :: !Score.ResolvedScore
+    , scrSolution :: !SharedSolver.CrossDBSolution
+    }
+
+-- | The two ways a score is broken down, as the web UI names its tabs.
+data ContributionTab = ByFlow | ByActivity
+
+loadScoreRequest :: DatabaseManager -> KeyMap Value -> ExceptT Text IO ScoreRequest
+loadScoreRequest dbManager args = do
+    (dbName, pidText, collName, ref) <-
+        except $
+            (,,,)
+                <$> requireText "database" args
+                <*> requireText "process_id" args
+                <*> requireText "collection" args
+                <*> (ScoreRef <$> requireText "scoring_set" args <*> requireText "score" args)
+    ld <- requireDatabase dbManager dbName
+    loaded <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
+    mc <- maybe (throwE (collectionNotLoadedMessage collName (M.keys loaded))) pure (M.lookup collName loaded)
+    rs <- except (first Score.refusalMessage (Score.resolveScore (mcMethods mc) (mcScoringSets mc) ref))
+    (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
+    except $ ensureLinked dbName "computing contributions" (ldDatabase ld)
+    unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+    solved <-
+        ExceptT $
+            computeInventoryMatrixWithDepsCached
+                unitCfg
+                (DM.mkDepSolverLookup dbManager)
+                (ldDatabase ld)
+                dbName
+                (ldSharedSolver ld)
+                pid
+    sol <- liftIO (Impact.withLongTermPolicy dbManager (longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))) solved)
+    pure
+        ScoreRequest
+            { scrSource = Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = ldDatabase ld, srcCollection = DM.CollectionName collName}
+            , scrActivity = ResolvedActivity pidText pid act
+            , scrRef = ref
+            , scrScore = rs
+            , scrSolution = sol
+            }
+
+{- | The web UI page that shows this breakdown for an activity, named by its
+process id: the Impacts page, on the tab and the score its fragment names.
+-}
+scoreViewPath :: ScoreRequest -> ContributionTab -> Text -> Text
+scoreViewPath req tab pidText =
+    "/db/"
+        <> srcDbName (scrSource req)
+        <> "/activity/"
+        <> pidText
+        <> "/impacts/"
+        <> encodeSegment (DM.unCollectionName (srcCollection (scrSource req)))
+        <> "#"
+        <> tabSegment
+        <> "/score/"
+        <> encodeSegment (srSet (scrRef req))
+        <> "/"
+        <> encodeSegment (srScore (scrRef req))
+  where
+    tabSegment :: Text
+    tabSegment = case tab of
+        ByFlow -> "contributing-flows"
+        ByActivity -> "contributing-activities"
+
+callGetScoreContributingFlows :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
+callGetScoreContributingFlows dbManager mBaseUrl rid args =
+    runTool rid $ do
+        req <- loadScoreRequest dbManager args
+        (score, contribs) <- ExceptT (first Score.refusalMessage <$> Score.flowParts "MCP get_score_contributing_flows" (scrSource req) (scrScore req) (scrSolution req))
+        let top = take (fromMaybe 20 (intArg "limit" args)) (L.sortOn (negate . abs . fcContribution) contribs)
+        pure $
+            toolSuccessJson rid $
+                object $
+                    [ "method" .= Score.scoreTitle (scrScore req)
+                    , "unit" .= Score.scoreUnit (scrScore req)
+                    , "total_score" .= score
+                    , "has_negative_contributions" .= any ((< 0) . fcContribution) contribs
+                    , "top_flows"
+                        .= [ object
+                                [ "flow_name" .= bfName f
+                                , "contribution" .= c
+                                , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
+                                , "flow_id" .= UUID.toText (bfId f)
+                                , "category" .= bfCompartmentName f
+                                , "compartment" .= bfCompartmentSub f
+                                , "cf_value" .= cfVal
+                                ]
+                           | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- top
+                           ]
+                    ]
+                        ++ webUrlField mBaseUrl (scoreViewPath req ByFlow (raText (scrActivity req)))
+
+callGetScoreContributingActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
+callGetScoreContributingActivities dbManager mBaseUrl rid args =
+    runTool rid $ do
+        req <- loadScoreRequest dbManager args
+        contributions <- ExceptT (first Score.refusalMessage <$> Score.activityParts (scrSource req) (scrScore req) (scrSolution req))
+        (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        -- The terms of the score, so their sum is it.
+        let score = sum (M.elems contributions)
+            top = take (fromMaybe 10 (intArg "limit" args)) (L.sortOn (negate . abs . snd) (M.toList contributions))
+            dbName = srcDbName (scrSource req)
+        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl (scoreViewPath req ByActivity) mUnits score) top
+        pure $
+            toolSuccessJson rid $
+                object
+                    [ "method" .= Score.scoreTitle (scrScore req)
+                    , "unit" .= Score.scoreUnit (scrScore req)
+                    , "total_score" .= score
+                    , "has_negative_contributions" .= any ((< 0) . snd) top
                     , "processes" .= rows
                     ]
 
