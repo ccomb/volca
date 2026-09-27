@@ -17,6 +17,7 @@ module API.MCP.Enrich (
     -- * URL helpers
     encodeSegment,
     impactsPath,
+    sensitivityPath,
     scoreActivityWebUrl,
 
     -- * web_url enrichment
@@ -88,12 +89,20 @@ overArray f = \case
 encodeSegment :: Text -> Text
 encodeSegment = T.pack . escapeURIString isUnreserved . T.unpack
 
-{- | The web UI's Impacts page of an activity, on a collection; a fragment
-appended to it names the tab and the indicator. Every segment is
-percent-encoded, so a name holding @/@ or @?@ does not fracture the path.
+{- | A page of the web UI about an activity, on a collection. Every segment
+is percent-encoded, so a name holding @/@ or @?@ does not fracture the path.
 -}
+activityPagePath :: Text -> Text -> Text -> CollectionName -> Text
+activityPagePath page dbName pidText coll =
+    "/db/" <> encodeSegment dbName <> "/activity/" <> encodeSegment pidText <> "/" <> page <> "/" <> encodeSegment (unCollectionName coll)
+
+-- | The Impacts page; a fragment appended to it names the tab and the indicator.
 impactsPath :: Text -> Text -> CollectionName -> Text
-impactsPath dbName pidText coll = "/db/" <> encodeSegment dbName <> "/activity/" <> encodeSegment pidText <> "/impacts/" <> encodeSegment (unCollectionName coll)
+impactsPath = activityPagePath "impacts"
+
+-- | The sensitivity page; a method id appended to it names the indicator it opens on.
+sensitivityPath :: Text -> Text -> CollectionName -> Text
+sensitivityPath = activityPagePath "sensitivity"
 
 {- | Activity-level impacts page URL (the LCIA batch view in the web UI).
 
