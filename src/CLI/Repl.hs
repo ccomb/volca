@@ -178,8 +178,8 @@ keepSession run = do
 
 {- | Split a REPL line into arguments the way a shell does, so that
 @activities --name "tomato juice"@ passes one name and not two words.
-Double and single quotes group; a quote of either kind stands literally
-inside the other. Backslash is not an escape: it is a path separator on
+Double and single quotes group where an argument or an option's value
+begins, and stand literally inside a word or inside the other kind. Backslash is not an escape: it is a path separator on
 Windows, and a REPL argument can be a file path. A quote
 left open has no one reading, so the line is refused rather than run.
 -}
@@ -197,8 +197,16 @@ replArgs = between []
     word done cur [] = Right (reverse (reverse cur : done))
     word done cur (c : rest)
         | isSpace c = between (reverse cur : done) rest
-        | c == '"' || c == '\'' = quoted c done cur rest
+        | c == '"' || c == '\'', opensQuote cur = quoted c done cur rest
         | otherwise = word done (c : cur) rest
+
+    -- A quote opens only where an argument or an option's value begins, so
+    -- the apostrophe inside @d'orange@ stays a letter of the name.
+    opensQuote :: String -> Bool
+    opensQuote cur = case cur of
+        [] -> True
+        '=' : _ -> True
+        _ -> False
 
     quoted :: Char -> [String] -> String -> String -> Either String [String]
     quoted q done cur s = case break (== q) s of

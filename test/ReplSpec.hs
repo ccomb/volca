@@ -44,6 +44,9 @@ spec = do
         it "splits on any run of blanks, as before" $
             replArgs "  flow   abc \t activities " `shouldBe` Right ["flow", "abc", "activities"]
 
+        it "reads an apostrophe inside a word as a letter" $
+            replArgs "activities --name d'orange" `shouldBe` Right ["activities", "--name", "d'orange"]
+
         it "refuses a quote left open" $
             replArgs "activities --name \"tomato" `shouldBe` Left "Unterminated \" quote."
 
