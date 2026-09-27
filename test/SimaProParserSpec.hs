@@ -1689,6 +1689,14 @@ spec = do
             fmap bfUnitId (M.lookup (exchangeFlowId resource) bioFlows)
                 `shouldBe` Just (generateUnitUUID "MJ")
 
+        it "names the same flow and units when several flows are written in units no conversion relates" $ do
+            refused <- withSystemTempFile "two-refused-flows.csv" $ \path handle -> do
+                BS.hPut handle twoRefusedFlowsCSV
+                hClose handle
+                parseSimaProCSV mixedUnitConfig path
+            either Just (const Nothing) refused
+                `shouldBe` Just "flow 'Beta feedstock' is written in two units that no conversion relates ('MJ' and 'kg'), so they cannot be one flow"
+
     describe "what a process identifier is made of" $ do
         let processIds = map (\a -> (generateActivityUUID a, getReferenceProductUUID a))
             oneBlock spelling =
@@ -2126,6 +2134,41 @@ mixedUnitsCSV =
         , ""
         , "Resources"
         , "Energy, from nature;;kWh;1;Undefined;;;;;;"
+        , ""
+        , "End"
+        ]
+
+{- | Two flows, each written once in kg and once in MJ, which no conversion
+relates. The parser refuses the file at the first conflict it meets, so the
+message says which flow, and which of its two units, the gathering puts first.
+-}
+twoRefusedFlowsCSV :: BS.ByteString
+twoRefusedFlowsCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Two refused flows {FR} U"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Products"
+        , "Two refused flows {FR} U;kg;1.0;100;not defined;material;"
+        , ""
+        , "Materials/fuels"
+        , "Alpha feedstock;kg;1;Undefined;;;;;;"
+        , "Alpha feedstock;MJ;1;Undefined;;;;;;"
+        , "Beta feedstock;kg;1;Undefined;;;;;;"
+        , "Beta feedstock;MJ;1;Undefined;;;;;;"
         , ""
         , "End"
         ]
