@@ -153,3 +153,9 @@ spec = do
         it "keeps a value with a line break on its own row" $
             table (arr [object ["comment" .= T.pack "first\nsecond", "unit" .= T.pack "kg"]])
                 `shouldBe` unlines ["comment      | unit", "-------------+-----", "first second | kg"]
+
+        it "says the rows are there when none has a field to show" $
+            table (arr [object ["note" .= Null]]) `shouldBe` "1 row, every field empty\n"
+
+        it "leaves out an object with nothing in it to show" $
+            table (object ["unit" .= T.pack "kg", "meta" .= object ["note" .= Null]]) `shouldBe` "unit  kg\n"

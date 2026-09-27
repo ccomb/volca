@@ -167,12 +167,12 @@ indent :: String -> String
 indent "" = ""
 indent line = "  " ++ line
 
--- | A null or an empty object says nothing, so it takes no line.
+-- | A null, or an object with nothing in it to show, takes no line.
 fieldShown :: String -> Value -> Maybe Field
 fieldShown name v = case v of
     Null -> Nothing
     Object o
-        | KM.null o -> Nothing
+        | null (objectLines o) -> Nothing
         | otherwise -> Just (Block name (objectLines o))
     Array arr
         | V.null arr -> Just (Inline "none")
@@ -216,7 +216,9 @@ unset for any given database.
 -}
 rowsLines :: [Value] -> [String]
 rowsLines [] = ["none"]
-rowsLines rows = formatTable (filter (not . all null . columnCells) columns)
+rowsLines rows = case filter (not . all null . columnCells) columns of
+    [] -> [show (length rows) <> (if length rows == 1 then " row" else " rows") <> ", every field empty"]
+    shown -> formatTable shown
   where
     flat :: [[(Text, Value)]]
     flat = map flatRow rows
