@@ -356,6 +356,7 @@ test-suite lca-tests
                      , ClassificationFilterSpec
                      , CopySpec
                      , CompareSpec
+                     , ReferenceProductSpec
                      , DeriveSpec
                      , SourceBlockSpec
                      , AuthorSpec

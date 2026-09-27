@@ -1889,7 +1889,7 @@ mkMcpCrossDBEntry dbManager rootDbName mBaseUrl colName methodIdText unitDB scor
                             then processIdToText d pid
                             else qualifyRef depDbName (processIdToText d pid)
                     -- Reference products are technosphere; pull the supplier's tech flow map.
-                    (pn, _, _) = maybe ("", 0, "") (Service.getReferenceProductInfo (dbTechFlows d) unitDB) mAct
+                    pn = maybe "" Service.rpName (mAct >>= Service.referenceProductOf (dbTechFlows d) unitDB)
                  in (maybe "" activityName mAct, maybe "" activityLocation mAct, pn, txt)
             Nothing ->
                 ("", "", "", depDbName <> "::<unloaded>")
