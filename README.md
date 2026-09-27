@@ -90,7 +90,7 @@ volca --config volca.toml server --port 8080
 # In another terminal – all commands talk to the server via HTTP
 volca --config volca.toml activities --name "electricity" --geo "FR"
 volca --config volca.toml --db agribalyse inventory "12345678-..."
-volca --config volca.toml --db agribalyse impacts "12345678-..." --method METHOD_UUID
+volca --config volca.toml --db agribalyse impacts "12345678-..." --method "Climate change"
 ```
 
 ### Interactive REPL
@@ -104,7 +104,7 @@ volca --config volca.toml repl
 # volca> use agribalyse
 # volca[agribalyse]> inventory UUID
 # volca[agribalyse]> :format table
-# volca[agribalyse]> impacts UUID --method METHOD_UUID
+# volca[agribalyse]> impacts UUID --method "Climate change"
 # volca[agribalyse]> :help
 # volca[agribalyse]> :quit
 ```
@@ -501,8 +501,12 @@ volca activity "12345678-..."
 # Life cycle inventory
 volca inventory "12345678-..."
 
-# Impact assessment (--method takes a method UUID, not a file path)
-volca impacts "12345678-..." --method METHOD_UUID
+# Impact assessment. --method names a loaded method by UUID or name, or a
+# collection, whose every method is then scored
+volca impacts "12345678-..." --method "Climate change"
+volca impacts "12345678-..." --method EF-3.1
+# ... and --collection picks among collections carrying the same method
+volca impacts "12345678-..." --method "Climate change" --collection EF-3.1
 
 # Matrix export (Ecoinvent universal format – runs locally, not via HTTP)
 volca export-matrices ./output_dir
@@ -598,8 +602,8 @@ volca method delete ef-31                        # delete
 | Path to target | `GET /db/{db}/activity/{id}/path-to?target=` | – |
 | Aggregate | `GET /db/{db}/activity/{id}/aggregate` | – |
 | Life cycle inventory | `GET\|POST /db/{db}/activity/{id}/inventory` | `inventory ID` |
-| LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | – |
-| LCIA single method | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}/{methodId}` | `impacts ID --method METHOD_UUID` |
+| LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | `impacts ID --method COLLECTION` |
+| LCIA single method | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}/{methodId}` | `impacts ID --method METHOD` |
 | LCIA batch over many activities | `POST /db/{db}/impacts/{collection}` | – |
 | Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | – |
 | Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | – |

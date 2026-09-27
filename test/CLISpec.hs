@@ -11,8 +11,11 @@ import Options.Applicative (
 import System.Exit (ExitCode (..))
 import Test.Hspec
 
+import CLI.Client (ImpactTarget (..), MethodRow (..), resolveImpactTarget)
 import CLI.Parser (cliParserInfo)
 import CLI.Types
+import Data.Either (isLeft)
+import qualified Data.Text as T
 
 -- Parse argv and return either the parsed config (Right) or the failure summary (Left).
 runParse :: [String] -> Either String CLIConfig
@@ -242,7 +245,7 @@ spec = do
             case cmd of
                 Impacts uuid opts -> do
                     uuid `shouldBe` "abc-123"
-                    lciaMethodId opts `shouldBe` "method-uuid"
+                    lciaMethod opts `shouldBe` "method-uuid"
                 _ -> expectationFailure ("Unexpected command: " <> show cmd)
 
     describe "rejection" $ do
@@ -265,3 +268,43 @@ spec = do
             case runParse ["impacts", "abc"] of
                 Left _ -> pure ()
                 Right _ -> expectationFailure "Expected parse failure (missing --method)"
+
+    describe "what impacts --method names" $ do
+        let land = MethodRow "31aa" "Land occupied" "plain-indicators"
+            water = MethodRow "6f11" "Water used" "plain-indicators"
+            climate = MethodRow "c1c1" "Climate change" "EF-3.1"
+            rows = [land, water, climate]
+
+        it "takes a method by its UUID" $
+            resolveImpactTarget Nothing "6f11" rows `shouldBe` Right (OneMethod water)
+
+        it "takes a method by its name, whatever the case" $
+            resolveImpactTarget Nothing "climate CHANGE" rows `shouldBe` Right (OneMethod climate)
+
+        it "takes a collection by its name, to score every method in it" $
+            resolveImpactTarget Nothing "EF-3.1" rows `shouldBe` Right (WholeCollection "EF-3.1")
+
+        it "refuses a name two collections carry, naming both" $
+            case resolveImpactTarget Nothing "Climate change" (rows ++ [MethodRow "c2c2" "Climate change" "EF-3.0"]) of
+                Left err -> do
+                    err `shouldSatisfy` T.isInfixOf "EF-3.0"
+                    err `shouldSatisfy` T.isInfixOf "EF-3.1"
+                    err `shouldSatisfy` T.isInfixOf "--collection"
+                Right t -> expectationFailure ("expected a refusal, got " <> show t)
+
+        it "refuses a name shared by a method and a collection" $
+            resolveImpactTarget Nothing "EF-3.1" (rows ++ [MethodRow "e5e5" "EF-3.1" "custom"]) `shouldSatisfy` isLeft
+
+        it "lists the collections when nothing matches" $
+            resolveImpactTarget Nothing "nope" rows `shouldBe` Left "No loaded method or collection is called \"nope\". Collections: plain-indicators, EF-3.1"
+
+        it "says no collection is loaded rather than listing none" $
+            resolveImpactTarget Nothing "Climate change" [] `shouldBe` Left "No method collection is loaded."
+
+        it "takes the one of two same-named methods --collection names" $
+            resolveImpactTarget (Just "ef-3.0") "Climate change" (rows ++ [MethodRow "c2c2" "Climate change" "EF-3.0"])
+                `shouldBe` Right (OneMethod (MethodRow "c2c2" "Climate change" "EF-3.0"))
+
+        it "refuses a --collection that is not loaded, listing those that are" $
+            resolveImpactTarget (Just "EF-9") "Climate change" rows
+                `shouldBe` Left "No loaded collection is called \"EF-9\". Collections: plain-indicators, EF-3.1"

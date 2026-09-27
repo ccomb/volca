@@ -237,8 +237,9 @@ data SearchFlowsOptions = SearchFlowsOptions
 -- | Synonym command types removed - now top-level commands
 
 -- | LCIA computation options
-newtype LCIAOptions = LCIAOptions
-    { lciaMethodId :: Text -- Method UUID (methods loaded on server)
+data LCIAOptions = LCIAOptions
+    { lciaMethod :: Text -- A method's UUID or name, or a collection's name
+    , lciaCollection :: Maybe Text -- --collection: look for the method in this collection only
     }
     deriving (Eq, Show, Generic)
 

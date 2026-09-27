@@ -386,7 +386,7 @@ printHelp = do
     putStrLn "  flow FLOW_ID [activities]   Flow info"
     putStrLn "  activities [--name X]       Search activities"
     putStrLn "  flows [--query X]           Search flows"
-    putStrLn "  impacts UUID --method M     Impact assessment (LCIA)"
+    putStrLn "  impacts UUID --method M     Impact assessment (LCIA): a method, by UUID or name, or a collection"
     putStrLn "  flow-mapping METHOD_UUID    Flow mapping coverage"
     putStrLn "  quality-report              What is malformed in the database"
     putStrLn "  computed-quality-report     What the database computes, judged against its own norms"

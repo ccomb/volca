@@ -23,6 +23,12 @@
 
 ### Fixed
 
+- `impacts --method` takes a method's name, or a collection's name to score
+  every method in it, as well as a method UUID. It took a UUID only, found by
+  listing the methods first, and answered "Method not found" to anything
+  else, including when the server could not be reached. A name is compared
+  without regard to case; one that several methods or collections carry is
+  refused with the candidates listed, and `--collection NAME` picks one.
 - The REPL reads quotes, so `activities --name "tomato juice"` searches for
   the name `tomato juice`. It split every line on blanks, which handed the
   parser `"tomato` and `juice"` as two arguments and turned the command down.

@@ -9,27 +9,30 @@ module CLI.Client (
     apiGet,
     apiPost,
     deleteSelectionBody,
+    MethodRow (..),
+    ImpactTarget (..),
+    resolveImpactTarget,
 ) where
 
 import CLI.Render (renderResult)
 import CLI.Types
 import Config (Config (..), ServerConfig (..), clientHost)
 import Control.Exception (IOException, try)
-import Data.Aeson (FromJSON, Value (..), decode, eitherDecode, encode, object, (.:), (.=))
+import Data.Aeson (FromJSON (..), Value (..), decode, eitherDecode, encode, object, (.:), (.=))
 import qualified Data.Aeson.KeyMap as KM
-import Data.Aeson.Types (Parser, parseEither, parseMaybe, withArray, withObject)
+import Data.Aeson.Types (Parser, parseEither, parseMaybe, withObject)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
+import Data.Containers.ListUtils (nubOrd)
 import Data.List (intercalate)
-import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as TIO
-import qualified Data.Vector as V
 import Network.HTTP.Client (
     HttpException (..),
     HttpExceptionContent (..),
@@ -47,6 +50,7 @@ import Network.HTTP.Client (
 import Network.HTTP.Types.Header (HeaderName)
 import Network.HTTP.Types.Status (statusCode)
 import Network.HTTP.Types.URI (urlDecode)
+import qualified Network.HTTP.Types.URI as URI
 import Progress (ProgressLevel (Warning), reportError, reportProgress)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
@@ -199,22 +203,11 @@ executeRemoteCommand mgr rc globalOpts cmd = do
             apiGet mgr rc (dbPath db ++ "/flows" ++ qs) >>= output fmt jp
         Impacts uuid lciaOpts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
-            let methodIdText = lciaMethodId lciaOpts
-            mCollection <- lookupMethodCollection mgr rc methodIdText
-            case mCollection of
-                Nothing -> reportError "Method not found in loaded collections" >> exitFailure
-                Just col ->
-                    apiGet
-                        mgr
-                        rc
-                        ( dbPath db
-                            ++ "/activity/"
-                            ++ T.unpack uuid
-                            ++ "/impacts/"
-                            ++ T.unpack col
-                            ++ "/"
-                            ++ T.unpack methodIdText
-                        )
+            methods <- apiGet mgr rc "/api/v1/methods"
+            case methods >>= parseEither parseJSON >>= either (Left . T.unpack) Right . resolveImpactTarget (lciaCollection lciaOpts) (lciaMethod lciaOpts) of
+                Left err -> reportError err >> exitFailure
+                Right target ->
+                    apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/impacts/" ++ impactPath target)
                         >>= output fmt jp
         FlowMapping opts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
@@ -248,22 +241,72 @@ executeRemoteCommand mgr rc globalOpts cmd = do
         -- and carrying on, rather than ending the session over it.
         Dump _ -> reportError "A dump command writes to stdout; run it outside the REPL."
 
--- | Look up the collection name for a given method UUID via /api/v1/methods
-lookupMethodCollection :: Manager -> RemoteConfig -> Text -> IO (Maybe Text)
-lookupMethodCollection mgr rc methodId = do
-    result <- apiGet mgr rc "/api/v1/methods"
-    return $ either (const Nothing) (parseMaybe go) result
+-- | One loaded method, as the method list names it.
+data MethodRow = MethodRow
+    { mrId :: Text
+    , mrName :: Text
+    , mrCollection :: Text
+    }
+    deriving (Eq, Show)
+
+instance FromJSON MethodRow where
+    parseJSON = withObject "method" $ \o -> MethodRow <$> o .: "id" <*> o .: "name" <*> o .: "collection"
+
+-- | What @impacts --method@ scores: one method, or every method of a collection.
+data ImpactTarget
+    = OneMethod MethodRow
+    | WholeCollection Text
+    deriving (Eq, Show)
+
+{- | Read what @--method@ names. A UUID names a method outright. Otherwise the
+text is a method's name or a collection's, compared without regard to case,
+since a name is what a person types. One candidate is taken; several are
+refused and listed, so that a method named like its collection, or one name
+carried by two collections, is never settled by list order. @--collection@
+settles it: the search then looks in that collection only.
+-}
+resolveImpactTarget :: Maybe Text -> Text -> [MethodRow] -> Either Text ImpactTarget
+resolveImpactTarget _ _ [] = Left "No method collection is loaded."
+resolveImpactTarget mCollection wanted rows = maybe (Right rows) scope mCollection >>= pick
   where
-    go :: Value -> Parser Text
-    go = withArray "methods" $ \arr ->
-        case mapMaybe (parseMaybe matchOne) (V.toList arr) of
-            (c : _) -> pure c
-            [] -> fail "method not found"
-    matchOne :: Value -> Parser Text
-    matchOne = withObject "method" $ \obj -> do
-        uuid <- obj .: "id"
-        col <- obj .: "collection"
-        if (uuid :: Text) == methodId then pure col else fail "no match"
+    collections :: Text
+    collections = T.intercalate ", " (nubOrd (map mrCollection rows))
+    scope :: Text -> Either Text [MethodRow]
+    scope c = case filter (same c . mrCollection) rows of
+        [] -> Left ("No loaded collection is called \"" <> c <> "\". Collections: " <> collections)
+        inside -> Right inside
+    pick :: [MethodRow] -> Either Text ImpactTarget
+    pick scoped = case candidates scoped of
+        [target] -> Right target
+        [] -> Left ("No loaded method or collection is called \"" <> wanted <> "\". Collections: " <> collections)
+        several ->
+            Left $
+                "\""
+                    <> wanted
+                    <> "\" could mean "
+                    <> T.intercalate ", or " (map describe several)
+                    <> maybe ". Name one with --collection." (const ".") mCollection
+    candidates :: [MethodRow] -> [ImpactTarget]
+    candidates scoped = case [OneMethod r | r <- scoped, mrId r == wanted] of
+        [] ->
+            [OneMethod r | r <- scoped, same wanted (mrName r)]
+                ++ [WholeCollection c | c <- nubOrd (map mrCollection scoped), same wanted c]
+        byId -> byId
+    same :: Text -> Text -> Bool
+    same a b = T.toCaseFold a == T.toCaseFold b
+    describe :: ImpactTarget -> Text
+    describe = \case
+        OneMethod r -> "the method " <> mrName r <> " (" <> mrId r <> ") of " <> mrCollection r
+        WholeCollection c -> "the collection " <> c
+
+-- | The part of an impacts route after @impacts/@.
+impactPath :: ImpactTarget -> String
+impactPath = \case
+    OneMethod r -> segment (mrCollection r) ++ "/" ++ segment (mrId r)
+    WholeCollection c -> segment c
+  where
+    segment :: Text -> String
+    segment = C8.unpack . URI.urlEncode False . T.encodeUtf8
 
 -- | Auto-detect the single loaded database, or use the specified one
 resolveDbName :: Manager -> RemoteConfig -> Maybe Text -> IO Text
