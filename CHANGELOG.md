@@ -23,6 +23,11 @@
 
 ### Fixed
 
+- `flow-mapping --matched` lists the database flows a factor reaches, with
+  that factor and how it matched, and `--uncharacterized` lists the flows no
+  factor reaches. Both options were read and then ignored: every call printed
+  the same summary. `--unmatched` is gone, since the summary already lists the
+  factors that found no flow.
 - `impacts --method` takes a method's name, or a collection's name to score
   every method in it, as well as a method UUID. It took a UUID only, found by
   listing the methods first, and answered "Method not found" to anything

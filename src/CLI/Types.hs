@@ -262,10 +262,18 @@ data DebugMatricesOptions = DebugMatricesOptions
 -- | Mapping command options
 data MappingOptions = MappingOptions
     { mappingMethodId :: Text -- Method UUID
-    , mappingShowMatched :: Bool -- --matched: list mapped CFs with strategy
-    , mappingShowUnmatched :: Bool -- --unmatched: list CFs with no DB match
-    , mappingShowUncharacterized :: Bool -- --uncharacterized: list DB flows with no CF
+    , mappingView :: MappingView
     }
+    deriving (Eq, Show, Generic)
+
+-- | What @flow-mapping@ lists besides its counts.
+data MappingView
+    = -- | The match counts, and the method's factors that found no database flow
+      MappingSummary
+    | -- | Each database flow a factor reaches, with that factor and how it matched (@--matched@)
+      MatchedFlows
+    | -- | Each database flow no factor reaches (@--uncharacterized@)
+      UncharacterizedFlows
     deriving (Eq, Show, Generic)
 
 {- | Complete CLI configuration

@@ -248,7 +248,17 @@ spec = do
                     lciaMethod opts `shouldBe` "method-uuid"
                 _ -> expectationFailure ("Unexpected command: " <> show cmd)
 
+        it "reads what `flow-mapping` lists" $ do
+            let parsed argv = parseCmd ("flow-mapping" : "m" : argv)
+                listing = FlowMapping . MappingOptions "m"
+            parsed [] `shouldReturn` listing MappingSummary
+            parsed ["--matched"] `shouldReturn` listing MatchedFlows
+            parsed ["--uncharacterized"] `shouldReturn` listing UncharacterizedFlows
+
     describe "rejection" $ do
+        it "rejects `flow-mapping` asked for two lists at once" $
+            runParse ["flow-mapping", "m", "--matched", "--uncharacterized"] `shouldSatisfy` isLeft
+
         it "rejects an unknown subcommand" $ do
             case runParse ["floop"] of
                 Left _ -> pure ()

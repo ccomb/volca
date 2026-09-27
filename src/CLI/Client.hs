@@ -18,7 +18,7 @@ import CLI.Render (renderResult)
 import CLI.Types
 import Config (Config (..), ServerConfig (..), clientHost)
 import Control.Exception (IOException, try)
-import Data.Aeson (FromJSON (..), Value (..), decode, eitherDecode, encode, object, (.:), (.=))
+import Data.Aeson (FromJSON (..), Value (..), decode, eitherDecode, encode, object, toJSON, (.:), (.=))
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Parser, parseEither, parseMaybe, withObject)
 import qualified Data.ByteString as BS
@@ -211,8 +211,7 @@ executeRemoteCommand mgr rc globalOpts cmd = do
                         >>= output fmt jp
         FlowMapping opts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
-            let methodId = T.unpack (mappingMethodId opts)
-            apiGet mgr rc (dbPath db ++ "/method/" ++ methodId ++ "/mapping") >>= output fmt jp
+            fetchMapping mgr rc (dbPath db ++ "/method/" ++ T.unpack (mappingMethodId opts)) (mappingView opts) >>= output fmt jp
         QualityReport mLimit -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             fetchReport mgr rc fmt jp (dbPath db ++ "/quality-report") (buildQuery [("limit", show <$> mLimit)])
@@ -307,6 +306,25 @@ impactPath = \case
   where
     segment :: Text -> String
     segment = C8.unpack . URI.urlEncode False . T.encodeUtf8
+
+{- | Fetch what one 'MappingView' shows. The summary is its own route; the two
+flow lists share the route that lists every database flow with its factor, and
+keep the flows that have one or the flows that have none.
+-}
+fetchMapping :: Manager -> RemoteConfig -> String -> MappingView -> IO (Either String Value)
+fetchMapping mgr rc methodPath = \case
+    MappingSummary -> apiGet mgr rc (methodPath ++ "/mapping")
+    MatchedFlows -> (>>= keepFlows hasFactor) <$> apiGet mgr rc (methodPath ++ "/flow-mapping")
+    UncharacterizedFlows -> (>>= keepFlows (not . hasFactor)) <$> apiGet mgr rc (methodPath ++ "/flow-mapping")
+  where
+    hasFactor :: KM.KeyMap Value -> Bool
+    hasFactor = maybe False (/= Null) . KM.lookup "cfValue"
+
+-- | Keep the entries of a flow-mapping response's @flows@ that pass the test.
+keepFlows :: (KM.KeyMap Value -> Bool) -> Value -> Either String Value
+keepFlows keep = parseEither $ withObject "flow mapping" $ \o -> do
+    flows <- o .: "flows"
+    pure (Object (KM.insert "flows" (toJSON (filter keep flows)) o))
 
 -- | Auto-detect the single loaded database, or use the specified one
 resolveDbName :: Manager -> RemoteConfig -> Maybe Text -> IO Text
