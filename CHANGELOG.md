@@ -19,6 +19,18 @@
 
 ### Fixed
 
+- The REPL reads quotes, so `activities --name "tomato juice"` searches for
+  the name `tomato juice`. It split every line on blanks, which handed the
+  parser `"tomato` and `juice"` as two arguments and turned the command down.
+  A quote left open is now refused with a message rather than run.
+- A command that fails in the REPL no longer ends the session. An identifier
+  mistyped, or a database that is not loaded, printed its error and then
+  closed the REPL, taking the history and the chosen database with it. The
+  error is printed and the prompt comes back.
+- A line the REPL cannot read says what is wrong with it: the missing
+  argument or the unknown option, and the usage of the command. It used to
+  answer "Unknown command" to all of them, including a known command with an
+  argument left out.
 - Quitting the REPL no longer stops a server someone else started. The REPL
   asks the server to shut down after ten idle seconds when it exits, so that a
   server it launched itself does not outlive the session while staying warm for

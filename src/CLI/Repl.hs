@@ -7,6 +7,12 @@ module CLI.Repl (
     ServerOwner (..),
     idleOnExit,
     replIdleTimeoutSeconds,
+
+    -- * Reading a line
+    replArgs,
+
+    -- * Running a line
+    keepSession,
 ) where
 
 import CLI.Client (RemoteConfig (..), apiGet, apiPost, executeRemoteCommand)
@@ -19,6 +25,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (Value, withObject, (.:))
 import qualified Data.Aeson
 import Data.Aeson.Types (parseMaybe)
+import Data.Char (isSpace)
 import Data.IORef
 import Data.List (isPrefixOf)
 import Data.Text (Text)
@@ -98,7 +105,7 @@ runRepl mgr rc globalOpts cfgFile = do
         case minput of
             Nothing -> return () -- Ctrl+D
             Just input -> do
-                cont <- dispatch stateRef (words input)
+                cont <- either (\err -> liftIO (putStrLn err) >> pure True) (dispatch stateRef) (replArgs input)
                 when cont $ loop stateRef
 
     dispatch _ [] = return True
@@ -145,22 +152,70 @@ runRepl mgr rc globalOpts cfgFile = do
                 then "Server running at " ++ rcBaseUrl rc
                 else "Server not reachable at " ++ rcBaseUrl rc
         return True
+    -- A session command with the wrong arguments is not the engine's to
+    -- judge: its usage lists none of them, and :help does.
+    dispatch _ (t : _)
+        | t == "use" || ":" `isPrefixOf` t = liftIO (putStrLn unknownCommand) >> return True
     dispatch stateRef tokens = liftIO $ do
         st <- readIORef stateRef
         let opts = globalOpts{dbName = rsDb st, format = rsFormat st}
         case OA.execParserPure OA.defaultPrefs (OA.info (commandParser OA.<**> OA.helper) mempty) tokens of
-            OA.Success cmd -> executeRemoteCommand mgr rc opts cmd
+            OA.Success cmd -> keepSession (executeRemoteCommand mgr rc opts cmd)
             OA.CompletionInvoked _ -> putStrLn unknownCommand
-            -- A parser answers --help by failing with the help text and an
-            -- exit code of zero. Reading only the success case, as
-            -- getParseResult does, made every --help here read as a command
-            -- nobody knows - in the one place a user types it by reflex.
-            OA.Failure failure -> case OA.renderFailure failure "volca" of
-                (helpText, ExitSuccess) -> putStrLn helpText
-                (_, ExitFailure _) -> putStrLn unknownCommand
+            -- A parser answers --help and a mistyped line alike by failing
+            -- with the text to show: the help itself, or what was wrong and
+            -- the usage of the command. Both are what the user needs to read.
+            OA.Failure failure -> putStrLn (fst (OA.renderFailure failure "volca"))
         return True
 
     unknownCommand = "Unknown command. Type :help for usage."
+
+{- | Run one command without letting its failure end the session. A command
+reports its error and exits, which is right for a single call from a shell
+and ended the whole REPL here over one mistyped identifier. The error is
+already on screen when the exit arrives, so it only has to be stopped.
+-}
+keepSession :: IO () -> IO ()
+keepSession run = do
+    _ <- try run :: IO (Either ExitCode ())
+    pure ()
+
+{- | Split a REPL line into arguments the way a shell does, so that
+@activities --name "tomato juice"@ passes one name and not two words.
+Double and single quotes group where an argument or an option's value
+begins, and stand literally inside a word or inside the other kind. Backslash is not an escape: it is a path separator on
+Windows, and a REPL argument can be a file path. A quote
+left open has no one reading, so the line is refused rather than run.
+-}
+replArgs :: String -> Either String [String]
+replArgs = between []
+  where
+    between :: [String] -> String -> Either String [String]
+    between done s = case dropWhile isSpace s of
+        [] -> Right (reverse done)
+        rest -> word done "" rest
+
+    -- The word being read is kept reversed; a quoted part may be empty,
+    -- which is how @--name ""@ passes an empty argument.
+    word :: [String] -> String -> String -> Either String [String]
+    word done cur [] = Right (reverse (reverse cur : done))
+    word done cur (c : rest)
+        | isSpace c = between (reverse cur : done) rest
+        | c == '"' || c == '\'', opensQuote cur = quoted c done cur rest
+        | otherwise = word done (c : cur) rest
+
+    -- A quote opens only where an argument or an option's value begins, so
+    -- the apostrophe inside @d'orange@ stays a letter of the name.
+    opensQuote :: String -> Bool
+    opensQuote cur = case cur of
+        [] -> True
+        '=' : _ -> True
+        _ -> False
+
+    quoted :: Char -> [String] -> String -> String -> Either String [String]
+    quoted q done cur s = case break (== q) s of
+        (_, []) -> Left ("Unterminated " ++ [q] ++ " quote.")
+        (inside, _ : rest) -> word done (reverse inside ++ cur) rest
 
 {- | Check if the server is reachable; if not, start it and wait.
 Returns the ProcessHandle if we started it, Nothing if it was already running.
@@ -349,4 +404,6 @@ printHelp = do
     putStrLn "  :server status             Check server status"
     putStrLn "  :help                      This help"
     putStrLn "  :quit / Ctrl+D             Exit (stops server)"
+    putStrLn ""
+    putStrLn "Quote an argument that holds spaces: activities --name \"tomato juice\""
     hFlush stdout
