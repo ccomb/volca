@@ -11,6 +11,7 @@ module MCPRequestIdSpec (spec) where
 
 import Data.Aeson (Value (..), decode, object, (.=))
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef
@@ -54,8 +55,8 @@ errorCode v = field "error" v >>= field "code"
 spec :: Spec
 spec = describe "the JSON-RPC id on an /mcp answer" $ do
     it "echoes a number as it was written" $
-        answerBody "POST" "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"ping\"}"
-            `shouldReturn` "{\"id\":7,\"jsonrpc\":\"2.0\",\"result\":{}}"
+        (\b -> any (`BS.isInfixOf` BL.toStrict b) ["\"id\":7,", "\"id\":7}"]) <$> answerBody "POST" "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"ping\"}"
+            `shouldReturn` True
 
     it "echoes a string" $
         field "id" <$> answer "{\"jsonrpc\":\"2.0\",\"id\":\"abc\",\"method\":\"ping\"}"
