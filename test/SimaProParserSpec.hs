@@ -2140,8 +2140,9 @@ mixedUnitsCSV =
         ]
 
 {- | Two flows, each written once in kg and once in MJ, which no conversion
-relates. The parser refuses the file at the first conflict it meets, so the
-message says which flow, and which of its two units, the gathering puts first.
+relates. The refusal names one conflict only, the one the gathered flows put
+first, which is the order of their identifiers and not of the file: the example
+pins that message so a change to how flows are gathered cannot move it unseen.
 -}
 twoRefusedFlowsCSV :: BS.ByteString
 twoRefusedFlowsCSV =
