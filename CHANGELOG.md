@@ -14,6 +14,8 @@
   quantity, since the indicators may apply theirs in different units. A score
   whose formula is not a weighted sum of its indicators (a product of two, a
   constant term) has no such parts and is refused with a 422 that says so.
+  A single score's flow rows carry no `matchKind`, since there is no one way
+  its factor was found. Wire revision 28.
 
 ### Fixed
 
