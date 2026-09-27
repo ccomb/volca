@@ -32,7 +32,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Containers.ListUtils (nubOrd)
 import qualified Data.Csv as Csv
 import Data.List (dropWhileEnd, intercalate, sort, transpose)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Scientific (FPFormat (Fixed), formatScientific)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -139,7 +139,10 @@ valueLines :: Value -> [String]
 valueLines val = case val of
     Object o -> objectLines o
     Array arr -> rowsLines (V.toList arr)
-    scalar -> [T.unpack (tableCell scalar)]
+    String _ -> [T.unpack (tableCell val)]
+    Number _ -> [T.unpack (tableCell val)]
+    Bool _ -> [T.unpack (tableCell val)]
+    Null -> [T.unpack (tableCell val)]
 
 -- | How one field of an object is shown, when it is shown at all.
 data Field
@@ -149,12 +152,14 @@ data Field
       Block String [String]
 
 objectLines :: KM.KeyMap Value -> [String]
-objectLines o = intercalate [""] (filter (not . null) (aligned inline : blocks))
+objectLines o = intercalate [""] (filter (not . null) (aligned : blocks))
   where
     fields :: [(String, Field)]
     fields = [(Key.toString k, f) | (k, v) <- KM.toList o, Just f <- [fieldShown (Key.toString k) v]]
-    inline :: [(String, Text)]
-    inline = [(name, cell) | (name, Inline cell) <- fields]
+    aligned :: [String]
+    aligned = [pad width name ++ "  " ++ T.unpack cell | (name, Inline cell) <- fields]
+    width :: Int
+    width = foldl' max 0 [length name | (name, Inline _) <- fields]
     blocks :: [[String]]
     blocks = [heading : map indent body | (_, Block heading body) <- fields]
 
@@ -172,23 +177,37 @@ fieldShown name v = case v of
     Array arr
         | V.null arr -> Just (Inline "none")
         | any isObject arr -> Just (Block (name <> " (" <> show (V.length arr) <> ")") (rowsLines (V.toList arr)))
-    _ -> Just (Inline (tableCell v))
+        | otherwise -> Just (Inline (tableCell v))
+    String _ -> Just (Inline (tableCell v))
+    Number _ -> Just (Inline (tableCell v))
+    Bool _ -> Just (Inline (tableCell v))
+
+asObject :: Value -> Maybe (KM.KeyMap Value)
+asObject v = case v of
+    Object o -> Just o
+    Array _ -> Nothing
+    String _ -> Nothing
+    Number _ -> Nothing
+    Bool _ -> Nothing
+    Null -> Nothing
 
 isObject :: Value -> Bool
-isObject (Object _) = True
-isObject _ = False
+isObject = isJust . asObject
 
 isScalar :: Value -> Bool
 isScalar v = case v of
     Object _ -> False
     Array _ -> False
-    _ -> True
+    String _ -> True
+    Number _ -> True
+    Bool _ -> True
+    Null -> True
 
-aligned :: [(String, Text)] -> [String]
-aligned pairs = [pad width name ++ "  " ++ T.unpack cell | (name, cell) <- pairs]
-  where
-    width :: Int
-    width = foldl' max 0 (map (length . fst) pairs)
+-- | One column of a table: its header, then one cell per row.
+data Column = Column
+    { columnHeader :: String
+    , columnCells :: [String]
+    }
 
 {- | A list as a table, one row per element. A nested object spreads into
 dotted columns (@flow.name@, @flow.compartment.name@), and a column empty in
@@ -197,20 +216,18 @@ unset for any given database.
 -}
 rowsLines :: [Value] -> [String]
 rowsLines [] = ["none"]
-rowsLines rows = formatTable (filter (not . all null . snd) columns)
+rowsLines rows = formatTable (filter (not . all null . columnCells) columns)
   where
     flat :: [[(Text, Value)]]
     flat = map flatRow rows
-    columns :: [(String, [String])]
-    columns = [(T.unpack name, map (shorten . maybe "" tableCell . lookup name) flat) | name <- sort (nubOrd (concatMap (map fst) flat))]
+    columns :: [Column]
+    columns = [Column (T.unpack name) (map (shorten . maybe "" tableCell . lookup name) flat) | name <- sort (nubOrd (concatMap (map fst) flat))]
 
 flatRow :: Value -> [(Text, Value)]
-flatRow (Object o) = concatMap spread (KM.toList o)
+flatRow row = maybe [("value", row)] (concatMap spread . KM.toList) (asObject row)
   where
     spread :: (KM.Key, Value) -> [(Text, Value)]
-    spread (k, Object inner) = [(Key.toText k <> "." <> sub, v) | (sub, v) <- flatRow (Object inner)]
-    spread (k, v) = [(Key.toText k, v)]
-flatRow v = [("value", v)]
+    spread (k, v) = maybe [(Key.toText k, v)] (const [(Key.toText k <> "." <> sub, inner) | (sub, inner) <- flatRow v]) (asObject v)
 
 {- | A table cell. Unlike a CSV cell, false is written: a blank there reads as
 "unknown". A list of plain values is spelled out rather than shown as JSON.
@@ -223,8 +240,14 @@ tableCell = T.map (\c -> if c == '\n' || c == '\r' then ' ' else c) . cellText
     cellText :: Value -> Text
     cellText v = case v of
         Bool False -> "no"
-        Array arr | all isScalar arr -> T.intercalate ", " (map cellText (V.toList arr))
-        _ -> cellValue v
+        Bool True -> cellValue v
+        Array arr
+            | all isScalar arr -> T.intercalate ", " (map cellText (V.toList arr))
+            | otherwise -> cellValue v
+        Object _ -> cellValue v
+        String _ -> cellValue v
+        Number _ -> cellValue v
+        Null -> cellValue v
 
 {- | Long prose is cut to keep a table on the screen. A value with no space in
 it, an identifier or a path, is left whole: it is there to be copied, and a
@@ -295,12 +318,12 @@ isSuffixOf :: String -> String -> Bool
 isSuffixOf suffix str = drop (length str - length suffix) str == suffix
 
 -- | Columns, each a header and its cells, as aligned lines under a rule.
-formatTable :: [(String, [String])] -> [String]
+formatTable :: [Column] -> [String]
 formatTable [] = []
-formatTable columns = fmtRow (map fst columns) : rule : map fmtRow (transpose (map snd columns))
+formatTable columns = fmtRow (map columnHeader columns) : rule : map fmtRow (transpose (map columnCells columns))
   where
     widths :: [Int]
-    widths = [foldl' max (length h) (map length cells) | (h, cells) <- columns]
+    widths = [foldl' max (length h) (map length cells) | Column h cells <- columns]
     fmtRow :: [String] -> String
     fmtRow = intercalate " | " . zipWith pad widths
     rule :: String
