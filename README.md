@@ -520,20 +520,18 @@ commands.
 ### Flow Mapping Diagnostics
 
 ```bash
-# Summary: how well does a method match a database?
-volca --db agribalyse mapping METHOD_UUID
+# How well does a method match a database: counts per match strategy,
+# then the first 50 CFs that found no DB flow
+volca --db agribalyse flow-mapping METHOD_UUID
 
-# See every mapped CF with its match strategy (uuid/name/synonym/cas)
-volca --db agribalyse mapping METHOD_UUID --matched
+# DB biosphere flows a CF reaches, with that CF and its match strategy
+volca --db agribalyse flow-mapping METHOD_UUID --matched
 
-# List CFs that found no DB flow
-volca --db agribalyse mapping METHOD_UUID --unmatched
-
-# List DB biosphere flows with no CF
-volca --db agribalyse mapping METHOD_UUID --uncharacterized
+# DB biosphere flows no CF reaches
+volca --db agribalyse flow-mapping METHOD_UUID --uncharacterized
 
 # Machine-readable output
-volca --db agribalyse mapping METHOD_UUID --matched --format json
+volca --db agribalyse flow-mapping METHOD_UUID --matched --format json
 ```
 
 ### Quality Reports
@@ -612,11 +610,9 @@ volca method delete ef-31                        # delete
 | Flow details | `GET /db/{db}/flow/{flowId}` | `flow FLOW_ID` |
 | Flow activities | `GET /db/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
 | **Flow Mapping** | | |
-| Mapping coverage | `GET /db/{db}/method/{id}/mapping` | `flow-mapping METHOD_UUID` |
-| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` |
+| Mapping coverage and unmatched CFs | `GET /db/{db}/method/{id}/mapping` | `flow-mapping METHOD_UUID` |
+| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` or `--uncharacterized` |
 | Characterization for flow | `GET /db/{db}/method/{id}/characterization?flow=` | – |
-| Unmatched CFs | included in mapping response | `flow-mapping METHOD_UUID --unmatched` |
-| Uncharacterized flows | – | `flow-mapping METHOD_UUID --uncharacterized` |
 | **Quality** | | |
 | Dataset soundness | `GET /db/{db}/quality-report[.csv]` | `quality-report [--limit N]` |
 | Computed checks | `GET /db/{db}/computed-quality-report[.csv]` | `computed-quality-report [--collection NAME]` |

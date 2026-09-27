@@ -21,8 +21,18 @@
   `Client.get_score_contributing_flows` and
   `Client.get_score_contributing_activities`.
 
+### Changed
+
+- `flow-mapping --matched` lists the database flows a factor reaches, one line
+  per flow with that factor and how it matched, where it listed the method's
+  factors. `--unmatched` is removed, since the summary already lists the
+  factors that found no flow.
+
 ### Fixed
 
+- `flow-mapping --matched` and `--uncharacterized` are answered by a server.
+  Whenever a server answered the command, both were ignored and every call
+  printed the same summary.
 - `impacts --method` takes a method's name, or a collection's name to score
   every method in it, as well as a method UUID. It took a UUID only, found by
   listing the methods first, and answered "Method not found" to anything

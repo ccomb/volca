@@ -354,29 +354,11 @@ from compartment-mapping and similar resources).
 flowMappingParser :: Parser Command
 flowMappingParser = do
     methodId <- argument textReader (metavar "METHOD_UUID" <> help "UUID of the characterization method")
-    showMatched <-
-        switch
-            ( long "matched"
-                <> help "List mapped CFs with their match strategy and DB flow"
-            )
-    showUnmatched <-
-        switch
-            ( long "unmatched"
-                <> help "List method CFs that found no matching DB flow"
-            )
-    showUncharacterized <-
-        switch
-            ( long "uncharacterized"
-                <> help "List DB biosphere flows that no CF matched"
-            )
-    pure $
-        FlowMapping
-            MappingOptions
-                { mappingMethodId = methodId
-                , mappingShowMatched = showMatched
-                , mappingShowUnmatched = showUnmatched
-                , mappingShowUncharacterized = showUncharacterized
-                }
+    view <-
+        flag' MatchedFlows (long "matched" <> help "List the database flows a factor reaches, with that factor and how it matched")
+            <|> flag' UncharacterizedFlows (long "uncharacterized" <> help "List the database flows no factor reaches")
+            <|> pure MappingSummary
+    pure $ FlowMapping MappingOptions{mappingMethodId = methodId, mappingView = view}
 
 {- | Quality report parsers. Both read the database from the global @--db@,
 like every other command that queries one, and both answer CSV under
