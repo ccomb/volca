@@ -238,7 +238,7 @@ data SearchFlowsOptions = SearchFlowsOptions
 
 -- | LCIA computation options
 newtype LCIAOptions = LCIAOptions
-    { lciaMethodId :: Text -- Method UUID (methods loaded on server)
+    { lciaMethod :: Text -- A method's UUID or name, or a collection's name
     }
     deriving (Eq, Show, Generic)
 

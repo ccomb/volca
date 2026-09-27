@@ -326,7 +326,7 @@ impactsParser =
 -- | LCIA options parser
 lciaOptionsParser :: Parser LCIAOptions
 lciaOptionsParser = do
-    lciaMethodId <- textOpt "method" (Just 'm') "METHOD_UUID" "Method UUID (method must be loaded on the server)"
+    lciaMethod <- textOpt "method" (Just 'm') "METHOD" "A loaded method, by UUID or name, or a collection name to score every method in it"
     pure LCIAOptions{..}
 
 -- | Debug matrices command parser
@@ -425,7 +425,7 @@ cliParserInfo =
                 \  volca --config volca.toml --db ecoinvent activities --name electricity\n\
                 \  volca --config volca.toml --db ecoinvent activity UUID\n\
                 \  volca --config volca.toml --db ecoinvent inventory UUID\n\
-                \  volca --config volca.toml --db ecoinvent impacts UUID --method METHOD_UUID\n\
+                \  volca --config volca.toml --db ecoinvent impacts UUID --method \"Climate change\"\n\
                 \  volca --config volca.toml database                   # List databases\n\
                 \  volca --config volca.toml database upload mydb.7z --name \"My DB\"\n\
                 \  volca --config volca.toml method upload pef.zip --name \"PEF\"\n\
