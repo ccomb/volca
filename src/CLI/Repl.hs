@@ -364,7 +364,6 @@ allCompletions = commands ++ flags
         , "--format"
         , "--db"
         , "--matched"
-        , "--unmatched"
         , "--uncharacterized"
         , "--collection"
         , "--depth"
