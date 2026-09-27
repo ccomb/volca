@@ -45,7 +45,7 @@ import API.DatabaseHandlers (
     uploadMethodHandler,
     uploadRefData,
  )
-import API.MCP (callTool, toolDefinitions)
+import API.MCP (callTool, noRequestId, toolDefinitions)
 import API.Resources (Resource (..), allResources, resourceMutates)
 import API.Routes (getHosting, loadMethodCollectionHandler, unloadMethodCollectionHandler)
 import API.Types (
@@ -228,7 +228,7 @@ spec = do
         it "refuse the state-changing tools" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             let call name =
-                    callTool manager [] (Just (hosting True)) Nothing Null name $
+                    callTool manager [] (Just (hosting True)) Nothing noRequestId name $
                         KM.singleton "database" (String "nope")
             loadResp <- call "load_database"
             unloadResp <- call "unload_database"
@@ -238,14 +238,14 @@ spec = do
         it "refuse with the operator's words when configured" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             resp <-
-                callTool manager [] (Just ((hosting True){hcReadOnlyMessage = "Ask the operator."})) Nothing Null "load_database" $
+                callTool manager [] (Just ((hosting True){hcReadOnlyMessage = "Ask the operator."})) Nothing noRequestId "load_database" $
                     KM.singleton "database" (String "nope")
             isToolError resp `shouldBe` True
             toolText resp `shouldBe` Just "Ask the operator."
 
         it "still answer a read-only tool" $ do
             manager <- initDatabaseManager defaultConfig NoCache
-            listed <- callTool manager [] (Just (hosting True)) Nothing Null "list_databases" KM.empty
+            listed <- callTool manager [] (Just (hosting True)) Nothing noRequestId "list_databases" KM.empty
             isToolError listed `shouldBe` False
 
         it "hide the state-changing tools from tools/list" $ do

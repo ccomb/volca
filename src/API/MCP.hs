@@ -5,7 +5,7 @@ Implements Streamable HTTP transport (MCP spec 2025-03-26).
 POST /mcp handles initialize, tools/list, tools/call (JSON or SSE response).
 GET  /mcp opens an SSE stream for server-initiated messages (stateless: closes immediately).
 -}
-module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, selectMethod, handleInitialize, webUrlBase, RpcRequest (..)) where
+module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, selectMethod, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
@@ -67,8 +67,22 @@ import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), Clas
 -- JSON-RPC 2.0 types
 -- ---------------------------------------------------------------------------
 
+{- | The id a client sent with a request, carried back on its answer so the
+client can pair the two. The engine never reads it, so whatever JSON came in
+goes back out.
+-}
+newtype RequestId = RequestId Value
+    deriving (Show)
+
+instance ToJSON RequestId where
+    toJSON (RequestId v) = v
+
+-- | The id of an answer to a request that could not be read, or named none.
+noRequestId :: RequestId
+noRequestId = RequestId Null
+
 data RpcRequest = RpcRequest
-    { rpcId :: Maybe Value -- Nothing = notification
+    { rpcId :: Maybe RequestId -- Nothing = notification
     , rpcMethod :: Text
     , rpcParams :: Maybe Value
     }
@@ -77,11 +91,17 @@ data RpcRequest = RpcRequest
 instance FromJSON RpcRequest where
     parseJSON = withObject "RpcRequest" $ \v ->
         RpcRequest
-            <$> v .:? "id"
+            <$> (fmap RequestId <$> v .:? "id")
             <*> v .: "method"
             <*> v .:? "params"
 
-rpcResult :: Value -> Value -> Value
+{- | The id an answer to this request carries: the one it sent, or null when
+it sent none.
+-}
+answerId :: RpcRequest -> RequestId
+answerId = fromMaybe noRequestId . rpcId
+
+rpcResult :: RequestId -> Value -> Value
 rpcResult rid res =
     object
         [ "jsonrpc" .= ("2.0" :: Text)
@@ -89,7 +109,7 @@ rpcResult rid res =
         , "result" .= res
         ]
 
-rpcError :: Value -> Int -> Text -> Value
+rpcError :: RequestId -> Int -> Text -> Value
 rpcError rid code msg =
     object
         [ "jsonrpc" .= ("2.0" :: Text)
@@ -97,7 +117,7 @@ rpcError rid code msg =
         , "error" .= object ["code" .= code, "message" .= msg]
         ]
 
-toolError :: Value -> Text -> Value
+toolError :: RequestId -> Text -> Value
 toolError rid msg =
     rpcResult rid $
         object
@@ -105,7 +125,7 @@ toolError rid msg =
             , "isError" .= True
             ]
 
-toolSuccessJson :: Value -> Value -> Value
+toolSuccessJson :: RequestId -> Value -> Value
 toolSuccessJson rid val =
     rpcResult rid $
         object
@@ -191,7 +211,7 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking = do
                 body <- strictRequestBody req
                 case eitherDecode body of
                     Left err ->
-                        respond $ jsonResponse (mcpSessionId st) $ rpcError Null (-32700) (T.pack $ "Parse error: " ++ err)
+                        respond $ jsonResponse (mcpSessionId st) $ rpcError noRequestId (-32700) (T.pack $ "Parse error: " ++ err)
                     Right rpcReq -> do
                         let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
                         resp <- runCall (handleRpc dbManager presets mHosting mBaseUrl mName st rpcReq)
@@ -219,7 +239,7 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking = do
                         status405
                         [(hContentType, "application/json"), (hAllow, "POST")]
                     $ encode
-                    $ rpcError Null (-32700) "Method not allowed"
+                    $ rpcError noRequestId (-32700) "Method not allowed"
   where
     jsonResponse sid v =
         responseLBS
@@ -250,16 +270,14 @@ handleRpc dbManager presets mHosting mBaseUrl mName _st req = case rpcMethod req
     "notifications/initialized" -> return Nothing -- notification, no response
     "tools/list" -> return $ Just $ handleToolsList (hostingReadOnly mHosting) req
     "tools/call" -> Just <$> handleToolsCall dbManager presets mHosting mBaseUrl req
-    "ping" -> return $ Just $ rpcResult (rid req) (object [])
+    "ping" -> return $ Just $ rpcResult (answerId req) (object [])
     other ->
         return $
             Just $
                 rpcError
-                    (rid req)
+                    (answerId req)
                     (-32601)
                     ("Method not found: " <> other)
-  where
-    rid r = fromMaybe Null (rpcId r)
 
 -- ---------------------------------------------------------------------------
 -- initialize
@@ -276,7 +294,7 @@ assistant actually reads.
 handleInitialize :: Maybe ServerName -> RpcRequest -> IO Value
 handleInitialize mName req =
     return $
-        rpcResult (fromMaybe Null $ rpcId req) $
+        rpcResult (answerId req) $
             object
                 [ "protocolVersion" .= ("2025-03-26" :: Text)
                 , "capabilities" .= object ["tools" .= object []]
@@ -310,7 +328,7 @@ instructionLines =
 
 handleToolsList :: ReadOnly -> RpcRequest -> Value
 handleToolsList readOnly req =
-    rpcResult (fromMaybe Null $ rpcId req) $
+    rpcResult (answerId req) $
         object
             ["tools" .= toolDefinitions readOnly]
 
@@ -450,7 +468,7 @@ paramsToSchema ps =
 
 handleToolsCall :: DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RpcRequest -> IO Value
 handleToolsCall dbManager presets mHosting mBaseUrl req = do
-    let rid = fromMaybe Null (rpcId req)
+    let rid = answerId req
     case rpcParams req >>= parseCallParams of
         Nothing -> return $ rpcError rid (-32602) "Invalid params: expected {name, arguments}"
         Just (toolName, args) -> callTool dbManager presets mHosting mBaseUrl rid toolName args
@@ -470,7 +488,7 @@ A read-only instance refuses the state-changing tools before dispatch. Which
 tools those are comes from the resource registry ('resourceMutates'), so a
 newly added mutating tool is covered here without touching this function.
 -}
-callTool :: DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Value -> Text -> KeyMap Value -> IO Value
+callTool :: DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> IO Value
 callTool _ _ mHosting _ rid name _
     | isReadOnly (hostingReadOnly mHosting) && mutatingTool name =
         return $ toolError rid (readOnlyRefusalFor mHosting)
@@ -527,7 +545,7 @@ mutatingTool name = any (\r -> R.mcpName r == name && R.resourceMutates r) R.all
 
 withDb ::
     DatabaseManager ->
-    Value ->
+    RequestId ->
     KeyMap Value ->
     ((Database, SharedSolver) -> IO Value) ->
     IO Value
@@ -544,7 +562,7 @@ withDb dbManager rid args action = runTool rid $ do
 'throwE'/'Left' short-circuits to a 'toolError', a success passes through.
 Every tool handler is @runTool rid $ do …@.
 -}
-runTool :: Value -> ExceptT Text IO Value -> IO Value
+runTool :: RequestId -> ExceptT Text IO Value -> IO Value
 runTool rid = fmap (either (toolError rid) id) . runExceptT
 
 {- | Resolve a loaded database by name, short-circuiting with the standard
@@ -644,7 +662,7 @@ parseArrayArg key whenMissing args = case KM.lookup (fromText key) args of
 -- Tool implementations
 -- ---------------------------------------------------------------------------
 
-callListDatabases :: DatabaseManager -> Value -> IO Value
+callListDatabases :: DatabaseManager -> RequestId -> IO Value
 callListDatabases dbManager rid = do
     loaded <- readTVarIO (dmLoadedDbs dbManager)
     let mkDbEntry ld =
@@ -670,7 +688,7 @@ dependency that fails to load is surfaced in the 'dependencies' array
 budget applies here exactly as on the REST endpoint -- a quota that only
 guards one door is not a quota.
 -}
-callLoadDatabase :: DatabaseManager -> Maybe HostingConfig -> Value -> KeyMap Value -> IO Value
+callLoadDatabase :: DatabaseManager -> Maybe HostingConfig -> RequestId -> KeyMap Value -> IO Value
 callLoadDatabase dbManager mHosting rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     liftIO (loadQuotaRefusal dbManager mHosting dbName) >>= maybe (pure ()) throwE
@@ -687,7 +705,7 @@ callLoadDatabase dbManager mHosting rid args = runTool rid $ do
 which refuses (returns 'Left') when another loaded database still
 depends on it.
 -}
-callUnloadDatabase :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callUnloadDatabase :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callUnloadDatabase dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     ExceptT (DM.unloadDatabase dbManager dbName)
@@ -704,7 +722,7 @@ registering the source a second time under a name promising otherwise. The
 hosting quota applies as it does to a copy: what comes out is another loaded
 database of the user's own.
 -}
-callDeriveDatabase :: DatabaseManager -> Maybe HostingConfig -> Value -> KeyMap Value -> IO Value
+callDeriveDatabase :: DatabaseManager -> Maybe HostingConfig -> RequestId -> KeyMap Value -> IO Value
 callDeriveDatabase dbManager mHosting rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     newName <- except (requireText "new_name" args)
@@ -723,7 +741,7 @@ callDeriveDatabase dbManager mHosting rid args = runTool rid $ do
                 , "dependencies" .= deps
                 ]
 
-callListPresets :: [ClassificationPreset] -> Value -> IO Value
+callListPresets :: [ClassificationPreset] -> RequestId -> IO Value
 callListPresets presets rid =
     return $
         toolSuccessJson rid $
@@ -764,7 +782,7 @@ filter. Shared by the search and consumers handlers.
 classificationFilters :: [ClassificationPreset] -> KeyMap Value -> Either Text [ClassificationFilter]
 classificationFilters presets args = (++ explicitClassFilter args) <$> presetFilters presets args
 
-callSearchActivities :: Geographies -> [ClassificationPreset] -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callSearchActivities :: Geographies -> [ClassificationPreset] -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callSearchActivities geographies presets rid args (db, _) = runTool rid $ do
     classifications <- except (classificationFilters presets args)
     let sf =
@@ -785,7 +803,7 @@ callSearchActivities geographies presets rid args (db, _) = runTool rid $ do
     val <- liftIO (Service.searchActivities geographies db sf) >>= liftShow
     pure (toolSuccessJson rid val)
 
-callListClassifications :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callListClassifications :: RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callListClassifications rid args (db, _) =
     let systems = Service.getClassifications db
         mSystem = textArg "system" args
@@ -810,7 +828,7 @@ callListClassifications rid args (db, _) =
 A missing query is an error rather than three zeros: zeros would read as "this
 database has nothing", which is a different answer from "you asked nothing".
 -}
-callCountSearchMatches :: Geographies -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callCountSearchMatches :: Geographies -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callCountSearchMatches geographies rid args (db, _) =
     case mfilter (not . null . Normalize.queryWords) (textArg "query" args) of
         Nothing -> return $ toolError rid "query is required: there is nothing to count without one"
@@ -824,7 +842,7 @@ callCountSearchMatches geographies rid args (db, _) =
                             , "flows" .= Service.scFlows counts
                             ]
 
-callSearchFlows :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callSearchFlows :: RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callSearchFlows rid args (db, _) =
     case readKind of
         Left err -> return $ toolError rid err
@@ -860,7 +878,7 @@ callSearchFlows rid args (db, _) =
     badKind :: Text -> Text
     badKind got = "kind must be one of: " <> exchangeKindChoices <> " (got " <> got <> ")"
 
-callGetActivity :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callGetActivity :: RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetActivity rid args (db, _) = runTool rid $ do
     pid <- except (requireText "process_id" args)
     _ <- except validatedExchangeType
@@ -929,7 +947,7 @@ callGetActivity rid args (db, _) = runTool rid $ do
         Nothing -> True
         Just want -> exchangeIsInput (ewuExchange ewu) == want
 
-callGetSupplyChain :: DatabaseManager -> [ClassificationPreset] -> Value -> KeyMap Value -> IO Value
+callGetSupplyChain :: DatabaseManager -> [ClassificationPreset] -> RequestId -> KeyMap Value -> IO Value
 callGetSupplyChain dbManager presets rid args = runTool rid $ do
     (dbName, pid) <- except $ (,) <$> requireText "database" args <*> requireText "process_id" args
     ld <- requireDatabase dbManager dbName
@@ -974,7 +992,7 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
 {- | Generic SQL-group-by aggregation. One small primitive for "how much X is
 in Y" questions -- replaces ad-hoc decomposition tools.
 -}
-callAggregate :: DatabaseManager -> [ClassificationPreset] -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callAggregate :: DatabaseManager -> [ClassificationPreset] -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callAggregate dbManager presets rid args (db, solver) =
     let dbName = fromMaybe "" (textArg "database" args) -- already validated by withDb
      in case textArg "process_id" args of
@@ -1047,14 +1065,14 @@ callAggregate dbManager presets rid args (db, solver) =
                         match = if T.drop 1 mode == "exact" then MatchExact else MatchContains
                      in Just ClassificationFilter{clfSystem = T.strip sys, clfValue = T.strip val, clfMatch = match}
 
-callGetPathTo :: Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callGetPathTo :: RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetPathTo rid args (db, solver) = runTool rid $ do
     pid <- except (requireText "process_id" args)
     target <- except (requireText "target" args)
     val <- liftIO (Service.getPathTo db solver pid (Service.NamePattern target)) >>= liftShow
     pure (toolSuccessJson rid val)
 
-callGetConsumers :: Geographies -> [ClassificationPreset] -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callGetConsumers :: Geographies -> [ClassificationPreset] -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetConsumers geographies presets rid args (db, _) = runTool rid $ do
     pid <- except (requireText "process_id" args)
     classifications <- except (classificationFilters presets args)
@@ -1081,7 +1099,7 @@ callGetConsumers geographies presets rid args (db, _) = runTool rid $ do
 {- | MCP get_inventory: route through the cross-DB back-substitution path
 so inventories from dep DBs are merged into the returned flows.
 -}
-callGetInventory :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callGetInventory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetInventory dbManager rid args =
     runTool rid $ do
         (dbName, pid) <- except $ (,) <$> requireText "database" args <*> requireText "process_id" args
@@ -1303,7 +1321,7 @@ Historically named 'get_lcia' -- the MCP surface now uses 'impacts'
 per the naming audit; internal Haskell types keep the 'LCIA' acronym
 (LCIAResult, computeLCIAScore) since they're the domain term of art.
 -}
-callGetImpacts :: DatabaseManager -> Maybe Text -> Value -> KeyMap Value -> IO Value
+callGetImpacts :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetImpacts dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
@@ -1367,7 +1385,7 @@ for each. Uses 'computeLCIAScoreAuto' so regionalized methods route through the
 location-hierarchy walk; non-regionalized methods stay on the classic
 'computeLCIAScoreFromTables' path.
 -}
-callComputeSensitivity :: DatabaseManager -> Maybe Text -> Value -> KeyMap Value -> IO Value
+callComputeSensitivity :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callComputeSensitivity dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
@@ -1449,7 +1467,7 @@ UUIDs -- because UUIDs differ across databases by construction (each parser
 generates them in its own namespace), and that's exactly the problem this
 audit is designed to expose.
 -}
-callCompareActivities :: DatabaseManager -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callCompareActivities :: DatabaseManager -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callCompareActivities dbManager rid args (db, _) = runTool rid $ do
     processId <- except (requireText "process_id" args)
     otherProcessId <- except (requireText "other_process_id" args)
@@ -1461,13 +1479,13 @@ callCompareActivities dbManager rid args (db, _) = runTool rid $ do
                 <*> Compare.resolveProcess otherDb otherProcessId
     pure $ toolSuccessJson rid (toJSON (Compare.compareActivities sides))
 
-callCompareDatabases :: DatabaseManager -> Value -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callCompareDatabases :: DatabaseManager -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callCompareDatabases dbManager rid args (db, _) = runTool rid $ do
     otherDb <- ldDatabase <$> (requireDatabase dbManager =<< except (requireText "other_database" args))
     let comparison = Compare.compareDatabases (Compare.Sides db otherDb)
     pure $ toolSuccessJson rid (toJSON (maybe id Compare.limitComparison (intArg "limit" args) comparison))
 
-callCompareImpacts :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callCompareImpacts :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callCompareImpacts dbManager rid args =
     runTool rid $ do
         argsA <- except $ subArgs "_a" args
@@ -1605,7 +1623,7 @@ subArgs suffix args = do
                 Just v -> Right v
                 Nothing -> Left ("Missing required parameter: " <> suffixed)
 
-callListMethods :: DatabaseManager -> Value -> IO Value
+callListMethods :: DatabaseManager -> RequestId -> IO Value
 callListMethods dbManager rid = do
     loadedMethods <- DM.getLoadedMethods dbManager
     let summaries =
@@ -1625,7 +1643,7 @@ callListMethods dbManager rid = do
 Same wire shape as the REST endpoint ('gapReportToAPI'), so both surfaces
 stay in lock-step.
 -}
-callGetGapReport :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callGetGapReport :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetGapReport dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     report <- ExceptT (DM.databaseGapReport dbManager dbName)
@@ -1639,7 +1657,7 @@ Every list defaults to empty: an assistant that only removes a line should not
 have to state four empty arrays to say so. An edit that ends up naming nothing
 is refused by the domain, so the leniency costs no silence.
 -}
-callEditExchanges :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callEditExchanges :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callEditExchanges dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     processId <- except (requireText "process_id" args)
@@ -1659,7 +1677,7 @@ callEditExchanges dbManager rid args = runTool rid $ do
 wire shape as the REST endpoint ('qualityReportToAPI'), so both surfaces stay
 in lock-step.
 -}
-callGetQualityReport :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callGetQualityReport :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetQualityReport dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     report <- ExceptT (DM.databaseQualityReport dbManager dbName)
@@ -1669,7 +1687,7 @@ callGetQualityReport dbManager rid args = runTool rid $ do
 the catalogue's own norms. Same wire shape as the REST endpoint, so both
 surfaces stay in lock-step.
 -}
-callGetComputedQualityReport :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callGetComputedQualityReport :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetComputedQualityReport dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     res <- liftIO $ BI.runComputedQuality dbManager dbName (textArg "collection" args) (intArg "limit" args)
@@ -1681,14 +1699,14 @@ callGetComputedQualityReport dbManager rid args = runTool rid $ do
 scores only through a name bridge. Same wire shape as the REST endpoint
 ('coverageReportToAPI'), so both surfaces stay in lock-step.
 -}
-callGetCoverageReport :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callGetCoverageReport :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetCoverageReport dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     mCollection <- except (optionalText "collection" args)
     report <- ExceptT (DM.databaseCoverageReport dbManager dbName mCollection)
     return $ toolSuccessJson rid (toJSON (coverageReportToAPI (intArg "limit" args) report))
 
-callGetFlowMapping :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callGetFlowMapping :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetFlowMapping dbManager rid args = runTool rid $ do
     (dbName, methodIdText, mCol) <- except $ (,,) <$> requireText "database" args <*> requireText "method_id" args <*> optionalText "collection" args
     ld <- requireDatabase dbManager dbName
@@ -1805,7 +1823,7 @@ web page and an agent cannot describe the same flow differently. The
 'explanation' field is the part meant to be read out; the rest is for a caller
 that wants to compare or link.
 -}
-callExplainCF :: DatabaseManager -> Maybe Text -> Value -> KeyMap Value -> IO Value
+callExplainCF :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callExplainCF dbManager mBaseUrl rid args = runTool rid $ do
     (dbName, methodIdText, mCol) <- except $ (,,) <$> requireText "database" args <*> requireText "method_id" args <*> optionalText "collection" args
     flowIdText <- except (requireText "flow_id" args)
@@ -1817,7 +1835,7 @@ callExplainCF dbManager mBaseUrl rid args = runTool rid $ do
     let deepLink = (<> "/db/" <> dbName <> "/method/" <> methodIdText <> "/flow-mapping") <$> mBaseUrl
     pure $ toolSuccessJson rid (addWebUrlMaybe deepLink (toJSON (explainCFToAPI db method flow explanation)))
 
-callGetCharacterization :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callGetCharacterization :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetCharacterization dbManager rid args = runTool rid $ do
     (dbName, methodIdText, mCol) <- except $ (,,) <$> requireText "database" args <*> requireText "method_id" args <*> optionalText "collection" args
     ld <- requireDatabase dbManager dbName
@@ -2033,7 +2051,7 @@ ensureLinked dbName op db =
                         <> op
                         <> "."
 
-callGetContributingFlows :: DatabaseManager -> Maybe Text -> Value -> KeyMap Value -> IO Value
+callGetContributingFlows :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetContributingFlows dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
@@ -2084,7 +2102,7 @@ callGetContributingFlows dbManager mBaseUrl rid args =
                         ++ webUrlPair
                         ++ diagnosticsFields
 
-callGetContributingActivities :: DatabaseManager -> Maybe Text -> Value -> KeyMap Value -> IO Value
+callGetContributingActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetContributingActivities dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
@@ -2127,7 +2145,7 @@ callGetContributingActivities dbManager mBaseUrl rid args =
                     , "processes" .= rows
                     ]
 
-callListGeographies :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callListGeographies :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callListGeographies dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     ld <- requireDatabase dbManager dbName
@@ -2192,7 +2210,7 @@ per-method @web_url@s are not emitted: the panel link covers the same
 ground at a fraction of the bytes. Replaces the @N@ round-trips of
 'get_impacts' a comparative study used to need.
 -}
-callScoreActivity :: DatabaseManager -> Maybe Text -> Value -> KeyMap Value -> IO Value
+callScoreActivity :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callScoreActivity dbManager mBaseUrl rid args =
     runTool rid $ do
         dbName <- except (requireText "database" args)
@@ -2251,7 +2269,7 @@ batch of 24+ activities. Unresolved process IDs land in
 @notFound@ \/ @invalid@. The chosen scoring set is required to be
 unambiguous; see 'resolveSingleScoringSet' for the rules.
 -}
-callScoreActivities :: DatabaseManager -> Maybe Text -> Value -> KeyMap Value -> IO Value
+callScoreActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callScoreActivities dbManager mBaseUrl rid args =
     runTool rid $ do
         dbName <- except (requireText "database" args)
@@ -2278,7 +2296,7 @@ The projection is explicit (rather than @toJSON ss@) so the wire format
 stays in snake_case and is not silently affected by a future field
 addition to 'ScoringSet'.
 -}
-callListScoringSets :: DatabaseManager -> Value -> KeyMap Value -> IO Value
+callListScoringSets :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callListScoringSets dbManager rid args = do
     loaded <- readTVarIO (dmLoadedMethods dbManager)
     case optionalText "collection" args of

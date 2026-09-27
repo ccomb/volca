@@ -27,7 +27,7 @@ import qualified Data.UUID as UUID
 import Servant (errBody, errHTTPCode, runHandler)
 import Test.Hspec
 
-import API.MCP (callTool)
+import API.MCP (callTool, noRequestId)
 import API.Routes (getActivityLCIA, getContributingFlows, postImpactsBatch)
 import API.Types (
     BatchImpactsEntry (..),
@@ -141,7 +141,7 @@ mcpRows :: Text -> [(Key, Value)] -> IO [FactorAndContribution]
 mcpRows tool extraArgs = do
     manager <- loadedManager
     reply <-
-        callTool manager [] Nothing Nothing Null tool $
+        callTool manager [] Nothing Nothing noRequestId tool $
             KM.fromList $
                 [ ("database", String "sample")
                 , ("process_id", String productD)

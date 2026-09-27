@@ -13,7 +13,7 @@ the wrong limit or message field fails here.
 module UploadQuotaSpec (spec) where
 
 import API.DatabaseHandlers (copyRefusal, loadRefusal, memoryRefusal, uploadRefusal)
-import API.MCP (callTool)
+import API.MCP (callTool, noRequestId)
 import Config (DatabaseConfig (..), HostingConfig (..), defaultConfig)
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Data.Aeson (Value (..))
@@ -121,7 +121,7 @@ spec = describe "hosting database quotas" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             atomically $ modifyTVar' (dmAvailableDbs manager) (M.insert "mine" (uploadedEntry "mine"))
             resp <-
-                callTool manager [] (Just (plan 1 0)) Nothing Null "load_database" $
+                callTool manager [] (Just (plan 1 0)) Nothing noRequestId "load_database" $
                     KM.singleton "database" (String "mine")
             isToolError resp `shouldBe` True
 

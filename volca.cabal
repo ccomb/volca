@@ -313,6 +313,7 @@ test-suite lca-tests
                      , MCPSchemaSpec
                      , MCPDispatchSpec
                      , MCPStreamSpec
+                     , MCPRequestIdSpec
                      , BatchImpactsSpec
                      , AcrossCapabilitiesSpec
                      , FlowContributionSpec
