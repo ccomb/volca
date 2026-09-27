@@ -41,6 +41,7 @@ import SimaPro.Parser (
     parseSimaProCSV,
     parseTechRow,
     splitCSV,
+    techFlowInUnit,
     unitDeclarations,
     workerRanges,
  )
@@ -1411,11 +1412,11 @@ spec = do
             names = M.fromList [(kg, "kg"), (mj, "mj")]
 
         it "folds two rows of one flow into a single entry when the unit agrees" $
-            M.size <$> indexFlows names (\f -> (tfId f, tfUnitId f, tfName f)) [flow "steel" kg, flow "steel" kg]
+            M.size <$> indexFlows names techFlowInUnit tfName [flow "steel" kg, flow "steel" kg]
                 `shouldBe` Right 1
 
         it "refuses two rows of one flow written in units no conversion relates" $
-            case indexFlows names (\f -> (tfId f, tfUnitId f, tfName f)) [flow "heat" mj, flow "heat" kg] of
+            case indexFlows names techFlowInUnit tfName [flow "heat" mj, flow "heat" kg] of
                 Left err -> err `shouldSatisfy` \e -> "heat" `T.isInfixOf` e && "mj" `T.isInfixOf` e && "kg" `T.isInfixOf` e
                 Right db -> expectationFailure ("expected a refusal, got " ++ show (M.size db))
 

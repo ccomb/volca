@@ -25,6 +25,8 @@ module SimaPro.Parser (
     workerRanges,
     normalizeSimaProCompartment,
     indexFlows,
+    techFlowInUnit,
+    bioFlowInUnit,
     extractLocation,
     Located (..),
     NameReading (..),
@@ -312,8 +314,26 @@ record per rather than one per exchange row.
 The pair and not the flow alone: a file that writes one flow in two units must
 still reach 'indexFlows' as two records, because refusing that is 'indexFlows''
 job and this is only meant to stop the same record being built a million times.
+The flow comes first in the order, as it did when this was a pair, so the
+records reach 'indexFlows' in the order that decides which conflict it names.
 -}
-type FlowInUnit = (UUID.UUID, UUID.UUID)
+data FlowInUnit = FlowInUnit
+    { fiuFlow :: !UUID.UUID
+    , fiuUnit :: !UUID.UUID
+    }
+    deriving (Eq, Ord, Generic)
+
+instance NFData FlowInUnit
+
+-- | The one identity of each kind of flow: its identifier, in the unit it is written in.
+techFlowInUnit :: TechnosphereFlow -> FlowInUnit
+techFlowInUnit f = FlowInUnit (tfId f) (tfUnitId f)
+
+bioFlowInUnit :: BiosphereFlow -> FlowInUnit
+bioFlowInUnit f = FlowInUnit (bfId f) (bfUnitId f)
+
+wasteFlowInUnit :: WasteFlow -> FlowInUnit
+wasteFlowInUnit f = FlowInUnit (wfId f) (wfUnitId f)
 
 -- ============================================================================
 -- Global parameter bundle
@@ -780,9 +800,9 @@ absorbBlock unitCfg gp block acc = case processBlockToActivity unitCfg gp block 
     Just (activity, techs, bios, wastes, units) ->
         warned
             { paActivities = (: paActivities warned) $!! activity
-            , paTechFlows = keyedBy (\f -> (tfId f, tfUnitId f)) (paTechFlows warned) techs
-            , paBioFlows = keyedBy (\f -> (bfId f, bfUnitId f)) (paBioFlows warned) bios
-            , paWasteFlows = keyedBy (\f -> (wfId f, wfUnitId f)) (paWasteFlows warned) wastes
+            , paTechFlows = keyedBy techFlowInUnit (paTechFlows warned) techs
+            , paBioFlows = keyedBy bioFlowInUnit (paBioFlows warned) bios
+            , paWasteFlows = keyedBy wasteFlowInUnit (paWasteFlows warned) wastes
             , paUnits = foldl' (\m u -> M.insert (unitId u) u m) (paUnits warned) units
             }
   where
@@ -1743,17 +1763,17 @@ them -- an energy against a mass -- nothing can make them one flow, and
 'M.fromList' would silently keep whichever row came last. Refuse the file
 instead, naming the flow and both units.
 -}
-indexFlows :: M.Map UUID.UUID Text -> (a -> (UUID.UUID, UUID.UUID, Text)) -> [a] -> Either Text (M.Map UUID.UUID a)
-indexFlows unitNames identity = foldM add M.empty
+indexFlows :: M.Map UUID.UUID Text -> (a -> FlowInUnit) -> (a -> Text) -> [a] -> Either Text (M.Map UUID.UUID a)
+indexFlows unitNames key nameOfFlow = foldM add M.empty
   where
     add acc flow =
-        let (flowId, unitRef, name) = identity flow
-         in case identity <$> M.lookup flowId acc of
-                Just (_, seen, _)
+        let FlowInUnit flowId unitRef = key flow
+         in case fiuUnit . key <$> M.lookup flowId acc of
+                Just seen
                     | seen /= unitRef ->
                         Left $
                             "flow '"
-                                <> name
+                                <> nameOfFlow flow
                                 <> "' is written in two units that no conversion relates ('"
                                 <> nameOf seen
                                 <> "' and '"
@@ -1843,12 +1863,12 @@ parseSimaProCSV unitCfg path = do
     let unitDB = M.unions (map wrUnits results)
         unitNames = M.map unitName unitDB
         indexed = do
-            techFlowDB <- indexFlows unitNames (\f -> (tfId f, tfUnitId f, tfName f)) allTechFlows
+            techFlowDB <- indexFlows unitNames techFlowInUnit tfName allTechFlows
             -- Fill empty flow CAS from the file's own substance registry (the
             -- trailing name;unit;cas blocks) so the native CAS bridge fires on
             -- a SimaPro export, which otherwise carries no per-flow CAS at all.
-            bioIndexed <- indexFlows unitNames (\f -> (bfId f, bfUnitId f, bfName f)) allBioFlows
-            wasteFlowDB <- indexFlows unitNames (\f -> (wfId f, wfUnitId f, wfName f)) allWasteFlows
+            bioIndexed <- indexFlows unitNames bioFlowInUnit bfName allBioFlows
+            wasteFlowDB <- indexFlows unitNames wasteFlowInUnit wfName allWasteFlows
             pure (techFlowDB, fillCASFromRegistry substanceCAS bioIndexed, wasteFlowDB)
 
     case indexed of
