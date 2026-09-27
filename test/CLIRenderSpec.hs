@@ -4,7 +4,10 @@ module CLIRenderSpec (spec) where
 
 import Data.Aeson (Value (..), object, (.=))
 import Data.Either (isLeft)
+import Data.List (isInfixOf)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Data.Vector as V
 import Test.Hspec
 
@@ -106,3 +109,43 @@ spec = do
         it "keeps a leading = from becoming a spreadsheet formula" $
             renderResult CSV Nothing (arr [object ["name" .= T.pack "=1+1"]])
                 `shouldBe` Right "name\r\n =1+1\r\n"
+
+    describe "renderResult Table" $ do
+        let table = either (error . T.unpack) (TL.unpack . TLE.decodeUtf8) . renderResult Table Nothing
+            longId = T.replicate 80 "a"
+            prose = T.unwords (replicate 20 "word")
+
+        it "shows the headline fields beside the list, not the list alone" $
+            table
+                ( object
+                    [ "score" .= (0.96 :: Double)
+                    , "unit" .= T.pack "kg"
+                    , "topContributors" .= [object ["flowName" .= T.pack "carbon dioxide"]]
+                    ]
+                )
+                `shouldBe` unlines
+                    [ "score  0.96"
+                    , "unit   kg"
+                    , ""
+                    , "topContributors (1)"
+                    , "  flowName"
+                    , "  --------------"
+                    , "  carbon dioxide"
+                    ]
+
+        it "says an empty list is empty" $
+            table (object ["topContributors" .= ([] :: [Value])]) `shouldBe` "topContributors  none\n"
+
+        it "spreads a nested object into dotted columns and leaves out empty ones" $
+            table (arr [object ["flow" .= object ["name" .= T.pack "zinc", "cas" .= Null], "note" .= Null]])
+                `shouldBe` unlines ["flow.name", "---------", "zinc"]
+
+        it "writes false rather than leaving the cell blank" $
+            table (arr [object ["isEmission" .= False]]) `shouldBe` unlines ["isEmission", "----------", "no"]
+
+        -- An identifier is there to be copied; a cut one names nothing.
+        it "keeps an identifier whole and cuts long prose" $ do
+            let out = table (arr [object ["id" .= longId, "text" .= prose]])
+            out `shouldSatisfy` isInfixOf (T.unpack longId)
+            out `shouldNotSatisfy` isInfixOf (T.unpack prose)
+            out `shouldSatisfy` isInfixOf "…"

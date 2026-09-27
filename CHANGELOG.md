@@ -23,6 +23,15 @@
   the name `tomato juice`. It split every line on blanks, which handed the
   parser `"tomato` and `juice"` as two arguments and turned the command down.
   A quote left open is now refused with a message rather than run.
+- `--format table`, the REPL's default, shows the whole answer. It printed
+  only the one list a response held, so `impacts` showed its contributors but
+  not the score, `inventory` lost its totals, `database load` printed nothing,
+  and `activity` fell back to JSON. Plain fields now come first beside their
+  names, then each list as a table and each nested object under its name. An
+  identifier or a path is never cut to fit a column: it was cut at 60
+  characters, and a process identifier is longer than that. A column empty in
+  every row is left out, and a nested object spreads into dotted columns
+  instead of a cell of JSON.
 - A command that fails in the REPL no longer ends the session. An identifier
   mistyped, or a database that is not loaded, printed its error and then
   closed the REPL, taking the history and the chosen database with it. The

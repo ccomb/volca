@@ -29,8 +29,9 @@ import Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
+import Data.Containers.ListUtils (nubOrd)
 import qualified Data.Csv as Csv
-import Data.List (intercalate, transpose)
+import Data.List (dropWhileEnd, intercalate, sort, transpose)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Scientific (FPFormat (Fixed), formatScientific)
 import Data.Text (Text)
@@ -125,12 +126,112 @@ jsonKind v = case v of
     Bool _ -> "boolean"
     Null -> "null"
 
--- | Render a JSON value as an aligned text table
+{- | Render a JSON value for a person at a terminal. Every field is shown: a
+response is often a headline (a score, a coverage, the database just loaded)
+next to a list, and picking the list alone would hide the answer. An object's
+plain fields come first as aligned name and value lines, then each nested
+object or list of objects under its name, indented.
+-}
 renderTable :: Value -> Text
-renderTable val =
-    case findArray val of
-        Just rows -> T.pack (formatTable (extractTable rows))
-        Nothing -> fromUtf8 (encodePretty val) <> "\n" -- fallback for non-array
+renderTable = T.pack . unlines . map (dropWhileEnd (== ' ')) . valueLines
+
+valueLines :: Value -> [String]
+valueLines val = case val of
+    Object o -> objectLines o
+    Array arr -> rowsLines (V.toList arr)
+    scalar -> [T.unpack (tableCell scalar)]
+
+-- | How one field of an object is shown, when it is shown at all.
+data Field
+    = -- | On one line beside its name
+      Inline Text
+    | -- | Under a heading, indented
+      Block String [String]
+
+objectLines :: KM.KeyMap Value -> [String]
+objectLines o = intercalate [""] (filter (not . null) (aligned inline : blocks))
+  where
+    fields :: [(String, Field)]
+    fields = [(Key.toString k, f) | (k, v) <- KM.toList o, Just f <- [fieldShown (Key.toString k) v]]
+    inline :: [(String, Text)]
+    inline = [(name, cell) | (name, Inline cell) <- fields]
+    blocks :: [[String]]
+    blocks = [heading : map indent body | (_, Block heading body) <- fields]
+
+indent :: String -> String
+indent "" = ""
+indent line = "  " ++ line
+
+-- | A null or an empty object says nothing, so it takes no line.
+fieldShown :: String -> Value -> Maybe Field
+fieldShown name v = case v of
+    Null -> Nothing
+    Object o
+        | KM.null o -> Nothing
+        | otherwise -> Just (Block name (objectLines o))
+    Array arr
+        | V.null arr -> Just (Inline "none")
+        | any isObject arr -> Just (Block (name <> " (" <> show (V.length arr) <> ")") (rowsLines (V.toList arr)))
+    _ -> Just (Inline (tableCell v))
+
+isObject :: Value -> Bool
+isObject (Object _) = True
+isObject _ = False
+
+isScalar :: Value -> Bool
+isScalar v = case v of
+    Object _ -> False
+    Array _ -> False
+    _ -> True
+
+aligned :: [(String, Text)] -> [String]
+aligned pairs = [pad width name ++ "  " ++ T.unpack cell | (name, cell) <- pairs]
+  where
+    width :: Int
+    width = foldl' max 0 (map (length . fst) pairs)
+
+{- | A list as a table, one row per element. A nested object spreads into
+dotted columns (@flow.name@, @flow.compartment.name@), and a column empty in
+every row is left out: a search result carries a dozen fields, most of them
+unset for any given database.
+-}
+rowsLines :: [Value] -> [String]
+rowsLines [] = ["none"]
+rowsLines rows = formatTable (filter (not . all null . snd) columns)
+  where
+    flat :: [[(Text, Value)]]
+    flat = map flatRow rows
+    columns :: [(String, [String])]
+    columns = [(T.unpack name, map (shorten . maybe "" tableCell . lookup name) flat) | name <- sort (nubOrd (concatMap (map fst) flat))]
+
+flatRow :: Value -> [(Text, Value)]
+flatRow (Object o) = concatMap spread (KM.toList o)
+  where
+    spread :: (KM.Key, Value) -> [(Text, Value)]
+    spread (k, Object inner) = [(Key.toText k <> "." <> sub, v) | (sub, v) <- flatRow (Object inner)]
+    spread (k, v) = [(Key.toText k, v)]
+flatRow v = [("value", v)]
+
+{- | A table cell. Unlike a CSV cell, false is written: a blank there reads as
+"unknown". A list of plain values is spelled out rather than shown as JSON.
+-}
+tableCell :: Value -> Text
+tableCell v = case v of
+    Bool False -> "no"
+    Array arr | all isScalar arr -> T.intercalate ", " (map tableCell (V.toList arr))
+    _ -> cellValue v
+
+{- | Long prose is cut to keep a table on the screen. A value with no space in
+it, an identifier or a path, is left whole: it is there to be copied, and a
+cut one names nothing.
+-}
+shorten :: Text -> String
+shorten cell
+    | T.length cell > maxCell && T.any (== ' ') cell = T.unpack (T.take (maxCell - 1) cell) ++ "…"
+    | otherwise = T.unpack cell
+  where
+    maxCell :: Int
+    maxCell = 60
 
 {- | Render rows as RFC 4180 CSV, through the same encoder and formula guard
 as the engine's CSV routes. An empty selection yields no bytes rather than a
@@ -188,17 +289,17 @@ trimTrailingZero s = if ".0" `isSuffixOf` s then take (length s - 2) s else s
 isSuffixOf :: String -> String -> Bool
 isSuffixOf suffix str = drop (length str - length suffix) str == suffix
 
--- | Format headers + rows as an aligned table with separators
-formatTable :: ([Text], [[Text]]) -> String
-formatTable ([], _) = ""
-formatTable (headers, rows) =
-    let allRows = map (map T.unpack) (headers : rows)
-        widths = map (foldl' max 0 . map length) (transpose (map (map (take maxColWidth)) allRows))
-        padRow = zipWith (\w c -> take maxColWidth c ++ replicate (w - length (take maxColWidth c)) ' ') widths
-        sep = intercalate "+" (map (\w -> replicate (w + 2) '-') widths)
-        fmtRow r = "  " ++ intercalate " | " (padRow r)
-     in unlines $ case allRows of
-            (h : rs) -> fmtRow h : ("--" ++ sep) : map fmtRow rs
-            [] -> []
+-- | Columns, each a header and its cells, as aligned lines under a rule.
+formatTable :: [(String, [String])] -> [String]
+formatTable [] = []
+formatTable columns = fmtRow (map fst columns) : rule : map fmtRow (transpose (map snd columns))
   where
-    maxColWidth = 60
+    widths :: [Int]
+    widths = [foldl' max (length h) (map length cells) | (h, cells) <- columns]
+    fmtRow :: [String] -> String
+    fmtRow = intercalate " | " . zipWith pad widths
+    rule :: String
+    rule = intercalate "-+-" [replicate w '-' | w <- widths]
+
+pad :: Int -> String -> String
+pad w s = s ++ replicate (w - length s) ' '
