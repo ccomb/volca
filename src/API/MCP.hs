@@ -77,12 +77,12 @@ newtype RequestId = RequestId Value
 instance ToJSON RequestId where
     toJSON (RequestId v) = v
 
--- | The id of an answer to a request that named none, or could not be read.
+-- | The id of an answer to a request that could not be read, or named none.
 noRequestId :: RequestId
 noRequestId = RequestId Null
 
 data RpcRequest = RpcRequest
-    { rpcId :: RequestId
+    { rpcId :: Maybe RequestId -- Nothing = notification
     , rpcMethod :: Text
     , rpcParams :: Maybe Value
     }
@@ -91,9 +91,15 @@ data RpcRequest = RpcRequest
 instance FromJSON RpcRequest where
     parseJSON = withObject "RpcRequest" $ \v ->
         RpcRequest
-            <$> (maybe noRequestId RequestId <$> v .:? "id")
+            <$> (fmap RequestId <$> v .:? "id")
             <*> v .: "method"
             <*> v .:? "params"
+
+{- | The id an answer to this request carries: the one it sent, or null when
+it sent none.
+-}
+answerId :: RpcRequest -> RequestId
+answerId = fromMaybe noRequestId . rpcId
 
 rpcResult :: RequestId -> Value -> Value
 rpcResult rid res =
@@ -264,12 +270,12 @@ handleRpc dbManager presets mHosting mBaseUrl mName _st req = case rpcMethod req
     "notifications/initialized" -> return Nothing -- notification, no response
     "tools/list" -> return $ Just $ handleToolsList (hostingReadOnly mHosting) req
     "tools/call" -> Just <$> handleToolsCall dbManager presets mHosting mBaseUrl req
-    "ping" -> return $ Just $ rpcResult (rpcId req) (object [])
+    "ping" -> return $ Just $ rpcResult (answerId req) (object [])
     other ->
         return $
             Just $
                 rpcError
-                    (rpcId req)
+                    (answerId req)
                     (-32601)
                     ("Method not found: " <> other)
 
@@ -288,7 +294,7 @@ assistant actually reads.
 handleInitialize :: Maybe ServerName -> RpcRequest -> IO Value
 handleInitialize mName req =
     return $
-        rpcResult (rpcId req) $
+        rpcResult (answerId req) $
             object
                 [ "protocolVersion" .= ("2025-03-26" :: Text)
                 , "capabilities" .= object ["tools" .= object []]
@@ -322,7 +328,7 @@ instructionLines =
 
 handleToolsList :: ReadOnly -> RpcRequest -> Value
 handleToolsList readOnly req =
-    rpcResult (rpcId req) $
+    rpcResult (answerId req) $
         object
             ["tools" .= toolDefinitions readOnly]
 
@@ -462,7 +468,7 @@ paramsToSchema ps =
 
 handleToolsCall :: DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RpcRequest -> IO Value
 handleToolsCall dbManager presets mHosting mBaseUrl req = do
-    let rid = rpcId req
+    let rid = answerId req
     case rpcParams req >>= parseCallParams of
         Nothing -> return $ rpcError rid (-32602) "Invalid params: expected {name, arguments}"
         Just (toolName, args) -> callTool dbManager presets mHosting mBaseUrl rid toolName args

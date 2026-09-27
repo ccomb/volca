@@ -427,7 +427,7 @@ spec = describe "MCP database load/unload tools" $ do
             fmap (T.isInfixOf "instance named") (instructionsOf resp) `shouldBe` Just False
 
 initRequest :: RpcRequest
-initRequest = RpcRequest{rpcId = RequestId (Number 1), rpcMethod = "initialize", rpcParams = Nothing}
+initRequest = RpcRequest{rpcId = Just (RequestId (Number 1)), rpcMethod = "initialize", rpcParams = Nothing}
 
 -- | Dig @result.serverInfo.name@ out of a JSON-RPC reply.
 serverInfoName :: Value -> Maybe Value
