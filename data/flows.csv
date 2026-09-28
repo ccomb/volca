@@ -159,7 +159,7 @@ Dibromodifluoromethane,"Methane, dibromodifluoro-, Halon 1202"
 "9,10-dihydro-9,10-dioxoanthracene",Anthraquinone
 9H-Fluorene,Fluorene
 "AOX, Adsorbable Organic Halogen as Cl","AOX, Adsorbable Organic Halogen",,,older spelling of the same sum parameter
-Abamectin,Avermectin B1,,,the EF 3.1 flow list names the pesticide by the avermectin it is made of
+Abamectin,Avermectin B1,,,"the EF 3.1 flow list names the pesticide by the avermectin it is made of; no CAS, as the method writes that of avermectin B1a and abamectin has its own"
 Abamectin,Zephyr
 Acephate,Ortho 12420
 "Acetic acid, trifluoro-",TFA
@@ -725,7 +725,7 @@ bis(2-ethylhexyl) Phtalat,"Phthalate, dioctyl-"
 butyl-(R)-2-[4-(5-trifluormethyl-2-pyridyloxy)phenoxy]propionat,Fluazifop-P-butyl
 calcium 3-oxido-5-oxo-4-propionylcyclohex-3-enecarboxylate,Prohexadione-calcium
 "chloramide, monochloramine",Chloramine
-"cis-4-[3-(p-tert-butylphenyl)-2-methylpropyl]-2,6-dimethylmorpholine",Fenpropimorph,,,the chemical name as the EF 3.1 methods write it
+"cis-4-[3-(p-tert-butylphenyl)-2-methylpropyl]-2,6-dimethylmorpholine",Fenpropimorph,,067564-91-4,the chemical name as the EF 3.1 methods write it
 dichlormethan,"Methane, dichloro-, HCC-30"
 "diethyl (RS)-1-(2,4-dichlorophenyl)-5-methyl-2-pyrazoline-3,5-dicarboxylate",Mefenpyr-diethyl
 dimethyl (E)-1-methyl-2-(methylcarbamoyl)vinyl phosphate,Monocrotophos

@@ -108,8 +108,8 @@ spec = do
                         `shouldBe` []
 
                 -- Inventories write these pesticides under their common name,
-                -- the methods under the chemical one, and neither side carries
-                -- a CAS number that would bridge them.
+                -- the methods under the chemical one, and the inventory carries
+                -- no CAS number that would bridge them.
                 it "bridges pesticide common names to the names the EF 3.1 methods write" $
                     [ pair
                     | pair@(common, written) <- pesticideCommonNames
