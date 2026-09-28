@@ -589,28 +589,22 @@ class Client:
             )
         return hits[0].collection, hits[0].id
 
-    def _method_uuid(self, method_id: str, collection: str | None = None) -> str:
+    def _method_uuid(self, feature: str, method_id: str, collection: str | None) -> str:
         """The UUID of a method given by UUID or name, for the method routes.
 
         A UUID goes straight to the URL: these routes look a method up across
         every loaded collection themselves, and refuse one several collections
         carry, so resolving here would only add a round-trip and turn the
-        engine's own answer into a client-side refusal.
-        """
-        if _is_uuid(method_id):
-            return method_id
-        return self._resolve_method(method_id, collection)[1]
-
-    def _method_collection(self, collection: str | None, feature: str) -> str | None:
-        """The collection a method route is asked to read, checked against the engine.
-
-        An engine before wire 29 ignores the parameter and answers from
-        whichever collection loaded first, so naming one there is refused
-        rather than sent.
+        engine's own answer into a client-side refusal. An engine before wire
+        29 ignores the ``collection`` parameter and answers from whichever
+        collection loaded first, so naming one there is refused before any
+        request.
         """
         if collection is not None:
             self._require_wire(29, f"{feature}(collection=...)", engine_hint="0.15.0")
-        return collection
+        if _is_uuid(method_id):
+            return method_id
+        return self._resolve_method(method_id, collection)[1]
 
     def _resolve_collection(self, collection: str | None) -> str:
         """The collection a whole-collection call runs against.
@@ -2173,8 +2167,8 @@ class Client:
         return FlowMapping.from_json(
             self._call(
                 "get_flow_mapping",
-                method_id=self._method_uuid(method_id, collection),
-                collection=self._method_collection(collection, "get_flow_mapping"),
+                method_id=self._method_uuid("get_flow_mapping", method_id, collection),
+                collection=collection,
             )
         )
 
@@ -2197,10 +2191,10 @@ class Client:
         return CharacterizationResult.from_json(
             self._call(
                 "get_characterization",
-                method_id=self._method_uuid(method_id, collection),
+                method_id=self._method_uuid("get_characterization", method_id, collection),
                 flow=flow,
                 limit=limit,
-                collection=self._method_collection(collection, "get_characterization"),
+                collection=collection,
             )
         )
 
@@ -2218,9 +2212,9 @@ class Client:
         return ExplainCFResult.from_json(
             self._call(
                 "explain_cf",
-                method_id=self._method_uuid(method_id, collection),
+                method_id=self._method_uuid("explain_cf", method_id, collection),
                 flow_id=flow_id,
-                collection=self._method_collection(collection, "explain_cf"),
+                collection=collection,
             )
         )
 
@@ -2563,8 +2557,8 @@ class Client:
         return MethodDetail.from_json(
             self._json(
                 self._session.get(
-                    f"{self.base_url}/api/v1/method/{self._method_uuid(method_id, collection)}",
-                    params={"collection": self._method_collection(collection, "get_method")},
+                    f"{self.base_url}/api/v1/method/{self._method_uuid('get_method', method_id, collection)}",
+                    params={"collection": collection},
                 )
             )
         )
@@ -2579,8 +2573,8 @@ class Client:
         """
         raw = self._json(
             self._session.get(
-                f"{self.base_url}/api/v1/method/{self._method_uuid(method_id, collection)}/factors",
-                params={"collection": self._method_collection(collection, "get_method_factors")},
+                f"{self.base_url}/api/v1/method/{self._method_uuid('get_method_factors', method_id, collection)}/factors",
+                params={"collection": collection},
             )
         )
         return [MethodFactor.from_json(f) for f in raw]
@@ -2604,8 +2598,8 @@ class Client:
             self._json(
                 self._session.get(
                     f"{self.base_url}/api/v1/db/{target}"
-                    f"/method/{self._method_uuid(method_id, collection)}/mapping",
-                    params={"collection": self._method_collection(collection, "get_mapping_status")},
+                    f"/method/{self._method_uuid('get_mapping_status', method_id, collection)}/mapping",
+                    params={"collection": collection},
                 )
             )
         )
