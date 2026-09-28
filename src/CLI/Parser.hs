@@ -402,7 +402,8 @@ flowMappingParser = do
         flag' MatchedFlows (long "matched" <> help "List the database flows a factor reaches, with that factor and how it matched")
             <|> flag' UncharacterizedFlows (long "uncharacterized" <> help "List the database flows no factor reaches")
             <|> pure MappingSummary
-    pure $ FlowMapping MappingOptions{mappingMethodId = methodId, mappingView = view}
+    collection <- collectionOpt
+    pure $ FlowMapping MappingOptions{mappingMethodId = methodId, mappingView = view, mappingCollection = collection}
 
 {- | Quality report parsers. Both read the database from the global @--db@,
 like every other command that queries one, and both answer CSV under

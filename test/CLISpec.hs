@@ -286,10 +286,11 @@ spec = do
 
         it "reads what `flow-mapping` lists" $ do
             let parsed argv = parseCmd ("flow-mapping" : "m" : argv)
-                listing = FlowMapping . MappingOptions "m"
+                listing view = FlowMapping (MappingOptions "m" view Nothing)
             parsed [] `shouldReturn` listing MappingSummary
             parsed ["--matched"] `shouldReturn` listing MatchedFlows
             parsed ["--uncharacterized"] `shouldReturn` listing UncharacterizedFlows
+            parsed ["--collection", "c"] `shouldReturn` FlowMapping (MappingOptions "m" MappingSummary (Just "c"))
 
     describe "rejection" $ do
         it "rejects `flow-mapping` asked for two lists at once" $

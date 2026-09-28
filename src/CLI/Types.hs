@@ -307,6 +307,7 @@ data DebugMatricesOptions = DebugMatricesOptions
 data MappingOptions = MappingOptions
     { mappingMethodId :: Text -- Method UUID
     , mappingView :: MappingView
+    , mappingCollection :: Maybe Text -- Needed when several collections carry the UUID
     }
     deriving (Eq, Show, Generic)
 

@@ -633,7 +633,7 @@ volca method delete ef-31                        # delete
 | Flow activities | `GET /db/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
 | **Flow Mapping** | | |
 | Mapping coverage and unmatched CFs | `GET /db/{db}/method/{id}/mapping` | `flow-mapping METHOD_UUID` |
-| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` or `--uncharacterized` |
+| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` or `--uncharacterized`, `--collection NAME` when several carry it |
 | Characterization for flow | `GET /db/{db}/method/{id}/characterization?flow=` | – |
 | Why a flow has, or lacks, a factor | `GET /db/{db}/method/{id}/explain-cf/{flowId}` | `explain-cf FLOW_ID --method METHOD [--collection NAME]` |
 | **Quality** | | |
