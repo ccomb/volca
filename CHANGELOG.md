@@ -48,6 +48,9 @@
   loaded first, and said nothing. They now take a `collection` query
   parameter, and without one refuse such a UUID with a 409 that names the
   collections, as the assistant tools already did. Wire revision 29.
+  pyvolca's `get_method`, `get_method_factors`, `get_mapping_status`,
+  `get_flow_mapping`, `get_characterization` and `explain_cf` take
+  `collection=` to choose.
 
 - Land use, minerals and water of an EcoSpold 1 database written with
   ecoinvent 2 names are characterized. Such a database still writes

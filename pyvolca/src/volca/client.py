@@ -589,16 +589,22 @@ class Client:
             )
         return hits[0].collection, hits[0].id
 
-    def _method_uuid(self, method_id: str) -> str:
-        """The UUID of a method given by UUID or name, for URLs with no collection.
+    def _method_uuid(self, feature: str, method_id: str, collection: str | None) -> str:
+        """The UUID of a method given by UUID or name, for the method routes.
 
         A UUID goes straight to the URL: these routes look a method up across
-        every loaded collection themselves, so resolving here would only add a
-        round-trip and turn the engine's own answer into a client-side refusal.
+        every loaded collection themselves, and refuse one several collections
+        carry, so resolving here would only add a round-trip and turn the
+        engine's own answer into a client-side refusal. An engine before wire
+        29 ignores the ``collection`` parameter and answers from whichever
+        collection loaded first, so naming one there is refused before any
+        request.
         """
+        if collection is not None:
+            self._require_wire(29, f"{feature}(collection=...)", engine_hint="0.15.0")
         if _is_uuid(method_id):
             return method_id
-        return self._resolve_method(method_id, None)[1]
+        return self._resolve_method(method_id, collection)[1]
 
     def _resolve_collection(self, collection: str | None) -> str:
         """The collection a whole-collection call runs against.
@@ -2148,15 +2154,22 @@ class Client:
         """
         return [Method.from_json(m) for m in self._call("list_methods")]
 
-    def get_flow_mapping(self, method_id: str) -> FlowMapping:
+    def get_flow_mapping(
+        self, method_id: str, *, collection: str | None = None
+    ) -> FlowMapping:
         """Get the characterization-factor-to-database-flow mapping coverage.
 
         :class:`FlowMapping.coverage_pct` summarises how many of the DB's
         biosphere flows the method has a CF for; ``flows`` is the per-flow
-        breakdown including unmatched rows (``cf_value=None``).
+        breakdown including unmatched rows (``cf_value=None``). ``collection``
+        names the collection to read when several carry the method.
         """
         return FlowMapping.from_json(
-            self._call("get_flow_mapping", method_id=self._method_uuid(method_id))
+            self._call(
+                "get_flow_mapping",
+                method_id=self._method_uuid("get_flow_mapping", method_id, collection),
+                collection=collection,
+            )
         )
 
     def get_characterization(
@@ -2165,33 +2178,43 @@ class Client:
         *,
         flow: str | None = None,
         limit: int | None = None,
+        collection: str | None = None,
     ) -> CharacterizationResult:
         """Look up characterization factors for a method matched to database flows.
 
         Returns a :class:`CharacterizationResult` carrying ``matches`` (total
         rows the filter selected) and ``shown`` (rows actually returned under
         ``limit``). Check ``result.has_more`` to detect truncation.
+        ``collection`` names the collection to read when several carry the
+        method.
         """
         return CharacterizationResult.from_json(
             self._call(
                 "get_characterization",
-                method_id=self._method_uuid(method_id),
+                method_id=self._method_uuid("get_characterization", method_id, collection),
                 flow=flow,
                 limit=limit,
+                collection=collection,
             )
         )
 
-    def explain_cf(self, method_id: str, flow_id: str) -> ExplainCFResult:
+    def explain_cf(
+        self, method_id: str, flow_id: str, *, collection: str | None = None
+    ) -> ExplainCFResult:
         """Explain why one flow scores with the characterization factor it does.
 
         ``result.explanation`` is a list of sentences written by the engine:
         show them as they are. The structured fields say the same thing in a
         form you can compare or filter on, and ``result.steps_tried`` lists the
-        rungs the cascade walked before the one that answered.
+        rungs the cascade walked before the one that answered. ``collection``
+        names the collection to read when several carry the method.
         """
         return ExplainCFResult.from_json(
             self._call(
-                "explain_cf", method_id=self._method_uuid(method_id), flow_id=flow_id
+                "explain_cf",
+                method_id=self._method_uuid("explain_cf", method_id, collection),
+                flow_id=flow_id,
+                collection=collection,
             )
         )
 
@@ -2523,39 +2546,60 @@ class Client:
         )
         return [Activity.from_json(a) for a in raw]
 
-    def get_method(self, method_id: str) -> MethodDetail:
-        """Detail of one LCIA method: unit, category, methodology, factor count."""
+    def get_method(
+        self, method_id: str, *, collection: str | None = None
+    ) -> MethodDetail:
+        """Detail of one LCIA method: unit, category, methodology, factor count.
+
+        ``collection`` names the collection to read when several carry the
+        method.
+        """
         return MethodDetail.from_json(
             self._json(
                 self._session.get(
-                    f"{self.base_url}/api/v1/method/{self._method_uuid(method_id)}"
+                    f"{self.base_url}/api/v1/method/{self._method_uuid('get_method', method_id, collection)}",
+                    params={"collection": collection},
                 )
             )
         )
 
-    def get_method_factors(self, method_id: str) -> list[MethodFactor]:
-        """The characterization factors of a method (flow, direction, value)."""
+    def get_method_factors(
+        self, method_id: str, *, collection: str | None = None
+    ) -> list[MethodFactor]:
+        """The characterization factors of a method (flow, direction, value).
+
+        ``collection`` names the collection to read when several carry the
+        method.
+        """
         raw = self._json(
             self._session.get(
-                f"{self.base_url}/api/v1/method/{self._method_uuid(method_id)}/factors"
+                f"{self.base_url}/api/v1/method/{self._method_uuid('get_method_factors', method_id, collection)}/factors",
+                params={"collection": collection},
             )
         )
         return [MethodFactor.from_json(f) for f in raw]
 
     def get_mapping_status(
-        self, method_id: str, db_name: str | None = None
+        self,
+        method_id: str,
+        db_name: str | None = None,
+        *,
+        collection: str | None = None,
     ) -> MappingStatus:
         """How well a method's factors map onto a database's biosphere flows.
 
         Reports the cascade breakdown (matched by UUID / CAS / name / synonym),
         the ``coverage`` fraction, and the ``unmapped_flows`` still without a CF.
+        ``collection`` names the collection to read when several carry the
+        method.
         """
         target = self._db(db_name)
         return MappingStatus.from_json(
             self._json(
                 self._session.get(
                     f"{self.base_url}/api/v1/db/{target}"
-                    f"/method/{self._method_uuid(method_id)}/mapping"
+                    f"/method/{self._method_uuid('get_mapping_status', method_id, collection)}/mapping",
+                    params={"collection": collection},
                 )
             )
         )

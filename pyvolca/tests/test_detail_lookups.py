@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from volca.client import VoLCAError
 from volca.types import CollectionCoverage, FlowDetail, MappingStatus, MethodDetail, MethodFactor
 
 # A method id travels the URL as a UUID; the client resolves anything else
@@ -108,3 +109,33 @@ class TestStats:
         out = client.get_stats()
         assert session.get.call_args[0][0] == "http://test.local/api/v1/stats"
         assert out["memory_used_bytes"] == 12345
+
+
+class TestMethodCollection:
+    """A method UUID several collections carry is chosen with ``collection``."""
+
+    @staticmethod
+    def _at_wire(client, wire: int) -> None:
+        client._checked = True
+        client._server_wire = wire
+
+    def test_collection_travels_as_a_query_parameter(self, mocked_client):
+        client, session = mocked_client
+        self._at_wire(client, 29)
+        _resp(session.get, [])
+        client.get_method_factors(_M1, collection="EF 3.1")
+        assert session.get.call_args[0][0] == f"http://test.local/api/v1/method/{_M1}/factors"
+        assert session.get.call_args[1]["params"] == {"collection": "EF 3.1"}
+
+    def test_no_collection_sends_none(self, mocked_client):
+        client, session = mocked_client
+        _resp(session.get, [])
+        client.get_method_factors(_M1)
+        assert session.get.call_args[1]["params"] == {"collection": None}
+
+    def test_an_engine_that_would_ignore_it_is_refused_before_any_request(self, mocked_client):
+        client, session = mocked_client
+        self._at_wire(client, 28)
+        with pytest.raises(VoLCAError, match="collection"):
+            client.get_method("Climate change", collection="EF 3.1")
+        session.get.assert_not_called()
