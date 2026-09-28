@@ -41,6 +41,14 @@ module Service.Compare (
     compareActivities,
     compareDatabases,
     limitComparison,
+
+    -- * The cascade, for other comparisons
+    Cascade (..),
+    Rung (..),
+    cascadeWith,
+    pairOn,
+    refusing,
+    close,
 ) where
 
 import Control.Monad (mfilter)
@@ -470,10 +478,16 @@ data Rung a = Rung
     }
 
 cascade :: (Ord k) => (m -> a -> Maybe k) -> [m] -> Sides [a] -> Cascade m a
-cascade keyOf rungs start = L.foldl' (climb keyOf) (Cascade [] [] start) rungs
+cascade keyOf = cascadeWith (pairOn . keyOf)
 
-climb :: forall k m a. (Ord k) => (m -> a -> Maybe k) -> Cascade m a -> m -> Cascade m a
-climb keyOf acc rung =
+{- | A cascade whose rungs are any way of pairing what is left, not only a key:
+a rung may refuse a pair its key made, and the refused go on to the next rung.
+-}
+cascadeWith :: (m -> Sides [a] -> Rung a) -> [m] -> Sides [a] -> Cascade m a
+cascadeWith rungOf rungs start = L.foldl' (climb rungOf) (Cascade [] [] start) rungs
+
+climb :: forall m a. (m -> Sides [a] -> Rung a) -> Cascade m a -> m -> Cascade m a
+climb rungOf acc rung =
     Cascade
         { cPairs = cPairs acc ++ map (rung,) (rPairs step)
         , cAmbiguous = cAmbiguous acc ++ map (rung,) (rAmbiguous step)
@@ -481,7 +495,23 @@ climb keyOf acc rung =
         }
   where
     step :: Rung a
-    step = pairOn (keyOf rung) (cUnpaired acc)
+    step = rungOf rung (cUnpaired acc)
+
+-- | A rung whose pairs a test may still refuse; the refused go on unpaired.
+refusing :: forall a. (Sides a -> Bool) -> Rung a -> Rung a
+refusing refused rung =
+    rung
+        { rPairs = kept
+        , rLeft =
+            Sides
+                { baseSide = map baseSide dropped ++ baseSide (rLeft rung)
+                , otherSide = map otherSide dropped ++ otherSide (rLeft rung)
+                }
+        }
+  where
+    dropped :: [Sides a]
+    kept :: [Sides a]
+    (dropped, kept) = L.partition refused (rPairs rung)
 
 pairOn :: forall k a. (Ord k) => (a -> Maybe k) -> Sides [a] -> Rung a
 pairOn keyOf sides =
