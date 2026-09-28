@@ -631,14 +631,15 @@ the blocker (missing suppliers, no activities parsed); fix it with
 left staged by an earlier failed run goes through the same readiness
 check instead of being loaded half-linked.
 
-##### `Client.explain_cf(method_id: str, flow_id: str) -> ExplainCFResult`
+##### `Client.explain_cf(method_id: str, flow_id: str, *, collection: str | None = None) -> ExplainCFResult`
 
 Explain why one flow scores with the characterization factor it does.
 
 ``result.explanation`` is a list of sentences written by the engine:
 show them as they are. The structured fields say the same thing in a
 form you can compare or filter on, and ``result.steps_tried`` lists the
-rungs the cascade walked before the one that answered.
+rungs the cascade walked before the one that answered. ``collection``
+names the collection to read when several carry the method.
 
 ##### `Client.export_database(fmt: str, db_name: str | None = None) -> bytes`
 
@@ -688,13 +689,15 @@ Returns a typed ActivityDetail. Use ``act.inputs`` / ``act.outputs`` /
 ``act.technosphere_inputs`` to filter exchanges instead of walking
 ``act.exchanges`` directly.
 
-##### `Client.get_characterization(method_id: str, *, flow: str | None = None, limit: int | None = None) -> CharacterizationResult`
+##### `Client.get_characterization(method_id: str, *, flow: str | None = None, limit: int | None = None, collection: str | None = None) -> CharacterizationResult`
 
 Look up characterization factors for a method matched to database flows.
 
 Returns a `CharacterizationResult` carrying ``matches`` (total
 rows the filter selected) and ``shown`` (rows actually returned under
 ``limit``). Check ``result.has_more`` to detect truncation.
+``collection`` names the collection to read when several carry the
+method.
 
 ##### `Client.get_collection_coverage(collection: str, db_name: str | None = None) -> CollectionCoverage`
 
@@ -770,13 +773,14 @@ Note that both sides together are narrower than asking for both: an
 avoided product is an exchange on the flow that neither makes it for
 sale nor consumes it, and only the unfiltered call lists it.
 
-##### `Client.get_flow_mapping(method_id: str) -> FlowMapping`
+##### `Client.get_flow_mapping(method_id: str, *, collection: str | None = None) -> FlowMapping`
 
 Get the characterization-factor-to-database-flow mapping coverage.
 
 `FlowMapping.coverage_pct` summarises how many of the DB's
 biosphere flows the method has a CF for; ``flows`` is the per-flow
-breakdown including unmatched rows (``cf_value=None``).
+breakdown including unmatched rows (``cf_value=None``). ``collection``
+names the collection to read when several carry the method.
 
 ##### `Client.get_impacts(process_id: str, method_id: str, *, collection: str | None = None, top_flows: int | None = None, substitutions: list[SubstitutionLike] | None = None) -> LCIAResult`
 
@@ -833,20 +837,28 @@ Args:
         otherwise; the engine doesn't paginate this endpoint.)
     substitutions: Upstream supplier swaps; see `get_supply_chain`.
 
-##### `Client.get_mapping_status(method_id: str, db_name: str | None = None) -> MappingStatus`
+##### `Client.get_mapping_status(method_id: str, db_name: str | None = None, *, collection: str | None = None) -> MappingStatus`
 
 How well a method's factors map onto a database's biosphere flows.
 
 Reports the cascade breakdown (matched by UUID / CAS / name / synonym),
 the ``coverage`` fraction, and the ``unmapped_flows`` still without a CF.
+``collection`` names the collection to read when several carry the
+method.
 
-##### `Client.get_method(method_id: str) -> MethodDetail`
+##### `Client.get_method(method_id: str, *, collection: str | None = None) -> MethodDetail`
 
 Detail of one LCIA method: unit, category, methodology, factor count.
 
-##### `Client.get_method_factors(method_id: str) -> list[MethodFactor]`
+``collection`` names the collection to read when several carry the
+method.
+
+##### `Client.get_method_factors(method_id: str, *, collection: str | None = None) -> list[MethodFactor]`
 
 The characterization factors of a method (flow, direction, value).
+
+``collection`` names the collection to read when several carry the
+method.
 
 ##### `Client.get_outputs(process_id: str) -> list[Exchange]`
 

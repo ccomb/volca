@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from volca.client import VoLCAError
 from volca.types import CollectionCoverage, FlowDetail, MappingStatus, MethodDetail, MethodFactor
 
 # A method id travels the URL as a UUID; the client resolves anything else
