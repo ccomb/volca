@@ -1,0 +1,285 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+{- | What changed between two method collections, factor by factor.
+
+Both collections are values in memory, so a comparison is a pure function of
+them and of the reference data that says which names are one substance.
+
+* Factors pair in a cascade, each rung seeing only what the rungs before it
+  left unpaired, and always at the same place: the same direction, the same
+  compartment once its spelling is read through the compartment table, the
+  same location. The rungs are two names of one synonym class; then the same
+  CAS number, unless both names are in the registry, since after the first
+  rung two known names are two classes (one CAS covers fossil and biogenic
+  methane, which the registry keeps apart); then the same name, a unit suffix
+  kept, so the rows a method writes per kilogram and per cubic metre stay
+  two; then, for pattern and exclusion rows, which select flows rather than
+  name a substance, the same prefix.
+* The compartment is compared strictly: the table's fallback rows, which let
+  a flow read a factor written for a broader place, are not followed, since
+  they would make a precise subcompartment equal to an unspecified one. One
+  reading is taken: a subcompartment written @unspecified@ is the whole
+  medium, which is how another format writes it with an empty cell.
+* A key several factors answer to, on either side, pairs none of them.
+* Two values are read per one unit before comparing: converted when both
+  are flow units, per the reference unit of the flow unit's dimension when
+  the other states an impact unit, as scoring reads it, as written when
+  neither is a flow unit (an empty unit, which one reader leaves when the
+  file states none, is not a flow unit: it is compared as written, and the
+  row says so). They are equal within a relative 1e-9.
+-}
+module Service.CompareMethods (
+    CompareMethodsContext (..),
+    compareCategories,
+) where
+
+import Control.Monad (guard)
+import Data.Foldable (toList)
+import qualified Data.List as L
+import Data.Maybe (isJust, listToMaybe)
+import Data.Ord (Down (..))
+import Data.Text (Text)
+import qualified Data.Text as T
+
+import API.Types (
+    AmbiguousFactors (..),
+    CategoryComparison (..),
+    CategoryMatch,
+    CategorySide (..),
+    ChangedFactor (..),
+    FactorDirection (..),
+    FactorMatch (..),
+    FactorSide (..),
+    UnconvertibleFactor (..),
+    ValueReading (..),
+ )
+import Method.Mapping (isExclusionCF, isPatternCF, patternPrefix, viewFor)
+import Method.Types (Compartment (..), CompartmentMap, FlowDirection (..), Method (..), MethodCF (..), normalizeCompartment)
+import Service.Compare (Cascade (..), Rung, Sides (..), cascadeWith, close, pairOn, refusing)
+import SubstanceRegistry (nonEmptyCAS)
+import SynonymDB (SynonymDB, lookupSynonymGroup, normalizeNameKeepUnit)
+import UnitConversion (UnitConfig, canonicalUnitFor, convertOntoFactorBasis, isKnownUnit)
+
+-- | The reference data a comparison reads names and units through.
+data CompareMethodsContext = CompareMethodsContext
+    { cmcSynonyms :: !SynonymDB
+    , cmcCompartments :: !CompartmentMap
+    , cmcUnits :: !UnitConfig
+    }
+
+data CompartmentKey = CompartmentKey
+    { ckMedium :: !Text
+    , ckSub :: !Text
+    , ckQualifier :: !Text
+    }
+    deriving (Eq, Ord)
+
+data Place = Place
+    { plDirection :: !FlowDirection
+    , plCompartment :: !(Maybe CompartmentKey)
+    , plLocation :: !(Maybe Text)
+    }
+    deriving (Eq, Ord)
+
+data PatternKind = Pattern | Exclusion
+    deriving (Eq, Ord)
+
+data Substance
+    = ByClass !Int
+    | ByCAS !Text
+    | ByName !Text
+    | ByPrefix !PatternKind !Text
+    deriving (Eq, Ord)
+
+data FactorKey = FactorKey !Place !Substance
+    deriving (Eq, Ord)
+
+-- | A pair the cascade made, and what comparing its values found.
+data Judged = Judged
+    { jMatch :: !FactorMatch
+    , jPair :: !(Sides MethodCF)
+    , jVerdict :: !Verdict
+    }
+
+-- | Two values read per one unit, and how they were read.
+data Compared = Compared !ValueReading !(Sides Double)
+
+-- | What comparing the two values of a paired factor found.
+data Verdict
+    = Same
+    | Differs !ValueReading !(Maybe Double)
+    | Unconvertible
+
+compareCategories :: CompareMethodsContext -> CategoryMatch -> Sides Method -> CategoryComparison
+compareCategories ctx match methods =
+    CategoryComparison
+        { ccpMatch = match
+        , ccpBase = categorySide (baseSide methods)
+        , ccpOther = categorySide (otherSide methods)
+        , ccpAddedCount = length added
+        , ccpRemovedCount = length removed
+        , ccpChangedCount = length changed
+        , ccpUnchangedCount = length [() | Judged{jVerdict = Same} <- judged]
+        , ccpAmbiguousCount = length ambiguous
+        , ccpUnconvertibleCount = length unconvertible
+        , ccpLargestRatio = listToMaybe changed >>= cfxRatio
+        , ccpAdded = added
+        , ccpRemoved = removed
+        , ccpChanged = changed
+        , ccpAmbiguous = ambiguous
+        , ccpUnconvertible = unconvertible
+        }
+  where
+    paired :: Cascade FactorMatch MethodCF
+    paired = cascadeWith (factorRung ctx) [minBound .. maxBound] (fmap methodFactors methods)
+    judged :: [Judged]
+    judged = [Judged{jMatch = m, jPair = pair, jVerdict = judge (cmcUnits ctx) pair} | (m, pair) <- cPairs paired]
+    changed :: [ChangedFactor]
+    changed =
+        L.sortOn
+            (\c -> (Down (distance (cfxRatio c)), facFlowName (cfxBase c)))
+            [ ChangedFactor
+                { cfxMatch = m
+                , cfxBase = factorSide (baseSide pair)
+                , cfxOther = factorSide (otherSide pair)
+                , cfxReading = reading
+                , cfxRatio = ratio
+                }
+            | Judged{jMatch = m, jPair = pair, jVerdict = Differs reading ratio} <- judged
+            ]
+    unconvertible :: [UnconvertibleFactor]
+    unconvertible =
+        [ UnconvertibleFactor{ufxMatch = m, ufxBase = factorSide (baseSide pair), ufxOther = factorSide (otherSide pair)}
+        | Judged{jMatch = m, jPair = pair, jVerdict = Unconvertible} <- judged
+        ]
+    ambiguous :: [AmbiguousFactors]
+    ambiguous =
+        [ AmbiguousFactors{afxMatch = m, afxBase = sides (baseSide cands), afxOther = sides (otherSide cands)}
+        | (m, cands) <- cAmbiguous paired
+        ]
+    added :: [FactorSide]
+    added = sides (otherSide (cUnpaired paired))
+    removed :: [FactorSide]
+    removed = sides (baseSide (cUnpaired paired))
+    sides :: (Foldable t) => t MethodCF -> [FactorSide]
+    sides = L.sortOn (\s -> (facFlowName s, facCompartment s)) . map factorSide . toList
+
+{- | How far a ratio is from no change. A sign flip, or a factor that became
+zero, is the farthest of all; a zero that became a value has no ratio and
+comes after every ratio.
+-}
+distance :: Maybe Double -> Maybe Double
+distance = fmap far
+  where
+    far :: Double -> Double
+    far r
+        | r <= 0 = 1 / 0
+        | otherwise = abs (log r)
+
+factorRung :: CompareMethodsContext -> FactorMatch -> Sides [MethodCF] -> Rung MethodCF
+factorRung ctx rung = case rung of
+    SameSynonymClass -> pairOn (keyed (ordinary (fmap ByClass . classOf)))
+    SameCAS -> refusing bothKnown . pairOn (keyed (ordinary (\cf -> ByCAS <$> (mcfCAS cf >>= nonEmptyCAS))))
+    SameName -> pairOn (keyed (ordinary (Just . ByName . normalizeNameKeepUnit . mcfFlowName)))
+    SamePattern -> pairOn (keyed byPrefix)
+  where
+    keyed :: (MethodCF -> Maybe Substance) -> MethodCF -> Maybe FactorKey
+    keyed substance cf = FactorKey (placeOf (cmcCompartments ctx) cf) <$> substance cf
+    ordinary :: (MethodCF -> Maybe Substance) -> MethodCF -> Maybe Substance
+    ordinary substance cf = guard (not (isPatternCF cf || isExclusionCF cf)) >> substance cf
+    classOf :: MethodCF -> Maybe Int
+    classOf cf = lookupSynonymGroup (viewFor (mcfDirection cf) (cmcSynonyms ctx)) (mcfFlowName cf)
+    -- After the first rung, two names the registry knows at one place are two classes.
+    bothKnown :: Sides MethodCF -> Bool
+    bothKnown (Sides b o) = isJust (classOf b) && isJust (classOf o)
+    byPrefix :: MethodCF -> Maybe Substance
+    byPrefix cf
+        | isExclusionCF cf = Just (ByPrefix Exclusion (patternPrefix cf))
+        | isPatternCF cf = Just (ByPrefix Pattern (patternPrefix cf))
+        | otherwise = Nothing
+
+placeOf :: CompartmentMap -> MethodCF -> Place
+placeOf cmap cf =
+    Place
+        { plDirection = mcfDirection cf
+        , plCompartment = compartmentKey cmap <$> mcfCompartment cf
+        , plLocation = mcfConsumerLocation cf
+        }
+
+compartmentKey :: CompartmentMap -> Compartment -> CompartmentKey
+compartmentKey cmap c =
+    CompartmentKey{ckMedium = folded medium, ckSub = wholeMedium (folded sub), ckQualifier = folded qualifier}
+  where
+    medium :: Text
+    sub :: Text
+    qualifier :: Text
+    Compartment medium sub qualifier = normalizeCompartment cmap c
+    folded :: Text -> Text
+    folded = T.toCaseFold . T.strip
+    wholeMedium :: Text -> Text
+    wholeMedium s
+        | s `elem` ["unspecified", "(unspecified)"] = T.empty
+        | otherwise = s
+
+judge :: UnitConfig -> Sides MethodCF -> Verdict
+judge cfg pair = maybe Unconvertible verdictOn (comparedValues cfg pair)
+  where
+    verdictOn :: Compared -> Verdict
+    verdictOn (Compared reading (Sides b o))
+        | close b o = Same
+        | b == 0 = Differs reading Nothing
+        | otherwise = Differs reading (Just (o / b))
+
+{- | The two values read per one unit, and how. 'Nothing' when both are flow
+units that do not convert.
+-}
+comparedValues :: UnitConfig -> Sides MethodCF -> Maybe Compared
+comparedValues cfg (Sides b o)
+    | ub == uo = Just (Compared UnitsIdentical (Sides vb vo))
+    | known ub && known uo = (\f -> Compared ConvertedOntoBaseUnit (Sides vb (vo * f))) <$> perOne ub uo
+    | known ub = (\f -> Compared ReadPerReferenceUnit (Sides (vb * f) vo)) <$> perReference ub
+    | known uo = (\f -> Compared ReadPerReferenceUnit (Sides vb (vo * f))) <$> perReference uo
+    | otherwise = Just (Compared ComparedAsWritten (Sides vb vo))
+  where
+    ub :: Text
+    ub = mcfUnit b
+    uo :: Text
+    uo = mcfUnit o
+    vb :: Double
+    vb = mcfValue b
+    vo :: Double
+    vo = mcfValue o
+    known :: Text -> Bool
+    known = isKnownUnit cfg
+    -- How many @from@ one @to@ holds: a factor per @from@ times this is the factor per @to@.
+    perOne :: Text -> Text -> Maybe Double
+    perOne to from = convertOntoFactorBasis cfg to from 1
+    perReference :: Text -> Maybe Double
+    perReference u = canonicalUnitFor cfg u >>= \ref -> perOne ref u
+
+categorySide :: Method -> CategorySide
+categorySide m =
+    CategorySide
+        { csdName = methodName m
+        , csdCategory = methodCategory m
+        , csdUnit = methodUnit m
+        , csdFactorCount = length (methodFactors m)
+        }
+
+factorSide :: MethodCF -> FactorSide
+factorSide cf =
+    FactorSide
+        { facFlowName = mcfFlowName cf
+        , facDirection = direction (mcfDirection cf)
+        , facCompartment = maybe T.empty path (mcfCompartment cf)
+        , facCas = mcfCAS cf
+        , facLocation = mcfConsumerLocation cf
+        , facUnit = mcfUnit cf
+        , facValue = mcfValue cf
+        }
+  where
+    path :: Compartment -> Text
+    path (Compartment medium sub qualifier) = T.intercalate "/" (filter (not . T.null) [medium, sub, qualifier])
+    direction :: FlowDirection -> FactorDirection
+    direction Input = FactorInput
+    direction Output = FactorOutput
