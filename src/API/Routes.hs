@@ -1027,6 +1027,11 @@ batchImpactsH ::
     BatchImpactsRequest ->
     AppM BatchImpactsResponse
 batchImpactsH dbName collectionName topFlowsParam ltMode req = do
+    -- Before any lookup, like the read-only guard: a request this instance
+    -- will not run gets the same answer whether or not its names resolve.
+    hosting <- asks aeHostingConfig
+    forM_ (Config.scoringRefusal hosting (length (birProcessIds req)) topFlowsParam) $ \msg ->
+        throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
@@ -1145,6 +1150,20 @@ computedQualityReportH dbName mCollection mLimit = do
                     , wfName <$> M.lookup (exchangeFlowId ex) (sdbWasteFlows simple)
                     ]
             _ -> Nothing
+    -- The batch below would refuse too, but with advice to split a request
+    -- the caller never shaped: the report owes its own sentence.
+    hosting <- asks aeHostingConfig
+    forM_ (Config.activitiesPastLimit hosting (M.size entriesByPid)) $ \most ->
+        throwError
+            err403
+                { errBody =
+                    BSL.fromStrict . T.encodeUtf8 $
+                        "The computed quality report scores every activity of the database, "
+                            <> T.pack (show (M.size entriesByPid))
+                            <> " here, and this engine scores at most "
+                            <> T.pack (show most)
+                            <> " in one request."
+                }
     response <-
         batchImpactsH dbName collection Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = M.keys entriesByPid}
     -- The ids come from the catalogue itself, so nothing should be

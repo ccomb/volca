@@ -74,6 +74,8 @@ hosting ro =
         , hcUpgradeUpload = ""
         , hcUpgradeApi = ""
         , hcUpgradeVmSize = ""
+        , hcMaxBatchActivities = Nothing
+        , hcMaxTopFlows = Nothing
         }
 
 -- | Build an environment whose only interesting knob is the hosting stance.

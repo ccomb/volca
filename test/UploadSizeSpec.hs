@@ -25,6 +25,8 @@ hostingWithLimit limitMb =
         , hcUpgradeUpload = ""
         , hcUpgradeApi = ""
         , hcUpgradeVmSize = ""
+        , hcMaxBatchActivities = Nothing
+        , hcMaxTopFlows = Nothing
         }
 
 mb :: Int -> Int

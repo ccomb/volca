@@ -4,6 +4,18 @@
 
 ### Added
 
+- An instance shared by many callers can bound what one scoring request asks
+  for. Scoring every activity of a large database in one request holds all
+  the cores for about a minute, and every other caller waits behind it.
+  `max_batch_activities` under `[hosting]` caps how many activities a batch
+  score covers, which also turns away the computed quality report on a
+  database larger than that, since it scores every activity; `max_top_flows`
+  caps the top contributing flows a batch asks for per activity, which
+  multiply the work without lengthening the request. Both apply to the REST
+  batch and to the `score_activities` and
+  `get_computed_quality_report` assistant tools alike, and a refused request
+  gets a 403 or a tool error that says the limit and what it asked for.
+  Absent, they set no limit.
 - The command line and the REPL walk the supply chain from a process:
   `tree` shows it upstream as a tree, `supply-chain` lists the processes
   upstream and `consumers` those downstream, both filtered by name, location,

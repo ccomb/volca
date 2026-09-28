@@ -38,6 +38,8 @@ plan stored loaded =
         , hcUpgradeUpload = ""
         , hcUpgradeApi = ""
         , hcUpgradeVmSize = ""
+        , hcMaxBatchActivities = Nothing
+        , hcMaxTopFlows = Nothing
         }
 
 -- | An entry in the manager's registry for a database the user uploaded.

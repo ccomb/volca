@@ -23,6 +23,7 @@ module API.BatchImpacts (
 import API.Routes (activityLCIABatchH, batchImpactsH, collectionNotLoadedPrefix, computedQualityReportH, databaseNotLoadedPrefix)
 import API.Types (BatchImpactsRequest (..), BatchImpactsResponse, ComputedQualityReportAPI, LCIABatchResult, SubstitutionRequest)
 import App.Env (AppEnv (..), AppM, runApp)
+import Config (HostingConfig)
 import Control.Concurrent.STM (readTVarIO)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as M
@@ -70,6 +71,8 @@ uncached cross-DB path.
 -}
 runActivityLCIABatch ::
     DatabaseManager ->
+    -- | the instance's hosting limits, which a scoring request obeys
+    Maybe HostingConfig ->
     -- | database name
     Text ->
     -- | process_id (activityUUID_productUUID)
@@ -81,8 +84,8 @@ runActivityLCIABatch ::
     -- | whether to keep or drop delayed long-term emissions
     LongTermMode ->
     IO (Either BatchError LCIABatchResult)
-runActivityLCIABatch dbm dbName pid coll mSub ltMode =
-    runBare dbm (activityLCIABatchH dbName pid (CollectionName coll) mSub ltMode)
+runActivityLCIABatch dbm hosting dbName pid coll mSub ltMode =
+    runBare dbm hosting (activityLCIABatchH dbName pid (CollectionName coll) mSub ltMode)
 
 {- | Score N activities against every method in a collection in one
 multi-RHS MUMPS solve plus parallel characterization. Unresolved process
@@ -91,6 +94,8 @@ not in 'BatchError'.
 -}
 runBatchImpacts ::
     DatabaseManager ->
+    -- | the instance's hosting limits, which a scoring request obeys
+    Maybe HostingConfig ->
     -- | database name
     Text ->
     -- | method collection name
@@ -102,8 +107,8 @@ runBatchImpacts ::
     -- | process_ids to score
     [Text] ->
     IO (Either BatchError BatchImpactsResponse)
-runBatchImpacts dbm dbName coll topFlows ltMode pids =
-    runBare dbm (batchImpactsH dbName (CollectionName coll) topFlows ltMode BatchImpactsRequest{birProcessIds = pids})
+runBatchImpacts dbm hosting dbName coll topFlows ltMode pids =
+    runBare dbm hosting (batchImpactsH dbName (CollectionName coll) topFlows ltMode BatchImpactsRequest{birProcessIds = pids})
 
 {- | Computed-checks report over the whole catalogue of a loaded database.
 Same wire shape as the REST endpoint ('computedQualityReportH'), so both
@@ -111,6 +116,8 @@ surfaces stay in lock-step.
 -}
 runComputedQuality ::
     DatabaseManager ->
+    -- | the instance's hosting limits, which a scoring request obeys
+    Maybe HostingConfig ->
     -- | database name
     Text ->
     -- | method collection; 'Nothing' picks the single loaded one
@@ -118,20 +125,22 @@ runComputedQuality ::
     -- | max findings per check, worst first
     Maybe Int ->
     IO (Either BatchError ComputedQualityReportAPI)
-runComputedQuality dbm dbName mColl mLimit =
-    runBare dbm (computedQualityReportH dbName mColl mLimit)
+runComputedQuality dbm hosting dbName mColl mLimit =
+    runBare dbm hosting (computedQualityReportH dbName mColl mLimit)
 
 {- | Run one handler outside the Servant stack: the bare environment every
 wrapper shares, then 'ServerError' translated back to a 'BatchError'.
 -}
-runBare :: DatabaseManager -> AppM a -> IO (Either BatchError a)
-runBare dbm action = do
+runBare :: DatabaseManager -> Maybe HostingConfig -> AppM a -> IO (Either BatchError a)
+runBare dbm hosting action = do
     let env =
             AppEnv
                 { aeDbManager = dbm
                 , aeMaxTreeDepth = 0
                 , aePassword = Nothing
-                , aeHostingConfig = Nothing
+                , -- Carried through: the instance's limits apply to a scoring
+                  -- request whichever surface it arrives by.
+                  aeHostingConfig = hosting
                 , aeClassificationPresets = []
                 , aeDataVersion = Nothing
                 }

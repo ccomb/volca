@@ -83,7 +83,7 @@ spec = do
     describe "runActivityLCIABatch (empty DatabaseManager)" $ do
         it "returns DatabaseNotLoaded when the requested DB is not loaded" $ do
             dbm <- initDatabaseManager defaultConfig NoCache
-            res <- runActivityLCIABatch dbm "no-such-db" "no-pid" "no-coll" Nothing IncludeLongTerm
+            res <- runActivityLCIABatch dbm Nothing "no-such-db" "no-pid" "no-coll" Nothing IncludeLongTerm
             -- LCIABatchResult has no Show instance, so we pattern-match
             -- rather than rely on 'shouldBe' over the whole Either.
             case res of
@@ -93,7 +93,7 @@ spec = do
     describe "runBatchImpacts (empty DatabaseManager)" $ do
         it "returns DatabaseNotLoaded when the requested DB is not loaded" $ do
             dbm <- initDatabaseManager defaultConfig NoCache
-            res <- runBatchImpacts dbm "no-such-db" "no-coll" Nothing IncludeLongTerm ["pidA", "pidB"]
+            res <- runBatchImpacts dbm Nothing "no-such-db" "no-coll" Nothing IncludeLongTerm ["pidA", "pidB"]
             case res of
                 Left e -> e `shouldBe` DatabaseNotLoaded "no-such-db"
                 Right _ -> expectationFailure "expected DatabaseNotLoaded; got a successful result"

@@ -20,6 +20,8 @@ module Config (
     HostingConfig (..),
     ReadOnly (..),
     hostingReadOnly,
+    scoringRefusal,
+    activitiesPastLimit,
     messageOr,
     readOnlyRefusal,
     readOnlyRefusalFor,
@@ -71,6 +73,7 @@ module Config (
 ) where
 
 import Builtin (BuiltinMethod (..), BuiltinTable (..), DataVersion (..), builtinDataVersion, builtinMethodDescription, builtinMethodName, builtinMethods, builtinName)
+import Control.Applicative ((<|>))
 import Control.Monad (forM_, mfilter, unless, when)
 import Data.Indexing (repeated)
 import Data.List (find, isPrefixOf, isSuffixOf)
@@ -160,8 +163,45 @@ data HostingConfig = HostingConfig
     , hcUpgradeUpload :: !Text -- Upgrade message when upload restricted
     , hcUpgradeApi :: !Text -- Upgrade message when API restricted
     , hcUpgradeVmSize :: !Text -- Upgrade message when memory is high
+    , hcMaxBatchActivities :: !(Maybe Int) -- Most activities one scoring request may ask for (Nothing = no limit)
+    , hcMaxTopFlows :: !(Maybe Int) -- Most top contributing flows one scoring request may ask for, per activity and method
     }
     deriving (Show, Eq, Generic)
+
+{- | Why this instance declines a scoring request, or 'Nothing' to run it.
+
+Scoring many activities in one request holds every core for as long as it
+runs: on an instance shared by many callers, one request covering a whole
+database leaves the others waiting a minute for a page. The number of
+activities is what that time grows with, and so is the per-activity count of
+top contributing flows, which multiplies the work without lengthening the
+request. Every surface that scores a set of activities asks this one question,
+so the REST batch, the MCP tool and the computed quality report cannot drift
+apart.
+-}
+scoringRefusal :: Maybe HostingConfig -> Int -> Maybe Int -> Maybe Text
+scoringRefusal hosting activities topFlows =
+    (activitiesSentence <$> activitiesPastLimit hosting activities)
+        <|> (topFlows >>= \asked -> topFlowsSentence asked <$> pastLimit (hcMaxTopFlows =<< hosting) asked)
+  where
+    activitiesSentence :: Int -> Text
+    activitiesSentence most =
+        "This engine scores at most " <> tshow most <> " activities in one request, and this one covers " <> tshow activities <> ". Split it into smaller requests."
+    topFlowsSentence :: Int -> Int -> Text
+    topFlowsSentence asked most =
+        "This engine returns at most " <> tshow most <> " top contributing flows per activity, and this request asks for " <> tshow asked <> "."
+    tshow :: Int -> Text
+    tshow = T.pack . show
+
+{- | The batch limit, when a request covering this many activities passes it.
+Apart from 'scoringRefusal' for a caller that owes its own explanation: the
+computed quality report never chose how many activities it covers.
+-}
+activitiesPastLimit :: Maybe HostingConfig -> Int -> Maybe Int
+activitiesPastLimit hosting = pastLimit (hcMaxBatchActivities =<< hosting)
+
+pastLimit :: Maybe Int -> Int -> Maybe Int
+pastLimit limit asked = mfilter (< asked) limit
 
 {- | Whether this instance refuses every state-changing operation.
 
@@ -763,7 +803,16 @@ instance DecodeTOML HostingConfig where
         hcUpgradeUpload <- fromMaybe "" <$> getFieldOpt "upgrade_upload"
         hcUpgradeApi <- fromMaybe "" <$> getFieldOpt "upgrade_api"
         hcUpgradeVmSize <- fromMaybe "" <$> getFieldOpt "upgrade_vm_size"
+        hcMaxBatchActivities <- traverse (atLeast 1 "max_batch_activities") =<< getFieldOpt "max_batch_activities"
+        hcMaxTopFlows <- traverse (atLeast 0 "max_top_flows") =<< getFieldOpt "max_top_flows"
         pure HostingConfig{..}
+      where
+        -- Absent means no limit; a value below the floor would refuse every
+        -- request while reading like a limit, so it stops the load instead.
+        atLeast :: Int -> String -> Int -> Decoder Int
+        atLeast floor' key n
+            | n < floor' = fail (key <> " must be at least " <> show floor' <> "; leave it out for no limit")
+            | otherwise = pure n
 
 instance DecodeTOML ClassificationEntry where
     tomlDecoder = do
@@ -892,6 +941,8 @@ configKeys =
         , "upgrade_upload"
         , "upgrade_api"
         , "upgrade_vm_size"
+        , "max_batch_activities"
+        , "max_top_flows"
         ]
     refData = keys (map plain ["path", "name", "active", "description"])
     scoringSet =
