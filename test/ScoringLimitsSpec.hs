@@ -16,8 +16,8 @@ import qualified TOML
 import Test.Hspec
 
 import API.BatchImpacts (BatchError (..), runBatchImpacts)
-import API.Routes (batchImpactsH)
-import API.Types (BatchImpactsRequest (..))
+import API.Routes (batchImpactsH, hostingInfo)
+import API.Types (BatchImpactsRequest (..), HostingInfo (..))
 import App.Env (AppEnv (..), runApp)
 import Config (HostingConfig (..), defaultConfig, scoringRefusal)
 import Database.Manager (CachePolicy (..), CollectionName (..), initDatabaseManager)
@@ -74,6 +74,14 @@ spec = do
         -- like a limit, so it stops the load rather than meaning "none".
         it "refuses a batch limit below one" $
             either (const True) (const False) (decodeHosting "max_batch_activities = 0\n") `shouldBe` True
+
+    -- A client sizes its requests from the hosting route rather than
+    -- learning the limit from a refusal.
+    describe "the hosting route" $
+        it "reports both limits, and none on an unmanaged instance" $ do
+            let reported hi = (hiMaxBatchActivities hi, hiMaxTopFlows hi)
+            reported (hostingInfo (Just (limits (Just 500) (Just 5)))) `shouldBe` (Just 500, Just 5)
+            reported (hostingInfo Nothing) `shouldBe` (Nothing, Nothing)
 
     describe "the REST batch" $ do
         it "refuses a request past the limit before looking the database up" $ do

@@ -15,7 +15,9 @@
   batch and to the `score_activities` and
   `get_computed_quality_report` assistant tools alike, and a refused request
   gets a 403 or a tool error that says the limit and what it asked for.
-  Absent, they set no limit.
+  Absent, they set no limit. `GET /api/v1/hosting` reports both, `null` when
+  unset, so a client can size a request before it is refused. Wire
+  revision 30.
 - The command line and the REPL walk the supply chain from a process:
   `tree` shows it upstream as a tree, `supply-chain` lists the processes
   upstream and `consumers` those downstream, both filtered by name, location,

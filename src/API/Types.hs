@@ -925,6 +925,8 @@ data HostingInfo = HostingInfo
     , hiUpgradeUpload :: Text
     , hiUpgradeApi :: Text
     , hiUpgradeVmSize :: Text
+    , hiMaxBatchActivities :: Maybe Int -- null when there is no limit
+    , hiMaxTopFlows :: Maybe Int
     }
     deriving (Show, Eq, Generic)
 
@@ -941,6 +943,8 @@ instance ToJSON HostingInfo where
             , "upgrade_upload" .= hiUpgradeUpload hi
             , "upgrade_api" .= hiUpgradeApi hi
             , "upgrade_vm_size" .= hiUpgradeVmSize hi
+            , "max_batch_activities" .= hiMaxBatchActivities hi
+            , "max_top_flows" .= hiMaxTopFlows hi
             ]
 
 {- | Response for the re-link endpoint: fresh cross-DB link stats after a

@@ -268,7 +268,9 @@ so also refuses the computed quality report on a database with more
 activities than that, since the report scores all of them; the second caps
 the top contributing flows a batch asks for per activity. Both hold on REST
 and MCP alike, and a refusal says the limit and what the request asked for.
-Absent, they set no limit.
+Absent, they set no limit. `GET /api/v1/hosting` reports both (`null` for no
+limit), so a client can size its requests instead of learning the limit from a
+refusal.
 
 The `depends` field ensures dependency databases load first and their flows are available for cross-database linking. Setting `load = true` on a database transitively loads all its dependencies.
 
