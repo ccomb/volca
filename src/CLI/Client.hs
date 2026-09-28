@@ -227,7 +227,7 @@ executeRemoteCommand mgr rc globalOpts cmd = do
         ExplainCF flowId lciaOpts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             target <- fetchImpactTarget mgr rc lciaOpts
-            andThen (target >>= oneMethod) (\m -> apiGet mgr rc (dbPath db ++ "/method/" ++ T.unpack (mrId m) ++ "/explain-cf/" ++ T.unpack flowId)) >>= output fmt jp
+            andThen (target >>= oneMethod) (\m -> apiGet mgr rc (dbPath db ++ "/method/" ++ T.unpack (mrId m) ++ "/explain-cf/" ++ T.unpack flowId ++ buildQuery [("collection", Just (T.unpack (mrCollection m)))])) >>= output fmt jp
         FlowMapping opts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             fetchMapping mgr rc (dbPath db ++ "/method/" ++ T.unpack (mappingMethodId opts)) (mappingView opts) >>= output fmt jp

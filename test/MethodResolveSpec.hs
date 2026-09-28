@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Unit tests for 'selectMethod', the collection-aware method resolver behind
-the @method_id@-only MCP tools.
+the MCP tools and the REST method routes.
 
 A method's engine UUID is a UUIDv5 of its name, so the same UUID can be loaded
 under several collections (e.g. two EF 3.1 versions). Resolving must be loud,
@@ -14,7 +14,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Hspec
 
-import API.MCP (selectMethod)
+import API.Routes (MethodRefusal (..), selectMethod)
 import Method.Types (Method (..))
 import Types (UUID)
 
@@ -58,7 +58,8 @@ spec = describe "selectMethod" $ do
     it "fails loudly on an ambiguous UUID, naming every collection" $
         case selectMethod Nothing sharedId bothLoaded of
             Right _ -> expectationFailure "expected ambiguity error, got a match"
-            Left msg -> do
+            Left (MethodNotFound msg) -> expectationFailure ("expected ambiguity, got not-found: " <> T.unpack msg)
+            Left (MethodAmbiguous msg) -> do
                 msg `shouldSatisfy` T.isInfixOf collA
                 msg `shouldSatisfy` T.isInfixOf collB
                 msg `shouldSatisfy` T.isInfixOf "collection"
@@ -70,7 +71,8 @@ spec = describe "selectMethod" $ do
     it "errors when the pinned collection lacks the UUID, listing what is loaded" $
         case selectMethod (Just "EF 3.1 (adapted) 9.9") sharedId bothLoaded of
             Right _ -> expectationFailure "expected not-found error, got a match"
-            Left msg -> do
+            Left (MethodAmbiguous msg) -> expectationFailure ("expected not-found, got ambiguity: " <> T.unpack msg)
+            Left (MethodNotFound msg) -> do
                 msg `shouldSatisfy` T.isInfixOf collA
                 msg `shouldSatisfy` T.isInfixOf collB
 
