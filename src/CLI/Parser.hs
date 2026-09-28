@@ -101,7 +101,7 @@ commandParser =
             <> cmd "consumers" (Consumers <$> processIdArg <*> reachOptionsParser) "List the processes downstream of a process, that consume what it makes"
             <> cmd "contributing-flows" (Contributing ContributingFlows <$> processIdArg <*> contributionOptionsParser) "List the inventory flows that make up a process's score for one method"
             <> cmd "contributing-activities" (Contributing ContributingActivities <$> processIdArg <*> contributionOptionsParser) "List the upstream processes that make up a process's score for one method"
-            <> cmd "explain-cf" (ExplainCF <$> textArg "FLOW_ID" "UUID of a database flow" <*> lciaOptionsParser) "Explain how a database flow met, or missed, a method's characterization factor"
+            <> cmd "explain-cf" (ExplainCF <$> textArg "FLOW_ID" "UUID of a database flow" <*> explainMethodParser) "Explain how a database flow met, or missed, a method's characterization factor"
             <> cmd "path-to" (PathTo <$> processIdArg <*> fmap NamePart (textArg "NAME" "Part of the name of the upstream process to reach, case-blind")) "Show the shortest upstream path from a process to one whose name matches"
             <> cmd "flow" flowParser "Query flow information"
             <> cmd "activities" searchActivitiesParser "Search activities"
@@ -352,14 +352,31 @@ impactsParser =
 
 -- | LCIA options parser
 lciaOptionsParser :: Parser LCIAOptions
-lciaOptionsParser = do
-    lciaMethod <- textOpt "method" (Just 'm') "METHOD" "A loaded method, by UUID or name, or a collection name to score every method in it"
-    lciaCollection <- optTextOpt "collection" Nothing "NAME" "Look for the method in this collection only, when several carry it"
-    pure LCIAOptions{..}
+lciaOptionsParser =
+    LCIAOptions
+        <$> textOpt "method" (Just 'm') "METHOD" "A loaded method, by UUID or name, or a collection name to score every method in it"
+        <*> collectionOpt
+
+-- | One method, never a collection: a breakdown is of one score.
+oneMethodParser :: Parser LCIAOptions
+oneMethodParser = LCIAOptions <$> oneMethodOpt <*> collectionOpt
+
+{- | No --collection: the explain-cf route finds the method by UUID alone, so
+a collection named here would be ignored. A UUID two collections share is
+refused by the lookup instead.
+-}
+explainMethodParser :: Parser LCIAOptions
+explainMethodParser = (`LCIAOptions` Nothing) <$> oneMethodOpt
+
+oneMethodOpt :: Parser Text
+oneMethodOpt = textOpt "method" (Just 'm') "METHOD" "A loaded method, by UUID or name"
+
+collectionOpt :: Parser (Maybe Text)
+collectionOpt = optTextOpt "collection" Nothing "NAME" "Look for the method in this collection only, when several carry it"
 
 contributionOptionsParser :: Parser ContributionOptions
 contributionOptionsParser = do
-    contribMethod <- lciaOptionsParser
+    contribMethod <- oneMethodParser
     contribLimit <- optIntOpt "limit" Nothing "N" "List at most N contributors"
     contribLongTerm <- flag IncludeLongTerm ExcludeLongTerm (long "exclude-long-term" <> help "Leave long-term emissions out of the score")
     pure ContributionOptions{..}

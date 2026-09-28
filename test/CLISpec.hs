@@ -277,8 +277,9 @@ spec = do
             contributionPath "db" "p" ContributingFlows opts (MethodRow "m1" "Climate change" "EF 3.1")
                 `shouldBe` "/api/v1/db/db/activity/p/contributing-flows/EF%203.1/m1?limit=3&exclude-long-term=true"
 
-        it "parses `explain-cf FLOW_ID --method M`" $
+        it "parses `explain-cf FLOW_ID --method M`, and refuses a collection its route would ignore" $ do
             parseCmd ["explain-cf", "f", "--method", "m"] `shouldReturn` ExplainCF "f" (LCIAOptions "m" Nothing)
+            runParse ["explain-cf", "f", "--method", "m", "--collection", "c"] `shouldSatisfy` isLeft
 
         it "parses `path-to PROCESS_ID NAME`" $
             parseCmd ["path-to", "p", "electricity"] `shouldReturn` PathTo "p" (NamePart "electricity")
