@@ -512,8 +512,21 @@ volca impacts "12345678-..." --method "Climate change" --collection EF-3.1
 volca export-matrices ./output_dir
 ```
 
-The `tree`, `supply-chain`, `consumers`, `path-to`, `aggregate`, and contribution
-endpoints are reachable via the REST API and MCP. Use `curl` or the OpenAPI spec
+### Walking the supply chain
+
+```bash
+# Upstream, as a tree or as a flat list
+volca tree "12345678-..."
+volca supply-chain "12345678-..." --max-depth 2 --geo FR --min-quantity 0.01   # scaling factor above 0.01
+
+# Downstream: the processes that consume what this one makes
+volca consumers "12345678-..." --max-depth 1
+
+# The shortest upstream path to a process whose name contains "electricity"
+volca path-to "12345678-..." electricity
+```
+
+The `aggregate` and contribution endpoints are reachable via the REST API and MCP. Use `curl` or the OpenAPI spec
 at `/api/v1/docs` to drive them while the CLI focuses on the most common
 commands.
 
@@ -593,11 +606,11 @@ volca method delete ef-31                        # delete
 | Classification presets | `GET /classification-presets` | – |
 | **Analysis** | | |
 | Activity details | `GET /db/{db}/activity/{id}` | `activity ID` |
-| Supply chain tree | `GET /db/{db}/activity/{id}/tree` | – |
-| Supply chain (flat) | `GET\|POST /db/{db}/activity/{id}/supply-chain` | – |
+| Supply chain tree | `GET /db/{db}/activity/{id}/tree` | `tree ID` |
+| Supply chain (flat) | `GET\|POST /db/{db}/activity/{id}/supply-chain` | `supply-chain ID --name --geo --product --max-depth --min-quantity` |
 | Supply chain graph | `GET /db/{db}/activity/{id}/graph?cutoff=` | – |
-| Downstream consumers | `GET /db/{db}/activity/{id}/consumers` | – |
-| Path to target | `GET /db/{db}/activity/{id}/path-to?target=` | – |
+| Downstream consumers | `GET /db/{db}/activity/{id}/consumers` | `consumers ID --name --geo --product --max-depth` |
+| Path to target | `GET /db/{db}/activity/{id}/path-to?target=` | `path-to ID NAME` |
 | Aggregate | `GET /db/{db}/activity/{id}/aggregate` | – |
 | Life cycle inventory | `GET\|POST /db/{db}/activity/{id}/inventory` | `inventory ID` |
 | LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | `impacts ID --method COLLECTION` |

@@ -4,6 +4,12 @@
 
 ### Added
 
+- The command line and the REPL walk the supply chain from a process:
+  `tree` shows it upstream as a tree, `supply-chain` lists the processes
+  upstream and `consumers` those downstream, both filtered by name, location,
+  product and depth, and `path-to PROCESS_ID NAME` shows the shortest
+  upstream path to a process whose name matches. They were reachable through
+  the API only.
 - Contributing flows and contributing activities for a single score. A
   scoring set weighs every indicator into one number, and until now nothing
   said where that number came from: the contributions were only available one

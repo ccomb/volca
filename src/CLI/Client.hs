@@ -180,6 +180,19 @@ executeRemoteCommand mgr rc globalOpts cmd = do
         Inventory uuid -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/inventory") >>= output fmt jp
+        Tree uuid -> do
+            db <- resolveDbName mgr rc (dbName globalOpts)
+            apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/tree") >>= output fmt jp
+        SupplyChain uuid opts -> do
+            db <- resolveDbName mgr rc (dbName globalOpts)
+            let qs = buildQuery (reachQuery (scReach opts) ++ [("min-quantity", show <$> scMinQuantity opts)])
+            apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/supply-chain" ++ qs) >>= output fmt jp
+        Consumers uuid opts -> do
+            db <- resolveDbName mgr rc (dbName globalOpts)
+            apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/consumers" ++ buildQuery (reachQuery opts)) >>= output fmt jp
+        PathTo uuid (NamePart target) -> do
+            db <- resolveDbName mgr rc (dbName globalOpts)
+            apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/path-to" ++ buildQuery [("target", Just (T.unpack target))]) >>= output fmt jp
         SearchActivities opts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             let qs =
@@ -442,6 +455,17 @@ exportWarnings r =
     | Just raw <- [lookup "X-Volca-Export-Warnings" (responseHeaders r)]
     , w <- T.splitOn "\n" (T.decodeUtf8 (urlDecode False raw))
     , not (T.null w)
+    ]
+
+-- | The query parameters the supply-chain and consumers routes read alike.
+reachQuery :: ReachOptions -> [(String, Maybe String)]
+reachQuery o =
+    [ ("name", T.unpack <$> reachName o)
+    , ("location", T.unpack <$> reachLocation o)
+    , ("product", T.unpack <$> reachProduct o)
+    , ("max-depth", show <$> reachMaxDepth o)
+    , ("limit", show <$> reachLimit o)
+    , ("offset", show <$> reachOffset o)
     ]
 
 -- | Build query string from optional parameters
