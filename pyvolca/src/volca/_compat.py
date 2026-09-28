@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 28
-"""The newest wire revision this pyvolca understands (revision 28 added the
+KNOWN_WIRE = 29
+"""The newest wire revision this pyvolca understands (revision 29 added the
+``collection`` query parameter the method routes take, and the 409 they answer
+for a method UUID several loaded collections carry; revision 28 added the
 contributing flows and activities of a single score, under
 ``score/{set}/{score}``, answered in the shapes an indicator's are; revision 27 added the
 ``regional`` match kind a contributing flow can carry, naming a factor the
