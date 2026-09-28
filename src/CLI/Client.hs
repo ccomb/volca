@@ -227,10 +227,10 @@ executeRemoteCommand mgr rc globalOpts cmd = do
         ExplainCF flowId lciaOpts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             target <- fetchImpactTarget mgr rc lciaOpts
-            andThen (target >>= oneMethod) (\m -> apiGet mgr rc (dbPath db ++ "/method/" ++ T.unpack (mrId m) ++ "/explain-cf/" ++ T.unpack flowId)) >>= output fmt jp
+            andThen (target >>= oneMethod) (\m -> apiGet mgr rc (dbPath db ++ "/method/" ++ T.unpack (mrId m) ++ "/explain-cf/" ++ T.unpack flowId ++ buildQuery [("collection", Just (T.unpack (mrCollection m)))])) >>= output fmt jp
         FlowMapping opts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
-            fetchMapping mgr rc (dbPath db ++ "/method/" ++ T.unpack (mappingMethodId opts)) (mappingView opts) >>= output fmt jp
+            fetchMapping mgr rc (dbPath db) opts >>= output fmt jp
         QualityReport mLimit -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             fetchReport mgr rc fmt jp (dbPath db ++ "/quality-report") (buildQuery [("limit", show <$> mLimit)])
@@ -360,12 +360,19 @@ contributionPath db uuid contributor opts m =
 flow lists share the route that lists every database flow with its factor, and
 keep the flows that have one or the flows that have none.
 -}
-fetchMapping :: Manager -> RemoteConfig -> String -> MappingView -> IO (Either String Value)
-fetchMapping mgr rc methodPath = \case
-    MappingSummary -> apiGet mgr rc (methodPath ++ "/mapping")
-    MatchedFlows -> (>>= keepFlows hasFactor) <$> apiGet mgr rc (methodPath ++ "/flow-mapping")
-    UncharacterizedFlows -> (>>= keepFlows (not . hasFactor)) <$> apiGet mgr rc (methodPath ++ "/flow-mapping")
+fetchMapping :: Manager -> RemoteConfig -> String -> MappingOptions -> IO (Either String Value)
+fetchMapping mgr rc dbRoute opts = case mappingView opts of
+    MappingSummary -> apiGet mgr rc (route "/mapping")
+    MatchedFlows -> (>>= keepFlows hasFactor) <$> apiGet mgr rc (route "/flow-mapping")
+    UncharacterizedFlows -> (>>= keepFlows (not . hasFactor)) <$> apiGet mgr rc (route "/flow-mapping")
   where
+    route :: String -> String
+    route report =
+        dbRoute
+            ++ "/method/"
+            ++ T.unpack (mappingMethodId opts)
+            ++ report
+            ++ buildQuery [("collection", T.unpack <$> mappingCollection opts)]
     hasFactor :: KM.KeyMap Value -> Bool
     hasFactor = maybe False (/= Null) . KM.lookup "cfValue"
 

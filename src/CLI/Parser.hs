@@ -101,7 +101,7 @@ commandParser =
             <> cmd "consumers" (Consumers <$> processIdArg <*> reachOptionsParser) "List the processes downstream of a process, that consume what it makes"
             <> cmd "contributing-flows" (Contributing ContributingFlows <$> processIdArg <*> contributionOptionsParser) "List the inventory flows that make up a process's score for one method"
             <> cmd "contributing-activities" (Contributing ContributingActivities <$> processIdArg <*> contributionOptionsParser) "List the upstream processes that make up a process's score for one method"
-            <> cmd "explain-cf" (ExplainCF <$> textArg "FLOW_ID" "UUID of a database flow" <*> explainMethodParser) "Explain how a database flow met, or missed, a method's characterization factor"
+            <> cmd "explain-cf" (ExplainCF <$> textArg "FLOW_ID" "UUID of a database flow" <*> oneMethodParser) "Explain how a database flow met, or missed, a method's characterization factor"
             <> cmd "path-to" (PathTo <$> processIdArg <*> fmap NamePart (textArg "NAME" "Part of the name of the upstream process to reach, case-blind")) "Show the shortest upstream path from a process to one whose name matches"
             <> cmd "flow" flowParser "Query flow information"
             <> cmd "activities" searchActivitiesParser "Search activities"
@@ -359,17 +359,10 @@ lciaOptionsParser =
 
 -- | One method, never a collection: a breakdown is of one score.
 oneMethodParser :: Parser LCIAOptions
-oneMethodParser = LCIAOptions <$> oneMethodOpt <*> collectionOpt
-
-{- | No --collection: the explain-cf route finds the method by UUID alone, so
-a collection named here would be ignored. A UUID two collections share is
-refused by the lookup instead.
--}
-explainMethodParser :: Parser LCIAOptions
-explainMethodParser = (`LCIAOptions` Nothing) <$> oneMethodOpt
-
-oneMethodOpt :: Parser Text
-oneMethodOpt = textOpt "method" (Just 'm') "METHOD" "A loaded method, by UUID or name"
+oneMethodParser =
+    LCIAOptions
+        <$> textOpt "method" (Just 'm') "METHOD" "A loaded method, by UUID or name"
+        <*> collectionOpt
 
 collectionOpt :: Parser (Maybe Text)
 collectionOpt = optTextOpt "collection" Nothing "NAME" "Look for the method in this collection only, when several carry it"
@@ -409,7 +402,8 @@ flowMappingParser = do
         flag' MatchedFlows (long "matched" <> help "List the database flows a factor reaches, with that factor and how it matched")
             <|> flag' UncharacterizedFlows (long "uncharacterized" <> help "List the database flows no factor reaches")
             <|> pure MappingSummary
-    pure $ FlowMapping MappingOptions{mappingMethodId = methodId, mappingView = view}
+    collection <- collectionOpt
+    pure $ FlowMapping MappingOptions{mappingMethodId = methodId, mappingView = view, mappingCollection = collection}
 
 {- | Quality report parsers. Both read the database from the global @--db@,
 like every other command that queries one, and both answer CSV under

@@ -392,6 +392,8 @@ GET    /api/v1/logs?since=                                               Server 
 POST   /api/v1/auth                                                      Login (returns session cookie)
 ```
 
+The routes under `method/{methodId}` take an optional `?collection=`. A method's UUID derives from its name, so two collections can carry the same one; without `collection`, such a UUID is refused with a 409 naming the collections to choose from.
+
 Per-exchange data on inventory and impact responses includes `exComment` – the free-text comment (`generalComment` / `<comment>`) attached to each exchange in the source dataset, when present.
 
 The `impacts/{collection}` response includes per-category `normalizedScore` and `weightedScore` fields (when normalization-weighting data is present in the method collection), plus a `singleScore` sum in Pt.
@@ -631,9 +633,9 @@ volca method delete ef-31                        # delete
 | Flow activities | `GET /db/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
 | **Flow Mapping** | | |
 | Mapping coverage and unmatched CFs | `GET /db/{db}/method/{id}/mapping` | `flow-mapping METHOD_UUID` |
-| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` or `--uncharacterized` |
+| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` or `--uncharacterized`, `--collection NAME` when several carry it |
 | Characterization for flow | `GET /db/{db}/method/{id}/characterization?flow=` | – |
-| Why a flow has, or lacks, a factor | `GET /db/{db}/method/{id}/explain-cf/{flowId}` | `explain-cf FLOW_ID --method METHOD` |
+| Why a flow has, or lacks, a factor | `GET /db/{db}/method/{id}/explain-cf/{flowId}` | `explain-cf FLOW_ID --method METHOD [--collection NAME]` |
 | **Quality** | | |
 | Dataset soundness | `GET /db/{db}/quality-report[.csv]` | `quality-report [--limit N]` |
 | Computed checks | `GET /db/{db}/computed-quality-report[.csv]` | `computed-quality-report [--collection NAME]` |

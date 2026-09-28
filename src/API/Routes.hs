@@ -23,10 +23,11 @@ import Control.Monad (forM, forM_, mfilter, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import Data.Aeson
+import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isAscii, isControl)
 import Data.Foldable (asum)
-import Data.List (intercalate, sortOn)
+import Data.List (intercalate, nub, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
@@ -122,13 +123,13 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> QueryParam "role" Text :> Get '[JSON] [ActivitySummary]
                 :<|> "methods" :> Get '[JSON] [MethodSummary]
-                :<|> "method" :> Capture "methodId" Text :> Get '[JSON] MethodDetail
-                :<|> "method" :> Capture "methodId" Text :> "factors" :> Get '[JSON] [MethodFactorAPI]
-                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "mapping" :> Get '[JSON] MappingStatus
-                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "flow-mapping" :> Get '[JSON] FlowCFMapping
+                :<|> "method" :> Capture "methodId" Text :> QueryParam "collection" Text :> Get '[JSON] MethodDetail
+                :<|> "method" :> Capture "methodId" Text :> "factors" :> QueryParam "collection" Text :> Get '[JSON] [MethodFactorAPI]
+                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "mapping" :> QueryParam "collection" Text :> Get '[JSON] MappingStatus
+                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "flow-mapping" :> QueryParam "collection" Text :> Get '[JSON] FlowCFMapping
                 :<|> "db" :> Capture "dbName" Text :> "method-collection" :> Capture "collection" DM.CollectionName :> "coverage" :> Get '[JSON] CollectionCoverage
-                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "characterization" :> QueryParam "flow" Text :> QueryParam "limit" Int :> Get '[JSON] CharacterizationResult
-                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "explain-cf" :> Capture "flowId" Text :> Get '[JSON] ExplainCFResult
+                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "characterization" :> QueryParam "flow" Text :> QueryParam "limit" Int :> QueryParam "collection" Text :> Get '[JSON] CharacterizationResult
+                :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "explain-cf" :> Capture "flowId" Text :> QueryParam "collection" Text :> Get '[JSON] ExplainCFResult
                 :<|> "db" :> Capture "dbName" Text :> "flows" :> QueryParam "q" Text :> QueryParam "lang" Text :> QueryParam "kind" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults FlowSearchResult)
                 :<|> "db" :> Capture "dbName" Text :> "search-counts" :> QueryParam "q" Text :> QueryParam "sort" Text :> QueryParam "exact" Bool :> Get '[JSON] SearchCountsAPI
                 :<|> "db" :> Capture "dbName" Text :> "activities" :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "exact" Bool :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults ActivitySummary)
@@ -1335,25 +1336,81 @@ compartmentPath (MT.Compartment medium sub qualifier) =
 -- AppM helpers
 -- ---------------------------------------------------------------------------
 
-{- | Lookup a method by UUID across all loaded collections, returning the
-collection name it was found in alongside the method. The collection name is
-needed to key the per-method CF caches (a UUID alone collides across
-collections that share a method name). First-match on ambiguity, mirroring
-'API.MCP.resolveMethod'.
+{- | Why a method UUID named no single method. Two cases because they are two
+different answers: nothing to find (404), or a choice the caller has to make
+(409), which the message names.
 -}
-loadMethodByUUID :: Text -> AppM (DM.CollectionName, Method)
-loadMethodByUUID uuidText = do
+data MethodRefusal
+    = MethodNotFound Text
+    | MethodAmbiguous Text
+    deriving (Eq, Show)
+
+methodRefusalMessage :: MethodRefusal -> Text
+methodRefusalMessage = \case
+    MethodNotFound msg -> msg
+    MethodAmbiguous msg -> msg
+
+{- | Choose the (collection, method) for a UUID from the loaded set, optionally
+restricted to a named collection. A method's engine UUID is a UUIDv5 of its
+name, so the *same* UUID can be loaded under several collections (e.g. two EF
+3.1 versions). Resolving must therefore be loud, not first-match:
+
+  * @Just c@   -- resolve within collection @c@; a UUID is unique inside one
+                 collection, so this is unambiguous (or a not-found error).
+  * @Nothing@  -- infer. One match resolves; more than one is reported as an
+                 error listing the collections to choose from, rather than
+                 silently picking whichever loaded first.
+
+Pure so the disambiguation is total and testable without a 'DatabaseManager'.
+The REST routes and the MCP tools both resolve through it.
+-}
+selectMethod :: Maybe Text -> UUID -> [(Text, Method)] -> Either MethodRefusal (Text, Method)
+selectMethod mCollection uuid loaded =
+    case filter keep loaded of
+        [] -> Left (MethodNotFound notFound)
+        [hit] -> Right hit
+        hit : _ -> maybe (Left (MethodAmbiguous ambiguous)) (const (Right hit)) mCollection
+  where
+    keep :: (Text, Method) -> Bool
+    keep (col, m) = methodId m == uuid && maybe True (== col) mCollection
+    uuidText :: Text
+    uuidText = UUID.toText uuid
+    notFound :: Text
+    notFound = case mCollection of
+        Nothing -> "Method not found: " <> uuidText
+        Just c ->
+            "Method "
+                <> uuidText
+                <> " not found in collection '"
+                <> c
+                <> "'. Loaded collections: "
+                <> T.intercalate ", " (nub (map fst loaded))
+    ambiguous :: Text
+    ambiguous =
+        "Method UUID "
+            <> uuidText
+            <> " is loaded in multiple collections: "
+            <> T.intercalate ", " (nub [col | (col, m) <- loaded, methodId m == uuid])
+            <> ". Pass 'collection' to disambiguate."
+
+{- | Look a method up by UUID, in the named collection or, without one, in the
+only collection that carries it. The collection name comes back with the
+method because it keys the per-method CF caches.
+-}
+loadMethodByUUID :: Maybe Text -> Text -> AppM (DM.CollectionName, Method)
+loadMethodByUUID mCollection uuidText = do
     dbManager <- asks aeDbManager
     loadedMethods <- liftIO $ DM.getLoadedMethods dbManager
-    case UUID.fromText uuidText of
-        Nothing -> throwError err400{errBody = "Invalid method UUID format"}
-        Just uuid ->
-            case filter (\(_, m) -> methodId m == uuid) loadedMethods of
-                ((col, m) : _) -> return (DM.CollectionName col, m)
-                [] -> throwError err404{errBody = "Method not found"}
+    uuid <- maybe (throwError err400{errBody = "Invalid method UUID format"}) pure (UUID.fromText uuidText)
+    either refuse (pure . first DM.CollectionName) (selectMethod mCollection uuid loadedMethods)
+  where
+    refuse :: MethodRefusal -> AppM a
+    refuse = \case
+        MethodNotFound msg -> throwError err404{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
+        MethodAmbiguous msg -> throwError err409{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
 
-{- | Resolve a method by UUID *within a named collection*. Unlike
-'loadMethodByUUID' (first-match across all collections), this guarantees the
+{- | Resolve a method by UUID *within a named collection*, which the route
+requires rather than infers. This guarantees the
 method's CFs belong to @collectionName@ – required wherever the result keys a
 collection-scoped cache, so a method's factors and its cache slot never disagree.
 -}
@@ -1398,7 +1455,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 28: the contributing flows and activities of a single score, under
+(revision 29: the @collection@ query parameter the method routes take, and
+the 409 they answer, naming the collections, for a method UUID several loaded
+collections carry, where they used to answer from whichever loaded first;
+revision 28: the contributing flows and activities of a single score, under
 @score/{set}/{score}@, whose flow rows carry no match kind: a single score
 weighs several factors into one, so there is no one way it was found;
 revision 27: the @regional@ match kind a contributing flow can carry, naming a
@@ -1459,7 +1519,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 28
+currentWireVersion = 29
 
 getVersion :: AppM Value
 getVersion = do
@@ -2190,9 +2250,9 @@ getMethods = do
         | (collName, m) <- loadedMethods
         ]
 
-getMethodDetail :: Text -> AppM MethodDetail
-getMethodDetail methodIdText = do
-    (_, method) <- loadMethodByUUID methodIdText
+getMethodDetail :: Text -> Maybe Text -> AppM MethodDetail
+getMethodDetail methodIdText mCollection = do
+    (_, method) <- loadMethodByUUID mCollection methodIdText
     return $
         MethodDetail
             { mdId = methodId method
@@ -2204,16 +2264,16 @@ getMethodDetail methodIdText = do
             , mdFactorCount = length (methodFactors method)
             }
 
-getMethodFactors :: Text -> AppM [MethodFactorAPI]
-getMethodFactors methodIdText = do
-    (_, method) <- loadMethodByUUID methodIdText
+getMethodFactors :: Text -> Maybe Text -> AppM [MethodFactorAPI]
+getMethodFactors methodIdText mCollection = do
+    (_, method) <- loadMethodByUUID mCollection methodIdText
     return $ map cfToAPI (methodFactors method)
 
-getMethodMapping :: Text -> Text -> AppM MappingStatus
-getMethodMapping dbName methodIdText = do
+getMethodMapping :: Text -> Text -> Maybe Text -> AppM MappingStatus
+getMethodMapping dbName methodIdText mCollection = do
     dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
-    (collectionName, method) <- loadMethodByUUID methodIdText
+    (collectionName, method) <- loadMethodByUUID mCollection methodIdText
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collectionName db method
     tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
     let stats = computeMappingStats mappings
@@ -2256,11 +2316,11 @@ getMethodMapping dbName methodIdText = do
             , mstUnmappedFlows = unmappedFlows
             }
 
-getFlowCFMapping :: Text -> Text -> AppM FlowCFMapping
-getFlowCFMapping dbName methodIdText = do
+getFlowCFMapping :: Text -> Text -> Maybe Text -> AppM FlowCFMapping
+getFlowCFMapping dbName methodIdText mCollection = do
     dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
-    (collectionName, method) <- loadMethodByUUID methodIdText
+    (collectionName, method) <- loadMethodByUUID mCollection methodIdText
     tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
     let entries = map (buildFlowEntry db tables) (V.toList (dbBiosphereOrder db))
         matchedCount = length [() | e <- entries, isJust (fceCfValue e)]
@@ -2299,11 +2359,11 @@ than reading anything scoring had to carry. The response is assembled by
 'explainCFToAPI', which the MCP tool serves too, so the two surfaces cannot
 tell different stories about the same flow.
 -}
-explainCFHandler :: Text -> Text -> Text -> AppM ExplainCFResult
-explainCFHandler dbName methodIdText flowIdText = do
+explainCFHandler :: Text -> Text -> Text -> Maybe Text -> AppM ExplainCFResult
+explainCFHandler dbName methodIdText flowIdText mCollection = do
     dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
-    (collectionName, method) <- loadMethodByUUID methodIdText
+    (collectionName, method) <- loadMethodByUUID mCollection methodIdText
     fid <- case UUID.fromText (T.strip flowIdText) of
         Nothing -> throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 ("Malformed flow id: " <> flowIdText))}
         Just u -> pure u
@@ -2313,11 +2373,11 @@ explainCFHandler dbName methodIdText flowIdText = do
         Right (flow, explanation) ->
             pure (explainCFToAPI db method flow explanation)
 
-getCharacterization :: Text -> Text -> Maybe Text -> Maybe Int -> AppM CharacterizationResult
-getCharacterization dbName methodIdText flowFilter limitParam = do
+getCharacterization :: Text -> Text -> Maybe Text -> Maybe Int -> Maybe Text -> AppM CharacterizationResult
+getCharacterization dbName methodIdText flowFilter limitParam mCollection = do
     dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
-    (collectionName, method) <- loadMethodByUUID methodIdText
+    (collectionName, method) <- loadMethodByUUID mCollection methodIdText
     let lim = fromMaybe 50 limitParam
         queryLower = fmap T.toLower flowFilter
     mappings <- liftIO $ DM.effectiveMethodMappings dbManager dbName collectionName db method

@@ -402,7 +402,7 @@ printHelp = do
     putStrLn "  contributing-flows UUID --method M       Flows behind one method's score [--limit --exclude-long-term]"
     putStrLn "  contributing-activities UUID --method M  Upstream processes behind one method's score [--limit --exclude-long-term]"
     putStrLn "  explain-cf FLOW_ID --method M            How a flow met, or missed, the method's factor"
-    putStrLn "  flow-mapping METHOD_UUID    Flow mapping coverage [--matched|--uncharacterized]"
+    putStrLn "  flow-mapping METHOD_UUID    Flow mapping coverage [--matched|--uncharacterized] [--collection NAME]"
     putStrLn "  quality-report              What is malformed in the database"
     putStrLn "  computed-quality-report     What the database computes, judged against its own norms"
     putStrLn "  database [list|upload|delete]"

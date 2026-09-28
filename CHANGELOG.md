@@ -14,7 +14,8 @@
   `contributing-flows` and `contributing-activities` list the flows and the
   upstream processes that make up one method's score, and `explain-cf` says
   how a database flow met, or missed, that method's factor. The method is
-  named the way `impacts --method` names it, by UUID or name.
+  named the way `impacts --method` names it, by UUID or name, and
+  `--collection` picks among collections that carry the same one.
 - Contributing flows and contributing activities for a single score. A
   scoring set weighs every indicator into one number, and until now nothing
   said where that number came from: the contributions were only available one
@@ -40,6 +41,13 @@
   factors that found no flow.
 
 ### Fixed
+
+- The method routes (the method's detail and factors, its mapping, flow
+  mapping and characterization, and explain-cf) answered, for a method UUID
+  two loaded collections carry, with the factors of whichever collection
+  loaded first, and said nothing. They now take a `collection` query
+  parameter, and without one refuse such a UUID with a 409 that names the
+  collections, as the assistant tools already did. Wire revision 29.
 
 - Land use, minerals and water of an EcoSpold 1 database written with
   ecoinvent 2 names are characterized. Such a database still writes

@@ -5,7 +5,7 @@ Implements Streamable HTTP transport (MCP spec 2025-03-26).
 POST /mcp handles initialize, tools/list, tools/call (JSON or SSE response).
 GET  /mcp opens an SSE stream for server-initiated messages (stateless: closes immediately).
 -}
-module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, selectMethod, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId) where
+module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
@@ -33,7 +33,7 @@ import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConf
 import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
-import Data.Bifunctor (first)
+import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
 import Database.Edit (deriveDatabase, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
@@ -46,7 +46,7 @@ import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
-import API.Routes (collectionNotLoadedMessage)
+import API.Routes (collectionNotLoadedMessage, methodRefusalMessage, selectMethod)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits)
 import Control.Monad (mfilter)
 import qualified Data.List as L
@@ -1950,44 +1950,6 @@ mkMcpCrossDBEntry dbManager rootDbName mBaseUrl view unitDB score ((depDbName, p
             ]
                 ++ webUrlPair
 
-{- | Choose the (collection, method) for a UUID from the loaded set, optionally
-restricted to a named collection. A method's engine UUID is a UUIDv5 of its
-name, so the *same* UUID can be loaded under several collections (e.g. two EF
-3.1 versions). Resolving must therefore be loud, not first-match:
-
-  * @Just c@   -- resolve within collection @c@; a UUID is unique inside one
-                 collection, so this is unambiguous (or a not-found error).
-  * @Nothing@  -- infer. One match resolves; more than one is reported as an
-                 error listing the collections to choose from, rather than
-                 silently picking whichever loaded first.
-
-Pure so the disambiguation is total and testable without a 'DatabaseManager'.
--}
-selectMethod :: Maybe Text -> UUID -> [(Text, Method)] -> Either Text (Text, Method)
-selectMethod mCollection uuid loaded =
-    case filter keep loaded of
-        [] -> Left notFound
-        [hit] -> Right hit
-        hit : _ -> maybe (Left ambiguous) (const (Right hit)) mCollection
-  where
-    keep (col, m) = methodId m == uuid && maybe True (== col) mCollection
-    uuidText = UUID.toText uuid
-    notFound = case mCollection of
-        Nothing -> "Method not found: " <> uuidText
-        Just c ->
-            "Method "
-                <> uuidText
-                <> " not found in collection '"
-                <> c
-                <> "'. Loaded collections: "
-                <> T.intercalate ", " (L.nub (map fst loaded))
-    ambiguous =
-        "Method UUID "
-            <> uuidText
-            <> " is loaded in multiple collections: "
-            <> T.intercalate ", " (L.nub [col | (col, m) <- loaded, methodId m == uuid])
-            <> ". Pass 'collection' to disambiguate."
-
 {- | Resolve a method UUID (raw text) to its collection name and 'Method',
 optionally pinned to a collection. Thin IO edge over 'selectMethod'.
 -}
@@ -1996,7 +1958,7 @@ resolveMethod dbManager mCollection methodIdText =
     case UUID.fromText methodIdText of
         Nothing -> return $ Left "Invalid method UUID format"
         Just uuid ->
-            fmap (first DM.CollectionName) . selectMethod mCollection uuid
+            bimap methodRefusalMessage (first DM.CollectionName) . selectMethod mCollection uuid
                 <$> DM.getLoadedMethods dbManager
 
 {- | Raw text + its parsed 'ProcessId' + the looked-up 'Activity'. Bundled so

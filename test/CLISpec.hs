@@ -277,19 +277,20 @@ spec = do
             contributionPath "db" "p" ContributingFlows opts (MethodRow "m1" "Climate change" "EF 3.1")
                 `shouldBe` "/api/v1/db/db/activity/p/contributing-flows/EF%203.1/m1?limit=3&exclude-long-term=true"
 
-        it "parses `explain-cf FLOW_ID --method M`, and refuses a collection its route would ignore" $ do
+        it "parses `explain-cf FLOW_ID --method M [--collection C]`" $ do
             parseCmd ["explain-cf", "f", "--method", "m"] `shouldReturn` ExplainCF "f" (LCIAOptions "m" Nothing)
-            runParse ["explain-cf", "f", "--method", "m", "--collection", "c"] `shouldSatisfy` isLeft
+            parseCmd ["explain-cf", "f", "--method", "m", "--collection", "c"] `shouldReturn` ExplainCF "f" (LCIAOptions "m" (Just "c"))
 
         it "parses `path-to PROCESS_ID NAME`" $
             parseCmd ["path-to", "p", "electricity"] `shouldReturn` PathTo "p" (NamePart "electricity")
 
         it "reads what `flow-mapping` lists" $ do
             let parsed argv = parseCmd ("flow-mapping" : "m" : argv)
-                listing = FlowMapping . MappingOptions "m"
+                listing view = FlowMapping (MappingOptions "m" view Nothing)
             parsed [] `shouldReturn` listing MappingSummary
             parsed ["--matched"] `shouldReturn` listing MatchedFlows
             parsed ["--uncharacterized"] `shouldReturn` listing UncharacterizedFlows
+            parsed ["--collection", "c"] `shouldReturn` FlowMapping (MappingOptions "m" MappingSummary (Just "c"))
 
     describe "rejection" $ do
         it "rejects `flow-mapping` asked for two lists at once" $
