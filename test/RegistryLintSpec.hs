@@ -107,6 +107,16 @@ spec = do
                     ]
                         `shouldBe` []
 
+                -- Inventories write these pesticides under their common name,
+                -- the methods under the chemical one, and the inventory carries
+                -- no CAS number that would bridge them.
+                it "bridges pesticide common names to the names the EF 3.1 methods write" $
+                    [ pair
+                    | pair@(common, written) <- pesticideCommonNames
+                    , isNothing (classOf written) || classOf common /= classOf written
+                    ]
+                        `shouldBe` []
+
                 -- Bare Antimony carries the amounts EcoSpold 2 records as
                 -- Antimony ion, the method's form for antimony of unstated
                 -- valence; without the bridge it reaches no toxicity factor.
@@ -202,6 +212,13 @@ ecoinvent2ResourceNames =
     , ("Aluminium, resource correction", "Aluminium")
     , ("Silver, 3.2ppm in sulfide, Ag 1.2ppm, Cu and Te, in crude ore", "Silver")
     , ("Water, unspecified, Europe", "Water, unspecified natural origin, RER")
+    ]
+
+-- | Common pesticide name, the name the EF 3.1 methods characterize.
+pesticideCommonNames :: [(Text, Text)]
+pesticideCommonNames =
+    [ ("Fenpropimorph", "cis-4-[3-(p-tert-butylphenyl)-2-methylpropyl]-2,6-dimethylmorpholine")
+    , ("Abamectin", "Avermectin B1")
     ]
 
 {- | Carbon-origin families named inside a class. A name with no qualifier is
