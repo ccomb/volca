@@ -10,6 +10,11 @@
   product and depth, and `path-to PROCESS_ID NAME` shows the shortest
   upstream path to a process whose name matches. They were reachable through
   the API only.
+- The command line and the REPL break a score down:
+  `contributing-flows` and `contributing-activities` list the flows and the
+  upstream processes that make up one method's score, and `explain-cf` says
+  how a database flow met, or missed, that method's factor. The method is
+  named the way `impacts --method` names it, by UUID or name.
 - Contributing flows and contributing activities for a single score. A
   scoring set weighs every indicator into one number, and until now nothing
   said where that number came from: the contributions were only available one

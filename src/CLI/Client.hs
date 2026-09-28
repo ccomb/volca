@@ -12,6 +12,7 @@ module CLI.Client (
     MethodRow (..),
     ImpactTarget (..),
     resolveImpactTarget,
+    contributionPath,
 ) where
 
 import CLI.Render (renderResult)
@@ -21,6 +22,7 @@ import Control.Exception (IOException, try)
 import Data.Aeson (FromJSON (..), Value (..), decode, eitherDecode, encode, object, toJSON, (.:), (.=))
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Parser, parseEither, parseMaybe, withObject)
+import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy as BL
@@ -216,12 +218,16 @@ executeRemoteCommand mgr rc globalOpts cmd = do
             apiGet mgr rc (dbPath db ++ "/flows" ++ qs) >>= output fmt jp
         Impacts uuid lciaOpts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
-            methods <- apiGet mgr rc "/api/v1/methods"
-            case methods >>= parseEither parseJSON >>= either (Left . T.unpack) Right . resolveImpactTarget (lciaCollection lciaOpts) (lciaMethod lciaOpts) of
-                Left err -> reportError err >> exitFailure
-                Right target ->
-                    apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/impacts/" ++ impactPath target)
-                        >>= output fmt jp
+            target <- fetchImpactTarget mgr rc lciaOpts
+            andThen target (\t -> apiGet mgr rc (dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/impacts/" ++ impactPath t)) >>= output fmt jp
+        Contributing contributor uuid opts -> do
+            db <- resolveDbName mgr rc (dbName globalOpts)
+            target <- fetchImpactTarget mgr rc (contribMethod opts)
+            andThen (target >>= oneMethod) (apiGet mgr rc . contributionPath db uuid contributor opts) >>= output fmt jp
+        ExplainCF flowId lciaOpts -> do
+            db <- resolveDbName mgr rc (dbName globalOpts)
+            target <- fetchImpactTarget mgr rc lciaOpts
+            andThen (target >>= oneMethod) (\m -> apiGet mgr rc (dbPath db ++ "/method/" ++ T.unpack (mrId m) ++ "/explain-cf/" ++ T.unpack flowId)) >>= output fmt jp
         FlowMapping opts -> do
             db <- resolveDbName mgr rc (dbName globalOpts)
             fetchMapping mgr rc (dbPath db ++ "/method/" ++ T.unpack (mappingMethodId opts)) (mappingView opts) >>= output fmt jp
@@ -319,6 +325,36 @@ impactPath = \case
   where
     segment :: Text -> String
     segment = C8.unpack . URI.urlEncode False . T.encodeUtf8
+
+-- | Fetch the loaded methods and settle what @--method@ names.
+fetchImpactTarget :: Manager -> RemoteConfig -> LCIAOptions -> IO (Either String ImpactTarget)
+fetchImpactTarget mgr rc o = do
+    methods <- apiGet mgr rc "/api/v1/methods"
+    pure (methods >>= parseEither parseJSON >>= first T.unpack . resolveImpactTarget (lciaCollection o) (lciaMethod o))
+
+-- | A breakdown or an explanation is about one method, never a whole collection.
+oneMethod :: ImpactTarget -> Either String MethodRow
+oneMethod = \case
+    OneMethod r -> Right r
+    WholeCollection c -> Left ("\"" <> T.unpack c <> "\" is a collection. Name one of its methods.")
+
+-- | Run the next request only when the previous step succeeded.
+andThen :: Either String a -> (a -> IO (Either String b)) -> IO (Either String b)
+andThen e k = either (pure . Left) k e
+
+contributionPath :: Text -> Text -> Contributor -> ContributionOptions -> MethodRow -> String
+contributionPath db uuid contributor opts m =
+    dbPath db ++ "/activity/" ++ T.unpack uuid ++ "/" ++ segment ++ "/" ++ impactPath (OneMethod m) ++ buildQuery query
+  where
+    segment :: String
+    segment = case contributor of
+        ContributingFlows -> "contributing-flows"
+        ContributingActivities -> "contributing-activities"
+    query :: [(String, Maybe String)]
+    query =
+        [ ("limit", show <$> contribLimit opts)
+        , ("exclude-long-term", case contribLongTerm opts of IncludeLongTerm -> Nothing; ExcludeLongTerm -> Just "true")
+        ]
 
 {- | Fetch what one 'MappingView' shows. The summary is its own route; the two
 flow lists share the route that lists every database flow with its factor, and

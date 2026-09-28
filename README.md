@@ -508,6 +508,13 @@ volca impacts "12345678-..." --method EF-3.1
 # ... and --collection picks among collections carrying the same method
 volca impacts "12345678-..." --method "Climate change" --collection EF-3.1
 
+# What one method's score is made of: the flows, or the upstream processes
+volca contributing-flows "12345678-..." --method "Climate change" --limit 10
+volca contributing-activities "12345678-..." --method "Climate change" --exclude-long-term
+
+# How a database flow met, or missed, the method's factor
+volca explain-cf FLOW_UUID --method "Climate change"
+
 # Matrix export (Ecoinvent universal format – runs locally, not via HTTP)
 volca export-matrices ./output_dir
 ```
@@ -526,9 +533,9 @@ volca consumers "12345678-..." --max-depth 1
 volca path-to "12345678-..." electricity
 ```
 
-The `aggregate` and contribution endpoints are reachable via the REST API and MCP. Use `curl` or the OpenAPI spec
-at `/api/v1/docs` to drive them while the CLI focuses on the most common
-commands.
+The `aggregate` endpoint and the breakdowns of a single score are reachable via
+the REST API and MCP. Use `curl` or the OpenAPI spec at `/api/v1/docs` to drive
+them while the CLI focuses on the most common commands.
 
 ### Flow Mapping Diagnostics
 
@@ -616,8 +623,8 @@ volca method delete ef-31                        # delete
 | LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | `impacts ID --method COLLECTION` |
 | LCIA single method | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}/{methodId}` | `impacts ID --method METHOD` |
 | LCIA batch over many activities | `POST /db/{db}/impacts/{collection}` | – |
-| Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | – |
-| Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | – |
+| Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | `contributing-flows ID --method METHOD` |
+| Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | `contributing-activities ID --method METHOD` |
 | Contributing flows to a single score | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/score/{set}/{score}` | – |
 | Contributing activities to a single score | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/score/{set}/{score}` | – |
 | Flow details | `GET /db/{db}/flow/{flowId}` | `flow FLOW_ID` |
@@ -626,6 +633,7 @@ volca method delete ef-31                        # delete
 | Mapping coverage and unmatched CFs | `GET /db/{db}/method/{id}/mapping` | `flow-mapping METHOD_UUID` |
 | Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` or `--uncharacterized` |
 | Characterization for flow | `GET /db/{db}/method/{id}/characterization?flow=` | – |
+| Why a flow has, or lacks, a factor | `GET /db/{db}/method/{id}/explain-cf/{flowId}` | `explain-cf FLOW_ID --method METHOD` |
 | **Quality** | | |
 | Dataset soundness | `GET /db/{db}/quality-report[.csv]` | `quality-report [--limit N]` |
 | Computed checks | `GET /db/{db}/computed-quality-report[.csv]` | `computed-quality-report [--collection NAME]` |
