@@ -97,6 +97,16 @@ spec = do
                     ]
                         `shouldBe` []
 
+                -- EcoSpold 1 sources still write land use, ores and regional
+                -- water under their ecoinvent 2 names, which EF 3.1 methods
+                -- do not know: without a bridge each reaches no factor at all.
+                it "bridges ecoinvent 2 resource names to the ones the adapted EF 3.1 method writes" $
+                    [ pair
+                    | pair@(older, current) <- ecoinvent2ResourceNames
+                    , isNothing (classOf current) || classOf older /= classOf current
+                    ]
+                        `shouldBe` []
+
                 -- Bare Antimony carries the amounts EcoSpold 2 records as
                 -- Antimony ion, the method's form for antimony of unstated
                 -- valence; without the bridge it reaches no toxicity factor.
@@ -179,6 +189,19 @@ olderEmissionSpellings =
     , ("Methyl pentane", "Methylpentane")
     , ("Prothioconazol", "Prothioconazole")
     , ("Diclofop", "2-[4-(2,4-Dichlorophenoxy)phenoxy]propanoic acid")
+    ]
+
+-- | Older name, the one the adapted EF 3.1 method characterizes.
+ecoinvent2ResourceNames :: [(Text, Text)]
+ecoinvent2ResourceNames =
+    [ ("Transformation, from unknown", "Transformation, from unspecified")
+    , ("Transformation, to unknown", "Transformation, to unspecified")
+    , ("Transformation, from arable, organic", "Transformation, from annual crop, organic")
+    , ("Transformation, to arable, non-irrigated, fallow", "Transformation, to annual crop, non-irrigated, fallow")
+    , ("Transformation, from pasture and meadow", "Transformation, from grassland/pasture/meadow")
+    , ("Aluminium, resource correction", "Aluminium")
+    , ("Silver, 3.2ppm in sulfide, Ag 1.2ppm, Cu and Te, in crude ore", "Silver")
+    , ("Water, unspecified, Europe", "Water, unspecified natural origin, RER")
     ]
 
 {- | Carbon-origin families named inside a class. A name with no qualifier is
