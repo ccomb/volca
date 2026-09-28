@@ -14,9 +14,9 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import API.Types
-import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Method (..), MethodCF (..))
+import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..))
 import Service.Compare (Sides (..))
-import Service.CompareMethods (CompareMethodsContext (..), compareCategories)
+import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), compareCategories, compareCollections, parseForcedPair)
 import SynonymDB (buildFromPairs)
 import UnitConversion (Dimension, UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
@@ -77,7 +77,10 @@ counts :: CategoryComparison -> [Int]
 counts c = map ($ c) [ccpAddedCount, ccpRemovedCount, ccpChangedCount, ccpUnchangedCount, ccpAmbiguousCount, ccpUnconvertibleCount]
 
 spec :: Spec
-spec = describe "compareCategories" $ do
+spec = compareCategoriesSpec >> collectionSpec
+
+compareCategoriesSpec :: Spec
+compareCategoriesSpec = describe "compareCategories" $ do
     it "finds nothing between a category and itself" $ do
         let cfs = [factor "carbon dioxide" 1, factor "methane, fossil" 29.7]
         counts (compared cfs cfs) `shouldBe` [0, 0, 0, 2, 0, 0]
@@ -151,3 +154,61 @@ spec = describe "compareCategories" $ do
 
     it "treats a relative difference of 1e-12 as no change" $ do
         counts (compared [factor "zinc" 1] [factor "zinc" (1 + 1e-12)]) `shouldBe` [0, 0, 0, 1, 0, 0]
+
+collection :: [Method] -> MethodCollection
+collection ms = MethodCollection{mcMethods = ms, mcDamageCategories = [], mcNormWeightSets = [], mcScoringSets = []}
+
+collections :: [ForcedPair] -> [Method] -> [Method] -> Either CompareMethodsRefusal MethodCollectionComparison
+collections forced base other = compareCollections refData forced (Sides (collection base) (collection other))
+
+-- | A pair of categories a comparison made: how, the base name, the other name.
+data Paired = Paired CategoryMatch Text Text
+    deriving (Eq, Show)
+
+pairsOf :: MethodCollectionComparison -> [Paired]
+pairsOf c = [Paired (ccpMatch p) (csdName (ccpBase p)) (csdName (ccpOther p)) | p <- mccCategories c]
+
+withCategory :: Text -> Method -> Method
+withCategory cat m = m{methodCategory = cat}
+
+collectionSpec :: Spec
+collectionSpec = describe "compareCollections" $ do
+    let zinc = [factor "zinc" 1]
+    it "pairs categories on their name, case and spacing aside" $
+        fmap pairsOf (collections [] [category "Climate change" zinc] [category "climate  CHANGE" zinc])
+            `shouldBe` Right [Paired SameMethodName "Climate change" "climate  CHANGE"]
+
+    it "pairs on the impact category what the names left" $
+        fmap pairsOf (collections [] [withCategory "Climate change" (category "GWP100" zinc)] [category "Climate change" zinc])
+            `shouldBe` Right [Paired SameImpactCategory "GWP100" "Climate change"]
+
+    it "lists a category without a partner on its side" $ do
+        let Right c = collections [] [category "Acidification" zinc] [category "Ozone depletion" zinc]
+        map csdName (mccUnpairedBase c) `shouldBe` ["Acidification"]
+        map csdName (mccUnpairedOther c) `shouldBe` ["Ozone depletion"]
+
+    it "reports two categories of one name as ambiguous, and pairs neither" $ do
+        let Right c = collections [] [category "Climate change" zinc, category "Climate change" zinc] [category "Climate change" zinc]
+        mccCategories c `shouldBe` []
+        map (length . acgBase) (mccAmbiguous c) `shouldBe` [2]
+
+    it "takes a forced pair before any rung" $
+        fmap pairsOf (collections [ForcedPair "gwp" "Climate change"] [category "GWP" zinc] [category "Climate change" zinc])
+            `shouldBe` Right [Paired ForcedByCaller "GWP" "Climate change"]
+
+    it "refuses a forced pair naming no category" $
+        fmap pairsOf (collections [ForcedPair "Nothing" "Climate change"] [category "GWP" zinc] [category "Climate change" zinc])
+            `shouldBe` Left (UnknownCategory BaseCollection "Nothing")
+
+    it "refuses a forced pair naming two categories" $
+        fmap pairsOf (collections [ForcedPair "GWP" "Climate change"] [category "GWP" zinc, category "gwp" zinc] [category "Climate change" zinc])
+            `shouldBe` Left (SeveralCategories BaseCollection "GWP")
+
+    it "refuses a category named in two forced pairs" $
+        fmap pairsOf (collections [ForcedPair "GWP" "A", ForcedPair "gwp" "B"] [category "GWP" zinc] [category "A" zinc, category "B" zinc])
+            `shouldBe` Left (PairedTwice BaseCollection "gwp")
+
+    it "reads a forced pair written base=other, and refuses any other shape" $ do
+        parseForcedPair " GWP = Climate change " `shouldBe` Right (ForcedPair "GWP" "Climate change")
+        parseForcedPair "a=b=c" `shouldBe` Left (MalformedPair "a=b=c")
+        parseForcedPair "=b" `shouldBe` Left (MalformedPair "=b")

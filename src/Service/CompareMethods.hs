@@ -21,6 +21,11 @@ them and of the reference data that says which names are one substance.
   reading is taken: a subcompartment written @unspecified@ is the whole
   medium, which is how another format writes it with an empty cell.
 * A key several factors answer to, on either side, pairs none of them.
+* Categories pair first on the pairs the caller forces, then on the method
+  name, then on the impact category, case and spacing aside. The impact unit
+  does not decide, since the unit table does not know impact units. A name
+  several categories answer to is listed as ambiguous, for the caller to
+  settle with a forced pair.
 * Two values are read per one unit before comparing: converted when both
   are flow units, per the reference unit of the flow unit's dimension when
   the other states an impact unit, as scoring reads it, as written when
@@ -30,31 +35,42 @@ them and of the reference data that says which names are one substance.
 -}
 module Service.CompareMethods (
     CompareMethodsContext (..),
+    ForcedPair (..),
+    CollectionSide (..),
+    CompareMethodsRefusal (..),
+    parseForcedPair,
+    refusalMessage,
+    compareCollections,
     compareCategories,
+    limitMethodComparison,
 ) where
 
 import Control.Monad (guard)
-import Data.Foldable (toList)
+import Data.Foldable (toList, traverse_)
 import qualified Data.List as L
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (isJust, listToMaybe)
 import Data.Ord (Down (..))
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 
 import API.Types (
+    AmbiguousCategories (..),
     AmbiguousFactors (..),
     CategoryComparison (..),
-    CategoryMatch,
+    CategoryMatch (..),
     CategorySide (..),
     ChangedFactor (..),
     FactorDirection (..),
     FactorMatch (..),
     FactorSide (..),
+    MethodCollectionComparison (..),
     UnconvertibleFactor (..),
     ValueReading (..),
  )
 import Method.Mapping (isExclusionCF, isPatternCF, patternPrefix, viewFor)
-import Method.Types (Compartment (..), CompartmentMap, FlowDirection (..), Method (..), MethodCF (..), normalizeCompartment)
+import Method.Types (Compartment (..), CompartmentMap, FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), normalizeCompartment)
 import Service.Compare (Cascade (..), Rung, Sides (..), cascadeWith, close, pairOn, refusing)
 import SubstanceRegistry (nonEmptyCAS)
 import SynonymDB (SynonymDB, lookupSynonymGroup, normalizeNameKeepUnit)
@@ -109,6 +125,138 @@ data Verdict
     = Same
     | Differs !ValueReading !(Maybe Double)
     | Unconvertible
+
+-- | Two categories the caller pairs by name, base first.
+data ForcedPair = ForcedPair
+    { fpBase :: !Text
+    , fpOther :: !Text
+    }
+    deriving (Eq, Show)
+
+data CollectionSide = BaseCollection | OtherCollection
+    deriving (Eq, Show)
+
+-- | Why the forced pairs a caller gave cannot be taken.
+data CompareMethodsRefusal
+    = MalformedPair !Text
+    | UnknownCategory !CollectionSide !Text
+    | SeveralCategories !CollectionSide !Text
+    | PairedTwice !CollectionSide !Text
+    deriving (Eq, Show)
+
+-- | A pair written @base=other@, each name trimmed.
+parseForcedPair :: Text -> Either CompareMethodsRefusal ForcedPair
+parseForcedPair written = case map T.strip (T.splitOn "=" written) of
+    [b, o] | not (T.null b), not (T.null o) -> Right ForcedPair{fpBase = b, fpOther = o}
+    _ -> Left (MalformedPair written)
+
+refusalMessage :: CompareMethodsRefusal -> Text
+refusalMessage r = case r of
+    MalformedPair t -> "A pair is written base=other, one '=' between two names: " <> t
+    UnknownCategory side t -> "No category of the " <> sideName side <> " collection is named " <> t
+    SeveralCategories side t -> "Several categories of the " <> sideName side <> " collection are named " <> t <> "; this name cannot choose between them"
+    PairedTwice side t -> "The category " <> t <> " of the " <> sideName side <> " collection is named in two pairs"
+  where
+    sideName :: CollectionSide -> Text
+    sideName BaseCollection = "base"
+    sideName OtherCollection = "other"
+
+compareCollections :: CompareMethodsContext -> [ForcedPair] -> Sides MethodCollection -> Either CompareMethodsRefusal MethodCollectionComparison
+compareCollections ctx forced collections = do
+    Taken{tkChosen = chosen, tkRest = rest} <- takeForced forced (fmap mcMethods collections)
+    let paired = cascadeWith categoryRung [SameMethodName, SameImpactCategory] rest
+    pure
+        MethodCollectionComparison
+            { mccCategories =
+                L.sortOn
+                    (Down . changes)
+                    ( map (compareCategories ctx ForcedByCaller) chosen
+                        ++ [compareCategories ctx m pair | (m, pair) <- cPairs paired]
+                    )
+            , mccUnpairedBase = map categorySide (baseSide (cUnpaired paired))
+            , mccUnpairedOther = map categorySide (otherSide (cUnpaired paired))
+            , mccAmbiguous =
+                [ AmbiguousCategories
+                    { acgMatch = m
+                    , acgBase = map categorySide (NE.toList (baseSide cands))
+                    , acgOther = map categorySide (NE.toList (otherSide cands))
+                    }
+                | (m, cands) <- cAmbiguous paired
+                ]
+            }
+  where
+    changes :: CategoryComparison -> Int
+    changes c = ccpAddedCount c + ccpRemovedCount c + ccpChangedCount c
+
+categoryRung :: CategoryMatch -> Sides [Method] -> Rung Method
+categoryRung m = case m of
+    -- Forced pairs are taken before the cascade runs, never by a rung.
+    ForcedByCaller -> pairOn (const (Nothing :: Maybe Text))
+    SameMethodName -> pairOn (Just . categoryKey . methodName)
+    SameImpactCategory -> pairOn (Just . categoryKey . methodCategory)
+
+-- | A category name without case and with its spacing collapsed.
+categoryKey :: Text -> Text
+categoryKey = T.toCaseFold . T.unwords . T.words
+
+-- | The pairs the caller forced, and the categories left for the cascade.
+data Taken = Taken
+    { tkChosen :: ![Sides Method]
+    , tkRest :: !(Sides [Method])
+    }
+
+-- | The forced pairs, taken out of both sides before the cascade sees them.
+takeForced :: [ForcedPair] -> Sides [Method] -> Either CompareMethodsRefusal Taken
+takeForced forced methods = do
+    traverse_ (Left . PairedTwice BaseCollection) (repeated (map fpBase forced))
+    traverse_ (Left . PairedTwice OtherCollection) (repeated (map fpOther forced))
+    chosen <- traverse pick forced
+    pure
+        Taken
+            { tkChosen = chosen
+            , tkRest =
+                Sides
+                    { baseSide = unTaken (map fpBase forced) (baseSide methods)
+                    , otherSide = unTaken (map fpOther forced) (otherSide methods)
+                    }
+            }
+  where
+    pick :: ForcedPair -> Either CompareMethodsRefusal (Sides Method)
+    pick p = Sides <$> named BaseCollection (fpBase p) (baseSide methods) <*> named OtherCollection (fpOther p) (otherSide methods)
+    named :: CollectionSide -> Text -> [Method] -> Either CompareMethodsRefusal Method
+    named side name ms = case filter ((== categoryKey name) . categoryKey . methodName) ms of
+        [m] -> Right m
+        [] -> Left (UnknownCategory side name)
+        (_ : _ : _) -> Left (SeveralCategories side name)
+    -- 'pick' has made sure each forced name designates exactly one category, so
+    -- dropping by name drops that one. Not by 'methodId': it is a UUID v5 of
+    -- the name alone, which two categories of one name share.
+    unTaken :: [Text] -> [Method] -> [Method]
+    unTaken names = filter ((`notElem` map categoryKey names) . categoryKey . methodName)
+
+-- | The first name, case and spacing aside, that a list holds twice, as written the second time.
+repeated :: [Text] -> Maybe Text
+repeated = go S.empty
+  where
+    go :: S.Set Text -> [Text] -> Maybe Text
+    go _ [] = Nothing
+    go seen (t : ts)
+        | categoryKey t `S.member` seen = Just t
+        | otherwise = go (S.insert (categoryKey t) seen) ts
+
+-- | Keep the first @n@ factors of each list of each category. The counts still cover them all.
+limitMethodComparison :: Int -> MethodCollectionComparison -> MethodCollectionComparison
+limitMethodComparison n c = c{mccCategories = map limited (mccCategories c)}
+  where
+    limited :: CategoryComparison -> CategoryComparison
+    limited p =
+        p
+            { ccpAdded = take n (ccpAdded p)
+            , ccpRemoved = take n (ccpRemoved p)
+            , ccpChanged = take n (ccpChanged p)
+            , ccpAmbiguous = take n (ccpAmbiguous p)
+            , ccpUnconvertible = take n (ccpUnconvertible p)
+            }
 
 compareCategories :: CompareMethodsContext -> CategoryMatch -> Sides Method -> CategoryComparison
 compareCategories ctx match methods =
