@@ -47,6 +47,11 @@
   corrections on the resource side only. On a database of that kind, land
   use now lands within 1 % of the published results for most processes,
   where fewer than one in five did (data version 6).
+- Fenpropimorph and Abamectin are characterized under their common names.
+  The EF 3.1 methods write them `cis-4-[3-(p-tert-butylphenyl)-2-methylpropyl]-2,6-dimethylmorpholine`
+  and `Avermectin B1`, and an inventory that wrote the common name without a
+  CAS number reached no ecotoxicity or toxicity factor for either (data
+  version 7).
 - `flow-mapping --matched` and `--uncharacterized` are answered by a server.
   Whenever a server answered the command, both were ignored and every call
   printed the same summary.
