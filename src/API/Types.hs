@@ -1934,6 +1934,141 @@ data DatabaseComparison = DatabaseComparison
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped DatabaseComparison)
 
+-- | How two categories of two collections came to be paired.
+data CategoryMatch
+    = -- | The caller named the pair.
+      ForcedByCaller
+    | -- | The same method name, case and spacing aside.
+      SameMethodName
+    | -- | The same impact category, case and spacing aside.
+      SameImpactCategory
+    deriving (Eq, Ord, Show, Enum, Bounded, Generic)
+    deriving anyclass (ToJSON, ToSchema)
+
+-- | The rung of the cascade that paired two factors of one category.
+data FactorMatch
+    = -- | Two names of one synonym class, in the view of the factor's direction.
+      SameSynonymClass
+    | -- | The same CAS number, where the registry does not keep the two names apart.
+      SameCAS
+    | -- | The same name, case and punctuation aside, a unit suffix kept.
+      SameName
+    | -- | Two pattern rows, or two exclusion rows, selecting on the same prefix.
+      SamePattern
+    deriving (Eq, Ord, Show, Enum, Bounded, Generic)
+    deriving anyclass (ToJSON, ToSchema)
+
+-- | How the two values of a paired factor were read before comparing them.
+data ValueReading
+    = -- | Both factors state the same unit.
+      UnitsIdentical
+    | -- | Two flow units: the other factor is read per the base factor's unit.
+      ConvertedOntoBaseUnit
+    | -- | One factor states a flow unit, the other an impact unit: the first is read per its dimension's reference unit, as scoring does.
+      ReadPerReferenceUnit
+    | -- | Neither unit is a flow unit the unit table knows: compared as written.
+      ComparedAsWritten
+    deriving (Eq, Ord, Show, Enum, Bounded, Generic)
+    deriving anyclass (ToJSON, ToSchema)
+
+-- | Whether a factor takes from nature or releases into it.
+data FactorDirection = FactorInput | FactorOutput
+    deriving (Eq, Ord, Show, Enum, Bounded, Generic)
+    deriving anyclass (ToJSON, ToSchema)
+
+-- | One factor as its collection writes it.
+data FactorSide = FactorSide
+    { facFlowName :: !Text
+    , facDirection :: !FactorDirection
+    , facCompartment :: !Text
+    -- ^ medium/subcompartment/qualifier, empty parts left out, as written
+    , facCas :: !(Maybe Text)
+    , facLocation :: !(Maybe Text)
+    , facUnit :: !Text
+    , facValue :: !Double
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped FactorSide)
+
+data ChangedFactor = ChangedFactor
+    { cfxMatch :: !FactorMatch
+    , cfxBase :: !FactorSide
+    , cfxOther :: !FactorSide
+    , cfxReading :: !ValueReading
+    , cfxRatio :: !(Maybe Double)
+    -- ^ other over base once both are read per one unit; absent when the base is zero
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ChangedFactor)
+
+-- | Two factors paired on their key whose flow units do not convert.
+data UnconvertibleFactor = UnconvertibleFactor
+    { ufxMatch :: !FactorMatch
+    , ufxBase :: !FactorSide
+    , ufxOther :: !FactorSide
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped UnconvertibleFactor)
+
+-- | Factors one key of a rung names on either side, too many to pair.
+data AmbiguousFactors = AmbiguousFactors
+    { afxMatch :: !FactorMatch
+    , afxBase :: ![FactorSide]
+    , afxOther :: ![FactorSide]
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped AmbiguousFactors)
+
+-- | A category of one collection, as the comparison names it.
+data CategorySide = CategorySide
+    { csdName :: !Text
+    , csdCategory :: !Text
+    , csdUnit :: !Text
+    , csdFactorCount :: !Int
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped CategorySide)
+
+-- | Two paired categories, factor by factor. The counts cover the full lists, which a limit may have truncated.
+data CategoryComparison = CategoryComparison
+    { ccpMatch :: !CategoryMatch
+    , ccpBase :: !CategorySide
+    , ccpOther :: !CategorySide
+    , ccpAddedCount :: !Int
+    , ccpRemovedCount :: !Int
+    , ccpChangedCount :: !Int
+    , ccpUnchangedCount :: !Int
+    , ccpAmbiguousCount :: !Int
+    , ccpUnconvertibleCount :: !Int
+    , ccpLargestRatio :: !(Maybe Double)
+    , ccpAdded :: ![FactorSide]
+    , ccpRemoved :: ![FactorSide]
+    , ccpChanged :: ![ChangedFactor]
+    , ccpAmbiguous :: ![AmbiguousFactors]
+    , ccpUnconvertible :: ![UnconvertibleFactor]
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped CategoryComparison)
+
+-- | Categories one key names on either side, too many to pair.
+data AmbiguousCategories = AmbiguousCategories
+    { acgMatch :: !CategoryMatch
+    , acgBase :: ![CategorySide]
+    , acgOther :: ![CategorySide]
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped AmbiguousCategories)
+
+-- | Two method collections side by side.
+data MethodCollectionComparison = MethodCollectionComparison
+    { mccCategories :: ![CategoryComparison]
+    , mccUnpairedBase :: ![CategorySide]
+    , mccUnpairedOther :: ![CategorySide]
+    , mccAmbiguous :: ![AmbiguousCategories]
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped MethodCollectionComparison)
+
 -- JSON instances. Record types derive ToJSON/FromJSON/ToSchema via the
 -- API.JsonOptions.Stripped carrier, which strips the lowercase field prefix.
 -- Sum-only types (NodeType, EdgeType, FlowRole) keep default derivation.
