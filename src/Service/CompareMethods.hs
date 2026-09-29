@@ -298,7 +298,7 @@ compareCategories ctx match methods =
     changed :: [ChangedFactor]
     changed =
         L.sortOn
-            (\c -> (Down (distance (cfxRatio c)), facFlowName (cfxBase c)))
+            (\c -> (Down (distance (cfxRatio c)), cfxBase c, cfxOther c))
             [ ChangedFactor
                 { cfxMatch = m
                 , cfxBase = factorSide (baseSide pair)
@@ -310,20 +310,23 @@ compareCategories ctx match methods =
             ]
     unconvertible :: [UnconvertibleFactor]
     unconvertible =
-        [ UnconvertibleFactor{ufxMatch = m, ufxBase = factorSide (baseSide pair), ufxOther = factorSide (otherSide pair)}
-        | Judged{jMatch = m, jPair = pair, jVerdict = Unconvertible} <- judged
-        ]
+        L.sortOn (\u -> (ufxBase u, ufxOther u)) $
+            [ UnconvertibleFactor{ufxMatch = m, ufxBase = factorSide (baseSide pair), ufxOther = factorSide (otherSide pair)}
+            | Judged{jMatch = m, jPair = pair, jVerdict = Unconvertible} <- judged
+            ]
     ambiguous :: [AmbiguousFactors]
     ambiguous =
-        [ AmbiguousFactors{afxMatch = m, afxBase = sides (baseSide cands), afxOther = sides (otherSide cands)}
-        | (m, cands) <- cAmbiguous paired
-        ]
+        L.sortOn afxBase $
+            [ AmbiguousFactors{afxMatch = m, afxBase = sides (baseSide cands), afxOther = sides (otherSide cands)}
+            | (m, cands) <- cAmbiguous paired
+            ]
     added :: [FactorSide]
     added = sides (otherSide (cUnpaired paired))
     removed :: [FactorSide]
     removed = sides (baseSide (cUnpaired paired))
     sides :: (Foldable t) => t Keyed -> [FactorSide]
-    sides = L.sortOn (\s -> (facFlowName s, facCompartment s)) . map (factorSide . kFactor) . toList
+    -- Every list sorts on whole rows, so its order never depends on how the cascade keyed them.
+    sides = L.sort . map (factorSide . kFactor) . toList
 
 {- | How far a ratio is from no change. A sign flip, or a factor that became
 zero, is the farthest of all; a zero that became a value has no ratio and

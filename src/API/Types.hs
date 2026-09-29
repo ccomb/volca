@@ -1989,7 +1989,7 @@ data FactorSide = FactorSide
     , facUnit :: !Text
     , facValue :: !Double
     }
-    deriving (Eq, Show, Generic)
+    deriving (Eq, Ord, Show, Generic)
     deriving (ToJSON, ToSchema) via (Stripped FactorSide)
 
 data ChangedFactor = ChangedFactor
