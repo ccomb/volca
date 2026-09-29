@@ -64,6 +64,12 @@ host = "127.0.0.1"
 # upgrade_vm_size = ""              # shown when max_loaded_uploads is hit
 # upgrade_api = ""                  # reported by GET /api/v1/hosting, for
 #                                   # whoever refuses programmatic access
+# max_batch_activities = 500        # default none; most activities one batch
+#                                   # score covers (the computed quality
+#                                   # report scores them all, so it is bound
+#                                   # too)
+# max_top_flows = 5                 # default none; most top contributing
+#                                   # flows a batch asks for per activity
 
 # ── Databases ────────────────────────────────────────────────────────
 #

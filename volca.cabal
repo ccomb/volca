@@ -302,6 +302,7 @@ test-suite lca-tests
                      , UploadSizeSpec
                      , UploadQuotaSpec
                      , ReadOnlySpec
+                     , ScoringLimitsSpec
                      , ProgressSpec
                      , RegistryLintSpec
                      , AllocationSpec

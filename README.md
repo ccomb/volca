@@ -238,7 +238,8 @@ filters = [{ system = "ISIC", value = "01", mode = "contains" }]  # mode: exact 
 
 # [hosting] tunes upload/API limits when the engine runs behind a manager:
 # max_uploads, max_upload_mb, max_loaded_uploads, api_access,
-# upgrade_upload, upgrade_api, upgrade_vm_size, read_only, read_only_message
+# upgrade_upload, upgrade_api, upgrade_vm_size, read_only, read_only_message,
+# max_batch_activities, max_top_flows
 ```
 
 `max_uploads` bounds how many databases of their own a caller may keep, and
@@ -258,6 +259,18 @@ able to change the working set or end the server for the others. Every refusal
 carries one sentence explaining the stance; `read_only_message` replaces it
 with the operator's own words, and `GET /api/v1/hosting` reports both flags so
 a client can say so before attempting a change.
+
+`max_batch_activities` and `max_top_flows` bound what one scoring request may
+ask for, which matters on the same kind of instance: scoring every activity of
+a large database holds all the cores for about a minute, and the other callers
+wait behind it. The first caps how many activities a batch score covers, and
+so also refuses the computed quality report on a database with more
+activities than that, since the report scores all of them; the second caps
+the top contributing flows a batch asks for per activity. Both hold on REST
+and MCP alike, and a refusal says the limit and what the request asked for.
+Absent, they set no limit. `GET /api/v1/hosting` reports both (`null` for no
+limit), so a client can size its requests instead of learning the limit from a
+refusal.
 
 The `depends` field ensures dependency databases load first and their flows are available for cross-database linking. Setting `load = true` on a database transitively loads all its dependencies.
 

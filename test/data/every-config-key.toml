@@ -25,6 +25,8 @@ read_only_message = "Ask the operator."
 upgrade_upload = "upload"
 upgrade_api = "api"
 upgrade_vm_size = "size"
+max_batch_activities = 500
+max_top_flows = 5
 
 [[databases]]
 name = "db"

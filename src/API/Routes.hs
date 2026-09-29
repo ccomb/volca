@@ -1027,6 +1027,11 @@ batchImpactsH ::
     BatchImpactsRequest ->
     AppM BatchImpactsResponse
 batchImpactsH dbName collectionName topFlowsParam ltMode req = do
+    -- Before any lookup, like the read-only guard: a request this instance
+    -- will not run gets the same answer whether or not its names resolve.
+    hosting <- asks aeHostingConfig
+    forM_ (Config.scoringRefusal hosting (length (birProcessIds req)) topFlowsParam) $ \msg ->
+        throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
@@ -1145,6 +1150,20 @@ computedQualityReportH dbName mCollection mLimit = do
                     , wfName <$> M.lookup (exchangeFlowId ex) (sdbWasteFlows simple)
                     ]
             _ -> Nothing
+    -- The batch below would refuse too, but with advice to split a request
+    -- the caller never shaped: the report owes its own sentence.
+    hosting <- asks aeHostingConfig
+    forM_ (Config.activitiesPastLimit hosting (M.size entriesByPid)) $ \most ->
+        throwError
+            err403
+                { errBody =
+                    BSL.fromStrict . T.encodeUtf8 $
+                        "The computed quality report scores every activity of the database, "
+                            <> T.pack (show (M.size entriesByPid))
+                            <> " here, and this engine scores at most "
+                            <> T.pack (show most)
+                            <> " in one request."
+                }
     response <-
         batchImpactsH dbName collection Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = M.keys entriesByPid}
     -- The ids come from the catalogue itself, so nothing should be
@@ -1455,7 +1474,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 29: the @collection@ query parameter the method routes take, and
+(revision 30: the @max_batch_activities@ and @max_top_flows@ the hosting
+route reports, so a client can size a scoring request before it is refused;
+revision 29: the @collection@ query parameter the method routes take, and
 the 409 they answer, naming the collections, for a method UUID several loaded
 collections carry, where they used to answer from whichever loaded first;
 revision 28: the contributing flows and activities of a single score, under
@@ -1519,7 +1540,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 29
+currentWireVersion = 30
 
 getVersion :: AppM Value
 getVersion = do
@@ -1557,6 +1578,8 @@ hostingInfo hostingConfig = case hostingConfig of
             , hiUpgradeUpload = Config.hcUpgradeUpload hc
             , hiUpgradeApi = Config.hcUpgradeApi hc
             , hiUpgradeVmSize = Config.hcUpgradeVmSize hc
+            , hiMaxBatchActivities = Config.hcMaxBatchActivities hc
+            , hiMaxTopFlows = Config.hcMaxTopFlows hc
             }
     Nothing ->
         HostingInfo
@@ -1570,6 +1593,8 @@ hostingInfo hostingConfig = case hostingConfig of
             , hiUpgradeUpload = ""
             , hiUpgradeApi = ""
             , hiUpgradeVmSize = ""
+            , hiMaxBatchActivities = Nothing
+            , hiMaxTopFlows = Nothing
             }
 
 getStats :: AppM Value

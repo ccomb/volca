@@ -528,12 +528,12 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "compare_impacts" -> callCompareImpacts dbManager rid args
     "compare_activities" -> withDb dbManager rid args $ callCompareActivities dbManager rid args
     "compare_databases" -> withDb dbManager rid args $ callCompareDatabases dbManager rid args
-    "score_activity" -> callScoreActivity dbManager mBaseUrl rid args
-    "score_activities" -> callScoreActivities dbManager mBaseUrl rid args
+    "score_activity" -> callScoreActivity dbManager mHosting mBaseUrl rid args
+    "score_activities" -> callScoreActivities dbManager mHosting mBaseUrl rid args
     "list_scoring_sets" -> callListScoringSets dbManager rid args
     "get_gap_report" -> callGetGapReport dbManager rid args
     "get_quality_report" -> callGetQualityReport dbManager rid args
-    "get_computed_quality_report" -> callGetComputedQualityReport dbManager rid args
+    "get_computed_quality_report" -> callGetComputedQualityReport dbManager mHosting rid args
     "get_characterization_coverage" -> callGetCoverageReport dbManager rid args
     "edit_exchanges" -> callEditExchanges dbManager rid args
     _ -> return $ toolError rid ("Unknown tool: " <> name)
@@ -1691,10 +1691,10 @@ callGetQualityReport dbManager rid args = runTool rid $ do
 the catalogue's own norms. Same wire shape as the REST endpoint, so both
 surfaces stay in lock-step.
 -}
-callGetComputedQualityReport :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
-callGetComputedQualityReport dbManager rid args = runTool rid $ do
+callGetComputedQualityReport :: DatabaseManager -> Maybe HostingConfig -> RequestId -> KeyMap Value -> IO Value
+callGetComputedQualityReport dbManager mHosting rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
-    res <- liftIO $ BI.runComputedQuality dbManager dbName (textArg "collection" args) (intArg "limit" args)
+    res <- liftIO $ BI.runComputedQuality dbManager mHosting dbName (textArg "collection" args) (intArg "limit" args)
     case res of
         Left e -> throwE (batchErrorMsg e)
         Right r -> pure (toolSuccessJson rid (toJSON r))
@@ -2298,8 +2298,8 @@ per-method @web_url@s are not emitted: the panel link covers the same
 ground at a fraction of the bytes. Replaces the @N@ round-trips of
 'get_impacts' a comparative study used to need.
 -}
-callScoreActivity :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
-callScoreActivity dbManager mBaseUrl rid args =
+callScoreActivity :: DatabaseManager -> Maybe HostingConfig -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
+callScoreActivity dbManager mHosting mBaseUrl rid args =
     runTool rid $ do
         dbName <- except (requireText "database" args)
         pidText <- except (requireText "process_id" args)
@@ -2308,7 +2308,7 @@ callScoreActivity dbManager mBaseUrl rid args =
         wantedSets <- except (parseArrayArg "scoring_sets" Nothing args :: Either Text [Text])
         let mSub = if null subs then Nothing else Just SubstitutionRequest{srSubstitutions = subs}
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-        res <- liftIO $ BI.runActivityLCIABatch dbManager dbName pidText coll mSub ltMode
+        res <- liftIO $ BI.runActivityLCIABatch dbManager mHosting dbName pidText coll mSub ltMode
         case res of
             Left e -> throwE (batchErrorMsg e)
             Right lbr -> do
@@ -2357,8 +2357,8 @@ batch of 24+ activities. Unresolved process IDs land in
 @notFound@ \/ @invalid@. The chosen scoring set is required to be
 unambiguous; see 'resolveSingleScoringSet' for the rules.
 -}
-callScoreActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
-callScoreActivities dbManager mBaseUrl rid args =
+callScoreActivities :: DatabaseManager -> Maybe HostingConfig -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
+callScoreActivities dbManager mHosting mBaseUrl rid args =
     runTool rid $ do
         dbName <- except (requireText "database" args)
         coll <- except (requireText "collection" args)
@@ -2368,7 +2368,7 @@ callScoreActivities dbManager mBaseUrl rid args =
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
         configured <- liftIO $ configuredScoringSets dbManager coll
         chosen <- except (resolveSingleScoringSet wantedSets configured)
-        res <- liftIO $ BI.runBatchImpacts dbManager dbName coll Nothing ltMode pids
+        res <- liftIO $ BI.runBatchImpacts dbManager mHosting dbName coll Nothing ltMode pids
         case res of
             Left e -> throwE (batchErrorMsg e)
             Right bir -> pure (toolSuccessJson rid (toColumnarBatch summaryOnly mBaseUrl dbName coll chosen bir))
