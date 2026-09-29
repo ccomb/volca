@@ -5,14 +5,16 @@ module ServerSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, bracket, try)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Network.HTTP.Client (Manager, defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestHeaders, responseBody, responseStatus)
+import Network.HTTP.Client (Manager, defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestHeaders, responseBody, responseHeaders, responseStatus, withResponse)
 import Network.HTTP.Types (statusCode)
+import Network.HTTP.Types.Header (hContentEncoding)
 import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
@@ -169,6 +171,13 @@ postEndpointWithBody mgr path = do
     resp <- httpLbs req mgr
     return (statusCode (responseStatus resp), TE.decodeUtf8Lenient (BSL.toStrict (responseBody resp)))
 
+-- | The Content-Encoding a GET answers with, asking for gzip; only the headers are read.
+encodingOf :: Manager -> String -> IO (Maybe BS.ByteString)
+encodingOf mgr path = do
+    req0 <- parseRequest $ "http://127.0.0.1:" ++ show testPort ++ path
+    withResponse req0{requestHeaders = [("Accept-Encoding", "gzip")]} mgr $
+        pure . lookup hContentEncoding . responseHeaders
+
 {- | These specs spawn volca as a subprocess and tear it down with
 interruptProcessGroupOf + waitForProcess. On Windows the terminate
 signal does not unblock the running RTS reliably, so cleanup waits
@@ -195,6 +204,13 @@ serverSpecs = do
                     mCode <- waitForExit ph 25
                     mCode `shouldBe` Just ExitSuccess
                     isAlive mgr `shouldReturn` False
+
+    describe "Compression" $
+        it "compresses JSON for a client that accepts gzip, and leaves an event stream alone" $
+            withMinimalConfig $ \cfgPath ->
+                withServer cfgPath $ \_ mgr -> do
+                    encodingOf mgr "/api/v1/openapi.json" `shouldReturn` Just "gzip"
+                    encodingOf mgr "/api/v1/logs/stream" `shouldReturn` Nothing
 
     describe "Read-only instance" $ do
         it "refuses to be shut down, and survives the attempt" $ do

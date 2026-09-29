@@ -57,6 +57,7 @@ import Network.HTTP.Types.Header (hCacheControl, hContentType, hPragma)
 import Network.Wai (Application, Middleware, Request (..), Response, ResponseReceived, mapResponseHeaders, pathInfo, rawPathInfo, rawQueryString, requestHeaders, requestMethod, responseLBS, responseStream)
 import Network.Wai.Application.Static (StaticSettings, defaultWebAppSettings, ssIndices, staticApp)
 import Network.Wai.Handler.Warp (defaultSettings, openFreePort, runSettings, runSettingsSocket, setHost, setPort, setTimeout)
+import Network.Wai.Middleware.Gzip (GzipSettings (..), defaultCheckMime, defaultGzipSettings, gzip)
 import Network.Wai.Middleware.RequestSizeLimit (defaultRequestSizeLimitSettings, requestSizeLimitMiddleware, setMaxLengthForRequest)
 import Servant (serve)
 import WaiAppStatic.Types (MaxAge (..), ssMaxAge, unsafeToPiece)
@@ -255,6 +256,14 @@ uploadSizeLimitMiddleware hostingConfig =
             (pure . uploadBodyCeiling hostingConfig . pathInfo)
             defaultRequestSizeLimitSettings
 
+{- | Compress what a client that accepts gzip reads: a comparison of two method
+collections is megabytes of repetitive JSON.
+An event stream is left alone, since the compressor holds back every event it
+has not been told to flush.
+-}
+compressMiddleware :: Middleware
+compressMiddleware = gzip defaultGzipSettings{gzipCheckMime = \mime -> defaultCheckMime mime && not ("text/event-stream" `BS.isPrefixOf` mime)}
+
 -- | Run the server: on a configuration file when given, else on built-in defaults.
 runServerWithConfig :: CLIConfig -> ServerOptions -> Maybe FilePath -> IO ()
 runServerWithConfig cliConfig serverOpts mCfgFile = do
@@ -284,8 +293,9 @@ runServerWithConfig cliConfig serverOpts mCfgFile = do
             (scName (cfgServer config))
             (whileWorking idle)
     let finalApp =
-            uploadSizeLimitMiddleware (cfgHosting config) $
-                wrapWithMiddleware password (cfgHosting config) idle baseApp
+            compressMiddleware $
+                uploadSizeLimitMiddleware (cfgHosting config) $
+                    wrapWithMiddleware password (cfgHosting config) idle baseApp
         settings = setTimeout 600 defaultSettings
     case listenOn (serverPort serverOpts) (cfgServer config) of
         ListenOnFreeLoopbackPort -> do

@@ -66,6 +66,10 @@
 
 ### Changed
 
+- The server compresses its JSON and text answers for a client that accepts
+  gzip. A comparison of two method collections, one of the largest answers,
+  shrinks about twelvefold. Event streams are sent as they are.
+
 - `flow-mapping --matched` lists the database flows a factor reaches, one line
   per flow with that factor and how it matched, where it listed the method's
   factors. `--unmatched` is removed, since the summary already lists the
