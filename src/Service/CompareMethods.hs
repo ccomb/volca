@@ -115,7 +115,8 @@ data Substance
     | ByPrefix !PatternKind !Text
     deriving (Eq, Ord)
 
-data FactorKey = FactorKey !Place !Substance
+-- | The substance first: it tells most keys apart at once, where the place is shared by thousands.
+data FactorKey = FactorKey !Substance !Place
     deriving (Eq, Ord)
 
 -- | A pair the cascade made, and what comparing its values found.
@@ -286,10 +287,14 @@ compareCategories ctx match methods =
         , ccpUnconvertible = unconvertible
         }
   where
-    paired :: Cascade FactorMatch MethodCF
-    paired = cascadeWith (factorRung ctx) [minBound .. maxBound] (fmap methodFactors methods)
+    paired :: Cascade FactorMatch Keyed
+    paired = cascadeWith factorRung [minBound .. maxBound] (fmap (map (keyedFactor ctx) . methodFactors) methods)
     judged :: [Judged]
-    judged = [Judged{jMatch = m, jPair = pair, jVerdict = judge (cmcUnits ctx) pair} | (m, pair) <- cPairs paired]
+    judged =
+        [ Judged{jMatch = m, jPair = pair, jVerdict = judge (cmcUnits ctx) pair}
+        | (m, keyedPair) <- cPairs paired
+        , let pair = fmap kFactor keyedPair
+        ]
     changed :: [ChangedFactor]
     changed =
         L.sortOn
@@ -317,8 +322,8 @@ compareCategories ctx match methods =
     added = sides (otherSide (cUnpaired paired))
     removed :: [FactorSide]
     removed = sides (baseSide (cUnpaired paired))
-    sides :: (Foldable t) => t MethodCF -> [FactorSide]
-    sides = L.sortOn (\s -> (facFlowName s, facCompartment s)) . map factorSide . toList
+    sides :: (Foldable t) => t Keyed -> [FactorSide]
+    sides = L.sortOn (\s -> (facFlowName s, facCompartment s)) . map (factorSide . kFactor) . toList
 
 {- | How far a ratio is from no change. A sign flip, or a factor that became
 zero, is the farthest of all; a zero that became a value has no ratio and
@@ -332,28 +337,53 @@ distance = fmap far
         | r <= 0 = 1 / 0
         | otherwise = abs (log r)
 
-factorRung :: CompareMethodsContext -> FactorMatch -> Sides [MethodCF] -> Rung MethodCF
-factorRung ctx rung = case rung of
-    SameSynonymClass -> pairOn (keyed (ordinary (fmap ByClass . classOf)))
-    SameCAS -> refusing bothKnown . pairOn (keyed (ordinary (\cf -> ByCAS <$> (mcfCAS cf >>= nonEmptyCAS))))
-    SameFlowId -> pairOn (keyed (ordinary (fmap ByFlow . mfilter (/= UUID.nil) . Just . mcfFlowRef)))
-    SameName -> pairOn (keyed (ordinary (Just . ByName . normalizeNameKeepUnit . mcfFlowName)))
-    SamePattern -> pairOn (keyed byPrefix)
+{- | A factor with its key on each rung. The fields are lazy on purpose: a
+key is worked out the first time a rung asks for it and never again, where a
+rung keying the factor itself would redo the name and compartment reading on
+every rung, and twice on each.
+-}
+data Keyed = Keyed
+    { kFactor :: !MethodCF
+    , kFlow :: Maybe FactorKey
+    , kName :: Maybe FactorKey
+    , kClass :: Maybe FactorKey
+    , kCAS :: Maybe FactorKey
+    , kPrefix :: Maybe FactorKey
+    }
+
+keyedFactor :: CompareMethodsContext -> MethodCF -> Keyed
+keyedFactor ctx cf =
+    Keyed
+        { kFactor = cf
+        , kFlow = ordinary (ByFlow <$> mfilter (/= UUID.nil) (Just (mcfFlowRef cf)))
+        , kName = ordinary (Just (ByName (normalizeNameKeepUnit (mcfFlowName cf))))
+        , kClass = ordinary (ByClass <$> lookupSynonymGroup (viewFor (mcfDirection cf) (cmcSynonyms ctx)) (mcfFlowName cf))
+        , kCAS = ordinary (ByCAS <$> (mcfCAS cf >>= nonEmptyCAS))
+        , kPrefix = (`FactorKey` place) <$> byPrefix
+        }
   where
-    keyed :: (MethodCF -> Maybe Substance) -> MethodCF -> Maybe FactorKey
-    keyed substance cf = FactorKey (placeOf (cmcCompartments ctx) cf) <$> substance cf
-    ordinary :: (MethodCF -> Maybe Substance) -> MethodCF -> Maybe Substance
-    ordinary substance cf = guard (not (isPatternCF cf || isExclusionCF cf)) >> substance cf
-    classOf :: MethodCF -> Maybe Int
-    classOf cf = lookupSynonymGroup (viewFor (mcfDirection cf) (cmcSynonyms ctx)) (mcfFlowName cf)
-    -- After the class rung, two names the registry knows at one place are two classes.
-    bothKnown :: Sides MethodCF -> Bool
-    bothKnown (Sides b o) = isJust (classOf b) && isJust (classOf o)
-    byPrefix :: MethodCF -> Maybe Substance
-    byPrefix cf
+    place :: Place
+    place = placeOf (cmcCompartments ctx) cf
+    -- Pattern and exclusion rows select flows rather than name a substance: only their prefix keys them.
+    ordinary :: Maybe Substance -> Maybe FactorKey
+    ordinary substance = guard (not (isPatternCF cf || isExclusionCF cf)) >> (`FactorKey` place) <$> substance
+    byPrefix :: Maybe Substance
+    byPrefix
         | isExclusionCF cf = Just (ByPrefix Exclusion (patternPrefix cf))
         | isPatternCF cf = Just (ByPrefix Pattern (patternPrefix cf))
         | otherwise = Nothing
+
+factorRung :: FactorMatch -> Sides [Keyed] -> Rung Keyed
+factorRung rung = case rung of
+    SameFlowId -> pairOn kFlow
+    SameName -> pairOn kName
+    SameSynonymClass -> pairOn kClass
+    SameCAS -> refusing bothKnown . pairOn kCAS
+    SamePattern -> pairOn kPrefix
+  where
+    -- After the class rung, two names the registry knows at one place are two classes.
+    bothKnown :: Sides Keyed -> Bool
+    bothKnown (Sides b o) = isJust (kClass b) && isJust (kClass o)
 
 placeOf :: CompartmentMap -> MethodCF -> Place
 placeOf cmap cf =
