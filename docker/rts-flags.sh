@@ -4,6 +4,30 @@
 
 CORES=$(nproc 2>/dev/null || echo 4)
 
+# A container limited in CPU time rather than in CPUs (docker --cpus, compose
+# cpus:) still sees every core of the host, so nproc says 24 where two are
+# usable. The RTS would start a capability, and a nursery, for each of the 24.
+# The quota is what the process can actually run on: round it up to whole
+# cores, and never above what nproc sees.
+Q=""
+P=""
+if [ -f /sys/fs/cgroup/cpu.max ]; then
+    # cgroup v2: "<quota> <period>", quota "max" when unlimited
+    read -r Q P < /sys/fs/cgroup/cpu.max 2>/dev/null
+    [ "$Q" = "max" ] && Q=""
+elif [ -f /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]; then
+    # cgroup v1: quota -1 when unlimited
+    Q=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null)
+    P=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null)
+    [ "$Q" = "-1" ] && Q=""
+fi
+# An unreadable file leaves them empty, and the host's count stands: failing
+# here would start the engine with no flags at all, memory cap included.
+if [ -n "$Q" ] && [ -n "$P" ] && [ "$P" -gt 0 ] 2>/dev/null; then
+    QUOTA_CORES=$(((Q + P - 1) / P))
+    [ "$QUOTA_CORES" -lt "$CORES" ] && CORES=$QUOTA_CORES
+fi
+
 # Detect available memory: prefer Docker/cgroup limit over total host RAM
 CGROUP_LIMIT=""
 if [ -f /sys/fs/cgroup/memory.max ]; then
@@ -70,7 +94,7 @@ MAX_MB=$((RAM_MB * 3 / 4))
 # behind a GC. 30 s is longer than any inter-request gap, so the pause never
 # lands during active use, yet memory is still released once the VM is idle.
 # OOM protection is -M / -F1.5 / -c, all independent of -I.
-RTS_FLAGS="+RTS -N -M${MAX_MB}M -H${HEAP_MB}M -A${NURSERY_MB}M -qg0 -c -F1.5 -Fd1.0 -I30 -RTS"
+RTS_FLAGS="+RTS -N${CORES} -M${MAX_MB}M -H${HEAP_MB}M -A${NURSERY_MB}M -qg0 -c -F1.5 -Fd1.0 -I30 -RTS"
 
 echo "RTS_FLAGS=\"$RTS_FLAGS\""
 
