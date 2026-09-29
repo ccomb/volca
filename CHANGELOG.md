@@ -56,6 +56,11 @@
 
 ### Fixed
 
+- A process counted in pieces reads its unit when an ILCD package writes it
+  `Item(s)`, the name the EF packages give the reference unit of their item
+  group. The unit table did not hold that spelling, so such a quantity
+  converted to nothing else. Data version 8.
+
 - The method routes (the method's detail and factors, its mapping, flow
   mapping and characterization, and explain-cf) answered, for a method UUID
   two loaded collections carry, with the factors of whichever collection

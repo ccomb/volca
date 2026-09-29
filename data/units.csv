@@ -131,6 +131,7 @@ piece,count,1.0
 pieces,count,1.0
 item,count,1.0
 items,count,1.0
+Item(s),count,1.0
 dimensionless,count,1.0
 guest night,count*time,1.0
 guestnight,count*time,1.0
