@@ -425,6 +425,14 @@ spec = do
             mapM_ ((`shouldSatisfy` exact) . readUnit cfg . fst) spellings
             map (lookupUnitDef cfg . fst) spellings `shouldBe` map (lookupUnitDef cfg . snd) spellings
 
+        it "reads the item count an ILCD package writes" $ do
+            -- The EF packages name the reference unit of their "Units of
+            -- items" group Item(s), which an ILCD process counted in pieces
+            -- carries as its unit.
+            cfg <- loadFullUnitConfig
+            readUnit cfg "Item(s)" `shouldSatisfy` exact
+            lookupUnitDef cfg "Item(s)" `shouldBe` lookupUnitDef cfg "p"
+
         it "holds the superscript spelling of a power beside the digit one" $ do
             cfg <- loadFullUnitConfig
             let powers =
