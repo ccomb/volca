@@ -207,6 +207,11 @@ collectionSpec = describe "compareCollections" $ do
         fmap pairsOf (collections [] [withCategory "Climate change" (category "GWP100" zinc)] [category "Climate change" zinc])
             `shouldBe` Right [Paired SameImpactCategory "GWP100" "Climate change"]
 
+    it "never pairs two categories whose file states no impact category" $ do
+        let Right c = collections [] [withCategory "unknown" (category "GWP" zinc), withCategory "unknown" (category "ODP" zinc)] [withCategory "unknown" (category "Ozone" zinc)]
+        mccAmbiguous c `shouldBe` []
+        map csdName (mccUnpairedBase c) `shouldBe` ["GWP", "ODP"]
+
     it "lists a category without a partner on its side" $ do
         let Right c = collections [] [category "Acidification" zinc] [category "Ozone depletion" zinc]
         map csdName (mccUnpairedBase c) `shouldBe` ["Acidification"]

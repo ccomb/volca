@@ -204,7 +204,8 @@ categoryRung m = case m of
     -- Forced pairs are taken before the cascade runs, never by a rung.
     ForcedByCaller -> pairOn (const (Nothing :: Maybe Text))
     SameMethodName -> pairOn (Just . categoryKey . methodName)
-    SameImpactCategory -> pairOn (Just . categoryKey . methodCategory)
+    -- The ILCD reader writes "unknown" where the file states no impact category: that is no category to pair on.
+    SameImpactCategory -> pairOn (fmap categoryKey . mfilter (/= "unknown") . Just . methodCategory)
 
 -- | A category name without case and with its spacing collapsed.
 categoryKey :: Text -> Text
