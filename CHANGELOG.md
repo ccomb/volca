@@ -29,6 +29,12 @@
   class, then CAS number;
   the compartment table's fallback rows are not followed, so a precise
   subcompartment never passes for an unspecified one. Wire revision 31.
+- A comparison of two method collections can be narrowed to one pair of
+  categories with `category=NAME`, the name of its base category: only that
+  pair is compared, a fraction of the time comparing them all takes, and the
+  unpaired and ambiguous categories are still listed. A name no pair starts
+  from, or that two pairs start from, is refused with a sentence. Wire
+  revision 32.
 - The command line and the REPL walk the supply chain from a process:
   `tree` shows it upstream as a tree, `supply-chain` lists the processes
   upstream and `consumers` those downstream, both filtered by name, location,

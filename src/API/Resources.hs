@@ -1087,6 +1087,7 @@ params r = case r of
         [ Param "collection" "string" Required "Base method collection, usually the older version"
         , Param "other_collection" "string" Required "Loaded method collection to compare against"
         , Param "pairs" "array" Optional "Categories to pair by hand, each written \"base=other\" with the two category names; taken before any other pairing"
+        , Param "category" "string" Optional "Compare only the pair whose base category has this name, which is much faster than comparing them all; the unpaired and ambiguous categories are still listed"
         , pLimit "Max entries per list of each category (added, removed, changed, ambiguous, unconvertible), in order (default: all). The counts always cover the full lists."
         ]
     ScoreActivity ->

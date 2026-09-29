@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 31** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 32** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -465,16 +465,17 @@ in ``matched_on``, and a key several activities answer to is listed in
 ``ambiguous`` rather than paired. ``limit`` keeps the first entries of
 each list; the counts always cover them all.
 
-##### `Client.compare_method_collections(collection: str, other_collection: str, *, pairs: list[str] | None = None, limit: int | None = None) -> dict`
+##### `Client.compare_method_collections(collection: str, other_collection: str, *, pairs: list[str] | None = None, category: str | None = None, limit: int | None = None) -> dict`
 
 Compare two loaded method collections, category by category.
 
 Categories pair on their name, then on their impact category; ``pairs``
 settles the others, each written ``"base=other"``. Within a pair,
 factors pair by flow identifier, name, synonym class, CAS number, then
-pattern prefix, at one direction, compartment and location. ``limit``
-keeps the first entries of each list of each category; the counts
-cover them all.
+pattern prefix, at one direction, compartment and location.
+``category`` compares only the pair whose base category has that name,
+much faster than comparing them all. ``limit`` keeps the first entries
+of each list of each category; the counts cover them all.
 
 ##### `Client.compute_sensitivity(process_id: str, method_id: str, perturbations: list[dict], *, collection: str | None = None) -> SensitivityResult`
 

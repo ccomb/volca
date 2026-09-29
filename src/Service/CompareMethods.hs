@@ -47,6 +47,7 @@ module Service.CompareMethods (
     CompareMethodsRefusal (..),
     parseForcedPair,
     refusalMessage,
+    Scope (..),
     compareCollections,
     compareCategories,
     limitMethodComparison,
@@ -152,6 +153,16 @@ data CompareMethodsRefusal
     | UnknownCategory !CollectionSide !Text
     | SeveralCategories !CollectionSide !Text
     | PairedTwice !CollectionSide !Text
+    | NotPaired !Text
+    | -- | A base category name several pairs start from, and the other category of each.
+      SeveralPairs !Text ![Text]
+    deriving (Eq, Show)
+
+-- | Which pairs of categories a comparison compares.
+data Scope
+    = EveryCategory
+    | -- | The one pair whose base category is so named, case and spacing aside: comparing a single pair costs a fraction of comparing them all.
+      OneCategory !Text
     deriving (Eq, Show)
 
 -- | A pair written @base=other@, each name trimmed.
@@ -166,23 +177,21 @@ refusalMessage r = case r of
     UnknownCategory side t -> "No category of the " <> sideName side <> " collection is named " <> t
     SeveralCategories side t -> "Several categories of the " <> sideName side <> " collection are named " <> t <> "; this name cannot choose between them"
     PairedTwice side t -> "The category " <> t <> " of the " <> sideName side <> " collection is named in two pairs"
+    NotPaired t -> "No pair of categories starts from a base category named " <> t
+    SeveralPairs t others -> "Several pairs of categories start from a base category named " <> t <> ", against " <> T.intercalate ", " others <> "; this name cannot choose between them"
   where
     sideName :: CollectionSide -> Text
     sideName BaseCollection = "base"
     sideName OtherCollection = "other"
 
-compareCollections :: CompareMethodsContext -> [ForcedPair] -> Sides MethodCollection -> Either CompareMethodsRefusal MethodCollectionComparison
-compareCollections ctx forced collections = do
+compareCollections :: CompareMethodsContext -> [ForcedPair] -> Scope -> Sides MethodCollection -> Either CompareMethodsRefusal MethodCollectionComparison
+compareCollections ctx forced scope collections = do
     Taken{tkChosen = chosen, tkRest = rest} <- takeForced forced (fmap mcMethods collections)
     let paired = cascadeWith categoryRung [SameMethodName, SameImpactCategory] rest
+    selected <- inScope scope ([(ForcedByCaller, pair) | pair <- chosen] ++ cPairs paired)
     pure
         MethodCollectionComparison
-            { mccCategories =
-                L.sortOn
-                    (Down . changes)
-                    ( map (compareCategories ctx ForcedByCaller) chosen
-                        ++ [compareCategories ctx m pair | (m, pair) <- cPairs paired]
-                    )
+            { mccCategories = L.sortOn (Down . changes) (map (uncurry (compareCategories ctx)) selected)
             , mccUnpairedBase = map categorySide (baseSide (cUnpaired paired))
             , mccUnpairedOther = map categorySide (otherSide (cUnpaired paired))
             , mccAmbiguous =
@@ -197,6 +206,14 @@ compareCollections ctx forced collections = do
   where
     changes :: CategoryComparison -> Int
     changes c = ccpAddedCount c + ccpRemovedCount c + ccpChangedCount c
+
+-- | The pairs a scope keeps, chosen before any is compared.
+inScope :: Scope -> [(CategoryMatch, Sides Method)] -> Either CompareMethodsRefusal [(CategoryMatch, Sides Method)]
+inScope EveryCategory pairs = Right pairs
+inScope (OneCategory name) pairs = case filter ((== categoryKey name) . categoryKey . methodName . baseSide . snd) pairs of
+    [pair] -> Right [pair]
+    [] -> Left (NotPaired name)
+    several@(_ : _ : _) -> Left (SeveralPairs name (map (methodName . otherSide . snd) several))
 
 categoryRung :: CategoryMatch -> Sides [Method] -> Rung Method
 categoryRung m = case m of

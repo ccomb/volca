@@ -1503,6 +1503,7 @@ callCompareMethodCollections dbManager rid args = runTool rid $ do
                     { mcaCollection = DM.CollectionName base
                     , mcaOther = DM.CollectionName other
                     , mcaPairs = textArrayArg "pairs" args
+                    , mcaCategory = textArg "category" args
                     , mcaLimit = intArg "limit" args
                     }
     pure (toolSuccessJson rid (toJSON comparison))

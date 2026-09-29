@@ -32,8 +32,9 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 31
-"""The newest wire revision this pyvolca understands (revision 31 added
+KNOWN_WIRE = 32
+"""The newest wire revision this pyvolca understands (revision 32 added the
+``category`` a method collection comparison can be narrowed to; revision 31 added
 ``compare_method_collections``, the comparison of two loaded method
 collections, factor by factor; revision 30 added the
 ``max_batch_activities`` and ``max_top_flows`` the hosting route reports;
