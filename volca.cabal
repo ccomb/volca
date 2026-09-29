@@ -48,6 +48,7 @@ library
                      , Service
                      , Service.Aggregate
                      , Service.Compare
+                     , Service.CompareMethods
                      , Impact
                      , Impact.Score
                      , Tree
@@ -359,6 +360,7 @@ test-suite lca-tests
                      , ClassificationFilterSpec
                      , CopySpec
                      , CompareSpec
+                     , CompareMethodsSpec
                      , ReferenceProductSpec
                      , DeriveSpec
                      , SourceBlockSpec

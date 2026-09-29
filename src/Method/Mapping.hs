@@ -17,6 +17,8 @@ module Method.Mapping (
     mapMethodFlows,
     resolveCF,
     isPatternCF,
+    patternPrefix,
+    viewFor,
     isExclusionCF,
     expandPatternCF,
     dropExcludedMappings,

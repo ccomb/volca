@@ -11,7 +11,7 @@ import API.Csv (CSV)
 import API.DatabaseHandlers (explainCFToAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse (..), DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionListResponse (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
@@ -66,6 +66,7 @@ import Servant.OpenApi (toOpenApi)
 import qualified Service
 import qualified Service.Aggregate as Agg
 import qualified Service.Compare as Compare
+import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver)
 import qualified SharedSolver
 import Tree (buildLoopAwareTree)
@@ -190,6 +191,7 @@ type LCAAPI =
                 -- Export a loaded method collection as raw bytes (SimaPro CSV);
                 -- projection warnings travel percent-encoded in a response header
                 :<|> "method-collections" :> Capture "name" Text :> "export" :> ReqBody '[JSON] ExportRequest :> Post '[OctetStream] (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
+                :<|> "method-collections" :> Capture "collection" DM.CollectionName :> "compare" :> QueryParam "other_collection" DM.CollectionName :> QueryParams "pairs" Text :> QueryParam "limit" Int :> Get '[JSON] MethodCollectionComparison
                 -- Reference data endpoints (flow synonyms, compartment mappings, units)
                 :<|> "flow-synonyms" :> Get '[JSON] RefDataListResponse
                 :<|> "flow-synonyms" :> Capture "name" Text :> "load" :> Post '[JSON] ActivateResponse
@@ -1474,7 +1476,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 30: the @max_batch_activities@ and @max_top_flows@ the hosting
+(revision 31: the compare_method_collections route, which pairs the impact
+categories and the characterization factors of two loaded method collections;
+revision 30: the @max_batch_activities@ and @max_top_flows@ the hosting
 route reports, so a client can size a scoring request before it is refused;
 revision 29: the @collection@ query parameter the method routes take, and
 the 409 they answer, naming the collections, for a method UUID several loaded
@@ -1540,7 +1544,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 30
+currentWireVersion = 31
 
 getVersion :: AppM Value
 getVersion = do
@@ -2087,6 +2091,51 @@ getDatabaseComparison dbName otherDbParam limitParam = do
     (otherDb, _) <- requireDatabaseByName otherName
     pure $ maybe id Compare.limitComparison limitParam (Compare.compareDatabases (Compare.Sides db otherDb))
 
+-- | What a caller asks a comparison of two method collections for.
+data MethodComparisonAsk = MethodComparisonAsk
+    { mcaCollection :: !DM.CollectionName
+    , mcaOther :: !DM.CollectionName
+    , mcaPairs :: ![Text]
+    , mcaLimit :: !(Maybe Int)
+    }
+
+data MethodComparisonFailure
+    = CollectionMissing !Text ![Text]
+    | PairsRefused !CompareMethods.CompareMethodsRefusal
+
+{- | The one reading of a comparison of two method collections, shared by the
+route and the assistant tool so the two cannot answer differently.
+-}
+runMethodComparison :: DatabaseManager -> MethodComparisonAsk -> IO (Either MethodComparisonFailure MethodCollectionComparison)
+runMethodComparison manager request = do
+    loaded <- readTVarIO (dmLoadedMethods manager)
+    ctx <-
+        CompareMethods.CompareMethodsContext
+            <$> DM.getMergedSynonymDB manager
+            <*> DM.getMergedCompartmentMap manager
+            <*> DM.getMergedUnitConfig manager
+    pure $ do
+        let loadedNamed (DM.CollectionName name) = maybe (Left (CollectionMissing name (M.keys loaded))) Right (M.lookup name loaded)
+        cols <- Compare.Sides <$> loadedNamed (mcaCollection request) <*> loadedNamed (mcaOther request)
+        forced <- first PairsRefused (traverse CompareMethods.parseForcedPair (mcaPairs request))
+        comparison <- first PairsRefused (CompareMethods.compareCollections ctx forced cols)
+        pure (maybe id CompareMethods.limitMethodComparison (mcaLimit request) comparison)
+
+getMethodCollectionComparison :: DM.CollectionName -> Maybe DM.CollectionName -> [Text] -> Maybe Int -> AppM MethodCollectionComparison
+getMethodCollectionComparison collection otherParam forcedPairs limitParam = do
+    other <-
+        maybe
+            (throwError err400{errBody = "Missing required 'other_collection' query parameter"})
+            pure
+            otherParam
+    manager <- asks aeDbManager
+    liftIO (runMethodComparison manager MethodComparisonAsk{mcaCollection = collection, mcaOther = other, mcaPairs = forcedPairs, mcaLimit = limitParam})
+        >>= either failed pure
+  where
+    failed :: MethodComparisonFailure -> AppM a
+    failed (CollectionMissing name loaded) = throwError err404{errBody = collectionNotLoadedBody name loaded}
+    failed (PairsRefused r) = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 (CompareMethods.refusalMessage r))}
+
 getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
 getContributingFlows dbName processIdText collectionName methodIdText limitParam mExcludeLT =
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
@@ -2608,6 +2657,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.deleteMethodHandler
             :<|> DBHandlers.uploadMethodHandler
             :<|> DBHandlers.exportMethodHandler
+            :<|> getMethodCollectionComparison
             :<|> DBHandlers.listRefData DBHandlers.FlowSynonyms
             :<|> DBHandlers.loadRefData DBHandlers.FlowSynonyms
             :<|> DBHandlers.unloadRefData DBHandlers.FlowSynonyms

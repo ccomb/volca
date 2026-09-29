@@ -87,6 +87,7 @@ data Resource
     | CompareImpacts
     | CompareActivities
     | CompareDatabases
+    | CompareMethodCollections
     | ScoreActivity
     | ScoreActivities
     | ListScoringSets
@@ -173,6 +174,7 @@ resourceMutates r = case r of
     CompareImpacts -> False
     CompareActivities -> False
     CompareDatabases -> False
+    CompareMethodCollections -> False
     ScoreActivity -> False
     ScoreActivities -> False
     ListScoringSets -> False
@@ -234,6 +236,7 @@ apiPath r = case r of
     CompareImpacts -> Nothing -- MCP-only audit tool: cross-DB diff, no canonical HTTP route
     CompareActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "compare"])
     CompareDatabases -> Just (GET, ["db", "{dbName}", "compare"])
+    CompareMethodCollections -> Just (GET, ["method-collections", "{collection}", "compare"])
     ScoreActivity -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "impacts", "{collection}"])
     ScoreActivities -> Just (POST, ["db", "{dbName}", "impacts", "{collection}"])
     ListScoringSets -> Nothing -- MCP-only: scoring sets are configuration metadata, no REST equivalent yet
@@ -288,6 +291,7 @@ mcpName r = case r of
     CompareImpacts -> "compare_impacts"
     CompareActivities -> "compare_activities"
     CompareDatabases -> "compare_databases"
+    CompareMethodCollections -> "compare_method_collections"
     ScoreActivity -> "score_activity"
     ScoreActivities -> "score_activities"
     ListScoringSets -> "list_scoring_sets"
@@ -590,6 +594,27 @@ description r = case r of
         \counts always cover the full lists and limit truncates each list: pass a \
         \limit when calling from a conversation, since two versions of a large \
         \database differ by thousands of activities."
+    CompareMethodCollections ->
+        "LCA / ACV: compare two loaded method collections, typically two \
+        \versions or two ports of one method: for each pair of impact \
+        \categories, the characterization factors added, removed and changed, \
+        \each change with both values and their ratio. Categories pair on the \
+        \pairs given in 'pairs', then 'SameMethodName', then \
+        \'SameImpactCategory', case and spacing aside; a name several \
+        \categories answer to is listed under 'ambiguous', and a pair written \
+        \'base=other' in 'pairs' settles it. Factors pair at one direction, \
+        \compartment and location, in a cascade: 'SameFlowId', then 'SameName', then \
+        \'SameSynonymClass', then 'SameCAS' (refused when the registry keeps the \
+        \two names apart), then 'SamePattern' for pattern and exclusion rows. The \
+        \compartment table's fallback rows are not followed, so a precise \
+        \subcompartment never equals an unspecified one; a subcompartment \
+        \written 'unspecified' is read as the whole medium. Factors a format \
+        \regionalizes in their name and another in a location field show as \
+        \removed and added. 'reading' says how the two values were read \
+        \per one unit before comparing; values are equal within a relative \
+        \1e-9. 'collection' is the base. The counts always cover the full \
+        \lists and limit truncates each list of each category: pass a limit \
+        \when calling from a conversation."
     ScoreActivity ->
         "LCA / ACV: compute the full LCIA panel + every configured scoring \
         \set for an activity in one call. Returns per-method impact scores, \
@@ -1057,6 +1082,12 @@ params r = case r of
         [ pDatabase
         , Param "other_database" "string" Required "Loaded database to compare against, usually the newer version"
         , pLimit "Max entries per list (added, removed, changed, ambiguous), in name order (default: all). The counts always cover the full lists."
+        ]
+    CompareMethodCollections ->
+        [ Param "collection" "string" Required "Base method collection, usually the older version"
+        , Param "other_collection" "string" Required "Loaded method collection to compare against"
+        , Param "pairs" "array" Optional "Categories to pair by hand, each written \"base=other\" with the two category names; taken before any other pairing"
+        , pLimit "Max entries per list of each category (added, removed, changed, ambiguous, unconvertible), in order (default: all). The counts always cover the full lists."
         ]
     ScoreActivity ->
         [ pDatabase
