@@ -8,13 +8,15 @@ them and of the reference data that says which names are one substance.
 * Factors pair in a cascade, each rung seeing only what the rungs before it
   left unpaired, and always at the same place: the same direction, the same
   compartment once its spelling is read through the compartment table, the
-  same location. The rungs are the same name, a unit suffix kept, so the
-  rows a method writes per kilogram and per cubic metre stay two; then two
+  same location. The rungs are the same flow identifier, which two releases
+  of one package keep across a rename; then the same name, a unit suffix
+  kept, so the rows a method writes per kilogram and per cubic metre stay
+  two; then two
   names of one synonym class; then the same CAS number, unless both names are
   in the registry, since after the class rung two known names are two classes
   (one CAS covers fossil and biogenic methane, which the registry keeps
   apart); then, for pattern and exclusion rows, which select flows rather
-  than name a substance, the same prefix. The name comes first because one
+  than name a substance, the same prefix. The name comes before the class because one
   category often writes several names of one class side by side (a flow and
   its fossil variant, a flow and its regional twin): on the class rung they
   would all answer one key and pair none, where each has its own name.
@@ -48,7 +50,7 @@ module Service.CompareMethods (
     limitMethodComparison,
 ) where
 
-import Control.Monad (guard)
+import Control.Monad (guard, mfilter)
 import Data.Foldable (toList, traverse_)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
@@ -57,6 +59,8 @@ import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.UUID (UUID)
+import qualified Data.UUID as UUID
 
 import API.Types (
     AmbiguousCategories (..),
@@ -104,7 +108,8 @@ data PatternKind = Pattern | Exclusion
     deriving (Eq, Ord)
 
 data Substance
-    = ByClass !Int
+    = ByFlow !UUID
+    | ByClass !Int
     | ByCAS !Text
     | ByName !Text
     | ByPrefix !PatternKind !Text
@@ -331,6 +336,7 @@ factorRung :: CompareMethodsContext -> FactorMatch -> Sides [MethodCF] -> Rung M
 factorRung ctx rung = case rung of
     SameSynonymClass -> pairOn (keyed (ordinary (fmap ByClass . classOf)))
     SameCAS -> refusing bothKnown . pairOn (keyed (ordinary (\cf -> ByCAS <$> (mcfCAS cf >>= nonEmptyCAS))))
+    SameFlowId -> pairOn (keyed (ordinary (fmap ByFlow . mfilter (/= UUID.nil) . Just . mcfFlowRef)))
     SameName -> pairOn (keyed (ordinary (Just . ByName . normalizeNameKeepUnit . mcfFlowName)))
     SamePattern -> pairOn (keyed byPrefix)
   where

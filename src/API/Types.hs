@@ -1947,7 +1947,9 @@ data CategoryMatch
 
 -- | The rung of the cascade that paired two factors of one category.
 data FactorMatch
-    = -- | The same name, case and punctuation aside, a unit suffix kept.
+    = -- | The same flow identifier: the one the file writes, or the one the reader derives from the name and compartment when the file writes none.
+      SameFlowId
+    | -- | The same name, case and punctuation aside, a unit suffix kept.
       SameName
     | -- | Two names of one synonym class, in the view of the factor's direction.
       SameSynonymClass

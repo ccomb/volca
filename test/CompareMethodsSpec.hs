@@ -68,6 +68,10 @@ category name cfs =
         , methodFactors = cfs
         }
 
+-- | A flow identifier a file writes, distinct per number.
+flowId :: Word -> UUID.UUID
+flowId n = UUID.fromWords 0 0 0 (fromIntegral n)
+
 compared :: [MethodCF] -> [MethodCF] -> CategoryComparison
 compared base other =
     compareCategories refData SameMethodName (Sides (category "Climate change" base) (category "Climate change" other))
@@ -84,6 +88,11 @@ compareCategoriesSpec = describe "compareCategories" $ do
     it "finds nothing between a category and itself" $ do
         let cfs = [factor "carbon dioxide" 1, factor "methane, fossil" 29.7]
         counts (compared cfs cfs) `shouldBe` [0, 0, 0, 2, 0, 0]
+
+    it "pairs on the flow identifier first, whatever the two names" $ do
+        let cfs = [(factor "zinc" 1){mcfFlowRef = flowId 1}, (factor "Zinc" 1){mcfFlowRef = flowId 2}]
+            renamed = [(factor "zinc (II)" 1){mcfFlowRef = flowId 1}, (factor "Zinc" 1){mcfFlowRef = flowId 2}]
+        counts (compared cfs renamed) `shouldBe` [0, 0, 0, 2, 0, 0]
 
     it "pairs on the name first two rows of one synonym class a category writes" $ do
         let cfs = [factor "carbon dioxide" 1, factor "carbon dioxide, fossil" 1]
