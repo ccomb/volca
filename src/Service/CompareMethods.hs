@@ -54,10 +54,11 @@ module Service.CompareMethods (
 ) where
 
 import Control.Monad (guard, mfilter)
+import Data.Either (partitionEithers)
 import Data.Foldable (toList, traverse_)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (isJust, listToMaybe)
+import Data.Maybe (isJust, listToMaybe, mapMaybe)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -80,7 +81,7 @@ import API.Types (
  )
 import Method.Mapping (isExclusionCF, isPatternCF, patternPrefix, viewFor)
 import Method.Types (Compartment (..), CompartmentMap, FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), normalizeCompartment)
-import Service.Compare (Cascade (..), Rung, Sides (..), cascadeWith, close, pairOn, refusing)
+import Service.Compare (Cascade (..), Rung (..), Sides (..), cascadeWith, close, pairOn, refusing)
 import SubstanceRegistry (nonEmptyCAS)
 import SynonymDB (SynonymDB, lookupSynonymGroup, normalizeNameKeepUnit)
 import UnitConversion (UnitConfig, UnitReading (..), canonicalUnitFor, convertOntoFactorBasis, isKnownUnit, readUnit)
@@ -398,14 +399,54 @@ keyedFactor ctx cf =
 factorRung :: FactorMatch -> Sides [Keyed] -> Rung Keyed
 factorRung rung = case rung of
     SameFlowId -> pairOn kFlow
-    SameName -> pairOn kName
-    SameSynonymClass -> pairOn kClass
+    SameName -> contestedByCAS . pairOn kName
+    SameSynonymClass -> contestedByCAS . pairOn kClass
     SameCAS -> refusing bothKnown . pairOn kCAS
     SamePattern -> pairOn kPrefix
   where
     -- After the class rung, two names the registry knows at one place are two classes.
     bothKnown :: Sides Keyed -> Bool
     bothKnown (Sides b o) = isJust (kClass b) && isJust (kClass o)
+
+{- | A pair a name made whose CAS numbers disagree, when either number names a
+factor the rung left on the other side: paraquat written under the CAS of
+paraquat dichloride, against a Paraquat and a Paraquat dichloride. The name
+reads one pair and the CAS numbers another, so neither is taken, and the
+group names every candidate. A disagreement no factor stands behind, one CAS
+number written for another, keeps the pair its name made.
+-}
+contestedByCAS :: Rung Keyed -> Rung Keyed
+contestedByCAS rung =
+    rung
+        { rPairs = kept
+        , rAmbiguous = rAmbiguous rung ++ mapMaybe (traverse NE.nonEmpty) groups
+        , rLeft = fmap (filter (\k -> not (any (holds k) groups))) (rLeft rung)
+        }
+  where
+    kept :: [Sides Keyed]
+    contested :: [Sides [Keyed]]
+    (kept, contested) = partitionEithers (map contest (rPairs rung))
+    contest :: Sides Keyed -> Either (Sides Keyed) (Sides [Keyed])
+    contest pair@(Sides b o) = case (kCAS b, kCAS o) of
+        (Just cb, Just co)
+            | cb /= co
+            , rivals <- Sides (holding co (baseSide (rLeft rung))) (holding cb (otherSide (rLeft rung)))
+            , not (all null rivals) ->
+                Right (Sides (b : baseSide rivals) (o : otherSide rivals))
+        _ -> Left pair
+    holding :: FactorKey -> [Keyed] -> [Keyed]
+    holding cas = filter ((== Just cas) . kCAS)
+    -- Two contested pairs of one place can claim one rival: they are one group.
+    groups :: [Sides [Keyed]]
+    groups = L.foldl' join [] contested
+    join :: [Sides [Keyed]] -> Sides [Keyed] -> [Sides [Keyed]]
+    join acc g = let (touching, rest) = L.partition (\h -> any (`holds` h) (concat g)) acc in rest ++ [L.foldl' union g touching]
+    holds :: Keyed -> Sides [Keyed] -> Bool
+    holds k = any (sameFactor k) . concat
+    union :: Sides [Keyed] -> Sides [Keyed] -> Sides [Keyed]
+    union (Sides b1 o1) (Sides b2 o2) = Sides (L.unionBy sameFactor b1 b2) (L.unionBy sameFactor o1 o2)
+    sameFactor :: Keyed -> Keyed -> Bool
+    sameFactor x y = kFactor x == kFactor y
 
 placeOf :: CompartmentMap -> MethodCF -> Place
 placeOf cmap cf =

@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -109,7 +109,7 @@ data Sides a = Sides
     { baseSide :: a
     , otherSide :: a
     }
-    deriving (Functor)
+    deriving (Functor, Foldable, Traversable)
 
 -- | One process of one database, resolved.
 data ProcessIn = ProcessIn
