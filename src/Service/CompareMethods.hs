@@ -154,6 +154,8 @@ data CompareMethodsRefusal
     | SeveralCategories !CollectionSide !Text
     | PairedTwice !CollectionSide !Text
     | NotPaired !Text
+    | -- | A base category name several pairs start from, and the other category of each.
+      SeveralPairs !Text ![Text]
     deriving (Eq, Show)
 
 -- | Which pairs of categories a comparison compares.
@@ -176,6 +178,7 @@ refusalMessage r = case r of
     SeveralCategories side t -> "Several categories of the " <> sideName side <> " collection are named " <> t <> "; this name cannot choose between them"
     PairedTwice side t -> "The category " <> t <> " of the " <> sideName side <> " collection is named in two pairs"
     NotPaired t -> "No pair of categories starts from a base category named " <> t
+    SeveralPairs t others -> "Several pairs of categories start from a base category named " <> t <> ", against " <> T.intercalate ", " others <> "; this name cannot choose between them"
   where
     sideName :: CollectionSide -> Text
     sideName BaseCollection = "base"
@@ -210,7 +213,7 @@ inScope EveryCategory pairs = Right pairs
 inScope (OneCategory name) pairs = case filter ((== categoryKey name) . categoryKey . methodName . baseSide . snd) pairs of
     [pair] -> Right [pair]
     [] -> Left (NotPaired name)
-    (_ : _ : _) -> Left (SeveralCategories BaseCollection name)
+    several@(_ : _ : _) -> Left (SeveralPairs name (map (methodName . otherSide . snd) several))
 
 categoryRung :: CategoryMatch -> Sides [Method] -> Rung Method
 categoryRung m = case m of

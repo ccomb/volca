@@ -269,7 +269,7 @@ collectionSpec = describe "compareCollections" $ do
             base = [landUse "Occupation", landUse "Transformation"]
             other = [withCategory "Occupation" (category "LU occupation" zinc), withCategory "Transformation" (category "LU transformation" zinc)]
         fmap (map (csdName . ccpOther) . mccCategories) (collections [] base other) `shouldBe` Right ["LU occupation", "LU transformation"]
-        fmap pairsOf (scoped [] (OneCategory "Land use") base other) `shouldBe` Left (SeveralCategories BaseCollection "Land use")
+        fmap pairsOf (scoped [] (OneCategory "Land use") base other) `shouldBe` Left (SeveralPairs "Land use" ["LU occupation", "LU transformation"])
 
     it "reads a forced pair written base=other, and refuses any other shape" $ do
         parseForcedPair " GWP = Climate change " `shouldBe` Right (ForcedPair "GWP" "Climate change")

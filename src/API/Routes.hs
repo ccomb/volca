@@ -1476,7 +1476,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 31: the compare_method_collections route, which pairs the impact
+(revision 32: the @category@ a comparison of two method collections can be
+narrowed to, comparing that one pair alone;
+revision 31: the compare_method_collections route, which pairs the impact
 categories and the characterization factors of two loaded method collections;
 revision 30: the @max_batch_activities@ and @max_top_flows@ the hosting
 route reports, so a client can size a scoring request before it is refused;
