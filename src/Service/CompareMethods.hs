@@ -8,13 +8,16 @@ them and of the reference data that says which names are one substance.
 * Factors pair in a cascade, each rung seeing only what the rungs before it
   left unpaired, and always at the same place: the same direction, the same
   compartment once its spelling is read through the compartment table, the
-  same location. The rungs are two names of one synonym class; then the same
-  CAS number, unless both names are in the registry, since after the first
-  rung two known names are two classes (one CAS covers fossil and biogenic
-  methane, which the registry keeps apart); then the same name, a unit suffix
-  kept, so the rows a method writes per kilogram and per cubic metre stay
-  two; then, for pattern and exclusion rows, which select flows rather than
-  name a substance, the same prefix.
+  same location. The rungs are the same name, a unit suffix kept, so the
+  rows a method writes per kilogram and per cubic metre stay two; then two
+  names of one synonym class; then the same CAS number, unless both names are
+  in the registry, since after the class rung two known names are two classes
+  (one CAS covers fossil and biogenic methane, which the registry keeps
+  apart); then, for pattern and exclusion rows, which select flows rather
+  than name a substance, the same prefix. The name comes first because one
+  category often writes several names of one class side by side (a flow and
+  its fossil variant, a flow and its regional twin): on the class rung they
+  would all answer one key and pair none, where each has its own name.
 * The compartment is compared strictly: the table's fallback rows, which let
   a flow read a factor written for a broader place, are not followed, since
   they would make a precise subcompartment equal to an unspecified one. One
@@ -337,7 +340,7 @@ factorRung ctx rung = case rung of
     ordinary substance cf = guard (not (isPatternCF cf || isExclusionCF cf)) >> substance cf
     classOf :: MethodCF -> Maybe Int
     classOf cf = lookupSynonymGroup (viewFor (mcfDirection cf) (cmcSynonyms ctx)) (mcfFlowName cf)
-    -- After the first rung, two names the registry knows at one place are two classes.
+    -- After the class rung, two names the registry knows at one place are two classes.
     bothKnown :: Sides MethodCF -> Bool
     bothKnown (Sides b o) = isJust (classOf b) && isJust (classOf o)
     byPrefix :: MethodCF -> Maybe Substance

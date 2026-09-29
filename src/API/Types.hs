@@ -1947,12 +1947,12 @@ data CategoryMatch
 
 -- | The rung of the cascade that paired two factors of one category.
 data FactorMatch
-    = -- | Two names of one synonym class, in the view of the factor's direction.
+    = -- | The same name, case and punctuation aside, a unit suffix kept.
+      SameName
+    | -- | Two names of one synonym class, in the view of the factor's direction.
       SameSynonymClass
     | -- | The same CAS number, where the registry does not keep the two names apart.
       SameCAS
-    | -- | The same name, case and punctuation aside, a unit suffix kept.
-      SameName
     | -- | Two pattern rows, or two exclusion rows, selecting on the same prefix.
       SamePattern
     deriving (Eq, Ord, Show, Enum, Bounded, Generic)

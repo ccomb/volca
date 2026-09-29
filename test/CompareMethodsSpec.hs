@@ -85,6 +85,10 @@ compareCategoriesSpec = describe "compareCategories" $ do
         let cfs = [factor "carbon dioxide" 1, factor "methane, fossil" 29.7]
         counts (compared cfs cfs) `shouldBe` [0, 0, 0, 2, 0, 0]
 
+    it "pairs on the name first two rows of one synonym class a category writes" $ do
+        let cfs = [factor "carbon dioxide" 1, factor "carbon dioxide, fossil" 1]
+        counts (compared cfs cfs) `shouldBe` [0, 0, 0, 2, 0, 0]
+
     it "pairs two names of one synonym class and says so" $ do
         let c = compared [factor "carbon dioxide" 1] [factor "carbon dioxide, fossil" 2]
         map cfxMatch (ccpChanged c) `shouldBe` [SameSynonymClass]
