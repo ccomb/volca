@@ -127,6 +127,10 @@ compareCategoriesSpec = describe "compareCategories" $ do
             c = compared [methane "methane, fossil", methane "methane, biogenic"] [methane "methane, from soil"]
         counts c `shouldBe` [1, 2, 0, 0, 0, 0]
 
+    it "writes a factor's direction and unit as the factors of a method do" $ do
+        let c = compared [(factor "zinc" 1){mcfUnit = ""}] []
+        map (\f -> (facDirection f, facUnit f)) (ccpRemoved c) `shouldBe` [(Output, Nothing)]
+
     it "keeps apart two rows of one name written per two units" $ do
         let cfs = [factor "water/kg" 1, factor "water/m3" 1000]
         counts (compared cfs cfs) `shouldBe` [0, 0, 0, 2, 0, 0]

@@ -35,6 +35,7 @@ import Database.Author (
     FlowRef (..),
  )
 import GHC.Generics
+import Method.Types (FlowDirection)
 import Servant.API.ContentTypes (MimeRender (..), MimeUnrender (..), OctetStream)
 import Types (
     BioDirection (..),
@@ -1973,20 +1974,19 @@ data ValueReading
     deriving (Eq, Ord, Show, Enum, Bounded, Generic)
     deriving anyclass (ToJSON, ToSchema)
 
--- | Whether a factor takes from nature or releases into it.
-data FactorDirection = FactorInput | FactorOutput
-    deriving (Eq, Ord, Show, Enum, Bounded, Generic)
-    deriving anyclass (ToJSON, ToSchema)
+-- | A factor's direction, spelt @Input@ or @Output@ as the factors of a method are.
+deriving anyclass instance ToSchema FlowDirection
 
 -- | One factor as its collection writes it.
 data FactorSide = FactorSide
     { facFlowName :: !Text
-    , facDirection :: !FactorDirection
+    , facDirection :: !FlowDirection
     , facCompartment :: !Text
     -- ^ medium/subcompartment/qualifier, empty parts left out, as written
     , facCas :: !(Maybe Text)
     , facLocation :: !(Maybe Text)
-    , facUnit :: !Text
+    , facUnit :: !(Maybe Text)
+    -- ^ absent when the method states none
     , facValue :: !Double
     }
     deriving (Eq, Ord, Show, Generic)

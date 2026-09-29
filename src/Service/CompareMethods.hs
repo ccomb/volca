@@ -71,7 +71,6 @@ import API.Types (
     CategoryMatch (..),
     CategorySide (..),
     ChangedFactor (..),
-    FactorDirection (..),
     FactorMatch (..),
     FactorSide (..),
     MethodCollectionComparison (..),
@@ -471,16 +470,13 @@ factorSide :: MethodCF -> FactorSide
 factorSide cf =
     FactorSide
         { facFlowName = mcfFlowName cf
-        , facDirection = direction (mcfDirection cf)
+        , facDirection = mcfDirection cf
         , facCompartment = maybe T.empty path (mcfCompartment cf)
         , facCas = mcfCAS cf
         , facLocation = mcfConsumerLocation cf
-        , facUnit = mcfUnit cf
+        , facUnit = mfilter (not . T.null) (Just (mcfUnit cf))
         , facValue = mcfValue cf
         }
   where
     path :: Compartment -> Text
     path (Compartment medium sub qualifier) = T.intercalate "/" (filter (not . T.null) [medium, sub, qualifier])
-    direction :: FlowDirection -> FactorDirection
-    direction Input = FactorInput
-    direction Output = FactorOutput
