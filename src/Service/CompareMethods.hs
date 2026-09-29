@@ -36,7 +36,9 @@ them and of the reference data that says which names are one substance.
   the other states anything else, as scoring reads it, and as written when
   neither is a flow unit; an empty unit, which one reader leaves when the
   file states none, counts as not a flow unit, and each row says which
-  reading it took. They are equal within a relative 1e-9.
+  reading it took. A spelling the unit table cannot settle (two of its units
+  differ from it only by case) is not read at all: the pair is listed as
+  unconvertible. They are equal within a relative 1e-9.
 -}
 module Service.CompareMethods (
     CompareMethodsContext (..),
@@ -81,7 +83,7 @@ import Method.Types (Compartment (..), CompartmentMap, FlowDirection (..), Metho
 import Service.Compare (Cascade (..), Rung, Sides (..), cascadeWith, close, pairOn, refusing)
 import SubstanceRegistry (nonEmptyCAS)
 import SynonymDB (SynonymDB, lookupSynonymGroup, normalizeNameKeepUnit)
-import UnitConversion (UnitConfig, canonicalUnitFor, convertOntoFactorBasis, isKnownUnit)
+import UnitConversion (UnitConfig, UnitReading (..), canonicalUnitFor, convertOntoFactorBasis, isKnownUnit, readUnit)
 
 -- | The reference data a comparison reads names and units through.
 data CompareMethodsContext = CompareMethodsContext
@@ -421,11 +423,13 @@ judge cfg pair = maybe Unconvertible verdictOn (comparedValues cfg pair)
         | otherwise = Differs reading (Just (o / b))
 
 {- | The two values read per one unit, and how. 'Nothing' when both are flow
-units that do not convert.
+units that do not convert, or when a unit is a spelling the table cannot
+settle.
 -}
 comparedValues :: UnitConfig -> Sides MethodCF -> Maybe Compared
 comparedValues cfg (Sides b o)
     | ub == uo = Just (Compared UnitsIdentical (Sides vb vo))
+    | unsettled ub || unsettled uo = Nothing
     | known ub && known uo = (\f -> Compared ConvertedOntoBaseUnit (Sides vb (vo * f))) <$> perOne ub uo
     | known ub = (\f -> Compared ReadPerReferenceUnit (Sides (vb * f) vo)) <$> perReference ub
     | known uo = (\f -> Compared ReadPerReferenceUnit (Sides vb (vo * f))) <$> perReference uo
@@ -441,6 +445,12 @@ comparedValues cfg (Sides b o)
     vo = mcfValue o
     known :: Text -> Bool
     known = isKnownUnit cfg
+    unsettled :: Text -> Bool
+    unsettled u = case readUnit cfg u of
+        ReadAmbiguous{} -> True
+        ReadExact{} -> False
+        ReadRespelt{} -> False
+        ReadUnknown -> False
     -- How many @from@ one @to@ holds: a factor per @from@ times this is the factor per @to@.
     perOne :: Text -> Text -> Maybe Double
     perOne to from = convertOntoFactorBasis cfg to from 1

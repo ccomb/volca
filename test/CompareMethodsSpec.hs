@@ -165,6 +165,10 @@ compareCategoriesSpec = describe "compareCategories" $ do
         let c = compared [factor "zinc" 1, factor "lead" 0, factor "copper" 1] [factor "zinc" 1.1, factor "lead" 0.3, factor "copper" 0]
         map (facFlowName . cfxBase) (ccpChanged c) `shouldBe` ["copper", "lead", "zinc"]
 
+    it "sets apart a factor whose unit the table cannot settle" $ do
+        let c = compared [factor "zinc" 1] [(factor "zinc" 1){mcfUnit = "MT"}]
+        counts c `shouldBe` [0, 0, 0, 0, 0, 1]
+
     it "leads with a sign flip, then the ratio farthest from one" $ do
         let c =
                 compared

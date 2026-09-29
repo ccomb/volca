@@ -2003,7 +2003,7 @@ data ChangedFactor = ChangedFactor
     deriving (Eq, Show, Generic)
     deriving (ToJSON, ToSchema) via (Stripped ChangedFactor)
 
--- | Two factors paired on their key whose flow units do not convert.
+-- | Two factors paired on their key whose values cannot be read per one unit: two flow units that do not convert, or a spelling the unit table cannot settle.
 data UnconvertibleFactor = UnconvertibleFactor
     { ufxMatch :: !FactorMatch
     , ufxBase :: !FactorSide
