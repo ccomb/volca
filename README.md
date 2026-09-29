@@ -268,14 +268,15 @@ so also refuses the computed quality report on a database with more
 activities than that, since the report scores all of them; the second caps
 the top contributing flows a batch asks for per activity. Both hold on REST
 and MCP alike, and a refusal says the limit and what the request asked for.
+Absent, they set no limit. `GET /api/v1/hosting` reports both (`null` for no
+limit), so a client can size its requests instead of learning the limit from a
+refusal.
+
 `max_concurrent_scoring` bounds how many scoring requests compute at once;
 the others wait their turn rather than being refused. The solver takes one
 request at a time anyway, so a few in flight finish as soon as many would,
 while many at once hold all their solutions in memory together and can
-exhaust it.
-Absent, they set no limit. `GET /api/v1/hosting` reports both (`null` for no
-limit), so a client can size its requests instead of learning the limit from a
-refusal.
+exhaust it. Since nothing is refused, the hosting route does not report it.
 
 The `depends` field ensures dependency databases load first and their flows are available for cross-database linking. Setting `load = true` on a database transitively loads all its dependencies.
 
