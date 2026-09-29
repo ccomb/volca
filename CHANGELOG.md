@@ -18,6 +18,17 @@
   Absent, they set no limit. `GET /api/v1/hosting` reports both, `null` when
   unset, so a client can size a request before it is refused. Wire
   revision 30.
+- Two loaded method collections compare factor by factor:
+  `method-collections/{collection}/compare?other_collection=...` and the
+  `compare_method_collections` assistant tool list, for each pair of impact
+  categories, the characterization factors added, removed and changed, with
+  both values and their ratio once read per one unit. Categories pair on
+  their name, then on their impact category, and a caller settles the ones
+  that do not with `pairs=base=other`. Factors pair at one direction,
+  compartment and location, by flow identifier, then name, then synonym
+  class, then CAS number;
+  the compartment table's fallback rows are not followed, so a precise
+  subcompartment never passes for an unspecified one. Wire revision 31.
 - The command line and the REPL walk the supply chain from a process:
   `tree` shows it upstream as a tree, `supply-chain` lists the processes
   upstream and `consumers` those downstream, both filtered by name, location,

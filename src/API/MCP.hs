@@ -46,7 +46,7 @@ import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
-import API.Routes (collectionNotLoadedMessage, methodRefusalMessage, selectMethod)
+import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, selectMethod)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits)
 import Control.Monad (mfilter)
 import qualified Data.List as L
@@ -61,6 +61,7 @@ import qualified Search.Normalize as Normalize
 import qualified Service
 import qualified Service.Aggregate as Agg
 import qualified Service.Compare as Compare
+import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount)
@@ -528,6 +529,7 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "compare_impacts" -> callCompareImpacts dbManager rid args
     "compare_activities" -> withDb dbManager rid args $ callCompareActivities dbManager rid args
     "compare_databases" -> withDb dbManager rid args $ callCompareDatabases dbManager rid args
+    "compare_method_collections" -> callCompareMethodCollections dbManager rid args
     "score_activity" -> callScoreActivity dbManager mHosting mBaseUrl rid args
     "score_activities" -> callScoreActivities dbManager mHosting mBaseUrl rid args
     "list_scoring_sets" -> callListScoringSets dbManager rid args
@@ -1488,6 +1490,22 @@ callCompareDatabases dbManager rid args (db, _) = runTool rid $ do
     otherDb <- ldDatabase <$> (requireDatabase dbManager =<< except (requireText "other_database" args))
     let comparison = Compare.compareDatabases (Compare.Sides db otherDb)
     pure $ toolSuccessJson rid (toJSON (maybe id Compare.limitComparison (intArg "limit" args) comparison))
+
+callCompareMethodCollections :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callCompareMethodCollections dbManager rid args = runTool rid $ do
+    request <-
+        except $
+            MethodComparisonAsk
+                <$> requireText "collection" args
+                <*> requireText "other_collection" args
+                <*> pure (textArrayArg "pairs" args)
+                <*> pure (intArg "limit" args)
+    comparison <- ExceptT (first failureText <$> runMethodComparison dbManager request)
+    pure (toolSuccessJson rid (toJSON comparison))
+  where
+    failureText :: MethodComparisonFailure -> Text
+    failureText (CollectionMissing name loaded) = collectionNotLoadedMessage name loaded
+    failureText (PairsRefused r) = CompareMethods.refusalMessage r
 
 callCompareImpacts :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callCompareImpacts dbManager rid args =
