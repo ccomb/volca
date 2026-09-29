@@ -239,7 +239,7 @@ filters = [{ system = "ISIC", value = "01", mode = "contains" }]  # mode: exact 
 # [hosting] tunes upload/API limits when the engine runs behind a manager:
 # max_uploads, max_upload_mb, max_loaded_uploads, api_access,
 # upgrade_upload, upgrade_api, upgrade_vm_size, read_only, read_only_message,
-# max_batch_activities, max_top_flows
+# max_batch_activities, max_top_flows, max_concurrent_scoring
 ```
 
 `max_uploads` bounds how many databases of their own a caller may keep, and
@@ -268,6 +268,11 @@ so also refuses the computed quality report on a database with more
 activities than that, since the report scores all of them; the second caps
 the top contributing flows a batch asks for per activity. Both hold on REST
 and MCP alike, and a refusal says the limit and what the request asked for.
+`max_concurrent_scoring` bounds how many scoring requests compute at once;
+the others wait their turn rather than being refused. The solver takes one
+request at a time anyway, so a few in flight finish as soon as many would,
+while many at once hold all their solutions in memory together and can
+exhaust it.
 Absent, they set no limit. `GET /api/v1/hosting` reports both (`null` for no
 limit), so a client can size its requests instead of learning the limit from a
 refusal.

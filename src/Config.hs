@@ -165,6 +165,7 @@ data HostingConfig = HostingConfig
     , hcUpgradeVmSize :: !Text -- Upgrade message when memory is high
     , hcMaxBatchActivities :: !(Maybe Int) -- Most activities one scoring request may ask for (Nothing = no limit)
     , hcMaxTopFlows :: !(Maybe Int) -- Most top contributing flows one scoring request may ask for, per activity and method
+    , hcMaxConcurrentScoring :: !(Maybe Int) -- Most scoring requests computed at once, the others wait (Nothing = no limit)
     }
     deriving (Show, Eq, Generic)
 
@@ -805,6 +806,7 @@ instance DecodeTOML HostingConfig where
         hcUpgradeVmSize <- fromMaybe "" <$> getFieldOpt "upgrade_vm_size"
         hcMaxBatchActivities <- traverse (atLeast 1 "max_batch_activities") =<< getFieldOpt "max_batch_activities"
         hcMaxTopFlows <- traverse (atLeast 0 "max_top_flows") =<< getFieldOpt "max_top_flows"
+        hcMaxConcurrentScoring <- traverse (atLeast 1 "max_concurrent_scoring") =<< getFieldOpt "max_concurrent_scoring"
         pure HostingConfig{..}
       where
         -- Absent means no limit; a value below the floor would refuse every
@@ -943,6 +945,7 @@ configKeys =
         , "upgrade_vm_size"
         , "max_batch_activities"
         , "max_top_flows"
+        , "max_concurrent_scoring"
         ]
     refData = keys (map plain ["path", "name", "active", "description"])
     scoringSet =

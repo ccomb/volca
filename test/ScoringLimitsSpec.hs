@@ -39,6 +39,7 @@ limits activities topFlows =
         , hcUpgradeVmSize = ""
         , hcMaxBatchActivities = activities
         , hcMaxTopFlows = topFlows
+        , hcMaxConcurrentScoring = Nothing
         }
 
 spec :: Spec
@@ -60,20 +61,24 @@ spec = do
 
     describe "reading the limits from [hosting]" $ do
         let decodeHosting t = TOML.decode t :: Either TOML.TOMLError HostingConfig
-        it "reads both keys" $
-            case decodeHosting "max_batch_activities = 500\nmax_top_flows = 5\n" of
-                Right hc -> (hcMaxBatchActivities hc, hcMaxTopFlows hc) `shouldBe` (Just 500, Just 5)
+        it "reads the three keys" $
+            case decodeHosting "max_batch_activities = 500\nmax_top_flows = 5\nmax_concurrent_scoring = 4\n" of
+                Right hc -> (hcMaxBatchActivities hc, hcMaxTopFlows hc, hcMaxConcurrentScoring hc) `shouldBe` (Just 500, Just 5, Just 4)
                 Left e -> expectationFailure (show e)
 
         it "reads their absence as no limit" $
             case decodeHosting "read_only = true\n" of
-                Right hc -> (hcMaxBatchActivities hc, hcMaxTopFlows hc) `shouldBe` (Nothing, Nothing)
+                Right hc -> (hcMaxBatchActivities hc, hcMaxTopFlows hc, hcMaxConcurrentScoring hc) `shouldBe` (Nothing, Nothing, Nothing)
                 Left e -> expectationFailure (show e)
 
         -- Zero activities would refuse every scoring request while reading
         -- like a limit, so it stops the load rather than meaning "none".
         it "refuses a batch limit below one" $
             either (const True) (const False) (decodeHosting "max_batch_activities = 0\n") `shouldBe` True
+
+        -- No slot at all would leave every scoring request waiting forever.
+        it "refuses a concurrency bound below one" $
+            either (const True) (const False) (decodeHosting "max_concurrent_scoring = 0\n") `shouldBe` True
 
     -- A client sizes its requests from the hosting route rather than
     -- learning the limit from a refusal.

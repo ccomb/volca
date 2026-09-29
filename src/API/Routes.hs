@@ -16,10 +16,12 @@ import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.QSem (signalQSem, waitQSem)
 import Control.Concurrent.STM (readTVarIO)
 import Control.DeepSeq (force)
 import Control.Exception (evaluate)
 import Control.Monad (forM, forM_, mfilter, unless, when)
+import Control.Monad.Catch (bracket_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import Data.Aeson
@@ -1017,6 +1019,18 @@ scoreChunk scope chunk = do
             , bieImpacts = impacts
             }
 
+{- | Run a scoring computation once one of the instance's slots is free.
+
+The solver takes one request at a time already, so past a couple of requests
+in flight, more of them finish no sooner: they only hold more of their
+solutions in memory while they wait. Enough of them at once exhaust the heap
+and take the process down for every caller, where a request that waits its
+turn loses nothing. Waiting rather than refusing, because the request is
+legitimate and the answer would be the same a few seconds later.
+-}
+withScoringSlot :: DatabaseManager -> AppM a -> AppM a
+withScoringSlot dm = maybe id (\slots -> bracket_ (liftIO (waitQSem slots)) (liftIO (signalQSem slots))) (dmScoringSlots dm)
+
 {- | Top-level multi-activity batch impacts, a chunk of activities per solve,
 parallel characterization. Used by the Servant POST route and by
 API.BatchImpacts.
@@ -1075,7 +1089,7 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
                 , bsTopFlows = max 0 (fromMaybe 0 topFlowsParam)
                 , bsLongTerm = ltMode
                 }
-    solved <- traverse (scoreChunk scope) (Matrix.chunksOf scoringChunk valid)
+    solved <- withScoringSlot dbManager (traverse (scoreChunk scope) (Matrix.chunksOf scoringChunk valid))
     let solveTime = sum (map fst solved)
         entriesE = concatMap snd solved
     -- All-or-nothing on purpose: an integrity error is a property of the

@@ -35,6 +35,11 @@
   unpaired and ambiguous categories are still listed. A name no pair starts
   from, or that two pairs start from, is refused with a sentence. Wire
   revision 32.
+- `max_concurrent_scoring` under `[hosting]` bounds how many scoring requests
+  compute at once, and the others wait their turn. A few dozen large batch
+  scores sent together used to exhaust the heap and stop the process for
+  every caller; waiting costs them nothing, since the solver takes one
+  request at a time anyway.
 - The command line and the REPL walk the supply chain from a process:
   `tree` shows it upstream as a tree, `supply-chain` lists the processes
   upstream and `consumers` those downstream, both filtered by name, location,
