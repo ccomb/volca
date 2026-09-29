@@ -1493,14 +1493,18 @@ callCompareDatabases dbManager rid args (db, _) = runTool rid $ do
 
 callCompareMethodCollections :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callCompareMethodCollections dbManager rid args = runTool rid $ do
-    request <-
-        except $
-            MethodComparisonAsk
-                <$> requireText "collection" args
-                <*> requireText "other_collection" args
-                <*> pure (textArrayArg "pairs" args)
-                <*> pure (intArg "limit" args)
-    comparison <- ExceptT (first failureText <$> runMethodComparison dbManager request)
+    base <- except (requireText "collection" args)
+    other <- except (requireText "other_collection" args)
+    comparison <-
+        ExceptT . fmap (first failureText) $
+            runMethodComparison
+                dbManager
+                MethodComparisonAsk
+                    { mcaCollection = DM.CollectionName base
+                    , mcaOther = DM.CollectionName other
+                    , mcaPairs = textArrayArg "pairs" args
+                    , mcaLimit = intArg "limit" args
+                    }
     pure (toolSuccessJson rid (toJSON comparison))
   where
     failureText :: MethodComparisonFailure -> Text
