@@ -20,12 +20,16 @@ import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), 
 import SynonymDB (buildFromPairs)
 import UnitConversion (Dimension, UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
--- | The default unit table plus the gram.
+-- | The default unit table plus the gram, and two units only the case tells apart.
 units :: UnitConfig
 units =
     mkUnitConfig
         (ucDimensionOrder defaultUnitConfig)
-        (M.insert "g" (UnitDef massSlot 0.001) (ucUnits defaultUnitConfig))
+        ( M.insert "g" (UnitDef massSlot 0.001)
+            . M.insert "Mt" (UnitDef massSlot 1e9)
+            . M.insert "mt" (UnitDef massSlot 1e3)
+            $ ucUnits defaultUnitConfig
+        )
   where
     massSlot :: Dimension
     massSlot = [if d == "mass" then 1 else 0 | d <- ucDimensionOrder defaultUnitConfig]
@@ -156,6 +160,10 @@ compareCategoriesSpec = describe "compareCategories" $ do
     it "reports a zero that became a value as a change without a ratio" $ do
         let c = compared [factor "zinc" 0] [factor "zinc" 0.3]
         map cfxRatio (ccpChanged c) `shouldBe` [Nothing]
+
+    it "leads with a factor that appeared from zero, as with one that vanished" $ do
+        let c = compared [factor "zinc" 1, factor "lead" 0, factor "copper" 1] [factor "zinc" 1.1, factor "lead" 0.3, factor "copper" 0]
+        map (facFlowName . cfxBase) (ccpChanged c) `shouldBe` ["copper", "lead", "zinc"]
 
     it "leads with a sign flip, then the ratio farthest from one" $ do
         let c =

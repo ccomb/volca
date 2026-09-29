@@ -8,18 +8,18 @@ them and of the reference data that says which names are one substance.
 * Factors pair in a cascade, each rung seeing only what the rungs before it
   left unpaired, and always at the same place: the same direction, the same
   compartment once its spelling is read through the compartment table, the
-  same location. The rungs are the same flow identifier, which two releases
-  of one package keep across a rename; then the same name, a unit suffix
-  kept, so the rows a method writes per kilogram and per cubic metre stay
-  two; then two
-  names of one synonym class; then the same CAS number, unless both names are
-  in the registry, since after the class rung two known names are two classes
-  (one CAS covers fossil and biogenic methane, which the registry keeps
-  apart); then, for pattern and exclusion rows, which select flows rather
-  than name a substance, the same prefix. The name comes before the class because one
-  category often writes several names of one class side by side (a flow and
-  its fossil variant, a flow and its regional twin): on the class rung they
-  would all answer one key and pair none, where each has its own name.
+  same location. The rungs are, in order: the same flow identifier, which
+  two releases of one package keep across a rename; the same name, a unit
+  suffix kept, so the rows a method writes per kilogram and per cubic metre
+  stay two; two names of one synonym class; the same CAS number, refused
+  when the registry knows both names, since past the class rung two known
+  names are two classes (one CAS covers fossil and biogenic methane, which
+  the registry keeps apart); and, for pattern and exclusion rows, which
+  select flows rather than name a substance, the same prefix. The name comes
+  before the class because one category often writes several names of one
+  class side by side (a flow and its fossil variant, a flow and its regional
+  twin): on the class rung they would all answer one key and pair none,
+  where each has its own name.
 * The compartment is compared strictly: the table's fallback rows, which let
   a flow read a factor written for a broader place, are not followed, since
   they would make a precise subcompartment equal to an unspecified one. One
@@ -33,10 +33,10 @@ them and of the reference data that says which names are one substance.
   settle with a forced pair.
 * Two values are read per one unit before comparing: converted when both
   are flow units, per the reference unit of the flow unit's dimension when
-  the other states an impact unit, as scoring reads it, as written when
-  neither is a flow unit (an empty unit, which one reader leaves when the
-  file states none, is not a flow unit: it is compared as written, and the
-  row says so). They are equal within a relative 1e-9.
+  the other states anything else, as scoring reads it, and as written when
+  neither is a flow unit; an empty unit, which one reader leaves when the
+  file states none, counts as not a flow unit, and each row says which
+  reading it took. They are equal within a relative 1e-9.
 -}
 module Service.CompareMethods (
     CompareMethodsContext (..),
@@ -328,12 +328,12 @@ compareCategories ctx match methods =
     -- Every list sorts on whole rows, so its order never depends on how the cascade keyed them.
     sides = L.sort . map (factorSide . kFactor) . toList
 
-{- | How far a ratio is from no change. A sign flip, or a factor that became
-zero, is the farthest of all; a zero that became a value has no ratio and
-comes after every ratio.
+{- | How far a ratio is from no change. A sign flip, a factor that became
+zero and a zero that became a value (no ratio) are the farthest of all, so a
+factor that vanished and one that appeared both lead the list.
 -}
-distance :: Maybe Double -> Maybe Double
-distance = fmap far
+distance :: Maybe Double -> Double
+distance = maybe (1 / 0) far
   where
     far :: Double -> Double
     far r

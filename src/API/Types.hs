@@ -2043,6 +2043,7 @@ data CategoryComparison = CategoryComparison
     , ccpAmbiguousCount :: !Int
     , ccpUnconvertibleCount :: !Int
     , ccpLargestRatio :: !(Maybe Double)
+    -- ^ the ratio of the change that leads the list: a sign flip, a vanished factor (0) or one appeared from zero (absent) first, then the farthest from one
     , ccpAdded :: ![FactorSide]
     , ccpRemoved :: ![FactorSide]
     , ccpChanged :: ![ChangedFactor]
