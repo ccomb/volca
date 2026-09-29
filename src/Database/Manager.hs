@@ -137,6 +137,7 @@ module Database.Manager (
 import API.JsonOptions (Stripped (..))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
+import Control.Concurrent.QSem (QSem, newQSem)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import qualified Control.Exception
@@ -680,6 +681,10 @@ data DatabaseManager = DatabaseManager
     characterization has to reach, its dependencies' included. Invalidated
     with that database's method caches, which are built from it.
     -}
+    , dmScoringSlots :: !(Maybe QSem)
+    {- ^ One unit per scoring request allowed to compute at once
+    (@max_concurrent_scoring@), 'Nothing' when the instance sets no bound.
+    -}
     }
 
 {- | The databases a root reaches, transitively, through 'dbDependsOn'. The
@@ -1137,6 +1142,7 @@ data ManagerSeed = ManagerSeed
     , msChemSynonyms :: !ChemSynonyms
     , msSubstanceEdges :: ![SubstanceEdge]
     , msCasBindings :: !(Map NormName CASNumber)
+    , msScoringSlots :: !(Maybe Int)
     }
 
 -- | The four kinds of reference data, each configured plus whatever was uploaded.
@@ -1171,6 +1177,7 @@ initDatabaseManager config cachePolicy = do
                 , msChemSynonyms = chemSyns
                 , msSubstanceEdges = substanceEdges
                 , msCasBindings = casBindings
+                , msScoringSlots = hcMaxConcurrentScoring =<< cfgHosting config
                 }
 
     autoLoadRefDataSources manager refData
@@ -1370,6 +1377,7 @@ newManager ManagerSeed{..} = do
     mergedFlowMetadataCacheVar <- newTVarIO Nothing
     mergedUnitConfigCacheVar <- newTVarIO Nothing
     flowClosureCacheVar <- newTVarIO M.empty
+    scoringSlots <- traverse newQSem msScoringSlots
     return
         DatabaseManager
             { dmLoadedDbs = loadedDbsVar
@@ -1402,6 +1410,7 @@ newManager ManagerSeed{..} = do
             , dmMergedFlowMetadataCache = mergedFlowMetadataCacheVar
             , dmMergedUnitConfigCache = mergedUnitConfigCacheVar
             , dmFlowClosureCache = flowClosureCacheVar
+            , dmScoringSlots = scoringSlots
             }
   where
     byName :: [RefDataConfig] -> IO (TVar (Map Text RefDataConfig))

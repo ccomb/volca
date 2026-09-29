@@ -27,6 +27,7 @@ upgrade_api = "api"
 upgrade_vm_size = "size"
 max_batch_activities = 500
 max_top_flows = 5
+max_concurrent_scoring = 4
 
 [[databases]]
 name = "db"
