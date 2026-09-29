@@ -9,20 +9,22 @@ CORES=$(nproc 2>/dev/null || echo 4)
 # usable. The RTS would start a capability, and a nursery, for each of the 24.
 # The quota is what the process can actually run on: round it up to whole
 # cores, and never above what nproc sees.
-QUOTA=""
+Q=""
+P=""
 if [ -f /sys/fs/cgroup/cpu.max ]; then
     # cgroup v2: "<quota> <period>", quota "max" when unlimited
     read -r Q P < /sys/fs/cgroup/cpu.max 2>/dev/null
-    [ "$Q" != "max" ] && QUOTA="$Q $P"
+    [ "$Q" = "max" ] && Q=""
 elif [ -f /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]; then
     # cgroup v1: quota -1 when unlimited
     Q=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null)
     P=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null)
-    [ -n "$Q" ] && [ "$Q" -gt 0 ] 2>/dev/null && QUOTA="$Q $P"
+    [ "$Q" = "-1" ] && Q=""
 fi
-if [ -n "$QUOTA" ]; then
-    set -- $QUOTA
-    QUOTA_CORES=$((($1 + $2 - 1) / $2))
+# An unreadable file leaves them empty, and the host's count stands: failing
+# here would start the engine with no flags at all, memory cap included.
+if [ -n "$Q" ] && [ -n "$P" ] && [ "$P" -gt 0 ] 2>/dev/null; then
+    QUOTA_CORES=$(((Q + P - 1) / P))
     [ "$QUOTA_CORES" -lt "$CORES" ] && CORES=$QUOTA_CORES
 fi
 
