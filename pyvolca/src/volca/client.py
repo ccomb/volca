@@ -1952,6 +1952,32 @@ class Client:
             self._call("compare_databases", other_database=other_database, limit=limit)
         )
 
+    def compare_method_collections(
+        self,
+        collection: str,
+        other_collection: str,
+        *,
+        pairs: list[str] | None = None,
+        limit: int | None = None,
+    ) -> dict:
+        """Compare two loaded method collections, category by category.
+
+        Categories pair on their name, then on their impact category; ``pairs``
+        settles the others, each written ``"base=other"``. Within a pair,
+        factors pair by flow identifier, name, synonym class, CAS number, then
+        pattern prefix, at one direction, compartment and location. ``limit``
+        keeps the first entries of each list of each category; the counts
+        cover them all.
+        """
+        self._require_wire(31, "compare_method_collections", engine_hint="0.15.0")
+        return self._call(
+            "compare_method_collections",
+            collection=collection,
+            other_collection=other_collection,
+            pairs=pairs,
+            limit=limit,
+        )
+
     # -- Tree (SPA-only endpoint, no operationId, direct HTTP) --
 
     def get_tree(self, process_id: str) -> dict:
