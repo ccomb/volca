@@ -16,7 +16,7 @@ import Test.Hspec
 import API.Types
 import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..))
 import Service.Compare (Sides (..))
-import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), compareCategories, compareCollections, parseForcedPair)
+import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), Scope (..), compareCategories, compareCollections, parseForcedPair)
 import SynonymDB (buildFromPairs)
 import UnitConversion (Dimension, UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
@@ -194,7 +194,10 @@ collection :: [Method] -> MethodCollection
 collection ms = MethodCollection{mcMethods = ms, mcDamageCategories = [], mcNormWeightSets = [], mcScoringSets = []}
 
 collections :: [ForcedPair] -> [Method] -> [Method] -> Either CompareMethodsRefusal MethodCollectionComparison
-collections forced base other = compareCollections refData forced (Sides (collection base) (collection other))
+collections forced = scoped forced EveryCategory
+
+scoped :: [ForcedPair] -> Scope -> [Method] -> [Method] -> Either CompareMethodsRefusal MethodCollectionComparison
+scoped forced scope base other = compareCollections refData forced scope (Sides (collection base) (collection other))
 
 -- | A pair of categories a comparison made: how, the base name, the other name.
 data Paired = Paired CategoryMatch Text Text
@@ -247,6 +250,26 @@ collectionSpec = describe "compareCollections" $ do
     it "refuses a category named in two forced pairs" $
         fmap pairsOf (collections [ForcedPair "GWP" "A", ForcedPair "gwp" "B"] [category "GWP" zinc] [category "A" zinc, category "B" zinc])
             `shouldBe` Left (PairedTwice BaseCollection "gwp")
+
+    it "compares one pair alone when asked for its base category, the unpaired still listed" $ do
+        let Right c = scoped [] (OneCategory "acidification") [category "Acidification" zinc, category "Climate change" zinc, category "Land use" zinc] [category "Acidification" zinc, category "Climate change" zinc]
+        pairsOf c `shouldBe` [Paired SameMethodName "Acidification" "Acidification"]
+        map csdName (mccUnpairedBase c) `shouldBe` ["Land use"]
+
+    it "finds a forced pair by its base category" $
+        fmap pairsOf (scoped [ForcedPair "GWP" "Climate change"] (OneCategory "GWP") [category "GWP" zinc] [category "Climate change" zinc])
+            `shouldBe` Right [Paired ForcedByCaller "GWP" "Climate change"]
+
+    it "refuses a category no pair starts from" $
+        fmap pairsOf (scoped [] (OneCategory "Land use") [category "Land use" zinc] [category "Ozone depletion" zinc])
+            `shouldBe` Left (NotPaired "Land use")
+
+    it "refuses a category name two pairs start from" $ do
+        let landUse cat = withCategory cat (category "Land use" zinc)
+            base = [landUse "Occupation", landUse "Transformation"]
+            other = [withCategory "Occupation" (category "LU occupation" zinc), withCategory "Transformation" (category "LU transformation" zinc)]
+        fmap (map (csdName . ccpOther) . mccCategories) (collections [] base other) `shouldBe` Right ["LU occupation", "LU transformation"]
+        fmap pairsOf (scoped [] (OneCategory "Land use") base other) `shouldBe` Left (SeveralCategories BaseCollection "Land use")
 
     it "reads a forced pair written base=other, and refuses any other shape" $ do
         parseForcedPair " GWP = Climate change " `shouldBe` Right (ForcedPair "GWP" "Climate change")

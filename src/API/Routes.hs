@@ -191,7 +191,7 @@ type LCAAPI =
                 -- Export a loaded method collection as raw bytes (SimaPro CSV);
                 -- projection warnings travel percent-encoded in a response header
                 :<|> "method-collections" :> Capture "name" Text :> "export" :> ReqBody '[JSON] ExportRequest :> Post '[OctetStream] (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
-                :<|> "method-collections" :> Capture "collection" DM.CollectionName :> "compare" :> QueryParam "other_collection" DM.CollectionName :> QueryParams "pairs" Text :> QueryParam "limit" Int :> Get '[JSON] MethodCollectionComparison
+                :<|> "method-collections" :> Capture "collection" DM.CollectionName :> "compare" :> QueryParam "other_collection" DM.CollectionName :> QueryParams "pairs" Text :> QueryParam "category" Text :> QueryParam "limit" Int :> Get '[JSON] MethodCollectionComparison
                 -- Reference data endpoints (flow synonyms, compartment mappings, units)
                 :<|> "flow-synonyms" :> Get '[JSON] RefDataListResponse
                 :<|> "flow-synonyms" :> Capture "name" Text :> "load" :> Post '[JSON] ActivateResponse
@@ -1544,7 +1544,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 31
+currentWireVersion = 32
 
 getVersion :: AppM Value
 getVersion = do
@@ -2096,6 +2096,7 @@ data MethodComparisonAsk = MethodComparisonAsk
     { mcaCollection :: !DM.CollectionName
     , mcaOther :: !DM.CollectionName
     , mcaPairs :: ![Text]
+    , mcaCategory :: !(Maybe Text)
     , mcaLimit :: !(Maybe Int)
     }
 
@@ -2118,18 +2119,18 @@ runMethodComparison manager request = do
         let loadedNamed (DM.CollectionName name) = maybe (Left (CollectionMissing name (M.keys loaded))) Right (M.lookup name loaded)
         cols <- Compare.Sides <$> loadedNamed (mcaCollection request) <*> loadedNamed (mcaOther request)
         forced <- first PairsRefused (traverse CompareMethods.parseForcedPair (mcaPairs request))
-        comparison <- first PairsRefused (CompareMethods.compareCollections ctx forced cols)
+        comparison <- first PairsRefused (CompareMethods.compareCollections ctx forced (maybe CompareMethods.EveryCategory CompareMethods.OneCategory (mcaCategory request)) cols)
         pure (maybe id CompareMethods.limitMethodComparison (mcaLimit request) comparison)
 
-getMethodCollectionComparison :: DM.CollectionName -> Maybe DM.CollectionName -> [Text] -> Maybe Int -> AppM MethodCollectionComparison
-getMethodCollectionComparison collection otherParam forcedPairs limitParam = do
+getMethodCollectionComparison :: DM.CollectionName -> Maybe DM.CollectionName -> [Text] -> Maybe Text -> Maybe Int -> AppM MethodCollectionComparison
+getMethodCollectionComparison collection otherParam forcedPairs categoryParam limitParam = do
     other <-
         maybe
             (throwError err400{errBody = "Missing required 'other_collection' query parameter"})
             pure
             otherParam
     manager <- asks aeDbManager
-    liftIO (runMethodComparison manager MethodComparisonAsk{mcaCollection = collection, mcaOther = other, mcaPairs = forcedPairs, mcaLimit = limitParam})
+    liftIO (runMethodComparison manager MethodComparisonAsk{mcaCollection = collection, mcaOther = other, mcaPairs = forcedPairs, mcaCategory = categoryParam, mcaLimit = limitParam})
         >>= either failed pure
   where
     failed :: MethodComparisonFailure -> AppM a

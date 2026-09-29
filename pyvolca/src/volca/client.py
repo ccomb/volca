@@ -1958,6 +1958,7 @@ class Client:
         other_collection: str,
         *,
         pairs: list[str] | None = None,
+        category: str | None = None,
         limit: int | None = None,
     ) -> dict:
         """Compare two loaded method collections, category by category.
@@ -1965,16 +1966,21 @@ class Client:
         Categories pair on their name, then on their impact category; ``pairs``
         settles the others, each written ``"base=other"``. Within a pair,
         factors pair by flow identifier, name, synonym class, CAS number, then
-        pattern prefix, at one direction, compartment and location. ``limit``
-        keeps the first entries of each list of each category; the counts
-        cover them all.
+        pattern prefix, at one direction, compartment and location.
+        ``category`` compares only the pair whose base category has that name,
+        much faster than comparing them all. ``limit`` keeps the first entries
+        of each list of each category; the counts cover them all.
         """
-        self._require_wire(31, "compare_method_collections", engine_hint="0.15.0")
+        if category is None:
+            self._require_wire(31, "compare_method_collections", engine_hint="0.15.0")
+        else:
+            self._require_wire(32, "compare_method_collections(category=...)", engine_hint="0.15.0")
         return self._call(
             "compare_method_collections",
             collection=collection,
             other_collection=other_collection,
             pairs=pairs,
+            category=category,
             limit=limit,
         )
 
