@@ -127,6 +127,22 @@ compareCategoriesSpec = describe "compareCategories" $ do
             c = compared [methane "methane, fossil", methane "methane, biogenic"] [methane "methane, from soil"]
         counts c `shouldBe` [1, 2, 0, 0, 0, 0]
 
+    it "reports a name whose CAS numbers point to two other factors as ambiguous, naming all four" $ do
+        let paraquat name value cas = (factor name value){mcfCAS = Just cas}
+            c =
+                compared
+                    [paraquat "paraquat" 17530 "1910-42-5", paraquat "1,1'-dimethyl-4,4'-bipyridinium" 190600 "4685-14-7"]
+                    [paraquat "Paraquat" 190600 "4685-14-7", paraquat "Paraquat dichloride" 17530 "1910-42-5"]
+        counts c `shouldBe` [0, 0, 0, 0, 1, 0]
+        map (\g -> (length (afxBase g), length (afxOther g))) (ccpAmbiguous c) `shouldBe` [(2, 2)]
+
+    it "keeps a pair of one name whose CAS numbers differ when neither points elsewhere" $ do
+        let c =
+                compared
+                    [(factor "lead dioxide" 1){mcfCAS = Just "1309-60-0"}]
+                    [(factor "lead dioxide" 2){mcfCAS = Just "60525-54-4"}]
+        map cfxMatch (ccpChanged c) `shouldBe` [SameName]
+
     it "writes a factor's direction and unit as the factors of a method do" $ do
         let c = compared [(factor "zinc" 1){mcfUnit = ""}] []
         map (\f -> (facDirection f, facUnit f)) (ccpRemoved c) `shouldBe` [(Output, Nothing)]
