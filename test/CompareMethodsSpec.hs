@@ -42,6 +42,7 @@ refData =
                 [ ("carbon dioxide", "carbon dioxide, fossil")
                 , ("methane, fossil", "methane, fossil origin")
                 , ("methane, biogenic", "methane, non-fossil")
+                , ("methane, from soil", "methane, land transformation")
                 ]
         , cmcCompartments = CompartmentMap M.empty M.empty
         , cmcUnits = units
@@ -120,6 +121,11 @@ compareCategoriesSpec = describe "compareCategories" $ do
                     [(factor "methane, fossil" 29.7){mcfCAS = Just "74-82-8"}]
                     [(factor "methane, biogenic" 27){mcfCAS = Just "74-82-8"}]
         counts c `shouldBe` [1, 1, 0, 0, 0, 0]
+
+    it "never lets a CAS number several known names share make them ambiguous" $ do
+        let methane name = (factor name 1){mcfCAS = Just "74-82-8"}
+            c = compared [methane "methane, fossil", methane "methane, biogenic"] [methane "methane, from soil"]
+        counts c `shouldBe` [1, 2, 0, 0, 0, 0]
 
     it "keeps apart two rows of one name written per two units" $ do
         let cfs = [factor "water/kg" 1, factor "water/m3" 1000]

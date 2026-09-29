@@ -497,21 +497,30 @@ climb rungOf acc rung =
     step :: Rung a
     step = rungOf rung (cUnpaired acc)
 
--- | A rung whose pairs a test may still refuse; the refused go on unpaired.
+{- | A rung whose pairs a test may still refuse; the refused go on unpaired.
+So does a group the rung found ambiguous when the test refuses every pair it
+could make: there was never a choice between its candidates.
+-}
 refusing :: forall a. (Sides a -> Bool) -> Rung a -> Rung a
 refusing refused rung =
     rung
         { rPairs = kept
+        , rAmbiguous = undecided
         , rLeft =
             Sides
-                { baseSide = map baseSide dropped ++ baseSide (rLeft rung)
-                , otherSide = map otherSide dropped ++ otherSide (rLeft rung)
+                { baseSide = map baseSide dropped ++ concatMap (NE.toList . baseSide) settled ++ baseSide (rLeft rung)
+                , otherSide = map otherSide dropped ++ concatMap (NE.toList . otherSide) settled ++ otherSide (rLeft rung)
                 }
         }
   where
     dropped :: [Sides a]
     kept :: [Sides a]
     (dropped, kept) = L.partition refused (rPairs rung)
+    settled :: [Sides (NonEmpty a)]
+    undecided :: [Sides (NonEmpty a)]
+    (settled, undecided) = L.partition everyPairRefused (rAmbiguous rung)
+    everyPairRefused :: Sides (NonEmpty a) -> Bool
+    everyPairRefused (Sides bs os) = and [refused (Sides b o) | b <- NE.toList bs, o <- NE.toList os]
 
 pairOn :: forall k a. (Ord k) => (a -> Maybe k) -> Sides [a] -> Rung a
 pairOn keyOf sides =
