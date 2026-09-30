@@ -45,7 +45,7 @@ CY,Cyprus,Europe without Switzerland|Europe without Austria|Europe|EU|RER|UN-WAS
 EU,European Union,Europe without Switzerland|Europe|RER|GLO|RoW
 EU-27,European Union (27),Europe without Switzerland|Europe|EU|RER|GLO|RoW
 EU-28,European Union (28),Europe without Switzerland|Europe|EU|RER|GLO|RoW
-RER,Rest of Europe,Europe|GLO|RoW
+RER,Europe,Europe|GLO|RoW
 ENTSO-E,Europe (ENTSO-E grid),Europe|RER|GLO|RoW
 NORDEL,Nordic countries,Europe|ENTSO-E|RER|GLO|RoW
 UCTE,Continental Europe (UCTE),Europe|ENTSO-E|RER|GLO|RoW
@@ -58,7 +58,7 @@ MX,Mexico,North America|Latin America|NAFTA|UN-CAMERICA|GLO|RoW
 NAFTA,NAFTA,North America|GLO|RoW
 Canada without Quebec,Canada without Quebec,North America|CA|NAFTA|GLO|RoW
 North America,North America,GLO|RoW
-RNA,Rest of North America,North America|GLO|RoW
+RNA,Northern America,North America|GLO|RoW
 CN,China,Asia|UN-EASIA|GLO|RoW
 JP,Japan,Asia|UN-EASIA|GLO|RoW
 KR,South Korea,Asia|UN-EASIA|GLO|RoW
@@ -76,7 +76,7 @@ VN,Vietnam,"Asia|UN-SEASIA|Asia, South East|GLO|RoW"
 PH,Philippines,"Asia|UN-SEASIA|Asia, South East|GLO|RoW"
 SG,Singapore,"Asia|UN-SEASIA|Asia, South East|GLO|RoW"
 Asia,Asia,GLO|RoW
-RAS,Rest of Asia,Asia|GLO|RoW
+RAS,Asia,Asia|GLO|RoW
 BR,Brazil,Latin America|South America|UN-SAMERICA|GLO|RoW
 AR,Argentina,Latin America|South America|UN-SAMERICA|GLO|RoW
 CL,Chile,Latin America|South America|UN-SAMERICA|GLO|RoW
@@ -84,13 +84,13 @@ CO,Colombia,Latin America|South America|UN-SAMERICA|GLO|RoW
 PE,Peru,Latin America|South America|UN-SAMERICA|GLO|RoW
 Latin America,Latin America,GLO|RoW
 South America,South America,Latin America|GLO|RoW
-RLA,Rest of Latin America,Latin America|GLO|RoW
+RLA,Latin America and the Caribbean,Latin America|GLO|RoW
 ZA,South Africa,Africa|GLO|RoW
 EG,Egypt,Africa|Middle East|UN-NAFRICA|GLO|RoW
 NG,Nigeria,Africa|UN-WAFRICA|GLO|RoW
 MA,Morocco,Africa|UN-NAFRICA|GLO|RoW
 Africa,Africa,GLO|RoW
-RAF,Rest of Africa,Africa|GLO|RoW
+RAF,Africa,Africa|GLO|RoW
 AU,Australia,"Australia, including overseas territorie|Oceania|UN-AUSTRALIANZ|GLO|RoW"
 NZ,New Zealand,Oceania|UN-AUSTRALIANZ|GLO|RoW
 Oceania,Oceania,GLO|RoW
@@ -99,7 +99,7 @@ AE,United Arab Emirates,Middle East|Asia|UN-WASIA|GLO|RoW
 IL,Israel,Middle East|UN-WASIA|Asia|GLO|RoW
 TR,Turkey,Middle East|Europe|UN-WASIA|Asia|GLO|RoW
 Middle East,Middle East,GLO|RoW
-RME,Rest of Middle East,Middle East|GLO|RoW
+RME,Middle East,Middle East|GLO|RoW
 GLO,Global,RoW
 RoW,Rest of World,GLO
 AD,Andorra,UN-SEUROPE|Europe|GLO|RoW
@@ -570,3 +570,48 @@ XK,Kosovo,UN-SEUROPE|Europe|GLO|RoW
 YE,Yemen,UN-WASIA|Asia|GLO|RoW
 ZM,Zambia,UN-EAFRICA|Africa|GLO|RoW
 ZW,Zimbabwe,UN-EAFRICA|Africa|GLO|RoW
+
+# ecoinvent codes the rows above lacked. UM is scattered over two oceans,
+# so it carries no region.
+BQ,"Bonaire, Saint Eustatius and Saba",UN-CARIBBEAN|North America|Latin America|GLO|RoW
+BV,Bouvet Island,GLO|RoW
+CC,Cocos (Keeling) Islands,UN-AUSTRALIANZ|Oceania|GLO|RoW
+CS,Serbia and Montenegro,UN-SEUROPE|Europe|GLO|RoW
+CX,Christmas Island,UN-AUSTRALIANZ|Oceania|GLO|RoW
+GF,French Guiana,UN-SAMERICA|South America|Latin America|GLO|RoW
+GI,Gibraltar,UN-SEUROPE|Europe|GLO|RoW
+"Québec, HQ distribution network","Québec, Hydro-Québec distribution network",CA-QC|CA|North America|NAFTA|GLO|RoW
+SJ,Svalbard and Jan Mayen,UN-NEUROPE|Europe|GLO|RoW
+TK,Tokelau,UN-POLYNESIA|Oceania|GLO|RoW
+UM,United States Minor Outlying Islands,GLO|RoW
+YT,Mayotte,UN-EAFRICA|Africa|GLO|RoW
+
+# Other spellings of codes above, as databases write them: ecoinvent's older and
+# newer names, a SimaPro export that drops the country prefix of a grid, and the
+# numbered IAI areas, whose members the datasets' own geography notes list
+# (Area 1: CM, EG, GH, MZ, NG, ZA; Area 8: BH, OM, QA, AE; and so on).
+# Each carries the name and parents of the code it spells.
+"Europe, without Russia and Turkey","Europe, without Russia and Türkiye",Europe|RER|GLO|RoW
+FRCC,Florida Reliability Coordinating Council,US|North America|NAFTA|GLO|RoW
+"IAI Area 1","IAI Area, Africa",Africa|GLO|RoW
+"IAI Area 2, without Quebec","IAI Area, North America, without Quebec","IAI Area, North America|North America|GLO|RoW"
+"IAI Area 3","IAI Area, South America",South America|Latin America|GLO|RoW
+"IAI Area 4&5 without China","IAI Area, Asia, without China and GCC",Asia|GLO|RoW
+"IAI Area 8","IAI Area, Gulf Cooperation Council",Asia|GLO|RoW
+"IAI Area, Europe outside EU & EFTA","IAI Area, Russia & Europe outside EU27 & EFTA",Europe|GLO|RoW
+"IAI Area, Russia and Eastern Europe","IAI Area, Russia & Europe outside EU27 & EFTA",Europe|GLO|RoW
+"IAI Area, Western and Central Europe","IAI Area, EU27 & EFTA",Europe|RER|GLO|RoW
+RU (Asia),Russia (Asia),RU|Asia|GLO|RoW
+SGCC,"China, State Grid Corporation of China",CN|Asia|UN-EASIA|GLO|RoW
+SPP,Southwest Power Pool,US|North America|NAFTA|GLO|RoW
+
+# Regions of ecoinvent's first versions, still written by databases built on
+# them. What each covers is read from the datasets placed there: offshore
+# platforms and transoceanic ships for OCE, the Asia-Pacific photovoltaic
+# installations for APAC, a NERC region for ERCOT. APAC spans two continents
+# and so carries neither.
+APAC,Asia and Pacific,GLO|RoW
+CPA,Centrally Planned Asia,Asia|GLO|RoW
+EEU,Eastern Europe,Europe|GLO|RoW
+ERCOT,Electric Reliability Council of Texas,US|North America|NAFTA|GLO|RoW
+OCE,Ocean,GLO|RoW

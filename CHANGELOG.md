@@ -84,6 +84,20 @@
 
 ### Fixed
 
+- Every location a database writes has a place in the geography table, and
+  the six continental codes read as the continents they are: `RER` is
+  Europe, `RAF` Africa, `RAS` Asia, `RLA` Latin America and the Caribbean,
+  `RNA` Northern America and `RME` the Middle East, where the table called
+  each the "Rest of" it. The table adds the codes it lacked (Gibraltar,
+  Serbia and Montenegro, French Guiana, Mayotte and a few islands), the
+  spellings other databases give codes it holds (a grid written `SGCC`,
+  `FRCC` or `SPP` without its country prefix, the IAI areas numbered 1 to 8
+  or renamed, `RU (Asia)`, Europe without Russia and Turkey), and the regions
+  of the oldest datasets (`OCE` the ocean, `APAC`, `CPA`, `EEU`, `ERCOT`).
+  A process placed at one of these had no wider place to fall back to, so a
+  regionalized factor missing there was not looked for in its region, and a
+  geography filter on its region did not find it. Data version 9.
+
 - A process counted in pieces reads its unit when an ILCD package writes it
   `Item(s)`, the name the EF packages give the reference unit of their item
   group. The unit table did not hold that spelling, so such a quantity
