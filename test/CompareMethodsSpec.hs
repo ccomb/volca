@@ -46,7 +46,7 @@ refData =
                 ]
         , cmcCompartments = CompartmentMap M.empty M.empty
         , cmcUnits = units
-        , cmcLocations = M.fromList [(Location "FR", [Location "GLO"]), (Location "GLO", [])]
+        , cmcLocations = M.fromList [(Location "FR", [Location "GLO"]), (Location "Europe, Western", [Location "GLO"]), (Location "GLO", [])]
         }
 
 factor :: Text -> Double -> MethodCF
@@ -146,6 +146,10 @@ compareCategoriesSpec = describe "compareCategories" $ do
 
     it "reads a region the geography table holds at the end of a name as the factor's location" $ do
         let c = compared [(factor "ammonia" 134.42){mcfConsumerLocation = Just "FR"}] [factor "Ammonia, FR" 134.42]
+        counts c `shouldBe` [0, 0, 0, 1, 0, 0]
+
+    it "reads a code of the geography table that holds a comma of its own" $ do
+        let c = compared [(factor "water" 1){mcfConsumerLocation = Just "Europe, Western"}] [factor "Water, Europe, Western" 1]
         counts c `shouldBe` [0, 0, 0, 1, 0, 0]
 
     it "keeps in the name a last part the geography table does not hold" $ do

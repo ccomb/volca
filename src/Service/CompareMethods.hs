@@ -458,16 +458,23 @@ contestedByCAS rung =
 {- | The substance a factor names and the location it is written for. One
 format writes the region in a field, another at the end of the name
 (@Ammonia, FR@): a factor with no location whose name ends in a code the
-geography table holds is that substance at that code. A last part the table
-does not hold (@Methane, fossil@) stays in the name.
+geography table holds is that substance at that code, a code with a comma of
+its own included (@Water, Europe, Western@). A name that ends in no code
+(@Methane, fossil@), or in two the table holds, stays whole.
 -}
 locatedName :: M.Map Location [Location] -> MethodCF -> Located
-locatedName locations cf = case (mcfConsumerLocation cf, T.breakOnEnd ", " (mcfFlowName cf)) of
-    (Nothing, (prefix, code))
-        | M.member (Location code) locations
-        , Just substance <- mfilter (not . T.null) (T.stripSuffix ", " prefix) ->
-            Located substance (Just code)
+locatedName locations cf = case (mcfConsumerLocation cf, readings) of
+    (Nothing, [reading]) -> reading
     (location, _) -> Located (mcfFlowName cf) location
+  where
+    readings :: [Located]
+    readings =
+        [ Located substance (Just code)
+        | (substance, rest) <- T.breakOnAll ", " (mcfFlowName cf)
+        , not (T.null substance)
+        , let code = T.drop 2 rest
+        , M.member (Location code) locations
+        ]
 
 -- | A substance's name and the location a factor is written for.
 data Located = Located !Text !(Maybe Text)
