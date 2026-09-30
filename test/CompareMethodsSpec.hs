@@ -14,7 +14,7 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import API.Types
-import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..))
+import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..))
 import Service.Compare (Sides (..))
 import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), Scope (..), compareCategories, compareCollections, parseForcedPair)
 import SynonymDB (buildFromPairs)
@@ -46,6 +46,7 @@ refData =
                 ]
         , cmcCompartments = CompartmentMap M.empty M.empty
         , cmcUnits = units
+        , cmcLocations = M.fromList [(Location "FR", [Location "GLO"]), (Location "GLO", [])]
         }
 
 factor :: Text -> Double -> MethodCF
@@ -142,6 +143,22 @@ compareCategoriesSpec = describe "compareCategories" $ do
                     [(factor "lead dioxide" 1){mcfCAS = Just "1309-60-0"}]
                     [(factor "lead dioxide" 2){mcfCAS = Just "60525-54-4"}]
         map cfxMatch (ccpChanged c) `shouldBe` [SameName]
+
+    it "reads a region the geography table holds at the end of a name as the factor's location" $ do
+        let c = compared [(factor "ammonia" 134.42){mcfConsumerLocation = Just "FR"}] [factor "Ammonia, FR" 134.42]
+        counts c `shouldBe` [0, 0, 0, 1, 0, 0]
+
+    it "keeps in the name a last part the geography table does not hold" $ do
+        let c = compared [(factor "methane" 1){mcfConsumerLocation = Just "fossil"}] [factor "methane, fossil" 1]
+        counts c `shouldBe` [1, 1, 0, 0, 0, 0]
+
+    it "keeps a regionalized factor apart from the one of its substance written for no region" $ do
+        let cfs = [factor "Ammonia" 1, factor "Ammonia, FR" 2]
+        counts (compared cfs cfs) `shouldBe` [0, 0, 0, 2, 0, 0]
+
+    it "never reads a region in the name of a factor that states its location" $ do
+        let c = compared [(factor "ammonia" 1){mcfConsumerLocation = Just "FR"}] [(factor "Ammonia, FR" 1){mcfConsumerLocation = Just "GLO"}]
+        counts c `shouldBe` [1, 1, 0, 0, 0, 0]
 
     it "writes a factor's direction and unit as the factors of a method do" $ do
         let c = compared [(factor "zinc" 1){mcfUnit = ""}] []

@@ -29,6 +29,9 @@
   class, then CAS number. A pair made on a name or a class whose CAS numbers
   disagree, when either number names another factor left over, reads two
   ways, so its factors and those others are reported ambiguous together;
+  a factor that states no location but ends its name with a code of the
+  geography table (`Ammonia, FR`) is read at that location, which is how a
+  file that writes the region in the name meets one that writes it apart;
   the compartment table's fallback rows are not followed, so a precise
   subcompartment never passes for an unspecified one. Wire revision 31.
 - A comparison of two method collections can be narrowed to one pair of

@@ -25,6 +25,9 @@ them and of the reference data that says which names are one substance.
   they would make a precise subcompartment equal to an unspecified one. One
   reading is taken: a subcompartment written @unspecified@ is the whole
   medium, which is how another format writes it with an empty cell.
+* The location is the one a factor states, or else a code the geography
+  table holds written at the end of its name, the way one format writes a
+  regionalized factor (@Ammonia, FR@ is ammonia at @FR@).
 * A key several factors answer to, on either side, pairs none of them.
 * Categories pair first on the pairs the caller forces, then on the method
   name, then on the impact category, case and spacing aside. The impact unit
@@ -58,6 +61,7 @@ import Data.Either (partitionEithers)
 import Data.Foldable (toList, traverse_)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as M
 import Data.Maybe (isJust, listToMaybe, mapMaybe)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
@@ -80,7 +84,7 @@ import API.Types (
     ValueReading (..),
  )
 import Method.Mapping (isExclusionCF, isPatternCF, patternPrefix, viewFor)
-import Method.Types (Compartment (..), CompartmentMap, FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), normalizeCompartment)
+import Method.Types (Compartment (..), CompartmentMap, FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..), normalizeCompartment)
 import Service.Compare (Cascade (..), Rung (..), Sides (..), cascadeWith, close, pairOn, refusing)
 import SubstanceRegistry (nonEmptyCAS)
 import SynonymDB (SynonymDB, lookupSynonymGroup, normalizeNameKeepUnit)
@@ -91,6 +95,8 @@ data CompareMethodsContext = CompareMethodsContext
     { cmcSynonyms :: !SynonymDB
     , cmcCompartments :: !CompartmentMap
     , cmcUnits :: !UnitConfig
+    , cmcLocations :: !(M.Map Location [Location])
+    -- ^ The geography table: what tells a region written at the end of a name from the rest of the name.
     }
 
 data CompartmentKey = CompartmentKey
@@ -379,14 +385,15 @@ keyedFactor ctx cf =
     Keyed
         { kFactor = cf
         , kFlow = ordinary (ByFlow <$> mfilter (/= UUID.nil) (Just (mcfFlowRef cf)))
-        , kName = ordinary (Just (ByName (normalizeNameKeepUnit (mcfFlowName cf))))
-        , kClass = ordinary (ByClass <$> lookupSynonymGroup (viewFor (mcfDirection cf) (cmcSynonyms ctx)) (mcfFlowName cf))
+        , kName = ordinary (Just (ByName (normalizeNameKeepUnit name)))
+        , kClass = ordinary (ByClass <$> lookupSynonymGroup (viewFor (mcfDirection cf) (cmcSynonyms ctx)) name)
         , kCAS = ordinary (ByCAS <$> (mcfCAS cf >>= nonEmptyCAS))
         , kPrefix = (`FactorKey` place) <$> byPrefix
         }
   where
+    Located name location = locatedName (cmcLocations ctx) cf
     place :: Place
-    place = placeOf (cmcCompartments ctx) cf
+    place = placeOf (cmcCompartments ctx) location cf
     -- Pattern and exclusion rows select flows rather than name a substance: only their prefix keys them.
     ordinary :: Maybe Substance -> Maybe FactorKey
     ordinary substance = guard (not (isPatternCF cf || isExclusionCF cf)) >> (`FactorKey` place) <$> substance
@@ -448,12 +455,29 @@ contestedByCAS rung =
     sameFactor :: Keyed -> Keyed -> Bool
     sameFactor x y = kFactor x == kFactor y
 
-placeOf :: CompartmentMap -> MethodCF -> Place
-placeOf cmap cf =
+{- | The substance a factor names and the location it is written for. One
+format writes the region in a field, another at the end of the name
+(@Ammonia, FR@): a factor with no location whose name ends in a code the
+geography table holds is that substance at that code. A last part the table
+does not hold (@Methane, fossil@) stays in the name.
+-}
+locatedName :: M.Map Location [Location] -> MethodCF -> Located
+locatedName locations cf = case (mcfConsumerLocation cf, T.breakOnEnd ", " (mcfFlowName cf)) of
+    (Nothing, (prefix, code))
+        | M.member (Location code) locations
+        , Just substance <- mfilter (not . T.null) (T.stripSuffix ", " prefix) ->
+            Located substance (Just code)
+    (location, _) -> Located (mcfFlowName cf) location
+
+-- | A substance's name and the location a factor is written for.
+data Located = Located !Text !(Maybe Text)
+
+placeOf :: CompartmentMap -> Maybe Text -> MethodCF -> Place
+placeOf cmap location cf =
     Place
         { plDirection = mcfDirection cf
         , plCompartment = compartmentKey cmap <$> mcfCompartment cf
-        , plLocation = mcfConsumerLocation cf
+        , plLocation = location
         }
 
 compartmentKey :: CompartmentMap -> Compartment -> CompartmentKey
