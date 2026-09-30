@@ -608,9 +608,9 @@ description r = case r of
         \two names apart), then 'SamePattern' for pattern and exclusion rows. The \
         \compartment table's fallback rows are not followed, so a precise \
         \subcompartment never equals an unspecified one; a subcompartment \
-        \written 'unspecified' is read as the whole medium. Factors a format \
-        \regionalizes in their name and another in a location field show as \
-        \removed and added. 'reading' says how the two values were read \
+        \written 'unspecified' is read as the whole medium. A factor with no \
+        \location whose name ends in a code of the geography table ('Ammonia, \
+        \FR') is read at that location. 'reading' says how the two values were read \
         \per one unit before comparing; values are equal within a relative \
         \1e-9. 'collection' is the base. The counts always cover the full \
         \lists and limit truncates each list of each category: pass a limit \

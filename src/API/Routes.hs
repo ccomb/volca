@@ -2131,6 +2131,7 @@ runMethodComparison manager request = do
             <$> DM.getMergedSynonymDB manager
             <*> DM.getMergedCompartmentMap manager
             <*> DM.getMergedUnitConfig manager
+            <*> pure (dmLocationHierarchy manager)
     pure $ do
         let loadedNamed (DM.CollectionName name) = maybe (Left (CollectionMissing name (M.keys loaded))) Right (M.lookup name loaded)
         cols <- Compare.Sides <$> loadedNamed (mcaCollection request) <*> loadedNamed (mcaOther request)
