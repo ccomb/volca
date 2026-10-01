@@ -16,9 +16,11 @@ module Method.SimaProScoring (
     singleScoreName,
     damageOnlySetName,
     translateScoring,
+    toSimaProBlocks,
 ) where
 
 import Control.DeepSeq (NFData)
+import Control.Monad (unless)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Char (isAsciiLower, isDigit)
 import Data.Containers.ListUtils (nubOrd)
@@ -29,6 +31,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
 
+import qualified Expr
 import Method.Types (Method (..), ScoringSet (..), ScoringSetOrigin (..))
 
 {- | Damage category: groups impact subcategories into a parent category.
@@ -185,6 +188,108 @@ translateScoring methods damages nwSets
         , key <- nubOrd (M.keys (nwNormalization nw) <> M.keys (nwWeighting nw))
         , key `notElem` map fst weighable
         ]
+
+{- | Write scoring sets back as a SimaPro file's damage categories and
+normalization-weighting sets, for the sets the format can hold: a grouping of
+impact categories times coefficients, and one score summing the damages that
+have both a normalization and a weight. A file has one set of damage
+categories, so a set grouping otherwise than the first one written is left
+out too. Every set left out is named, with why, in the warnings.
+-}
+toSimaProBlocks :: [ScoringSet] -> ([DamageCategory], [NormWeightSet], [Text])
+toSimaProBlocks = go Nothing [] []
+  where
+    go :: Maybe (Text, [DamageCategory]) -> [NormWeightSet] -> [Text] -> [ScoringSet] -> ([DamageCategory], [NormWeightSet], [Text])
+    go first nws warnings [] = (maybe [] snd first, reverse nws, reverse warnings)
+    go first nws warnings (set : rest) = case (blocksOf set, first) of
+        (Left reason, _) -> go first nws (refusal set reason : warnings) rest
+        (Right (ds, nw), Nothing) -> go (Just (ssName set, ds)) (maybe nws (: nws) nw) warnings rest
+        (Right (ds, nw), Just (firstName, firstDs))
+            | ds == firstDs -> go first (maybe nws (: nws) nw) warnings rest
+            | otherwise ->
+                go first nws (refusal set ("a SimaPro file has one set of damage categories, and this set groups the impact categories otherwise than '" <> firstName <> "'.") : warnings) rest
+
+    refusal :: ScoringSet -> Text -> Text
+    refusal set reason = "Scoring set '" <> ssName set <> "' is not exported: " <> reason
+
+{- | One set as damage categories and, when it weighs anything, a
+normalization-weighting set; or why SimaPro cannot hold it.
+-}
+blocksOf :: ScoringSet -> Either Text ([DamageCategory], Maybe NormWeightSet)
+blocksOf set = do
+    unless (maybe True (== 1) (ssDisplayMultiplier set)) (Left "SimaPro has no place for a display multiplier.")
+    groupings <- M.traverseWithKey grouping (ssComputed set)
+    let grouped = S.fromList [p | terms <- M.elems groupings, (p, _) <- terms]
+        weighable = M.keys (ssComputed set) <> filter (not . (`S.member` grouped)) (M.keys (ssVariables set))
+        weighed = [v | v <- weighable, M.member v (ssNormalization set), M.member v (ssWeighting set)]
+    unless (all (`elem` weighable) (M.keys (ssNormalization set) <> M.keys (ssWeighting set))) $
+        Left "SimaPro weighs damage categories and ungrouped impact categories only."
+    unless (scoresAreTheSum weighable weighed) $
+        Left "SimaPro writes one score, the sum of the damages that have both a normalization and a weight."
+    pure (M.elems (M.mapWithKey damage groupings), weighing)
+  where
+    grouping :: Text -> Text -> Either Text [(Text, Double)]
+    grouping var formula =
+        maybe (Left ("damage '" <> labelOf var <> "' is not a sum of impact categories times coefficients.")) Right $
+            linearTerms (M.keys (ssVariables set)) formula
+
+    damage :: Text -> [(Text, Double)] -> DamageCategory
+    damage var terms =
+        DamageCategory
+            (labelOf var)
+            (M.findWithDefault "" var (ssUnits set))
+            [(category, coef) | (p, coef) <- terms, Just category <- [M.lookup p (ssVariables set)]]
+
+    scoresAreTheSum :: [Text] -> [Text] -> Bool
+    scoresAreTheSum weighable weighed = case M.elems (ssScores set) of
+        [] -> True
+        [formula] -> maybe False ((== M.fromList [(v, 1) | v <- weighed]) . M.fromList) (linearTerms weighable formula)
+        _ -> False
+
+    weighing :: Maybe NormWeightSet
+    weighing
+        | M.null (ssNormalization set) && M.null (ssWeighting set) = Nothing
+        | otherwise =
+            Just
+                ( NormWeightSet
+                    (ssName set)
+                    (M.fromList [(keyOf v, 1 / n) | (v, n) <- M.toList (ssNormalization set)])
+                    (M.fromList [(keyOf v, w) | (v, w) <- M.toList (ssWeighting set)])
+                )
+
+    -- A damage is named by its label, an ungrouped category by the category.
+    keyOf :: Text -> Text
+    keyOf var
+        | M.member var (ssComputed set) = labelOf var
+        | otherwise = M.findWithDefault var var (ssVariables set)
+
+    labelOf :: Text -> Text
+    labelOf var = M.findWithDefault var var (ssLabels set)
+
+{- | The terms of a formula that is a sum of the given variables times
+constant coefficients, in the order the formula names them; 'Nothing' for
+any other formula. Read the way 'scoreWeights' reads a score: one variable
+at one and the others at zero gives its coefficient, and the formula must
+give zero at zero and the weighted sum at another point.
+-}
+linearTerms :: [Text] -> Text -> Maybe [(Text, Double)]
+linearTerms allowed formula = do
+    named <- traverse (`M.lookup` byLower) (nubOrd (map T.toLower (Expr.collectIdentifiers Expr.Arithmetic formula)))
+    let zeros = M.fromList [(v, 0) | v <- allowed]
+        at env = either (const Nothing) Just (Expr.evaluate Expr.Arithmetic env formula)
+        probe = M.fromList (zip allowed [2 :: Double ..])
+    atZero <- at zeros
+    coefs <- traverse (\v -> at (M.insert v 1 zeros)) named
+    atProbe <- at probe
+    let expected = sum (zipWith (*) coefs (map (\v -> M.findWithDefault 0 v probe) named))
+        tolerance = 1e-9 * (abs atProbe + abs expected)
+    if atZero == 0 && abs (atProbe - expected) <= tolerance
+        then Just (zip named coefs)
+        else Nothing
+  where
+    -- A formula reads its names without regard to case.
+    byLower :: M.Map Text Text
+    byLower = M.fromList [(T.toLower v, v) | v <- allowed]
 
 tshow :: (Show a) => a -> Text
 tshow = T.pack . show
