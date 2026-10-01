@@ -187,6 +187,7 @@ import qualified Method.Explain as Explain
 import Method.Mapping (
     CF (..),
     CFUnit (..),
+    ContestedFactor (..),
     MatchStrategy,
     MethodIndex,
     MethodSetTables,
@@ -200,6 +201,7 @@ import Method.Mapping (
     buildMethodSetTables,
     buildMethodTables,
     characterizedFlowIds,
+    contestedFactors,
     directionExcludedCFs,
     dropExcludedMappings,
     expandProxyEdges,
@@ -217,6 +219,7 @@ import Method.Mapping (
     zeroedMatchedCFs,
  )
 import Method.Types (
+    Compartment (..),
     CompartmentMap,
     EnergyDensityMap,
     Location (..),
@@ -855,6 +858,7 @@ buildMethodTablesFor manager dbName collection db method = do
         -- Precompute per-activity weights for regionalized methods so subsequent
         -- scoring is a dot product instead of one biosphere-triple walk per pid.
         !tables = fillRegionalActivityWeights unitConfig mUnits mFlows db hier withBroadcast
+    mapM_ (reportProgress Warning) (contestedWarning (contestedFactors cmap raw expanded))
     mapM_ (reportProgress Warning) (regionalGapWarning (mtRegionalActivityWeights tables))
     mapM_
         (reportProgress Warning)
@@ -881,6 +885,18 @@ buildMethodTablesFor manager dbName collection db method = do
                 <> " CF(s) match a synonym bridge only outside their flow direction "
                 <> "(direction metadata may be missing from the method). Samples: "
                 <> show (take 3 (map mcfFlowName excluded))
+
+    -- Two values at one place: scoring reads one, so the other is said.
+    contestedWarning :: [ContestedFactor] -> Maybe String
+    contestedWarning [] = Nothing
+    contestedWarning contested =
+        Just . lcia $
+            show (length contested)
+                <> " flow(s) carry several factors at one compartment, of which scoring reads one. Samples (flow, compartment, values, value read): "
+                <> show (take 3 [(T.unpack (bfName (cfoFlow c)), compartmentOf (cfoLine c), cfoValues c, cfoKept c) | c <- contested])
+      where
+        compartmentOf :: MethodCF -> String
+        compartmentOf = maybe "" (\(Compartment med sub q) -> T.unpack (T.intercalate "/" (filter (not . T.null) [med, sub, q]))) . mcfCompartment
 
     regionalGapWarning :: Maybe RegionalActivityWeights -> Maybe String
     regionalGapWarning Nothing = Nothing

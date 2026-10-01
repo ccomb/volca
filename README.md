@@ -320,6 +320,14 @@ ends in `*` and that is written at `unspecified` selects the flows filed at
 `explain-cf` names the step that answered (`exact_name`, `compartment_default`,
 `if_absent`, …).
 
+A method can write two values for one flow at one place. An ILCD package
+tells two such flows apart by their identifiers; written out as SimaPro CSV,
+they share a name and a compartment and nothing else. Scoring reads one value
+per place: the line that matched the flow more closely, and between two that
+matched alike, the larger value. Synonyms lead to the same choice when two
+names of a method reach one database flow. The log names each such place,
+with every value written there and the one read.
+
 ---
 
 ## REST API
