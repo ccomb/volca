@@ -27,7 +27,7 @@ import Data.Either (fromRight, lefts, rights)
 import qualified Data.IntMap.Strict as IM
 import Data.List (intercalate)
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -739,6 +739,19 @@ renderSource s = case joinParts ". " [authors, s1Title s, s1TitleOfAnthology s, 
     year = maybe "" (\y -> "(" <> y <> ")") (nonEmptyText (s1Year s))
     publisher = joinParts ", " [s1Publisher s, s1Place s]
 
+{- | A source as an entry of the database's literature: its title, and the
+whole reference as its description, where SimaPro keeps a reference's text. A source with no title is named by its reference.
+-}
+sourceDocument :: Source1 -> Maybe LibraryDocument
+sourceDocument s = do
+    reference <- nonEmptyText (renderSource s)
+    pure
+        LibraryDocument
+            { documentName = fromMaybe reference (nonEmptyText (s1Title s))
+            , documentCategory = ""
+            , documentSections = [DocSection "Description" reference]
+            }
+
 {- | The provenance sections of one dataset, in the order a reader wants them:
 what the dataset covers, then how it was built, then where it was published and
 who vouched for it.
@@ -899,6 +912,7 @@ buildResult st =
                         ++ unplacedMediaSeen st
                         ++ unreadableAmountsSeen st
                         ++ [datasetPrefix st <> "timestamp: " <> reason | Left reason <- [created]]
+                , pdLiterature = mapMaybe sourceDocument (IM.elems (ddSources (psDocs st)))
                 }
      in -- A file that yields no exchange at all is not a dataset: a stray or
         -- truncated XML the SAX fold walked through without complaint. A

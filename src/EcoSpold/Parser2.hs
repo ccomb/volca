@@ -1210,6 +1210,7 @@ parseWithXeno xmlContent = do
                               -- numbers no dataset and links none by number.
                               pdDatasetNumber = 0
                             , pdWarnings = map T.pack (reverse (psWarnings st)) ++ placeholdersUsed st ++ dateWarnings
+                            , pdLiterature = []
                             }
 
 -- | Parse EcoSpold file using Xeno SAX parser

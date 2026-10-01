@@ -75,6 +75,7 @@ minimalDataset act techs =
         , pdUnits = []
         , pdDatasetNumber = 0
         , pdWarnings = []
+        , pdLiterature = []
         }
 
 {- | One reader's share of a load, always under the same (activity, product)
@@ -309,6 +310,12 @@ spec = do
                 merged = harvestOf [share "activity-a" [a]] <> harvestOf [share "activity-b" [b]]
             fmap tfName (M.lookup flowUUID1 (hvTechFlows merged)) `shouldBe` Just "flow-a"
             fmap tfCAS (M.lookup flowUUID1 (hvTechFlows merged)) `shouldBe` Just (Just "7732-18-5")
+
+        it "keeps one entry of the literature for a source several datasets cite" $ do
+            let cited = LibraryDocument "Overview and Methodology" "" [DocSection "Description" "Frischknecht R. (2007). Overview and Methodology."]
+                citing name = (\(key, parsed) -> (key, parsed{pdLiterature = [cited]})) (share name [])
+                merged = harvestOf [citing "activity-a"] <> harvestOf [citing "activity-b"]
+            S.toList (hvLiterature merged) `shouldBe` [cited]
 
         it "keeps the first reader's activity, when two shares meet" $ do
             let merged = harvestOf [share "activity-a" []] <> harvestOf [share "activity-b" []]

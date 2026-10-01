@@ -513,6 +513,12 @@ spec = do
                 sectionNamed "Sources" act
                     `shouldBe` Just "Frischknecht R. (2007). Overview and Methodology. ecoinvent report No. 1. Swiss Centre for LCI, Duebendorf, CH."
 
+        it "gives the database every source the dataset cites, titled" $
+            case parseWithXeno documentedXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdLiterature = sources} ->
+                    map documentName sources `shouldBe` ["Overview and Methodology", "LCI long-distance transport of natural gas"]
+
         it "reads the free texts of the process information" $
             withDocumented $ \act -> do
                 sectionNamed "Included processes" act `shouldBe` Just "Transport on a freight ship."
