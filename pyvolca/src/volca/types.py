@@ -2002,6 +2002,53 @@ class MethodFactor(FromJson):
     unit: "str | None" = None
     compartment: "str | None" = None
     location: "str | None" = None
+    #: Medium and location as a comparison reads them; None when the engine
+    #: predates wire revision 34.
+    reading: "FactorReading | None" = None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "MethodFactor":
+        raw = d.get("reading")
+        return cls(
+            flow_ref=d["flowRef"],
+            flow_name=d["flowName"],
+            direction=d["direction"],
+            value=d["value"],
+            unit=d.get("unit"),
+            compartment=d.get("compartment"),
+            location=d.get("location"),
+            reading=FactorReading.from_json(raw) if raw else None,
+        )
+
+
+@dataclass
+class ReadLocation:
+    """A factor's location, and where it was read: ``"InField"`` when the file
+    writes it in its location field, ``"InName"`` when at the end of the name
+    (``Ammonia, FR``)."""
+
+    code: str
+    from_: str
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ReadLocation":
+        return cls(code=d["code"], from_=d["from"])
+
+
+@dataclass
+class FactorReading:
+    """A factor's medium after the compartment table, and its location, read
+    the way :meth:`Client.compare_method_collections` and
+    :meth:`Client.profile_method_collection` read them. Either is None when
+    the factor states none."""
+
+    medium: "str | None" = None
+    location: "ReadLocation | None" = None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "FactorReading":
+        raw = d.get("location")
+        return cls(medium=d.get("medium"), location=ReadLocation.from_json(raw) if raw else None)
 
 
 @dataclass

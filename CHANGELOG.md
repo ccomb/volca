@@ -49,6 +49,12 @@
   holds, how many are written for one location and for how many locations,
   how many carry the location in their name, the zeros, the pattern rows, and
   the duplicates a comparison could not pair. Wire revision 33.
+- Each factor of `method/{methodId}/factors` carries its `reading`: the
+  medium after the compartment table, and the location with where it was
+  read, the file's location field (`InField`) or the end of the name
+  (`InName`, as in `Ammonia, FR`). It is read the way a comparison and a
+  profile read it, so a factor list filtered on it counts the same factors
+  as the profile. Wire revision 34.
 - `max_concurrent_scoring` under `[hosting]` bounds how many scoring requests
   compute at once, and the others wait their turn. A few dozen large batch
   scores sent together used to exhaust the heap and stop the process for

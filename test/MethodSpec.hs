@@ -11,7 +11,7 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import API.Routes (cfToAPI)
-import API.Types (MethodFactorAPI (..))
+import API.Types (FactorReading (..), MethodFactorAPI (..))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
@@ -883,9 +883,9 @@ spec = do
         it "keeps the axes that distinguish same-name factors: compartment, location, unit" $ do
             let uuid = UUID.fromWords 1 2 3 4
                 cf comp = MethodCF uuid "Ammonia" Output 1.0 comp Nothing "kg"
-                toAir = cfToAPI (cf (Just (Compartment "air" "urban air" "")) Nothing)
-                toWaterLongTerm = cfToAPI (cf (Just (Compartment "water" "unspecified" "long-term")) Nothing)
-                inFrance = cfToAPI (cf Nothing (Just "FR"))
+                toAir = cfToAPI unread (cf (Just (Compartment "air" "urban air" "")) Nothing)
+                toWaterLongTerm = cfToAPI unread (cf (Just (Compartment "water" "unspecified" "long-term")) Nothing)
+                inFrance = cfToAPI unread (cf Nothing (Just "FR"))
             mfaCompartment toAir `shouldBe` Just "air/urban air"
             mfaCompartment toWaterLongTerm `shouldBe` Just "water/unspecified/long-term"
             mfaCompartment inFrance `shouldBe` Nothing
@@ -894,7 +894,7 @@ spec = do
 
         it "emits no unit rather than an empty one when the source method states none" $ do
             let unitless = MethodCF (UUID.fromWords 1 2 3 4) "Ammonia" Output 1.0 Nothing Nothing "" Nothing
-            mfaUnit (cfToAPI unitless) `shouldBe` Nothing
+            mfaUnit (cfToAPI unread unitless) `shouldBe` Nothing
 
     describe "SimaPro Method CSV Parser" $ do
         it "detects SimaPro method CSV format" $ do
@@ -1151,3 +1151,7 @@ mkTestFlow uuid name =
         , bfSynonyms = M.empty
         , bfCompartment = Just (VT.Compartment Air Nothing)
         }
+
+-- | No medium and no location: what these tests read is the rest of the factor.
+unread :: MethodCF -> FactorReading
+unread _ = FactorReading{frMedium = Nothing, frLocation = Nothing}

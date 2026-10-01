@@ -16,7 +16,7 @@ import Test.Hspec
 import API.Types
 import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..))
 import Service.Compare (Sides (..))
-import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), Scope (..), compareCategories, compareCollections, parseForcedPair, profileCollection)
+import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), Scope (..), compareCategories, compareCollections, factorReading, parseForcedPair, profileCollection)
 import SynonymDB (buildFromPairs)
 import UnitConversion (Dimension, UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
@@ -356,3 +356,7 @@ profileSpec = describe "profileCollection" $ do
 
     it "lists the factors one key answers to as duplicates" $
         map (map facFlowName . dfxFactors) (cpfDuplicates profile) `shouldBe` [["Zinc", "zinc"]]
+
+    it "says where each factor's location was read" $
+        map (frLocation . factorReading (cmcCompartments refData) (cmcLocations refData)) (take 4 cfs)
+            `shouldBe` [Nothing, Just (ReadLocation "FR" InName), Just (ReadLocation "FR" InField), Just (ReadLocation "GLO" InField)]

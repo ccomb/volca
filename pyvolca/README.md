@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 33** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 34** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -2383,6 +2383,18 @@ and ``description`` are free-text metadata the source may or may not carry.
 | `description` | `str \| None` | None |
 | `methodology` | `str \| None` | None |
 
+### `FactorReading`
+
+A factor's medium after the compartment table, and its location, read
+the way `Client.compare_method_collections` and
+`Client.profile_method_collection` read them. Either is None when
+the factor states none.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `medium` | `str \| None` | None |
+| `location` | `ReadLocation \| None` | None |
+
 ### `MethodFactor`
 
 One characterization factor of a method (`Client.get_method_factors`).
@@ -2404,6 +2416,18 @@ when the engine predates these fields.
 | `unit` | `str \| None` | None |
 | `compartment` | `str \| None` | None |
 | `location` | `str \| None` | None |
+| `reading` | `FactorReading \| None` | None |
+
+### `ReadLocation`
+
+A factor's location, and where it was read: ``"InField"`` when the file
+writes it in its location field, ``"InName"`` when at the end of the name
+(``Ammonia, FR``).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `code` | `str` | _required_ |
+| `from_` | `str` | _required_ |
 
 ### `PathResult`
 

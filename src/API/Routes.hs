@@ -11,7 +11,7 @@ import API.Csv (CSV)
 import API.DatabaseHandlers (explainCFToAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
@@ -1347,8 +1347,8 @@ matchesQuery Nothing _ _ = True
 matchesQuery (Just q) cfName dbFlowName =
     T.isInfixOf q (T.toLower cfName) || T.isInfixOf q (T.toLower dbFlowName)
 
-cfToAPI :: MethodCF -> MethodFactorAPI
-cfToAPI cf =
+cfToAPI :: (MethodCF -> FactorReading) -> MethodCF -> MethodFactorAPI
+cfToAPI reading cf =
     MethodFactorAPI
         { mfaFlowRef = mcfFlowRef cf
         , mfaFlowName = mcfFlowName cf
@@ -1359,6 +1359,7 @@ cfToAPI cf =
         , mfaUnit = mfilter (not . T.null) (Just (mcfUnit cf))
         , mfaCompartment = compartmentPath <$> mcfCompartment cf
         , mfaLocation = mcfConsumerLocation cf
+        , mfaReading = reading cf
         }
 
 {- | Render a compartment triple as one display path, keeping every non-empty
@@ -1563,7 +1564,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 33
+currentWireVersion = 34
 
 getVersion :: AppM Value
 getVersion = do
@@ -2382,7 +2383,9 @@ getMethodDetail methodIdText mCollection = do
 getMethodFactors :: Text -> Maybe Text -> AppM [MethodFactorAPI]
 getMethodFactors methodIdText mCollection = do
     (_, method) <- loadMethodByUUID mCollection methodIdText
-    return $ map cfToAPI (methodFactors method)
+    manager <- asks aeDbManager
+    compartments <- liftIO (DM.getMergedCompartmentMap manager)
+    return $ map (cfToAPI (CompareMethods.factorReading compartments (dmLocationHierarchy manager))) (methodFactors method)
 
 getMethodMapping :: Text -> Text -> Maybe Text -> AppM MappingStatus
 getMethodMapping dbName methodIdText mCollection = do

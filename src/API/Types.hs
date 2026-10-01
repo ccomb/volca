@@ -554,6 +554,7 @@ data MethodFactorAPI = MethodFactorAPI
     , mfaUnit :: Maybe Text -- CF reference unit (e.g. "kg", "kBq"); Nothing when the source method states none
     , mfaCompartment :: Maybe Text -- e.g. "air/urban air", "water/unspecified/long-term"
     , mfaLocation :: Maybe Text -- Consumer location for regionalized CFs
+    , mfaReading :: FactorReading
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped MethodFactorAPI)
@@ -2079,6 +2080,34 @@ data MediumCount = MediumCount
     }
     deriving (Eq, Show, Generic)
     deriving (ToJSON, ToSchema) via (Stripped MediumCount)
+
+-- | Where a factor's location was read.
+data LocationSource
+    = -- | The location field the file writes.
+      InField
+    | -- | The end of the name (@Ammonia, FR@), the file writing no location.
+      InName
+    deriving (Eq, Ord, Show, Enum, Bounded, Generic)
+    deriving anyclass (ToJSON, ToSchema)
+
+data ReadLocation = ReadLocation
+    { rlCode :: !Text
+    , rlFrom :: !LocationSource
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ReadLocation)
+
+{- | A factor's medium and location as a comparison of two collections and a
+collection's profile read them: the medium after the compartment table, no
+medium for a factor filed under none, and no location for one written for
+none.
+-}
+data FactorReading = FactorReading
+    { frMedium :: !(Maybe Text)
+    , frLocation :: !(Maybe ReadLocation)
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped FactorReading)
 
 -- | Factors of one category that one key answers to, at one place: a comparison could pair none of them.
 data DuplicateFactors = DuplicateFactors
