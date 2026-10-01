@@ -3,6 +3,7 @@
 import dataclasses
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 from typing import Any, Callable, ClassVar, Generic, Iterator, Literal, TypeVar, Union
 
@@ -1256,6 +1257,30 @@ def parse_exchange_detail(ed: dict) -> Exchange:
 # Typed activity detail
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class DatasetDates:
+    """The days a dataset says it was written on, each under its format's meaning.
+
+    ``created`` is when the dataset was first written (EcoSpold 1 and 2),
+    ``last_revised`` when it was last changed (EcoSpold 2, ILCD). ``stated``
+    is a date the dataset gives without saying what it marks, which is what a
+    SimaPro process's ``Date`` is. Each is ``None`` where the dataset states
+    none, and all three against an engine older than wire revision 35.
+    """
+
+    created: date | None = None
+    last_revised: date | None = None
+    stated: date | None = None
+
+    @classmethod
+    def from_json(cls, d: dict | None) -> "DatasetDates":
+        def day(key: str) -> date | None:
+            value = (d or {}).get(key)
+            return None if value is None else date.fromisoformat(value)
+
+        return cls(created=day("created"), last_revised=day("lastRevised"), stated=day("stated"))
+
+
 @dataclass
 class ActivityDetail:
     """Typed wrapper around the JSON returned by GET /activity/{pid}.
@@ -1270,6 +1295,9 @@ class ActivityDetail:
     format has none, where the format names a dataset by the UUID
     ``process_id`` already spells, and against an engine older than wire
     revision 22.
+
+    ``dates`` holds the days the dataset says it was created, last revised,
+    or written without saying which (see :class:`DatasetDates`).
     """
 
     process_id: str
@@ -1284,6 +1312,7 @@ class ActivityDetail:
     all_products: list[Activity]
     exchanges: list[Exchange]
     native_id: str | None = None
+    dates: DatasetDates = field(default_factory=DatasetDates)
 
     @classmethod
     def from_json(cls, d: dict) -> "ActivityDetail":
@@ -1302,6 +1331,7 @@ class ActivityDetail:
             all_products=[Activity.from_json(a) for a in pfa.get("allProducts", [])],
             exchanges=[parse_exchange(e) for e in pfa.get("exchanges", [])],
             native_id=pfa.get("nativeId"),
+            dates=DatasetDates.from_json(pfa.get("dates")),
         )
 
     @property
@@ -2462,6 +2492,7 @@ _SUMMARY_FIELDS = {
     "LocationChanged": "location",
     "ProductNameChanged": "product_name",
     "AllocationChanged": "allocation_percent",
+    "DatesChanged": "dates",
 }
 _UNCOMPARED_REASONS = {"MixedUnits": "mixed_units", "SeveralFlows": "several_flows"}
 
@@ -2571,18 +2602,22 @@ class UncomparedLine:
 class SummaryChange:
     """A field of two activities that differs.
 
-    ``field`` is ``"activity_name"``, ``"location"``, ``"product_name"`` or
-    ``"allocation_percent"``. The product's amount and unit are not among
+    ``field`` is ``"activity_name"``, ``"location"``, ``"product_name"``,
+    ``"allocation_percent"`` or ``"dates"``, whose ``before`` and ``after``
+    are :class:`DatasetDates`. The product's amount and unit are not among
     them: the reference line reports those, among the exchanges.
     """
 
     field: str
-    before: str | float | None
-    after: str | float | None
+    before: str | float | DatasetDates | None
+    after: str | float | DatasetDates | None
 
     @classmethod
     def from_json(cls, d: dict) -> "SummaryChange":
-        return cls(field=_SUMMARY_FIELDS[d["tag"]], before=d.get("before"), after=d.get("after"))
+        field = _SUMMARY_FIELDS[d["tag"]]
+        if field == "dates":
+            return cls(field=field, before=DatasetDates.from_json(d["before"]), after=DatasetDates.from_json(d["after"]))
+        return cls(field=field, before=d.get("before"), after=d.get("after"))
 
 
 @dataclass

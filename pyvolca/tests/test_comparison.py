@@ -6,11 +6,12 @@ engine binary is needed.
 
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
 
-from volca import ActivityComparison, DatabaseComparison, compare_activities
+from volca import ActivityComparison, DatabaseComparison, DatasetDates, compare_activities
 
 
 def summary(name: str) -> dict:
@@ -85,6 +86,25 @@ def test_an_activity_comparison_reads_every_part():
     assert (sludge.kind, sludge.role, sludge.reason) == ("waste", "WasteOutput", "mixed_units")
     assert (sludge.base_units, sludge.other_units) == (["g", "kg"], ["kg"])
     assert not c.identical
+
+
+def test_a_dates_change_reads_both_sides_as_dates():
+    c = ActivityComparison.from_json(
+        {
+            **COMPARISON,
+            "summary": [
+                {
+                    "tag": "DatesChanged",
+                    "before": {"created": None, "lastRevised": None, "stated": "2019-12-04"},
+                    "after": {"created": None, "lastRevised": None, "stated": "2023-05-02"},
+                }
+            ],
+        }
+    )
+    (change,) = c.summary
+    assert change.field == "dates"
+    assert change.before == DatasetDates(stated=date(2019, 12, 4))
+    assert change.after == DatasetDates(stated=date(2023, 5, 2))
 
 
 def test_a_database_comparison_keeps_its_counts_beside_truncated_lists():

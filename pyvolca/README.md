@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 34** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 35** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1489,6 +1489,9 @@ format has none, where the format names a dataset by the UUID
 ``process_id`` already spells, and against an engine older than wire
 revision 22.
 
+``dates`` holds the days the dataset says it was created, last revised,
+or written without saying which (see `DatasetDates`).
+
 | Field | Type | Default |
 |-------|------|---------|
 | `process_id` | `str` | _required_ |
@@ -1503,6 +1506,7 @@ revision 22.
 | `all_products` | `list[Activity]` | _required_ |
 | `exchanges` | `list[Union[TechnosphereExchange, BiosphereExchange, WasteExchange]]` | _required_ |
 | `native_id` | `str \| None` | None |
+| `dates` | `DatasetDates` | DatasetDates() |
 
 #### Properties
 
@@ -1544,6 +1548,22 @@ Only the technosphere inputs (ingredients from other activities).
 Excludes biosphere inputs (resource extractions) and waste
 outputs. The common case when answering "what does this activity
 consume from upstream?".
+
+### `DatasetDates`
+
+The days a dataset says it was written on, each under its format's meaning.
+
+``created`` is when the dataset was first written (EcoSpold 1 and 2),
+``last_revised`` when it was last changed (EcoSpold 2, ILCD). ``stated``
+is a date the dataset gives without saying what it marks, which is what a
+SimaPro process's ``Date`` is. Each is ``None`` where the dataset states
+none, and all three against an engine older than wire revision 35.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `created` | `datetime.date \| None` | None |
+| `last_revised` | `datetime.date \| None` | None |
+| `stated` | `datetime.date \| None` | None |
 
 ### `ActivityDiff`
 
@@ -2687,15 +2707,16 @@ Serialise to the wire shape consumed by SubstitutionRequest.
 
 A field of two activities that differs.
 
-``field`` is ``"activity_name"``, ``"location"``, ``"product_name"`` or
-``"allocation_percent"``. The product's amount and unit are not among
+``field`` is ``"activity_name"``, ``"location"``, ``"product_name"``,
+``"allocation_percent"`` or ``"dates"``, whose ``before`` and ``after``
+are `DatasetDates`. The product's amount and unit are not among
 them: the reference line reports those, among the exchanges.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `field` | `str` | _required_ |
-| `before` | `str \| float \| None` | _required_ |
-| `after` | `str \| float \| None` | _required_ |
+| `before` | `str \| float \| DatasetDates \| None` | _required_ |
+| `after` | `str \| float \| DatasetDates \| None` | _required_ |
 
 ### `SupplierClaim`
 
