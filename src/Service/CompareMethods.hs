@@ -26,7 +26,9 @@ them and of the reference data that says which names are one substance.
   reading is taken: a subcompartment written @unspecified@ is the whole
   medium, which is how another format writes it with an empty cell. So is
   another: an occupation or a transformation filed under the whole natural
-  resource medium is in its land subcompartment.
+  resource medium is in its land subcompartment. The direction is compared
+  as written, except for a land factor, which is taken from nature however its
+  file writes it.
 * The location is the one a factor states, or else a code the geography
   table holds written at the end of its name, the way one format writes a
   regionalized factor (@Ammonia, FR@ is ammonia at @FR@).
