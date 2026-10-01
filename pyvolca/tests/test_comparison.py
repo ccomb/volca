@@ -137,3 +137,21 @@ def test_the_client_side_helper_says_what_replaced_it():
     client = SimpleNamespace(aggregate=lambda *args, **kwargs: SimpleNamespace(groups=[]))
     with pytest.warns(DeprecationWarning, match="Client.compare_activities"):
         compare_activities(client, "a_p", "b_p")  # type: ignore[arg-type]
+
+
+def test_a_database_comparison_from_an_engine_before_redated_pairs_reads_none():
+    d = DatabaseComparison.from_json(
+        {
+            "addedCount": 0,
+            "removedCount": 0,
+            "changedCount": 0,
+            "ambiguousCount": 0,
+            "unchangedCount": 3,
+            "added": [],
+            "removed": [],
+            "changed": [],
+            "ambiguous": [],
+        }
+    )
+
+    assert (d.redated_count, d.redated) == (0, [])

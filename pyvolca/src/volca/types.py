@@ -2708,12 +2708,13 @@ class DatabaseComparison:
             added_count=d["addedCount"],
             removed_count=d["removedCount"],
             changed_count=d["changedCount"],
-            redated_count=d["redatedCount"],
+            # Absent from an engine older than wire revision 35: nothing redated.
+            redated_count=d.get("redatedCount", 0),
             ambiguous_count=d["ambiguousCount"],
             unchanged_count=d["unchangedCount"],
             added=[Activity.from_json(a) for a in d["added"]],
             removed=[Activity.from_json(a) for a in d["removed"]],
             changed=[ChangedActivity.from_json(c) for c in d["changed"]],
-            redated=[ChangedActivity.from_json(c) for c in d["redated"]],
+            redated=[ChangedActivity.from_json(c) for c in d.get("redated", [])],
             ambiguous=[AmbiguousActivities.from_json(a) for a in d["ambiguous"]],
         )
