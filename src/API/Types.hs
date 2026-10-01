@@ -236,6 +236,43 @@ data ActivitySummary = ActivitySummary
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ActivitySummary)
 
+-- | Where a unit sits in the unit table: its dimension, and how many of the dimension's reference unit one of it is.
+data CatalogueMeasure = CatalogueMeasure
+    { cmDimension :: [Int] -- exponent vector, in the table's dimension order
+    , cmFactor :: Double
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped CatalogueMeasure)
+
+-- | One process as a client indexing the database needs it: what it is called, where, in what unit, and what its source says about it.
+data CatalogueEntry = CatalogueEntry
+    { ceProcessId :: Text
+    , ceActivityName :: Text
+    , ceProductName :: Text -- empty when the reference exchange names a flow the database does not hold, as in a search result
+    , ceLocation :: Text
+    , ceUnit :: Text -- the reference product's unit as the database writes it
+    , ceMeasure :: Maybe CatalogueMeasure -- Nothing when the unit table cannot settle 'ceUnit': unknown, or matching several spellings
+    , ceClassification :: M.Map Text Text
+    , ceDescription :: [Text] -- the source's general comment, by paragraphs
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped CatalogueEntry)
+
+-- | One page of a catalogue. Every page names the catalogue it was cut from, so a client reading several notices when the database changed under it.
+data CataloguePage = CataloguePage
+    { cpFingerprint :: Text
+    , cpTotal :: Int
+    , cpOffset :: Int
+    , cpEntries :: [CatalogueEntry]
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped CataloguePage)
+
+-- | The fingerprint alone, for a client that only wants to know whether its copy is still current.
+newtype CatalogueFingerprint = CatalogueFingerprint {cfFingerprint :: Text}
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped CatalogueFingerprint)
+
 -- | Consumer result – ActivitySummary enriched with BFS depth from the queried supplier
 data ConsumerResult = ConsumerResult
     { crProcessId :: Text
