@@ -24,7 +24,9 @@ them and of the reference data that says which names are one substance.
   a flow read a factor written for a broader place, are not followed, since
   they would make a precise subcompartment equal to an unspecified one. One
   reading is taken: a subcompartment written @unspecified@ is the whole
-  medium, which is how another format writes it with an empty cell.
+  medium, which is how another format writes it with an empty cell. So is
+  another: an occupation or a transformation filed under the whole natural
+  resource medium is in its land subcompartment.
 * The location is the one a factor states, or else a code the geography
   table holds written at the end of its name, the way one format writes a
   regionalized factor (@Ammonia, FR@ is ammonia at @FR@).
@@ -386,7 +388,7 @@ keyedFactor ctx cf =
         { kFactor = cf
         , kFlow = ordinary (ByFlow <$> mfilter (/= UUID.nil) (Just (mcfFlowRef cf)))
         , kName = ordinary (Just (ByName (normalizeNameKeepUnit name)))
-        , kClass = ordinary (ByClass <$> lookupSynonymGroup (viewFor (mcfDirection cf) (cmcSynonyms ctx)) name)
+        , kClass = ordinary (ByClass <$> lookupSynonymGroup (viewFor (plDirection place) (cmcSynonyms ctx)) name)
         , kCAS = ordinary (ByCAS <$> (mcfCAS cf >>= nonEmptyCAS))
         , kPrefix = (`FactorKey` place) <$> byPrefix
         }
@@ -482,10 +484,34 @@ data Located = Located !Text !(Maybe Text)
 placeOf :: CompartmentMap -> Maybe Text -> MethodCF -> Place
 placeOf cmap location cf =
     Place
-        { plDirection = mcfDirection cf
-        , plCompartment = compartmentKey cmap <$> mcfCompartment cf
+        { plDirection = direction
+        , plCompartment = compartment
         , plLocation = location
         }
+  where
+    compartment :: Maybe CompartmentKey
+    compartment = landRead cf . compartmentKey cmap <$> mcfCompartment cf
+    -- One format writes a transformation to a land type as an output to land,
+    -- another as an input from nature: a land flow has one direction.
+    direction :: FlowDirection
+    direction
+        | any isLand compartment = Input
+        | otherwise = mcfDirection cf
+    isLand :: CompartmentKey -> Bool
+    isLand key = ckMedium key == "natural resource" && ckSub key == "land"
+
+{- | One format files a land flow in the land subcompartment of the natural
+resource medium, another under the whole medium (@Occupation, forest,
+extensive@ with no subcompartment). An occupation or a transformation can
+only be of land, so that flow is read in the land subcompartment.
+-}
+landRead :: MethodCF -> CompartmentKey -> CompartmentKey
+landRead cf key
+    | ckMedium key == "natural resource"
+    , T.null (ckSub key)
+    , any (`T.isPrefixOf` T.toCaseFold (mcfFlowName cf)) ["occupation, ", "transformation, "] =
+        key{ckSub = "land"}
+    | otherwise = key
 
 compartmentKey :: CompartmentMap -> Compartment -> CompartmentKey
 compartmentKey cmap c =
