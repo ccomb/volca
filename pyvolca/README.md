@@ -135,7 +135,7 @@ for ex in detail.technosphere_inputs:
     print(f"{ex.amount:.4g} {ex.unit} of {ex.flow_name} ← {ex.target_activity_name}")
 ```
 
-`get_activity` returns a typed `ActivityDetail`. Use `.inputs` / `.outputs` / `.technosphere_inputs` to filter the exchanges; each entry is an `Exchange`: either a `TechnosphereExchange` (an input or output of an intermediate product) or a `BiosphereExchange` (resource extracted or pollutant emitted).
+`get_activity` returns a typed `ActivityDetail`. Its `dates` holds the days the dataset says it was created, last revised, or written without saying which (`created`, `last_revised`, `stated`), each a Python `date` or `None`. Use `.inputs` / `.outputs` / `.technosphere_inputs` to filter the exchanges; each entry is an `Exchange`: either a `TechnosphereExchange` (an input or output of an intermediate product) or a `BiosphereExchange` (resource extracted or pollutant emitted).
 
 ## Trace the upstream supply chain
 
@@ -271,6 +271,8 @@ for line in comparison.exchanges[:3]:
 ```
 
 The engine compares every exchange. A line pairs on its flow id and role, then on its flow name, compartment and role; amounts are equal within a relative 1e-9 and units compare by name. Pass `other_database=` to hold an activity against one in another loaded database, an adapted copy against its original for instance. `c.compare_databases("next-version")` compares two whole databases the same way, pairing their activities by process id, then by name, then by reference product, and saying which for each pair.
+
+The summary also lists the dates the two datasets state when they differ: its `field` is then `"dates"`, and `before` and `after` are each a `DatasetDates`. That is the quickest way to tell whether an activity is a later version of the one you hold.
 
 ## Run counterfactuals (substitutions)
 
