@@ -45,8 +45,10 @@ spec = describe "SimaPro documentation" $ do
                            , "CSV Format version 8.0.5 is not one this reader was written against (9.0.0): it is read as if it were"
                            ]
 
-        it "takes no stamp from a file with no banner" $
-            spTool (extractConfig ["{processes}", "{Date: 13/05/2026}"]) `shouldBe` Nothing
+        it "takes no stamp from a file with no banner, and says so" $ do
+            let cfg = extractConfig ["{processes}", "{Date: 13/05/2026}"]
+            spTool cfg `shouldBe` Nothing
+            exportWarnings cfg `shouldBe` ["the header states an export but names no tool on its first line: the export is read with no stamp"]
 
     describe "the System description blocks" $
         it "reads each one, its quoted text unquoted and its blank fields left out" $ do
@@ -91,7 +93,7 @@ spec = describe "SimaPro documentation" $ do
             dbdocSystems (sdbDocumentation again) `shouldBe` dbdocSystems (sdbDocumentation original)
             map activityDescription (M.elems (sdbActivities again)) `shouldBe` [["Plain \"white\" bread"]]
             map (map docLabel . activityDocumentation) (M.elems (sdbActivities again))
-                `shouldBe` [["Record", "Collection method"]]
+                `shouldBe` [["Record", "Collection method", "System description"]]
 
         it "reads its own method export as a method file" $
             isSimaProMethodCSV "{VoLCA 0.15.0}\r\n{methods}\r\n" `shouldBe` True

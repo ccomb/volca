@@ -338,7 +338,7 @@ checkSimaProExportable db =
     metaKeyOffenders =
         [ (activityName act, val)
         | act <- M.elems (sdbActivities db)
-        , val <- map snd (activityMetaLines act)
+        , val <- map snd (activityMetaLines (systemNamesOf db) act)
         , not (T.null val)
         , isMetadataKey (TE.encodeUtf8 (T.strip val))
         ]
@@ -351,7 +351,7 @@ checkSimaProExportable db =
     -- \x7f-encoded. The line-based parser splits on physical newlines /before/
     -- CSV parsing, so even a quoted newline tears a row apart; reject upstream.
     activityTexts act =
-        map snd (activityMetaLines act)
+        map snd (activityMetaLines (systemNamesOf db) act)
             ++ M.elems (activityClassification act)
     newlineOffenders =
         filter hasNewline $
@@ -445,6 +445,8 @@ data Catalogs = Catalogs
     , catUnits :: !UnitDB
     , catProducedHere :: !(S.Set UUID)
     -- ^ Products the file makes, which its own rows name each other by.
+    , catSystems :: !(S.Set Text)
+    -- ^ The system descriptions the file writes, which a process may name.
     }
 
 {- | Where a row's product comes from: the geography, and the activity making it
@@ -538,8 +540,8 @@ yields an empty "Type" value, so @meta@ omits the line and a re-parse yields
 dataset states is true there: the one it stated the same way first, then its
 last revision, then its creation. Read back, it is a stated date again.
 -}
-activityMetaLines :: Activity -> [(Text, Text)]
-activityMetaLines Activity{..} =
+activityMetaLines :: S.Set Text -> Activity -> [(Text, Text)]
+activityMetaLines systems Activity{..} =
     [ ("Category type", M.findWithDefault "" "Category type" activityClassification)
     , ("Process identifier", foldMap (\(NativeProcessId nativeId) -> nativeId) activityNativeId)
     , ("Process name", activityName)
@@ -550,7 +552,13 @@ activityMetaLines Activity{..} =
         ++ documented ["Record", "Generator", "Collection method", "Data treatment", "Verification"]
         ++ [("Comment", freeText (T.intercalate "\n" activityDescription))]
         ++ documented ["Allocation rules"]
+        ++ [("System description", system <> ";") | system <- systemNamed]
   where
+    -- The System description a process names is written when the file writes
+    -- that description too, so the name finds it again on import.
+    systemNamed :: [Text]
+    systemNamed = [docText s | s <- activityDocumentation, docLabel s == "System description", S.member (docText s) systems]
+
     -- The documentation fields SimaPro keeps as free text, in its own order. The
     -- others hold a value from a list or name an object SimaPro has to know, so
     -- what another format wrote under the same name may not import.
@@ -868,7 +876,7 @@ serializeActivity cats act@Activity{..} =
         wasteLines = mapMaybe (wasteLine cats) finalWaste
      in concat
             [ ["Process", ""]
-            , concatMap (uncurry meta) (activityMetaLines act)
+            , concatMap (uncurry meta) (activityMetaLines (catSystems cats) act)
             , -- Products section is always present (an activity has a reference).
               -- The reference comes first, which is how the parser tells it; the
               -- coproducts of a block the gate left unsplit follow, each with its
@@ -929,11 +937,15 @@ byte stream is independent of the underlying 'Map' iteration order.
 serializeSimaProCSV :: WriterConfig -> SimpleDatabase -> Either Text BS.ByteString
 serializeSimaProCSV cfg db@SimpleDatabase{..} = do
     checkSimaProExportable db
-    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities)
+    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities) (systemNamesOf db)
         acts = sortOn (\a -> (activityName a, activityLocation a)) (M.elems sdbActivities)
         blocks = concatMap (serializeActivity cats) acts
         allLines = headerLines cfg ++ blocks ++ concatMap systemDescriptionLines (dbdocSystems sdbDocumentation)
     pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf))
+
+-- | The names of the system descriptions a database writes in its trailer.
+systemNamesOf :: SimpleDatabase -> S.Set Text
+systemNamesOf = S.fromList . map systemName . dbdocSystems . sdbDocumentation
 
 {- | A trailing System description block, the one its processes name. Every
 field SimaPro writes is written, blank when the description leaves it so, then

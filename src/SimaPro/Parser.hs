@@ -1881,6 +1881,9 @@ exportWarnings cfg =
         [ (\reason -> "header Date " <> reason <> ": the export is read with no date") <$> dateProblem (exportDay cfg)
         , spExportTime cfg >>= \t ->
             maybe (Just ("header Time \"" <> t <> "\" is not a time written H:mm:ss: the export is read with no time")) (const Nothing) (readClock t)
+        , if isNothing (spTool cfg) && any isJust [spExportDate cfg, spExportTime cfg, spProject cfg]
+            then Just "the header states an export but names no tool on its first line: the export is read with no stamp"
+            else Nothing
         , mfilter (`notElem` knownFormatVersions) (spFormatVersion cfg) <&> \v ->
             "CSV Format version " <> v <> " is not one this reader was written against (" <> T.intercalate ", " knownFormatVersions <> "): it is read as if it were"
         ]

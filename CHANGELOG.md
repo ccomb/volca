@@ -19,8 +19,8 @@
   named in the load's log. A SimaPro export names VoLCA in its banner rather
   than a SimaPro version it was not written by, which SimaPro imports all
   the same; it states the format version it follows, writes the system
-  descriptions back, and writes the documentation fields SimaPro keeps as
-  free text. Wire revision 36. Databases are read again from their source
+  descriptions back with the name each process gives its own, and writes
+  the documentation fields SimaPro keeps as free text. Wire revision 36. Databases are read again from their source
   on first load, since their cache predates the field.
 - An activity carries the dates its dataset states, in `dates`: `created`,
   `lastRevised` and `stated`. EcoSpold 2 records a creation and a last edit,
