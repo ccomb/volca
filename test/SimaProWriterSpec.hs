@@ -407,7 +407,7 @@ spec = describe "SimaPro.Writer round-trip" $ do
     it "produces a parseable CSV with the pinned header" $ do
         original <- parseBytes fixtureCSV
         bytes <- serBytes (toSimple original)
-        BS.take 16 bytes `shouldSatisfy` (\b -> "{SimaPro" `BS.isInfixOf` b)
+        BS.take 16 bytes `shouldSatisfy` (\b -> "{VoLCA " `BS.isPrefixOf` b)
         reparsed <- parseBytes bytes
         let (acts, _, _, _, _) = reparsed
         length acts `shouldBe` 2

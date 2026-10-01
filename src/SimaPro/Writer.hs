@@ -15,16 +15,16 @@ Determinism is achieved by:
     leaks into the output;
   * a single fixed numeric formatter ('formatAmount') that round-trips through
     the parser's 'parseAmount' / 'Expr.normalizeExpr';
-  * pinning the only volatile header field – the SimaPro version banner – via
-    'WriterConfig'. No export timestamp or generator line is emitted, so a
+  * pinning the only volatile header field – the banner naming the tool and
+    its version – via 'WriterConfig'. No export timestamp or generator line is emitted, so a
     write→parse→write cycle is stable.
 
 Encoding/layout mirrors the parser's expectations:
 
   * semicolon-separated fields, CRLF line endings;
   * dot decimal separator (matching @{Decimal separator: .}@);
-  * the @{SimaPro …}@ / @{CSV separator: Semicolon}@ / @{Decimal separator: .}@
-    header block;
+  * the @{VoLCA …}@ / @{CSV Format version: 9.0.0}@ / @{CSV separator: Semicolon}@ /
+    @{Decimal separator: .}@ header block;
   * one @Process … End@ block per activity, with the metadata keys and section
     headers the parser recognises.
 
@@ -84,7 +84,7 @@ module SimaPro.Writer (
 import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import Data.Either (lefts)
-import Data.List (partition, sortOn)
+import Data.List (find, partition, sortOn)
 import qualified Data.Map.Strict as M
 
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
@@ -96,6 +96,7 @@ import Data.Time (Day, defaultTimeLocale, formatTime)
 import Database.Allocation (AllocationRefusal (..), asAllocated, describeRefusal)
 import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
 import Types
+import qualified Version
 
 -- ============================================================================
 -- Configuration
@@ -103,18 +104,20 @@ import Types
 
 {- | Writer knobs. The only volatile field a SimaPro export normally carries is
 the version banner; pinning it here keeps a round-trip byte-stable. We
-deliberately omit the export-date / generator lines entirely (the parser
-ignores them anyway) so there is no timestamp to normalise away.
+deliberately omit the export date and time lines entirely, so there is no
+timestamp to normalise away.
 -}
 newtype WriterConfig = WriterConfig
     { wcVersion :: Text
-    -- ^ Value of the @{SimaPro …}@ banner line.
+    -- ^ Value of the banner line, the tool that wrote the file.
     }
     deriving (Eq, Show)
 
--- | Default config: a fixed, neutral version banner (no timestamp).
+{- | Default config: the banner names this engine rather than passing the file
+off as a SimaPro export, which SimaPro imports all the same.
+-}
 defaultWriterConfig :: WriterConfig
-defaultWriterConfig = WriterConfig{wcVersion = "SimaPro 9.6.0.1"}
+defaultWriterConfig = WriterConfig{wcVersion = "VoLCA " <> T.pack Version.version}
 
 -- ============================================================================
 -- Export guard
@@ -543,8 +546,20 @@ activityMetaLines Activity{..} =
     , ("Type", typeLabelOf activityNativeType)
     , ("Geography", activityLocation)
     , ("Date", foldMap simaProDate (datesStated activityDates <|> datesLastRevised activityDates <|> datesCreated activityDates))
-    , ("Comment", encodeNewlines (T.intercalate "\n" activityDescription))
     ]
+        ++ documented ["Record", "Generator", "Collection method", "Data treatment", "Verification"]
+        ++ [("Comment", freeText (T.intercalate "\n" activityDescription))]
+        ++ documented ["Allocation rules"]
+  where
+    -- The documentation fields SimaPro keeps as free text, in its own order. The
+    -- others hold a value from a list or name an object SimaPro has to know, so
+    -- what another format wrote under the same name may not import.
+    documented :: [Text] -> [(Text, Text)]
+    documented fields = [(docLabel s, freeText (docText s)) | field <- fields, s <- activityDocumentation, docLabel s == field]
+
+-- | Free text on one value line: its line breaks encoded, quoted when it holds a quote or the separator.
+freeText :: Text -> Text
+freeText = escapeField . encodeNewlines
 
 -- | A day in the short date format 'headerLines' declares.
 simaProDate :: Day -> Text
@@ -889,10 +904,11 @@ serializeActivity cats act@Activity{..} =
 -- Header
 -- ============================================================================
 
--- | The fixed SimaPro header block. No timestamp / generator line is emitted.
+-- | The fixed SimaPro header block, in the version of the format the writer follows. No timestamp is emitted.
 headerLines :: WriterConfig -> [Text]
 headerLines cfg =
     [ "{" <> wcVersion cfg <> "}"
+    , "{CSV Format version: 9.0.0}"
     , "{CSV separator: Semicolon}"
     , "{Decimal separator: .}"
     , "{Date separator: /}"
@@ -916,8 +932,38 @@ serializeSimaProCSV cfg db@SimpleDatabase{..} = do
     let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities)
         acts = sortOn (\a -> (activityName a, activityLocation a)) (M.elems sdbActivities)
         blocks = concatMap (serializeActivity cats) acts
-        allLines = headerLines cfg ++ blocks
+        allLines = headerLines cfg ++ blocks ++ concatMap systemDescriptionLines (dbdocSystems sdbDocumentation)
     pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf))
+
+{- | A trailing System description block, the one its processes name. Every
+field SimaPro writes is written, blank when the description leaves it so, then
+any other field it was read with.
+-}
+systemDescriptionLines :: SystemDescription -> [Text]
+systemDescriptionLines SystemDescription{..} =
+    ["System description", ""]
+        ++ field "Name" systemName
+        ++ field "Category" systemCategory
+        ++ concatMap (\label -> field label (sectionText label)) systemFields
+        ++ concat [field (docLabel s) (docText s) | s <- systemSections, docLabel s `notElem` systemFields]
+        ++ ["End", ""]
+  where
+    field :: Text -> Text -> [Text]
+    field label value = [label, freeText value, ""]
+    sectionText :: Text -> Text
+    sectionText label = foldMap docText (find ((== label) . docLabel) systemSections)
+    systemFields :: [Text]
+    systemFields =
+        [ "Description"
+        , "Sub-systems"
+        , "Cut-off rules"
+        , "Energy model"
+        , "Transport model"
+        , "Waste model"
+        , "Other assumptions"
+        , "Other information"
+        , "Allocation rules"
+        ]
 
 -- | Write canonical SimaPro CSV bytes to a file, or return the guard's 'Left'.
 writeSimaProCSV :: WriterConfig -> FilePath -> SimpleDatabase -> IO (Either Text ())

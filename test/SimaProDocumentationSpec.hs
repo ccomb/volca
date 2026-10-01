@@ -2,8 +2,8 @@
 
 {- | What a SimaPro export says about itself and about each of its processes:
 the header that stamps the export, the System description blocks of its
-trailer, and the documentation fields of a process block, read through the
-loader.
+trailer, and the documentation fields of a process block. Read through the
+loader, then written and read again.
 -}
 module SimaProDocumentationSpec (spec) where
 
@@ -13,7 +13,9 @@ import qualified Data.Text as T
 import Data.Time.Calendar (fromGregorian)
 import Data.Time.LocalTime (TimeOfDay (..))
 import Database.Loader (defaultLoadOptions, loadSimaProCSV)
+import Method.ParserSimaPro (isSimaProMethodCSV)
 import SimaPro.Parser (SimaProConfig (..), exportWarnings, extractConfig)
+import SimaPro.Writer (defaultWriterConfig, serializeSimaProCSV)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
@@ -77,11 +79,31 @@ spec = describe "SimaPro documentation" $ do
             db <- load bakeryCSV
             map activityDescription (M.elems (sdbActivities db)) `shouldBe` [["Plain \"white\" bread"]]
 
+    describe "written and read again" $ do
+        it "names the engine in its banner and the format version it follows" $ do
+            written <- write =<< load bakeryCSV
+            written `shouldSatisfy` BS.isPrefixOf "{VoLCA "
+            written `shouldSatisfy` BS.isInfixOf "}\r\n{CSV Format version: 9.0.0}\r\n"
+
+        it "keeps the System descriptions and the free-text documentation" $ do
+            original <- load bakeryCSV
+            again <- load =<< write original
+            dbdocSystems (sdbDocumentation again) `shouldBe` dbdocSystems (sdbDocumentation original)
+            map activityDescription (M.elems (sdbActivities again)) `shouldBe` [["Plain \"white\" bread"]]
+            map (map docLabel . activityDocumentation) (M.elems (sdbActivities again))
+                `shouldBe` [["Record", "Collection method"]]
+
+        it "reads its own method export as a method file" $
+            isSimaProMethodCSV "{VoLCA 0.15.0}\r\n{methods}\r\n" `shouldBe` True
+
 load :: BS.ByteString -> IO SimpleDatabase
 load bytes = withSystemTempFile "documentation-spec.csv" $ \path h -> do
     BS.hPut h bytes
     hClose h
     either (fail . T.unpack) pure =<< loadSimaProCSV (defaultLoadOptions defaultUnitConfig) path
+
+write :: SimpleDatabase -> IO BS.ByteString
+write = either (fail . T.unpack) pure . serializeSimaProCSV defaultWriterConfig
 
 -- | One process naming one System description, the way SimaPro 10 exports them.
 bakeryCSV :: BS.ByteString
