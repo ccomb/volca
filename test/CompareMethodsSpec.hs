@@ -14,10 +14,11 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import API.Types
-import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..))
+import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..), Subcompartment (..))
 import Service.Compare (Sides (..))
-import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), Scope (..), compareCategories, compareCollections, factorReading, parseForcedPair, profileCollection)
+import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), Scope (..), compareCollections, factorReading, parseForcedPair, profileCollection)
 import SynonymDB (buildFromPairs)
+import Types (Medium (..))
 import UnitConversion (Dimension, UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
 -- | The default unit table plus the gram, and two units only the case tells apart.
@@ -46,7 +47,7 @@ refData =
                 , ("occupation, forest, extensive", "forest, extensive")
                 , ("transformation, to forest, extensive", "to forest, extensive")
                 ]
-        , cmcCompartments = CompartmentMap M.empty M.empty
+        , cmcCompartments = CompartmentMap M.empty (M.fromList [((Air, Subcompartment "low population density, long-term"), Subcompartment "unspecified (long-term)")])
         , cmcUnits = units
         , cmcLocations = M.fromList [(Location "FR", [Location "GLO"]), (Location "Europe, Western", [Location "GLO"]), (Location "GLO", [])]
         }
@@ -80,9 +81,12 @@ category name cfs =
 flowId :: Word -> UUID.UUID
 flowId n = UUID.fromWords 0 0 0 (fromIntegral n)
 
+-- | The one pair two collections of one category each make.
 compared :: [MethodCF] -> [MethodCF] -> CategoryComparison
-compared base other =
-    compareCategories refData SameMethodName (Sides (category "Climate change" base) (category "Climate change" other))
+compared base other = c
+  where
+    Right MethodCollectionComparison{mccCategories = [c]} =
+        compareCollections refData [] EveryCategory (Sides (collection [category "Climate change" base]) (collection [category "Climate change" other]))
 
 -- | (added, removed, changed, unchanged, ambiguous, unconvertible)
 counts :: CategoryComparison -> [Int]
@@ -263,6 +267,9 @@ pairsOf c = [Paired (ccpMatch p) (csdName (ccpBase p)) (csdName (ccpOther p)) | 
 withCategory :: Text -> Method -> Method
 withCategory cat m = m{methodCategory = cat}
 
+atAir :: Text -> Text -> MethodCF
+atAir sub name = (factor name 1){mcfCompartment = Just (Compartment "air" sub "")}
+
 collectionSpec :: Spec
 collectionSpec = describe "compareCollections" $ do
     let zinc = [factor "zinc" 1]
@@ -325,6 +332,19 @@ collectionSpec = describe "compareCollections" $ do
         fmap (map (csdName . ccpOther) . mccCategories) (collections [] base other) `shouldBe` Right ["LU occupation", "LU transformation"]
         fmap pairsOf (scoped [] (OneCategory "Land use") base other) `shouldBe` Left (SeveralPairs "Land use" ["LU occupation", "LU transformation"])
 
+    -- One vocabulary writes the long term of low population density, the other an unspecified long term, and neither writes the other's.
+    it "pairs across an if_absent row two places only one side writes each" $ do
+        let Right c = collections [] [category "Acidification" [atAir "low population density, long-term" "zinc"]] [category "Acidification" [atAir "unspecified (long-term)" "zinc"]]
+        map counts (mccCategories c) `shouldBe` [[0, 0, 0, 1, 0, 0]]
+
+    it "keeps the two places of an if_absent row apart when one side writes both, in any of its categories" $ do
+        let Right c =
+                collections
+                    []
+                    [category "Acidification" [atAir "low population density, long-term" "zinc"], category "Ozone depletion" [atAir "unspecified (long-term)" "lead"]]
+                    [category "Acidification" [atAir "unspecified (long-term)" "zinc"], category "Ozone depletion" [atAir "unspecified (long-term)" "lead"]]
+        map counts (mccCategories c) `shouldBe` [[1, 1, 0, 0, 0, 0], [0, 0, 0, 1, 0, 0]]
+
     it "reads a forced pair written base=other, and refuses any other shape" $ do
         parseForcedPair " GWP = Climate change " `shouldBe` Right (ForcedPair "GWP" "Climate change")
         parseForcedPair "a=b=c" `shouldBe` Left (MalformedPair "a=b=c")
@@ -356,6 +376,10 @@ profileSpec = describe "profileCollection" $ do
 
     it "lists the factors one key answers to as duplicates" $
         map (map facFlowName . dfxFactors) (cpfDuplicates profile) `shouldBe` [["Zinc", "zinc"]]
+
+    it "never reads across an if_absent row a category written at both its places" $ do
+        let both = head (mcpCategories (profileCollection refData (collection [category "Acidification" [atAir "low population density, long-term" "zinc", atAir "unspecified (long-term)" "zinc"]])))
+        cpfDuplicates both `shouldBe` []
 
     it "says where each factor's location was read" $
         map (frLocation . factorReading (cmcCompartments refData) (cmcLocations refData)) (take 4 cfs)
