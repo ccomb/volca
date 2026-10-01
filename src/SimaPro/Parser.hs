@@ -9,6 +9,10 @@ Parses SimaPro CSV exports (like Agribalyse) into volca data structures
 -}
 module SimaPro.Parser (
     parseSimaProCSV,
+    SimaProFile (..),
+    exportStamp,
+    exportWarnings,
+    extractConfig,
     SimaProConfig (..),
     ProcessBlock (..),
     ProductRow (..),
@@ -61,7 +65,9 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlpha, isDigit, isUpper, toLower)
 import qualified Data.Csv as Csv
+import Data.Functor ((<&>))
 import Data.List (dropWhileEnd, sortOn)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Set as S
@@ -69,7 +75,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TEE
-import Data.Time (Day, defaultTimeLocale, diffUTCTime, fromGregorian, getCurrentTime, parseTimeM)
+import Data.Time (Day, TimeOfDay, defaultTimeLocale, diffUTCTime, fromGregorian, getCurrentTime, parseTimeM)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import qualified Data.Vector as V
@@ -90,7 +96,11 @@ import qualified UnitConversion
 
 -- | SimaPro file configuration extracted from header
 data SimaProConfig = SimaProConfig
-    { spVersion :: !Text -- SimaPro version (e.g. "9.6.0.1")
+    { spTool :: !(Maybe Text) -- The banner, the tool that wrote the file ("SimaPro 9.6.0.1")
+    , spFormatVersion :: !(Maybe Text) -- CSV Format version
+    , spExportDate :: !(Maybe Text) -- As written: it reads in a format declared further down
+    , spExportTime :: !(Maybe Text)
+    , spProject :: !(Maybe Text)
     , spFileType :: !Text -- "processes", "methods", "product stages"
     , spDelimiter :: !Char -- CSV delimiter (';', ',', '\t')
     , spDecimal :: !Char -- Decimal separator (',' or '.')
@@ -105,7 +115,11 @@ instance NFData SimaProConfig
 defaultConfig :: SimaProConfig
 defaultConfig =
     SimaProConfig
-        { spVersion = ""
+        { spTool = Nothing
+        , spFormatVersion = Nothing
+        , spExportDate = Nothing
+        , spExportTime = Nothing
+        , spProject = Nothing
         , spFileType = "processes"
         , spDelimiter = ';'
         , spDecimal = ','
@@ -171,11 +185,8 @@ data ProcessBlock = ProcessBlock
     , pbCategoryType :: !Text
     , pbType :: !Text -- "Unit process" or "System"
     , pbLocation :: !Text
-    , pbStatus :: !Text
-    , pbTimePeriod :: !Text
-    , pbTechnology :: !Text
-    , pbRecord :: !Text
     , pbComment :: !Text
+    , pbDocRows :: ![DocSection] -- One per row of a documentation field, rendered, reversed
     , pbDate :: !StatedDate
     , pbProducts :: ![ProductRow]
     , pbAvoidedProducts :: ![ProductRow]
@@ -203,11 +214,8 @@ emptyProcessBlock =
         , pbCategoryType = ""
         , pbType = ""
         , pbLocation = ""
-        , pbStatus = ""
-        , pbTimePeriod = ""
-        , pbTechnology = ""
-        , pbRecord = ""
         , pbComment = ""
+        , pbDocRows = []
         , pbDate = DateBlank
         , pbProducts = []
         , pbAvoidedProducts = []
@@ -276,6 +284,8 @@ data ParseState
     = InHeader
     | InProcessMeta !BS.ByteString -- Current metadata key being read
     | InSection !SectionType
+    | -- | In a trailing System description block, with the field whose value comes next.
+      InSystemDescription !(Maybe BS.ByteString)
     | BetweenBlocks
     deriving (Show, Eq)
 
@@ -316,6 +326,8 @@ data ParseAcc = ParseAcc
     , paProjInputParams :: ![(Text, Text)]
     , paProjCalcParams :: ![(Text, Text)]
     , paSubstanceCAS :: ![(Text, Text)] -- (name, CAS) from the trailer registry
+    , paSystemFields :: ![DocSection] -- the System description block being read, reversed
+    , paSystems :: ![SystemDescription] -- reversed
     }
 
 {- | A flow and the unit it is written in, which is what a worker keeps one
@@ -379,16 +391,17 @@ Kilobytes, whatever the file's size.
 data FileGlobals = FileGlobals
     { fgParams :: !GlobalParams
     , fgSubstanceCAS :: ![(Text, Text)]
+    , fgSystems :: ![SystemDescription]
     }
     deriving (Show, Eq, Generic)
 
 instance NFData FileGlobals
 
 instance Semigroup FileGlobals where
-    FileGlobals p1 c1 <> FileGlobals p2 c2 = FileGlobals (p1 <> p2) (c1 <> c2)
+    FileGlobals p1 c1 s1 <> FileGlobals p2 c2 s2 = FileGlobals (p1 <> p2) (c1 <> c2) (s1 <> s2)
 
 instance Monoid FileGlobals where
-    mempty = FileGlobals mempty []
+    mempty = FileGlobals mempty [] []
 
 {- | What the second pass over a range yields: the activities its blocks became
 and the flows they name, already one record per flow rather than one per row.
@@ -423,7 +436,10 @@ parseHeaderLine line
 -- | Update config from header line (takes ByteString, stores Text)
 updateConfigFromHeader :: SimaProConfig -> BS.ByteString -> BS.ByteString -> SimaProConfig
 updateConfigFromHeader cfg key value = case BS8.map toLower key of
-    k | "simapro" `BS8.isPrefixOf` k -> cfg{spVersion = decodeBS key}
+    "csv format version" -> cfg{spFormatVersion = stated}
+    "date" -> cfg{spExportDate = stated}
+    "time" -> cfg{spExportTime = stated}
+    "project" -> cfg{spProject = stated}
     "processes" -> cfg{spFileType = "processes"}
     "methods" -> cfg{spFileType = "methods"}
     "product stages" -> cfg{spFileType = "product stages"}
@@ -433,6 +449,7 @@ updateConfigFromHeader cfg key value = case BS8.map toLower key of
     "date separator" -> cfg{spDateSeparator = maybe '/' fst (BS8.uncons value)}
     _ -> cfg
   where
+    stated = nonEmptyText (localDecodeBS value)
     localDecodeBS = TE.decodeUtf8With TEE.lenientDecode
     parseDelimiter v
         | v == "Semicolon" = ';'
@@ -502,6 +519,7 @@ isMetadataKey key =
                , "Technology"
                , "Representativeness"
                , "Multiple output allocation"
+               , "Waste treatment allocation"
                , "Substitution allocation"
                , "Cut off rules"
                , "Capital goods"
@@ -730,6 +748,7 @@ parseSubstanceRow cfg line =
 -- | Process a single line (ByteString)
 processLine :: ParseAcc -> BS.ByteString -> ParseAcc
 processLine acc@ParseAcc{..} line
+    | InSystemDescription pending <- paState = systemDescriptionLine pending line acc
     -- Empty line handling
     | BS.null (BS8.strip line) = case paState of
         InProcessMeta _ -> acc{paState = BetweenBlocks}
@@ -748,6 +767,11 @@ processLine acc@ParseAcc{..} line
             }
     -- End of block
     | BS8.strip line == "End" = closeBlock acc
+    -- Outside a process, a System description opens one of the trailing blocks
+    -- the processes name; inside one, it is the field that names it.
+    | not paInProcess
+    , BS8.strip line == "System description" =
+        acc{paState = InSystemDescription Nothing, paSystemFields = []}
     -- Section detection (trailer registry blocks resolve against paInProcess)
     | Just sec <- classifyHeader paInProcess line =
         acc{paState = InSection sec}
@@ -763,12 +787,62 @@ processLine acc@ParseAcc{..} line
         if isMetadataKey (BS8.strip line)
             then acc{paState = InProcessMeta (BS8.strip line)}
             else case paState of
-                InProcessMeta key -> (editBlock (setMetadata paConfig key line) acc){paState = BetweenBlocks}
+                InProcessMeta key -> (editBlock (setMetadata paConfig key line) acc){paState = afterValue key}
                 _ -> acc
     -- Value for metadata key
     | InProcessMeta key <- paState =
-        (editBlock (setMetadata paConfig key line) acc){paState = BetweenBlocks}
+        (editBlock (setMetadata paConfig key line) acc){paState = afterValue key}
     | otherwise = acc{paLineNum = paLineNum + 1}
+
+{- | Where a field's value leaves the reading: a field holding a list takes
+every row up to the next blank line, any other one its first line only.
+-}
+afterValue :: BS.ByteString -> ParseState
+afterValue key
+    | isListKey key = InProcessMeta key
+    | otherwise = BetweenBlocks
+
+-- | The fields whose value is a list of @name;comment@ rows, one per object named.
+isListKey :: BS.ByteString -> Bool
+isListKey key = key `elem` ["Literature references", "External documents", "System description"]
+
+{- | One line of a trailing System description block: a field, the line under it
+that holds its value (blank when the field is), or the @End@ that closes it.
+-}
+systemDescriptionLine :: Maybe BS.ByteString -> BS.ByteString -> ParseAcc -> ParseAcc
+systemDescriptionLine pending line acc = case (pending, BS8.strip line) of
+    (Nothing, "End") ->
+        acc
+            { paState = BetweenBlocks
+            , paSystems = (: paSystems acc) $!! systemDescriptionOf (reverse (paSystemFields acc))
+            , paSystemFields = []
+            }
+    (Nothing, "") -> acc
+    (Nothing, field) -> acc{paState = InSystemDescription (Just field)}
+    (Just field, value) ->
+        acc
+            { paState = InSystemDescription Nothing
+            , paSystemFields = (: paSystemFields acc) $!! DocSection (decodeBS field) (cellText value)
+            }
+
+{- | A System description from its fields, in the file's order: the name and the
+category it is filed under, then every other field that says something.
+-}
+systemDescriptionOf :: [DocSection] -> SystemDescription
+systemDescriptionOf fields =
+    SystemDescription
+        { systemName = field "Name"
+        , systemCategory = field "Category"
+        , systemSections =
+            [ DocSection label text
+            | DocSection label raw <- fields
+            , label `notElem` ["Name", "Category"]
+            , Just text <- [documentedText raw]
+            ]
+        }
+  where
+    field :: Text -> Text
+    field label = fromMaybe "" (listToMaybe [T.strip t | DocSection l t <- fields, l == label])
 
 {- | Edit the block being read, or do nothing at all: the first pass keeps no
 block, so it reads no row into one and names none.
@@ -916,14 +990,47 @@ setMetadata cfg key value block = case key of
     "Process identifier" -> block{pbIdentifier = decodeBS (BS8.strip value)}
     "Type" -> block{pbType = decodeBS (BS8.strip value)}
     "Process name" -> block{pbName = decodeBS (BS8.strip value)}
-    "Status" -> block{pbStatus = decodeBS (BS8.strip value)}
-    "Time period" -> block{pbTimePeriod = decodeBS (BS8.strip value)}
     "Geography" -> block{pbLocation = decodeBS (BS8.strip value)}
-    "Technology" -> block{pbTechnology = decodeBS (BS8.strip value)}
-    "Record" -> block{pbRecord = decodeBS (BS8.strip value)}
-    "Comment" -> block{pbComment = decodeBS (BS8.strip value)}
+    "Comment" -> block{pbComment = cellText value}
     "Date" -> block{pbDate = readStatedDate cfg (decodeBS value)}
-    _ -> block
+    "PlatformId" -> block
+    -- Every other field is the documentation the process carries about itself.
+    _
+        | isListKey key -> documented (listRow cfg value)
+        | otherwise -> documented (cellText value)
+  where
+    documented :: Text -> ProcessBlock
+    documented text = block{pbDocRows = DocSection (decodeBS key) text : pbDocRows block}
+
+{- | A value as SimaPro writes it: one holding the separator or a quote is
+quoted, its own quotes doubled.
+-}
+cellText :: BS.ByteString -> Text
+cellText bs = maybe text (T.replace "\"\"" "\"") (T.stripPrefix "\"" text >>= T.stripSuffix "\"")
+  where
+    text :: Text
+    text = T.strip (decodeBS bs)
+
+-- | A @name;comment@ row of a list field, as a reader wants it: the name, then the comment in brackets.
+listRow :: SimaProConfig -> BS.ByteString -> Text
+listRow cfg value = case mapMaybe (nonEmptyText . decodeBS) (splitCSV (spDelimiter cfg) value) of
+    [] -> ""
+    name : comments -> name <> foldMap (\c -> " (" <> c <> ")") (nonEmptyText (T.intercalate "; " comments))
+
+{- | A documentation text that says something: not blank, and not the
+@Unspecified@ SimaPro fills a field with until someone chooses a value.
+-}
+documentedText :: Text -> Maybe Text
+documentedText = mfilter ((/= "unspecified") . T.toLower) . nonEmptyText
+
+-- | The rows of a block's documentation fields, each field's rows read as one section.
+documentationOf :: [DocSection] -> [DocSection]
+documentationOf rows =
+    [ DocSection (docLabel (NE.head field)) (T.intercalate "\n" texts)
+    | field <- NE.groupWith docLabel rows
+    , let texts = mapMaybe (documentedText . docText) (NE.toList field)
+    , not (null texts)
+    ]
 
 -- | What a process block's @Date@ line says.
 data StatedDate
@@ -1391,7 +1498,7 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
                 Activity
                     { activityName = effectiveActivityName
                     , activityDescription = descriptionLines
-                    , activityDocumentation = [] -- SimaPro states its provenance too; not read yet
+                    , activityDocumentation = documentationOf (reverse pbDocRows)
                     , activitySynonyms = M.empty
                     , -- The reference row's category names the block; each product
                       -- row's own travels on its exchange ('techClassification')
@@ -1723,12 +1830,68 @@ fixWindows1252Controls = T.map fixChar
 Stops at the first non-header, non-empty line.
 -}
 extractConfig :: [BS.ByteString] -> SimaProConfig
-extractConfig = foldl' step defaultConfig . takeWhile isHeaderOrEmpty
+extractConfig ls = (foldl' step defaultConfig headers){spTool = banner}
   where
+    headers = filter (not . BS.null) . map BS8.strip $ takeWhile isHeaderOrEmpty ls
     isHeaderOrEmpty l = let s = BS8.strip l in BS.null s || BS8.isPrefixOf "{" s
     step cfg line = case parseHeaderLine line of
         Just (key, value) -> updateConfigFromHeader cfg key value
         Nothing -> cfg
+    -- The first line names the tool that wrote the file, unless the file has
+    -- no banner and starts with what it holds.
+    banner :: Maybe Text
+    banner = case parseHeaderLine <$> listToMaybe headers of
+        Just (Just (tool, ""))
+            | BS8.map toLower tool `notElem` ["processes", "methods", "product stages"] -> nonEmptyText (decodeBS tool)
+        _ -> Nothing
+
+{- | The export a file's header describes, when it names the tool that wrote it.
+A date or a time the header writes in a way that does not read is left out, and
+'exportWarnings' says so.
+-}
+exportStamp :: SimaProConfig -> Maybe ExportStamp
+exportStamp cfg = stamp <$> spTool cfg
+  where
+    stamp :: Text -> ExportStamp
+    stamp tool =
+        ExportStamp
+            { exportTool = tool
+            , exportFormatVersion = spFormatVersion cfg
+            , exportDate = statedDay (exportDay cfg)
+            , exportTime = readClock =<< spExportTime cfg
+            , exportProject = spProject cfg
+            }
+
+-- | The header's export date, read in the short date format the header declares.
+exportDay :: SimaProConfig -> StatedDate
+exportDay cfg = maybe DateBlank (readStatedDate cfg) (spExportDate cfg)
+
+-- | A time as a SimaPro header writes it, @17:56:59@.
+readClock :: Text -> Maybe TimeOfDay
+readClock = parseTimeM False defaultTimeLocale "%-H:%M:%S" . T.unpack
+
+-- | The versions of the CSV format this reader was written against.
+knownFormatVersions :: [Text]
+knownFormatVersions = ["9.0.0"]
+
+-- | What the load says about a header it could not take as written.
+exportWarnings :: SimaProConfig -> [Text]
+exportWarnings cfg =
+    catMaybes
+        [ (\reason -> "header Date " <> reason <> ": the export is read with no date") <$> dateProblem (exportDay cfg)
+        , spExportTime cfg >>= \t ->
+            maybe (Just ("header Time \"" <> t <> "\" is not a time written H:mm:ss: the export is read with no time")) (const Nothing) (readClock t)
+        , mfilter (`notElem` knownFormatVersions) (spFormatVersion cfg) <&> \v ->
+            "CSV Format version " <> v <> " is not one this reader was written against (" <> T.intercalate ", " knownFormatVersions <> "): it is read as if it were"
+        ]
+  where
+    dateProblem :: StatedDate -> Maybe Text
+    dateProblem = \case
+        DateStated _ -> Nothing
+        DateBlank -> Nothing
+        DateZero -> Just "is the date SimaPro writes for none (30 December 1899)"
+        DateZeroOrDay -> Just "30/12/99 with a two-digit year is either the date SimaPro writes for none or 30 December 1999"
+        DateUnreadable reason -> Just reason
 
 {- | A file's lines, with the CR of a Windows line ending removed.
 
@@ -1807,6 +1970,8 @@ emptyParseAcc cfg sink =
         , paProjInputParams = []
         , paProjCalcParams = []
         , paSubstanceCAS = []
+        , paSystemFields = []
+        , paSystems = []
         }
 
 {- | First pass over a range: what it declares for the whole file. It keeps no
@@ -1825,6 +1990,7 @@ scanGlobals cfg range =
         , -- Restore file order (rows accumulate reversed): downstream the
           -- first binding of a name wins, and "first" must mean the file's.
           fgSubstanceCAS = reverse (paSubstanceCAS finalAcc)
+        , fgSystems = reverse (paSystems finalAcc)
         }
   where
     finalAcc :: ParseAcc
@@ -1942,7 +2108,17 @@ unitDeclarations cfg = mapMaybe row . takeWhile (/= "End") . drop 1 . dropWhile 
                     <$> readAmount (Expr.normalizeExpr (spDecimal cfg) (decodeBS howMany))
         _ -> Nothing
 
-parseSimaProCSV :: UnitConversion.UnitConfig -> FilePath -> IO (Either Text ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB))
+-- | What a SimaPro CSV file holds, read: its processes, the flows and units they name, and what the file says about itself.
+data SimaProFile = SimaProFile
+    { spfActivities :: ![Activity]
+    , spfTechFlows :: !TechFlowDB
+    , spfBioFlows :: !BioFlowDB
+    , spfWasteFlows :: !WasteFlowDB
+    , spfUnits :: !UnitDB
+    , spfDocumentation :: !DatabaseDocumentation
+    }
+
+parseSimaProCSV :: UnitConversion.UnitConfig -> FilePath -> IO (Either Text SimaProFile)
 parseSimaProCSV unitCfg path = do
     reportProgress Info $ "Loading SimaPro CSV file: " ++ path
     startTime <- getCurrentTime
@@ -1953,6 +2129,7 @@ parseSimaProCSV unitCfg path = do
 
     -- Extract config from header (fast, sequential, ~5 lines)
     let !cfg = extractConfig (linesOf utf8Content)
+    mapM_ (reportProgress Warning . T.unpack) (exportWarnings cfg)
 
     -- A file carries its own unit table, and it is the one its amounts were
     -- written against: a spelling the shipped table never had, or a size it has
@@ -2042,4 +2219,13 @@ parseSimaProCSV unitCfg path = do
             reportProgress Info $ printf "  Waste flows: %d unique" numWasteFlows
             reportProgress Info $ printf "  Units: %d unique" numUnits
 
-            return (Right (activities, techFlowDB, bioFlowDB, wasteFlowDB, unitDB))
+            return . Right $
+                SimaProFile
+                    { spfActivities = activities
+                    , spfTechFlows = techFlowDB
+                    , spfBioFlows = bioFlowDB
+                    , spfWasteFlows = wasteFlowDB
+                    , spfUnits = unitDB
+                    , spfDocumentation =
+                        DatabaseDocumentation{dbdocExport = exportStamp cfg, dbdocSystems = fgSystems globals}
+                    }

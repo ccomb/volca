@@ -1492,7 +1492,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 35: the @dates@ an activity carries, the days its dataset says it
+(revision 36: the @documentation@ of a database's setup, the export its file
+is and the system descriptions it holds;
+revision 35: the @dates@ an activity carries, the days its dataset says it
 was created, last revised, or written without saying which, and the
 @DatesChanged@ entry a comparison of two activities reports when they differ,
 and the @redated@ list of a comparison of two databases, the pairs that
@@ -1571,7 +1573,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 35
+currentWireVersion = 36
 
 getVersion :: AppM Value
 getVersion = do

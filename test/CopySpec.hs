@@ -57,6 +57,7 @@ import Types (
     UUID,
     Unit (..),
     noDates,
+    noDocumentation,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -235,6 +236,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbBioFlows = M.empty
                 , sdbWasteFlows = M.empty
                 , sdbUnits = units
+                , sdbDocumentation = noDocumentation
                 }
     case r of
         Right db -> pure db

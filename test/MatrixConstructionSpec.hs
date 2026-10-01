@@ -208,6 +208,7 @@ spec = do
                         , sdbBioFlows = bioFlowDB
                         , sdbWasteFlows = M.empty
                         , sdbUnits = unitDB
+                        , sdbDocumentation = noDocumentation
                         }
             case result of
                 Left err -> expectationFailure $ "buildDatabaseWithMatrices failed: " <> T.unpack err
@@ -294,6 +295,7 @@ spec = do
                         , sdbBioFlows = bioFlowDB
                         , sdbWasteFlows = M.empty
                         , sdbUnits = unitDB
+                        , sdbDocumentation = noDocumentation
                         }
             case result of
                 Left err -> expectationFailure $ "buildDatabaseWithMatrices failed: " <> T.unpack err
@@ -421,6 +423,7 @@ spec = do
                         , sdbBioFlows = bioFlowDB
                         , sdbWasteFlows = wasteFlowDB
                         , sdbUnits = unitDB
+                        , sdbDocumentation = noDocumentation
                         }
             case result of
                 Left err -> expectationFailure $ "buildDatabaseWithMatrices failed: " <> T.unpack err

@@ -54,6 +54,7 @@ import Types (
     TechRole (..),
     TechnosphereFlow (..),
     noDates,
+    noDocumentation,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -122,6 +123,7 @@ targetDB =
             , sdbBioFlows = M.empty
             , sdbWasteFlows = M.empty
             , sdbUnits = M.empty
+            , sdbDocumentation = noDocumentation
             }
 
 -- | Linking context against the target, with a geography policy and aliases.

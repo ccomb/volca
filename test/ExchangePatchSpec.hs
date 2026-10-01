@@ -31,6 +31,7 @@ import Types (
     exchangeFlowId,
     exchangeIsReference,
     noDates,
+    noDocumentation,
     noProperties,
     toSimpleDatabase,
  )
@@ -164,6 +165,7 @@ fixture =
                 ]
         , sdbWasteFlows = M.empty
         , sdbUnits = M.empty
+        , sdbDocumentation = noDocumentation
         }
 
 emptyMatch :: ExchangePatchMatch

@@ -156,6 +156,7 @@ mkDB offset locs bioTriples =
             , dbDependsOn = []
             , dbLinkingStats = mempty
             , dbBuiltWith = BuildInputs defaultUnitConfig mempty Declared []
+            , dbDocumentation = noDocumentation
             , dbSynonymDB = Nothing
             , dbFlowsByName = M.empty
             , dbFlowsByCAS = M.empty

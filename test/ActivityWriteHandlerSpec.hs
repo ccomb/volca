@@ -71,6 +71,7 @@ import Types (
     UUID,
     Unit (..),
     noDates,
+    noDocumentation,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -466,6 +467,7 @@ buildFixture = do
                 , sdbBioFlows = M.singleton co2Id co2Flow
                 , sdbWasteFlows = M.empty
                 , sdbUnits = unitTable
+                , sdbDocumentation = noDocumentation
                 }
     either (fail . show) pure r
 

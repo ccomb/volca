@@ -43,6 +43,7 @@ import Types (
     WasteFlow (..),
     mkPedigree,
     noDates,
+    noDocumentation,
     noProperties,
  )
 
@@ -197,6 +198,7 @@ dbOf acts =
                 ]
         , sdbWasteFlows = M.fromList [(wasteFlow, WasteFlow wasteFlow "municipal waste" kgUnit M.empty Nothing Nothing)]
         , sdbUnits = M.fromList [(kgUnit, Unit kgUnit "kg" "kg" ""), (m2Unit, Unit m2Unit "m2" "m2" "")]
+        , sdbDocumentation = noDocumentation
         }
 
 -- | The report of a one-activity database, for the many single-defect cases.

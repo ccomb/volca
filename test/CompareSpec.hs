@@ -49,6 +49,7 @@ import Types (
     TechnosphereFlow (..),
     Unit (..),
     noDates,
+    noDocumentation,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -315,6 +316,7 @@ database rows = do
                 , sdbBioFlows = M.fromList [(bfId f, f) | f <- [co2, co2Renumbered, water]]
                 , sdbWasteFlows = M.empty
                 , sdbUnits = M.fromList [(unitId u, u) | u <- [kg, gram, kgAgain]]
+                , sdbDocumentation = noDocumentation
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . show) pure built
 
