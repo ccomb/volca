@@ -113,11 +113,13 @@ def test_a_database_comparison_keeps_its_counts_beside_truncated_lists():
             "addedCount": 2,
             "removedCount": 0,
             "changedCount": 1,
+            "redatedCount": 3,
             "ambiguousCount": 1,
             "unchangedCount": 40,
             "added": [summary("oat production")],
             "removed": [],
             "changed": [{"match": "SameProduct", "comparison": COMPARISON}],
+            "redated": [{"match": "SameProcessId", "comparison": COMPARISON}],
             "ambiguous": [
                 {"match": "SameNames", "base": [summary("rye production"), summary("rye production")], "other": [summary("rye production")]}
             ],
@@ -126,6 +128,7 @@ def test_a_database_comparison_keeps_its_counts_beside_truncated_lists():
 
     assert (d.added_count, len(d.added)) == (2, 1)
     assert d.changed[0].matched_on == "SameProduct"
+    assert (d.redated_count, d.redated[0].matched_on) == (3, "SameProcessId")
     assert d.changed[0].comparison.exchanges[0].flow_name == "Carbon dioxide, fossil"
     assert (d.ambiguous[0].matched_on, len(d.ambiguous[0].base), len(d.ambiguous[0].other)) == ("SameNames", 2, 1)
 

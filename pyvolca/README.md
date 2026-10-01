@@ -1953,18 +1953,21 @@ flows were truncated. If you need exhaustive coverage, pass a generous
 Two databases side by side, as `Client.compare_databases` returns them.
 
 The ``*_count`` fields always cover the full lists, which a ``limit`` may
-have truncated.
+have truncated. A pair whose only difference is the dates its datasets
+state is in ``redated``, not ``changed``.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `added_count` | `int` | _required_ |
 | `removed_count` | `int` | _required_ |
 | `changed_count` | `int` | _required_ |
+| `redated_count` | `int` | _required_ |
 | `ambiguous_count` | `int` | _required_ |
 | `unchanged_count` | `int` | _required_ |
 | `added` | `list[Activity]` | _required_ |
 | `removed` | `list[Activity]` | _required_ |
 | `changed` | `list[ChangedActivity]` | _required_ |
+| `redated` | `list[ChangedActivity]` | _required_ |
 | `ambiguous` | `list[AmbiguousActivities]` | _required_ |
 
 ### `DatabaseInfo`

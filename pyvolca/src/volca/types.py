@@ -2686,17 +2686,20 @@ class DatabaseComparison:
     """Two databases side by side, as :meth:`Client.compare_databases` returns them.
 
     The ``*_count`` fields always cover the full lists, which a ``limit`` may
-    have truncated.
+    have truncated. A pair whose only difference is the dates its datasets
+    state is in ``redated``, not ``changed``.
     """
 
     added_count: int
     removed_count: int
     changed_count: int
+    redated_count: int
     ambiguous_count: int
     unchanged_count: int
     added: list[Activity]
     removed: list[Activity]
     changed: list[ChangedActivity]
+    redated: list[ChangedActivity]
     ambiguous: list[AmbiguousActivities]
 
     @classmethod
@@ -2705,10 +2708,12 @@ class DatabaseComparison:
             added_count=d["addedCount"],
             removed_count=d["removedCount"],
             changed_count=d["changedCount"],
+            redated_count=d["redatedCount"],
             ambiguous_count=d["ambiguousCount"],
             unchanged_count=d["unchangedCount"],
             added=[Activity.from_json(a) for a in d["added"]],
             removed=[Activity.from_json(a) for a in d["removed"]],
             changed=[ChangedActivity.from_json(c) for c in d["changed"]],
+            redated=[ChangedActivity.from_json(c) for c in d["redated"]],
             ambiguous=[AmbiguousActivities.from_json(a) for a in d["ambiguous"]],
         )
