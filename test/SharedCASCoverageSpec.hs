@@ -35,6 +35,7 @@ import Test.Hspec
 
 import Method.Mapping
 import Method.ParserSimaPro (parseSimaProMethodCSVBytes)
+import Method.SimaProScoring (SimaProMethodFile (..))
 import Method.Types (Compartment (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..), Subcompartment (..))
 import SubstanceRegistry (CASNumber (..))
 import SynonymDB (buildFromPairs, emptySynonymDB, normalizeName)
@@ -515,7 +516,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure ("Parse failed: " ++ err)
                 Right coll -> do
-                    mappings <- concat <$> mapM (mapMethodFlows mapCtx) (mcMethods coll)
+                    mappings <- concat <$> mapM (mapMethodFlows mapCtx) (smfMethods coll)
                     let tables = buildMethodTables mempty mempty M.empty mappings
                     M.lookup (CASNumber waterCAS, Just NaturalResource, Subcompartment "") (mtCasCF tables)
                         `shouldBe` Nothing

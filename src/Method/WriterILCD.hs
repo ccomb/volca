@@ -356,8 +356,6 @@ lossWarnings mc =
     mapMaybe
         countWarning
         [ (perFactorUnits, "characterization factors carry a per-factor flow unit that the ILCD method format cannot store; re-import reads each method's reference unit")
-        , (length (mcDamageCategories mc), "damage categories are not part of the ILCD method format and are omitted")
-        , (length (mcNormWeightSets mc), "normalization/weighting sets are not part of the ILCD method format and are omitted")
         , (length (mcScoringSets mc), "formula scoring sets are not part of the ILCD method format and are omitted")
         ]
   where

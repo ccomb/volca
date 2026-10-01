@@ -21,6 +21,7 @@ import Method.Parser
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.ParserNW (parseNormWeightCSVBytes)
 import Method.ParserSimaPro (isSimaProMethodCSV, parseSimaProMethodCSVBytes)
+import Method.SimaProScoring (DamageCategory (..), NormWeightSet (..), SimaProMethodFile (..))
 import Method.Types
 import SynonymDB
 import Types (
@@ -921,14 +922,14 @@ spec = do
             csv <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
-                Right coll -> length (mcMethods coll) `shouldBe` 3
+                Right coll -> length (smfMethods coll) `shouldBe` 3
 
         it "parses Climate change category correctly" $ do
             csv <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right coll -> do
-                    let cc = head (mcMethods coll)
+                    let cc = head (smfMethods coll)
                     methodName cc `shouldBe` "Climate change"
                     methodUnit cc `shouldBe` "kg CO2 eq"
                     methodCategory cc `shouldBe` "Climate change"
@@ -940,7 +941,7 @@ spec = do
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right coll -> do
-                    let co2 = head (methodFactors (head (mcMethods coll)))
+                    let co2 = head (methodFactors (head (smfMethods coll)))
                     mcfFlowName co2 `shouldBe` "Carbon dioxide, fossil"
                     mcfValue co2 `shouldBe` 1.0
                     mcfDirection co2 `shouldBe` Output
@@ -955,7 +956,7 @@ spec = do
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right coll -> do
-                    let cfs = methodFactors (head (mcMethods coll))
+                    let cfs = methodFactors (head (smfMethods coll))
                     map mcfCompartment cfs `shouldBe` [Nothing]
 
         it "parses Methane CF = 29.8" $ do
@@ -963,7 +964,7 @@ spec = do
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right coll -> do
-                    let ch4 = methodFactors (head (mcMethods coll)) !! 1
+                    let ch4 = methodFactors (head (smfMethods coll)) !! 1
                     mcfFlowName ch4 `shouldBe` "Methane, fossil"
                     mcfValue ch4 `shouldBe` 29.8
 
@@ -972,7 +973,7 @@ spec = do
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right coll -> do
-                    let wu = mcMethods coll !! 2
+                    let wu = smfMethods coll !! 2
                     methodName wu `shouldBe` "Water use"
                     methodUnit wu `shouldBe` "m3 depriv."
                     let waterCF = head (methodFactors wu)
@@ -1005,7 +1006,7 @@ spec = do
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right coll -> do
-                    let factors = methodFactors (head (mcMethods coll))
+                    let factors = methodFactors (head (smfMethods coll))
                         byName n = [cf | cf <- factors, mcfFlowName cf == n]
                     case byName "Water, turbine use, unspecified natural origin, CH" of
                         [chCF] -> do
@@ -1021,7 +1022,7 @@ spec = do
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right coll -> do
-                    let factors = methodFactors (mcMethods coll !! 1)
+                    let factors = methodFactors (smfMethods coll !! 1)
                     mcfCAS (head factors) `shouldBe` Just "7664-41-7"
                     -- Only the registry number is zero-padded. Stripping the
                     -- fixed-width group segment too would key this substance as
@@ -1035,7 +1036,7 @@ spec = do
             case traverse parseSimaProMethodCSVBytes [csv, csv] of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right [coll1, coll2] ->
-                    map methodId (mcMethods coll1) `shouldBe` map methodId (mcMethods coll2)
+                    map methodId (smfMethods coll1) `shouldBe` map methodId (smfMethods coll2)
                 Right _ -> expectationFailure "unreachable"
 
         it "parses 3 damage categories" $ do
@@ -1043,8 +1044,8 @@ spec = do
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right coll -> do
-                    length (mcDamageCategories coll) `shouldBe` 3
-                    let dc = head (mcDamageCategories coll)
+                    length (smfDamages coll) `shouldBe` 3
+                    let dc = head (smfDamages coll)
                     dcName dc `shouldBe` "Climate change"
                     dcUnit dc `shouldBe` "kg CO2 eq"
                     dcImpacts dc `shouldBe` [("Climate change", 1.0)]
@@ -1054,8 +1055,8 @@ spec = do
             case parseSimaProMethodCSVBytes csv of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right coll -> do
-                    length (mcNormWeightSets coll) `shouldBe` 1
-                    let nw = head (mcNormWeightSets coll)
+                    length (smfNWSets coll) `shouldBe` 1
+                    let nw = head (smfNWSets coll)
                     nwName nw `shouldBe` "Test NW set"
                     case M.lookup "Climate change" (nwNormalization nw) of
                         Just v -> v `shouldBe` 1.32396265000545e-4

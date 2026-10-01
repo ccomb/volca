@@ -107,7 +107,7 @@ spec = do
             uraniumOre = mkCF "Uranium ore, 1.11 GJ per kg" 1110
             coal = mkCF "Coal" 18
             method = mkMethod "Resource use, fossils" [uranium, uraniumOre, coal]
-            collection = MethodCollection [method] [] [] []
+            collection = MethodCollection [method] []
 
         it "leaves the collection unchanged when there are no patches" $ do
             let (patched, stats) = applyMethodPatches [] collection

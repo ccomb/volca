@@ -10,7 +10,7 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import Method.SimaProScoring
-import Method.Types hiding (DamageCategory (..), NormWeightSet (..))
+import Method.Types
 
 method :: Text -> Text -> Method
 method name unit =

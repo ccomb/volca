@@ -17,10 +17,8 @@ module Method.Types (
     Location (..),
     Subcompartment (..),
 
-    -- * Method Collection (with normalization/weighting)
+    -- * Method Collection
     MethodCollection (..),
-    DamageCategory (..),
-    NormWeightSet (..),
 
     -- * Scoring sets (formula-based N/W)
     ScoringSet (..),
@@ -154,39 +152,12 @@ data Method = Method
     }
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
-{- | Damage category: groups impact subcategories into a parent category.
-E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.
-Each impact maps with a factor (usually 1.0).
+{- | A method collection: its impact categories and the scoring sets that
+weigh them into single scores, whether read from the method file or declared
+in the configuration.
 -}
-data DamageCategory = DamageCategory
-    { dcName :: !Text
-    -- ^ Damage category name
-    , dcUnit :: !Text
-    -- ^ Unit (e.g., "CTUe")
-    , dcImpacts :: ![(Text, Double)]
-    -- ^ [(subcategory name, aggregation factor)]
-    }
-    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
-
-{- | Normalization and weighting factor set.
-Normalization: score is divided by the reference-per-person value to get person-equivalents.
-Weighting assigns relative importance for single-score aggregation.
--}
-data NormWeightSet = NormWeightSet
-    { nwName :: !Text
-    -- ^ Set name
-    , nwNormalization :: !(M.Map Text Double)
-    -- ^ Damage category → reference per person value (divisor)
-    , nwWeighting :: !(M.Map Text Double)
-    -- ^ Damage category → weight
-    }
-    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
-
--- | A method collection with optional damage categories and NW sets.
 data MethodCollection = MethodCollection
     { mcMethods :: ![Method]
-    , mcDamageCategories :: ![DamageCategory]
-    , mcNormWeightSets :: ![NormWeightSet]
     , mcScoringSets :: ![ScoringSet]
     }
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)

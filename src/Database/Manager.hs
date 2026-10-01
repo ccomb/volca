@@ -55,6 +55,7 @@ module Database.Manager (
     listMethodCollections,
     loadMethodCollection,
     loadMethodCollectionFromConfig,
+    applyMethodConfig,
     unloadMethodCollection,
     getLoadedMethods,
     getMethodCollection,
@@ -148,6 +149,7 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE, wit
 import Data.Aeson (FromJSON (..), ToJSON (..), (.:), (.:?), (.=))
 import qualified Data.Aeson as A
 import Data.Bifunctor (bimap, first)
+import Data.Bitraversable (bitraverse)
 import Data.Char (toLower)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
@@ -307,6 +309,7 @@ import qualified Method.Parser.OlcaSchema as OlcaSchema
 import Method.ParserCSV (parseMethodCSVBytes, stripBOM)
 import Method.ParserSimaPro (isSimaProMethodCSV, parseSimaProMethodCSVBytes)
 import qualified Method.Patch
+import Method.SimaProScoring (SimaProMethodFile (..), translateScoring)
 import SynonymDB.Extract (extractFromEcoSpold2, extractFromILCDFlows, synonymPairsToCSV)
 
 -- | A fully loaded database with solver ready for queries
@@ -1499,12 +1502,11 @@ loadAllDatabases manager allDbConfigs =
 loadConfiguredMethods :: DatabaseManager -> Config -> IO ()
 loadConfiguredMethods manager config =
     forM_ (filter mcActive (cfgMethods config)) $ \mc ->
-        loadMethodCollectionFromConfig mc >>= \case
+        loadConfiguredCollection mc >>= \case
             Left err ->
                 reportError $
                     "  [FAIL] Failed to load method " <> T.unpack (mcName mc) <> ": " <> T.unpack err
-            Right (collection0, flowInfo) -> do
-                let (collection, patchStats) = applyMethodConfig mc collection0
+            Right ((collection, patchStats), flowInfo) -> do
                 atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert (mcName mc) collection)
                 reportProgress Info $
                     "  [OK] Loaded method: "
@@ -1753,17 +1755,34 @@ configToScoringSet ssc =
         }
 
 {- | Fold a 'MethodConfig's post-parse adjustments into a freshly parsed
-collection: inject the configured scoring sets, then apply the declarative
-CF patches ('Config.mcPatches'). Pure: reapplying the same config to the
-same source file always yields the same result, so a reload never
-compounds a patch. Also returns, per patch, how many CFs it touched (for
-the zero-touch warning at the call site).
+collection: add the configured scoring sets after the ones read from the
+method file, then apply the declarative CF patches ('Config.mcPatches').
+Pure: reapplying the same config to the same source file always yields the
+same result, so a reload never compounds a patch. Also returns, per patch,
+how many CFs it touched (for the zero-touch warning at the call site).
+
+Scores are reported by set name, so a configured set named like one read
+from the file would hide it; the load stops and names it instead.
 -}
-applyMethodConfig :: MethodConfig -> MethodCollection -> (MethodCollection, [(Config.MethodPatch, Int)])
-applyMethodConfig mc collection0 =
-    let scoringSets = map configToScoringSet (Config.mcScoringSets mc)
-        withScoring = collection0{Method.Types.mcScoringSets = scoringSets}
-     in Method.Patch.applyMethodPatches (Config.mcPatches mc) withScoring
+applyMethodConfig :: MethodConfig -> MethodCollection -> Either Text (MethodCollection, [(Config.MethodPatch, Int)])
+applyMethodConfig mc collection0 = do
+    let configured = map configToScoringSet (Config.mcScoringSets mc)
+        fromFile = Method.Types.mcScoringSets collection0
+        clashes = [ssName s | s <- configured, ssName s `elem` map ssName fromFile]
+    unless (null clashes) $
+        Left
+            ( "scoring set "
+                <> T.intercalate ", " (map (\n -> "'" <> n <> "'") clashes)
+                <> " is declared in the configuration and also read from the method file; rename the configured one"
+            )
+    pure (Method.Patch.applyMethodPatches (Config.mcPatches mc) collection0{Method.Types.mcScoringSets = fromFile <> configured})
+
+{- | Load a configured collection and fold its configuration in: the
+collection, how many factors each patch touched, and its ILCD flow
+definitions.
+-}
+loadConfiguredCollection :: MethodConfig -> IO (Either Text ((MethodCollection, [(Config.MethodPatch, Int)]), M.Map UUID ILCDFlowInfo))
+loadConfiguredCollection mc = (>>= bitraverse (applyMethodConfig mc) pure) <$> loadMethodCollectionFromConfig mc
 
 {- | Surface a patch that matched no characterization factor: the selector is
 almost certainly wrong (a typo'd category or flow name), and staying silent
@@ -3911,7 +3930,7 @@ data MethodFiles = MethodFiles
 -- | What came back from parsing them, before the collection is assembled.
 data ParsedMethodFiles = ParsedMethodFiles
     { pmfXmlMethods :: ![Method]
-    , pmfCsvCollections :: ![MethodCollection]
+    , pmfCsvCollections :: ![SimaProMethodFile]
     -- ^ SimaPro method exports, which are whole collections
     , pmfCsvMethods :: ![Method]
     -- ^ tabular CSVs, which are loose methods
@@ -3932,7 +3951,7 @@ it with its file), so a failure says so.
 -}
 builtinMethodCollection :: BuiltinMethod -> Either Text (MethodCollection, M.Map UUID ILCDFlowInfo)
 builtinMethodCollection builtin =
-    bimap unreadable (\methods -> (MethodCollection methods [] [] [], M.empty)) $
+    bimap unreadable (\methods -> (MethodCollection methods [], M.empty)) $
         parseMethodCSVBytes (BL.toStrict (builtinMethodContent builtin))
   where
     unreadable :: String -> Text
@@ -3954,9 +3973,10 @@ loadMethodCollectionFromPath path = runExceptT $ do
         throwE ("No method files (.xml/.csv/.json) found in: " <> T.pack (mfDirectory files))
     flowInfo <- ExceptT $ flowDefinitionsFor source (mfDirectory files)
     parsed <- liftIO $ parseMethodFiles flowInfo files
-    collection <- except (collectionOf parsed)
+    (collection, scoringWarnings) <- except (collectionOf parsed)
     liftIO $ reportProgress Info (parseCounts parsed)
     liftIO $ mapM_ (reportProgress Info) (nwCounts collection)
+    liftIO $ mapM_ (reportProgress Warning . ("  " <>) . T.unpack) scoringWarnings
     liftIO $ mapM_ (reportProgress Warning) (parseFailures parsed)
     pure (collection, flowInfo)
   where
@@ -4065,25 +4085,26 @@ loadMethodCollectionFromPath path = runExceptT $ do
                 , pmfErrors = xmlErrs ++ csvErrs ++ jsonErrs
                 }
 
-    -- Merge: SimaPro CSVs are MethodCollections, tabular CSVs are [Method].
-    collectionOf :: ParsedMethodFiles -> Either Text MethodCollection
+    {- Merge: SimaPro CSVs are whole method files, tabular CSVs are [Method].
+    The single score is translated once over the merged collection, since a
+    damage in one file may group impact categories another file declares. -}
+    collectionOf :: ParsedMethodFiles -> Either Text (MethodCollection, [Text])
     collectionOf parsed = case (allMethods, pmfErrors parsed) of
         ([], firstErr : _) -> Left ("All method files failed to parse: " <> T.pack firstErr)
         _ ->
-            Right $
-                MethodCollection
-                    allMethods
-                    -- Merge NW data from all SimaPro CSV sources
-                    (concatMap mcDamageCategories (pmfCsvCollections parsed))
-                    (concatMap mcNormWeightSets (pmfCsvCollections parsed))
-                    []
+            let (sets, warnings) =
+                    translateScoring
+                        allMethods
+                        (concatMap smfDamages (pmfCsvCollections parsed))
+                        (concatMap smfNWSets (pmfCsvCollections parsed))
+             in Right (MethodCollection allMethods sets, warnings)
       where
         allMethods :: [Method]
         allMethods =
             pmfXmlMethods parsed
                 ++ pmfCsvMethods parsed
                 ++ pmfJsonMethods parsed
-                ++ concatMap mcMethods (pmfCsvCollections parsed)
+                ++ concatMap smfMethods (pmfCsvCollections parsed)
 
     parseCounts :: ParsedMethodFiles -> String
     parseCounts parsed =
@@ -4097,14 +4118,12 @@ loadMethodCollectionFromPath path = runExceptT $ do
 
     nwCounts :: MethodCollection -> Maybe String
     nwCounts collection
-        | null (mcDamageCategories collection) = Nothing
+        | null (Method.Types.mcScoringSets collection) = Nothing
         | otherwise =
             Just $
                 "  "
-                    <> show (length (mcDamageCategories collection))
-                    <> " damage categories, "
-                    <> show (length (mcNormWeightSets collection))
-                    <> " normalization-weighting set(s)"
+                    <> show (length (Method.Types.mcScoringSets collection))
+                    <> " scoring set(s) read from the file's damage categories"
 
     parseFailures :: ParsedMethodFiles -> Maybe String
     parseFailures parsed
@@ -4152,14 +4171,12 @@ loadMethodCollection manager name = do
                 then return $ Right ()
                 else do
                     reportProgress Info $ "[STARTING] Loading method: " <> T.unpack name
-                    result <- loadMethodCollectionFromConfig mc
+                    result <- loadConfiguredCollection mc
                     case result of
                         Left err -> do
                             reportProgress Error $ "  [FAIL] " <> T.unpack name <> ": " <> T.unpack err
                             return $ Left err
-                        Right (collection0, flowInfo) -> do
-                            -- Inject scoring sets from TOML config, apply declarative CF patches
-                            let (collection, patchStats) = applyMethodConfig mc collection0
+                        Right ((collection, patchStats), flowInfo) -> do
                             atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert name collection)
                             clearMethodMappingCache manager
                             let methods = mcMethods collection

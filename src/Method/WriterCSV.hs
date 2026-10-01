@@ -156,8 +156,6 @@ lossWarnings mc =
         (\(count, what) -> if count == 0 then Nothing else Just (T.pack (show count) <> " " <> what))
         [ (length descriptions, "impact category descriptions are not representable in columnar CSV")
         , (lostMethodologies, "distinct stated methodologies; the single '# methodology' comment is omitted (it must be shared by every impact category)")
-        , (length (mcDamageCategories mc), "damage categories are not representable in columnar CSV")
-        , (length (mcNormWeightSets mc), "normalization/weighting sets are not representable in columnar CSV")
         , (length (mcScoringSets mc), "formula scoring sets are not representable in columnar CSV")
         ]
   where

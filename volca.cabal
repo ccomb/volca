@@ -240,6 +240,7 @@ test-suite lca-tests
                      , MatrixExportSpec
                      , MethodSpec
                      , MethodPatchSpec
+                     , MethodConfigScoringSpec
                      , ExchangePatchSpec
                      , SimaProParserSpec
                      , SimaProRegistryCASSpec

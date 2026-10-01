@@ -53,7 +53,7 @@ mkMethod n name cfs =
         }
 
 collection :: [Method] -> MethodCollection
-collection ms = MethodCollection ms [] [] []
+collection ms = MethodCollection ms []
 
 {- | What a method reads back as: the methodology is the only field the
 format cannot carry, so re-import stamps its own.
@@ -162,19 +162,15 @@ spec = describe "Method.WriterOlcaSchema" $ do
                     other -> expectationFailure ("expected one entry, got " <> show (length other))
 
     describe "representation-loss warnings" $ do
-        it "counts methodology labels, blank group labels, damage, NW and scoring sets" $ do
+        it "counts methodology labels, blank group labels and scoring sets" $ do
             let m1 = (mkMethod 7 "Climate change" []){methodMethodology = Just "Environmental Footprint"}
                 m2 = (mkMethod 8 "Acidification" []){methodCategory = ""}
-                dc = DamageCategory "Human health" "DALY" [("Climate change", 1)]
-                nw = NormWeightSet "EF" (M.singleton "Climate change" 1) M.empty
                 ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
-            case serializeOlcaMethodEntries (MethodCollection [m1, m2] [dc] [nw] [ss]) of
+            case serializeOlcaMethodEntries (MethodCollection [m1, m2] [ss]) of
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, warnings) -> do
                     warnings `shouldSatisfy` any (T.isInfixOf "1 methodology labels")
                     warnings `shouldSatisfy` any (T.isInfixOf "1 blank impact category group labels")
-                    warnings `shouldSatisfy` any (T.isInfixOf "1 damage categories")
-                    warnings `shouldSatisfy` any (T.isInfixOf "1 normalization/weighting sets")
                     warnings `shouldSatisfy` any (T.isInfixOf "1 formula scoring sets")
 
         it "does not warn about the methodology re-import itself stamps" $ do

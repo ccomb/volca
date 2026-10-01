@@ -5,6 +5,7 @@ module MethodWriterSimaProSpec (spec) where
 
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
+import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -14,6 +15,7 @@ import Test.Hspec
 
 import Database.Export (parseMethodExportFormat)
 import Method.ParserSimaPro (isSimaProMethodCSV, parseSimaProMethodCSVBytes)
+import Method.SimaProScoring (DamageCategory (..), NormWeightSet (..), SimaProMethodFile (..), simaProCollection)
 import Method.Types
 import Method.WriterSimaPro (serializeSimaProMethodCSV)
 import SimaPro.Writer (defaultWriterConfig)
@@ -44,7 +46,32 @@ mkMethod name cfs =
         }
 
 collection :: [Method] -> MethodCollection
-collection ms = MethodCollection ms [] [] []
+collection ms = MethodCollection ms []
+
+-- | Parse a SimaPro method file into the collection the engine keeps.
+parseCollection :: BS.ByteString -> Either String MethodCollection
+parseCollection = fmap (fst . simaProCollection) . parseSimaProMethodCSVBytes
+
+{- | A normalization is kept as its inverse and written back inverted, so a
+round trip compares it within rounding. Damages come back in the order of
+their variable names, the file's own order having no place in a scoring set.
+Everything else compares exactly.
+-}
+withoutNormalization :: SimaProMethodFile -> SimaProMethodFile
+withoutNormalization f =
+    f
+        { smfDamages = sortOn dcName (smfDamages f)
+        , smfNWSets = map (\nw -> nw{nwNormalization = M.empty}) (smfNWSets f)
+        }
+
+normalizations :: SimaProMethodFile -> [(Text, Text, Double)]
+normalizations f = [(nwName nw, k, v) | nw <- smfNWSets f, (k, v) <- M.toList (nwNormalization nw)]
+
+closeTo :: [(Text, Text, Double)] -> [(Text, Text, Double)] -> Bool
+closeTo xs ys = length xs == length ys && and (zipWith same xs ys)
+  where
+    same :: (Text, Text, Double) -> (Text, Text, Double) -> Bool
+    same (s1, k1, a) (s2, k2, b) = s1 == s2 && k1 == k2 && abs (a - b) <= 1e-12 * max (abs a) (abs b)
 
 -- | Serialize with a fixed collection name, decoding the bytes for inspection.
 serialize :: MethodCollection -> Either Text (Text, [Text])
@@ -55,29 +82,32 @@ serialize mc =
 spec :: Spec
 spec = describe "Method.WriterSimaPro" $ do
     describe "round-trip with the SimaPro method parser" $ do
-        it "parse → write → parse reproduces the collection exactly" $ do
+        it "parse → write → parse reproduces the file, damages and normalization-weighting sets included" $ do
             raw <- BS.readFile "test/data/simapro_method.csv"
             case parseSimaProMethodCSVBytes raw of
                 Left err -> expectationFailure ("fixture parse failed: " <> err)
-                Right c1 ->
-                    case serializeSimaProMethodCSV defaultWriterConfig "fallback" c1 of
+                Right f1 ->
+                    case serializeSimaProMethodCSV defaultWriterConfig "fallback" (fst (simaProCollection f1)) of
                         Left err -> expectationFailure ("write failed: " <> T.unpack err)
                         Right (bytes, warnings) -> do
                             warnings `shouldBe` []
                             case parseSimaProMethodCSVBytes bytes of
                                 Left err -> expectationFailure ("re-parse failed: " <> err)
-                                Right c2 -> c2 `shouldBe` c1
+                                Right f2 -> do
+                                    smfDamages f1 `shouldSatisfy` (not . null)
+                                    withoutNormalization f2 `shouldBe` withoutNormalization f1
+                                    normalizations f2 `shouldSatisfy` closeTo (normalizations f1)
 
         it "write → parse → write is byte-stable and self-detecting" $ do
             raw <- BS.readFile "test/data/simapro_method.csv"
-            case parseSimaProMethodCSVBytes raw of
+            case parseCollection raw of
                 Left err -> expectationFailure ("fixture parse failed: " <> err)
                 Right c1 ->
                     case serializeSimaProMethodCSV defaultWriterConfig "fallback" c1 of
                         Left err -> expectationFailure ("write failed: " <> T.unpack err)
                         Right (b1, _) -> do
                             isSimaProMethodCSV b1 `shouldBe` True
-                            case parseSimaProMethodCSVBytes b1 of
+                            case parseCollection b1 of
                                 Left err -> expectationFailure ("re-parse failed: " <> err)
                                 Right c2 ->
                                     case serializeSimaProMethodCSV defaultWriterConfig "fallback" c2 of
@@ -86,7 +116,7 @@ spec = describe "Method.WriterSimaPro" $ do
 
         it "keeps the original file-level Name via the shared methodology" $ do
             raw <- BS.readFile "test/data/simapro_method.csv"
-            case parseSimaProMethodCSVBytes raw of
+            case parseCollection raw of
                 Left err -> expectationFailure ("fixture parse failed: " <> err)
                 Right c1 ->
                     case serialize c1 of
@@ -98,7 +128,7 @@ spec = describe "Method.WriterSimaPro" $ do
             case serialize (collection [m]) of
                 Left err -> expectationFailure (T.unpack err)
                 Right (out, _) ->
-                    case parseSimaProMethodCSVBytes (TE.encodeUtf8 out) of
+                    case parseCollection (TE.encodeUtf8 out) of
                         Left err -> expectationFailure ("re-parse failed: " <> err)
                         Right c2 -> map methodName (mcMethods c2) `shouldBe` ["Ecotoxicity; freshwater"]
 
@@ -110,7 +140,7 @@ spec = describe "Method.WriterSimaPro" $ do
                 Right (out, warnings) -> do
                     warnings `shouldBe` []
                     out `shouldSatisfy` T.isInfixOf "Raw;in water;Water, FR;;42.95;kg"
-                    case parseSimaProMethodCSVBytes (TE.encodeUtf8 out) of
+                    case parseCollection (TE.encodeUtf8 out) of
                         Left err -> expectationFailure ("re-parse failed: " <> err)
                         Right c2 -> do
                             let cfs = concatMap methodFactors (mcMethods c2)
@@ -154,20 +184,15 @@ spec = describe "Method.WriterSimaPro" $ do
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, warnings) -> warnings `shouldSatisfy` any (T.isInfixOf "direction")
 
-        it "skips a normalization-weighting set with no factors, with a warning" $ do
-            let mc = MethodCollection [mkMethod "Climate change" []] [] [NormWeightSet "Empty set" M.empty M.empty] []
+        it "leaves out a scoring set SimaPro cannot hold, with a warning, and writes the rest" $ do
+            let ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty (Just 1000) M.empty DeclaredInConfig
+                mc = MethodCollection [mkMethod "Climate change" []] [ss]
             case serialize mc of
                 Left err -> expectationFailure (T.unpack err)
                 Right (out, warnings) -> do
-                    out `shouldNotSatisfy` T.isInfixOf "Empty set"
-                    warnings `shouldSatisfy` any (T.isInfixOf "no factors")
-
-        it "warns that formula scoring sets are not exported" $ do
-            let ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
-                mc = MethodCollection [mkMethod "Climate change" []] [] [] [ss]
-            case serialize mc of
-                Left err -> expectationFailure (T.unpack err)
-                Right (_, warnings) -> warnings `shouldSatisfy` any (T.isInfixOf "scoring sets")
+                    out `shouldNotSatisfy` T.isInfixOf "EF score"
+                    out `shouldSatisfy` T.isInfixOf "Climate change"
+                    warnings `shouldSatisfy` any (T.isInfixOf "Scoring set 'EF score' is not exported: SimaPro has no place for a display multiplier.")
 
     describe "exportability guard" $ do
         it "rejects an empty collection" $
@@ -189,7 +214,7 @@ spec = describe "Method.WriterSimaPro" $ do
             -- A blank name line would make the re-import take the next section
             -- keyword as the name and drop that section's factors.
             let nw = NormWeightSet "  " (M.singleton "Climate change" 1.0) M.empty
-                mc = MethodCollection [mkMethod "Climate change" []] [] [nw] []
+                mc = fst (simaProCollection (SimaProMethodFile [mkMethod "Climate change" []] [] [nw]))
             serialize mc `shouldSatisfy` isRefused "blank name"
 
     describe "format dispatch (Database.Export)" $ do

@@ -257,7 +257,7 @@ compareCategoriesSpec = describe "compareCategories" $ do
         counts (compared [factor "zinc" 1] [factor "zinc" (1 + 1e-12)]) `shouldBe` [0, 0, 0, 1, 0, 0]
 
 collection :: [Method] -> MethodCollection
-collection ms = MethodCollection{mcMethods = ms, mcDamageCategories = [], mcNormWeightSets = [], mcScoringSets = []}
+collection ms = MethodCollection{mcMethods = ms, mcScoringSets = []}
 
 collections :: [ForcedPair] -> [Method] -> [Method] -> Either CompareMethodsRefusal MethodCollectionComparison
 collections forced = scoped forced EveryCategory

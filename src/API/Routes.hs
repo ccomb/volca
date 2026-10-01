@@ -32,7 +32,7 @@ import Data.Foldable (asum)
 import Data.List (intercalate, nub, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.OpenApi (OpenApi, ToSchema)
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -58,7 +58,8 @@ import qualified Matrix
 import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
-import Method.Types (DamageCategory (..), Method (..), MethodCF (..), MethodCollection (..), NormWeightSet (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
+import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
+import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
 import qualified Method.Types as MT
 import Numeric (showFFloat)
 import Progress (ProgressLevel (Info, Warning), getLogLines, reportProgress)
@@ -454,25 +455,6 @@ Built in two steps:
 volcaOpenApi :: OpenApi
 volcaOpenApi = API.OpenApi.stampInfo (API.OpenApi.enrichWithResources (toOpenApi (Proxy :: Proxy LCAAPI)))
 
-{- | The damage category each sub-indicator rolls up into, which is the table
-'enrichWithNW' reads.
-
-The table holds one category per sub-indicator, so a collection naming two
-loses one: 'M.fromList' keeps the last row, and that sub-indicator's share of
-the other category disappears from the weighted score without a word. No
-method that loads today names two - the only ones declaring damage categories
-at all are the two EF 3.1 files, and no sub-indicator there appears under more
-than one. An endpoint method is built the other way round, a single indicator
-feeding two damages, so the day one is loaded this type, 'enrichWithNW' and
-the single category 'lrDamageCategory' carries all have to change together.
-Refusing a repeated key here would bring that day forward without making the
-score such a method needs any more expressible, which is why the key is left
-as it is rather than checked.
--}
-damageCategoryIndex :: [DamageCategory] -> M.Map Text Text
-damageCategoryIndex damageCats =
-    M.fromList [(subName, dcName dc) | dc <- damageCats, (subName, _) <- dcImpacts dc]
-
 -- ============================================================================
 -- Hoisted helpers – previously in lcaServer's `where`. Lifted to top level so
 -- non-Servant callers (notably src/API/BatchImpacts.hs and any client of the
@@ -481,43 +463,31 @@ damageCategoryIndex damageCats =
 -- Behavior is byte-identical to the original where-bound versions.
 -- ============================================================================
 
--- | Enrich a raw LCIA result with damage category mapping and NW scores. Pure.
-enrichWithNW :: M.Map Text Text -> Maybe NormWeightSet -> LCIAResult -> LCIAResult
-enrichWithNW dcLookup mNW result =
-    let dmgCat = M.findWithDefault (lrCategory result) (lrCategory result) dcLookup
-        (normScore, weightScore) = case mNW of
-            Just nw ->
-                let mNorm = M.lookup dmgCat (nwNormalization nw)
-                    mWeight = M.lookup dmgCat (nwWeighting nw)
-                 in case (mNorm, mWeight) of
-                        (Just n, Just w) ->
-                            let ns = lrScore result * n
-                             in (Just ns, Just (ns * w))
-                        _ -> (Nothing, Nothing)
-            Nothing -> (Nothing, Nothing)
-     in result
-            { lrDamageCategory = dmgCat
-            , lrNormalizedScore = normScore
-            , lrWeightedScore = weightScore
-            }
+-- | Fill the fields kept until 0.16.0 from the set read from the method file. Pure.
+enrichWithNW :: M.Map Text LegacyEntry -> LCIAResult -> LCIAResult
+enrichWithNW index result = case legacyReading index (lrMethodName result) (lrScore result) of
+    Nothing -> result
+    Just r -> result{lrDamageCategory = lgDamage r, lrNormalizedScore = lgNormalized r, lrWeightedScore = lgWeighted r}
+
+-- | What 'enrichWithNW' reads, built once per response from a collection's sets.
+legacyIndex :: [ScoringSet] -> M.Map Text LegacyEntry
+legacyIndex = maybe M.empty legacyReadings . legacySet
 
 -- | Assemble an LCIABatchResult from the post-characterization parts. Pure.
 mkLCIABatchResult ::
     [LCIAResult] ->
-    Maybe NormWeightSet ->
-    [NormWeightSet] ->
     M.Map Text (M.Map Text Double) ->
     [ScoringSet] ->
     M.Map Text (M.Map Text ScoringIndicator) ->
     [CutoffWasteFlow] ->
     LCIABatchResult
-mkLCIABatchResult results mNW nwSets scoringResults scoringSets scoringIndicators cutoffWaste =
+mkLCIABatchResult results scoringResults scoringSets scoringIndicators cutoffWaste =
     LCIABatchResult
         { lbrResults = results
         , lbrSingleScore = Nothing
         , lbrSingleScoreUnit = Nothing
-        , lbrNormWeightSetName = nwName <$> mNW
-        , lbrAvailableNWsets = map nwName nwSets
+        , lbrNormWeightSetName = listToMaybe (legacySetNames scoringSets)
+        , lbrAvailableNWsets = legacySetNames scoringSets
         , lbrScoringResults = scoringResults
         , lbrScoringUnits = M.fromList [(ssName ss, ssUnit ss) | ss <- scoringSets]
         , lbrScoringIndicators = scoringIndicators
@@ -594,12 +564,12 @@ badRequest :: Text -> AppM a
 badRequest msg = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
 
 -- | Load a method collection by name from the live DatabaseManager state.
-loadCollection :: DM.CollectionName -> AppM ([Method], [DamageCategory], [NormWeightSet], [ScoringSet])
+loadCollection :: DM.CollectionName -> AppM ([Method], [ScoringSet])
 loadCollection collectionName = do
     dbManager <- asks aeDbManager
     loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
     case M.lookup (DM.unCollectionName collectionName) loadedCollections of
-        Just mc -> return (mcMethods mc, mcDamageCategories mc, mcNormWeightSets mc, mcScoringSets mc)
+        Just mc -> return (mcMethods mc, mcScoringSets mc)
         Nothing ->
             throwError
                 err404
@@ -819,10 +789,7 @@ buildLCIABatchResultCached ::
     Int ->
     IO (Either Text LCIABatchResult)
 buildLCIABatchResultCached dbManager dbName collectionName db actPid activity collection sol ctxs topFlows = do
-    let damageCats = mcDamageCategories collection
-        nwSets = mcNormWeightSets collection
-        dcLookup = damageCategoryIndex damageCats
-        mNW = case nwSets of (nw : _) -> Just nw; [] -> Nothing
+    let index = legacyIndex (mcScoringSets collection)
         methods = map mctxMethod ctxs
         inventory = SharedSolver.csInventory sol
     scoreMap <- batchedScoresFor dbManager dbName collectionName db sol methods
@@ -846,7 +813,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                 contribsE <- Impact.contributionsOf dbManager collectionName method tables sol
                 pure (fmap (topContributorRows (Explain.flowMatchKind tables) score topFlows . fst) contribsE)
         mkResultForScore ctx method score topContributors =
-            enrichWithNW dcLookup mNW $
+            enrichWithNW index $
                 LCIAResult
                     { lrMethodId = methodId method
                     , lrMethodName = methodName method
@@ -867,7 +834,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
             let rawScoreMap = rawScoreMapByName results
             (scoringResults, scoringIndicators) <-
                 computeAllScoringSets (mcScoringSets collection) rawScoreMap
-            pure (Right (mkLCIABatchResult results mNW nwSets scoringResults (mcScoringSets collection) scoringIndicators (Service.buildCutoffWaste db activity)))
+            pure (Right (mkLCIABatchResult results scoringResults (mcScoringSets collection) scoringIndicators (Service.buildCutoffWaste db activity)))
 
 {- | Top-level LCIA batch entry point – AppM-returning. Used by the Servant
 routes (via thin where-aliases) and by API.BatchImpacts.
@@ -883,9 +850,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     (actProcessId, activity) <- resolveOrThrow db processIdText
-    (methods, damageCats, nwSets, scoringSets) <- loadCollection collectionName
-    let dcLookup = damageCategoryIndex damageCats
-        mNW = case nwSets of (nw : _) -> Just nw; [] -> Nothing
+    (methods, scoringSets) <- loadCollection collectionName
     t0 <- liftIO getCurrentTime
     sol <- crossDBSolutionFor dbName db sharedSolver actProcessId mSub >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
     t1 <- liftIO getCurrentTime
@@ -913,7 +878,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
                 (\m -> computeCategoryResult dbManager dbName collectionName db sol activity 5 (Just (resolveBatchedScore m scoreMap)) m)
                 methods
     rawResults <- either scoringError pure (sequence rawResultsE)
-    let results = map (enrichWithNW dcLookup mNW) rawResults
+    let results = map (enrichWithNW (legacyIndex scoringSets)) rawResults
         rawScoreMap = rawScoreMapByName rawResults
     (scoringResults, scoringIndicators) <- liftIO $ computeAllScoringSets scoringSets rawScoreMap
     when (isNothing mSub) $
@@ -932,7 +897,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
                         <> T.unpack name
                         <> "': "
                         <> intercalate ", " [T.unpack k <> "=" <> showFFloat (Just 6) v "" | (k, v) <- M.toList scores]
-    pure (mkLCIABatchResult results mNW nwSets scoringResults scoringSets scoringIndicators (Service.buildCutoffWaste db activity))
+    pure (mkLCIABatchResult results scoringResults scoringSets scoringIndicators (Service.buildCutoffWaste db activity))
 
 {- | Everything one chunk of a batch needs and no chunk changes: the database
 being scored, the collection scoring it, and the per-method contexts prepared
@@ -1453,7 +1418,7 @@ collection-scoped cache, so a method's factors and its cache slot never disagree
 -}
 loadMethodInCollection :: DM.CollectionName -> Text -> AppM Method
 loadMethodInCollection collectionName uuidText = do
-    (methods, _, _, _) <- loadCollection collectionName
+    (methods, _) <- loadCollection collectionName
     case UUID.fromText uuidText of
         Nothing -> throwError err400{errBody = "Invalid method UUID format"}
         Just uuid -> case filter ((== uuid) . methodId) methods of
@@ -2280,7 +2245,7 @@ withActivityAndScore ::
 withActivityAndScore ScoreQuery{sqDbName = dbName, sqCollection = collectionName, sqProcessId = processIdText, sqRef = ref, sqExcludeLongTerm = mExcludeLT} k = do
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
-    (methods, _, _, scoringSets) <- loadCollection collectionName
+    (methods, scoringSets) <- loadCollection collectionName
     rs <- either refused pure (Score.resolveScore methods scoringSets ref)
     (pid, _) <- resolveOrThrow db processIdText
     sol <-
@@ -2469,7 +2434,7 @@ getCollectionCoverage :: Text -> DM.CollectionName -> AppM CollectionCoverage
 getCollectionCoverage dbName collectionName = do
     dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
-    (methods, _, _, _) <- loadCollection collectionName
+    (methods, _) <- loadCollection collectionName
     tablesList <- liftIO $ mapM (DM.mapMethodToTablesCached dbManager dbName collectionName db) methods
     return
         CollectionCoverage

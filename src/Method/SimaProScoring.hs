@@ -12,6 +12,8 @@ at load, and written back from them at export.
 module Method.SimaProScoring (
     DamageCategory (..),
     NormWeightSet (..),
+    SimaProMethodFile (..),
+    simaProCollection,
     shortNames,
     singleScoreName,
     damageOnlySetName,
@@ -38,7 +40,7 @@ import qualified Data.Text as T
 import GHC.Generics (Generic)
 
 import qualified Expr
-import Method.Types (Method (..), ScoringSet (..), ScoringSetOrigin (..))
+import Method.Types (Method (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 
 {- | Damage category: groups impact subcategories into a parent category.
 E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.
@@ -66,6 +68,22 @@ data NormWeightSet = NormWeightSet
     -- ^ Damage category → weight
     }
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+
+-- | What a SimaPro method file holds, before its single score is translated.
+data SimaProMethodFile = SimaProMethodFile
+    { smfMethods :: ![Method]
+    , smfDamages :: ![DamageCategory]
+    , smfNWSets :: ![NormWeightSet]
+    }
+    deriving (Eq, Show)
+
+{- | One file read as a collection, with what its translation could not read.
+A collection of several files is translated once, merged: see 'translateScoring'.
+-}
+simaProCollection :: SimaProMethodFile -> (MethodCollection, [Text])
+simaProCollection f =
+    let (sets, warnings) = translateScoring (smfMethods f) (smfDamages f) (smfNWSets f)
+     in (MethodCollection (smfMethods f) sets, warnings)
 
 {- | Formula identifiers for display names, made once and then stored as they
 are: a later renaming of the category does not change them. Lower case only,

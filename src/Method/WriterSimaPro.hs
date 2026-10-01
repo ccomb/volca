@@ -46,14 +46,13 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
+import Method.SimaProScoring (DamageCategory (..), NormWeightSet (..), toSimaProBlocks)
 import Method.Types (
     Compartment (..),
-    DamageCategory (..),
     FlowDirection (..),
     Method (..),
     MethodCF (..),
     MethodCollection (..),
-    NormWeightSet (..),
  )
 import SimaPro.Writer (WriterConfig, escapeField, formatAmount, headerLines)
 
@@ -65,19 +64,20 @@ without corruption ('checkMethodExportable').
 -}
 serializeSimaProMethodCSV :: WriterConfig -> Text -> MethodCollection -> Either Text (BS.ByteString, [Text])
 serializeSimaProMethodCSV cfg collectionName mc = do
-    checkMethodExportable mc
+    let (damages, nwSets, setWarnings) = toSimaProBlocks (mcScoringSets mc)
+    checkMethodExportable mc damages nwSets
     let fileName = fileLevelName collectionName mc
     checkFileLevelName fileName
     let (catBlocks, issues) = unzip (map categoryBlock (mcMethods mc))
-        (nwBlocks, nwWarnings) = unzip (map nwBlock (mcNormWeightSets mc))
+        (nwBlocks, nwWarnings) = unzip (map nwBlock nwSets)
         allLines =
             header cfg
-                ++ metaBlock fileName mc
+                ++ metaBlock fileName damages nwSets
                 ++ concat catBlocks
-                ++ concatMap damageBlock (mcDamageCategories mc)
+                ++ concatMap damageBlock damages
                 ++ concat nwBlocks
                 ++ ["End"]
-        warnings = issueWarnings (concat issues) ++ concat nwWarnings ++ scoringSetWarning mc
+        warnings = issueWarnings (concat issues) ++ concat nwWarnings ++ setWarnings
     pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf), warnings)
 
 -- ============================================================================
@@ -90,13 +90,13 @@ value (its literal would re-import as a parse failure or a wrong number), or
 a line break inside a field (the parser splits on physical lines before CSV
 parsing, so quoting cannot save it – same rule as the process writer).
 -}
-checkMethodExportable :: MethodCollection -> Either Text ()
-checkMethodExportable mc
+checkMethodExportable :: MethodCollection -> [DamageCategory] -> [NormWeightSet] -> Either Text ()
+checkMethodExportable mc damages nwSets
     | null (mcMethods mc) = Left "method collection has no impact categories"
     | otherwise = do
         mapM_ checkMethod (mcMethods mc)
-        mapM_ checkDamage (mcDamageCategories mc)
-        mapM_ checkNW (mcNormWeightSets mc)
+        mapM_ checkDamage damages
+        mapM_ checkNW nwSets
   where
     checkMethod m = do
         mapM_ (noLineBreak "impact category name") [methodName m]
@@ -191,17 +191,17 @@ fileLevelName fallback mc =
 methodology, plus the Use-flags SimaPro expects, reflecting what the
 collection actually carries. Key and value each sit on their own line.
 -}
-metaBlock :: Text -> MethodCollection -> [Text]
-metaBlock fileName mc =
+metaBlock :: Text -> [DamageCategory] -> [NormWeightSet] -> [Text]
+metaBlock fileName damages nwSets =
     ["Method", "", "Name", fileName, ""]
-        ++ ["Use Damage Assessment", yesNo (not (null (mcDamageCategories mc))), ""]
+        ++ ["Use Damage Assessment", yesNo (not (null damages)), ""]
         ++ ["Use Normalization", yesNo hasNorm, ""]
         ++ ["Use Weighting", yesNo hasWeight, ""]
         ++ (if hasWeight then ["Weighting unit", "Pt", ""] else [])
   where
     yesNo b = if b then "Yes" else "No"
-    hasNorm = not (all (M.null . nwNormalization) (mcNormWeightSets mc))
-    hasWeight = not (all (M.null . nwWeighting) (mcNormWeightSets mc))
+    hasNorm = not (all (M.null . nwNormalization) nwSets)
+    hasWeight = not (all (M.null . nwWeighting) nwSets)
 
 -- | One @Impact category@ block, plus the per-CF representation issues.
 categoryBlock :: Method -> ([Text], [CFIssue])
@@ -340,10 +340,3 @@ issueWarnings issues =
                 <> T.intercalate ", " (take 5 distinct)
             | not (null distinct)
             ]
-
--- | Formula scoring sets are configuration, not part of the SimaPro format.
-scoringSetWarning :: MethodCollection -> [Text]
-scoringSetWarning mc =
-    [ "formula scoring sets are not part of the SimaPro method CSV format; not exported"
-    | not (null (mcScoringSets mc))
-    ]
