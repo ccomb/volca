@@ -37,18 +37,18 @@
   file files it, so a land flow written in two formats is compared;
   the compartment table's fallback rows are not followed, so a precise
   subcompartment never passes for an unspecified one. Wire revision 31.
-- `method-collections/{collection}/profile` and the
-  `profile_method_collection` assistant tool say what each impact category of
-  a loaded collection holds without listing its factors: how many each medium
-  holds, how many are written for one location and for how many locations,
-  how many carry the location in their name, the zeros, the pattern rows, and
-  the duplicates a comparison could not pair. Wire revision 33.
 - A comparison of two method collections can be narrowed to one pair of
   categories with `category=NAME`, the name of its base category: only that
   pair is compared, a fraction of the time comparing them all takes, and the
   unpaired and ambiguous categories are still listed. A name no pair starts
   from, or that two pairs start from, is refused with a sentence. Wire
   revision 32.
+- `method-collections/{collection}/profile` and the
+  `profile_method_collection` assistant tool say what each impact category of
+  a loaded collection holds without listing its factors: how many each medium
+  holds, how many are written for one location and for how many locations,
+  how many carry the location in their name, the zeros, the pattern rows, and
+  the duplicates a comparison could not pair. Wire revision 33.
 - `max_concurrent_scoring` under `[hosting]` bounds how many scoring requests
   compute at once, and the others wait their turn. A few dozen large batch
   scores sent together used to exhaust the heap and stop the process for
