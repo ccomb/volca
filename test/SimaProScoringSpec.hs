@@ -202,3 +202,42 @@ spec = do
             let halved = [DamageCategory "Climate change" "kg CO2 eq" [("Climate change", 0.5)]]
                 (ds, _, _) = toSimaProBlocks (fst (translateScoring [method "Climate change" "kg CO2 eq"] halved [nwSet]))
             ds `shouldBe` halved
+
+    describe "legacyReading" $ do
+        let translated = translateScoring methods damages [nwSet]
+
+        it "reads a sub-category on the damage it feeds, as SimaPro multiplies" $
+            withSole translated $ \set _ ->
+                case legacyReading (legacyReadings set) "Ecotoxicity, freshwater - part 1" 100 of
+                    Just (LegacyReading d (Just n) (Just w)) -> do
+                        d `shouldBe` "Ecotoxicity, freshwater"
+                        n `shouldSatisfy` close (100 * 1.76e-5)
+                        w `shouldSatisfy` close (100 * 1.76e-5 * 0.0192)
+                    other -> expectationFailure (show other)
+
+        it "names the category itself when no damage groups it, and stays empty without a weight" $
+            withSole translated $ \set _ ->
+                legacyReading (legacyReadings set) "Water use" 3 `shouldBe` Just (LegacyReading "Water use" Nothing Nothing)
+
+        it "reads nothing for a category the set does not know" $
+            withSole translated $ \set _ ->
+                legacyReading (legacyReadings set) "Land use" 1 `shouldBe` Nothing
+
+        it "keeps a normalization factor of zero at zero" $ do
+            let zero = nwSet{nwNormalization = M.insert "Climate change" 0 (nwNormalization nwSet)}
+            withSole (translateScoring methods damages [zero]) $ \set _ ->
+                legacyReading (legacyReadings set) "Climate change" 10 `shouldBe` Just (LegacyReading "Climate change" (Just 0) (Just 0))
+
+        it "stays empty for a category two damages group" $ do
+            let twice = damages <> [DamageCategory "Toxicity" "CTU" [("Ecotoxicity, freshwater - part 1", 1)]]
+            withSole (translateScoring methods twice [nwSet]) $ \set _ ->
+                legacyReading (legacyReadings set) "Ecotoxicity, freshwater - part 1" 100
+                    `shouldBe` Just (LegacyReading "Ecotoxicity, freshwater - part 1" Nothing Nothing)
+
+        it "reads on the first set read from the file, never on a configured one" $
+            withSole translated $ \set _ -> do
+                let configured = set{ssName = "PEF", ssOrigin = DeclaredInConfig}
+                fmap ssName (legacySet [configured, set]) `shouldBe` Just "EF 3.1"
+                fmap ssName (legacySet [configured]) `shouldBe` Nothing
+                legacySetNames [configured, set] `shouldBe` ["EF 3.1"]
+                legacySetNames (fst (translateScoring methods damages [])) `shouldBe` []

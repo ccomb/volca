@@ -17,6 +17,12 @@ module Method.SimaProScoring (
     damageOnlySetName,
     translateScoring,
     toSimaProBlocks,
+    LegacyReading (..),
+    LegacyEntry (..),
+    legacyReadings,
+    legacyReading,
+    legacySet,
+    legacySetNames,
 ) where
 
 import Control.DeepSeq (NFData)
@@ -24,7 +30,7 @@ import Control.Monad (unless)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Char (isAsciiLower, isDigit)
 import Data.Containers.ListUtils (nubOrd)
-import Data.List (partition, sort)
+import Data.List (find, partition, sort)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -265,6 +271,70 @@ blocksOf set = do
 
     labelOf :: Text -> Text
     labelOf var = M.findWithDefault var var (ssLabels set)
+
+{- | What the response fields kept until 0.16.0 say about one impact category:
+the damage it feeds, and its normalized and weighted score, SimaPro's way.
+-}
+data LegacyReading = LegacyReading
+    { lgDamage :: !Text
+    , lgNormalized :: !(Maybe Double)
+    , lgWeighted :: !(Maybe Double)
+    }
+    deriving (Eq, Show)
+
+-- | How one impact category reaches the damage that weighs it.
+data LegacyEntry = LegacyEntry
+    { leDamage :: !Text
+    -- ^ The damage it feeds, or the category itself when no damage groups it
+    , leCoefficient :: !Double
+    -- ^ Its coefficient in that damage
+    , leNormWeight :: !(Maybe (Double, Double))
+    -- ^ The damage's normalization (divisor) and weight, when it has both
+    }
+    deriving (Eq, Show)
+
+{- | Per impact category name, how it reaches its damage in one set. Built once
+per response. A category two damages group reads as its own, unweighted: the
+set gives it two damages and these fields have room for one.
+-}
+legacyReadings :: ScoringSet -> M.Map Text LegacyEntry
+legacyReadings set = M.fromList [(category, entryOf var category) | (var, category) <- M.toList (ssVariables set)]
+  where
+    entryOf :: Text -> Text -> LegacyEntry
+    entryOf var category = case [(d, f) | (d, f) <- M.toList (ssComputed set), names var f] of
+        [] -> LegacyEntry category 1 (normWeight var)
+        [(d, f)] ->
+            maybe
+                (LegacyEntry category 1 Nothing)
+                (\k -> LegacyEntry (M.findWithDefault d d (ssLabels set)) k (normWeight d))
+                (lookup var =<< linearTerms (M.keys (ssVariables set)) f)
+        _ -> LegacyEntry category 1 Nothing
+
+    names :: Text -> Text -> Bool
+    names var formula = T.toLower var `elem` map T.toLower (Expr.collectIdentifiers Expr.Arithmetic formula)
+
+    normWeight :: Text -> Maybe (Double, Double)
+    normWeight v = (,) <$> M.lookup v (ssNormalization set) <*> M.lookup v (ssWeighting set)
+
+-- | The fields kept until 0.16.0 for one category and its raw score.
+legacyReading :: M.Map Text LegacyEntry -> Text -> Double -> Maybe LegacyReading
+legacyReading index category score = do
+    entry <- M.lookup category index
+    let normalized = fmap (\(n, _) -> score * leCoefficient entry / n) (leNormWeight entry)
+    pure (LegacyReading (leDamage entry) normalized ((*) <$> normalized <*> fmap snd (leNormWeight entry)))
+
+-- | The set those fields are read from: the first one read from the file.
+legacySet :: [ScoringSet] -> Maybe ScoringSet
+legacySet = find ((== ReadFromSimaProFile) . ssOrigin)
+
+-- | The sets read from the file that weigh anything, which those fields name.
+legacySetNames :: [ScoringSet] -> [Text]
+legacySetNames sets =
+    [ ssName s
+    | s <- sets
+    , ssOrigin s == ReadFromSimaProFile
+    , not (M.null (ssNormalization s) && M.null (ssWeighting s))
+    ]
 
 {- | The terms of a formula that is a sum of the given variables times
 constant coefficients, in the order the formula names them; 'Nothing' for
