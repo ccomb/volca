@@ -58,6 +58,7 @@ module Service.CompareMethods (
     compareCollections,
     compareCategories,
     profileCollection,
+    factorReading,
     limitMethodComparison,
 ) where
 
@@ -67,7 +68,7 @@ import Data.Foldable (toList, traverse_)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (isJust, listToMaybe, mapMaybe)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -85,10 +86,13 @@ import API.Types (
     ChangedFactor (..),
     DuplicateFactors (..),
     FactorMatch (..),
+    FactorReading (..),
     FactorSide (..),
+    LocationSource (..),
     MediumCount (..),
     MethodCollectionComparison (..),
     MethodCollectionProfile (..),
+    ReadLocation (..),
     UnconvertibleFactor (..),
     ValueReading (..),
  )
@@ -235,10 +239,10 @@ profileCategory :: CompareMethodsContext -> Method -> CategoryProfile
 profileCategory ctx m =
     CategoryProfile
         { cpfCategory = categorySide m
-        , cpfMedia = [MediumCount medium n | (medium, n) <- M.toList (M.fromListWith (+) [(ckMedium <$> plCompartment p, 1) | (_, p) <- placed])]
+        , cpfMedia = [MediumCount medium n | (medium, n) <- M.toList (M.fromListWith (+) [(frMedium r, 1) | r <- readings])]
         , cpfLocatedCount = length located
-        , cpfLocatedInNameCount = length [() | (cf, _) <- located, isNothing (mcfConsumerLocation cf)]
-        , cpfLocationCount = S.size (S.fromList (mapMaybe (plLocation . snd) located))
+        , cpfLocatedInNameCount = length (filter ((== InName) . rlFrom) located)
+        , cpfLocationCount = S.size (S.fromList (map rlCode located))
         , cpfZeroCount = length (filter ((== 0) . mcfValue) cfs)
         , cpfPatternCount = length (filter (\cf -> isPatternCF cf || isExclusionCF cf) cfs)
         , cpfDuplicates = [DuplicateFactors{dfxMatch = afxMatch a, dfxFactors = afxBase a} | a <- ccpAmbiguous (compareCategories ctx SameMethodName (Sides m m))]
@@ -246,10 +250,22 @@ profileCategory ctx m =
   where
     cfs :: [MethodCF]
     cfs = methodFactors m
-    placed :: [(MethodCF, Place)]
-    placed = [(cf, placeOf (cmcCompartments ctx) location cf) | cf <- cfs, let Located _ location = locatedName (cmcLocations ctx) cf]
-    located :: [(MethodCF, Place)]
-    located = filter (isJust . plLocation . snd) placed
+    readings :: [FactorReading]
+    readings = map (factorReading (cmcCompartments ctx) (cmcLocations ctx)) cfs
+    located :: [ReadLocation]
+    located = mapMaybe frLocation readings
+
+{- | A factor's medium and location, read as a comparison reads them, so a
+profile, a comparison and a factor list never disagree on where a factor is.
+-}
+factorReading :: CompartmentMap -> M.Map Location [Location] -> MethodCF -> FactorReading
+factorReading cmap locations cf =
+    FactorReading
+        { frMedium = ckMedium . compartmentKey cmap <$> mcfCompartment cf
+        , frLocation = location
+        }
+  where
+    Located _ location = locatedName locations cf
 
 -- | The pairs a scope keeps, chosen before any is compared.
 inScope :: Scope -> [(CategoryMatch, Sides Method)] -> Either CompareMethodsRefusal [(CategoryMatch, Sides Method)]
@@ -430,7 +446,7 @@ keyedFactor ctx cf =
   where
     Located name location = locatedName (cmcLocations ctx) cf
     place :: Place
-    place = placeOf (cmcCompartments ctx) location cf
+    place = placeOf (cmcCompartments ctx) (rlCode <$> location) cf
     -- Pattern and exclusion rows select flows rather than name a substance: only their prefix keys them.
     ordinary :: Maybe Substance -> Maybe FactorKey
     ordinary substance = guard (not (isPatternCF cf || isExclusionCF cf)) >> (`FactorKey` place) <$> substance
@@ -502,11 +518,11 @@ its own included (@Water, Europe, Western@). A name that ends in no code
 locatedName :: M.Map Location [Location] -> MethodCF -> Located
 locatedName locations cf = case (mcfConsumerLocation cf, readings) of
     (Nothing, [reading]) -> reading
-    (location, _) -> Located (mcfFlowName cf) location
+    (location, _) -> Located (mcfFlowName cf) ((`ReadLocation` InField) <$> location)
   where
     readings :: [Located]
     readings =
-        [ Located substance (Just code)
+        [ Located substance (Just (ReadLocation code InName))
         | (substance, rest) <- T.breakOnAll ", " (mcfFlowName cf)
         , not (T.null substance)
         , let code = T.drop 2 rest
@@ -514,7 +530,7 @@ locatedName locations cf = case (mcfConsumerLocation cf, readings) of
         ]
 
 -- | A substance's name and the location a factor is written for.
-data Located = Located !Text !(Maybe Text)
+data Located = Located !Text !(Maybe ReadLocation)
 
 placeOf :: CompartmentMap -> Maybe Text -> MethodCF -> Place
 placeOf cmap location cf =
