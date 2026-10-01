@@ -297,7 +297,9 @@ replaced with `[[compartment-mappings]]`) holds two kinds of row, named in its
   says that a flow emitted to forest soil reads the factor written for
   non-agricultural soil, but only under a method whose collection never writes
   forestry. The EF 3.1 package has no forest soil, so the row holds there;
-  a method with forestry factors of its own keeps them.
+  a method with forestry factors of its own keeps them. A comparison of two
+  method collections reads the row's two places as one only when each
+  collection writes one of them and never the other.
 
 A flow reads a factor at three places, in this order, and nowhere else:
 

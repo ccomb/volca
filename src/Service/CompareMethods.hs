@@ -20,12 +20,17 @@ them and of the reference data that says which names are one substance.
   class side by side (a flow and its fossil variant, a flow and its regional
   twin): on the class rung they would all answer one key and pair none,
   where each has its own name.
-* The compartment is compared strictly: the table's fallback rows, which let
-  a flow read a factor written for a broader place, are not followed, since
-  they would make a precise subcompartment equal to an unspecified one. One
-  reading is taken: a subcompartment written @unspecified@ is the whole
-  medium, which is how another format writes it with an empty cell. So is
-  another: an occupation or a transformation filed under the whole natural
+* The compartment is compared strictly: the table's @if_absent@ rows, which
+  let a flow read a factor written at another place, are followed only
+  between two vocabularies that each write one of the row's two places and
+  never the other, anywhere in their collection. One package writes the long
+  term of air as @unspecified (long-term)@, another as @low. pop., long-term@,
+  and neither has the other: the two places are one, and each pair shows
+  both compartments as written. A side that writes both keeps them apart,
+  since it says they differ. Another reading is taken: a subcompartment
+  written @unspecified@ is the whole medium, which is how another format
+  writes it with an empty cell. So is a third: an occupation or a
+  transformation filed under the whole natural
   resource medium is in its land subcompartment. The direction is compared
   as written, except for a land factor, which is taken from nature however its
   file writes it.
@@ -56,7 +61,6 @@ module Service.CompareMethods (
     refusalMessage,
     Scope (..),
     compareCollections,
-    compareCategories,
     profileCollection,
     factorReading,
     limitMethodComparison,
@@ -97,10 +101,11 @@ import API.Types (
     ValueReading (..),
  )
 import Method.Mapping (isExclusionCF, isPatternCF, patternPrefix, viewFor)
-import Method.Types (Compartment (..), CompartmentMap, FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..), normalizeCompartment)
+import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..), Subcompartment (..), normalizeCompartment)
 import Service.Compare (Cascade (..), Rung (..), Sides (..), cascadeWith, close, pairOn, refusing)
 import SubstanceRegistry (nonEmptyCAS)
 import SynonymDB (SynonymDB, lookupSynonymGroup, normalizeNameKeepUnit)
+import Types (Medium, mediumText)
 import UnitConversion (UnitConfig, UnitReading (..), canonicalUnitFor, convertOntoFactorBasis, isKnownUnit, readUnit)
 
 -- | The reference data a comparison reads names and units through.
@@ -211,7 +216,7 @@ compareCollections ctx forced scope collections = do
     selected <- inScope scope ([(ForcedByCaller, pair) | pair <- chosen] ++ cPairs paired)
     pure
         MethodCollectionComparison
-            { mccCategories = L.sortOn (Down . changes) (map (uncurry (compareCategories ctx)) selected)
+            { mccCategories = L.sortOn (Down . changes) (map (uncurry (compareCategories ctx crossed)) selected)
             , mccUnpairedBase = map categorySide (baseSide (cUnpaired paired))
             , mccUnpairedOther = map categorySide (otherSide (cUnpaired paired))
             , mccAmbiguous =
@@ -224,6 +229,8 @@ compareCollections ctx forced scope collections = do
                 ]
             }
   where
+    crossed :: Sides Crossings
+    crossed = crossings (cmcCompartments ctx) (fmap (vocabulary (cmcCompartments ctx) . mcMethods) collections)
     changes :: CategoryComparison -> Int
     changes c = ccpAddedCount c + ccpRemovedCount c + ccpChangedCount c
 
@@ -245,7 +252,7 @@ profileCategory ctx m =
         , cpfLocationCount = S.size (S.fromList (map rlCode located))
         , cpfZeroCount = length (filter ((== 0) . mcfValue) cfs)
         , cpfPatternCount = length (filter (\cf -> isPatternCF cf || isExclusionCF cf) cfs)
-        , cpfDuplicates = [DuplicateFactors{dfxMatch = afxMatch a, dfxFactors = afxBase a} | a <- ccpAmbiguous (compareCategories ctx SameMethodName (Sides m m))]
+        , cpfDuplicates = [DuplicateFactors{dfxMatch = afxMatch a, dfxFactors = afxBase a} | a <- ccpAmbiguous (compareCategories ctx (Sides noCrossing noCrossing) SameMethodName (Sides m m))]
         }
   where
     cfs :: [MethodCF]
@@ -346,8 +353,8 @@ limitMethodComparison n c = c{mccCategories = map limited (mccCategories c)}
             , ccpUnconvertible = take n (ccpUnconvertible p)
             }
 
-compareCategories :: CompareMethodsContext -> CategoryMatch -> Sides Method -> CategoryComparison
-compareCategories ctx match methods =
+compareCategories :: CompareMethodsContext -> Sides Crossings -> CategoryMatch -> Sides Method -> CategoryComparison
+compareCategories ctx crossed match methods =
     CategoryComparison
         { ccpMatch = match
         , ccpBase = categorySide (baseSide methods)
@@ -367,7 +374,13 @@ compareCategories ctx match methods =
         }
   where
     paired :: Cascade FactorMatch Keyed
-    paired = cascadeWith factorRung [minBound .. maxBound] (fmap (map (keyedFactor ctx) . methodFactors) methods)
+    paired =
+        cascadeWith
+            factorRung
+            [minBound .. maxBound]
+            (Sides (keyedSide (baseSide crossed) (baseSide methods)) (keyedSide (otherSide crossed) (otherSide methods)))
+    keyedSide :: Crossings -> Method -> [Keyed]
+    keyedSide crossing = map (keyedFactor ctx crossing) . methodFactors
     judged :: [Judged]
     judged =
         [ Judged{jMatch = m, jPair = pair, jVerdict = judge (cmcUnits ctx) pair}
@@ -433,8 +446,8 @@ data Keyed = Keyed
     , kPrefix :: Maybe FactorKey
     }
 
-keyedFactor :: CompareMethodsContext -> MethodCF -> Keyed
-keyedFactor ctx cf =
+keyedFactor :: CompareMethodsContext -> Crossings -> MethodCF -> Keyed
+keyedFactor ctx crossing cf =
     Keyed
         { kFactor = cf
         , kFlow = ordinary (ByFlow <$> mfilter (/= UUID.nil) (Just (mcfFlowRef cf)))
@@ -446,7 +459,7 @@ keyedFactor ctx cf =
   where
     Located name location = locatedName (cmcLocations ctx) cf
     place :: Place
-    place = placeOf (cmcCompartments ctx) (rlCode <$> location) cf
+    place = placeOf (cmcCompartments ctx) crossing (rlCode <$> location) cf
     -- Pattern and exclusion rows select flows rather than name a substance: only their prefix keys them.
     ordinary :: Maybe Substance -> Maybe FactorKey
     ordinary substance = guard (not (isPatternCF cf || isExclusionCF cf)) >> (`FactorKey` place) <$> substance
@@ -532,8 +545,8 @@ locatedName locations cf = case (mcfConsumerLocation cf, readings) of
 -- | A substance's name and the location a factor is written for.
 data Located = Located !Text !(Maybe ReadLocation)
 
-placeOf :: CompartmentMap -> Maybe Text -> MethodCF -> Place
-placeOf cmap location cf =
+placeOf :: CompartmentMap -> Crossings -> Maybe Text -> MethodCF -> Place
+placeOf cmap (Crossings crossing) location cf =
     Place
         { plDirection = direction
         , plCompartment = compartment
@@ -541,7 +554,9 @@ placeOf cmap location cf =
         }
   where
     compartment :: Maybe CompartmentKey
-    compartment = landRead cf . compartmentKey cmap <$> mcfCompartment cf
+    compartment = cross <$> writtenAt cmap cf
+    cross :: CompartmentKey -> CompartmentKey
+    cross key = maybe key (\sub -> key{ckSub = sub}) (M.lookup (ckMedium key, ckSub key) crossing)
     -- One format writes a transformation to a land type as an output to land,
     -- another as an input from nature: a land flow has one direction.
     direction :: FlowDirection
@@ -550,6 +565,63 @@ placeOf cmap location cf =
         | otherwise = mcfDirection cf
     isLand :: CompartmentKey -> Bool
     isLand key = ckMedium key == "natural resource" && ckSub key == "land"
+
+-- | Where a factor is written, read through the compartment table.
+writtenAt :: CompartmentMap -> MethodCF -> Maybe CompartmentKey
+writtenAt cmap cf = landRead cf . compartmentKey cmap <$> mcfCompartment cf
+
+-- | The (medium, subcompartment) places a collection writes factors at.
+newtype Vocabulary = Vocabulary (S.Set (Text, Text))
+
+vocabulary :: CompartmentMap -> [Method] -> Vocabulary
+vocabulary cmap ms =
+    Vocabulary
+        ( S.fromList
+            [ (ckMedium key, ckSub key)
+            | cf <- concatMap methodFactors ms
+            , -- An exclusion line takes a factor away and writes none.
+            not (isExclusionCF cf)
+            , Just key <- [writtenAt cmap cf]
+            ]
+        )
+
+-- | The @if_absent@ rows one side's factors are read across: (medium, subcompartment) → the subcompartment read instead.
+newtype Crossings = Crossings (M.Map (Text, Text) Text)
+
+noCrossing :: Crossings
+noCrossing = Crossings M.empty
+
+{- | The @if_absent@ rows each side is read across: from a place that side
+writes and the other never does, to one only the other writes. Read from the
+whole collection, as scoring reads which rows hold for a method: a category
+that happens to write only one of the two places belongs to a collection that
+may tell them apart. Two rows a side would follow to one place are followed
+by neither: that side tells their two places apart (forestry and industrial
+soil), and the other side's one place cannot be both.
+-}
+crossings :: CompartmentMap -> Sides Vocabulary -> Sides Crossings
+crossings cmap (Sides b o) = Sides (across b o) (across o b)
+  where
+    across :: Vocabulary -> Vocabulary -> Crossings
+    across (Vocabulary own) (Vocabulary other) =
+        Crossings (M.fromList [(from, snd to) | (from, to) <- admitted, M.lookup to reached == Just (1 :: Int)])
+      where
+        admitted :: [((Text, Text), (Text, Text))]
+        admitted =
+            [ row
+            | row@(from, to) <- rows
+            , S.member from own
+            , S.member to other
+            , not (S.member from other)
+            , not (S.member to own)
+            ]
+        reached :: M.Map (Text, Text) Int
+        reached = M.fromListWith (+) [(to, 1) | (_, to) <- admitted]
+    rows :: [((Text, Text), (Text, Text))]
+    rows = [(placeKey medium from, placeKey medium to) | ((medium, Subcompartment from), Subcompartment to) <- M.toList (cmIfAbsent cmap)]
+    -- The row's places are canonical spellings: only the folding a factor's place goes through applies.
+    placeKey :: Medium -> Text -> (Text, Text)
+    placeKey medium sub = let key = compartmentKey mempty (Compartment (mediumText medium) sub T.empty) in (ckMedium key, ckSub key)
 
 {- | One format files a land flow in the land subcompartment of the natural
 resource medium, another under the whole medium (@Occupation, forest,

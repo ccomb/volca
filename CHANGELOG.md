@@ -95,6 +95,14 @@
   gzip. A comparison of two method collections, one of the largest answers,
   shrinks about twelvefold. Event streams are sent as they are.
 
+- A comparison of two method collections follows an `if_absent` row of the
+  compartment table between two collections that each write one of its two
+  places and never the other. An ILCD package writes the long-term emissions
+  to air at `unspecified (long-term)`, a SimaPro method file at `low. pop.,
+  long-term`, and neither has the other's: their factors were all listed as
+  removed and added, and now pair, each side shown at its compartment as
+  written. A collection that writes both places keeps them apart.
+
 - `flow-mapping --matched` lists the database flows a factor reaches, one line
   per flow with that factor and how it matched, where it listed the method's
   factors. `--unmatched` is removed, since the summary already lists the
