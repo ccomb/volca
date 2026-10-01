@@ -1457,7 +1457,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 36: the @documentation@ of a database's setup, the export its file
+(revision 37: the single score a SimaPro method's normalization-weighting set
+gives in @scoringResults@, and the @units@ of the variables a scoring set lists;
+revision 36: the @documentation@ of a database's setup, the export its file
 is and the system descriptions and literature references it holds;
 revision 35: the @dates@ an activity carries, the days its dataset says it
 was created, last revised, or written without saying which, and the
@@ -1538,7 +1540,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 36
+currentWireVersion = 37
 
 getVersion :: AppM Value
 getVersion = do

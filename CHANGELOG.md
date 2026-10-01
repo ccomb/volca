@@ -161,7 +161,7 @@
   and names the one it leaves out. A set that weighs without normalizing
   scores the way SimaPro does with normalization switched off, and two sets
   of one name read from the method files stop the load. `list_scoring_sets`
-  gives the `units` of each variable. Wire revision 36.
+  gives the `units` of each variable. Wire revision 37.
 
 ### Deprecated
 
