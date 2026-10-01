@@ -36,7 +36,7 @@ import Test.Hspec
 import Method.Mapping
 import Method.ParserSimaPro (parseSimaProMethodCSVBytes)
 import Method.SimaProScoring (SimaProMethodFile (..))
-import Method.Types (Compartment (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..), Subcompartment (..))
+import Method.Types (Compartment (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), Subcompartment (..))
 import SubstanceRegistry (CASNumber (..))
 import SynonymDB (buildFromPairs, emptySynonymDB, normalizeName)
 import Types (
