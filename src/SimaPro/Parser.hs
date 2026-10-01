@@ -59,7 +59,7 @@ import Control.Monad (foldM, forM_, mfilter)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isAlpha, isUpper, toLower)
+import Data.Char (isAlpha, isDigit, isUpper, toLower)
 import qualified Data.Csv as Csv
 import Data.List (dropWhileEnd, sortOn)
 import qualified Data.Map.Strict as M
@@ -844,6 +844,7 @@ absorbBlock unitCfg gp block acc = case processBlockToActivity unitCfg gp block 
         DateStated _ -> Nothing
         DateBlank -> Nothing
         DateZero -> Just (DateNote (blockLabel b) DateZero)
+        DateZeroOrDay -> Just (DateNote (blockLabel b) DateZeroOrDay)
         unreadable@(DateUnreadable _) -> Just (DateNote (blockLabel b) unreadable)
 
     keyedBy :: (NFData a) => (a -> FlowInUnit) -> M.Map FlowInUnit a -> [a] -> M.Map FlowInUnit a
@@ -933,6 +934,10 @@ data StatedDate
       it writes for a date nobody entered.
       -}
       DateZero
+    | {- | 30/12/99 under a two-digit year: either the zero or 30 December 1999,
+      two readings, so neither is taken.
+      -}
+      DateZeroOrDay
     | -- | Not a date in the format the header declares, with the reason.
       DateUnreadable !Text
     deriving (Show, Eq, Generic)
@@ -954,6 +959,7 @@ statedDay = \case
     DateStated day -> Just day
     DateBlank -> Nothing
     DateZero -> Nothing
+    DateZeroOrDay -> Nothing
     DateUnreadable _ -> Nothing
 
 {- | Read a @Date@ value in the short date format the header declares. In that
@@ -967,17 +973,22 @@ readStatedDate cfg raw = case T.strip raw of
     written -> either DateUnreadable classify $ do
         timePattern <- timeFormatOf (spDateSeparator cfg) (spDateFormat cfg)
         maybe (Left ("\"" <> written <> "\" is not a date written " <> spDateFormat cfg)) Right $
-            parseTimeM False defaultTimeLocale timePattern (T.unpack written)
+            mfilter (const (fullYear written)) $
+                parseTimeM False defaultTimeLocale timePattern (T.unpack written)
   where
-    -- With a two-digit year the empty date is written 30/12/99, which is also
-    -- how 30 December 1999 is written: two readings, so neither is taken.
     classify :: Day -> StatedDate
     classify day
         | day == fromGregorian 1899 12 30 = DateZero
         | twoDigitYear
         , day == fromGregorian 1999 12 30 =
-            DateUnreadable "30/12/99 with a two-digit year is either the date SimaPro writes for none or 30 December 1999"
+            DateZeroOrDay
         | otherwise = DateStated day
+    -- %Y reads one to four digits, so without this 15/01/16 under yyyy would
+    -- be read as the year 16.
+    fullYear :: Text -> Bool
+    fullYear written =
+        maybe True ((== 4) . T.length) $
+            lookup "yyyy" (zip (filter (T.all isAlpha) (T.group (spDateFormat cfg))) (T.split (not . isDigit) written))
     twoDigitYear :: Bool
     twoDigitYear = "yy" `elem` T.group (spDateFormat cfg)
 
@@ -1849,6 +1860,10 @@ dateWarnings notes =
         ++ [ T.pack (show zeros) <> " processes write the date SimaPro writes for none (30 December 1899): read as no date"
            | let zeros = length [() | DateNote _ DateZero <- notes]
            , zeros > 0
+           ]
+        ++ [ T.pack (show twoWays) <> " processes write 30/12/99 under a two-digit year, either the date SimaPro writes for none or 30 December 1999: read as no date"
+           | let twoWays = length [() | DateNote _ DateZeroOrDay <- notes]
+           , twoWays > 0
            ]
 
 {- | Fill empty biosphere-flow CAS from the @(name, CAS)@ pairs a SimaPro
