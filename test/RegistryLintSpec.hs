@@ -107,6 +107,15 @@ spec = do
                     ]
                         `shouldBe` []
 
+                -- The adapted EF 3.1 method writes fresh water only without a
+                -- region, and every region under the unspecified-origin name:
+                -- the class is what lets a regional fresh-water flow find its
+                -- region's factor. A named source stays its own substance.
+                it "reads fresh water as water of unspecified natural origin" $ do
+                    classOf "Water, fresh" `shouldNotBe` Nothing
+                    classOf "Water, fresh" `shouldBe` classOf "Water, unspecified natural origin"
+                    classOf "Water, fresh" `shouldNotBe` classOf "Water, river"
+
                 -- Inventories write these pesticides under their common name,
                 -- the methods under the chemical one, and the inventory carries
                 -- no CAS number that would bridge them.

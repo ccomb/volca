@@ -96,6 +96,15 @@
 
 ### Fixed
 
+- A regional flow reads its region's factor when the method writes that
+  region only under another name of the same substance. The adapted EF 3.1
+  method writes fresh water `Water, fresh` without a region, at the world
+  average of 42.95, and every region under `Water, unspecified natural
+  origin`: a flow `Water, fresh, AU` scored 42.95 where Australia is 72.1. A
+  factor written `name, region` now also reaches each synonym of the name at
+  that region, and the registry reads `Water, fresh` as water of unspecified
+  natural origin, on the resource side only. Data version 10.
+
 - Every location a database writes has a place in the geography table, and
   the six continental codes read as the continents they are: `RER` is
   Europe, `RAF` Africa, `RAS` Asia, `RLA` Latin America and the Caribbean,

@@ -961,6 +961,7 @@ ground water,"Water, well",input
 Water to turbine,"Water, turbine use, unspecified natural origin",input
 Water to Cooling,"Water, cooling, unspecified natural origin",input
 freshwater,"Water, unspecified natural origin",input
+"Water, fresh","Water, unspecified natural origin",input,,"SimaPro name of fresh water of unstated origin; a method may write it only without a region, while it writes every region under the second name"
 "Water, unspecified natural origin, RER","Water, unspecified, Europe",,,ecoinvent 2 regional water name still written by EcoSpold 1 sources; SimaPro imports it under the first name
 CFC-10,"Methane, tetrachloro-, CFC-10",,56-23-5
 CFC-11,"Methane, trichlorofluoro-, CFC-11",,75-69-4

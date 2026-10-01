@@ -1230,6 +1230,14 @@ sources the user explicitly activates, and candidates pass
 'excludeJunkSynonyms' / 'excludeOverFrequentSynonyms' with an
 'oversizedClasses' audit before they can be activated.
 
+A name that ends in a region (@"Water, unspecified natural origin, AU"@,
+see 'extractLocationSuffix') also fans out to every synonym of the name
+before it, at that same region: the class says two names are one
+substance, and a substance is one wherever it is. So a database flow
+@"Water, fresh, AU"@ reads the Australian factor a method writes only
+under another name of fresh water, rather than falling back to the
+world average its own name carries without a region.
+
 Duplicates are harmless – 'buildMethodTables' uses @fromListWith
 preferBetter@.
 -}
@@ -1242,12 +1250,23 @@ expandSynonymMappings synDB flowsByName mappings =
     mappings ++ concatMap expand mappings
   where
     expand (cf, _) =
-        let dirDB = viewFor (mcfDirection cf) synDB
-            peers = fromMaybe [] (getSynonyms dirDB =<< lookupSynonymGroup dirDB (mcfFlowName cf))
-         in [ (cf, Just (flow, BySynonym))
-            | syn <- peers
-            , flow <- M.findWithDefault [] syn flowsByName
-            ]
+        [ (cf, Just (flow, BySynonym))
+        | peer <- synonymNames (viewFor (mcfDirection cf) synDB) (mcfFlowName cf)
+        , flow <- M.findWithDefault [] peer flowsByName
+        ]
+
+{- | Every normalized name the registry holds for the same substance as this
+one: its own class, then, for a name ending in a region, each name of the
+class of what precedes the region, followed by that region.
+-}
+synonymNames :: SynonymDB -> Text -> [Text]
+synonymNames dirDB name = classOf name ++ regional (extractLocationSuffix name)
+  where
+    classOf :: Text -> [Text]
+    classOf n = fromMaybe [] (getSynonyms dirDB =<< lookupSynonymGroup dirDB n)
+    regional :: (Text, Maybe Text) -> [Text]
+    regional (base, Just loc) = [normalizeName (syn <> ", " <> loc) | syn <- classOf base]
+    regional (_, Nothing) = []
 
 {- | Unmapped CFs whose name matches through the UNION synonym tables but not
 through their own direction's view: the direction restriction alone stands
