@@ -2072,6 +2072,46 @@ data MethodCollectionComparison = MethodCollectionComparison
     deriving (Eq, Show, Generic)
     deriving (ToJSON, ToSchema) via (Stripped MethodCollectionComparison)
 
+-- | How many factors of a category one medium holds; no medium for the factors filed under none.
+data MediumCount = MediumCount
+    { mdcMedium :: !(Maybe Text)
+    , mdcFactorCount :: !Int
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped MediumCount)
+
+-- | Factors of one category that one key answers to, at one place: a comparison could pair none of them.
+data DuplicateFactors = DuplicateFactors
+    { dfxMatch :: !FactorMatch
+    , dfxFactors :: ![FactorSide]
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped DuplicateFactors)
+
+-- | What one impact category holds, read without listing its factors.
+data CategoryProfile = CategoryProfile
+    { cpfCategory :: !CategorySide
+    , cpfMedia :: ![MediumCount]
+    , cpfLocatedCount :: !Int
+    -- ^ factors written for one location, stated or read at the end of the name
+    , cpfLocatedInNameCount :: !Int
+    -- ^ of the located factors, those whose name carries the location
+    , cpfLocationCount :: !Int
+    , cpfZeroCount :: !Int
+    , cpfPatternCount :: !Int
+    -- ^ pattern and exclusion rows, which select flows rather than name one
+    , cpfDuplicates :: ![DuplicateFactors]
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped CategoryProfile)
+
+-- | What each impact category of a method collection holds.
+newtype MethodCollectionProfile = MethodCollectionProfile
+    { mcpCategories :: [CategoryProfile]
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped MethodCollectionProfile)
+
 -- JSON instances. Record types derive ToJSON/FromJSON/ToSchema via the
 -- API.JsonOptions.Stripped carrier, which strips the lowercase field prefix.
 -- Sum-only types (NodeType, EdgeType, FlowRole) keep default derivation.

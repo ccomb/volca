@@ -11,7 +11,7 @@ import API.Csv (CSV)
 import API.DatabaseHandlers (explainCFToAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
@@ -194,6 +194,7 @@ type LCAAPI =
                 -- projection warnings travel percent-encoded in a response header
                 :<|> "method-collections" :> Capture "name" Text :> "export" :> ReqBody '[JSON] ExportRequest :> Post '[OctetStream] (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
                 :<|> "method-collections" :> Capture "collection" DM.CollectionName :> "compare" :> QueryParam "other_collection" DM.CollectionName :> QueryParams "pairs" Text :> QueryParam "category" Text :> QueryParam "limit" Int :> Get '[JSON] MethodCollectionComparison
+                :<|> "method-collections" :> Capture "collection" DM.CollectionName :> "profile" :> Get '[JSON] MethodCollectionProfile
                 -- Reference data endpoints (flow synonyms, compartment mappings, units)
                 :<|> "flow-synonyms" :> Get '[JSON] RefDataListResponse
                 :<|> "flow-synonyms" :> Capture "name" Text :> "load" :> Post '[JSON] ActivateResponse
@@ -1490,7 +1491,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 32: the @category@ a comparison of two method collections can be
+(revision 33: the profile_method_collection route, what each impact category
+of a loaded method collection holds;
+revision 32: the @category@ a comparison of two method collections can be
 narrowed to, comparing that one pair alone;
 revision 31: the compare_method_collections route, which pairs the impact
 categories and the characterization factors of two loaded method collections;
@@ -1560,7 +1563,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 32
+currentWireVersion = 33
 
 getVersion :: AppM Value
 getVersion = do
@@ -2120,24 +2123,44 @@ data MethodComparisonFailure
     = CollectionMissing !Text ![Text]
     | PairsRefused !CompareMethods.CompareMethodsRefusal
 
+-- | The reference data a comparison of method collections reads names, places and units through.
+methodComparisonContext :: DatabaseManager -> IO CompareMethods.CompareMethodsContext
+methodComparisonContext manager =
+    CompareMethods.CompareMethodsContext
+        <$> DM.getMergedSynonymDB manager
+        <*> DM.getMergedCompartmentMap manager
+        <*> DM.getMergedUnitConfig manager
+        <*> pure (dmLocationHierarchy manager)
+
 {- | The one reading of a comparison of two method collections, shared by the
 route and the assistant tool so the two cannot answer differently.
 -}
 runMethodComparison :: DatabaseManager -> MethodComparisonAsk -> IO (Either MethodComparisonFailure MethodCollectionComparison)
 runMethodComparison manager request = do
     loaded <- readTVarIO (dmLoadedMethods manager)
-    ctx <-
-        CompareMethods.CompareMethodsContext
-            <$> DM.getMergedSynonymDB manager
-            <*> DM.getMergedCompartmentMap manager
-            <*> DM.getMergedUnitConfig manager
-            <*> pure (dmLocationHierarchy manager)
+    ctx <- methodComparisonContext manager
     pure $ do
         let loadedNamed (DM.CollectionName name) = maybe (Left (CollectionMissing name (M.keys loaded))) Right (M.lookup name loaded)
         cols <- Compare.Sides <$> loadedNamed (mcaCollection request) <*> loadedNamed (mcaOther request)
         forced <- first PairsRefused (traverse CompareMethods.parseForcedPair (mcaPairs request))
         comparison <- first PairsRefused (CompareMethods.compareCollections ctx forced (maybe CompareMethods.EveryCategory CompareMethods.OneCategory (mcaCategory request)) cols)
         pure (maybe id CompareMethods.limitMethodComparison (mcaLimit request) comparison)
+
+{- | The one reading of what a loaded method collection holds, shared by the
+route and the assistant tool. 'Left' names the loaded collections when it is
+not one of them.
+-}
+runMethodProfile :: DatabaseManager -> DM.CollectionName -> IO (Either Text MethodCollectionProfile)
+runMethodProfile manager (DM.CollectionName name) = do
+    loaded <- readTVarIO (dmLoadedMethods manager)
+    ctx <- methodComparisonContext manager
+    pure (maybe (Left (collectionNotLoadedMessage name (M.keys loaded))) (Right . CompareMethods.profileCollection ctx) (M.lookup name loaded))
+
+getMethodCollectionProfile :: DM.CollectionName -> AppM MethodCollectionProfile
+getMethodCollectionProfile collection = do
+    manager <- asks aeDbManager
+    liftIO (runMethodProfile manager collection)
+        >>= either (\msg -> throwError err404{errBody = BSL.fromStrict (T.encodeUtf8 msg)}) pure
 
 getMethodCollectionComparison :: DM.CollectionName -> Maybe DM.CollectionName -> [Text] -> Maybe Text -> Maybe Int -> AppM MethodCollectionComparison
 getMethodCollectionComparison collection otherParam forcedPairs categoryParam limitParam = do
@@ -2676,6 +2699,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.uploadMethodHandler
             :<|> DBHandlers.exportMethodHandler
             :<|> getMethodCollectionComparison
+            :<|> getMethodCollectionProfile
             :<|> DBHandlers.listRefData DBHandlers.FlowSynonyms
             :<|> DBHandlers.loadRefData DBHandlers.FlowSynonyms
             :<|> DBHandlers.unloadRefData DBHandlers.FlowSynonyms

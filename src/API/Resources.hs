@@ -88,6 +88,7 @@ data Resource
     | CompareActivities
     | CompareDatabases
     | CompareMethodCollections
+    | ProfileMethodCollection
     | ScoreActivity
     | ScoreActivities
     | ListScoringSets
@@ -175,6 +176,7 @@ resourceMutates r = case r of
     CompareActivities -> False
     CompareDatabases -> False
     CompareMethodCollections -> False
+    ProfileMethodCollection -> False
     ScoreActivity -> False
     ScoreActivities -> False
     ListScoringSets -> False
@@ -237,6 +239,7 @@ apiPath r = case r of
     CompareActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "compare"])
     CompareDatabases -> Just (GET, ["db", "{dbName}", "compare"])
     CompareMethodCollections -> Just (GET, ["method-collections", "{collection}", "compare"])
+    ProfileMethodCollection -> Just (GET, ["method-collections", "{collection}", "profile"])
     ScoreActivity -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "impacts", "{collection}"])
     ScoreActivities -> Just (POST, ["db", "{dbName}", "impacts", "{collection}"])
     ListScoringSets -> Nothing -- MCP-only: scoring sets are configuration metadata, no REST equivalent yet
@@ -292,6 +295,7 @@ mcpName r = case r of
     CompareActivities -> "compare_activities"
     CompareDatabases -> "compare_databases"
     CompareMethodCollections -> "compare_method_collections"
+    ProfileMethodCollection -> "profile_method_collection"
     ScoreActivity -> "score_activity"
     ScoreActivities -> "score_activities"
     ListScoringSets -> "list_scoring_sets"
@@ -617,6 +621,16 @@ description r = case r of
         \1e-9. 'collection' is the base. The counts always cover the full \
         \lists and limit truncates each list of each category: pass a limit \
         \when calling from a conversation."
+    ProfileMethodCollection ->
+        "LCA / ACV: what each impact category of a loaded method collection \
+        \holds, without listing its factors: how many factors each medium \
+        \holds ('media', no medium for factors filed under none), how many are \
+        \written for one location and how many locations, how many of those \
+        \carry the location at the end of their name ('Ammonia, FR'), how many \
+        \are zero, how many are pattern or exclusion rows, and the duplicates: \
+        \the factors one key answers to at one place, which a comparison could \
+        \not pair. Compartments and locations are read as \
+        \compare_method_collections reads them."
     ScoreActivity ->
         "LCA / ACV: compute the full LCIA panel + every configured scoring \
         \set for an activity in one call. Returns per-method impact scores, \
@@ -1091,6 +1105,9 @@ params r = case r of
         , Param "pairs" "array" Optional "Categories to pair by hand, each written \"base=other\" with the two category names; taken before any other pairing"
         , Param "category" "string" Optional "Compare only the pair whose base category has this name, which is much faster than comparing them all; the unpaired and ambiguous categories are still listed"
         , pLimit "Max entries per list of each category (added, removed, changed, ambiguous, unconvertible), in order (default: all). The counts always cover the full lists."
+        ]
+    ProfileMethodCollection ->
+        [ Param "collection" "string" Required "Loaded method collection to profile"
         ]
     ScoreActivity ->
         [ pDatabase
