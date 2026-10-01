@@ -33,6 +33,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Time.Calendar (fromGregorian)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Data.Word (Word32)
@@ -78,6 +79,9 @@ fixtureCSV =
         , ""
         , "Geography"
         , "FR"
+        , ""
+        , "Date"
+        , "15/01/2016"
         , ""
         , "Comment"
         , -- Multi-line free text the way SimaPro writes it: one physical line,
@@ -405,6 +409,13 @@ spec = describe "SimaPro.Writer round-trip" $ do
         reparsed <- parseBytes bytes
         let (acts, _, _, _, _) = reparsed
         length acts `shouldBe` 2
+
+    it "round-trips the date a process states" $ do
+        original <- parseBytes fixtureCSV
+        reparsed <- parseBytes =<< serBytes (toSimple original)
+        let statedDates = sort . map (datesStated . activityDates) . activitiesOf
+        statedDates original `shouldBe` [Nothing, Just (fromGregorian 2016 1 15)]
+        statedDates reparsed `shouldBe` statedDates original
 
     it "(a) is idempotent modulo the volatile version banner" $ do
         original <- parseBytes fixtureCSV
@@ -748,6 +759,7 @@ emissionDb comp =
             Nothing
             Nothing
             Nothing
+            noDates
 
 {- | One activity carrying a waste exchange of the kind only another format
 produces, optionally naming the activity that treats it. Which section the
@@ -786,6 +798,7 @@ wasteDb mTreatment =
             Nothing
             Nothing
             Nothing
+            noDates
 
 {- | The rows a serialized export carries under a section header, or an empty
 list when the section is absent. The writer joins with CRLF, so the carriage
@@ -847,6 +860,7 @@ designationDb =
             Nothing
             Nothing
             Nothing
+            noDates
     market =
         Activity
             "market for electricity, medium voltage"
@@ -863,6 +877,7 @@ designationDb =
             Nothing
             Nothing
             Nothing
+            noDates
 
 -- ---------------------------------------------------------------------------
 -- Allocation round-trip fixture
@@ -910,6 +925,7 @@ allocationDb =
             Nothing
             Nothing
             Nothing
+            noDates
 
 {- | A 0%-allocated activity: its shared material input is stored at 0 (the parser
 scaled every shared amount by allocFraction = 0 on import). A correct writer emits
@@ -952,6 +968,7 @@ zeroAllocationDb =
             Nothing
             Nothing
             Nothing
+            noDates
 
 -- ---------------------------------------------------------------------------
 -- Round-trip guard fixtures (comment-as-pedigree, metadata-key collision)
@@ -997,6 +1014,7 @@ commentDb ped cmt =
             Nothing
             Nothing
             Nothing
+            noDates
 
 {- | One activity with the given name and a single reference product. Exercises
 the metadata-key collision guard: a name equal to a SimaPro key is rejected.
@@ -1031,6 +1049,7 @@ namedDb name =
             Nothing
             Nothing
             Nothing
+            noDates
 
 -- ---------------------------------------------------------------------------
 -- Field-shape guard fixtures (shared by the field-shape guard specs)
@@ -1084,7 +1103,7 @@ guardDb alloc ntype exs =
         }
   where
     act =
-        Activity "guard maker" [] [] M.empty M.empty "GLO" LocationDeclared "kg" (map withShare exs) M.empty M.empty ntype Nothing Nothing
+        Activity "guard maker" [] [] M.empty M.empty "GLO" LocationDeclared "kg" (map withShare exs) M.empty M.empty ntype Nothing Nothing noDates
     -- The share a source declares lives on the reference exchange.
     withShare ex = case ex of
         TechnosphereExchange{techRole = ReferenceProduct} -> ex{techShare = (`DeclaredShare` Nothing) <$> alloc}

@@ -57,6 +57,7 @@ minimalActivity name loc exs =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 -- | The same activity, filed in the source's obsolete category.

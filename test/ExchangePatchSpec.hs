@@ -30,6 +30,7 @@ import Types (
     exchangeAmount,
     exchangeFlowId,
     exchangeIsReference,
+    noDates,
     noProperties,
     toSimpleDatabase,
  )
@@ -118,6 +119,7 @@ activity name location exs =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 {- | Two processes: a trellis system creosoting its poles, and an orchard

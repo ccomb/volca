@@ -456,6 +456,7 @@ rawToActivity cfg own ra =
             , activityNativeType = Nothing
             , activityNativeId = Nothing
             , activityFormulaCheck = Nothing
+            , activityDates = noDates
             }
 
 {- | Build the reference-product (or coproduct) exchange from a @production@ row,

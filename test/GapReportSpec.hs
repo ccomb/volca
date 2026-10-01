@@ -52,6 +52,7 @@ import Types (
     Unit (..),
     UnresolvedProduct (..),
     WasteFlow (..),
+    noDates,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -99,6 +100,7 @@ mkActivity name exs =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 mkTechFlow :: UUID -> Text -> TechnosphereFlow

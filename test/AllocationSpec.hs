@@ -462,6 +462,7 @@ activity exs =
         , activityNativeType = Nothing
         , activityNativeId = Just (NativeProcessId "block-1")
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 units :: UnitDB

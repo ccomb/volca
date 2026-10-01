@@ -476,6 +476,7 @@ mkActivityAt loc =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 mkRefExchangeAt :: Text -> Exchange

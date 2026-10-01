@@ -39,6 +39,7 @@ import Types (
     SparseTriple (..),
     Unit (..),
     emptyProductIndex,
+    noDates,
  )
 import qualified Types as VT
 import UnitConversion (UnitConfig (..), defaultDimensionOrder, defaultUnitConfig, mkUnitConfig)
@@ -98,6 +99,7 @@ mkActivity loc =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 -- Triples: (bioRow=0, col=i, value=v) for each activity.

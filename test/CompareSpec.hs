@@ -46,6 +46,7 @@ import Types (
     TechRole (..),
     TechnosphereFlow (..),
     Unit (..),
+    noDates,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -320,6 +321,7 @@ entry r =
         , activityNativeType = rowType r
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
     )
   where

@@ -71,6 +71,7 @@ minimalActivity name exs =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 refExchange :: UUID.UUID -> Exchange

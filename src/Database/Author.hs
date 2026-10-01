@@ -100,6 +100,7 @@ import Types (
     findProcessIdByActivityUUID,
     getUnitNameForExchange,
     mediumText,
+    noDates,
     noProperties,
     parseProcessRef,
     withAmount,
@@ -351,6 +352,7 @@ buildActivity a unitLabel exchangeList =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 {- | How a complaint names the line it is about. What an author can act on is

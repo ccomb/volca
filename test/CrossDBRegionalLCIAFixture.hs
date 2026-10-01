@@ -110,6 +110,7 @@ mkActivity _ loc =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 emptyIndexes :: Indexes

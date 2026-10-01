@@ -302,6 +302,7 @@ elec =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 prodExch :: Exchange

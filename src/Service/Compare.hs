@@ -85,6 +85,7 @@ import Types (
     Activity (..),
     Compartment,
     Database (..),
+    DatasetDates,
     Exchange (..),
     FlowKind,
     NativeActivityType (..),
@@ -133,7 +134,7 @@ compareActivities sides =
     ActivityComparison
         { acmpBase = baseSide summaries
         , acmpOther = otherSide summaries
-        , acmpSummary = summaryChanges summaries
+        , acmpSummary = summaryChanges summaries ++ datesChange (fmap (activityDates . inActivity) sides)
         , acmpExchanges = [change | Differs change <- verdicts]
         , acmpUncompared = [line | Uncompared line <- verdicts]
         }
@@ -159,6 +160,12 @@ summaryChanges (Sides b o) =
   where
     differing :: (Text -> Text -> SummaryChange) -> (ActivitySummary -> Text) -> [SummaryChange]
     differing change field = [change (field b) (field o) | field b /= field o]
+
+{- | The dates the two datasets state, when they differ: the plainest answer to
+whether one side is a later version of the other.
+-}
+datesChange :: Sides DatasetDates -> [SummaryChange]
+datesChange (Sides b o) = [DatesChanged b o | b /= o]
 
 sameShare :: Maybe Double -> Maybe Double -> Bool
 sameShare (Just x) (Just y) = close x y

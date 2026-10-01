@@ -60,6 +60,7 @@ import Types (
     TechnosphereFlow (..),
     UUID,
     Unit (..),
+    noDates,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -530,4 +531,5 @@ supplierActivity =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }

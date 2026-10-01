@@ -56,6 +56,7 @@ import Types (
     TechnosphereFlow (..),
     UUID,
     Unit (..),
+    noDates,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -308,6 +309,7 @@ supplierDB offset products =
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing
                         , activityFormulaCheck = Nothing
+                        , activityDates = noDates
                         }
                in (((actUUID, prodUUID), act), (flowUUID, flow))
             | (i, name) <- zip [0 ..] products

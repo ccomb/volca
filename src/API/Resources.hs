@@ -579,9 +579,10 @@ description r = case r of
         \supplier swapped at an equal total does not show; one flow written in \
         \several units on a side is listed under 'uncompared' rather than summed. \
         \Amounts are equal within a relative 1e-9, and units compare by name. \
-        \'summary' lists the activity name, location, product name and \
-        \allocation share where they differ; the product's amount is reported by \
-        \its reference line. Nothing listed means the two say the same thing."
+        \'summary' lists the activity name, location, product name, \
+        \allocation share and the dates the two datasets state where they \
+        \differ; the product's amount is reported by its reference line. Nothing \
+        \listed means the two say the same thing."
     CompareDatabases ->
         "LCA / ACV: compare two loaded databases, typically two versions of one: \
         \the activities added, removed and changed, each changed one with the \

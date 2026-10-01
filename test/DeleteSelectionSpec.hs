@@ -67,6 +67,7 @@ import Types (
     UUID,
     Unit (..),
     findProcessId,
+    noDates,
     noProperties,
     processIdToText,
  )
@@ -557,6 +558,7 @@ mkActivity name loc classif exs =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 units :: M.Map UUID Unit

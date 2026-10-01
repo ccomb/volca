@@ -35,6 +35,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Time.Calendar (fromGregorian)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Database (buildDatabaseWithMatrices)
@@ -121,6 +122,7 @@ fixtureSimple =
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
             Nothing
+            noDates
     activityB =
         Activity
             "production of B"
@@ -139,6 +141,7 @@ fixtureSimple =
             (Just (EcoSpoldActivityType 2 "Market activity" (Just 1) (Just "Hard link")))
             Nothing
             Nothing
+            noDates
 
 -- | The fixture as a 'SimpleDatabase' (matches the previous IO-shaped helper).
 loadFixtureSimple :: IO SimpleDatabase
@@ -178,6 +181,7 @@ fixtureDupBio =
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
             Nothing
+            noDates
 
 {- | A single-activity database wrapping one adversarial exchange. The
 exchange is the only difference between the rejection fixtures, so the export
@@ -211,6 +215,7 @@ fixtureWithExchange ex =
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
             Nothing
+            noDates
 
 {- | A single-activity database whose biosphere flow carries synonyms, so the
 writer's @\<synonym\>@ emission and the parser's read-back are exercised end to
@@ -248,6 +253,7 @@ fixtureWithBioSynonyms =
             Nothing
             Nothing
             Nothing
+            noDates
 
 {- | A single activity exercising the subtlest inversion paths: a coproduct
 (outputGroup 2) and waste exchanges in both directions (waIsInput controls
@@ -296,6 +302,7 @@ fixtureWasteCoproduct =
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
             Nothing
+            noDates
 
 -- | Build a full 'Database' (with matrices) from a 'SimpleDatabase'.
 buildDb :: SimpleDatabase -> IO Database
@@ -361,16 +368,14 @@ spec = describe "EcoSpold2 writer round-trip" $ do
         -- Compare the sorted (filename, document) sequences byte-for-byte.
         sortOn fst f1 `shouldBe` sortOn fst f0
 
-    -- The volatile-metadata paths (creationTimestamp element + generator
-    -- comment) are otherwise unexercised, since every other case uses
-    -- 'noVolatileMeta'. Pin both and assert they (1) reach the output and
-    -- (2) are non-semantic: the parser ignores them, so the round-tripped
+    -- The generator comment is otherwise unexercised, since every other case
+    -- uses 'noVolatileMeta'. Pin it and assert it (1) reaches the output and
+    -- (2) is non-semantic: the parser ignores it, so the round-tripped
     -- activities match the byte-stable default exactly.
-    it "emits pinned volatile metadata that the parser then ignores" $ do
+    it "emits a pinned generator that the parser then ignores" $ do
         sdb <- loadFixtureSimple
-        let meta = VolatileMeta (Just "2020-01-02T03:04:05") (Just "writer-spec <gen> & co")
+        let meta = VolatileMeta (Just "writer-spec <gen> & co")
         let docs = writeOrFail meta sdb
-        any (T.isInfixOf "2020-01-02T03:04:05" . snd) docs `shouldBe` True
         any (T.isInfixOf "writer-spec" . snd) docs `shouldBe` True
         pinned <- roundTripWith meta sdb
         plain <- roundTrip sdb
@@ -381,6 +386,15 @@ spec = describe "EcoSpold2 writer round-trip" $ do
                 Just act' ->
                     sort (map exchangeFingerprint (exchanges act'))
                         `shouldBe` sort (map exchangeFingerprint (exchanges act))
+
+    -- The format keeps a creation and a last edit; a date stated without a
+    -- meaning has no place in it and is not passed off as either.
+    it "round-trips the creation and last edit dates" $ do
+        sdb <- loadFixtureSimple
+        let dates = DatasetDates (Just (fromGregorian 2011 6 30)) (Just (fromGregorian 2024 9 6)) Nothing
+            dated = sdb{sdbActivities = M.map (\a -> a{activityDates = dates{datesStated = Just (fromGregorian 2019 1 1)}}) (sdbActivities sdb)}
+        sdb' <- roundTrip dated
+        map activityDates (M.elems (sdbActivities sdb')) `shouldSatisfy` all (== dates)
 
     -- Regression: two exchanges sharing a sort key (same kind + flow) must both
     -- survive write→parse. A Map-based sort would silently drop one,

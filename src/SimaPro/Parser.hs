@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -16,6 +17,9 @@ module SimaPro.Parser (
     GlobalParams (..),
     emptyProcessBlock,
     fallbackAmounts,
+    StatedDate (..),
+    readStatedDate,
+    dateWarnings,
     dropAmbiguousNativeIds,
     generateActivityUUID,
     generateFlowUUID,
@@ -54,7 +58,7 @@ import Control.Monad (foldM, forM_, mfilter)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isUpper, toLower)
+import Data.Char (isAlpha, isUpper, toLower)
 import qualified Data.Csv as Csv
 import Data.List (dropWhileEnd, sortOn)
 import qualified Data.Map.Strict as M
@@ -64,7 +68,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TEE
-import Data.Time (diffUTCTime, getCurrentTime)
+import Data.Time (Day, defaultTimeLocale, diffUTCTime, fromGregorian, getCurrentTime, parseTimeM)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import qualified Data.Vector as V
@@ -89,7 +93,8 @@ data SimaProConfig = SimaProConfig
     , spFileType :: !Text -- "processes", "methods", "product stages"
     , spDelimiter :: !Char -- CSV delimiter (';', ',', '\t')
     , spDecimal :: !Char -- Decimal separator (',' or '.')
-    , spDateFormat :: !Text -- Date format string
+    , spDateFormat :: !Text -- Short date format, where "/" stands for the date separator
+    , spDateSeparator :: !Char
     }
     deriving (Show, Eq, Generic)
 
@@ -104,6 +109,7 @@ defaultConfig =
         , spDelimiter = ';'
         , spDecimal = ','
         , spDateFormat = "dd/MM/yyyy"
+        , spDateSeparator = '/'
         }
 
 -- ============================================================================
@@ -169,6 +175,7 @@ data ProcessBlock = ProcessBlock
     , pbTechnology :: !Text
     , pbRecord :: !Text
     , pbComment :: !Text
+    , pbDate :: !StatedDate
     , pbProducts :: ![ProductRow]
     , pbAvoidedProducts :: ![ProductRow]
     , pbMaterials :: ![TechExchangeRow]
@@ -200,6 +207,7 @@ emptyProcessBlock =
         , pbTechnology = ""
         , pbRecord = ""
         , pbComment = ""
+        , pbDate = DateBlank
         , pbProducts = []
         , pbAvoidedProducts = []
         , pbMaterials = []
@@ -300,6 +308,7 @@ data ParseAcc = ParseAcc
     , paWasteFlows :: !(M.Map FlowInUnit WasteFlow)
     , paUnits :: !(M.Map UUID.UUID Unit)
     , paFallbacks :: ![(Text, Text, Double)] -- reversed, as the activities are
+    , paDateNotes :: ![(Text, StatedDate)] -- blocks whose Date is zero or unreadable, by name; reversed
     , paLineNum :: !Int
     , paDbInputParams :: ![(Text, Text)]
     , paDbCalcParams :: ![(Text, Text)]
@@ -390,6 +399,7 @@ data WorkerResult = WorkerResult
     , wrWasteFlows :: !(M.Map FlowInUnit WasteFlow)
     , wrUnits :: !(M.Map UUID.UUID Unit)
     , wrFallbacks :: ![(Text, Text, Double)]
+    , wrDateNotes :: ![(Text, StatedDate)]
     }
     deriving (Generic)
 
@@ -419,6 +429,7 @@ updateConfigFromHeader cfg key value = case BS8.map toLower key of
     "csv separator" -> cfg{spDelimiter = parseDelimiter value}
     "decimal separator" -> cfg{spDecimal = maybe ',' fst (BS8.uncons value)}
     "short date format" -> cfg{spDateFormat = localDecodeBS value}
+    "date separator" -> cfg{spDateSeparator = maybe '/' fst (BS8.uncons value)}
     _ -> cfg
   where
     localDecodeBS = TE.decodeUtf8With TEE.lenientDecode
@@ -751,11 +762,11 @@ processLine acc@ParseAcc{..} line
         if isMetadataKey (BS8.strip line)
             then acc{paState = InProcessMeta (BS8.strip line)}
             else case paState of
-                InProcessMeta key -> (editBlock (setMetadata key line) acc){paState = BetweenBlocks}
+                InProcessMeta key -> (editBlock (setMetadata paConfig key line) acc){paState = BetweenBlocks}
                 _ -> acc
     -- Value for metadata key
     | InProcessMeta key <- paState =
-        (editBlock (setMetadata key line) acc){paState = BetweenBlocks}
+        (editBlock (setMetadata paConfig key line) acc){paState = BetweenBlocks}
     | otherwise = acc{paLineNum = paLineNum + 1}
 
 {- | Edit the block being read, or do nothing at all: the first pass keeps no
@@ -818,7 +829,20 @@ absorbBlock unitCfg gp block acc = case processBlockToActivity unitCfg gp block 
     warned :: ParseAcc
     warned
         | null (pbProducts block) = acc
-        | otherwise = acc{paFallbacks = foldl' (flip (:)) (paFallbacks acc) $!! fallbackAmounts gp block}
+        | otherwise =
+            acc
+                { paFallbacks = foldl' (flip (:)) (paFallbacks acc) $!! fallbackAmounts gp block
+                , paDateNotes = maybe (paDateNotes acc) (: paDateNotes acc) $!! dateNote block
+                }
+
+    -- A date the block states is the normal case and says nothing; a blank one
+    -- is a date nobody entered, which the zero says too, but in a way a
+    -- reader of the file could take for a real day.
+    dateNote :: ProcessBlock -> Maybe (Text, StatedDate)
+    dateNote b = case pbDate b of
+        DateStated _ -> Nothing
+        DateBlank -> Nothing
+        zeroOrUnreadable -> Just (blockLabel b, zeroOrUnreadable)
 
     keyedBy :: (NFData a) => (a -> FlowInUnit) -> M.Map FlowInUnit a -> [a] -> M.Map FlowInUnit a
     keyedBy key = foldl' (\m x -> (\y -> M.insert (key y) y m) $!! x)
@@ -883,8 +907,8 @@ addRowToBlock cfg sec line block = case sec of
     placed parsed place = maybe block (place $!!) parsed
 
 -- | Set metadata field in block (ByteString key, decode value to Text)
-setMetadata :: BS.ByteString -> BS.ByteString -> ProcessBlock -> ProcessBlock
-setMetadata key value block = case key of
+setMetadata :: SimaProConfig -> BS.ByteString -> BS.ByteString -> ProcessBlock -> ProcessBlock
+setMetadata cfg key value block = case key of
     "Category type" -> block{pbCategoryType = decodeBS (BS8.strip value)}
     "Process identifier" -> block{pbIdentifier = decodeBS (BS8.strip value)}
     "Type" -> block{pbType = decodeBS (BS8.strip value)}
@@ -895,7 +919,71 @@ setMetadata key value block = case key of
     "Technology" -> block{pbTechnology = decodeBS (BS8.strip value)}
     "Record" -> block{pbRecord = decodeBS (BS8.strip value)}
     "Comment" -> block{pbComment = decodeBS (BS8.strip value)}
+    "Date" -> block{pbDate = readStatedDate cfg (decodeBS value)}
     _ -> block
+
+-- | What a process block's @Date@ line says.
+data StatedDate
+    = DateStated !Day
+    | -- | No @Date@ line, or an empty one.
+      DateBlank
+    | {- | 30/12/1899, day zero of the calendar SimaPro keeps its dates in: what
+      it writes for a date nobody entered.
+      -}
+      DateZero
+    | -- | Not a date in the format the header declares, with the reason.
+      DateUnreadable !Text
+    deriving (Show, Eq, Generic)
+
+instance NFData StatedDate
+
+-- | The day a block states, when it states one.
+statedDay :: StatedDate -> Maybe Day
+statedDay = \case
+    DateStated day -> Just day
+    DateBlank -> Nothing
+    DateZero -> Nothing
+    DateUnreadable _ -> Nothing
+
+{- | Read a @Date@ value in the short date format the header declares. In that
+format, as in the Delphi convention it comes from, @/@ stands for the date
+separator rather than for itself: @dd/MM/yyyy@ with separator @.@ reads
+@15.01.2016@.
+-}
+readStatedDate :: SimaProConfig -> Text -> StatedDate
+readStatedDate cfg raw = case T.strip raw of
+    "" -> DateBlank
+    written -> either DateUnreadable classify $ do
+        timePattern <- timeFormatOf (spDateSeparator cfg) (spDateFormat cfg)
+        maybe (Left ("\"" <> written <> "\" is not a date written " <> spDateFormat cfg)) Right $
+            parseTimeM False defaultTimeLocale timePattern (T.unpack written)
+  where
+    classify :: Day -> StatedDate
+    classify day
+        | day == fromGregorian 1899 12 30 = DateZero
+        | otherwise = DateStated day
+
+-- | The 'parseTimeM' pattern of a short date format, given the date separator.
+timeFormatOf :: Char -> Text -> Either Text String
+timeFormatOf separator format = concat <$> traverse token (T.group format)
+  where
+    token :: Text -> Either Text String
+    token t = case T.unpack t of
+        -- Unpadded on reading: a padded day reads the same, and a file whose
+        -- format says dd but writes 2 still means the second.
+        "d" -> Right "%-d"
+        "dd" -> Right "%-d"
+        "M" -> Right "%-m"
+        "MM" -> Right "%-m"
+        "yy" -> Right "%y"
+        "yyyy" -> Right "%Y"
+        written
+            | all (== '/') written -> Right (concatMap (const (literal separator)) written)
+            | T.any isAlpha t -> Left ("the short date format \"" <> format <> "\" is not one this reader knows")
+            | otherwise -> Right (concatMap literal written)
+    literal :: Char -> String
+    literal '%' = "%%"
+    literal c = [c]
 
 -- ============================================================================
 -- UUID Generation
@@ -1104,7 +1192,7 @@ passes without a word.
 -}
 fallbackAmounts :: GlobalParams -> ProcessBlock -> [(Text, Text, Double)]
 fallbackAmounts gp pb@ProcessBlock{..} =
-    [ (blockName, raw, fallback)
+    [ (blockLabel pb, raw, fallback)
     | (raw, fallback) <- rawAmounts
     , not (T.null raw)
     , isNothing (resolveExpr env raw)
@@ -1113,14 +1201,17 @@ fallbackAmounts gp pb@ProcessBlock{..} =
     -- Forced only when a raw fails 'readAmount', so a block of plain numbers
     -- never builds its environment a second time.
     env = fst (blockParamEnv gp pb)
-    blockName = case nonEmptyText (T.strip pbName) of
-        Just n -> n
-        Nothing -> maybe "unnamed process" prName (listToMaybe pbProducts)
     rawAmounts =
         concatMap (\p -> [(prAmountRaw p, prAmount p), (prAllocRaw p, prAllocation p)]) pbProducts
             ++ map (\p -> (prAmountRaw p, prAmount p)) pbAvoidedProducts
             ++ map (\r -> (terAmountRaw r, terAmount r)) (pbMaterials ++ pbElectricity ++ pbWasteToTreatment)
             ++ map (\r -> (berAmountRaw r, berAmount r)) (pbResources ++ pbEmissionsAir ++ pbEmissionsWater ++ pbEmissionsSoil ++ pbFinalWaste)
+
+-- | What a warning calls a block: its process name, or a product's when it has none.
+blockLabel :: ProcessBlock -> Text
+blockLabel pb = case nonEmptyText (T.strip (pbName pb)) of
+    Just n -> n
+    Nothing -> maybe "unnamed process" prName (listToMaybe (pbProducts pb))
 
 {- | Build the resolved parameter environment and the raw-expression map from
 ordered parameter groups. Input groups are resolved with a single pass each;
@@ -1292,6 +1383,7 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
                     , activityNativeType = nativeType
                     , activityNativeId = nativeId
                     , activityFormulaCheck = Nothing
+                    , activityDates = noDates{datesStated = statedDay pbDate}
                     }
             allUnits =
                 map
@@ -1679,6 +1771,7 @@ emptyParseAcc cfg sink =
         , paWasteFlows = M.empty
         , paUnits = M.empty
         , paFallbacks = []
+        , paDateNotes = []
         , paLineNum = 0
         , paDbInputParams = []
         , paDbCalcParams = []
@@ -1720,10 +1813,25 @@ parseWorkerRange cfg unitCfg gp range =
         , wrWasteFlows = paWasteFlows finalAcc
         , wrUnits = paUnits finalAcc
         , wrFallbacks = reverse (paFallbacks finalAcc)
+        , wrDateNotes = reverse (paDateNotes finalAcc)
         }
   where
     finalAcc :: ParseAcc
     finalAcc = foldl' processLine (emptyParseAcc cfg (Convert unitCfg gp)) (linesOf range)
+
+{- | What the load says about the dates it did not keep. An unreadable one is
+named, block by block, since each is a fault in the file; the zero is SimaPro's
+own way of storing no date, so it is counted once.
+-}
+dateWarnings :: [(Text, StatedDate)] -> [Text]
+dateWarnings notes =
+    [ "process '" <> name <> "': Date " <> reason <> "; the process is read with no date"
+    | (name, DateUnreadable reason) <- notes
+    ]
+        ++ [ T.pack (show zeros) <> " processes write the Date 30/12/1899, which SimaPro writes for a date never entered: read as no date"
+           | let zeros = length [() | (_, DateZero) <- notes]
+           , zeros > 0
+           ]
 
 {- | Fill empty biosphere-flow CAS from the @(name, CAS)@ pairs a SimaPro
 export lists in its trailing substance registry. Holes only – reuses
@@ -1844,6 +1952,7 @@ parseSimaProCSV unitCfg path = do
                 (T.unpack raw)
                 (T.unpack name)
                 fallback
+    mapM_ (reportProgress Warning . T.unpack) (dateWarnings (concatMap wrDateNotes results))
     let (activities, ambiguousIds) = dropAmbiguousNativeIds (concatMap wrActivities results)
     forM_ ambiguousIds $ \nativeId ->
         reportProgress Warning $

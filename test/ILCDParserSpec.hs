@@ -90,6 +90,7 @@ activityWithRefExchange fid =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 -- An activity with a single unresolved input exchange for the given flow UUID
@@ -125,6 +126,7 @@ activityWithInputExchange fid =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 -- ---------------------------------------------------------------------------

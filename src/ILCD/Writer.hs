@@ -91,18 +91,14 @@ import Zip (zipFiles)
 {- | Knobs that pin or omit volatile metadata. Defaults omit everything
 volatile, so a write→parse→write round-trip is byte-stable.
 -}
-data WriteOptions = WriteOptions
-    { woTimestamp :: !(Maybe Text)
-    {- ^ Pinned export timestamp, emitted as @<common:timeStamp>@. 'Nothing'
-    omits the element entirely (the parser ignores it either way).
-    -}
-    , woGenerator :: !(Maybe Text)
+newtype WriteOptions = WriteOptions
+    { woGenerator :: Maybe Text
     -- ^ Pinned generator / tool-version string. 'Nothing' omits it.
     }
 
 -- | Omit all volatile metadata. The right default for reproducible exports.
 defaultWriteOptions :: WriteOptions
-defaultWriteOptions = WriteOptions{woTimestamp = Nothing, woGenerator = Nothing}
+defaultWriteOptions = WriteOptions{woGenerator = Nothing}
 
 --------------------------------------------------------------------------------
 -- Process dataset identity
@@ -390,11 +386,10 @@ processXML opts dsUUID act =
            , elem' "referenceToReferenceFlow" (T.pack (show refIdx))
            , "    </quantitativeReference>"
            ]
-        ++ timeStampBlock opts
         ++ [ "  </processInformation>"
            ]
         ++ processTypeBlock (activityNativeType act)
-        ++ generatorBlock opts
+        ++ administrativeBlock opts (activityDates act)
         ++ ["  <exchanges>"]
         ++ concatMap (uncurry exchangeXML) indexedExchanges
         ++ [ "  </exchanges>"
@@ -487,23 +482,25 @@ nativeTypeLabel nt = case nt of
     Just (EcoSpoldActivityType{eatLabel = label}) -> Just label
     Nothing -> Nothing
 
--- | Optional pinned timestamp inside @<processInformation>@ (omitted by default).
-timeStampBlock :: WriteOptions -> [Text]
-timeStampBlock opts = case woTimestamp opts of
-    Nothing -> []
-    Just ts -> [elem' "common:timeStamp" ts]
-
--- | Optional pinned generator string (omitted by default).
-generatorBlock :: WriteOptions -> [Text]
-generatorBlock opts = case woGenerator opts of
-    Nothing -> []
-    Just g ->
-        [ "  <administrativeInformation>"
-        , "    <dataGenerator>"
-        , elem' "common:referenceToDataGenerator" g
-        , "    </dataGenerator>"
-        , "  </administrativeInformation>"
-        ]
+{- | @<administrativeInformation>@: the pinned generator string, when there is
+one, and the day the dataset was last saved, the one date this format has a
+place for. Omitted when it would hold neither.
+-}
+administrativeBlock :: WriteOptions -> DatasetDates -> [Text]
+administrativeBlock opts dates = case generator ++ dataEntry of
+    [] -> []
+    inner -> ["  <administrativeInformation>"] ++ inner ++ ["  </administrativeInformation>"]
+  where
+    generator :: [Text]
+    generator =
+        foldMap
+            (\g -> ["    <dataGenerator>", elem' "common:referenceToDataGenerator" g, "    </dataGenerator>"])
+            (woGenerator opts)
+    dataEntry :: [Text]
+    dataEntry =
+        foldMap
+            (\d -> ["    <dataEntryBy>", elem' "common:timeStamp" (isoDateTime d), "    </dataEntryBy>"])
+            (datesLastRevised dates)
 
 --------------------------------------------------------------------------------
 -- Flow XML

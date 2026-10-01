@@ -380,6 +380,7 @@ test-suite lca-tests
                      , WasteCrossDBSpec
                      , ScoringLabelSpec
                      , ScoreWeightsSpec
+                     , DatasetDatesSpec
   build-depends:       base >=4.14 && <5
                      , volca
                      , hspec
@@ -411,6 +412,7 @@ test-suite lca-tests
                      , openapi3
                      , lens
                      , store
+                     , time
   build-tool-depends:  hspec-discover:hspec-discover
 
   default-language:    Haskell2010

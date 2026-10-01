@@ -31,6 +31,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time.Calendar (fromGregorian)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Database (buildDatabaseWithMatrices)
@@ -244,6 +245,15 @@ spec = describe "ILCD.Writer round-trip" $ do
         -- A raw \n/\r in an attribute value is normalised to a space by XML
         -- parsers; encode it as a numeric character reference instead.
         escapeXmlAttr "line1\nline2\rx" `shouldBe` "line1&#10;line2&#13;x"
+
+    -- The format keeps the day a dataset was last saved; the other two have no
+    -- place in it and are not passed off as that one.
+    it "round-trips the last revision date" $ do
+        db <- loadFixture
+        let revised = noDates{datesLastRevised = Just (fromGregorian 2024 9 6)}
+            dated = db{sdbActivities = M.map (\a -> a{activityDates = revised{datesCreated = Just (fromGregorian 2011 6 30)}}) (sdbActivities db)}
+        db' <- roundTrip dated
+        map activityDates (M.elems (sdbActivities db')) `shouldSatisfy` (\ds -> not (null ds) && all (== revised) ds)
 
     it "round-trips a small-exponent amount without scientific-notation loss" $ do
         -- show 3.3e-20 emits scientific notation the parser re-reads lossily;
@@ -551,6 +561,7 @@ multiOutputDb =
             Nothing
             Nothing
             Nothing
+            noDates
 
 -- ---------------------------------------------------------------------------
 -- Feature fixtures (single-output, exercising the recent ILCD writer fixes)
@@ -622,6 +633,7 @@ oneActivityDb bios exs =
             , activityNativeType = Nothing
             , activityNativeId = Nothing
             , activityFormulaCheck = Nothing
+            , activityDates = noDates
             }
 
 refProductEx :: Exchange
