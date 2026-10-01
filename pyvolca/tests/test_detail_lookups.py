@@ -55,6 +55,15 @@ class TestMethodDetail:
         assert session.get.call_args[0][0] == f"http://test.local/api/v1/method/{_M1}/factors"
         assert isinstance(out[0], MethodFactor)
         assert out[0].flow_ref == "f1" and out[0].value == 1.0
+        assert out[0].reading is None
+
+    def test_method_factor_reading_parsed(self, mocked_client):
+        client, session = mocked_client
+        reading = {"medium": "air", "location": {"code": "FR", "from": "InName"}}
+        _resp(session.get, [{"flowRef": "f1", "flowName": "Ammonia, FR", "direction": "Output", "value": 1.0, "reading": reading}])
+        out = client.get_method_factors(_M1)
+        assert out[0].reading.medium == "air"
+        assert (out[0].reading.location.code, out[0].reading.location.from_) == ("FR", "InName")
 
 
 class TestMappingStatus:
