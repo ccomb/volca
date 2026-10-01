@@ -18,9 +18,11 @@ module Method.SimaProScoring (
     singleScoreName,
     damageOnlySetName,
     translateScoring,
+    SimaProBlocks (..),
     toSimaProBlocks,
     LegacyReading (..),
     LegacyEntry (..),
+    NormWeight (..),
     legacyReadings,
     legacyReading,
     legacySet,
@@ -77,8 +79,9 @@ data SimaProMethodFile = SimaProMethodFile
     }
     deriving (Eq, Show)
 
-{- | One file read as a collection, with what its translation could not read.
-A collection of several files is translated once, merged: see 'translateScoring'.
+{- | A file read as a collection, with what its translation could not read.
+Several files of one collection are merged into one before, since a damage
+may group the impact categories of another file.
 -}
 simaProCollection :: SimaProMethodFile -> (MethodCollection, [Text])
 simaProCollection f =
@@ -171,7 +174,7 @@ translateScoring methods damages nwSets
             weight = M.fromList [(v, w) | (key, v) <- weighable, Just w <- [M.lookup key (nwWeighting nw)]]
             -- Sorted by name, not by file order: an export writes the damages
             -- in name order, and reading it back must give the same formula.
-            scored = sort [v | (_, v) <- weighable, M.member v norm, M.member v weight]
+            scored = sort [v | (_, v) <- weighable, counted norm weight v]
          in ScoringSet
                 { ssName = nwName nw
                 , ssUnit = "Pt"
@@ -186,8 +189,11 @@ translateScoring methods damages nwSets
                 , ssOrigin = ReadFromSimaProFile
                 }
 
+    -- A damage grouping nothing is a damage of zero, which SimaPro keeps.
     grouping :: DamageCategory -> Text
-    grouping dc = T.intercalate " + " [term coef c | (c, coef) <- dcImpacts dc]
+    grouping dc = case dcImpacts dc of
+        [] -> "0"
+        impacts -> T.intercalate " + " [term coef c | (c, coef) <- impacts]
 
     term :: Double -> Text -> Text
     term coef c =
@@ -213,18 +219,27 @@ translateScoring methods damages nwSets
         , key `notElem` map fst weighable
         ]
 
+-- | What scoring sets become in a SimaPro file, and the sets left out.
+data SimaProBlocks = SimaProBlocks
+    { spbDamages :: ![DamageCategory]
+    , spbNWSets :: ![NormWeightSet]
+    , spbLeftOut :: ![Text]
+    -- ^ One line per set left out, saying why
+    }
+    deriving (Eq, Show)
+
 {- | Write scoring sets back as a SimaPro file's damage categories and
 normalization-weighting sets, for the sets the format can hold: a grouping of
 impact categories times coefficients, and one score summing the damages that
-have both a normalization and a weight. A file has one set of damage
+'counted' keeps. A file has one set of damage
 categories, so a set grouping otherwise than the first one written is left
 out too. Every set left out is named, with why, in the warnings.
 -}
-toSimaProBlocks :: [ScoringSet] -> ([DamageCategory], [NormWeightSet], [Text])
+toSimaProBlocks :: [ScoringSet] -> SimaProBlocks
 toSimaProBlocks = go Nothing [] []
   where
-    go :: Maybe (Text, [DamageCategory]) -> [NormWeightSet] -> [Text] -> [ScoringSet] -> ([DamageCategory], [NormWeightSet], [Text])
-    go first nws warnings [] = (maybe [] snd first, reverse nws, reverse warnings)
+    go :: Maybe (Text, [DamageCategory]) -> [NormWeightSet] -> [Text] -> [ScoringSet] -> SimaProBlocks
+    go first nws warnings [] = SimaProBlocks (maybe [] snd first) (reverse nws) (reverse warnings)
     go first nws warnings (set : rest) = case (blocksOf set, first) of
         (Left reason, _) -> go first nws (refusal set reason : warnings) rest
         (Right (ds, nw), Nothing) -> go (Just (ssName set, ds)) (maybe nws (: nws) nw) warnings rest
@@ -245,11 +260,11 @@ blocksOf set = do
     groupings <- M.traverseWithKey grouping (ssComputed set)
     let grouped = S.fromList [p | terms <- M.elems groupings, (p, _) <- terms]
         weighable = M.keys (ssComputed set) <> filter (not . (`S.member` grouped)) (M.keys (ssVariables set))
-        weighed = [v | v <- weighable, M.member v (ssNormalization set), M.member v (ssWeighting set)]
+        weighed = filter (counted (ssNormalization set) (ssWeighting set)) weighable
     unless (all (`elem` weighable) (M.keys (ssNormalization set) <> M.keys (ssWeighting set))) $
         Left "SimaPro weighs damage categories and ungrouped impact categories only."
     unless (scoresAreTheSum weighable weighed) $
-        Left "SimaPro writes one score, the sum of the damages that have both a normalization and a weight."
+        Left "SimaPro writes one score, the sum of the damages that have a weight, and a normalization as well when the set normalizes any."
     pure (M.elems (M.mapWithKey damage groupings), weighing)
   where
     grouping :: Text -> Text -> Either Text [(Text, Double)]
@@ -290,6 +305,13 @@ blocksOf set = do
     labelOf :: Text -> Text
     labelOf var = M.findWithDefault var var (ssLabels set)
 
+{- | Whether a variable enters SimaPro's single score: it has a weight, and a
+normalization as well unless the set normalizes nothing, which is how SimaPro
+reads a set with normalization switched off.
+-}
+counted :: M.Map Text Double -> M.Map Text Double -> Text -> Bool
+counted norm weight v = M.member v weight && (M.null norm || M.member v norm)
+
 {- | What the response fields kept until 0.16.0 say about one impact category:
 the damage it feeds, and its normalized and weighted score, SimaPro's way.
 -}
@@ -306,8 +328,15 @@ data LegacyEntry = LegacyEntry
     -- ^ The damage it feeds, or the category itself when no damage groups it
     , leCoefficient :: !Double
     -- ^ Its coefficient in that damage
-    , leNormWeight :: !(Maybe (Double, Double))
-    -- ^ The damage's normalization (divisor) and weight, when it has both
+    , leNormWeight :: !(Maybe NormWeight)
+    -- ^ The damage's normalization and weight, when it has both
+    }
+    deriving (Eq, Show)
+
+-- | A damage's normalization, kept as the divisor a scoring set applies, and its weight.
+data NormWeight = NormWeight
+    { nwDivisor :: !Double
+    , nwWeight :: !Double
     }
     deriving (Eq, Show)
 
@@ -331,15 +360,15 @@ legacyReadings set = M.fromList [(category, entryOf var category) | (var, catego
     names :: Text -> Text -> Bool
     names var formula = T.toLower var `elem` map T.toLower (Expr.collectIdentifiers Expr.Arithmetic formula)
 
-    normWeight :: Text -> Maybe (Double, Double)
-    normWeight v = (,) <$> M.lookup v (ssNormalization set) <*> M.lookup v (ssWeighting set)
+    normWeight :: Text -> Maybe NormWeight
+    normWeight v = NormWeight <$> M.lookup v (ssNormalization set) <*> M.lookup v (ssWeighting set)
 
 -- | The fields kept until 0.16.0 for one category and its raw score.
 legacyReading :: M.Map Text LegacyEntry -> Text -> Double -> Maybe LegacyReading
 legacyReading index category score = do
     entry <- M.lookup category index
-    let normalized = fmap (\(n, _) -> score * leCoefficient entry / n) (leNormWeight entry)
-    pure (LegacyReading (leDamage entry) normalized ((*) <$> normalized <*> fmap snd (leNormWeight entry)))
+    let normalized = fmap (\nw -> score * leCoefficient entry / nwDivisor nw) (leNormWeight entry)
+    pure (LegacyReading (leDamage entry) normalized ((*) <$> normalized <*> fmap nwWeight (leNormWeight entry)))
 
 -- | The set those fields are read from: the first one read from the file.
 legacySet :: [ScoringSet] -> Maybe ScoringSet

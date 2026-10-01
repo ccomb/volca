@@ -39,6 +39,11 @@ spec = describe "applyMethodConfig" $ do
         fmap (map (\s -> (ssName s, ssOrigin s)) . mcScoringSets . fst) (applyMethodConfig (config [configured "Mine"]) (MethodCollection [] [fromFile "EF"]))
             `shouldBe` Right [("EF", ReadFromSimaProFile), ("Mine", DeclaredInConfig)]
 
+    it "refuses two sets of one name read from the method files" $
+        case applyMethodConfig (config []) (MethodCollection [] [fromFile "EF", fromFile "EF"]) of
+            Left err -> err `shouldSatisfy` T.isInfixOf "scoring set 'EF' is read twice from the method files"
+            Right _ -> expectationFailure "expected the duplicate to be refused"
+
     it "refuses a configured set named like one read from the file" $
         case applyMethodConfig (config [configured "EF"]) (MethodCollection [] [fromFile "EF"]) of
             Left err -> err `shouldSatisfy` T.isInfixOf "scoring set 'EF' is declared in the configuration and also read from the method file; rename the configured one"

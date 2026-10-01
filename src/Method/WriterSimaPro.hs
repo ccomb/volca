@@ -46,7 +46,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import Method.SimaProScoring (DamageCategory (..), NormWeightSet (..), toSimaProBlocks)
+import Method.SimaProScoring (DamageCategory (..), NormWeightSet (..), SimaProBlocks (..), toSimaProBlocks)
 import Method.Types (
     Compartment (..),
     FlowDirection (..),
@@ -64,9 +64,7 @@ without corruption ('checkMethodExportable').
 -}
 serializeSimaProMethodCSV :: WriterConfig -> Text -> MethodCollection -> Either Text (BS.ByteString, [Text])
 serializeSimaProMethodCSV cfg collectionName mc = do
-    let (damages, nwSets, setWarnings) = toSimaProBlocks (mcScoringSets mc)
     checkMethodExportable mc damages nwSets
-    let fileName = fileLevelName collectionName mc
     checkFileLevelName fileName
     let (catBlocks, issues) = unzip (map categoryBlock (mcMethods mc))
         (nwBlocks, nwWarnings) = unzip (map nwBlock nwSets)
@@ -77,8 +75,20 @@ serializeSimaProMethodCSV cfg collectionName mc = do
                 ++ concatMap damageBlock damages
                 ++ concat nwBlocks
                 ++ ["End"]
-        warnings = issueWarnings (concat issues) ++ concat nwWarnings ++ setWarnings
+        warnings = issueWarnings (concat issues) ++ concat nwWarnings ++ spbLeftOut blocks
     pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf), warnings)
+  where
+    blocks :: SimaProBlocks
+    blocks = toSimaProBlocks (mcScoringSets mc)
+
+    damages :: [DamageCategory]
+    damages = spbDamages blocks
+
+    nwSets :: [NormWeightSet]
+    nwSets = spbNWSets blocks
+
+    fileName :: Text
+    fileName = fileLevelName collectionName mc
 
 -- ============================================================================
 -- Exportability guard

@@ -309,7 +309,7 @@ import qualified Method.Parser.OlcaSchema as OlcaSchema
 import Method.ParserCSV (parseMethodCSVBytes, stripBOM)
 import Method.ParserSimaPro (isSimaProMethodCSV, parseSimaProMethodCSVBytes)
 import qualified Method.Patch
-import Method.SimaProScoring (SimaProMethodFile (..), translateScoring)
+import Method.SimaProScoring (SimaProMethodFile (..), simaProCollection)
 import SynonymDB.Extract (extractFromEcoSpold2, extractFromILCDFlows, synonymPairsToCSV)
 
 -- | A fully loaded database with solver ready for queries
@@ -1769,13 +1769,16 @@ applyMethodConfig mc collection0 = do
     let configured = map configToScoringSet (Config.mcScoringSets mc)
         fromFile = Method.Types.mcScoringSets collection0
         clashes = [ssName s | s <- configured, ssName s `elem` map ssName fromFile]
+        quoted = T.intercalate ", " . map (\n -> "'" <> n <> "'")
+    unless (null (repeated fromFile)) $
+        Left ("scoring set " <> quoted (repeated fromFile) <> " is read twice from the method files; a set is named once")
     unless (null clashes) $
-        Left
-            ( "scoring set "
-                <> T.intercalate ", " (map (\n -> "'" <> n <> "'") clashes)
-                <> " is declared in the configuration and also read from the method file; rename the configured one"
-            )
+        Left ("scoring set " <> quoted clashes <> " is declared in the configuration and also read from the method file; rename the configured one")
     pure (Method.Patch.applyMethodPatches (Config.mcPatches mc) collection0{Method.Types.mcScoringSets = fromFile <> configured})
+
+-- | The names that two scoring sets carry.
+repeated :: [ScoringSet] -> [Text]
+repeated sets = M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(ssName s, 1) | s <- sets]))
 
 {- | Load a configured collection and fold its configuration in: the
 collection, how many factors each patch touched, and its ILCD flow
@@ -4092,12 +4095,13 @@ loadMethodCollectionFromPath path = runExceptT $ do
     collectionOf parsed = case (allMethods, pmfErrors parsed) of
         ([], firstErr : _) -> Left ("All method files failed to parse: " <> T.pack firstErr)
         _ ->
-            let (sets, warnings) =
-                    translateScoring
-                        allMethods
-                        (concatMap smfDamages (pmfCsvCollections parsed))
-                        (concatMap smfNWSets (pmfCsvCollections parsed))
-             in Right (MethodCollection allMethods sets, warnings)
+            -- One translation of all the files merged: a damage may group
+            -- the categories of another file.
+            Right . simaProCollection $
+                SimaProMethodFile
+                    allMethods
+                    (concatMap smfDamages (pmfCsvCollections parsed))
+                    (concatMap smfNWSets (pmfCsvCollections parsed))
       where
         allMethods :: [Method]
         allMethods =

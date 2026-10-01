@@ -151,15 +151,24 @@ spec = do
         it "gives nothing to a file with neither damages nor sets" $
             translateScoring methods [] [] `shouldBe` ([], [])
 
+        it "scores a set that weighs without normalizing, as SimaPro does with normalization off" $
+            withSole (translateScoring methods damages [nwSet{nwNormalization = M.empty}]) $ \set _ ->
+                M.elems (ssScores set) `shouldBe` ["climate_change_2 + ecotoxicity_freshwater"]
+
+        it "reads a damage that groups no impact category as zero" $
+            withSole (translateScoring methods (DamageCategory "Empty" "Pt" [] : damages) [nwSet]) $ \set warnings -> do
+                M.lookup "empty" (ssComputed set) `shouldBe` Just "0"
+                warnings `shouldBe` []
+
         it "gives one set per normalization-weighting set, in the order of the file" $
             map ssName (fst (translateScoring methods damages [nwSet, nwSet{nwName = "Other"}])) `shouldBe` ["EF 3.1", "Other"]
 
     describe "toSimaProBlocks" $ do
         let translated = translateScoring methods damages [nwSet]
-            refused name reason = ([], [], ["Scoring set '" <> name <> "' is not exported: " <> reason])
+            refused name reason = SimaProBlocks [] [] ["Scoring set '" <> name <> "' is not exported: " <> reason]
 
         it "gives back the damages and the normalization-weighting set it was read from" $ do
-            let (ds, nws, ws) = toSimaProBlocks (fst translated)
+            let SimaProBlocks ds nws ws = toSimaProBlocks (fst translated)
             sortOn dcName ds `shouldBe` sortOn dcName damages
             map nwName nws `shouldBe` ["EF 3.1"]
             map nwWeighting nws `shouldBe` [nwWeighting nwSet]
@@ -168,7 +177,7 @@ spec = do
             map (and . M.intersectionWith close (nwNormalization nwSet) . nwNormalization) nws `shouldBe` [True]
 
         it "writes a set that only groups, and no normalization-weighting block for it" $ do
-            let (ds, nws, ws) = toSimaProBlocks (fst (translateScoring methods damages []))
+            let SimaProBlocks ds nws ws = toSimaProBlocks (fst (translateScoring methods damages []))
             (sortOn dcName ds, nws, ws) `shouldBe` (sortOn dcName damages, [], [])
 
         it "leaves out a set with a display multiplier, and says why" $
@@ -179,12 +188,12 @@ spec = do
         it "leaves out a set whose score is not the sum of its weighted damages" $
             withSole translated $ \set _ ->
                 toSimaProBlocks [set{ssName = "Doubled", ssScores = M.singleton singleScoreName "2 * climate_change_2 + ecotoxicity_freshwater"}]
-                    `shouldBe` refused "Doubled" "SimaPro writes one score, the sum of the damages that have both a normalization and a weight."
+                    `shouldBe` refused "Doubled" "SimaPro writes one score, the sum of the damages that have a weight, and a normalization as well when the set normalizes any."
 
         it "leaves out a set with two scores" $
             withSole translated $ \set _ ->
                 toSimaProBlocks [set{ssName = "Two", ssScores = M.insert "Other" "climate_change_2" (ssScores set)}]
-                    `shouldBe` refused "Two" "SimaPro writes one score, the sum of the damages that have both a normalization and a weight."
+                    `shouldBe` refused "Two" "SimaPro writes one score, the sum of the damages that have a weight, and a normalization as well when the set normalizes any."
 
         it "leaves out a set whose grouping is no sum of categories times coefficients" $
             withSole translated $ \set _ ->
@@ -194,13 +203,21 @@ spec = do
         it "leaves out a set that groups otherwise than the first one written" $
             withSole translated $ \set _ -> do
                 let other = set{ssName = "Other", ssComputed = M.insert "climate_change_2" "2 * climate_change" (ssComputed set)}
-                    (_, nws, ws) = toSimaProBlocks [set, other]
+                    SimaProBlocks _ nws ws = toSimaProBlocks [set, other]
                 map nwName nws `shouldBe` ["EF 3.1"]
                 ws `shouldBe` ["Scoring set 'Other' is not exported: a SimaPro file has one set of damage categories, and this set groups the impact categories otherwise than 'EF 3.1'."]
 
+        it "writes back a set that weighs without normalizing" $ do
+            let SimaProBlocks _ nws ws = toSimaProBlocks (fst (translateScoring methods damages [nwSet{nwNormalization = M.empty}]))
+            (map nwNormalization nws, map nwWeighting nws, ws) `shouldBe` ([M.empty], [nwWeighting nwSet], [])
+
+        it "writes back a damage that groups no impact category" $ do
+            let SimaProBlocks ds _ ws = toSimaProBlocks (fst (translateScoring methods (DamageCategory "Empty" "Pt" [] : damages) [nwSet]))
+            (filter ((== "Empty") . dcName) ds, ws) `shouldBe` ([DamageCategory "Empty" "Pt" []], [])
+
         it "writes back a coefficient other than one" $ do
             let halved = [DamageCategory "Climate change" "kg CO2 eq" [("Climate change", 0.5)]]
-                (ds, _, _) = toSimaProBlocks (fst (translateScoring [method "Climate change" "kg CO2 eq"] halved [nwSet]))
+                SimaProBlocks ds _ _ = toSimaProBlocks (fst (translateScoring [method "Climate change" "kg CO2 eq"] halved [nwSet]))
             ds `shouldBe` halved
 
     describe "legacyReading" $ do

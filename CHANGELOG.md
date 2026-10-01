@@ -158,7 +158,10 @@
   read from the file rather than replacing them, and one named like them
   stops the load. An export to SimaPro writes a scoring set back as damage
   categories and a normalization-weighting set when the format can hold it,
-  and names the one it leaves out.
+  and names the one it leaves out. A set that weighs without normalizing
+  scores the way SimaPro does with normalization switched off, and two sets
+  of one name read from the method files stop the load. `list_scoring_sets`
+  gives the `units` of each variable. Wire revision 36.
 
 ### Deprecated
 
