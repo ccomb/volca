@@ -16,9 +16,9 @@ Design goals (all pure, effect-free):
     key order; doubles use one canonical renderer; output bytes are a pure
     function of the input plus the explicit 'VolatileMeta'.
   * __Round-trippable__: re-parsing the output reconstructs a structurally
-    equal 'Activity'/flow set, and volatile metadata (timestamps, generator)
-    is funnelled through 'VolatileMeta' so it can be pinned or omitted to make
-    byte-level idempotence testable.
+    equal 'Activity'/flow set, its dates included; the only volatile field,
+    the generator, is funnelled through 'VolatileMeta' so it can be pinned or
+    omitted to make byte-level idempotence testable.
 
 The only thing the writer cannot recover losslessly is information the parser
 discards (per-exchange @id@/@unitId@ attribute *strings*, production volumes,

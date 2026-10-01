@@ -18,9 +18,9 @@ Determinism is the contract:
 
 * every Map/Set-derived list is sorted by key before emission;
 * every 'Double' is formatted through one fixed formatter ('formatDouble');
-* the only volatile field an ILCD reader/writer round-trip could disagree on
-  – the export timestamp / generator string – is /omitted/ entirely unless a
-  caller passes one explicitly via 'WriteOptions'. We never inject @now@, so
+* the timestamp is the activity's own last revision, and the only volatile
+  field, the generator string, is /omitted/ entirely unless a caller passes
+  one explicitly via 'WriteOptions'. We never inject @now@, so
   @write (parse (write d)) == write d@ holds byte-for-byte.
 
 What round-trips: process UUID, name, location, classifications, processType,

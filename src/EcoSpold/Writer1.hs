@@ -38,8 +38,9 @@ __canonical and deterministic__:
   * attributes appear in a fixed order, classification maps are sorted by
     key, numbers use a fixed textual form, and there is no insignificant
     whitespace beyond a single newline between top-level lines;
-  * volatile metadata (@generator@, @timestamp@) is pinned or omitted via
-    'WriterOptions' so a write→parse→write round-trip is byte-stable.
+  * the @timestamp@ is the activity's own creation date, and the only
+    volatile field, @generator@, is pinned or omitted via 'WriterOptions', so
+    a write→parse→write round-trip is byte-stable.
 
 The mapping mirrors 'EcoSpold.Parser1.buildExchange' exactly:
 
