@@ -343,6 +343,7 @@ treatmentDatabaseNaming producerName =
                     )
             , sdbWasteFlows = M.empty
             , sdbUnits = M.singleton kilogram (Unit kilogram "kg" "kg" "")
+            , sdbDocumentation = noDocumentation
             }
         >>= either (fail . T.unpack) pure
 

@@ -14,7 +14,7 @@ import qualified Data.ByteString as BS
 import Data.List (find)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
-import SimaPro.Parser (parseSimaProCSV)
+import SimaPro.Parser (SimaProFile (..), parseSimaProCSV)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
@@ -125,4 +125,7 @@ spec = describe "SimaPro trailing substance registry backfills flow CAS" $ do
 now returns 'Left' for a flow written in two units no conversion relates.
 -}
 parseOrFail :: UnitConfig -> FilePath -> IO ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB)
-parseOrFail cfg path = either (fail . show) pure =<< parseSimaProCSV cfg path
+parseOrFail cfg path = either (fail . show) (pure . tables) =<< parseSimaProCSV cfg path
+  where
+    tables :: SimaProFile -> ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB)
+    tables f = (spfActivities f, spfTechFlows f, spfBioFlows f, spfWasteFlows f, spfUnits f)

@@ -85,6 +85,7 @@ consumerDB =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = unitTable
+        , sdbDocumentation = noDocumentation
         }
   where
     baking :: Activity
@@ -111,6 +112,7 @@ supplierDB =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = unitTable
+        , sdbDocumentation = noDocumentation
         }
   where
     growing :: Activity

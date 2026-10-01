@@ -180,6 +180,7 @@ buildDB name acts =
             , sdbBioFlows = M.singleton co2 co2Flow
             , sdbWasteFlows = wasteFlowDB
             , sdbUnits = M.singleton kgU (Unit kgU "kg" "kg" "")
+            , sdbDocumentation = noDocumentation
             }
         >>= either (\e -> fail (T.unpack name <> ": " <> T.unpack e)) pure
 

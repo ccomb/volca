@@ -53,6 +53,7 @@ import Types (
     UnresolvedProduct (..),
     WasteFlow (..),
     noDates,
+    noDocumentation,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -177,6 +178,7 @@ consumerDB =
         , sdbWasteFlows =
             M.singleton wasteFlow (WasteFlow wasteFlow "plastic waste" kgUnit M.empty Nothing Nothing)
         , sdbUnits = units
+        , sdbDocumentation = noDocumentation
         }
   where
     breadExchanges =
@@ -207,6 +209,7 @@ supplierDB =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = units
+        , sdbDocumentation = noDocumentation
         }
 
 stats :: CrossDBLinkingStats

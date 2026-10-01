@@ -133,7 +133,7 @@ parseILCDDirectory unitConfig key dir = runExceptT $ do
         activityMap = buildActivityMap alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB processes
 
     -- Step 6: Fix supplier links (name-based, like SimaPro)
-    let simpleDb = SimpleDatabase activityMap techFlowDB bioFlowDB wasteFlowDB unitDB
+    let simpleDb = SimpleDatabase activityMap techFlowDB bioFlowDB wasteFlowDB unitDB noDocumentation
     fixedDb <- liftIO $ fixILCDActivityLinks simpleDb
     liftIO $
         reportProgress Info $

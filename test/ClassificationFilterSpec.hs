@@ -63,6 +63,7 @@ import Types (
     Unit (..),
     findProcessId,
     noDates,
+    noDocumentation,
     noProperties,
     processIdToText,
  )
@@ -250,6 +251,7 @@ fixture =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton kgUnitId (Unit{unitId = kgUnitId, unitName = "kg", unitSymbol = "kg", unitComment = ""})
+        , sdbDocumentation = noDocumentation
         }
   where
     classified :: Text -> UUID -> Activity

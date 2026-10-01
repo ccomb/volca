@@ -237,6 +237,7 @@ simpleDBOf acts flows =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = M.empty
+        , sdbDocumentation = noDocumentation
         }
 
 -- ---------------------------------------------------------------------------

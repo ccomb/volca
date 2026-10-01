@@ -250,6 +250,7 @@ import Types (
     CrossDBLink (..),
     CrossDBLinkingStats (..),
     Database (..),
+    DatabaseDocumentation,
     ExchangeLocation (..),
     FlowClosure (..),
     GeographyPolicy (..),
@@ -458,6 +459,8 @@ data DatabaseSetupInfo = DatabaseSetupInfo
     -- ^ Candidate data directories within the upload root
     , dsiIsLoaded :: !Bool
     -- ^ True if database is already loaded (read-only info)
+    , dsiDocumentation :: !DatabaseDocumentation
+    -- ^ What the database says about itself: the export it is, the system descriptions its datasets name
     }
     deriving (Show, Eq, Generic)
     deriving (ToJSON) via (Stripped DatabaseSetupInfo)
@@ -3424,6 +3427,7 @@ data SetupSource = SetupSource
     , ssMissing :: ![MissingProduct]
     , ssDependencies :: ![DependencyChoice]
     , ssOrigin :: !SetupOrigin
+    , ssDocumentation :: !DatabaseDocumentation
     }
 
 setupInfoFrom :: SetupSource -> DatabaseSetupInfo
@@ -3453,6 +3457,7 @@ setupInfoFrom SetupSource{..} =
         , dsiIsLoaded = case ssOrigin of
             FromStaged -> False
             FromLoaded -> True
+        , dsiDocumentation = ssDocumentation
         }
 
 {- | The four fields a relink writes back onto a staged database. One place,
@@ -3486,6 +3491,7 @@ buildStagedSetupInfo staged configs indexedDbs =
                         configs
                         indexedDbs
                 , ssOrigin = FromStaged
+                , ssDocumentation = sdbDocumentation (sdSimpleDB staged)
                 }
 
 {- | Build setup info from a loaded database (already finalized). Counts come
@@ -3506,6 +3512,7 @@ buildLoadedSetupInfo config db configs indexedDbs =
                     (Loader.collectDanglingProductNames db)
             , ssDependencies = buildDependencyChoices (dcName config) (dbDependsOn db) [] configs indexedDbs
             , ssOrigin = FromLoaded
+            , ssDocumentation = dbDocumentation db
             }
 
 {- | Discover candidate data paths within an uploaded database's root directory.

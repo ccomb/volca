@@ -39,6 +39,7 @@ import Types (
     computeMinimalSelectedDeps,
     crossDBRedundantSources,
     noDates,
+    noDocumentation,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -163,6 +164,7 @@ supplierDB offset =
             , sdbBioFlows = M.empty
             , sdbWasteFlows = M.empty
             , sdbUnits = M.singleton kgUnitId kgUnit
+            , sdbDocumentation = noDocumentation
             }
 
 {- | A consumer DB with @n@ activities, each having one unlinked technosphere
@@ -251,4 +253,5 @@ consumerDB offset n =
             , sdbBioFlows = M.empty
             , sdbWasteFlows = M.empty
             , sdbUnits = M.singleton kgUnitId kgUnit
+            , sdbDocumentation = noDocumentation
             }

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 35** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 36** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -916,7 +916,14 @@ file and the alternatives, see `set_data_path`), ``completeness``,
 and ``supplierAmbiguities``: the inputs several activities of one
 dependency answered equally well, each naming the product asked for,
 the activity linked to and how many tied, so the supplier meant can be
-named rather than guessed (wire revision 23).
+named rather than guessed (wire revision 23). ``documentation`` is what
+the database says about itself (wire revision 36): under ``export``, the
+tool that wrote the file, its format version, the day, time and project
+it was exported from; under ``systems``, each system description its
+datasets name, and under ``literature`` each literature reference it
+holds, both with a ``name``, ``category`` and ``sections``. Only a
+SimaPro export says any of it; another format leaves ``export`` null
+and both lists empty.
 
 ##### `Client.get_stats()`
 

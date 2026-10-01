@@ -31,6 +31,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Calendar (Day)
 import Data.Time.Format.ISO8601 (iso8601ParseM, iso8601Show)
+import Data.Time.LocalTime (TimeOfDay)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
@@ -951,6 +952,48 @@ the inverse of 'readIsoDate', which only keeps the day.
 isoDateTime :: Day -> Text
 isoDateTime day = T.pack (iso8601Show day) <> "T00:00:00"
 
+{- | What a database says about itself as a whole, rather than about one of
+its datasets. Only a SimaPro export says anything at this level today: the
+header of the file, and the system descriptions and literature references
+its processes name.
+-}
+data DatabaseDocumentation = DatabaseDocumentation
+    { dbdocExport :: !(Maybe ExportStamp) -- The export the file is, when its header says so
+    , dbdocSystems :: ![LibraryDocument] -- In the file's order
+    , dbdocLiterature :: ![LibraryDocument] -- In the file's order
+    }
+    deriving (Show, Eq, Generic, NFData, Store)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseDocumentation)
+
+-- | A database that says nothing about itself.
+noDocumentation :: DatabaseDocumentation
+noDocumentation = DatabaseDocumentation Nothing [] []
+
+{- | The export a file is: which tool wrote it, when, and from which project.
+The plainest answer to "is this the latest version of the database".
+-}
+data ExportStamp = ExportStamp
+    { exportTool :: !Text -- As the file names it, version included ("SimaPro 10.2.0.3")
+    , exportFormatVersion :: !(Maybe Text) -- The version of the file format, when it says
+    , exportDate :: !(Maybe Day)
+    , exportTime :: !(Maybe TimeOfDay)
+    , exportProject :: !(Maybe Text)
+    }
+    deriving (Show, Eq, Generic, NFData, Store)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExportStamp)
+
+{- | A document written once and named by each dataset that relies on it: a
+system description (the modelling choices a group of datasets shares: cut-off
+rules, energy and transport models, allocation) or a literature reference.
+-}
+data LibraryDocument = LibraryDocument
+    { documentName :: !Text
+    , documentCategory :: !Text
+    , documentSections :: ![DocSection] -- In the source's order, blank ones left out
+    }
+    deriving (Show, Eq, Generic, NFData, Store)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped LibraryDocument)
+
 {- | Base LCA activity
 Note: ProcessId is the index in dbActivities vector, UUIDs stored in dbProcessIdTable
 -}
@@ -1520,6 +1563,7 @@ data Database = Database
     , dbLinkingStats :: !CrossDBLinkingStats -- Cross-DB linking statistics (completeness, fallbacks, etc.)
     -- What it was built with (serialized to cache, compared before a cache is trusted)
     , dbBuiltWith :: !BuildInputs
+    , dbDocumentation :: !DatabaseDocumentation -- What the database says about itself (serialized to cache)
     , -- Runtime-only fields (not serialized to cache)
       dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
     , dbFlowsByName :: !(M.Map Text [BiosphereFlow]) -- Biosphere flow name index for LCIA matching
@@ -1556,6 +1600,7 @@ instance Store Database where
             + getSize (dbDependsOn db)
             + getSize (dbLinkingStats db)
             + getSize (dbBuiltWith db)
+            + getSize (dbDocumentation db)
 
     poke db = do
         poke (dbProcessIdTable db)
@@ -1579,6 +1624,7 @@ instance Store Database where
         poke (dbDependsOn db)
         poke (dbLinkingStats db)
         poke (dbBuiltWith db)
+        poke (dbDocumentation db)
 
     -- Runtime-only fields are NOT serialized
 
@@ -1603,6 +1649,7 @@ instance Store Database where
         dependsOn <- peek
         linkingStats <- peek
         builtWith <- peek
+        documentation <- peek
         return
             Database
                 { dbProcessIdTable = processIdTable
@@ -1626,6 +1673,7 @@ instance Store Database where
                 , dbDependsOn = dependsOn
                 , dbLinkingStats = linkingStats
                 , dbBuiltWith = builtWith
+                , dbDocumentation = documentation
                 , -- Runtime-only fields set to defaults
                   dbSynonymDB = Nothing
                 , dbFlowsByName = M.empty
@@ -1970,6 +2018,7 @@ data SimpleDatabase = SimpleDatabase
     , sdbBioFlows :: !BioFlowDB
     , sdbWasteFlows :: !WasteFlowDB
     , sdbUnits :: !UnitDB
+    , sdbDocumentation :: !DatabaseDocumentation
     }
     deriving (Generic, Store)
 
@@ -1984,6 +2033,7 @@ toSimpleDatabase db =
         , sdbBioFlows = dbBioFlows db
         , sdbWasteFlows = dbWasteFlows db
         , sdbUnits = dbUnits db
+        , sdbDocumentation = dbDocumentation db
         }
 
 -- | Blocking reason for cross-database linking failure

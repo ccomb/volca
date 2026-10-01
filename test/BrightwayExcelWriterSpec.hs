@@ -283,6 +283,7 @@ fixtureDb =
         , sdbBioFlows = M.fromList [(bfId co2, co2)]
         , sdbWasteFlows = M.empty
         , sdbUnits = M.fromList [(unitId u, u) | u <- [kwh, m3, kg]]
+        , sdbDocumentation = noDocumentation
         }
 
 elec :: Activity
@@ -388,6 +389,7 @@ specialDb =
         , sdbBioFlows = M.fromList [(bfId specialBio, specialBio)]
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton (unitId kg) kg
+        , sdbDocumentation = noDocumentation
         }
 
 specialProductName, specialInputName, specialBioName :: Text
@@ -518,6 +520,7 @@ refInputDb =
     fixtureDb
         { sdbTechFlows = M.singleton (tfId solventFlow) solventFlow
         , sdbUnits = M.singleton (unitId kg) kg
+        , sdbDocumentation = noDocumentation
         }
 
 {- | The base fixture with a comment attached to its reference product, its
@@ -619,6 +622,7 @@ coproductDb =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton (unitId kg) kg
+        , sdbDocumentation = noDocumentation
         }
 
 {- | The (role, amount) pairs of an activity's technosphere production rows,
@@ -629,7 +633,7 @@ roleAmounts a = [(role, techAmount ex) | ex@TechnosphereExchange{techRole = role
 
 -- | A database with no activities, flows, or units.
 emptyDb :: SimpleDatabase
-emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty
+emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation
 
 {- | A single input exchange whose amount sits at the 1e15 integer/scientific
 boundary of 'formatAmount'.
@@ -677,6 +681,7 @@ gramRefDb =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton (unitId gramUnit) gramUnit
+        , sdbDocumentation = noDocumentation
         }
   where
     act =
@@ -880,6 +885,7 @@ rebuild (acts, techDB, bioDB, wasteDB, unitDB) =
         , sdbBioFlows = bioDB
         , sdbWasteFlows = wasteDB
         , sdbUnits = unitDB
+        , sdbDocumentation = noDocumentation
         }
 
 {- | The deterministic logical cells the writer would emit for a database: the

@@ -40,7 +40,7 @@ import Data.Word (Word32)
 import Database (buildDatabaseWithMatrices)
 import Database.Loader (defaultLoadOptions, loadSimaProCSV)
 import Matrix (computeInventoryMatrix)
-import SimaPro.Parser (parseSimaProCSV)
+import SimaPro.Parser (SimaProFile (..), parseSimaProCSV)
 import SimaPro.Writer (
     checkSimaProExportable,
     defaultWriterConfig,
@@ -247,6 +247,7 @@ toSimple (acts, tech, bio, waste, units) =
         , sdbBioFlows = bio
         , sdbWasteFlows = waste
         , sdbUnits = units
+        , sdbDocumentation = noDocumentation
         }
 
 {- | Stable key for an activity: its reference product flow UUID paired with a
@@ -353,6 +354,7 @@ inventoryByName (acts, tech, bio, waste, units) target = do
                 , sdbBioFlows = bio
                 , sdbWasteFlows = waste
                 , sdbUnits = units
+                , sdbDocumentation = noDocumentation
                 }
     case built of
         Left err -> expectationFailure (T.unpack err) >> pure M.empty
@@ -405,7 +407,7 @@ spec = describe "SimaPro.Writer round-trip" $ do
     it "produces a parseable CSV with the pinned header" $ do
         original <- parseBytes fixtureCSV
         bytes <- serBytes (toSimple original)
-        BS.take 16 bytes `shouldSatisfy` (\b -> "{SimaPro" `BS.isInfixOf` b)
+        BS.take 16 bytes `shouldSatisfy` (\b -> "{VoLCA " `BS.isPrefixOf` b)
         reparsed <- parseBytes bytes
         let (acts, _, _, _, _) = reparsed
         length acts `shouldBe` 2
@@ -734,6 +736,7 @@ emissionDb comp =
         , sdbBioFlows = M.singleton bioU (BiosphereFlow bioU "Some emission" unitU M.empty Nothing Nothing comp)
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
+        , sdbDocumentation = noDocumentation
         }
   where
     actU, prodU, bioU, unitU :: UUID
@@ -773,6 +776,7 @@ wasteDb mTreatment =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.singleton wasteU (WasteFlow wasteU "spent solvent" unitU M.empty Nothing Nothing)
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
+        , sdbDocumentation = noDocumentation
         }
   where
     actU, prodU, wasteU, unitU :: UUID
@@ -832,6 +836,7 @@ designationDb =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
+        , sdbDocumentation = noDocumentation
         }
   where
     actU, prodU, marketU, elecU, ureaU, unitU :: UUID
@@ -900,6 +905,7 @@ allocationDb =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
+        , sdbDocumentation = noDocumentation
         }
   where
     actU, prodU, matU, unitU :: UUID
@@ -943,6 +949,7 @@ zeroAllocationDb =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
+        , sdbDocumentation = noDocumentation
         }
   where
     actU, prodU, matU, unitU :: UUID
@@ -989,6 +996,7 @@ commentDb ped cmt =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
+        , sdbDocumentation = noDocumentation
         }
   where
     actU, prodU, matU, unitU :: UUID
@@ -1027,6 +1035,7 @@ namedDb name =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
+        , sdbDocumentation = noDocumentation
         }
   where
     actU, prodU, unitU :: UUID
@@ -1100,6 +1109,7 @@ guardDb alloc ntype exs =
             M.singleton gBio (BiosphereFlow gBio "an emission" gUnit M.empty Nothing Nothing (Just (Compartment Air Nothing)))
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton gUnit (Unit gUnit "kg" "kg" "")
+        , sdbDocumentation = noDocumentation
         }
   where
     act =
@@ -1121,4 +1131,7 @@ describedDb paragraphs =
 now returns 'Left' for a flow written in two units no conversion relates.
 -}
 parseOrFail :: UnitConfig -> FilePath -> IO ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB)
-parseOrFail cfg path = either (fail . show) pure =<< parseSimaProCSV cfg path
+parseOrFail cfg path = either (fail . show) (pure . tables) =<< parseSimaProCSV cfg path
+  where
+    tables :: SimaProFile -> ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB)
+    tables f = (spfActivities f, spfTechFlows f, spfBioFlows f, spfWasteFlows f, spfUnits f)

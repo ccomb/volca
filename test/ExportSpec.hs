@@ -95,6 +95,7 @@ buildFixture comp = do
                 , sdbBioFlows = M.singleton co2U (BiosphereFlow co2U "Carbon dioxide" unitU M.empty Nothing Nothing (Just comp))
                 , sdbWasteFlows = M.empty
                 , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
+                , sdbDocumentation = noDocumentation
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . T.unpack) pure r
   where

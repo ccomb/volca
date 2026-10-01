@@ -68,6 +68,7 @@ import Types (
     Unit (..),
     findProcessId,
     noDates,
+    noDocumentation,
     noProperties,
     processIdToText,
  )
@@ -450,6 +451,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbBioFlows = M.empty
                 , sdbWasteFlows = M.empty
                 , sdbUnits = units
+                , sdbDocumentation = noDocumentation
                 }
     case r of
         Right db -> pure db

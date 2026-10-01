@@ -161,6 +161,7 @@ assembleSimpleDb datasets =
         , sdbBioFlows = M.fromList [(bfId f, f) | ParsedDataset{pdBioFlows = bfs} <- datasets, f <- bfs]
         , sdbWasteFlows = M.fromList [(wfId f, f) | ParsedDataset{pdWasteFlows = wfs} <- datasets, f <- wfs]
         , sdbUnits = M.fromList [(unitId u, u) | ParsedDataset{pdUnits = us} <- datasets, u <- us]
+        , sdbDocumentation = noDocumentation
         }
 
 {- | An injective @(activityUUID, productUUID)@ key for the matrix builder. The
@@ -202,6 +203,7 @@ soloDb name prodU extra techs bios wastes =
         , sdbBioFlows = bios
         , sdbWasteFlows = wastes
         , sdbUnits = units1
+        , sdbDocumentation = noDocumentation
         }
   where
     ref = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
@@ -209,7 +211,7 @@ soloDb name prodU extra techs bios wastes =
 
 -- | Empty database: no activities, no flows.
 emptyDb :: SimpleDatabase
-emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty
+emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation
 
 {- | Two activities where the consumer's technosphere input is a resolved link
 to the supplier. The link UUID is the supplier's stored activity UUID
@@ -229,6 +231,7 @@ linkedDb link =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = units1
+        , sdbDocumentation = noDocumentation
         }
   where
     supU = supplierLink
@@ -262,6 +265,7 @@ coproductDb =
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
         , sdbUnits = units1
+        , sdbDocumentation = noDocumentation
         }
   where
     supU = supplierLink
@@ -748,6 +752,7 @@ spec = do
                         , sdbBioFlows = M.empty
                         , sdbWasteFlows = M.empty
                         , sdbUnits = units1
+                        , sdbDocumentation = noDocumentation
                         }
             case roundTrip sdb of
                 Left err -> expectationFailure ("round-trip failed: " ++ err)

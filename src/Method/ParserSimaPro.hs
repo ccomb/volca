@@ -57,7 +57,8 @@ parseSimaProMethodCSVBytes raw =
      in Right (finalize result)
 
 {- | Detect whether bytes are a SimaPro method CSV export.
-Checks for the {SimaPro...} header on line 1 and a method-type marker on
+Checks for a banner on line 1 (@{SimaPro …}@, or the tool that wrote the file
+in SimaPro's format, such as @{VoLCA …}@) and a method-type marker on
 line 2.  SimaPro localises the file-type keyword: English "{methods}",
 French "{méthodes}", German/Dutch "{methoden}", Italian "{metodi}",
 Spanish "{métodos}" – all start with the ASCII prefix "{m" or "{M}".
@@ -65,7 +66,7 @@ Database exports use "{processes}", "{products}", etc., which do not.
 -}
 isSimaProMethodCSV :: BS.ByteString -> Bool
 isSimaProMethodCSV bs =
-    BS8.isPrefixOf "{SimaPro" bs && isMethodTypeLine bs
+    BS8.isPrefixOf "{" bs && isMethodTypeLine bs
   where
     isMethodTypeLine bytes =
         case drop 1 (BS8.lines (BS.take 300 bytes)) of

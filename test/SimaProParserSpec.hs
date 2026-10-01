@@ -23,6 +23,7 @@ import SimaPro.Parser (
     NameReading (..),
     ProcessBlock (..),
     ProductRow (..),
+    SimaProFile (..),
     TechExchangeRow (..),
     defaultConfig,
     emptyProcessBlock,
@@ -2398,4 +2399,7 @@ parseAllParamCSV = withSystemTempFile "all-param.csv" $ \path handle -> do
 now returns 'Left' for a flow written in two units no conversion relates.
 -}
 parseOrFail :: UnitConfig -> FilePath -> IO ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB)
-parseOrFail cfg path = either (fail . show) pure =<< parseSimaProCSV cfg path
+parseOrFail cfg path = either (fail . show) (pure . tables) =<< parseSimaProCSV cfg path
+  where
+    tables :: SimaProFile -> ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB)
+    tables f = (spfActivities f, spfTechFlows f, spfBioFlows f, spfWasteFlows f, spfUnits f)

@@ -67,6 +67,7 @@ import Types (
     getActivity,
     isTechnosphereExchange,
     noDates,
+    noDocumentation,
     noProperties,
     processIdToText,
  )
@@ -872,6 +873,7 @@ buildFixtureAt actId prodId = do
                 , sdbBioFlows = M.singleton co2Id co2Flow
                 , sdbWasteFlows = M.singleton usedOilId usedOilWasteFlow
                 , sdbUnits = unitTable
+                , sdbDocumentation = noDocumentation
                 }
     either (fail . show) pure r
 
@@ -900,6 +902,7 @@ buildTwoProductTreatment = do
                 , sdbBioFlows = M.singleton co2Id co2Flow
                 , sdbWasteFlows = M.singleton usedOilId usedOilWasteFlow
                 , sdbUnits = unitTable
+                , sdbDocumentation = noDocumentation
                 }
     either (fail . show) pure r
 
@@ -919,6 +922,7 @@ buildBareFixture = do
                 , sdbBioFlows = M.empty
                 , sdbWasteFlows = M.empty
                 , sdbUnits = unitTable
+                , sdbDocumentation = noDocumentation
                 }
     either (fail . show) pure r
 

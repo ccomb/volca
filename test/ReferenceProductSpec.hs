@@ -57,6 +57,7 @@ import Types (
     TechnosphereFlow (..),
     Unit (..),
     noDates,
+    noDocumentation,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -174,6 +175,7 @@ database shift = do
                 , sdbBioFlows = M.fromList [(bfId co2, co2)]
                 , sdbWasteFlows = M.empty
                 , sdbUnits = M.fromList [(unitId kg, kg)]
+                , sdbDocumentation = noDocumentation
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . show) pure built
   where
