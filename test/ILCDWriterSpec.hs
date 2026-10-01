@@ -11,7 +11,7 @@ Three properties are pinned, exactly as for the SimaPro/Brightway writers:
 
   (a) idempotence modulo volatile metadata: @write(D)@ then
       @write(parse(write(D)))@ produce byte-identical output. The only volatile
-      fields (export timestamp, generator string) are /omitted/ by
+      field (generator string) is /omitted/ by
       'defaultWriteOptions', so this holds without any normalization;
 
   (b) semantic round-trip: @parse(write(D))@ is structurally equal to @D@,

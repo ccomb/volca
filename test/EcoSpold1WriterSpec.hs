@@ -5,7 +5,7 @@
 
   (a) idempotence modulo volatile metadata: write, parse, write again,
       and the two serialisations are byte-identical when the volatile
-      @generator@/@timestamp@ attributes are omitted ('canonicalWriterOptions');
+      @generator@ attribute is omitted ('canonicalWriterOptions');
   (b) semantic round-trip: parse(write(D)) reproduces the observable
       structure of D (names, amounts, units, roles/directions, compartments,
       CAS, comments), compared order-insensitively;

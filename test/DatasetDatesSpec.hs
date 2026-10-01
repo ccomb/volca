@@ -7,7 +7,7 @@ module DatasetDatesSpec (spec) where
 
 import Data.Either (isLeft)
 import Data.Time.Calendar (fromGregorian)
-import SimaPro.Parser (SimaProConfig (..), StatedDate (..), dateWarnings, defaultConfig, readStatedDate)
+import SimaPro.Parser (DateNote (..), SimaProConfig (..), StatedDate (..), dateWarnings, defaultConfig, readStatedDate)
 import Test.Hspec
 import Types (readIsoDate)
 
@@ -39,14 +39,18 @@ spec = do
             readStatedDate dotted "15/01/2016" `shouldSatisfy` unreadable
         it "refuses a day that does not exist" $
             readStatedDate defaultConfig "31/02/2016" `shouldSatisfy` unreadable
+        it "refuses 30/12/99 under a two-digit year, which reads two ways" $
+            readStatedDate defaultConfig{spDateFormat = "dd/MM/yy"} "30/12/99" `shouldSatisfy` unreadable
+        it "reads any other day under a two-digit year" $
+            readStatedDate defaultConfig{spDateFormat = "dd/MM/yy"} "15/01/16" `shouldBe` DateStated (fromGregorian 2016 1 15)
         it "refuses a format it does not know rather than guessing" $
             readStatedDate defaultConfig{spDateFormat = "MMM d, yyyy"} "Jan 5, 2016" `shouldSatisfy` unreadable
 
     describe "dateWarnings" $
         it "names each unreadable date and counts the zeros once" $
-            dateWarnings [("bread", DateUnreadable "bad"), ("flour", DateZero), ("salt", DateZero)]
+            dateWarnings [DateNote "bread" (DateUnreadable "bad"), DateNote "flour" DateZero, DateNote "salt" DateZero]
                 `shouldBe` [ "process 'bread': Date bad; the process is read with no date"
-                           , "2 processes write the Date 30/12/1899, which SimaPro writes for a date never entered: read as no date"
+                           , "2 processes write the date SimaPro writes for none (30 December 1899): read as no date"
                            ]
   where
     unreadable :: StatedDate -> Bool

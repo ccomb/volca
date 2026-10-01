@@ -18,6 +18,7 @@ module SimaPro.Parser (
     emptyProcessBlock,
     fallbackAmounts,
     StatedDate (..),
+    DateNote (..),
     readStatedDate,
     dateWarnings,
     dropAmbiguousNativeIds,
@@ -308,7 +309,7 @@ data ParseAcc = ParseAcc
     , paWasteFlows :: !(M.Map FlowInUnit WasteFlow)
     , paUnits :: !(M.Map UUID.UUID Unit)
     , paFallbacks :: ![(Text, Text, Double)] -- reversed, as the activities are
-    , paDateNotes :: ![(Text, StatedDate)] -- blocks whose Date is zero or unreadable, by name; reversed
+    , paDateNotes :: ![DateNote] -- reversed
     , paLineNum :: !Int
     , paDbInputParams :: ![(Text, Text)]
     , paDbCalcParams :: ![(Text, Text)]
@@ -399,7 +400,7 @@ data WorkerResult = WorkerResult
     , wrWasteFlows :: !(M.Map FlowInUnit WasteFlow)
     , wrUnits :: !(M.Map UUID.UUID Unit)
     , wrFallbacks :: ![(Text, Text, Double)]
-    , wrDateNotes :: ![(Text, StatedDate)]
+    , wrDateNotes :: ![DateNote]
     }
     deriving (Generic)
 
@@ -838,11 +839,12 @@ absorbBlock unitCfg gp block acc = case processBlockToActivity unitCfg gp block 
     -- A date the block states is the normal case and says nothing; a blank one
     -- is a date nobody entered, which the zero says too, but in a way a
     -- reader of the file could take for a real day.
-    dateNote :: ProcessBlock -> Maybe (Text, StatedDate)
+    dateNote :: ProcessBlock -> Maybe DateNote
     dateNote b = case pbDate b of
         DateStated _ -> Nothing
         DateBlank -> Nothing
-        zeroOrUnreadable -> Just (blockLabel b, zeroOrUnreadable)
+        DateZero -> Just (DateNote (blockLabel b) DateZero)
+        unreadable@(DateUnreadable _) -> Just (DateNote (blockLabel b) unreadable)
 
     keyedBy :: (NFData a) => (a -> FlowInUnit) -> M.Map FlowInUnit a -> [a] -> M.Map FlowInUnit a
     keyedBy key = foldl' (\m x -> (\y -> M.insert (key y) y m) $!! x)
@@ -937,6 +939,15 @@ data StatedDate
 
 instance NFData StatedDate
 
+-- | A block whose Date the load has to say something about: zero or unreadable.
+data DateNote = DateNote
+    { dnProcess :: !Text -- what a warning calls the block ('blockLabel')
+    , dnDate :: !StatedDate
+    }
+    deriving (Show, Eq, Generic)
+
+instance NFData DateNote
+
 -- | The day a block states, when it states one.
 statedDay :: StatedDate -> Maybe Day
 statedDay = \case
@@ -958,10 +969,17 @@ readStatedDate cfg raw = case T.strip raw of
         maybe (Left ("\"" <> written <> "\" is not a date written " <> spDateFormat cfg)) Right $
             parseTimeM False defaultTimeLocale timePattern (T.unpack written)
   where
+    -- With a two-digit year the empty date is written 30/12/99, which is also
+    -- how 30 December 1999 is written: two readings, so neither is taken.
     classify :: Day -> StatedDate
     classify day
         | day == fromGregorian 1899 12 30 = DateZero
+        | twoDigitYear
+        , day == fromGregorian 1999 12 30 =
+            DateUnreadable "30/12/99 with a two-digit year is either the date SimaPro writes for none or 30 December 1999"
         | otherwise = DateStated day
+    twoDigitYear :: Bool
+    twoDigitYear = "yy" `elem` T.group (spDateFormat cfg)
 
 -- | The 'parseTimeM' pattern of a short date format, given the date separator.
 timeFormatOf :: Char -> Text -> Either Text String
@@ -1823,13 +1841,13 @@ parseWorkerRange cfg unitCfg gp range =
 named, block by block, since each is a fault in the file; the zero is SimaPro's
 own way of storing no date, so it is counted once.
 -}
-dateWarnings :: [(Text, StatedDate)] -> [Text]
+dateWarnings :: [DateNote] -> [Text]
 dateWarnings notes =
     [ "process '" <> name <> "': Date " <> reason <> "; the process is read with no date"
-    | (name, DateUnreadable reason) <- notes
+    | DateNote name (DateUnreadable reason) <- notes
     ]
-        ++ [ T.pack (show zeros) <> " processes write the Date 30/12/1899, which SimaPro writes for a date never entered: read as no date"
-           | let zeros = length [() | (_, DateZero) <- notes]
+        ++ [ T.pack (show zeros) <> " processes write the date SimaPro writes for none (30 December 1899): read as no date"
+           | let zeros = length [() | DateNote _ DateZero <- notes]
            , zeros > 0
            ]
 

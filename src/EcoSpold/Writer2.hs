@@ -54,10 +54,9 @@ import qualified Data.UUID as UUID
 import EcoSpold.Common (showFFloatTrim)
 import Types
 
-{- | Volatile, non-semantic metadata that the parser ignores but a writer would
-otherwise stamp with the current time / tool version. Threaded explicitly so a
-caller can pin it (reproducible export) or omit it entirely (byte-stable
-round-trip). 'Nothing' fields emit no corresponding attribute/element.
+{- | Volatile, non-semantic metadata that the parser ignores: the tool that
+wrote the file. Threaded explicitly so a caller can pin it or omit it (byte-stable
+round-trip). The dataset's dates are not volatile and come from the activity.
 -}
 newtype VolatileMeta = VolatileMeta
     { vmGenerator :: Maybe Text
