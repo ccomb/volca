@@ -1493,7 +1493,7 @@ does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
 (revision 36: the @documentation@ of a database's setup, the export its file
-is and the system descriptions it holds;
+is and the system descriptions and literature references it holds;
 revision 35: the @dates@ an activity carries, the days its dataset says it
 was created, last revised, or written without saying which, and the
 @DatesChanged@ entry a comparison of two activities reports when they differ,

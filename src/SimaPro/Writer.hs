@@ -940,33 +940,26 @@ serializeSimaProCSV cfg db@SimpleDatabase{..} = do
     let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities) (systemNamesOf db)
         acts = sortOn (\a -> (activityName a, activityLocation a)) (M.elems sdbActivities)
         blocks = concatMap (serializeActivity cats) acts
-        allLines = headerLines cfg ++ blocks ++ concatMap systemDescriptionLines (dbdocSystems sdbDocumentation)
+        allLines = headerLines cfg ++ blocks ++ libraryLines sdbDocumentation
     pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf))
 
 -- | The names of the system descriptions a database writes in its trailer.
 systemNamesOf :: SimpleDatabase -> S.Set Text
-systemNamesOf = S.fromList . map systemName . dbdocSystems . sdbDocumentation
+systemNamesOf = S.fromList . map documentName . dbdocSystems . sdbDocumentation
 
-{- | A trailing System description block, the one its processes name. Every
-field SimaPro writes is written, blank when the description leaves it so, then
-any other field it was read with.
--}
-systemDescriptionLines :: SystemDescription -> [Text]
-systemDescriptionLines SystemDescription{..} =
-    ["System description", ""]
-        ++ field "Name" systemName
-        ++ field "Category" systemCategory
-        ++ concatMap (\label -> field label (sectionText label)) systemFields
-        ++ concat [field (docLabel s) (docText s) | s <- systemSections, docLabel s `notElem` systemFields]
-        ++ ["End", ""]
+-- | The trailing blocks a database documents its processes with.
+libraryLines :: DatabaseDocumentation -> [Text]
+libraryLines DatabaseDocumentation{..} =
+    concatMap (libraryBlockLines "System description" systemFields) dbdocSystems
+        ++ concatMap (libraryBlockLines "Literature reference" literatureFields) dbdocLiterature
   where
-    field :: Text -> Text -> [Text]
-    field label value = [label, freeText value, ""]
-    sectionText :: Text -> Text
-    sectionText label = foldMap docText (find ((== label) . docLabel) systemSections)
+    literatureFields :: [Text]
+    literatureFields = ["Name", "Documentation link", "Category", "Description"]
     systemFields :: [Text]
     systemFields =
-        [ "Description"
+        [ "Name"
+        , "Category"
+        , "Description"
         , "Sub-systems"
         , "Cut-off rules"
         , "Energy model"
@@ -976,6 +969,24 @@ systemDescriptionLines SystemDescription{..} =
         , "Other information"
         , "Allocation rules"
         ]
+
+{- | One trailing documentation block. Every field SimaPro writes for its kind
+is written in SimaPro's order, blank when the document leaves it so, then any
+other field it was read with.
+-}
+libraryBlockLines :: Text -> [Text] -> LibraryDocument -> [Text]
+libraryBlockLines keyword fields LibraryDocument{..} =
+    [keyword, ""]
+        ++ concatMap (\label -> field label (valueOf label)) fields
+        ++ concat [field (docLabel s) (docText s) | s <- documentSections, docLabel s `notElem` fields]
+        ++ ["End", ""]
+  where
+    field :: Text -> Text -> [Text]
+    field label value = [label, freeText value, ""]
+    valueOf :: Text -> Text
+    valueOf "Name" = documentName
+    valueOf "Category" = documentCategory
+    valueOf label = foldMap docText (find ((== label) . docLabel) documentSections)
 
 -- | Write canonical SimaPro CSV bytes to a file, or return the guard's 'Left'.
 writeSimaProCSV :: WriterConfig -> FilePath -> SimpleDatabase -> IO (Either Text ())

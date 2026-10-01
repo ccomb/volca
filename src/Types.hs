@@ -954,18 +954,20 @@ isoDateTime day = T.pack (iso8601Show day) <> "T00:00:00"
 
 {- | What a database says about itself as a whole, rather than about one of
 its datasets. Only a SimaPro export says anything at this level today: the
-header of the file and the system descriptions its processes name.
+header of the file, and the system descriptions and literature references
+its processes name.
 -}
 data DatabaseDocumentation = DatabaseDocumentation
     { dbdocExport :: !(Maybe ExportStamp) -- The export the file is, when its header says so
-    , dbdocSystems :: ![SystemDescription] -- In the file's order
+    , dbdocSystems :: ![LibraryDocument] -- In the file's order
+    , dbdocLiterature :: ![LibraryDocument] -- In the file's order
     }
     deriving (Show, Eq, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseDocumentation)
 
 -- | A database that says nothing about itself.
 noDocumentation :: DatabaseDocumentation
-noDocumentation = DatabaseDocumentation Nothing []
+noDocumentation = DatabaseDocumentation Nothing [] []
 
 {- | The export a file is: which tool wrote it, when, and from which project.
 The plainest answer to "is this the latest version of the database".
@@ -980,17 +982,17 @@ data ExportStamp = ExportStamp
     deriving (Show, Eq, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExportStamp)
 
-{- | A system description: the modelling choices a group of datasets shares
-(cut-off rules, energy and transport models, allocation), written once and
-named by each dataset that follows it.
+{- | A document written once and named by each dataset that relies on it: a
+system description (the modelling choices a group of datasets shares: cut-off
+rules, energy and transport models, allocation) or a literature reference.
 -}
-data SystemDescription = SystemDescription
-    { systemName :: !Text
-    , systemCategory :: !Text
-    , systemSections :: ![DocSection] -- In the source's order, blank ones left out
+data LibraryDocument = LibraryDocument
+    { documentName :: !Text
+    , documentCategory :: !Text
+    , documentSections :: ![DocSection] -- In the source's order, blank ones left out
     }
     deriving (Show, Eq, Generic, NFData, Store)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SystemDescription)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped LibraryDocument)
 
 {- | Base LCA activity
 Note: ProcessId is the index in dbActivities vector, UUIDs stored in dbProcessIdTable

@@ -8,7 +8,8 @@
   setup: the export its file is (the tool and version that wrote it, the
   version of the file format, the day, time and project it was exported
   from) and the system descriptions its datasets name, each with its
-  modelling choices (cut-off rules, energy and transport models, allocation).
+  modelling choices (cut-off rules, energy and transport models, allocation),
+  and the literature references it holds, each with its link and description.
   Only a SimaPro export carries any of it. A SimaPro process also serves the
   documentation it states about itself: time period, technology, the
   allocation and cut-off choices, who entered and generated it, how its data
@@ -19,7 +20,8 @@
   named in the load's log. A SimaPro export names VoLCA in its banner rather
   than a SimaPro version it was not written by, which SimaPro imports all
   the same; it states the format version it follows, writes the system
-  descriptions back with the name each process gives its own, and writes
+  descriptions and literature references back, with the system description
+  name each process gives its own, and writes
   the documentation fields SimaPro keeps as free text. Wire revision 36. Databases are read again from their source
   on first load, since their cache predates the field.
 - An activity carries the dates its dataset states, in `dates`: `created`,

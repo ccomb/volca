@@ -1362,9 +1362,10 @@ class Client:
         the database says about itself (wire revision 36): under ``export``, the
         tool that wrote the file, its format version, the day, time and project
         it was exported from; under ``systems``, each system description its
-        datasets name, with its ``name``, ``category`` and ``sections``. Only a
+        datasets name, and under ``literature`` each literature reference it
+        holds, both with a ``name``, ``category`` and ``sections``. Only a
         SimaPro export says any of it; another format leaves ``export`` null
-        and ``systems`` empty.
+        and both lists empty.
         """
         target = self._db(db_name)
         return self._json(self._session.get(f"{self.base_url}/api/v1/db/{target}/setup"))

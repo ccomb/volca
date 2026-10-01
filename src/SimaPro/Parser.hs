@@ -279,13 +279,17 @@ data SectionType
     | SecIgnored
     deriving (Show, Eq)
 
+-- | The trailing blocks that document what the processes name.
+data LibraryKind = SystemDescriptionBlock | LiteratureReferenceBlock
+    deriving (Show, Eq)
+
 -- | Parser state
 data ParseState
     = InHeader
     | InProcessMeta !BS.ByteString -- Current metadata key being read
     | InSection !SectionType
-    | -- | In a trailing System description block, with the field whose value comes next.
-      InSystemDescription !(Maybe BS.ByteString)
+    | -- | In a trailing documentation block, with the field whose value comes next.
+      InLibraryBlock !LibraryKind !(Maybe BS.ByteString)
     | BetweenBlocks
     deriving (Show, Eq)
 
@@ -326,8 +330,9 @@ data ParseAcc = ParseAcc
     , paProjInputParams :: ![(Text, Text)]
     , paProjCalcParams :: ![(Text, Text)]
     , paSubstanceCAS :: ![(Text, Text)] -- (name, CAS) from the trailer registry
-    , paSystemFields :: ![DocSection] -- the System description block being read, reversed
-    , paSystems :: ![SystemDescription] -- reversed
+    , paLibraryFields :: ![DocSection] -- the documentation block being read, reversed
+    , paSystems :: ![LibraryDocument] -- reversed
+    , paLiterature :: ![LibraryDocument] -- reversed
     }
 
 {- | A flow and the unit it is written in, which is what a worker keeps one
@@ -391,17 +396,18 @@ Kilobytes, whatever the file's size.
 data FileGlobals = FileGlobals
     { fgParams :: !GlobalParams
     , fgSubstanceCAS :: ![(Text, Text)]
-    , fgSystems :: ![SystemDescription]
+    , fgSystems :: ![LibraryDocument]
+    , fgLiterature :: ![LibraryDocument]
     }
     deriving (Show, Eq, Generic)
 
 instance NFData FileGlobals
 
 instance Semigroup FileGlobals where
-    FileGlobals p1 c1 s1 <> FileGlobals p2 c2 s2 = FileGlobals (p1 <> p2) (c1 <> c2) (s1 <> s2)
+    FileGlobals p1 c1 s1 l1 <> FileGlobals p2 c2 s2 l2 = FileGlobals (p1 <> p2) (c1 <> c2) (s1 <> s2) (l1 <> l2)
 
 instance Monoid FileGlobals where
-    mempty = FileGlobals mempty [] []
+    mempty = FileGlobals mempty [] [] []
 
 {- | What the second pass over a range yields: the activities its blocks became
 and the flows they name, already one record per flow rather than one per row.
@@ -748,7 +754,7 @@ parseSubstanceRow cfg line =
 -- | Process a single line (ByteString)
 processLine :: ParseAcc -> BS.ByteString -> ParseAcc
 processLine acc@ParseAcc{..} line
-    | InSystemDescription pending <- paState = systemDescriptionLine pending line acc
+    | InLibraryBlock kind pending <- paState = libraryLine kind pending line acc
     -- Empty line handling
     | BS.null (BS8.strip line) = case paState of
         InProcessMeta _ -> acc{paState = BetweenBlocks}
@@ -767,11 +773,12 @@ processLine acc@ParseAcc{..} line
             }
     -- End of block
     | BS8.strip line == "End" = closeBlock acc
-    -- Outside a process, a System description opens one of the trailing blocks
-    -- the processes name; inside one, it is the field that names it.
+    -- Outside a process, a System description or a Literature reference opens
+    -- one of the trailing blocks the processes name; inside one, a System
+    -- description is the field that names it.
     | not paInProcess
-    , BS8.strip line == "System description" =
-        acc{paState = InSystemDescription Nothing, paSystemFields = []}
+    , Just kind <- libraryKind (BS8.strip line) =
+        acc{paState = InLibraryBlock kind Nothing, paLibraryFields = []}
     -- Section detection (trailer registry blocks resolve against paInProcess)
     | Just sec <- classifyHeader paInProcess line =
         acc{paState = InSection sec}
@@ -806,34 +813,42 @@ afterValue key
 isListKey :: BS.ByteString -> Bool
 isListKey key = key `elem` ["Literature references", "External documents", "System description"]
 
-{- | One line of a trailing System description block: a field, the line under it
+-- | The trailing block a line opens, when it opens one.
+libraryKind :: BS.ByteString -> Maybe LibraryKind
+libraryKind = \case
+    "System description" -> Just SystemDescriptionBlock
+    "Literature reference" -> Just LiteratureReferenceBlock
+    _ -> Nothing
+
+{- | One line of a trailing documentation block: a field, the line under it
 that holds its value (blank when the field is), or the @End@ that closes it.
 -}
-systemDescriptionLine :: Maybe BS.ByteString -> BS.ByteString -> ParseAcc -> ParseAcc
-systemDescriptionLine pending line acc = case (pending, BS8.strip line) of
-    (Nothing, "End") ->
-        acc
-            { paState = BetweenBlocks
-            , paSystems = (: paSystems acc) $!! systemDescriptionOf (reverse (paSystemFields acc))
-            , paSystemFields = []
-            }
+libraryLine :: LibraryKind -> Maybe BS.ByteString -> BS.ByteString -> ParseAcc -> ParseAcc
+libraryLine kind pending line acc = case (pending, BS8.strip line) of
+    (Nothing, "End") -> (closed kind){paState = BetweenBlocks, paLibraryFields = []}
     (Nothing, "") -> acc
-    (Nothing, field) -> acc{paState = InSystemDescription (Just field)}
+    (Nothing, field) -> acc{paState = InLibraryBlock kind (Just field)}
     (Just field, value) ->
         acc
-            { paState = InSystemDescription Nothing
-            , paSystemFields = (: paSystemFields acc) $!! DocSection (decodeBS field) (cellText value)
+            { paState = InLibraryBlock kind Nothing
+            , paLibraryFields = (: paLibraryFields acc) $!! DocSection (decodeBS field) (cellText value)
             }
+  where
+    closed :: LibraryKind -> ParseAcc
+    closed SystemDescriptionBlock = acc{paSystems = (: paSystems acc) $!! document}
+    closed LiteratureReferenceBlock = acc{paLiterature = (: paLiterature acc) $!! document}
+    document :: LibraryDocument
+    document = libraryDocumentOf (reverse (paLibraryFields acc))
 
-{- | A System description from its fields, in the file's order: the name and the
-category it is filed under, then every other field that says something.
+{- | A documentation block from its fields, in the file's order: the name and
+the category it is filed under, then every other field that says something.
 -}
-systemDescriptionOf :: [DocSection] -> SystemDescription
-systemDescriptionOf fields =
-    SystemDescription
-        { systemName = field "Name"
-        , systemCategory = field "Category"
-        , systemSections =
+libraryDocumentOf :: [DocSection] -> LibraryDocument
+libraryDocumentOf fields =
+    LibraryDocument
+        { documentName = field "Name"
+        , documentCategory = field "Category"
+        , documentSections =
             [ DocSection label text
             | DocSection label raw <- fields
             , label `notElem` ["Name", "Category"]
@@ -1973,8 +1988,9 @@ emptyParseAcc cfg sink =
         , paProjInputParams = []
         , paProjCalcParams = []
         , paSubstanceCAS = []
-        , paSystemFields = []
+        , paLibraryFields = []
         , paSystems = []
+        , paLiterature = []
         }
 
 {- | First pass over a range: what it declares for the whole file. It keeps no
@@ -1994,6 +2010,7 @@ scanGlobals cfg range =
           -- first binding of a name wins, and "first" must mean the file's.
           fgSubstanceCAS = reverse (paSubstanceCAS finalAcc)
         , fgSystems = reverse (paSystems finalAcc)
+        , fgLiterature = reverse (paLiterature finalAcc)
         }
   where
     finalAcc :: ParseAcc
@@ -2230,5 +2247,9 @@ parseSimaProCSV unitCfg path = do
                     , spfWasteFlows = wasteFlowDB
                     , spfUnits = unitDB
                     , spfDocumentation =
-                        DatabaseDocumentation{dbdocExport = exportStamp cfg, dbdocSystems = fgSystems globals}
+                        DatabaseDocumentation
+                            { dbdocExport = exportStamp cfg
+                            , dbdocSystems = fgSystems globals
+                            , dbdocLiterature = fgLiterature globals
+                            }
                     }

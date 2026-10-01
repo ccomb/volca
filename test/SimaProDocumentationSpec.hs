@@ -50,17 +50,27 @@ spec = describe "SimaPro documentation" $ do
             spTool cfg `shouldBe` Nothing
             exportWarnings cfg `shouldBe` ["the header states an export but names no tool on its first line: the export is read with no stamp"]
 
-    describe "the System description blocks" $
+    describe "the trailing documentation blocks" $ do
         it "reads each one, its quoted text unquoted and its blank fields left out" $ do
             db <- load bakeryCSV
             dbdocSystems (sdbDocumentation db)
-                `shouldBe` [ SystemDescription
-                                { systemName = "Bakery"
-                                , systemCategory = "Food"
-                                , systemSections =
+                `shouldBe` [ LibraryDocument
+                                { documentName = "Bakery"
+                                , documentCategory = "Food"
+                                , documentSections =
                                     [ DocSection "Description" "Ovens and mixers\n\nThe bakery's own \"rules\""
                                     , DocSection "Cut-off rules" "Less than 1%"
                                     ]
+                                }
+                           ]
+
+        it "reads each Literature reference, its blank link left out" $ do
+            db <- load bakeryCSV
+            dbdocLiterature (sdbDocumentation db)
+                `shouldBe` [ LibraryDocument
+                                { documentName = "Bread book"
+                                , documentCategory = "Food"
+                                , documentSections = [DocSection "Description" "Baking at scale; second edition"]
                                 }
                            ]
 
@@ -87,10 +97,11 @@ spec = describe "SimaPro documentation" $ do
             written `shouldSatisfy` BS.isPrefixOf "{VoLCA "
             written `shouldSatisfy` BS.isInfixOf "}\r\n{CSV Format version: 9.0.0}\r\n"
 
-        it "keeps the System descriptions and the free-text documentation" $ do
+        it "keeps the trailing blocks and the free-text documentation" $ do
             original <- load bakeryCSV
             again <- load =<< write original
             dbdocSystems (sdbDocumentation again) `shouldBe` dbdocSystems (sdbDocumentation original)
+            dbdocLiterature (sdbDocumentation again) `shouldBe` dbdocLiterature (sdbDocumentation original)
             map activityDescription (M.elems (sdbActivities again)) `shouldBe` [["Plain \"white\" bread"]]
             map (map docLabel . activityDocumentation) (M.elems (sdbActivities again))
                 `shouldBe` [["Record", "Collection method", "System description"]]
@@ -180,6 +191,22 @@ bakeryCSV =
         , ""
         , "Energy model"
         , ""
+        , ""
+        , "End"
+        , ""
+        , "Literature reference"
+        , ""
+        , "Name"
+        , "Bread book"
+        , ""
+        , "Documentation link"
+        , ""
+        , ""
+        , "Category"
+        , "Food"
+        , ""
+        , "Description"
+        , "\"Baking at scale; second edition\""
         , ""
         , "End"
         , ""
