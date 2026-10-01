@@ -163,7 +163,7 @@ spec = describe "Method.WriterSimaPro" $ do
                     warnings `shouldSatisfy` any (T.isInfixOf "no factors")
 
         it "warns that formula scoring sets are not exported" $ do
-            let ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing
+            let ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
                 mc = MethodCollection [mkMethod "Climate change" []] [] [] [ss]
             case serialize mc of
                 Left err -> expectationFailure (T.unpack err)

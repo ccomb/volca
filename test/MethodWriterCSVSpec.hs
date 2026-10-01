@@ -176,7 +176,7 @@ spec = describe "Method.WriterCSV" $ do
             let m = (mkMethod "Climate change" []){methodDescription = Just "GWP100"}
                 dc = DamageCategory "Human health" "DALY" [("Climate change", 1)]
                 nw = NormWeightSet "EF" (M.singleton "Climate change" 1) M.empty
-                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing
+                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
                 mc = MethodCollection [m] [dc] [nw] [ss]
             case serialize mc of
                 Left err -> expectationFailure (T.unpack err)

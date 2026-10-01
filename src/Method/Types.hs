@@ -24,6 +24,7 @@ module Method.Types (
 
     -- * Scoring sets (formula-based N/W)
     ScoringSet (..),
+    ScoringSetOrigin (..),
     ScoringEvaluation (..),
     computeFormulaScores,
     scoreWeights,
@@ -221,7 +222,21 @@ data ScoringSet = ScoringSet
     {- ^ Multiplier applied to nwEnv values and final scores for display
     (e.g., 1e6 to convert "Pts" into "µPts"). Nothing ≡ 1.0.
     -}
+    , ssUnits :: !(M.Map Text Text)
+    {- ^ var → unit of a computed variable, which no impact category carries.
+    A damage category read from a SimaPro file keeps its unit here, so an
+    export can write it back.
+    -}
+    , ssOrigin :: !ScoringSetOrigin
+    -- ^ Where the set comes from; the response fields kept until 0.16.0 read only a set read from the file.
     }
+    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+
+{- | Where a scoring set comes from. A set read from a SimaPro method file
+stands for its damage categories and normalization-weighting set; the
+response fields that described them until 0.16.0 are read from it alone.
+-}
+data ScoringSetOrigin = ReadFromSimaProFile | DeclaredInConfig
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
 {- | Result of evaluating a ScoringSet against raw LCIA results.

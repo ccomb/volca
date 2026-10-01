@@ -227,6 +227,7 @@ import Method.Types (
     MethodCF (..),
     MethodCollection (..),
     ScoringSet (..),
+    ScoringSetOrigin (..),
     buildCompartmentMapFromCSV,
     buildEnergyDensityMapFromCSV,
     compartmentMapSize,
@@ -1747,6 +1748,8 @@ configToScoringSet ssc =
         , ssWeighting = sscWeighting ssc
         , ssScores = sscScores ssc
         , ssDisplayMultiplier = sscDisplayMultiplier ssc
+        , ssUnits = M.empty
+        , ssOrigin = DeclaredInConfig
         }
 
 {- | Fold a 'MethodConfig's post-parse adjustments into a freshly parsed

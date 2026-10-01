@@ -167,7 +167,7 @@ spec = describe "Method.WriterILCD" $ do
             let m = mkMethod 1 "Climate change" []
                 dc = DamageCategory "Human health" "DALY" [("Climate change", 1)]
                 nw = NormWeightSet "EF" (M.singleton "Climate change" 1) M.empty
-                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing
+                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
             case serializeIlcdMethodEntries (MethodCollection [m] [dc] [nw] [ss]) of
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, warnings) -> do

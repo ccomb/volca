@@ -167,7 +167,7 @@ spec = describe "Method.WriterOlcaSchema" $ do
                 m2 = (mkMethod 8 "Acidification" []){methodCategory = ""}
                 dc = DamageCategory "Human health" "DALY" [("Climate change", 1)]
                 nw = NormWeightSet "EF" (M.singleton "Climate change" 1) M.empty
-                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing
+                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
             case serializeOlcaMethodEntries (MethodCollection [m1, m2] [dc] [nw] [ss]) of
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, warnings) -> do
