@@ -32,6 +32,9 @@
   a factor that states no location but ends its name with a code of the
   geography table (`Ammonia, FR`) is read at that location, which is how a
   file that writes the region in the name meets one that writes it apart;
+  an occupation or a transformation of land is read in the land
+  subcompartment of natural resources, and as taken from nature, however a
+  file files it, so a land flow written in two formats is compared;
   the compartment table's fallback rows are not followed, so a precise
   subcompartment never passes for an unspecified one. Wire revision 31.
 - A comparison of two method collections can be narrowed to one pair of

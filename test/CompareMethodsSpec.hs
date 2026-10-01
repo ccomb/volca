@@ -43,6 +43,8 @@ refData =
                 , ("methane, fossil", "methane, fossil origin")
                 , ("methane, biogenic", "methane, non-fossil")
                 , ("methane, from soil", "methane, land transformation")
+                , ("occupation, forest, extensive", "forest, extensive")
+                , ("transformation, to forest, extensive", "to forest, extensive")
                 ]
         , cmcCompartments = CompartmentMap M.empty M.empty
         , cmcUnits = units
@@ -151,6 +153,21 @@ compareCategoriesSpec = describe "compareCategories" $ do
     it "reads a code of the geography table that holds a comma of its own" $ do
         let c = compared [(factor "water" 1){mcfConsumerLocation = Just "Europe, Western"}] [factor "Water, Europe, Western" 1]
         counts c `shouldBe` [0, 0, 0, 1, 0, 0]
+
+    it "reads a land flow filed under the whole natural resource medium in its land subcompartment" $ do
+        let land name sub = (factor name 1){mcfDirection = Input, mcfCompartment = Just (Compartment "natural resource" sub ""), mcfUnit = "m2a"}
+            c = compared [land "forest, extensive" "land"] [land "Occupation, forest, extensive" ""]
+        counts c `shouldBe` [0, 0, 0, 1, 0, 0]
+
+    it "pairs a transformation one file writes as an output to land and another as an input from nature" $ do
+        let land name direction sub = (factor name 1){mcfDirection = direction, mcfCompartment = Just (Compartment "natural resource" sub ""), mcfUnit = "m2"}
+            c = compared [land "to forest, extensive" Output "land"] [land "Transformation, to forest, extensive" Input ""]
+        counts c `shouldBe` [0, 0, 0, 1, 0, 0]
+
+    it "keeps any other flow of the whole natural resource medium apart from the land subcompartment" $ do
+        let resource name sub = (factor name 1){mcfDirection = Input, mcfCompartment = Just (Compartment "natural resource" sub "")}
+            c = compared [resource "forest, extensive" "land"] [resource "forest, extensive" ""]
+        counts c `shouldBe` [1, 1, 0, 0, 0, 0]
 
     it "keeps in the name a last part the geography table does not hold" $ do
         let c = compared [(factor "methane" 1){mcfConsumerLocation = Just "fossil"}] [factor "methane, fossil" 1]

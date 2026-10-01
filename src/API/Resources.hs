@@ -610,7 +610,9 @@ description r = case r of
         \subcompartment never equals an unspecified one; a subcompartment \
         \written 'unspecified' is read as the whole medium. A factor with no \
         \location whose name ends in a code of the geography table ('Ammonia, \
-        \FR') is read at that location. 'reading' says how the two values were read \
+        \FR') is read at that location. A factor named 'Occupation, ...' or \
+        \'Transformation, ...' under the whole natural resource medium is read \
+        \in its land subcompartment, and every land factor as an input. 'reading' says how the two values were read \
         \per one unit before comparing; values are equal within a relative \
         \1e-9. 'collection' is the base. The counts always cover the full \
         \lists and limit truncates each list of each category: pass a limit \
