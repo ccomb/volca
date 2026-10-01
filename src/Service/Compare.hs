@@ -370,18 +370,22 @@ compareDatabases dbs =
         { dbcAddedCount = length added
         , dbcRemovedCount = length removed
         , dbcChangedCount = length changed
+        , dbcRedatedCount = length redated
         , dbcAmbiguousCount = length ambiguous
-        , dbcUnchangedCount = length (cPairs paired) - length changed
+        , dbcUnchangedCount = length (cPairs paired) - length differing
         , dbcAdded = added
         , dbcRemoved = removed
         , dbcChanged = changed
+        , dbcRedated = redated
         , dbcAmbiguous = ambiguous
         }
   where
     paired :: Cascade ActivityMatch ProcessIn
     paired = cascade activityKey [minBound .. maxBound] (fmap processesOf dbs)
-    changed :: [ChangedActivity]
-    changed =
+    redated, changed :: [ChangedActivity]
+    (redated, changed) = L.partition (onlyRedated . chaComparison) differing
+    differing :: [ChangedActivity]
+    differing =
         L.sortOn
             (summaryOrder . acmpOther . chaComparison)
             [ ChangedActivity{chaMatch = match, chaComparison = comparison}
@@ -412,6 +416,7 @@ limitComparison n c =
         { dbcAdded = take n (dbcAdded c)
         , dbcRemoved = take n (dbcRemoved c)
         , dbcChanged = take n (dbcChanged c)
+        , dbcRedated = take n (dbcRedated c)
         , dbcAmbiguous = take n (dbcAmbiguous c)
         }
 
@@ -459,6 +464,17 @@ genreOf ILCDProcessType{iptLabel = label} = ILCDGenre label
 
 identical :: ActivityComparison -> Bool
 identical c = null (acmpSummary c) && null (acmpExchanges c) && null (acmpUncompared c)
+
+-- | Of two activities that differ, whether the dates are all they differ by.
+onlyRedated :: ActivityComparison -> Bool
+onlyRedated c = all isDates (acmpSummary c) && null (acmpExchanges c) && null (acmpUncompared c)
+  where
+    isDates :: SummaryChange -> Bool
+    isDates DatesChanged{} = True
+    isDates ActivityNameChanged{} = False
+    isDates LocationChanged{} = False
+    isDates ProductNameChanged{} = False
+    isDates AllocationChanged{} = False
 
 summariesOf :: [ProcessIn] -> [ActivitySummary]
 summariesOf = L.sortOn summaryOrder . map summaryOf

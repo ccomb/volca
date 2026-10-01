@@ -1494,7 +1494,9 @@ does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
 (revision 35: the @dates@ an activity carries, the days its dataset says it
 was created, last revised, or written without saying which, and the
-@DatesChanged@ entry a comparison of two activities reports when they differ;
+@DatesChanged@ entry a comparison of two activities reports when they differ,
+and the @redated@ list of a comparison of two databases, the pairs that
+differ by their dates alone;
 revision 34: the @reading@ each factor of a method carries, the medium and the
 location it is read at;
 revision 33: the profile_method_collection route, what each impact category

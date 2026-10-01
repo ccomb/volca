@@ -1923,17 +1923,21 @@ data AmbiguousActivities = AmbiguousActivities
     deriving (ToJSON, ToSchema) via (Stripped AmbiguousActivities)
 
 {- | Two databases side by side. The counts always cover the full lists, which
-a limit may have truncated.
+a limit may have truncated. A pair whose only difference is the dates its
+datasets state is redated, not changed: a new release restamps every dataset,
+and those would bury the few that say something new.
 -}
 data DatabaseComparison = DatabaseComparison
     { dbcAddedCount :: !Int
     , dbcRemovedCount :: !Int
     , dbcChangedCount :: !Int
+    , dbcRedatedCount :: !Int
     , dbcAmbiguousCount :: !Int
     , dbcUnchangedCount :: !Int
     , dbcAdded :: ![ActivitySummary]
     , dbcRemoved :: ![ActivitySummary]
     , dbcChanged :: ![ChangedActivity]
+    , dbcRedated :: ![ChangedActivity]
     , dbcAmbiguous :: ![AmbiguousActivities]
     }
     deriving (Generic)

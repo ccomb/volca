@@ -18,7 +18,9 @@
   creation. `compare_activities`, and every changed activity of
   `compare_databases`, reports `DatesChanged` when the two datasets state
   different dates, which answers whether one is a later version of the
-  other. pyvolca reads them as `ActivityDetail.dates`, a `DatasetDates`.
+  other. A pair of `compare_databases` that differs by its dates alone is
+  listed under `redated` rather than `changed`, so a release that restamps
+  every dataset does not bury the few that say something new. pyvolca reads them as `ActivityDetail.dates`, a `DatasetDates`.
   Wire revision 35. Databases are read again from their source on first
   load, since their cache predates the field.
 - An instance shared by many callers can bound what one scoring request asks

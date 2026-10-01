@@ -595,7 +595,9 @@ description r = case r of
         \market for a product never pairs with its production). Each changed \
         \activity says the rung that paired it. A key several activities answer \
         \to, on either side, pairs none of them: they are listed under 'ambiguous' \
-        \and not compared. 'database' is the base, usually the older version. The \
+        \and not compared. A pair whose only difference is the dates its datasets \
+        \state is listed under 'redated' rather than 'changed'. 'database' is the \
+        \base, usually the older version. The \
         \counts always cover the full lists and limit truncates each list: pass a \
         \limit when calling from a conversation, since two versions of a large \
         \database differ by thousands of activities."
@@ -1098,7 +1100,7 @@ params r = case r of
     CompareDatabases ->
         [ pDatabase
         , Param "other_database" "string" Required "Loaded database to compare against, usually the newer version"
-        , pLimit "Max entries per list (added, removed, changed, ambiguous), in name order (default: all). The counts always cover the full lists."
+        , pLimit "Max entries per list (added, removed, changed, redated, ambiguous), in name order (default: all). The counts always cover the full lists."
         ]
     CompareMethodCollections ->
         [ Param "collection" "string" Required "Base method collection, usually the older version"
