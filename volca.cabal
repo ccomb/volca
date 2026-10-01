@@ -254,6 +254,7 @@ test-suite lca-tests
                      , UnitVariantCFSpec
                      , CharacterizedFlowsSpec
                      , CrossSubcompartmentSpec
+                     , DuplicateFactorSpec
                      , ServerSpec
                      , IdleSpec
                      , ReplSpec

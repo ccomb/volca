@@ -46,6 +46,8 @@ module Method.Mapping (
     UncharacterizedOpts (..),
     defaultUncharacterizedOpts,
     buildMethodTables,
+    ContestedFactor (..),
+    contestedFactors,
     buildMethodIndex,
     fillBroadcastVector,
     zeroedMatchedCFs,
@@ -1602,14 +1604,18 @@ buildMethodTables cmap vocabulary energyDensities mappings =
         { mtUuidCF =
             -- Non-regionalized rows only, like the name tables below: a
             -- location-specific row landing here would let one arbitrary
-            -- location's value stand for the flow everywhere ('M.fromList'
-            -- keeps the last row). Regionalized UUID-matched rows reach
-            -- 'mtRegionalizedCF' keyed by flow UUID + location.
-            M.fromList
-                [ (bfId flow, entryOf cf mflow)
-                | (cf, mflow@(Just (flow, ByUUID))) <- mappings
-                , Nothing <- [mcfConsumerLocation cf]
-                ]
+            -- location's value stand for the flow everywhere. Regionalized
+            -- UUID-matched rows reach 'mtRegionalizedCF' keyed by flow UUID +
+            -- location. Two lines of one flow at one place (a format that
+            -- derives the UUID from name and compartment cannot tell apart two
+            -- flows sharing them) settle as in 'mtExactCF', never by file order.
+            dropRank $
+                M.fromListWith
+                    preferBetter
+                    [ (bfId flow, (entryOf cf mflow, rawNameMatches cf mflow))
+                    | (cf, mflow@(Just (flow, ByUUID))) <- mappings
+                    , Nothing <- [mcfConsumerLocation cf]
+                    ]
         , mtUnitVariantCF =
             -- Keyed by the CF's OWN name with the unit suffix kept, so each
             -- per-unit row serves the flow declared in its unit – including a
@@ -1854,6 +1860,47 @@ buildMethodTables cmap vocabulary energyDensities mappings =
         Just (flow, BySynonym) -> bfName flow
         Just (flow, ByProxy) -> bfName flow
         _ -> mcfFlowName cf
+
+-- | A place the method states two values for, and the one scoring reads.
+data ContestedFactor = ContestedFactor
+    { cfoFlow :: !BiosphereFlow
+    -- ^ The database flow the lines were matched to.
+    , cfoLine :: !MethodCF
+    -- ^ One of the lines, for its compartment.
+    , cfoValues :: ![Double]
+    -- ^ Every value stated there, ascending.
+    , cfoKept :: !Double
+    }
+
+{- | The database flows that meet different values at one place of the method.
+
+Two ways lead there: a method package that files two flows under one name and
+one compartment (two identifiers in the source, one name once written out),
+and two names of the method that synonyms lead to one database flow. Scoring
+reads one value per flow, so the others are never read: said rather than
+chosen in silence. The value given is the one 'lookupEntryForFlow' reads, the
+path the score takes, and a place counts only when that value is one of its
+own: a contest the flow reads past is not a choice this score made. Equal
+values are not a contest.
+-}
+contestedFactors :: CompartmentMap -> MethodTables -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [ContestedFactor]
+contestedFactors cmap tables mappings =
+    [ ContestedFactor flow cf (S.toAscList values) kept
+    | ((fid, _), (flow, cf, values)) <- M.toList byPlace
+    , S.size values > 1
+    , Just (_, entry) <- [lookupEntryForFlow tables fid (Just flow)]
+    , let kept = cfValue (teCF entry)
+    , S.member kept values
+    ]
+  where
+    byPlace :: M.Map (UUID, Maybe (MediumKey, Subcompartment)) (BiosphereFlow, MethodCF, S.Set Double)
+    byPlace =
+        M.fromListWith
+            (\(flow, cf, new) (_, _, old) -> (flow, cf, S.union new old))
+            [ ((bfId flow, cfMediumSub cmap cf), (flow, cf, S.singleton (mcfValue cf)))
+            | (cf, Just (flow, _)) <- mappings
+            , Nothing <- [mcfConsumerLocation cf]
+            ]
 
 {- | How a flow quantity reached the basis its CF value is denominated in.
 The score only needs the converted number; this says which route produced it,

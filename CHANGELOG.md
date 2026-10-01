@@ -129,6 +129,15 @@
 
 ### Fixed
 
+- A flow whose method writes two values at one place reads the same value
+  whatever the order of the lines. A SimaPro CSV method can write one flow
+  twice at one compartment with two values (two flows of an ILCD package,
+  once written out). Matched by identifier, as a SimaPro database is, the
+  flow read whichever line came last in the file; matched by name, the line
+  that matched more closely, then the larger. Both now read the same one.
+  The log names each place where a flow meets several values, whether the
+  method writes it twice or synonyms lead two of its names to that flow,
+  with every value written there and the one read.
 - A regional flow reads its region's factor when the method writes that
   region only under another name of the same substance. The adapted EF 3.1
   method writes fresh water `Water, fresh` without a region, at the world
