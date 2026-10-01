@@ -740,7 +740,7 @@ renderSource s = case joinParts ". " [authors, s1Title s, s1TitleOfAnthology s, 
     publisher = joinParts ", " [s1Publisher s, s1Place s]
 
 {- | A source as an entry of the database's literature: its title, and the
-whole reference under it. A source with no title is named by its reference.
+whole reference as its description, where SimaPro keeps a reference's text. A source with no title is named by its reference.
 -}
 sourceDocument :: Source1 -> Maybe LibraryDocument
 sourceDocument s = do
@@ -749,7 +749,7 @@ sourceDocument s = do
         LibraryDocument
             { documentName = fromMaybe reference (nonEmptyText (s1Title s))
             , documentCategory = ""
-            , documentSections = [DocSection "Reference" reference]
+            , documentSections = [DocSection "Description" reference]
             }
 
 {- | The provenance sections of one dataset, in the order a reader wants them:

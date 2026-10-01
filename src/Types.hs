@@ -913,7 +913,7 @@ data DocSection = DocSection
     { docLabel :: !Text -- What the source format calls this section ("Technology", "Published in")
     , docText :: !Text -- Its text, already assembled from whatever fields the format spreads it over
     }
-    deriving (Show, Eq, Generic, NFData, Store)
+    deriving (Show, Eq, Ord, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DocSection)
 
 {- | The days a dataset says it was written on, each under the meaning its
@@ -953,14 +953,14 @@ isoDateTime :: Day -> Text
 isoDateTime day = T.pack (iso8601Show day) <> "T00:00:00"
 
 {- | What a database says about itself as a whole, rather than about one of
-its datasets. Only a SimaPro export says anything at this level today: the
-header of the file, and the system descriptions and literature references
-its processes name.
+its datasets. A SimaPro export states the header of the file, and the system
+descriptions and literature references its processes name; an EcoSpold 1
+database gathers the sources its datasets cite into its literature.
 -}
 data DatabaseDocumentation = DatabaseDocumentation
     { dbdocExport :: !(Maybe ExportStamp) -- The export the file is, when its header says so
     , dbdocSystems :: ![LibraryDocument] -- In the file's order
-    , dbdocLiterature :: ![LibraryDocument] -- In the file's order
+    , dbdocLiterature :: ![LibraryDocument] -- In the file's order, or by title when gathered from datasets
     }
     deriving (Show, Eq, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseDocumentation)
@@ -991,7 +991,7 @@ data LibraryDocument = LibraryDocument
     , documentCategory :: !Text
     , documentSections :: ![DocSection] -- In the source's order, blank ones left out
     }
-    deriving (Show, Eq, Generic, NFData, Store)
+    deriving (Show, Eq, Ord, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped LibraryDocument)
 
 {- | Base LCA activity

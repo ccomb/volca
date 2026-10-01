@@ -258,8 +258,8 @@ data Harvest = Harvest
     -- ^ flow declarations read, before deduplication
     , hvRawUnits :: !Int
     -- ^ unit declarations read, before deduplication
-    , hvLiterature :: !(M.Map (T.Text, T.Text) LibraryDocument)
-    -- ^ The sources the datasets cite, once each, by title and reference
+    , hvLiterature :: !(S.Set LibraryDocument)
+    -- ^ The sources the datasets cite, once each
     , hvUnitNames :: !(M.Map UUID.UUID (S.Set T.Text))
     {- ^ The names the files gave each unit identifier, the placeholder of a
     nameless declaration aside. The identifier is the file's own and the name
@@ -280,11 +280,11 @@ instance Semigroup Harvest where
             , hvDatasetNumbers = MS.unionWith (<>) (hvDatasetNumbers a) (hvDatasetNumbers b)
             , hvRawFlows = hvRawFlows a + hvRawFlows b
             , hvRawUnits = hvRawUnits a + hvRawUnits b
-            , hvLiterature = M.union (hvLiterature a) (hvLiterature b)
+            , hvLiterature = S.union (hvLiterature a) (hvLiterature b)
             }
 
 instance Monoid Harvest where
-    mempty = Harvest M.empty MS.empty MS.empty MS.empty M.empty M.empty 0 0 M.empty M.empty
+    mempty = Harvest M.empty MS.empty MS.empty MS.empty M.empty M.empty 0 0 S.empty M.empty
 
 {- | Harvest a batch of parsed datasets, each already keyed by the (activity,
 product) pair its source names it under.
@@ -301,7 +301,7 @@ harvestOf entries =
         , hvRawFlows = length techs + length bios + length wastes
         , hvRawUnits = length units
         , hvUnitNames = MS.fromListWith S.union [(unitId u, S.singleton (unitName u)) | u <- units, not (isPlaceholderUnit u)]
-        , hvLiterature = M.fromList [((documentName d, foldMap docText (documentSections d)), d) | (_, parsed) <- entries, d <- pdLiterature parsed]
+        , hvLiterature = S.fromList (concatMap (pdLiterature . snd) entries)
         }
   where
     -- The only two rows under one identifier that can be reconciled: a
@@ -349,7 +349,7 @@ unitNamesDisagreeing h =
 -- | The tables of a harvest that make a database, and the literature its datasets cite; the rest describes the reading.
 harvestDatabase :: Harvest -> SimpleDatabase
 harvestDatabase h =
-    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation{dbdocLiterature = M.elems (hvLiterature h)}
+    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation{dbdocLiterature = S.toList (hvLiterature h)}
 
 {- |
 Schema signature of the cache payload.
