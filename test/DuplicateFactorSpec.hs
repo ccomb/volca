@@ -77,3 +77,16 @@ spec = describe "two factors at one place" $ do
 
     it "leaves out lines this database matched to nothing" $
         contested [(small, Nothing), (large, Nothing)] `shouldBe` []
+
+    it "names the value an identifier match reads over two lines matched by name" $ do
+        -- The identifier line reads first; the two name lines it shadows are
+        -- part of the same contest.
+        let ownSpelling = large{mcfFlowName = "turpentine (gum)", mcfValue = 1}
+            byName v = (large{mcfFlowRef = mkUUID 2, mcfValue = v}, Just (turpentine, ByName))
+            mappings = [(ownSpelling, Just (turpentine, ByUUID)), byName 2, byName 3]
+        score mappings `shouldBe` Just 1
+        contested mappings `shouldBe` [([1, 2, 3], 1)]
+
+    it "names two identifier lines with no compartment" $
+        contested (mappingsOf ByUUID [small{mcfCompartment = Nothing}, large{mcfCompartment = Nothing}])
+            `shouldBe` [([1.1619, 8.399], 8.399)]

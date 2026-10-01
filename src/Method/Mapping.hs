@@ -1646,7 +1646,7 @@ buildMethodTables cmap vocabulary energyDensities mappings =
             dropRank $
                 M.fromListWith
                     preferBetter
-                    [ ((SR.NormName (exactNameKey cf mflow), medium, sub), (entryOf cf mflow, rawNameMatches cf mflow))
+                    [ ((SR.NormName (nameKey cf mflow), medium, sub), (entryOf cf mflow, rawNameMatches cf mflow))
                     | (cf, mflow) <- mappings
                     , Nothing <- [mcfConsumerLocation cf]
                     , Just (medium, sub) <- [cfMediumSub cmap cf]
@@ -1853,16 +1853,13 @@ buildMethodTables cmap vocabulary energyDensities mappings =
         Just (flow, _) -> T.toLower (T.strip (mcfFlowName cf)) == T.toLower (T.strip (bfName flow))
         Nothing -> False
 
-{- | The name a line is keyed under in 'mtExactCF'. A name, synonym or proxy
-match keys it under the database flow it resolved to, not the method's own
-name.
--}
-exactNameKey :: MethodCF -> Maybe (BiosphereFlow, MatchStrategy) -> Text
-exactNameKey cf mflow = normalizeName $ case mflow of
-    Just (flow, ByName) -> bfName flow
-    Just (flow, BySynonym) -> bfName flow
-    Just (flow, ByProxy) -> bfName flow
-    _ -> mcfFlowName cf
+    -- Use matched flow's name only for name/synonym/proxy matches: those key
+    -- the CF under the database flow it resolved to, not the method CF's own name.
+    nameKey cf mflow = normalizeName $ case mflow of
+        Just (flow, ByName) -> bfName flow
+        Just (flow, BySynonym) -> bfName flow
+        Just (flow, ByProxy) -> bfName flow
+        _ -> mcfFlowName cf
 
 -- | A place the method states two values for, and the one scoring reads.
 data ContestedFactor = ContestedFactor
@@ -1875,31 +1872,34 @@ data ContestedFactor = ContestedFactor
     , cfoKept :: !Double
     }
 
-{- | The places of 'mtExactCF' that matched lines answer with different values.
+{- | The database flows that meet different values at one place of the method.
 
 Two ways lead there: a method package that files two flows under one name and
 one compartment (two identifiers in the source, one name once written out),
-and two names of the method that synonyms lead to one database flow. The
-tables keep one value per place, so the others are never read: said rather
-than chosen in silence. Only matched lines count, those being the ones this
-database's scores can read; equal values are not a contest.
+and two names of the method that synonyms lead to one database flow. Scoring
+reads one value per flow, so the others are never read: said rather than
+chosen in silence. The value given is the one 'lookupEntryForFlow' reads, the
+path the score takes, and a place counts only when that value is one of its
+own: a contest the flow reads past is not a choice this score made. Equal
+values are not a contest.
 -}
 contestedFactors :: CompartmentMap -> MethodTables -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [ContestedFactor]
 contestedFactors cmap tables mappings =
-    [ ContestedFactor flow cf (S.toAscList values) (cfValue (teCF kept))
-    | (key, (flow, cf, values)) <- M.toList byPlace
+    [ ContestedFactor flow cf (S.toAscList values) kept
+    | ((fid, _), (flow, cf, values)) <- M.toList byPlace
     , S.size values > 1
-    , Just kept <- [M.lookup key (mtExactCF tables)]
+    , Just (_, entry) <- [lookupEntryForFlow tables fid (Just flow)]
+    , let kept = cfValue (teCF entry)
+    , S.member kept values
     ]
   where
-    byPlace :: M.Map (SR.NormName, MediumKey, Subcompartment) (BiosphereFlow, MethodCF, S.Set Double)
+    byPlace :: M.Map (UUID, Maybe (MediumKey, Subcompartment)) (BiosphereFlow, MethodCF, S.Set Double)
     byPlace =
         M.fromListWith
             (\(flow, cf, new) (_, _, old) -> (flow, cf, S.union new old))
-            [ ((SR.NormName (exactNameKey cf mflow), medium, sub), (flow, cf, S.singleton (mcfValue cf)))
-            | (cf, mflow@(Just (flow, _))) <- mappings
+            [ ((bfId flow, cfMediumSub cmap cf), (flow, cf, S.singleton (mcfValue cf)))
+            | (cf, Just (flow, _)) <- mappings
             , Nothing <- [mcfConsumerLocation cf]
-            , Just (medium, sub) <- [cfMediumSub cmap cf]
             ]
 
 {- | How a flow quantity reached the basis its CF value is denominated in.
