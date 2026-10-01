@@ -12,6 +12,7 @@ module Service.Catalogue (
     catalogueEntries,
     catalogueFingerprint,
     cataloguePage,
+    PageWindow (..),
     catalogueDefaultLimit,
     catalogueMaxLimit,
 ) where
@@ -28,7 +29,7 @@ import Text.Printf (printf)
 import API.Types (CatalogueEntry (..), CatalogueMeasure (..), CataloguePage (..))
 import Service (ReferenceProductInfo (..), referenceProductOf, summaryProduct)
 import Types (Activity (..), Database (..), processIdToText)
-import UnitConversion (UnitConfig, UnitDef (..), UnitReading (..), readUnit)
+import UnitConversion (UnitConfig, UnitDef (..), lookupUnitDef)
 
 catalogueDefaultLimit :: Int
 catalogueDefaultLimit = 1000
@@ -38,14 +39,7 @@ catalogueMaxLimit :: Int
 catalogueMaxLimit = 5000
 
 measureOf :: UnitConfig -> Text -> Maybe CatalogueMeasure
-measureOf cfg unit = case readUnit cfg unit of
-    ReadExact def -> Just (measure def)
-    ReadRespelt _ def -> Just (measure def)
-    ReadAmbiguous{} -> Nothing
-    ReadUnknown -> Nothing
-  where
-    measure :: UnitDef -> CatalogueMeasure
-    measure def = CatalogueMeasure (udDimension def) (udFactor def)
+measureOf cfg = fmap (\def -> CatalogueMeasure (udDimension def) (udFactor def)) . lookupUnitDef cfg
 
 catalogueEntries :: UnitConfig -> Database -> [CatalogueEntry]
 catalogueEntries cfg db = V.toList (V.imap entry (dbActivities db))
@@ -74,8 +68,14 @@ catalogueFingerprint = T.pack . printf "%016x" . BL.foldl' step 1469598103934665
     step :: Word64 -> Word8 -> Word64
     step h byte = (h `xor` fromIntegral byte) * 1099511628211
 
-cataloguePage :: [CatalogueEntry] -> Int -> Int -> Either Text CataloguePage
-cataloguePage entries offset limit
+-- | Which slice of a catalogue to answer, named so the two counts cannot be swapped.
+data PageWindow = PageWindow
+    { pwOffset :: Int
+    , pwLimit :: Int
+    }
+
+cataloguePage :: [CatalogueEntry] -> PageWindow -> Either Text CataloguePage
+cataloguePage entries (PageWindow offset limit)
     | offset < 0 = Left "offset must be zero or more"
     | limit < 1 = Left "limit must be at least 1"
     | limit > catalogueMaxLimit = Left ("limit must be at most " <> T.pack (show catalogueMaxLimit))

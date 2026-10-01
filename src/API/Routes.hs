@@ -68,7 +68,7 @@ import Servant
 import Servant.OpenApi (toOpenApi)
 import qualified Service
 import qualified Service.Aggregate as Agg
-import Service.Catalogue (catalogueDefaultLimit, catalogueEntries, catalogueFingerprint, cataloguePage)
+import Service.Catalogue (PageWindow (..), catalogueDefaultLimit, catalogueEntries, catalogueFingerprint, cataloguePage)
 import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver)
@@ -1460,7 +1460,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 37: the single score a SimaPro method's normalization-weighting set
+(revision 38: the catalogue route, every process of a database page by page,
+and its fingerprint;
+revision 37: the single score a SimaPro method's normalization-weighting set
 gives in @scoringResults@, and the @units@ of the variables a scoring set lists;
 revision 36: the @documentation@ of a database's setup, the export its file
 is and the system descriptions and literature references it holds;
@@ -2601,7 +2603,7 @@ getClassifications dbName = do
 getCatalogue :: Text -> Maybe Int -> Maybe Int -> AppM CataloguePage
 getCatalogue dbName offsetParam limitParam = do
     entries <- catalogueOf dbName
-    either badRequest pure (cataloguePage entries (fromMaybe 0 offsetParam) (fromMaybe catalogueDefaultLimit limitParam))
+    either badRequest pure (cataloguePage entries PageWindow{pwOffset = fromMaybe 0 offsetParam, pwLimit = fromMaybe catalogueDefaultLimit limitParam})
 
 getCatalogueFingerprint :: Text -> AppM CatalogueFingerprint
 getCatalogueFingerprint dbName = CatalogueFingerprint . catalogueFingerprint <$> catalogueOf dbName

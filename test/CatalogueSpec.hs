@@ -20,7 +20,7 @@ import API.Types (CatalogueEntry (..), CatalogueFingerprint (..), CatalogueMeasu
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), initDatabaseManager)
-import Service.Catalogue (catalogueEntries, catalogueFingerprint, catalogueMaxLimit, cataloguePage, measureOf)
+import Service.Catalogue (PageWindow (..), catalogueEntries, catalogueFingerprint, catalogueMaxLimit, cataloguePage, measureOf)
 import TestHelpers (loadSampleDatabase, mkSolverFromDb)
 import Types (Activity (..), AllocationKey (..), Database (..), GeographyPolicy (..))
 import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig)
@@ -69,18 +69,18 @@ spec = do
         it "carries the fingerprint and the total on every page" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let entries = catalogueEntries defaultUnitConfig db
-            fmap (\p -> (cpFingerprint p, cpTotal p, length (cpEntries p))) (cataloguePage entries 1 1)
+            fmap (\p -> (cpFingerprint p, cpTotal p, length (cpEntries p))) (cataloguePage entries PageWindow{pwOffset = 1, pwLimit = 1})
                 `shouldBe` Right (catalogueFingerprint entries, length entries, 1)
         it "refuses a negative offset, a zero limit and one past the maximum" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let entries = catalogueEntries defaultUnitConfig db
-            cataloguePage entries (-1) 10 `shouldSatisfy` isLeft
-            cataloguePage entries 0 0 `shouldSatisfy` isLeft
-            cataloguePage entries 0 (catalogueMaxLimit + 1) `shouldSatisfy` isLeft
+            cataloguePage entries PageWindow{pwOffset = -1, pwLimit = 10} `shouldSatisfy` isLeft
+            cataloguePage entries PageWindow{pwOffset = 0, pwLimit = 0} `shouldSatisfy` isLeft
+            cataloguePage entries PageWindow{pwOffset = 0, pwLimit = catalogueMaxLimit + 1} `shouldSatisfy` isLeft
         it "answers an offset past the end with an empty page that still says the total" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let entries = catalogueEntries defaultUnitConfig db
-            fmap (\p -> (cpTotal p, cpEntries p)) (cataloguePage entries (length entries) 10)
+            fmap (\p -> (cpTotal p, cpEntries p)) (cataloguePage entries PageWindow{pwOffset = length entries, pwLimit = 10})
                 `shouldBe` Right (length entries, [])
 
     describe "the catalogue routes" $ do
