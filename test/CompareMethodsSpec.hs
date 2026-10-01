@@ -47,7 +47,15 @@ refData =
                 , ("occupation, forest, extensive", "forest, extensive")
                 , ("transformation, to forest, extensive", "to forest, extensive")
                 ]
-        , cmcCompartments = CompartmentMap M.empty (M.fromList [((Air, Subcompartment "low population density, long-term"), Subcompartment "unspecified (long-term)")])
+        , cmcCompartments =
+            CompartmentMap
+                M.empty
+                ( M.fromList
+                    [ ((Air, Subcompartment "low population density, long-term"), Subcompartment "unspecified (long-term)")
+                    , ((Soil, Subcompartment "forestry"), Subcompartment "non-agricultural")
+                    , ((Soil, Subcompartment "industrial"), Subcompartment "non-agricultural")
+                    ]
+                )
         , cmcUnits = units
         , cmcLocations = M.fromList [(Location "FR", [Location "GLO"]), (Location "Europe, Western", [Location "GLO"]), (Location "GLO", [])]
         }
@@ -344,6 +352,15 @@ collectionSpec = describe "compareCollections" $ do
                     [category "Acidification" [atAir "low population density, long-term" "zinc"], category "Ozone depletion" [atAir "unspecified (long-term)" "lead"]]
                     [category "Acidification" [atAir "unspecified (long-term)" "zinc"], category "Ozone depletion" [atAir "unspecified (long-term)" "lead"]]
         map counts (mccCategories c) `shouldBe` [[1, 1, 0, 0, 0, 0], [0, 0, 0, 1, 0, 0]]
+
+    it "follows no if_absent row toward a place another row followed on that side reaches too" $ do
+        let atSoil sub name value = (factor name value){mcfCompartment = Just (Compartment "soil" sub "")}
+            Right c =
+                collections
+                    []
+                    [category "Acidification" [atSoil "forestry" "zinc" 1, atSoil "industrial" "zinc" 2]]
+                    [category "Acidification" [atSoil "non-agricultural" "zinc" 2]]
+        map counts (mccCategories c) `shouldBe` [[1, 2, 0, 0, 0, 0]]
 
     it "reads a forced pair written base=other, and refuses any other shape" $ do
         parseForcedPair " GWP = Climate change " `shouldBe` Right (ForcedPair "GWP" "Climate change")

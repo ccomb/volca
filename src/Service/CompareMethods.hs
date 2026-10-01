@@ -595,23 +595,28 @@ noCrossing = Crossings M.empty
 writes and the other never does, to one only the other writes. Read from the
 whole collection, as scoring reads which rows hold for a method: a category
 that happens to write only one of the two places belongs to a collection that
-may tell them apart.
+may tell them apart. Two rows a side would follow to one place are followed
+by neither: that side tells their two places apart (forestry and industrial
+soil), and the other side's one place cannot be both.
 -}
 crossings :: CompartmentMap -> Sides Vocabulary -> Sides Crossings
 crossings cmap (Sides b o) = Sides (across b o) (across o b)
   where
     across :: Vocabulary -> Vocabulary -> Crossings
     across (Vocabulary own) (Vocabulary other) =
-        Crossings
-            ( M.fromList
-                [ (from, snd to)
-                | (from, to) <- rows
-                , S.member from own
-                , S.member to other
-                , not (S.member from other)
-                , not (S.member to own)
-                ]
-            )
+        Crossings (M.fromList [(from, snd to) | (from, to) <- admitted, M.lookup to reached == Just (1 :: Int)])
+      where
+        admitted :: [((Text, Text), (Text, Text))]
+        admitted =
+            [ row
+            | row@(from, to) <- rows
+            , S.member from own
+            , S.member to other
+            , not (S.member from other)
+            , not (S.member to own)
+            ]
+        reached :: M.Map (Text, Text) Int
+        reached = M.fromListWith (+) [(to, 1) | (_, to) <- admitted]
     rows :: [((Text, Text), (Text, Text))]
     rows = [(placeKey medium from, placeKey medium to) | ((medium, Subcompartment from), Subcompartment to) <- M.toList (cmIfAbsent cmap)]
     -- The row's places are canonical spellings: only the folding a factor's place goes through applies.
