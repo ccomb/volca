@@ -46,7 +46,7 @@ import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
-import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, selectMethod)
+import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits)
 import Control.Monad (mfilter)
 import qualified Data.List as L
@@ -530,6 +530,7 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "compare_activities" -> withDb dbManager rid args $ callCompareActivities dbManager rid args
     "compare_databases" -> withDb dbManager rid args $ callCompareDatabases dbManager rid args
     "compare_method_collections" -> callCompareMethodCollections dbManager rid args
+    "profile_method_collection" -> callProfileMethodCollection dbManager rid args
     "score_activity" -> callScoreActivity dbManager mHosting mBaseUrl rid args
     "score_activities" -> callScoreActivities dbManager mHosting mBaseUrl rid args
     "list_scoring_sets" -> callListScoringSets dbManager rid args
@@ -1511,6 +1512,12 @@ callCompareMethodCollections dbManager rid args = runTool rid $ do
     failureText :: MethodComparisonFailure -> Text
     failureText (CollectionMissing name loaded) = collectionNotLoadedMessage name loaded
     failureText (PairsRefused r) = CompareMethods.refusalMessage r
+
+callProfileMethodCollection :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callProfileMethodCollection dbManager rid args = runTool rid $ do
+    name <- except (requireText "collection" args)
+    profile <- ExceptT (runMethodProfile dbManager (DM.CollectionName name))
+    pure (toolSuccessJson rid (toJSON profile))
 
 callCompareImpacts :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callCompareImpacts dbManager rid args =

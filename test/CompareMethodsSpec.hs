@@ -16,7 +16,7 @@ import Test.Hspec
 import API.Types
 import Method.Types (Compartment (..), CompartmentMap (..), FlowDirection (..), Location (..), Method (..), MethodCF (..), MethodCollection (..))
 import Service.Compare (Sides (..))
-import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), Scope (..), compareCategories, compareCollections, parseForcedPair)
+import Service.CompareMethods (CollectionSide (..), CompareMethodsContext (..), CompareMethodsRefusal (..), ForcedPair (..), Scope (..), compareCategories, compareCollections, parseForcedPair, profileCollection)
 import SynonymDB (buildFromPairs)
 import UnitConversion (Dimension, UnitConfig, UnitDef (..), defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
@@ -89,7 +89,7 @@ counts :: CategoryComparison -> [Int]
 counts c = map ($ c) [ccpAddedCount, ccpRemovedCount, ccpChangedCount, ccpUnchangedCount, ccpAmbiguousCount, ccpUnconvertibleCount]
 
 spec :: Spec
-spec = compareCategoriesSpec >> collectionSpec
+spec = compareCategoriesSpec >> collectionSpec >> profileSpec
 
 compareCategoriesSpec :: Spec
 compareCategoriesSpec = describe "compareCategories" $ do
@@ -329,3 +329,30 @@ collectionSpec = describe "compareCollections" $ do
         parseForcedPair " GWP = Climate change " `shouldBe` Right (ForcedPair "GWP" "Climate change")
         parseForcedPair "a=b=c" `shouldBe` Left (MalformedPair "a=b=c")
         parseForcedPair "=b" `shouldBe` Left (MalformedPair "=b")
+
+profileSpec :: Spec
+profileSpec = describe "profileCollection" $ do
+    let water name = (factor name 1){mcfCompartment = Just (Compartment "water" "" "")}
+        profile = head (mcpCategories (profileCollection refData (collection [category "Acidification" cfs])))
+        cfs =
+            [ factor "carbon dioxide" 1
+            , factor "Ammonia, FR" 2
+            , (water "ammonia"){mcfConsumerLocation = Just "FR"}
+            , (water "nitrate"){mcfConsumerLocation = Just "GLO"}
+            , factor "lead" 0
+            , factor "occupation, forest*" 1
+            , factor "zinc" 1
+            , factor "Zinc" 2
+            ]
+    it "counts the factors of each medium" $
+        map (\m -> (mdcMedium m, mdcFactorCount m)) (cpfMedia profile)
+            `shouldBe` [(Just "air", 6), (Just "water", 2)]
+
+    it "counts the located factors, those whose name carries the location, and the locations" $
+        map ($ profile) [cpfLocatedCount, cpfLocatedInNameCount, cpfLocationCount] `shouldBe` [3, 1, 2]
+
+    it "counts the zero factors and the pattern rows" $
+        map ($ profile) [cpfZeroCount, cpfPatternCount] `shouldBe` [1, 1]
+
+    it "lists the factors one key answers to as duplicates" $
+        map (map facFlowName . dfxFactors) (cpfDuplicates profile) `shouldBe` [["Zinc", "zinc"]]

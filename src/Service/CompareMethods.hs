@@ -57,6 +57,7 @@ module Service.CompareMethods (
     Scope (..),
     compareCollections,
     compareCategories,
+    profileCollection,
     limitMethodComparison,
 ) where
 
@@ -66,7 +67,7 @@ import Data.Foldable (toList, traverse_)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (isJust, listToMaybe, mapMaybe)
+import Data.Maybe (isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -79,11 +80,15 @@ import API.Types (
     AmbiguousFactors (..),
     CategoryComparison (..),
     CategoryMatch (..),
+    CategoryProfile (..),
     CategorySide (..),
     ChangedFactor (..),
+    DuplicateFactors (..),
     FactorMatch (..),
     FactorSide (..),
+    MediumCount (..),
     MethodCollectionComparison (..),
+    MethodCollectionProfile (..),
     UnconvertibleFactor (..),
     ValueReading (..),
  )
@@ -217,6 +222,34 @@ compareCollections ctx forced scope collections = do
   where
     changes :: CategoryComparison -> Int
     changes c = ccpAddedCount c + ccpRemovedCount c + ccpChangedCount c
+
+{- | What each category of a collection holds, read the way a comparison reads
+it: the medium after the compartment table, the location stated or read at the
+end of the name. Its duplicates are what comparing the category with itself
+cannot pair, the keys several of its factors answer to.
+-}
+profileCollection :: CompareMethodsContext -> MethodCollection -> MethodCollectionProfile
+profileCollection ctx = MethodCollectionProfile . map (profileCategory ctx) . mcMethods
+
+profileCategory :: CompareMethodsContext -> Method -> CategoryProfile
+profileCategory ctx m =
+    CategoryProfile
+        { cpfCategory = categorySide m
+        , cpfMedia = [MediumCount medium n | (medium, n) <- M.toList (M.fromListWith (+) [(ckMedium <$> plCompartment p, 1) | (_, p) <- placed])]
+        , cpfLocatedCount = length located
+        , cpfLocatedInNameCount = length [() | (cf, _) <- located, isNothing (mcfConsumerLocation cf)]
+        , cpfLocationCount = S.size (S.fromList (mapMaybe (plLocation . snd) located))
+        , cpfZeroCount = length (filter ((== 0) . mcfValue) cfs)
+        , cpfPatternCount = length (filter (\cf -> isPatternCF cf || isExclusionCF cf) cfs)
+        , cpfDuplicates = [DuplicateFactors{dfxMatch = afxMatch a, dfxFactors = afxBase a} | a <- ccpAmbiguous (compareCategories ctx SameMethodName (Sides m m))]
+        }
+  where
+    cfs :: [MethodCF]
+    cfs = methodFactors m
+    placed :: [(MethodCF, Place)]
+    placed = [(cf, placeOf (cmcCompartments ctx) location cf) | cf <- cfs, let Located _ location = locatedName (cmcLocations ctx) cf]
+    located :: [(MethodCF, Place)]
+    located = filter (isJust . plLocation . snd) placed
 
 -- | The pairs a scope keeps, chosen before any is compared.
 inScope :: Scope -> [(CategoryMatch, Sides Method)] -> Either CompareMethodsRefusal [(CategoryMatch, Sides Method)]
