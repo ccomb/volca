@@ -1984,6 +1984,19 @@ class Client:
             limit=limit,
         )
 
+    def profile_method_collection(self, collection: str) -> dict:
+        """What each impact category of a loaded method collection holds.
+
+        For each category: the factors per medium, how many are written for
+        one location (and how many carry it at the end of their name, as
+        ``"Ammonia, FR"``), how many locations, zero factors, pattern rows,
+        and the duplicates, the factors one key answers to at one place.
+        Compartments and locations are read as ``compare_method_collections``
+        reads them.
+        """
+        self._require_wire(33, "profile_method_collection", engine_hint="0.15.0")
+        return self._call("profile_method_collection", collection=collection)
+
     # -- Tree (SPA-only endpoint, no operationId, direct HTTP) --
 
     def get_tree(self, process_id: str) -> dict:

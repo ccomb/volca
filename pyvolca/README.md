@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 32** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 33** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1032,6 +1032,17 @@ Load a staged method collection so its methods become available.
 ##### `Client.load_reference_data(kind: RefDataKind, name: str) -> dict`
 
 Load a staged reference-data set of ``kind`` into memory.
+
+##### `Client.profile_method_collection(collection: str) -> dict`
+
+What each impact category of a loaded method collection holds.
+
+For each category: the factors per medium, how many are written for
+one location (and how many carry it at the end of their name, as
+``"Ammonia, FR"``), how many locations, zero factors, pattern rows,
+and the duplicates, the factors one key answers to at one place.
+Compartments and locations are read as ``compare_method_collections``
+reads them.
 
 ##### `Client.refresh_stubs()`
 

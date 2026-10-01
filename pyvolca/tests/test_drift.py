@@ -36,6 +36,7 @@ WRAPPER_OPERATIONS = [
     "compare_activities",
     "compare_databases",
     "compare_method_collections",
+    "profile_method_collection",
     "get_inventory",
     "get_impacts",
     "list_methods",
