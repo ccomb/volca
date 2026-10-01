@@ -29,6 +29,8 @@ import Data.Store (Size (..), Store (..))
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time.Calendar (Day)
+import Data.Time.Format.ISO8601 (iso8601ParseM, iso8601Show)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
@@ -913,6 +915,42 @@ data DocSection = DocSection
     deriving (Show, Eq, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DocSection)
 
+{- | The days a dataset says it was written on, each under the meaning its
+format gives it. EcoSpold 2 records a creation and a last edit, EcoSpold 1 a
+creation, ILCD the last time it was saved. SimaPro records one date without
+saying what it marks, so it goes in 'datesStated' rather than being passed off
+as either of the other two.
+-}
+data DatasetDates = DatasetDates
+    { datesCreated :: !(Maybe Day)
+    , datesLastRevised :: !(Maybe Day)
+    , datesStated :: !(Maybe Day)
+    }
+    deriving (Show, Eq, Generic, NFData, Store)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatasetDates)
+
+-- | A dataset that states no date at all.
+noDates :: DatasetDates
+noDates = DatasetDates Nothing Nothing Nothing
+
+{- | A day written the ISO 8601 way, as the XML formats write their timestamps.
+A @dateTime@ keeps its day: the hour a file was saved at says nothing a reader
+of the dataset needs. A blank value states no date; anything else that does not
+read as a day is refused with the value, for the parser to report.
+-}
+readIsoDate :: Text -> Either Text (Maybe Day)
+readIsoDate raw = case T.strip raw of
+    "" -> Right Nothing
+    stated ->
+        maybe (Left ("unreadable date \"" <> stated <> "\"")) (Right . Just) $
+            iso8601ParseM (T.unpack (T.take 10 stated))
+
+{- | A day as the XML formats' timestamps want it, an @xs:dateTime@ at midnight:
+the inverse of 'readIsoDate', which only keeps the day.
+-}
+isoDateTime :: Day -> Text
+isoDateTime day = T.pack (iso8601Show day) <> "T00:00:00"
+
 {- | Base LCA activity
 Note: ProcessId is the index in dbActivities vector, UUIDs stored in dbProcessIdTable
 -}
@@ -931,6 +969,7 @@ data Activity = Activity
     , activityNativeType :: !(Maybe NativeActivityType) -- Source-format-native activity type (ecospold @activityType, SimaPro Type, ILCD processType); Nothing when source format lacks the field
     , activityNativeId :: !(Maybe NativeProcessId) -- Source dataset block this activity was read from: what the SimaPro parser mints the activity UUID from, and what its writer writes back. Nothing when the source format lacks the field
     , activityFormulaCheck :: !(Maybe FormulaCheck) -- Outcome of the mathematicalRelation consistency check; Nothing when the dataset has no formulas or the format has none
+    , activityDates :: !DatasetDates -- The days the dataset says it was written on
     }
     deriving (Generic, NFData, Store)
 

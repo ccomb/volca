@@ -81,6 +81,7 @@ module SimaPro.Writer (
     headerLines,
 ) where
 
+import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import Data.Either (lefts)
 import Data.List (partition, sortOn)
@@ -91,6 +92,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Time (Day, defaultTimeLocale, formatTime)
 import Database.Allocation (AllocationRefusal (..), asAllocated, describeRefusal)
 import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
 import Types
@@ -528,6 +530,10 @@ the one physical "Comment" line the format allows; the re-parse decodes them
 back into a single description entry carrying the breaks. A missing native type
 yields an empty "Type" value, so @meta@ omits the line and a re-parse yields
 'Nothing' again rather than drifting to "Unit process".
+
+"Date" is a date SimaPro keeps without saying what it marks, so any day the
+dataset states is true there: the one it stated the same way first, then its
+last revision, then its creation. Read back, it is a stated date again.
 -}
 activityMetaLines :: Activity -> [(Text, Text)]
 activityMetaLines Activity{..} =
@@ -536,8 +542,13 @@ activityMetaLines Activity{..} =
     , ("Process name", activityName)
     , ("Type", typeLabelOf activityNativeType)
     , ("Geography", activityLocation)
+    , ("Date", foldMap simaProDate (datesStated activityDates <|> datesLastRevised activityDates <|> datesCreated activityDates))
     , ("Comment", encodeNewlines (T.intercalate "\n" activityDescription))
     ]
+
+-- | A day in the short date format 'headerLines' declares.
+simaProDate :: Day -> Text
+simaProDate = T.pack . formatTime defaultTimeLocale "%d/%m/%Y"
 
 {- | Encode line breaks as @\\x7f@ (DEL), SimaPro's in-cell newline, after
 normalising CRLF and lone CR to LF. This is how the format itself carries

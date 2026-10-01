@@ -56,6 +56,7 @@ import Types (
     TechRole (..),
     TechnosphereFlow (..),
     Unit (..),
+    noDates,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -202,6 +203,7 @@ activity name lines' =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 techLine :: UUID -> Double -> TechRole -> Maybe UUID -> Exchange

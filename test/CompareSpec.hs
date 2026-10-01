@@ -10,6 +10,7 @@ module CompareSpec (spec) where
 
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import Data.Time.Calendar (fromGregorian)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
@@ -38,6 +39,7 @@ import Types (
     BiosphereFlow (..),
     BuildInputs (..),
     Database,
+    DatasetDates (..),
     Exchange (..),
     LocationSource (..),
     NativeActivityType (..),
@@ -46,6 +48,7 @@ import Types (
     TechRole (..),
     TechnosphereFlow (..),
     Unit (..),
+    noDates,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -173,6 +176,18 @@ spec = describe "Service.Compare" $ do
             map chaMatch (dbcChanged c) `shouldBe` [SameProduct]
             dbcRemovedCount c `shouldBe` 1
 
+    describe "dates" $ do
+        it "counts a pair that differs by its dates alone as redated, not changed" $ do
+            let dated year = (row 1 wheat "wheat production" []){rowDates = noDates{datesLastRevised = Just (fromGregorian year 1 1)}}
+            c <- compareVersions [dated 2023] [dated 2024]
+            counts c `shouldBe` (0, 0, 0, 0, 0)
+            dbcRedatedCount c `shouldBe` 1
+
+        it "counts a pair whose lines moved as changed, its dates with it" $ do
+            let dated year amount = (row 1 wheat "wheat production" [emits co2 kg amount]){rowDates = noDates{datesLastRevised = Just (fromGregorian year 1 1)}}
+            c <- compareVersions [dated 2023 1] [dated 2024 2]
+            (dbcChangedCount c, dbcRedatedCount c) `shouldBe` (1, 0)
+
     it "a limit shortens the lists, never the counts" $ do
         c <- compareVersions [row 1 wheat "wheat production" []] [row 1 wheat "wheat production" [], row 2 barley "barley production" [], row 3 oat "oat production" []]
         let limited = limitComparison 1 c
@@ -283,10 +298,11 @@ data Row = Row
     , rowAmount :: Double
     , rowType :: Maybe NativeActivityType
     , rowLines :: [Exchange]
+    , rowDates :: DatasetDates
     }
 
 row :: Int -> TechnosphereFlow -> Text -> [Exchange] -> Row
-row n flow name lines' = Row{rowActivity = n, rowProduct = flow, rowName = name, rowAmount = 1, rowType = Nothing, rowLines = lines'}
+row n flow name lines' = Row{rowActivity = n, rowProduct = flow, rowName = name, rowAmount = 1, rowType = Nothing, rowLines = lines', rowDates = noDates}
 
 database :: [Row] -> IO Database
 database rows = do
@@ -320,6 +336,7 @@ entry r =
         , activityNativeType = rowType r
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = rowDates r
         }
     )
   where

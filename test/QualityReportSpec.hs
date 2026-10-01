@@ -42,6 +42,7 @@ import Types (
     Unit (..),
     WasteFlow (..),
     mkPedigree,
+    noDates,
     noProperties,
  )
 
@@ -107,6 +108,7 @@ mkActivityAt name location exs =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 techExchange :: UUID -> Double -> TechRole -> Exchange

@@ -38,6 +38,7 @@ import Types (
     Unit (..),
     computeMinimalSelectedDeps,
     crossDBRedundantSources,
+    noDates,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -154,6 +155,7 @@ supplierDB offset =
                 , activityNativeType = Nothing
                 , activityNativeId = Nothing
                 , activityFormulaCheck = Nothing
+                , activityDates = noDates
                 }
      in SimpleDatabase
             { sdbActivities = M.singleton (actUUID, prodUUID) act
@@ -238,6 +240,7 @@ consumerDB offset n =
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing
                         , activityFormulaCheck = Nothing
+                        , activityDates = noDates
                         }
              in ((actUUID, prodUUID), act)
         activities = M.fromList [mkConsumer i | i <- [1 .. n]]

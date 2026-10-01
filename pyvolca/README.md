@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 34** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 35** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -135,7 +135,7 @@ for ex in detail.technosphere_inputs:
     print(f"{ex.amount:.4g} {ex.unit} of {ex.flow_name} ← {ex.target_activity_name}")
 ```
 
-`get_activity` returns a typed `ActivityDetail`. Use `.inputs` / `.outputs` / `.technosphere_inputs` to filter the exchanges; each entry is an `Exchange`: either a `TechnosphereExchange` (an input or output of an intermediate product) or a `BiosphereExchange` (resource extracted or pollutant emitted).
+`get_activity` returns a typed `ActivityDetail`. Its `dates` holds the days the dataset says it was created, last revised, or written without saying which (`created`, `last_revised`, `stated`), each a Python `date` or `None`. Use `.inputs` / `.outputs` / `.technosphere_inputs` to filter the exchanges; each entry is an `Exchange`: either a `TechnosphereExchange` (an input or output of an intermediate product) or a `BiosphereExchange` (resource extracted or pollutant emitted).
 
 ## Trace the upstream supply chain
 
@@ -271,6 +271,8 @@ for line in comparison.exchanges[:3]:
 ```
 
 The engine compares every exchange. A line pairs on its flow id and role, then on its flow name, compartment and role; amounts are equal within a relative 1e-9 and units compare by name. Pass `other_database=` to hold an activity against one in another loaded database, an adapted copy against its original for instance. `c.compare_databases("next-version")` compares two whole databases the same way, pairing their activities by process id, then by name, then by reference product, and saying which for each pair.
+
+The summary also lists the dates the two datasets state when they differ: its `field` is then `"dates"`, and `before` and `after` are each a `DatasetDates`. That is the quickest way to tell whether an activity is a later version of the one you hold.
 
 ## Run counterfactuals (substitutions)
 
@@ -1489,6 +1491,9 @@ format has none, where the format names a dataset by the UUID
 ``process_id`` already spells, and against an engine older than wire
 revision 22.
 
+``dates`` holds the days the dataset says it was created, last revised,
+or written without saying which (see `DatasetDates`).
+
 | Field | Type | Default |
 |-------|------|---------|
 | `process_id` | `str` | _required_ |
@@ -1503,6 +1508,7 @@ revision 22.
 | `all_products` | `list[Activity]` | _required_ |
 | `exchanges` | `list[Union[TechnosphereExchange, BiosphereExchange, WasteExchange]]` | _required_ |
 | `native_id` | `str \| None` | None |
+| `dates` | `DatasetDates` | DatasetDates() |
 
 #### Properties
 
@@ -1544,6 +1550,22 @@ Only the technosphere inputs (ingredients from other activities).
 Excludes biosphere inputs (resource extractions) and waste
 outputs. The common case when answering "what does this activity
 consume from upstream?".
+
+### `DatasetDates`
+
+The days a dataset says it was written on, each under its format's meaning.
+
+``created`` is when the dataset was first written (EcoSpold 1 and 2),
+``last_revised`` when it was last changed (EcoSpold 2, ILCD). ``stated``
+is a date the dataset gives without saying what it marks, which is what a
+SimaPro process's ``Date`` is. Each is ``None`` where the dataset states
+none, and all three against an engine older than wire revision 35.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `created` | `datetime.date \| None` | None |
+| `last_revised` | `datetime.date \| None` | None |
+| `stated` | `datetime.date \| None` | None |
 
 ### `ActivityDiff`
 
@@ -1931,18 +1953,21 @@ flows were truncated. If you need exhaustive coverage, pass a generous
 Two databases side by side, as `Client.compare_databases` returns them.
 
 The ``*_count`` fields always cover the full lists, which a ``limit`` may
-have truncated.
+have truncated. A pair whose only difference is the dates its datasets
+state is in ``redated``, not ``changed``.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `added_count` | `int` | _required_ |
 | `removed_count` | `int` | _required_ |
 | `changed_count` | `int` | _required_ |
+| `redated_count` | `int` | _required_ |
 | `ambiguous_count` | `int` | _required_ |
 | `unchanged_count` | `int` | _required_ |
 | `added` | `list[Activity]` | _required_ |
 | `removed` | `list[Activity]` | _required_ |
 | `changed` | `list[ChangedActivity]` | _required_ |
+| `redated` | `list[ChangedActivity]` | _required_ |
 | `ambiguous` | `list[AmbiguousActivities]` | _required_ |
 
 ### `DatabaseInfo`
@@ -2687,15 +2712,16 @@ Serialise to the wire shape consumed by SubstitutionRequest.
 
 A field of two activities that differs.
 
-``field`` is ``"activity_name"``, ``"location"``, ``"product_name"`` or
-``"allocation_percent"``. The product's amount and unit are not among
+``field`` is ``"activity_name"``, ``"location"``, ``"product_name"``,
+``"allocation_percent"`` or ``"dates"``, whose ``before`` and ``after``
+are `DatasetDates`. The product's amount and unit are not among
 them: the reference line reports those, among the exchanges.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `field` | `str` | _required_ |
-| `before` | `str \| float \| None` | _required_ |
-| `after` | `str \| float \| None` | _required_ |
+| `before` | `str \| float \| DatasetDates \| None` | _required_ |
+| `after` | `str \| float \| DatasetDates \| None` | _required_ |
 
 ### `SupplierClaim`
 

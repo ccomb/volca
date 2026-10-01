@@ -16,9 +16,9 @@ Design goals (all pure, effect-free):
     key order; doubles use one canonical renderer; output bytes are a pure
     function of the input plus the explicit 'VolatileMeta'.
   * __Round-trippable__: re-parsing the output reconstructs a structurally
-    equal 'Activity'/flow set, and volatile metadata (timestamps, generator)
-    is funnelled through 'VolatileMeta' so it can be pinned or omitted to make
-    byte-level idempotence testable.
+    equal 'Activity'/flow set, its dates included; the only volatile field,
+    the generator, is funnelled through 'VolatileMeta' so it can be pinned or
+    omitted to make byte-level idempotence testable.
 
 The only thing the writer cannot recover losslessly is information the parser
 discards (per-exchange @id@/@unitId@ attribute *strings*, production volumes,
@@ -45,30 +45,28 @@ import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
 import EcoSpold.Common (showFFloatTrim)
 import Types
 
-{- | Volatile, non-semantic metadata that the parser ignores but a writer would
-otherwise stamp with the current time / tool version. Threaded explicitly so a
-caller can pin it (reproducible export) or omit it entirely (byte-stable
-round-trip). 'Nothing' fields emit no corresponding attribute/element.
+{- | Volatile, non-semantic metadata that the parser ignores: the tool that
+wrote the file. Threaded explicitly so a caller can pin it or omit it (byte-stable
+round-trip). The dataset's dates are not volatile and come from the activity.
 -}
-data VolatileMeta = VolatileMeta
-    { vmCreationTimestamp :: !(Maybe Text)
-    -- ^ @administrativeInformation/fileAttributes/@creationTimestamp@
-    , vmGenerator :: !(Maybe Text)
+newtype VolatileMeta = VolatileMeta
+    { vmGenerator :: Maybe Text
     -- ^ free-text generator note emitted as an XML comment, or omitted
     }
     deriving (Eq, Show)
 
 -- | The reproducible default: omit every volatile field.
 noVolatileMeta :: VolatileMeta
-noVolatileMeta = VolatileMeta Nothing Nothing
+noVolatileMeta = VolatileMeta Nothing
 
 -- ============================================================================
 -- Public entry points
@@ -253,7 +251,7 @@ renderActivity meta env act =
             ++ ["    </activityDescription>", "    <flowData>"]
             ++ concatMap (renderExchange env) (sortExchanges (exchanges act))
             ++ ["    </flowData>"]
-            ++ renderAdminInfo meta
+            ++ renderAdminInfo (activityDates act)
             ++ ["  </activityDataset>", "</ecoSpold>"]
 
 -- | Optional generator note as an XML comment (volatile, omitted by default).
@@ -321,18 +319,22 @@ renderGeography loc =
     , "      </geography>"
     ]
 
-{- | @administrativeInformation@ carrying only the (optional, volatile)
-creation timestamp. Omitted entirely when no timestamp is pinned, keeping the
-default output minimal and byte-stable.
+{- | @administrativeInformation@ carrying the dataset's creation and last edit,
+the two dates this format has a place for. Omitted when the dataset states
+neither. A date with no meaning stated ('datesStated') has no place here: it
+would have to be passed off as one of the two.
 -}
-renderAdminInfo :: VolatileMeta -> [Text]
-renderAdminInfo meta = case vmCreationTimestamp meta of
-    Nothing -> []
-    Just ts ->
+renderAdminInfo :: DatasetDates -> [Text]
+renderAdminInfo dates = case catMaybes [stamp "creationTimestamp" (datesCreated dates), stamp "lastEditTimestamp" (datesLastRevised dates)] of
+    [] -> []
+    stamps ->
         [ "    <administrativeInformation>"
-        , "      <fileAttributes defaultLanguage=\"en\" creationTimestamp=\"" <> escapeAttr ts <> "\"/>"
+        , "      <fileAttributes defaultLanguage=\"en\"" <> T.concat stamps <> "/>"
         , "    </administrativeInformation>"
         ]
+  where
+    stamp :: Text -> Maybe Day -> Maybe Text
+    stamp attr = fmap (\day -> " " <> attr <> "=\"" <> isoDateTime day <> "\"")
 
 -- ============================================================================
 -- Exchange rendering

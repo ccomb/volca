@@ -53,6 +53,7 @@ import Types (
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
+    noDates,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -98,6 +99,7 @@ targetDB =
                 , activityNativeType = Nothing
                 , activityNativeId = Nothing
                 , activityFormulaCheck = Nothing
+                , activityDates = noDates
                 }
         flow =
             TechnosphereFlow

@@ -5,7 +5,7 @@
 
   (a) idempotence modulo volatile metadata: write, parse, write again,
       and the two serialisations are byte-identical when the volatile
-      @generator@/@timestamp@ attributes are omitted ('canonicalWriterOptions');
+      @generator@ attribute is omitted ('canonicalWriterOptions');
   (b) semantic round-trip: parse(write(D)) reproduces the observable
       structure of D (names, amounts, units, roles/directions, compartments,
       CAS, comments), compared order-insensitively;
@@ -23,6 +23,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Time.Calendar (fromGregorian)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
@@ -204,7 +205,7 @@ soloDb name prodU extra techs bios wastes =
         }
   where
     ref = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-    act = Activity name [] [] M.empty M.empty "GLO" LocationDeclared "kg" (ref : extra) M.empty M.empty Nothing Nothing Nothing
+    act = Activity name [] [] M.empty M.empty "GLO" LocationDeclared "kg" (ref : extra) M.empty M.empty Nothing Nothing Nothing noDates
 
 -- | Empty database: no activities, no flows.
 emptyDb :: SimpleDatabase
@@ -232,7 +233,7 @@ linkedDb link =
   where
     supU = supplierLink
     conU = read "33333333-0000-4000-8000-000000000001"
-    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty M.empty Nothing Nothing Nothing
+    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty M.empty Nothing Nothing Nothing noDates
     refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
     supplier = mkAct "aaa supplier" supU []
     -- The consumer's input consumes the supplier's product and links to it.
@@ -267,7 +268,7 @@ coproductDb =
     prodAU = read "44444444-0000-4000-8000-00000000000a"
     prodBU = read "44444444-0000-4000-8000-00000000000b"
     conU = read "33333333-0000-4000-8000-000000000001"
-    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty M.empty Nothing Nothing Nothing
+    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty M.empty Nothing Nothing Nothing noDates
     refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
     inputOnA = TechnosphereExchange prodAU 2.0 kgUnit Input (Just supU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
 
@@ -495,6 +496,17 @@ spec = do
             sdb <- fixtureDb
             xml <- writeOk defaultWriterOptions sdb
             T.isInfixOf "generator=\"VoLCA\"" xml `shouldBe` True
+
+    -- The format keeps the day a dataset was created; the other two have no
+    -- place in it and are not passed off as that one.
+    describe "dates" $
+        it "round-trips the creation date" $ do
+            sdb <- fixtureDb
+            let created = noDates{datesCreated = Just (fromGregorian 2011 6 30)}
+                dated = sdb{sdbActivities = M.map (\a -> a{activityDates = created{datesStated = Just (fromGregorian 2019 1 1)}}) (sdbActivities sdb)}
+            case roundTrip dated of
+                Left err -> expectationFailure ("round-trip failed: " ++ err)
+                Right sdb' -> map activityDates (M.elems (sdbActivities sdb')) `shouldSatisfy` (\ds -> not (null ds) && all (== created) ds)
 
     describe "round-trip (a) idempotence modulo volatile metadata" $
         it "write . parse . write == write (canonical)" $ do
@@ -728,6 +740,7 @@ spec = do
                         Nothing
                         Nothing
                         Nothing
+                        noDates
                 sdb =
                     SimpleDatabase
                         { sdbActivities = M.singleton (prodU, prodU) act

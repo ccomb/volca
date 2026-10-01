@@ -1163,6 +1163,7 @@ convertActivityForAPI db processId activity =
             , pfaActivityName = activityName activity
             , pfaDescription = activityDescription activity
             , pfaDocumentation = activityDocumentation activity
+            , pfaDates = activityDates activity
             , pfaSynonyms = activitySynonyms activity
             , pfaClassifications = activityClassification activity
             , pfaLocation = activityLocation activity

@@ -72,6 +72,7 @@ emptyActivity =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 techEx :: UUID -> Double -> TechRole -> Maybe UUID -> Exchange

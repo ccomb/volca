@@ -14,11 +14,14 @@ Covers:
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from volca import (
     Activity,
     ActivityDetail,
+    DatasetDates,
     AggregateOp,
     AggregateScope,
     BioDirection,
@@ -546,6 +549,18 @@ class TestActivityAllocation:
         }})
         assert detail.allocation_percent is None
         assert detail.is_allocated is False
+
+    def test_dates_read_as_days_and_default_to_none(self):
+        detail = ActivityDetail.from_json({"activity": {
+            "processId": "flour", "activityName": "Wheat flour", "location": "FR",
+            "unit": "kg",
+            "dates": {"created": "2011-06-30", "lastRevised": None, "stated": "2016-01-15"},
+        }})
+        assert detail.dates == DatasetDates(created=date(2011, 6, 30), stated=date(2016, 1, 15))
+        older = ActivityDetail.from_json({"activity": {
+            "processId": "flour", "activityName": "Wheat flour", "location": "FR", "unit": "kg",
+        }})
+        assert older.dates == DatasetDates()
 
     def test_agribalyse_is_allocated_falls_back_to_description_text(self):
         # Older Agribalyse databases carry no structured allocation_percent on

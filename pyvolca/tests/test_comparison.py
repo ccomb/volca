@@ -6,11 +6,12 @@ engine binary is needed.
 
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
 
-from volca import ActivityComparison, DatabaseComparison, compare_activities
+from volca import ActivityComparison, DatabaseComparison, DatasetDates, compare_activities
 
 
 def summary(name: str) -> dict:
@@ -87,17 +88,38 @@ def test_an_activity_comparison_reads_every_part():
     assert not c.identical
 
 
+def test_a_dates_change_reads_both_sides_as_dates():
+    c = ActivityComparison.from_json(
+        {
+            **COMPARISON,
+            "summary": [
+                {
+                    "tag": "DatesChanged",
+                    "before": {"created": None, "lastRevised": None, "stated": "2019-12-04"},
+                    "after": {"created": None, "lastRevised": None, "stated": "2023-05-02"},
+                }
+            ],
+        }
+    )
+    (change,) = c.summary
+    assert change.field == "dates"
+    assert change.before == DatasetDates(stated=date(2019, 12, 4))
+    assert change.after == DatasetDates(stated=date(2023, 5, 2))
+
+
 def test_a_database_comparison_keeps_its_counts_beside_truncated_lists():
     d = DatabaseComparison.from_json(
         {
             "addedCount": 2,
             "removedCount": 0,
             "changedCount": 1,
+            "redatedCount": 3,
             "ambiguousCount": 1,
             "unchangedCount": 40,
             "added": [summary("oat production")],
             "removed": [],
             "changed": [{"match": "SameProduct", "comparison": COMPARISON}],
+            "redated": [{"match": "SameProcessId", "comparison": COMPARISON}],
             "ambiguous": [
                 {"match": "SameNames", "base": [summary("rye production"), summary("rye production")], "other": [summary("rye production")]}
             ],
@@ -106,6 +128,7 @@ def test_a_database_comparison_keeps_its_counts_beside_truncated_lists():
 
     assert (d.added_count, len(d.added)) == (2, 1)
     assert d.changed[0].matched_on == "SameProduct"
+    assert (d.redated_count, d.redated[0].matched_on) == (3, "SameProcessId")
     assert d.changed[0].comparison.exchanges[0].flow_name == "Carbon dioxide, fossil"
     assert (d.ambiguous[0].matched_on, len(d.ambiguous[0].base), len(d.ambiguous[0].other)) == ("SameNames", 2, 1)
 
@@ -114,3 +137,21 @@ def test_the_client_side_helper_says_what_replaced_it():
     client = SimpleNamespace(aggregate=lambda *args, **kwargs: SimpleNamespace(groups=[]))
     with pytest.warns(DeprecationWarning, match="Client.compare_activities"):
         compare_activities(client, "a_p", "b_p")  # type: ignore[arg-type]
+
+
+def test_a_database_comparison_from_an_engine_before_redated_pairs_reads_none():
+    d = DatabaseComparison.from_json(
+        {
+            "addedCount": 0,
+            "removedCount": 0,
+            "changedCount": 0,
+            "ambiguousCount": 0,
+            "unchangedCount": 3,
+            "added": [],
+            "removed": [],
+            "changed": [],
+            "ambiguous": [],
+        }
+    )
+
+    assert (d.redated_count, d.redated) == (0, [])

@@ -38,8 +38,9 @@ __canonical and deterministic__:
   * attributes appear in a fixed order, classification maps are sorted by
     key, numbers use a fixed textual form, and there is no insignificant
     whitespace beyond a single newline between top-level lines;
-  * volatile metadata (@generator@, @timestamp@) is pinned or omitted via
-    'WriterOptions' so a write→parse→write round-trip is byte-stable.
+  * the @timestamp@ is the activity's own creation date, and the only
+    volatile field, @generator@, is pinned or omitted via 'WriterOptions', so
+    a write→parse→write round-trip is byte-stable.
 
 The mapping mirrors 'EcoSpold.Parser1.buildExchange' exactly:
 
@@ -115,26 +116,25 @@ import Types
 
 {- | Knobs controlling the volatile, non-semantic parts of the output.
 Keeping these out of band lets a round-trip be byte-stable: write with
-'canonicalWriterOptions' (no @generator@/@timestamp@) and the second write
-reproduces the first exactly.
+'canonicalWriterOptions' (no @generator@) and the second write reproduces the
+first exactly. The @timestamp@ is not one of them: it is the dataset's creation
+date, and comes from the activity.
 -}
-data WriterOptions = WriterOptions
-    { woGenerator :: !(Maybe Text)
+newtype WriterOptions = WriterOptions
+    { woGenerator :: Maybe Text
     -- ^ Value of the @\<dataset generator=...\>@ attribute, or 'Nothing' to omit.
-    , woTimestamp :: !(Maybe Text)
-    -- ^ Value of the @\<dataset timestamp=...\>@ attribute, or 'Nothing' to omit.
     }
     deriving (Eq, Show)
 
--- | Self-describing default: pins generator to "VoLCA", omits the timestamp.
+-- | Self-describing default: pins generator to "VoLCA".
 defaultWriterOptions :: WriterOptions
-defaultWriterOptions = WriterOptions (Just "VoLCA") Nothing
+defaultWriterOptions = WriterOptions (Just "VoLCA")
 
-{- | Fully canonical: omits both volatile attributes. Use this for stable
+{- | Fully canonical: omits the volatile attribute. Use this for stable
 round-trip / golden tests.
 -}
 canonicalWriterOptions :: WriterOptions
-canonicalWriterOptions = WriterOptions Nothing Nothing
+canonicalWriterOptions = WriterOptions Nothing
 
 -- ----------------------------------------------------------------------------
 -- Top-level writers
@@ -457,7 +457,7 @@ data Resolvers = Resolvers
 -- | Render one @\<dataset\>@ block (already indented), as a list of lines.
 datasetLines :: WriterOptions -> Resolvers -> Int -> Activity -> [Text]
 datasetLines opts res num act =
-    [ indent 1 <> "<dataset" <> datasetAttrs opts num <> ">"
+    [ indent 1 <> "<dataset" <> datasetAttrs opts num (activityDates act) <> ">"
     , indent 2 <> "<metaInformation>"
     , indent 3 <> "<processInformation>"
     , indent 4 <> "<referenceFunction" <> refFunctionAttrs act <> "/>"
@@ -471,15 +471,16 @@ datasetLines opts res num act =
            , indent 1 <> "</dataset>"
            ]
 
-{- | @\<dataset\>@ attributes: @number@ always, then the volatile @generator@
-and @timestamp@ only when the options provide them.
+{- | @\<dataset\>@ attributes: @number@ always, the volatile @generator@ when
+the options provide it, and @timestamp@ when the dataset states its creation,
+the one date this format has a place for.
 -}
-datasetAttrs :: WriterOptions -> Int -> Text
-datasetAttrs opts num =
+datasetAttrs :: WriterOptions -> Int -> DatasetDates -> Text
+datasetAttrs opts num dates =
     " number="
         <> attr (T.pack (show num))
         <> maybe "" (\g -> " generator=" <> attr g) (woGenerator opts)
-        <> maybe "" (\t -> " timestamp=" <> attr t) (woTimestamp opts)
+        <> maybe "" (\d -> " timestamp=" <> attr (isoDateTime d)) (datesCreated dates)
 
 {- | @\<referenceFunction\>@ attributes in a fixed order. @category@ /
 @subCategory@ come from 'activityClassification' (the parser's @Category@ /

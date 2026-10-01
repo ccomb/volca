@@ -8,6 +8,7 @@ import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
+import Data.Either (fromRight, lefts)
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
@@ -16,6 +17,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import EcoSpold.Common (ParsedDataset (..), bsToIntMaybe, bsToText, docSection, isElement, joinParts, nonEmptyText)
@@ -229,10 +231,12 @@ data DatasetDocs = DatasetDocs
     , ddReviews :: ![Review]
     , ddPendingReview :: !Review -- the open <review>, filed when it closes
     , ddElementLang :: !Text -- xml:lang of the element currently open, whichever it is
+    , ddCreated :: !Text -- fileAttributes/@creationTimestamp, as written
+    , ddLastEdited :: !Text -- fileAttributes/@lastEditTimestamp, as written
     }
 
 emptyDatasetDocs :: DatasetDocs
-emptyDatasetDocs = DatasetDocs "" "" "" "" "" "" "" "" "" "" "" "" "" [] emptyReview ""
+emptyDatasetDocs = DatasetDocs "" "" "" "" "" "" "" "" "" "" "" "" "" [] emptyReview "" "" ""
 
 {- | Update a comment slot with a newly seen `<comment xml:lang="…">` text.
 Prefer English; otherwise keep the first non-empty entry. Empty / blank
@@ -453,6 +457,8 @@ docAttr name value state
     | on "dataGeneratorAndPublication" "pageNumbers" = setDocs (\d -> d{ddPublishedPages = txt})
     | on "review" "reviewerName" = setReview (\r -> r{rvReviewer = txt})
     | on "review" "reviewDate" = setReview (\r -> r{rvDate = txt})
+    | on "fileAttributes" "creationTimestamp" = setDocs (\d -> d{ddCreated = txt})
+    | on "fileAttributes" "lastEditTimestamp" = setDocs (\d -> d{ddLastEdited = txt})
     -- ecospold2 states the language on the element carrying the text, not on
     -- the <comment> around it, which is why 'psPendingCommentLang' does not
     -- see it. Kept for whichever element is open, since the multilingual ones
@@ -464,6 +470,19 @@ docAttr name value state
     on element attr = pathAt 0 element state && isElement name attr
     setDocs f = state{psDocs = f (psDocs state)}
     setReview f = setDocs (\d -> d{ddPendingReview = f (ddPendingReview d)})
+
+{- | The creation and the last edit a dataset's file attributes state. A
+timestamp that is not one is reported and left out, never read as some other day.
+-}
+datasetDates :: DatasetDocs -> (DatasetDates, [Text])
+datasetDates d =
+    ( noDates{datesCreated = fromRight Nothing created, datesLastRevised = fromRight Nothing lastEdited}
+    , lefts [created, lastEdited]
+    )
+  where
+    created, lastEdited :: Either Text (Maybe Day)
+    created = first ("creationTimestamp: " <>) (readIsoDate (ddCreated d))
+    lastEdited = first ("lastEditTimestamp: " <>) (readIsoDate (ddLastEdited d))
 
 {- | Which documentation field the element now closing belongs to, if any,
 given how far up the path the element it documents sits. ecospold2 wraps a free
@@ -1150,6 +1169,7 @@ parseWithXeno xmlContent = do
             params = M.withoutKeys (psParams st) (psAmbiguousParams st)
             paramExprs = M.withoutKeys (psParamExprs st) (psAmbiguousParams st)
             formulaCheck = checkFormulas params (psAmbiguousParams st) pairs
+            (dates, dateWarnings) = datasetDates (psDocs st)
             -- Apply cutoff strategy to exchanges
             activity =
                 Activity
@@ -1167,6 +1187,7 @@ parseWithXeno xmlContent = do
                     , activityNativeType = nativeType
                     , activityNativeId = Nothing
                     , activityFormulaCheck = formulaCheck
+                    , activityDates = dates
                     }
          in -- A file that yields no exchange at all is not a dataset: a stray or
             -- truncated XML the SAX fold walked through without complaint. A
@@ -1188,7 +1209,7 @@ parseWithXeno xmlContent = do
                             , -- This format addresses a supplier by UUID, so it
                               -- numbers no dataset and links none by number.
                               pdDatasetNumber = 0
-                            , pdWarnings = map T.pack (reverse (psWarnings st)) ++ placeholdersUsed st
+                            , pdWarnings = map T.pack (reverse (psWarnings st)) ++ placeholdersUsed st ++ dateWarnings
                             }
 
 -- | Parse EcoSpold file using Xeno SAX parser

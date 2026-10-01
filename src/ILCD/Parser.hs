@@ -21,15 +21,18 @@ import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
+import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import qualified Data.ByteString as BS
+import Data.Either (fromRight)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Read as TR
+import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
 import Database.Allocation (Allocating (..), allocate)
 import System.FilePath ((</>))
@@ -53,6 +56,7 @@ data ILCDProcessRaw = ILCDProcessRaw
     , iprExchanges :: ![ILCDExchangeRaw]
     , iprClassifications :: !(M.Map Text Text)
     , iprProcessType :: !Text -- ILCD <processType> element value (e.g. "Unit process, single operation"); "" when absent
+    , iprLastRevised :: !(Either Text (Maybe Day)) -- dataEntryBy/timeStamp, the last time the dataset was saved; Left when it is not a date
     }
 
 {- | Update a comment slot with a newly-seen `<common:generalComment>`.
@@ -439,6 +443,7 @@ data ProcState = ProcState
     , psPendingClassName :: !Text
     , psInClass :: !Bool
     , psProcessType :: !Text -- ILCD <processType> element text (empty when absent)
+    , psTimeStamp :: !Text -- <common:timeStamp> text (empty when absent)
     }
 
 parseProcessXML :: BS.ByteString -> Maybe ILCDProcessRaw
@@ -474,6 +479,7 @@ parseProcessXML bytes =
             , psPendingClassName = ""
             , psInClass = False
             , psProcessType = ""
+            , psTimeStamp = ""
             }
         )
         bytes of
@@ -582,6 +588,8 @@ parseProcessXML bytes =
             -- Guard psInExchange just in case a future ILCD revision reuses the tag name
             -- elsewhere; first occurrence wins to be deterministic.
             s{psProcessType = accum s, psTextAccum = []}
+        | isElement tag "timeStamp" && not (psInExchange s) =
+            s{psTimeStamp = accum s, psTextAccum = []}
         | isElement tag "allocation" && psInExchange s =
             let paired = (,) <$> psAllocRef s <*> psAllocFraction s
              in s
@@ -642,6 +650,7 @@ parseProcessXML bytes =
                         , iprExchanges = reverse (psExchanges s)
                         , iprClassifications = psClassifications s
                         , iprProcessType = psProcessType s
+                        , iprLastRevised = readIsoDate (psTimeStamp s)
                         }
 
 -- | Parse process files in parallel using worker pattern
@@ -659,7 +668,10 @@ parseProcessFilesParallel files = do
     parseOneFile :: FilePath -> IO (FilePath, Maybe ILCDProcessRaw)
     parseOneFile path = do
         bytes <- BS.readFile path
-        return (path, parseProcessXML bytes)
+        let parsed = parseProcessXML bytes
+        forM_ (parsed >>= either Just (const Nothing) . iprLastRevised) $ \reason ->
+            reportProgress Warning (path ++ ": timeStamp: " ++ T.unpack reason)
+        return (path, parsed)
 
 --------------------------------------------------------------------------------
 -- Build ActivityMap from raw processes
@@ -714,6 +726,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
                 else Just (ILCDProcessType{iptLabel = iprProcessType p})
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates{datesLastRevised = fromRight Nothing (iprLastRevised p)}
         }
   where
     -- \| The share the source declared for one product output, read from its

@@ -1492,7 +1492,14 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 33: the profile_method_collection route, what each impact category
+(revision 35: the @dates@ an activity carries, the days its dataset says it
+was created, last revised, or written without saying which, and the
+@DatesChanged@ entry a comparison of two activities reports when they differ,
+and the @redated@ list of a comparison of two databases, the pairs that
+differ by their dates alone;
+revision 34: the @reading@ each factor of a method carries, the medium and the
+location it is read at;
+revision 33: the profile_method_collection route, what each impact category
 of a loaded method collection holds;
 revision 32: the @category@ a comparison of two method collections can be
 narrowed to, comparing that one pair alone;
@@ -1564,7 +1571,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 34
+currentWireVersion = 35
 
 getVersion :: AppM Value
 getVersion = do

@@ -539,6 +539,10 @@ History of manual bumps:
      where it used to be read with none. Nothing changes type, so a cache
      written just before this would pass the fingerprint and keep the flow
      without its compartment.
+- 48: Activity record gained activityDates (the days a dataset says it was
+     created, last revised, or written without saying which). Old caches miss
+     the field; the Store layout is positional, so decoding them would misread
+     every field after it.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -546,7 +550,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 47
+     in hi `xor` lo `xor` 48
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

@@ -23,7 +23,7 @@ import Amount (readAmount)
 import Control.Monad (forM_)
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
-import Data.Either (lefts, rights)
+import Data.Either (fromRight, lefts, rights)
 import qualified Data.IntMap.Strict as IM
 import Data.List (intercalate)
 import qualified Data.Map as M
@@ -229,10 +229,11 @@ data DatasetDocs = DatasetDocs
     , ddPendingSource :: !Source1 -- attributes of the open <source>
     , ddPendingPersonNumber :: !Int -- attributes of the open <person>
     , ddPendingPersonName :: !Text
+    , ddTimestamp :: !Text -- <dataset timestamp>, when the dataset was created, as written
     }
 
 emptyDatasetDocs :: DatasetDocs
-emptyDatasetDocs = DatasetDocs "" "" "" "" "" "" "" "" "" "" 0 0 IM.empty IM.empty emptySource1 0 ""
+emptyDatasetDocs = DatasetDocs "" "" "" "" "" "" "" "" "" "" 0 0 IM.empty IM.empty emptySource1 0 "" ""
 
 -- | Parsing state accumulator
 data ParseState = ParseState
@@ -376,6 +377,7 @@ docAttr name value state
     | on "source" "placeOfPublications" = setSource (\s -> s{s1Place = txt})
     | on "person" "number" = setDocs (\d -> d{ddPendingPersonNumber = num})
     | on "person" "name" = setDocs (\d -> d{ddPendingPersonName = txt})
+    | on "dataset" "timestamp" = setDocs (\d -> d{ddTimestamp = txt})
     | otherwise = state
   where
     txt = bsToText value
@@ -852,6 +854,7 @@ buildResult :: ParseState -> Either String ParsedDataset
 buildResult st =
     let name = fromMaybe "Unknown Activity" (psActivityName st)
         location = fromMaybe "GLO" (psLocation st)
+        created = readIsoDate (ddTimestamp (psDocs st))
         -- "GLO" above is this loader's stand-in, not something the dataset said:
         -- a dataset without a geography is recorded as declaring none.
         locationSource = maybe LocationUnspecified declaredLocationSource (psLocation st)
@@ -878,6 +881,7 @@ buildResult st =
                 , activityNativeType = Nothing
                 , activityNativeId = datasetIdentifier (psDatasetNumber st)
                 , activityFormulaCheck = Nothing
+                , activityDates = noDates{datesCreated = fromRight Nothing created}
                 }
         pack act =
             ParsedDataset
@@ -890,7 +894,11 @@ buildResult st =
                   pdWasteFlows = []
                 , pdUnits = reverse (psUnits st)
                 , pdDatasetNumber = psDatasetNumber st
-                , pdWarnings = placeholdersUsed st ++ unplacedMediaSeen st ++ unreadableAmountsSeen st
+                , pdWarnings =
+                    placeholdersUsed st
+                        ++ unplacedMediaSeen st
+                        ++ unreadableAmountsSeen st
+                        ++ [datasetPrefix st <> "timestamp: " <> reason | Left reason <- [created]]
                 }
      in -- A file that yields no exchange at all is not a dataset: a stray or
         -- truncated XML the SAX fold walked through without complaint. A

@@ -399,6 +399,7 @@ blankActivity name exs =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 -- | The activity's own product, in the amount its dataset records. Negative for a treatment.

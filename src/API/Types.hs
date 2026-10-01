@@ -42,6 +42,7 @@ import Types (
     BiosphereFlow (..),
     BlockerReason (..),
     Compartment (..),
+    DatasetDates (..),
     DocSection (..),
     Exchange,
     ExchangeKind (..),
@@ -1660,6 +1661,7 @@ data ActivityForAPI = ActivityForAPI
     , pfaActivityName :: Text
     , pfaDescription :: [Text] -- Description par paragraphes
     , pfaDocumentation :: [DocSection] -- Provenance the dataset states about itself (source, technology, review); empty when the format records none
+    , pfaDates :: DatasetDates -- The days the dataset says it was created, last revised, or written without saying which
     , pfaSynonyms :: M.Map Text (S.Set Text) -- Synonymes par langue
     , pfaClassifications :: M.Map Text Text -- Classifications (ISIC, CPC, etc.)
     , pfaLocation :: Text
@@ -1878,6 +1880,7 @@ data SummaryChange
     | LocationChanged {locBefore :: !Text, locAfter :: !Text}
     | ProductNameChanged {pncBefore :: !Text, pncAfter :: !Text}
     | AllocationChanged {alcBefore :: !(Maybe Double), alcAfter :: !(Maybe Double)}
+    | DatesChanged {dacBefore :: !DatasetDates, dacAfter :: !DatasetDates}
     deriving (Eq, Show, Generic)
     deriving (ToJSON, ToSchema) via (Stripped SummaryChange)
 
@@ -1920,17 +1923,21 @@ data AmbiguousActivities = AmbiguousActivities
     deriving (ToJSON, ToSchema) via (Stripped AmbiguousActivities)
 
 {- | Two databases side by side. The counts always cover the full lists, which
-a limit may have truncated.
+a limit may have truncated. A pair whose only difference is the dates its
+datasets state is redated, not changed: a new release restamps every dataset,
+and those would bury the few that say something new.
 -}
 data DatabaseComparison = DatabaseComparison
     { dbcAddedCount :: !Int
     , dbcRemovedCount :: !Int
     , dbcChangedCount :: !Int
+    , dbcRedatedCount :: !Int
     , dbcAmbiguousCount :: !Int
     , dbcUnchangedCount :: !Int
     , dbcAdded :: ![ActivitySummary]
     , dbcRemoved :: ![ActivitySummary]
     , dbcChanged :: ![ChangedActivity]
+    , dbcRedated :: ![ChangedActivity]
     , dbcAmbiguous :: ![AmbiguousActivities]
     }
     deriving (Generic)

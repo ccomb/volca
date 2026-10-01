@@ -66,6 +66,7 @@ import Types (
     findProcessId,
     getActivity,
     isTechnosphereExchange,
+    noDates,
     noProperties,
     processIdToText,
  )
@@ -839,6 +840,7 @@ importedActivity =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 -- ---------------------------------------------------------------------------
@@ -1068,6 +1070,7 @@ treatmentActivity =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 supplierActivityAt :: UUID -> UUID -> Activity
@@ -1111,4 +1114,5 @@ supplierActivityAt actId prodId =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }

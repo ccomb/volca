@@ -70,6 +70,7 @@ import Types (
     TechnosphereFlow (..),
     UUID,
     Unit (..),
+    noDates,
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
@@ -547,4 +548,5 @@ milkActivity =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }

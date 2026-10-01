@@ -332,6 +332,7 @@ bareActivity name exs =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 techFlow :: UUID -> Text -> TechnosphereFlow

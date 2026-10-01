@@ -4,6 +4,25 @@
 
 ### Added
 
+- An activity carries the dates its dataset states, in `dates`: `created`,
+  `lastRevised` and `stated`. EcoSpold 2 records a creation and a last edit,
+  EcoSpold 1 a creation, ILCD the day the dataset was last saved. A SimaPro
+  process records one `Date` without saying what it marks, so it is read as
+  `stated` rather than passed off as either of the others; it is read in the
+  short date format and with the date separator the file's header declares,
+  and the 30/12/1899 SimaPro writes for a date never entered is read as no
+  date, counted once in the load's log. A date that does not read is named
+  in the log and left out. Each export writes back the dates its format has
+  a place for, so a database exported and read again keeps them; a SimaPro
+  export writes the stated date, or failing that the last revision, then the
+  creation. `compare_activities`, and every changed activity of
+  `compare_databases`, reports `DatesChanged` when the two datasets state
+  different dates, which answers whether one is a later version of the
+  other. A pair of `compare_databases` that differs by its dates alone is
+  listed under `redated` rather than `changed`, so a release that restamps
+  every dataset does not bury the few that say something new. pyvolca reads them as `ActivityDetail.dates`, a `DatasetDates`.
+  Wire revision 35. Databases are read again from their source on first
+  load, since their cache predates the field.
 - An instance shared by many callers can bound what one scoring request asks
   for. Scoring every activity of a large database in one request holds all
   the cores for about a minute, and every other caller waits behind it.

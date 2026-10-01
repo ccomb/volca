@@ -188,6 +188,7 @@ spec = do
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing
                         , activityFormulaCheck = Nothing
+                        , activityDates = noDates
                         }
                 activityMap = M.singleton (actUUID, prodUUID) activity
                 techFlowDB = M.singleton prodUUID (TechnosphereFlow prodUUID "energy product" mjUnitId M.empty Nothing Nothing)
@@ -273,6 +274,7 @@ spec = do
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing
                         , activityFormulaCheck = Nothing
+                        , activityDates = noDates
                         }
                 activityMap = M.singleton (actUUID, prodUUID) activity
                 techFlowDB = M.singleton prodUUID (TechnosphereFlow prodUUID "energy product" mjUnitId M.empty Nothing Nothing)
@@ -353,6 +355,7 @@ spec = do
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing
                         , activityFormulaCheck = Nothing
+                        , activityDates = noDates
                         }
                 pRef =
                     TechnosphereExchange
@@ -397,6 +400,7 @@ spec = do
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing
                         , activityFormulaCheck = Nothing
+                        , activityDates = noDates
                         }
                 activityMap = M.fromList [((tA, wW), treatment), ((pA, yY), producer)]
                 techFlowDB =

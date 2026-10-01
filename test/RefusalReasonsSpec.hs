@@ -157,6 +157,7 @@ activityAt name location exs =
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
+        , activityDates = noDates
         }
 
 techFlow :: UUID -> Text -> UUID -> TechnosphereFlow
