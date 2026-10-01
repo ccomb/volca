@@ -552,7 +552,7 @@ activityMetaLines systems Activity{..} =
         ++ documented ["Record", "Generator", "Collection method", "Data treatment", "Verification"]
         ++ [("Comment", freeText (T.intercalate "\n" activityDescription))]
         ++ documented ["Allocation rules"]
-        ++ [("System description", system <> ";") | system <- systemNamed]
+        ++ [("System description", escapeField system <> delim) | system <- systemNamed]
   where
     -- The System description a process names is written when the file writes
     -- that description too, so the name finds it again on import.

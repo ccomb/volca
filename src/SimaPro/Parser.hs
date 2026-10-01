@@ -825,7 +825,9 @@ that holds its value (blank when the field is), or the @End@ that closes it.
 -}
 libraryLine :: LibraryKind -> Maybe BS.ByteString -> BS.ByteString -> ParseAcc -> ParseAcc
 libraryLine kind pending line acc = case (pending, BS8.strip line) of
-    (Nothing, "End") -> (closed kind){paState = BetweenBlocks, paLibraryFields = []}
+    -- A field with no value line under it still ends at the block's End,
+    -- rather than taking End for its value and running into the next block.
+    (_, "End") -> (closed kind){paState = BetweenBlocks, paLibraryFields = []}
     (Nothing, "") -> acc
     (Nothing, field) -> acc{paState = InLibraryBlock kind (Just field)}
     (Just field, value) ->
@@ -1894,8 +1896,8 @@ exportWarnings :: SimaProConfig -> [Text]
 exportWarnings cfg =
     catMaybes
         [ (\reason -> "header Date " <> reason <> ": the export is read with no date") <$> dateProblem (exportDay cfg)
-        , spExportTime cfg >>= \t ->
-            maybe (Just ("header Time \"" <> t <> "\" is not a time written H:mm:ss: the export is read with no time")) (const Nothing) (readClock t)
+        , mfilter (isNothing . readClock) (spExportTime cfg) <&> \t ->
+            "header Time \"" <> t <> "\" is not a time written H:mm:ss: the export is read with no time"
         , if isNothing (spTool cfg) && any isJust [spExportDate cfg, spExportTime cfg, spProject cfg]
             then Just "the header states an export but names no tool on its first line: the export is read with no stamp"
             else Nothing
