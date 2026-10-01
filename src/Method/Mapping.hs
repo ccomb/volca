@@ -664,15 +664,12 @@ findFlowBySynonym search name = findFlowBySynonymComp search name Nothing
 
 -- | Find flow via synonym group with compartment preference
 findFlowBySynonymComp :: SynonymSearch -> Text -> Maybe Compartment -> Maybe BiosphereFlow
-findFlowBySynonymComp (SynonymSearch synDB flowsByName place) name mComp =
-    case lookupSynonymGroup synDB name of
-        Nothing -> Nothing
-        Just gid ->
-            getSynonyms synDB gid >>= \synonyms ->
-                pickByCompartment place name (concatMap (lookupFlows flowsByName) synonyms) mComp
-  where
-    lookupFlows :: M.Map Text [BiosphereFlow] -> Text -> [BiosphereFlow]
-    lookupFlows fbn syn = M.findWithDefault [] (normalizeName syn) fbn
+findFlowBySynonymComp (SynonymSearch synDB flowsByName place) name =
+    pickByCompartment place name (concatMap (flowsNamed flowsByName) (synonymNames synDB name))
+
+-- | The flows bearing one name, whatever its spelling.
+flowsNamed :: M.Map Text [BiosphereFlow] -> Text -> [BiosphereFlow]
+flowsNamed flowsByName syn = M.findWithDefault [] (normalizeName syn) flowsByName
 
 {- | The synonym view a CF resolves against: input-only bridges apply to INPUT
 (resource) CFs, output-only to OUTPUT (emission) CFs. On untyped data both
@@ -694,12 +691,12 @@ direction, name and compartment can never be mixed from different CFs.
 -}
 findFlowBySynonymMemo :: MapContext -> MethodCF -> Maybe BiosphereFlow
 findFlowBySynonymMemo ctx cf =
-    case lookupSynonymGroup dirDB name of
-        Nothing -> Nothing
-        Just gid -> case M.lookup (dir, gid) (mcSynGroupFlows ctx) of
-            Just flows -> pickByCompartment (mcPlacing ctx) name flows mComp
-            Nothing -> findFlowBySynonymComp (SynonymSearch dirDB (mcBioFlowsByName ctx) (mcPlacing ctx)) name mComp
+    case lookupSynonymGroup dirDB name >>= \gid -> M.lookup (dir, gid) (mcSynGroupFlows ctx) of
+        Just flows -> pickByCompartment (mcPlacing ctx) name (flows ++ regionalFlows) mComp
+        Nothing -> findFlowBySynonymComp (SynonymSearch dirDB (mcBioFlowsByName ctx) (mcPlacing ctx)) name mComp
   where
+    regionalFlows :: [BiosphereFlow]
+    regionalFlows = concatMap (flowsNamed (mcBioFlowsByName ctx)) (regionalSynonymNames dirDB name)
     dir = mcfDirection cf
     dirDB = viewFor dir (mcSynonymDB ctx)
     name = mcfFlowName cf
@@ -1230,6 +1227,14 @@ sources the user explicitly activates, and candidates pass
 'excludeJunkSynonyms' / 'excludeOverFrequentSynonyms' with an
 'oversizedClasses' audit before they can be activated.
 
+A name that ends in a region (@"Water, unspecified natural origin, AU"@,
+see 'extractLocationSuffix') also fans out to every synonym of the name
+before it, at that same region: the class says two names are one
+substance, and a substance is one wherever it is. So a database flow
+@"Water, fresh, AU"@ reads the Australian factor a method writes only
+under another name of fresh water, rather than falling back to the
+world average its own name carries without a region.
+
 Duplicates are harmless – 'buildMethodTables' uses @fromListWith
 preferBetter@.
 -}
@@ -1242,12 +1247,31 @@ expandSynonymMappings synDB flowsByName mappings =
     mappings ++ concatMap expand mappings
   where
     expand (cf, _) =
-        let dirDB = viewFor (mcfDirection cf) synDB
-            peers = fromMaybe [] (getSynonyms dirDB =<< lookupSynonymGroup dirDB (mcfFlowName cf))
-         in [ (cf, Just (flow, BySynonym))
-            | syn <- peers
-            , flow <- M.findWithDefault [] syn flowsByName
-            ]
+        [ (cf, Just (flow, BySynonym))
+        | peer <- synonymNames (viewFor (mcfDirection cf) synDB) (mcfFlowName cf)
+        , flow <- M.findWithDefault [] peer flowsByName
+        ]
+
+{- | Every normalized name the registry holds for the same substance as this
+one: its own class, then its 'regionalSynonymNames'. The match made when a
+method loads and the fan-out both walk this list, so a flow a factor reaches
+is one the factor is matched to, and the coverage counts say so.
+-}
+synonymNames :: SynonymDB -> Text -> [Text]
+synonymNames dirDB name = synonymClass dirDB name ++ regionalSynonymNames dirDB name
+
+-- | The names of a name's synonym class, none for a name the registry does not hold.
+synonymClass :: SynonymDB -> Text -> [Text]
+synonymClass dirDB name = fromMaybe [] (getSynonyms dirDB =<< lookupSynonymGroup dirDB name)
+
+{- | For a name ending in a region, each name of the class of what precedes
+the region, followed by that region: @"Water, unspecified natural origin, AU"@
+gives @"water fresh au"@ when the two base names are synonyms.
+-}
+regionalSynonymNames :: SynonymDB -> Text -> [Text]
+regionalSynonymNames dirDB name = case extractLocationSuffix name of
+    (base, Just loc) -> [normalizeName (syn <> ", " <> loc) | syn <- synonymClass dirDB base]
+    (_, Nothing) -> []
 
 {- | Unmapped CFs whose name matches through the UNION synonym tables but not
 through their own direction's view: the direction restriction alone stands

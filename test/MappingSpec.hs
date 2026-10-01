@@ -370,6 +370,34 @@ spec = do
               ]
                 `shouldBe` [fid]
 
+    describe "expandSynonymMappings across a region" $ do
+        -- A method can write a region under one name of a substance only
+        -- ("Water, unspecified natural origin, AU") and give its synonym
+        -- ("Water, fresh") no regional factor at all. The flow named by the
+        -- synonym at that region reads the region's factor, not the world
+        -- average its own unregioned name carries.
+        let synDB = buildFromEdges [SynEdge "Water, fresh" "Water, unspecified natural origin" BridgeInput]
+            regionalCF loc = (mkCF ("Water, unspecified natural origin, " <> loc) Nothing 72.1){mcfDirection = Input}
+            freshFlow fid = mkFlow fid "Water, fresh, AU" NaturalResource Nothing
+            flowsByName fid = M.singleton (normalizeName "Water, fresh, AU") [freshFlow fid]
+            fannedIds cf fid =
+                [bfId flow | (_, Just (flow, BySynonym)) <- drop 1 (expandSynonymMappings synDB (flowsByName fid) [(cf, Nothing)])]
+
+        it "fans a regional factor out to the synonym at the same region" $ do
+            fid <- nextRandom
+            fannedIds (regionalCF "AU") fid `shouldBe` [fid]
+
+        it "keeps the factor of another region off the flow" $ do
+            fid <- nextRandom
+            fannedIds (regionalCF "FR") fid `shouldBe` []
+
+        -- The coverage counts read the match made when the method loads: a
+        -- line the fan-out carries to a flow must not be counted unmatched.
+        it "matches the regional factor to the synonym's flow when the method loads" $ do
+            fid <- nextRandom
+            fmap bfId (findFlowBySynonymComp (SynonymSearch synDB (flowsByName fid) mempty) "Water, unspecified natural origin, AU" Nothing)
+                `shouldBe` Just fid
+
     describe "directionExcludedCFs" $ do
         -- An unmapped CF whose name matches through the UNION synonym tables but
         -- not through its own direction's view was excluded by the direction
