@@ -18,6 +18,15 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
+## [Unreleased]
+
+### Deprecated
+
+- `LCIAResult.damage_category`, `normalized_score` and `weighted_score`, and
+  `LCIABatchResult.single_score`, `single_score_unit`, `norm_weight_set_name`
+  and `available_nw_sets`: a SimaPro method's single score now arrives in
+  `scoring_results`. They go with engine 0.16.0.
+
 ## [0.12.1] - 2026-09-20
 
 ### Changed
