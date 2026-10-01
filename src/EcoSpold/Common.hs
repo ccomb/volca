@@ -26,7 +26,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
 import Numeric (showFFloat)
-import Types (Activity, BiosphereFlow, DocSection (..), TechnosphereFlow, Unit, WasteFlow)
+import Types (Activity, BiosphereFlow, DocSection (..), LibraryDocument, TechnosphereFlow, Unit, WasteFlow)
 
 {- | One dataset as a reader read it: the activity, the flows and units it
 names, and whatever the reader has to say about the reading.
@@ -45,6 +45,8 @@ data ParsedDataset = ParsedDataset
     , pdDatasetNumber :: !Int
     , pdWarnings :: ![Text]
     -- ^ What the reader could not make sense of, for the caller to report.
+    , pdLiterature :: ![LibraryDocument]
+    -- ^ The sources the dataset cites, gathered into the database's literature.
     }
 
 -- | ByteString to Text conversion with UTF-8 decoding and XML entity decoding

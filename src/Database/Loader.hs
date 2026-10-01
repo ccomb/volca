@@ -258,6 +258,8 @@ data Harvest = Harvest
     -- ^ flow declarations read, before deduplication
     , hvRawUnits :: !Int
     -- ^ unit declarations read, before deduplication
+    , hvLiterature :: !(M.Map (T.Text, T.Text) LibraryDocument)
+    -- ^ The sources the datasets cite, once each, by title and reference
     , hvUnitNames :: !(M.Map UUID.UUID (S.Set T.Text))
     {- ^ The names the files gave each unit identifier, the placeholder of a
     nameless declaration aside. The identifier is the file's own and the name
@@ -278,10 +280,11 @@ instance Semigroup Harvest where
             , hvDatasetNumbers = MS.unionWith (<>) (hvDatasetNumbers a) (hvDatasetNumbers b)
             , hvRawFlows = hvRawFlows a + hvRawFlows b
             , hvRawUnits = hvRawUnits a + hvRawUnits b
+            , hvLiterature = M.union (hvLiterature a) (hvLiterature b)
             }
 
 instance Monoid Harvest where
-    mempty = Harvest M.empty MS.empty MS.empty MS.empty M.empty M.empty 0 0 M.empty
+    mempty = Harvest M.empty MS.empty MS.empty MS.empty M.empty M.empty 0 0 M.empty M.empty
 
 {- | Harvest a batch of parsed datasets, each already keyed by the (activity,
 product) pair its source names it under.
@@ -298,6 +301,7 @@ harvestOf entries =
         , hvRawFlows = length techs + length bios + length wastes
         , hvRawUnits = length units
         , hvUnitNames = MS.fromListWith S.union [(unitId u, S.singleton (unitName u)) | u <- units, not (isPlaceholderUnit u)]
+        , hvLiterature = M.fromList [((documentName d, foldMap docText (documentSections d)), d) | (_, parsed) <- entries, d <- pdLiterature parsed]
         }
   where
     -- The only two rows under one identifier that can be reconciled: a
@@ -342,10 +346,10 @@ unitNamesDisagreeing h =
     , S.size names > 1
     ]
 
--- | The five tables of a harvest that make a database; the rest describes the reading.
+-- | The tables of a harvest that make a database, and the literature its datasets cite; the rest describes the reading.
 harvestDatabase :: Harvest -> SimpleDatabase
 harvestDatabase h =
-    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation
+    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation{dbdocLiterature = M.elems (hvLiterature h)}
 
 {- |
 Schema signature of the cache payload.
@@ -546,6 +550,9 @@ History of manual bumps:
 - 49: Database gained dbDocumentation (the export a SimaPro file is and the
      system descriptions it holds), and a SimaPro process reads its
      documentation fields. Old caches miss both.
+- 50: an EcoSpold 1 database gathers the sources its datasets cite into its
+     literature. Nothing changes type, so a cache written just before this
+     would pass the fingerprint and keep an empty literature.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -553,7 +560,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 49
+     in hi `xor` lo `xor` 50
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

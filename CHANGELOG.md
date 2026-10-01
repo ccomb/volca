@@ -24,6 +24,9 @@
   name each process gives its own, and writes
   the documentation fields SimaPro keeps as free text. Wire revision 36. Databases are read again from their source
   on first load, since their cache predates the field.
+- An EcoSpold 1 database lists in its `documentation` the sources its
+  datasets cite, once each, under `literature`: the title of each, and the
+  whole reference. Databases are read again from their source on first load.
 - An activity carries the dates its dataset states, in `dates`: `created`,
   `lastRevised` and `stated`. EcoSpold 2 records a creation and a last edit,
   EcoSpold 1 a creation, ILCD the day the dataset was last saved. A SimaPro
