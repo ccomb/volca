@@ -4,7 +4,7 @@
 fingerprint that changes exactly when what it lists does.
 
 The fingerprint hashes the encoded entries themselves, so it moves on a renamed
-process, an edited comment or a unit the table now reads differently, and
+process, a changed classification or a unit the table now reads differently, and
 stays put across an edit that touches none of them (an exchange amount).
 -}
 module Service.Catalogue (
@@ -34,7 +34,6 @@ import UnitConversion (UnitConfig, UnitDef (..), lookupUnitDef)
 catalogueDefaultLimit :: Int
 catalogueDefaultLimit = 1000
 
--- | A page of 5000 entries with their comments stays within a few MB.
 catalogueMaxLimit :: Int
 catalogueMaxLimit = 5000
 
@@ -55,7 +54,6 @@ catalogueEntries cfg db = V.toList (V.imap entry (dbActivities db))
                 , ceUnit = rpUnit refProduct
                 , ceMeasure = measureOf cfg (rpUnit refProduct)
                 , ceClassification = activityClassification activity
-                , ceDescription = activityDescription activity
                 }
 
 {- | FNV-1a over the encoded catalogue. It tells a copy that went stale, it does

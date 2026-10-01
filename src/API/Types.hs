@@ -244,7 +244,7 @@ data CatalogueMeasure = CatalogueMeasure
     deriving (Eq, Show, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped CatalogueMeasure)
 
--- | One process as a client indexing the database needs it: what it is called, where, in what unit, and what its source says about it.
+-- | One process as a client indexing the database needs it: what it is called, how it is classified, where, and in what unit.
 data CatalogueEntry = CatalogueEntry
     { ceProcessId :: Text
     , ceActivityName :: Text
@@ -253,7 +253,6 @@ data CatalogueEntry = CatalogueEntry
     , ceUnit :: Text -- the reference product's unit as the database writes it
     , ceMeasure :: Maybe CatalogueMeasure -- Nothing when the unit table cannot settle 'ceUnit': unknown, or matching several spellings
     , ceClassification :: M.Map Text Text
-    , ceDescription :: [Text] -- the source's general comment, by paragraphs
     }
     deriving (Eq, Show, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped CatalogueEntry)

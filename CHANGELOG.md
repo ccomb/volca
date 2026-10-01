@@ -47,8 +47,8 @@
   Wire revision 35. Databases are read again from their source on first
   load, since their cache predates the field.
 - A database can be read whole, page by page, as a catalogue: for each
-  process its name, product, location, unit, classification and general
-  comment, and where its unit sits in the unit table, or that the table
+  process its name, product, location, unit and classification, and where
+  its unit sits in the unit table, or that the table
   cannot read it. Every page carries a fingerprint of the whole catalogue,
   also available on its own, so a client keeping a copy can tell when the
   database changed. `GET /api/v1/db/{name}/catalogue` and
