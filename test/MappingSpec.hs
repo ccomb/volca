@@ -391,6 +391,13 @@ spec = do
             fid <- nextRandom
             fannedIds (regionalCF "FR") fid `shouldBe` []
 
+        -- The coverage counts read the match made when the method loads: a
+        -- line the fan-out carries to a flow must not be counted unmatched.
+        it "matches the regional factor to the synonym's flow when the method loads" $ do
+            fid <- nextRandom
+            fmap bfId (findFlowBySynonymComp (SynonymSearch synDB (flowsByName fid) mempty) "Water, unspecified natural origin, AU" Nothing)
+                `shouldBe` Just fid
+
     describe "directionExcludedCFs" $ do
         -- An unmapped CF whose name matches through the UNION synonym tables but
         -- not through its own direction's view was excluded by the direction
