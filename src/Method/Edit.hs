@@ -46,8 +46,8 @@ import Database.Manager (
     clearMethodCachesFor,
     configToScoringSet,
     getMethodCollection,
-    loadMethodCollectionLocked,
     loadMethodCollectionFromConfig,
+    loadMethodCollectionLocked,
  )
 import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
@@ -131,19 +131,20 @@ recordMethodCopy home slug source seed = do
                 when exists (copyFile from (journalPath home))
             SeedLines ops -> mapM_ (\op -> ExceptT (appendEntry home (MethodLine op TakenFromConfiguration))) ops
         dataPath <- liftIO (traverse makeAbsolute (filePath (mcOrigin source)))
-        liftIO $ UploadedDB.writeUploadMeta
-            home
-            UploadedDB.UploadMeta
-                { UploadedDB.umVersion = UploadedDB.metaVersion
-                , UploadedDB.umDisplayName = slug
-                , UploadedDB.umDescription = mcDescription source
-                , UploadedDB.umFormat = UnknownFormat
-                , UploadedDB.umDataPath = fromMaybe "" dataPath
-                , UploadedDB.umDepends = []
-                , UploadedDB.umSource = Just (mcName source)
-                , UploadedDB.umAllocation = Declared
-                , UploadedDB.umBuiltIn = builtinOf (mcOrigin source)
-                }
+        liftIO $
+            UploadedDB.writeUploadMeta
+                home
+                UploadedDB.UploadMeta
+                    { UploadedDB.umVersion = UploadedDB.metaVersion
+                    , UploadedDB.umDisplayName = slug
+                    , UploadedDB.umDescription = mcDescription source
+                    , UploadedDB.umFormat = UnknownFormat
+                    , UploadedDB.umDataPath = fromMaybe "" dataPath
+                    , UploadedDB.umDepends = []
+                    , UploadedDB.umSource = Just (mcName source)
+                    , UploadedDB.umAllocation = Declared
+                    , UploadedDB.umBuiltIn = builtinOf (mcOrigin source)
+                    }
     pure $ case written of
         Right result -> first (\err -> "could not record the copy " <> slug <> ": " <> err) result
         Left (err :: SomeException) -> Left ("could not record the copy " <> slug <> ": " <> T.pack (show err))

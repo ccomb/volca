@@ -143,8 +143,8 @@ module Database.Manager (
 import API.JsonOptions (Stripped (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.QSem (QSem, newQSem)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)

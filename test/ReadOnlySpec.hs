@@ -50,12 +50,12 @@ import API.MethodEditHandlers (copyMethodCollectionHandler, editMethodFactorsHan
 import API.Resources (Resource (..), allResources, resourceMutates)
 import API.Routes (getHosting, loadMethodCollectionHandler, unloadMethodCollectionHandler)
 import API.Types (
-    FactorEditOp (..),
-    FactorEditRequest (..),
     ActivityInput (..),
     ActivityWriteRequest (..),
     DeleteSelectionRequest (..),
     ExchangeEditRequest (..),
+    FactorEditOp (..),
+    FactorEditRequest (..),
     RelinkRequest (..),
  )
 import App.Env (AppEnv (..), runApp)

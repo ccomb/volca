@@ -16,7 +16,7 @@ import Servant (ServerError, errBody, errHTTPCode, runHandler)
 import Test.Hspec
 
 import API.MethodEditHandlers
-import API.Types (FactorEditRequest, FactorSide (..), MethodChangeAPI (..), MethodEditResponse (..), MethodFlowAPI (..), MethodHistoryEntry (..), MethodCollectionStatusAPI (..))
+import API.Types (FactorEditRequest, FactorSide (..), MethodChangeAPI (..), MethodCollectionStatusAPI (..), MethodEditResponse (..), MethodFlowAPI (..), MethodHistoryEntry (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Database.Manager (CachePolicy (..), getMethodCollection, initDatabaseManager)

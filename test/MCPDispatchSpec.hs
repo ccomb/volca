@@ -22,8 +22,8 @@ import Test.Hspec
 
 import API.MCP (RequestId (..), RpcRequest (..), callTool, handleInitialize, mcpCountsAsActivity, noRequestId, toolDefinitions, webUrlBase)
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), ReadOnly (..), ServerName (..), defaultConfig)
-import Database.Manager (CachePolicy (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
 import qualified Data.UUID as UUID
+import Database.Manager (CachePolicy (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..))
 import TestHelpers (withScratchDataDir)
 import Types (AllocationKey (..), GeographyPolicy (..))

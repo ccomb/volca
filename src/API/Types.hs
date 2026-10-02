@@ -10,6 +10,7 @@
 module API.Types where
 
 import API.JsonOptions (Stripped (..), parseClosed)
+import Config (MethodPatch (..), MethodPatchMatch (..))
 import Control.DeepSeq (NFData)
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
@@ -20,6 +21,7 @@ import qualified Data.ByteString.Lazy as BSL
 import Data.Either (partitionEithers)
 import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
 import qualified Data.Map as M
+import Data.Maybe (isNothing)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), binarySchema, declareSchemaRef, enum_, format, nullable, properties, required, type_)
 import qualified Data.OpenApi.Lens as OA
 import Data.Proxy (Proxy (..))
@@ -35,8 +37,6 @@ import Database.Author (
     FlowRef (..),
  )
 import GHC.Generics
-import Config (MethodPatch (..), MethodPatchMatch (..))
-import Data.Maybe (isNothing)
 import Method.EditPlan (FactorEdit (..), FactorTarget (..))
 import Method.Types (FlowDirection, MethodCF (..))
 import qualified Method.Types as MT
@@ -2537,6 +2537,7 @@ bioDirection raw = case T.toLower (T.strip raw) of
     "resource" -> Right Resource
     "emission" -> Right Emission
     other -> Left ("unknown biosphere direction: " <> other <> " (expected resource|emission)")
+
 -- ---------------------------------------------------------------------------
 -- Changing a method collection of one's own
 -- ---------------------------------------------------------------------------
@@ -2569,9 +2570,9 @@ instance ToSchema FactorEditOp where
             NamedSchema (Just "FactorEditOp") $
                 mempty
                     & type_
-                    ?~ OpenApiString
+                        ?~ OpenApiString
                     & enum_
-                    ?~ map (toJSON . factorEditOpName) [minBound .. maxBound]
+                        ?~ map (toJSON . factorEditOpName) [minBound .. maxBound]
 
 {- | One change asked of a collection's factors. Which fields count follows
 from 'op': a set names the factor (its category, flow and place, and its
@@ -2667,9 +2668,9 @@ instance ToSchema HistoryKindAPI where
             NamedSchema (Just "HistoryKindAPI") $
                 mempty
                     & type_
-                    ?~ OpenApiString
+                        ?~ OpenApiString
                     & enum_
-                    ?~ map (toJSON . historyKindName) [minBound .. maxBound]
+                        ?~ map (toJSON . historyKindName) [minBound .. maxBound]
 
 -- | One line of a collection's journal.
 data MethodHistoryEntry = MethodHistoryEntry
@@ -2714,16 +2715,17 @@ data MethodFlowAPI = MethodFlowAPI
 
 -- | What a request asks, or why it asks nothing this engine can do.
 toFactorEdit :: FactorEditRequest -> Either Text FactorEdit
-toFactorEdit req = mapM_ finite numbers >> case ferOp req of
-    SetOne -> maybe (Left "a set names methodId, flowId and newValue") Right $ do
-        target <- named
-        SetValue target <$> ferNewValue req
-    RemoveOne -> maybe (Left "a remove names methodId and flowId") (Right . Remove) named
-    AddOne ->
-        maybe (Left "an add names methodId and factor") Right $
-            Add <$> ferMethodId req <*> (newFactor <$> ferFactor req)
-    ScaleMany -> selector "a scale names match and scale" (ScaleBy <$> ferScale req)
-    SetMany -> selector "a set-all names match and newValue" (SetValueTo <$> ferNewValue req)
+toFactorEdit req =
+    mapM_ finite numbers >> case ferOp req of
+        SetOne -> maybe (Left "a set names methodId, flowId and newValue") Right $ do
+            target <- named
+            SetValue target <$> ferNewValue req
+        RemoveOne -> maybe (Left "a remove names methodId and flowId") (Right . Remove) named
+        AddOne ->
+            maybe (Left "an add names methodId and factor") Right $
+                Add <$> ferMethodId req <*> (newFactor <$> ferFactor req)
+        ScaleMany -> selector "a scale names match and scale" (ScaleBy <$> ferScale req)
+        SetMany -> selector "a set-all names match and newValue" (SetValueTo <$> ferNewValue req)
   where
     -- JSON writes an infinite or undefined number as null, so the journal
     -- would read back another value than the one applied.

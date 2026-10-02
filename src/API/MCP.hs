@@ -10,15 +10,15 @@ module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, call
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
 import Data.Aeson.Key (fromText, toText)
-import Data.Scientific (toBoundedInteger)
 import Data.Aeson.KeyMap (KeyMap)
-import Data.Aeson.Types (parseEither)
 import qualified Data.Aeson.KeyMap as KM
+import Data.Aeson.Types (parseEither)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Scientific (toBoundedInteger)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -48,8 +48,8 @@ import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
-import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI)
+import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits, toFactorEdit)
 import Control.Monad (mfilter)
 import qualified Data.List as L
