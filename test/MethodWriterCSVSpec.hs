@@ -44,7 +44,7 @@ mkMethod name cfs =
         }
 
 collection :: [Method] -> MethodCollection
-collection ms = MethodCollection ms [] [] []
+collection ms = MethodCollection ms []
 
 -- | Serialize, decoding the bytes for inspection.
 serialize :: MethodCollection -> Either Text (Text, [Text])
@@ -172,18 +172,14 @@ spec = describe "Method.WriterCSV" $ do
                     warnings `shouldSatisfy` any (T.isInfixOf "2 factors have a flow direction")
                     length warnings `shouldBe` 1
 
-        it "warns about descriptions, damage categories, NW sets and scoring sets" $ do
+        it "warns about descriptions and scoring sets" $ do
             let m = (mkMethod "Climate change" []){methodDescription = Just "GWP100"}
-                dc = DamageCategory "Human health" "DALY" [("Climate change", 1)]
-                nw = NormWeightSet "EF" (M.singleton "Climate change" 1) M.empty
-                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing
-                mc = MethodCollection [m] [dc] [nw] [ss]
+                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
+                mc = MethodCollection [m] [ss]
             case serialize mc of
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, warnings) -> do
                     warnings `shouldSatisfy` any (T.isInfixOf "descriptions")
-                    warnings `shouldSatisfy` any (T.isInfixOf "damage categories")
-                    warnings `shouldSatisfy` any (T.isInfixOf "normalization/weighting")
                     warnings `shouldSatisfy` any (T.isInfixOf "scoring sets")
 
         it "warns when methodologies differ and omits the comment" $ do

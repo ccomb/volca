@@ -42,7 +42,7 @@ import API.Types (
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), addDatabase, initDatabaseManager, loadDatabase)
-import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
+import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 import Types (AllocationKey (..), GeographyPolicy (..))
 
 -- | The factor and the contribution, in that order, as every surface reports them.
@@ -102,6 +102,8 @@ singleScore =
         , ssWeighting = M.fromList [("cc", 2)]
         , ssScores = M.fromList [("total", "cc")]
         , ssDisplayMultiplier = Nothing
+        , ssUnits = M.empty
+        , ssOrigin = DeclaredInConfig
         }
 
 -- | The four-activity fixture, as a database the manager can load.
@@ -133,7 +135,7 @@ loadedManager = do
     loadDatabase manager "sample" >>= either (fail . T.unpack) (const (pure ()))
     atomically $
         modifyTVar' (dmLoadedMethods manager) $
-            M.insert collectionName (MethodCollection [climateChange] [] [] [singleScore])
+            M.insert collectionName (MethodCollection [climateChange] [singleScore])
     pure manager
 
 -- | Run a REST handler against that manager, failing the test on an error status.

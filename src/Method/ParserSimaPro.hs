@@ -23,6 +23,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID.V5 as UUID5
 
+import Method.SimaProScoring (DamageCategory (..), NormWeightSet (..), SimaProMethodFile (..))
 import Method.Types
 import SubstanceRegistry (nonEmptyCAS)
 
@@ -43,11 +44,11 @@ import SimaPro.Parser (
 -- ============================================================================
 
 -- | Parse a SimaPro method CSV file from disk.
-parseSimaProMethodCSV :: FilePath -> IO (Either String MethodCollection)
+parseSimaProMethodCSV :: FilePath -> IO (Either String SimaProMethodFile)
 parseSimaProMethodCSV path = parseSimaProMethodCSVBytes <$> BS.readFile path
 
 -- | Pure parser for SimaPro method CSV bytes.
-parseSimaProMethodCSVBytes :: BS.ByteString -> Either String MethodCollection
+parseSimaProMethodCSVBytes :: BS.ByteString -> Either String SimaProMethodFile
 parseSimaProMethodCSVBytes raw =
     let !utf8 = ensureUtf8 raw
         lns = BS8.lines utf8
@@ -209,14 +210,13 @@ finishNW (NWAccum name norm weight) st
 {- | Flush whatever block is in progress at end of input, then read out the
 accumulated collections in source order.
 -}
-finalize :: ParseState -> MethodCollection
+finalize :: ParseState -> SimaProMethodFile
 finalize st =
     let s = finishCurrent st
-     in MethodCollection
+     in SimaProMethodFile
             (reverse (psMethods s))
             (reverse (psDamageCats s))
             (reverse (psNWsets s))
-            []
 
 finishCurrent :: ParseState -> ParseState
 finishCurrent st = case psStage st of

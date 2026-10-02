@@ -9,7 +9,7 @@ module ScoreWeightsSpec (spec) where
 import Data.Either (isLeft)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
-import Method.Types (ScoringSet (..), scoreWeights)
+import Method.Types (ScoringSet (..), ScoringSetOrigin (..), scoreWeights)
 import Test.Hspec
 
 -- | A computed variable, a normalization, weights and a display multiplier.
@@ -30,6 +30,8 @@ scoringSet =
         , ssWeighting = M.fromList [("cch", 0.5), ("etf", 0.25)]
         , ssScores = M.fromList [("total", "cch + etf")]
         , ssDisplayMultiplier = Just 10
+        , ssUnits = M.empty
+        , ssOrigin = DeclaredInConfig
         }
 
 rawScores :: M.Map Text Double

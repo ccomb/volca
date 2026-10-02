@@ -323,13 +323,13 @@ class LCIAResult:
     method_id: str
     method_name: str
     category: str
-    damage_category: str
+    damage_category: str  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
     score: float
     unit: str
     mapped_flows: int
     functional_unit: str
-    normalized_score: float | None = None
-    weighted_score: float | None = None  # in Pt
+    normalized_score: float | None = None  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
+    weighted_score: float | None = None  # in Pt. Deprecated: read `scoring_results`; removed with engine 0.16.0.
     top_contributors: list[FlowContribution] = field(default_factory=list)
 
     @classmethod
@@ -365,10 +365,10 @@ class LCIABatchResult:
     """
 
     results: list[LCIAResult]
-    single_score: float | None = None  # sum of weighted scores, in Pt
-    single_score_unit: str | None = None
-    norm_weight_set_name: str | None = None
-    available_nw_sets: list[str] = field(default_factory=list)
+    single_score: float | None = None  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
+    single_score_unit: str | None = None  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
+    norm_weight_set_name: str | None = None  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
+    available_nw_sets: list[str] = field(default_factory=list)  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
     scoring_results: dict[str, dict[str, float]] = field(default_factory=dict)
     scoring_units: dict[str, str] = field(default_factory=dict)
     scoring_indicators: dict[str, dict[str, ScoringIndicator]] = field(default_factory=dict)

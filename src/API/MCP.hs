@@ -2445,6 +2445,7 @@ callListScoringSets dbManager rid args = do
             , "variables" .= ssVariables ss
             , "computed" .= ssComputed ss
             , "labels" .= ssLabels ss
+            , "units" .= ssUnits ss
             , "normalization" .= ssNormalization ss
             , "weighting" .= ssWeighting ss
             , "scores" .= ssScores ss

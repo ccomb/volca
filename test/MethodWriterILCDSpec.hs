@@ -58,7 +58,7 @@ mkMethod n name cfs =
         }
 
 collection :: [Method] -> MethodCollection
-collection ms = MethodCollection ms [] [] []
+collection ms = MethodCollection ms []
 
 {- | Re-read the exported package the way the loader does: build the flow
 enrichment map from the @flows\/@ entries, then parse each @lciamethods\/@ file
@@ -163,16 +163,12 @@ spec = describe "Method.WriterILCD" $ do
             parseCompartment (compartmentCategories c) `shouldBe` Just (Compartment "water" "groundwater/long-term" "")
 
     describe "representation-loss warnings" $ do
-        it "counts damage, normalization/weighting and scoring sets" $ do
+        it "counts scoring sets" $ do
             let m = mkMethod 1 "Climate change" []
-                dc = DamageCategory "Human health" "DALY" [("Climate change", 1)]
-                nw = NormWeightSet "EF" (M.singleton "Climate change" 1) M.empty
-                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing
-            case serializeIlcdMethodEntries (MethodCollection [m] [dc] [nw] [ss]) of
+                ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
+            case serializeIlcdMethodEntries (MethodCollection [m] [ss]) of
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, warnings) -> do
-                    warnings `shouldSatisfy` any (T.isInfixOf "1 damage categories")
-                    warnings `shouldSatisfy` any (T.isInfixOf "1 normalization/weighting sets")
                     warnings `shouldSatisfy` any (T.isInfixOf "1 formula scoring sets")
 
         it "does not warn about methodology or description, which round-trip natively" $ do

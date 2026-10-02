@@ -26,7 +26,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
-import Method.Types (ScoringSet (..))
+import Method.Types (ScoringSet (..), ScoringSetOrigin (..))
 import Test.Hspec
 
 -- ---------------------------------------------------------------------------
@@ -46,6 +46,8 @@ pefSet =
         , ssWeighting = M.empty
         , ssScores = M.fromList [("total", "acd + cch")]
         , ssDisplayMultiplier = Nothing
+        , ssUnits = M.empty
+        , ssOrigin = DeclaredInConfig
         }
 
 ecsSet :: ScoringSet

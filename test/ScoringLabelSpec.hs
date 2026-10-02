@@ -10,7 +10,7 @@ import API.Routes (computeAllScoringSets)
 import API.Types (ScoringIndicator (..))
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
-import Method.Types (ScoringSet (..))
+import Method.Types (ScoringSet (..), ScoringSetOrigin (..))
 import Test.Hspec
 
 scoringSet :: ScoringSet
@@ -30,6 +30,8 @@ scoringSet =
         , ssWeighting = M.fromList [("cch", 1.0), ("etf", 1.0)]
         , ssScores = M.fromList [("total", "cch + etf")]
         , ssDisplayMultiplier = Nothing
+        , ssUnits = M.empty
+        , ssOrigin = DeclaredInConfig
         }
 
 rawScores :: M.Map Text Double

@@ -32,7 +32,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TEE
 
 import Method.CSV (detectDelimiter, parseDouble, splitRow)
-import Method.Types (NormWeightSet (..))
+import Method.SimaProScoring (NormWeightSet (..))
 
 -- | Parse a normalization/weighting CSV file from disk.
 parseNormWeightCSV :: FilePath -> IO (Either String NormWeightSet)

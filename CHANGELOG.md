@@ -150,6 +150,26 @@
   factors. `--unmatched` is removed, since the summary already lists the
   factors that found no flow.
 
+- A SimaPro method's damage categories and normalization-weighting sets are
+  read as scoring sets, one per normalization-weighting set, each with a
+  `Single score`: the sum SimaPro computes, which the engine never gave
+  before. It arrives in `scoringResults`, beside the scoring sets the
+  configuration declares. A configured scoring set is now added to the ones
+  read from the file rather than replacing them, and one named like them
+  stops the load. An export to SimaPro writes a scoring set back as damage
+  categories and a normalization-weighting set when the format can hold it,
+  and names the one it leaves out. A set that weighs without normalizing
+  scores the way SimaPro does with normalization switched off, and two sets
+  of one name read from the method files stop the load. `list_scoring_sets`
+  gives the `units` of each variable. Wire revision 37.
+
+### Deprecated
+
+- `damageCategory`, `normalizedScore` and `weightedScore` on a result, and
+  `normWeightSetName`, `availableNWsets`, `singleScore` and `singleScoreUnit`
+  on a batch, are read from the first scoring set read from the file and
+  will be removed in 0.16.0.
+
 ### Fixed
 
 - A flow whose method writes two values at one place reads the same value

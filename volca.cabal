@@ -86,6 +86,7 @@ library
                      , Method.WriterOlcaSchema
                      , Method.WriterSimaPro
                      , Method.ParserNW
+                     , Method.SimaProScoring
                      , Method.Mapping
                      , Method.Coverage
                      , Method.Explain
@@ -239,6 +240,7 @@ test-suite lca-tests
                      , MatrixExportSpec
                      , MethodSpec
                      , MethodPatchSpec
+                     , MethodConfigScoringSpec
                      , ExchangePatchSpec
                      , SimaProParserSpec
                      , SimaProRegistryCASSpec
@@ -255,6 +257,7 @@ test-suite lca-tests
                      , CharacterizedFlowsSpec
                      , CrossSubcompartmentSpec
                      , DuplicateFactorSpec
+                     , SimaProScoringSpec
                      , ServerSpec
                      , IdleSpec
                      , ReplSpec

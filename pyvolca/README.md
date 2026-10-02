@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 36** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 37** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -190,7 +190,7 @@ for c_flow in score.top_contributors:
 
 `method_id` takes a method UUID or its name: a name is resolved against the loaded methods, which also settles which collection carries it. Pass `collection=` only to pin one when several are loaded.
 
-`LCIAResult` carries the score, unit, optional `normalized_score` / `weighted_score` (in Pt), and the top contributing biosphere flows with their `share_pct`.
+`LCIAResult` carries the score, unit, and the top contributing biosphere flows with their `share_pct`.
 
 > *Compute every impact category in one go: climate, water, land use, …*
 
@@ -198,13 +198,14 @@ for c_flow in score.top_contributors:
 batch = c.get_impacts_batch(plants[0].process_id)
 for r in batch.results:
     print(f"  {r.category}: {r.score:.4g} {r.unit}")
-if batch.single_score is not None:
-    print(f"PEF single score: {batch.single_score:.4g} {batch.single_score_unit}")
+for set_name, scores in batch.scoring_results.items():
+    for score, value in scores.items():
+        print(f"{set_name} · {score}: {value:.4g}")
 ```
 
 There is no method to name here, so the collection has to come from somewhere: with one loaded it is that one, and with several the call refuses and names them, rather than scoring against a collection you did not pick. Pass `collection=` to say which.
 
-`LCIABatchResult` also surfaces formula-based scoring sets (PEF, ECS…) via `scoring_results` and `scoring_indicators`, so you can render a per-indicator chart alongside the aggregate single score.
+`scoring_results` holds the single scores of every scoring set the collection carries: the ones a SimaPro method file brings, one per normalization-weighting set with its `Single score`, and the ones the configuration declares. `scoring_indicators` breaks each down per variable, so you can render a per-indicator chart alongside it.
 
 ## Drill into what drives a single impact
 

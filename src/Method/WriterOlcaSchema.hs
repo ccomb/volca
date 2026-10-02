@@ -140,8 +140,6 @@ lossWarnings mc =
         (\(count, what) -> if count == 0 then Nothing else Just (T.pack (show count) <> " " <> what))
         [ (S.size lostMethodologies, "methodology labels are not representable in openLCA JSON-LD (re-import reads \"openLCA JSON-LD\")")
         , (length blankCategories, "blank impact category group labels read back as the category name")
-        , (length (mcDamageCategories mc), "damage categories are not representable in openLCA JSON-LD")
-        , (length (mcNormWeightSets mc), "normalization/weighting sets are not representable in openLCA JSON-LD")
         , (length (mcScoringSets mc), "formula scoring sets are not representable in openLCA JSON-LD")
         ]
   where

@@ -10,7 +10,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel da
 - **Explore** supply chain trees, force-directed dependency graphs, downstream consumers, shortest-path routing, and supply chain analysis by sector classification
 - **Compute** life cycle inventories (LCI) and impact scores (LCIA) – single method or whole collection – with per-flow and per-activity contribution breakdowns
 - **What-if substitutions** – swap an upstream activity (or a cross-database supplier) and recompute inventory and impacts in a single call
-- **Normalize and weight** LCIA results with Raw / Normalized / Weighted view toggle; compute a single-score in Pt when normalization-weighting data is available
+- **Normalize and weight** LCIA results; a single score in Pt for every scoring set, whether a SimaPro method file brings it or the configuration declares it
 - **Map** method characterization factors to database flows with a 4-step cascade (UUID → name → synonym → CAS) and coverage statistics
 - **Link** databases across nomenclatures (e.g., a sector database referencing Agribalyse)
 - **Upload** databases and method collections via the API, without touching config files
@@ -24,7 +24,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel da
 - **Cross-database linking**: Resolve supplier references across databases, with configurable dependencies and topological load ordering. EcoSpold2 inputs link to a loaded background by exact `activityLinkId` identity (so a partial import resolves against its matching release), falling back to attribute matching – flagged as approximate – when the background is a different release
 - **Cross-DB what-if substitutions**: Swap an upstream activity at any depth – including suppliers in dependency databases – and recompute inventory and impacts through one endpoint
 - **LCIA method collections**: Load ILCD method packages (ZIP or directory), SimaPro method CSV exports, openLCA JSON-LD impact categories, or tabular CSV from config, beside a built-in `plain-indicators` collection that counts raw physical quantities; export any loaded collection back as SimaPro method CSV, columnar CSV (one column per impact category – the spreadsheet view), an openLCA JSON-LD zip, or an ILCD method package zip
-- **Normalization and weighting**: Batch LCIA computes normalized and weighted scores per category and a single aggregated score (Pt) when NW data is present in the method collection
+- **Normalization and weighting**: a method collection carries scoring sets, each turning impact scores into named single scores (Pt). A SimaPro method file gives one per normalization-weighting set, named after it, whose variables are its damage categories: each sums the impact categories it groups, times their coefficients, and the `Single score` adds up the damages that have a weight, and a normalization as well unless the set normalizes nothing (SimaPro's normalization switched off). A damage that groups no impact category reads as zero. Variable names are short names the engine makes from the damage names (lowercase ASCII letters and digits, each run of anything else one underscore); the `labels` and `units` of the set carry the names and units as the file wrote them. A file with damage categories and no normalization-weighting set gives one set named `Damage assessment`, with no score
 - **Contribution analysis**: Per-flow and per-activity contributions to any LCIA score, ranked by share
 - **Flow mapping engine**: 4-step matching cascade (UUID → name → synonym → CAS) with per-strategy coverage statistics
 - **Activity classifications**: ISIC, CPC, and category fields parsed from EcoSpold1/2 and ILCD, with named TOML presets for common filter bundles
@@ -425,7 +425,7 @@ The routes under `method/{methodId}` take an optional `?collection=`. A method's
 
 Per-exchange data on inventory and impact responses includes `exComment` – the free-text comment (`generalComment` / `<comment>`) attached to each exchange in the source dataset, when present.
 
-The `impacts/{collection}` response includes per-category `normalizedScore` and `weightedScore` fields (when normalization-weighting data is present in the method collection), plus a `singleScore` sum in Pt.
+The `impacts/{collection}` response carries every scoring set's scores in `scoringResults`, keyed by set name then score name. The per-category `normalizedScore`, `weightedScore` and `damageCategory`, and the batch's `normWeightSetName` and `availableNWsets`, are read from the first scoring set a SimaPro file gave; they are deprecated and go in 0.16.0.
 
 ### OpenAPI spec
 
