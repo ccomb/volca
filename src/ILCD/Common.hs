@@ -20,10 +20,12 @@ module ILCD.Common (
     Claimed (..),
     Indexed (..),
     latestByUUID,
+    tightCloseTags,
 ) where
 
 import qualified Data.ByteString as BS
-import Data.Char (toLower)
+import qualified Data.ByteString.Char8 as BS8
+import Data.Char (isSpace, toLower)
 import Data.List (sort, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -39,6 +41,24 @@ import EcoSpold.Common (bsToText, isElement)
 import System.Directory (listDirectory)
 import System.FilePath (takeExtension, (</>))
 import qualified Xeno.SAX as X
+
+{- | The file with the space some packages write before a closing tag's bracket
+(@</referenceToX >@) removed.
+
+The SAX parser takes such a tag for an opening one, so everything it closes
+stays open: a citation seen through it would never end. Only whitespace is legal
+there, so removing it changes nothing a conforming reader would see.
+-}
+tightCloseTags :: BS.ByteString -> BS.ByteString
+tightCloseTags = BS.concat . go
+  where
+    go :: BS.ByteString -> [BS.ByteString]
+    go s = case BS.breakSubstring "</" s of
+        (before, rest)
+            | BS.null rest -> [before]
+            | otherwise ->
+                let (name, after) = BS8.break (\c -> isSpace c || c == '>') (BS.drop 2 rest)
+                 in before : "</" : name : go (BS8.dropWhile isSpace after)
 
 {- | The XML files of a directory, in one order.
 

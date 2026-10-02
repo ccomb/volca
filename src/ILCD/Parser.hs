@@ -41,7 +41,7 @@ import UnitConversion (UnitConfig)
 import qualified Xeno.SAX as X
 
 import EcoSpold.Common (bsToText, distributeFiles, isElement)
-import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles)
+import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles, tightCloseTags)
 import Method.FlowResolver (ILCDFlowInfo (..), parseFlowDirectory)
 import qualified Method.Types as MT
 import Progress (ProgressLevel (..), reportProgress)
@@ -156,7 +156,7 @@ readDataSets dir parse = do
     oneDataSetPerUUID (Data.Maybe.catMaybes claims)
   where
     claimOf :: FilePath -> IO (Maybe (Claimed a))
-    claimOf f = fmap (uncurry (Claimed f)) . parse <$> BS.readFile f
+    claimOf f = fmap (uncurry (Claimed f)) . parse . tightCloseTags <$> BS.readFile f
 
 {- | One dataset per UUID out of what a directory was read as, saying which
 files a newer version superseded.
@@ -482,7 +482,7 @@ parseProcessXML bytes =
             , psTimeStamp = ""
             }
         )
-        bytes of
+        (tightCloseTags bytes) of
         Left _ -> Nothing
         Right s -> buildProcess s
   where
