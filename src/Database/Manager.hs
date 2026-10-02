@@ -56,6 +56,7 @@ module Database.Manager (
     loadMethodCollection,
     loadMethodCollectionFromConfig,
     applyMethodConfig,
+    namedOnce,
     unloadMethodCollection,
     getLoadedMethods,
     getMethodCollection,
@@ -155,12 +156,12 @@ import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
 import Data.Indexing (uniqueIndex)
 import qualified Data.Indexing as Indexing
-import Data.List (intercalate, isPrefixOf, sort, sortOn)
+import Data.List (find, intercalate, isPrefixOf, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe, isNothing, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, mapMaybe)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToParamSchema, ToSchema (..), enum_, type_)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
@@ -174,7 +175,7 @@ import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileE
 import System.FilePath (takeDirectory, takeExtension, takeFileName, (</>))
 import System.Mem (performGC)
 
-import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName)
+import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName, builtinMethods)
 import Config
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -295,6 +296,7 @@ import qualified UnitConversion
 -- CrossDBLinkingStats is now in Types, re-exported from Database.Loader
 
 import API.Types (DepLoadResult (..))
+import Data.JournalFile (readEntries)
 import Database.Author (AuthorContext (..))
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
@@ -304,6 +306,7 @@ import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
 import Method.FlowResolver (ILCDFlowInfo)
 import qualified Method.FlowResolver as FlowResolver
+import Method.Journal (replayMethodJournal)
 import qualified Method.Parser
 import qualified Method.Parser.OlcaSchema as OlcaSchema
 import Method.ParserCSV (parseMethodCSVBytes, stripBOM)
@@ -560,6 +563,7 @@ data MethodCollectionStatus = MethodCollectionStatus
     , mcsDescription :: !(Maybe Text) -- Optional description
     , mcsStatus :: !DatabaseLoadStatus -- Loaded/Unloaded (reuse existing type)
     , mcsIsUploaded :: !Bool -- True if uploaded (vs. configured in TOML)
+    , mcsSource :: !(Maybe Text) -- The collection this one is a copy of
     , mcsPath :: !Text -- Path to method directory
     , mcsMethodCount :: !Int -- Number of impact categories (0 if unloaded)
     , mcsFormat :: !Text -- "SimaPro CSV", "ILCD", etc.
@@ -574,6 +578,7 @@ instance ToJSON MethodCollectionStatus where
             , "mcsDescription" .= mcsDescription
             , "mcsStatus" .= mcsStatus
             , "mcsIsUploaded" .= mcsIsUploaded
+            , "mcsSource" .= mcsSource
             , "mcsPath" .= mcsPath
             , "mcsMethodCount" .= mcsMethodCount
             , "mcsFormat" .= mcsFormat
@@ -587,6 +592,7 @@ instance FromJSON MethodCollectionStatus where
             <*> v .:? "mcsDescription"
             <*> v .: "mcsStatus"
             <*> v .: "mcsIsUploaded"
+            <*> v .:? "mcsSource"
             <*> v .: "mcsPath"
             <*> v .: "mcsMethodCount"
             <*> v .: "mcsFormat"
@@ -1768,8 +1774,6 @@ applyMethodConfig mc collection0 = do
         fromFile = Method.Types.mcScoringSets collection0
         clashes = [ssName s | s <- configured, ssName s `elem` map ssName fromFile]
         quoted = T.intercalate ", " . map (\n -> "'" <> n <> "'")
-    unless (null (repeated fromFile)) $
-        Left ("scoring set " <> quoted (repeated fromFile) <> " is read twice from the method files; a set is named once")
     unless (null clashes) $
         Left ("scoring set " <> quoted clashes <> " is declared in the configuration and also read from the method file; rename the configured one")
     pure (Method.Patch.applyMethodPatches (Config.mcPatches mc) collection0{Method.Types.mcScoringSets = fromFile <> configured, mcUnregionalized = Config.mcGlobalMethods mc})
@@ -1778,12 +1782,22 @@ applyMethodConfig mc collection0 = do
 repeated :: [ScoringSet] -> [Text]
 repeated sets = M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(ssName s, 1) | s <- sets]))
 
-{- | Load a configured collection and fold its configuration in: the
-collection, how many factors each patch touched, and its ILCD flow
-definitions.
+{- | Load a collection and fold in what is added to its files: its
+configuration for a collection the configuration declares, its journal for one
+under @uploads/methods/@. Never both: a collection there has no configuration.
+Gives the collection, how many factors each configured patch touched, and its
+ILCD flow definitions.
 -}
 loadConfiguredCollection :: MethodConfig -> IO (Either Text ((MethodCollection, [(Config.MethodPatch, Int)]), M.Map UUID ILCDFlowInfo))
-loadConfiguredCollection mc = (>>= bitraverse (applyMethodConfig mc) pure) <$> loadMethodCollectionFromConfig mc
+loadConfiguredCollection mc = case mcHome mc of
+    Nothing -> (>>= bitraverse (applyMethodConfig mc) pure) <$> loadMethodCollectionFromConfig mc
+    Just home -> do
+        parsed <- loadMethodCollectionFromConfig mc
+        entries <- readEntries home
+        pure $ do
+            (collection, flowInfo) <- parsed
+            replayed <- replayMethodJournal collection =<< entries
+            pure ((replayed, []), flowInfo)
 
 {- | Surface a patch that matched no characterization factor: the selector is
 almost certainly wrong (a typo'd category or flow name), and staying silent
@@ -1802,25 +1816,45 @@ warnZeroTouchPatches collName stats =
 discoverUploadedMethodConfigs :: IO [MethodConfig]
 discoverUploadedMethodConfigs = do
     uploads <- UploadedDB.discoverUploadedMethods
-    forM uploads $ \(slug, dirPath, meta) -> do
+    fmap catMaybes . forM uploads $ \(slug, dirPath, meta) -> do
         reportProgress Info $ "Discovered uploaded method: " <> T.unpack slug
-        -- Find the actual method XML directory (e.g., ILCD/lciamethods/)
-        methodDir <- findMethodDirectory dirPath
-        -- Read the format off the directory rather than meta.toml: the file on
-        -- disk may predate method-aware detection, and can't drift this way.
-        methodFormat <- detectMethodFormat methodDir
-        return
-            MethodConfig
-                { mcName = UploadedDB.umDisplayName meta
-                , mcOrigin = MethodFromFile methodDir
-                , mcActive = False -- Never auto-load uploaded methods
-                , mcIsUploaded = True
-                , mcDescription = UploadedDB.umDescription meta
-                , mcFormat = detectedFormatLabel methodFormat
-                , mcScoringSets = []
-                , mcGlobalMethods = []
-                , mcPatches = []
-                }
+        originOf dirPath meta >>= \case
+            Left err -> Nothing <$ reportProgress Warning (dirPath <> ": " <> T.unpack err <> ", the collection is left out")
+            Right (origin, format) ->
+                pure . Just $
+                    MethodConfig
+                        { mcName = UploadedDB.umDisplayName meta
+                        , mcOrigin = origin
+                        , mcActive = False -- Never auto-load uploaded methods
+                        , mcHome = Just dirPath
+                        , mcSource = UploadedDB.umSource meta
+                        , mcDescription = UploadedDB.umDescription meta
+                        , mcFormat = format
+                        , mcScoringSets = []
+                        , mcGlobalMethods = []
+                        , mcPatches = []
+                        }
+
+{- | Where an uploaded collection's factors come from, and the format they are
+in. An upload holds its own files, found inside its directory; a copy points
+at its source's, or names the collection built into the engine it was taken
+from. The format is read off the files rather than meta.toml: the file on disk
+may predate method-aware detection, and can't drift this way.
+-}
+originOf :: FilePath -> UploadedDB.UploadMeta -> IO (Either Text (MethodOrigin, Maybe Text))
+originOf dirPath meta = case (UploadedDB.umBuiltIn meta, UploadedDB.umSource meta) of
+    (Just name, _) ->
+        pure $
+            maybe
+                (Left ("no collection named " <> name <> " is built into this engine"))
+                (\b -> Right (MethodBuiltIn b, Nothing))
+                (find ((== name) . builtinMethodName) builtinMethods)
+    (Nothing, Just _) -> fromFiles (UploadedDB.umDataPath meta)
+    -- Find the actual method directory (e.g., ILCD/lciamethods/)
+    (Nothing, Nothing) -> fromFiles =<< findMethodDirectory dirPath
+  where
+    fromFiles :: FilePath -> IO (Either Text (MethodOrigin, Maybe Text))
+    fromFiles methodDir = Right . (,) (MethodFromFile methodDir) . detectedFormatLabel <$> detectMethodFormat methodDir
 
 -- | Get a database by name
 getDatabase :: DatabaseManager -> Text -> IO (Maybe LoadedDatabase)
@@ -3942,9 +3976,22 @@ data ParsedMethodFiles = ParsedMethodFiles
 
 -- | Load the methods a MethodConfig names, from the binary or from disk.
 loadMethodCollectionFromConfig :: MethodConfig -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
-loadMethodCollectionFromConfig mc = case mcOrigin mc of
-    MethodBuiltIn builtin -> pure (builtinMethodCollection builtin)
-    MethodFromFile path -> loadMethodCollectionFromPath path
+loadMethodCollectionFromConfig mc = (>>= bitraverse namedOnce pure) <$> parsed
+  where
+    parsed :: IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
+    parsed = case mcOrigin mc of
+        MethodBuiltIn builtin -> pure (builtinMethodCollection builtin)
+        MethodFromFile path -> loadMethodCollectionFromPath path
+
+{- | Scores are reported by set name, so two sets of one name read from the
+method files would hide each other; the load stops and names them. A check on
+the files, so it holds whatever is folded in after them.
+-}
+namedOnce :: MethodCollection -> Either Text MethodCollection
+namedOnce collection = case repeated (Method.Types.mcScoringSets collection) of
+    [] -> Right collection
+    twice ->
+        Left ("scoring set " <> T.intercalate ", " (map (\n -> "'" <> n <> "'") twice) <> " is read twice from the method files; a set is named once")
 
 {- | A built-in collection is a columnar method CSV, with no flow definitions
 beside it. It cannot fail to parse unless the build did (BuiltinSpec compares
@@ -4143,7 +4190,8 @@ listMethodCollections manager = do
             , mcsDisplayName = mcName mc
             , mcsDescription = mcDescription mc
             , mcsStatus = if M.member name loaded then Loaded else Unloaded
-            , mcsIsUploaded = mcIsUploaded mc
+            , mcsIsUploaded = isJust (mcHome mc)
+            , mcsSource = mcSource mc
             , mcsPath = T.pack (describeMethodOrigin (mcOrigin mc))
             , mcsMethodCount = maybe 0 (length . mcMethods) (M.lookup name loaded)
             , mcsFormat = fromMaybe (formatOf (mcOrigin mc)) (mcFormat mc)
@@ -4236,18 +4284,16 @@ removeMethodCollection manager name = do
     case M.lookup name available of
         Nothing -> return $ Left $ "Method collection not found: " <> name
         Just mc
-            | MethodBuiltIn _ <- mcOrigin mc ->
+            | (copy : _) <- [mcName other | other <- M.elems available, mcSource other == Just name] ->
+                return $ Left $ name <> " holds the files " <> copy <> " is a copy of. Delete " <> copy <> " first."
+            | Nothing <- mcHome mc
+            , MethodBuiltIn _ <- mcOrigin mc ->
                 return $ Left $ "Cannot delete a method built into this engine. Switch it off in volca.toml: [[methods]] name = \"" <> name <> "\", active = false."
-            | not (mcIsUploaded mc) ->
+            | Nothing <- mcHome mc ->
                 return $ Left "Cannot delete configured method. Edit volca.toml to remove it."
             | M.member name loaded ->
                 return $ Left "Cannot delete loaded method. Close it first."
-            | otherwise -> do
-                -- Find and delete the upload directory
-                methodUploadsDir <- UploadedDB.getMethodUploadsDir
-                -- The slug is derived from the directory name; search for it
-                let slug = Upload.slugify name
-                    uploadDir = methodUploadsDir </> T.unpack slug
+            | Just uploadDir <- mcHome mc -> do
                 pathExists <- doesDirectoryExist uploadDir
                 if pathExists
                     then do

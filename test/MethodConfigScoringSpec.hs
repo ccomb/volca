@@ -10,7 +10,7 @@ import Test.Hspec
 
 import Config (MethodConfig (MethodConfig), MethodOrigin (..), ScoringSetConfig (..))
 import qualified Config
-import Database.Manager (applyMethodConfig)
+import Database.Manager (applyMethodConfig, namedOnce)
 import Method.Types
 
 configured :: Text -> ScoringSetConfig
@@ -25,7 +25,8 @@ config sets =
         { Config.mcName = "test"
         , Config.mcOrigin = MethodFromFile "unused.csv"
         , Config.mcActive = True
-        , Config.mcIsUploaded = False
+        , Config.mcHome = Nothing
+        , Config.mcSource = Nothing
         , Config.mcDescription = Nothing
         , Config.mcFormat = Nothing
         , Config.mcScoringSets = sets
@@ -40,7 +41,7 @@ spec = describe "applyMethodConfig" $ do
             `shouldBe` Right [("EF", ReadFromSimaProFile), ("Mine", DeclaredInConfig)]
 
     it "refuses two sets of one name read from the method files" $
-        case applyMethodConfig (config []) (MethodCollection [] [fromFile "EF", fromFile "EF"] []) of
+        case namedOnce (MethodCollection [] [fromFile "EF", fromFile "EF"] []) of
             Left err -> err `shouldSatisfy` T.isInfixOf "scoring set 'EF' is read twice from the method files"
             Right _ -> expectationFailure "expected the duplicate to be refused"
 

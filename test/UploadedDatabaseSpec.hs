@@ -21,6 +21,7 @@ baseMeta =
         , umDepends = []
         , umSource = Nothing
         , umAllocation = Declared
+        , umBuiltIn = Nothing
         }
 
 spec :: Spec
@@ -97,6 +98,7 @@ spec = do
                         , umDepends = []
                         , umSource = Nothing
                         , umAllocation = Declared
+                        , umBuiltIn = Nothing
                         }
 
         it "parses meta with description" $ do

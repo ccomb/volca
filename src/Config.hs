@@ -316,7 +316,14 @@ data MethodConfig = MethodConfig
     { mcName :: !Text
     , mcOrigin :: !MethodOrigin
     , mcActive :: !Bool
-    , mcIsUploaded :: !Bool -- True for uploaded methods (vs. configured in TOML)
+    , mcHome :: !(Maybe FilePath)
+    {- ^ The directory under @uploads/methods/@ a collection lives in, holding
+    its @meta.toml@ and its journal. A collection there is changed through its
+    journal and never through the configuration; one the configuration
+    declares, or the engine carries, has none and is changed by copying it.
+    -}
+    , mcSource :: !(Maybe Text)
+    -- ^ The collection this one is a copy of, which its files belong to.
     , mcDescription :: !(Maybe Text) -- Optional description
     , mcFormat :: !(Maybe Text) -- Detected format ("SimaPro CSV", "ILCD", etc.)
     , mcScoringSets :: ![ScoringSetConfig] -- Formula-based scoring sets
@@ -539,7 +546,8 @@ builtinMethodEntry m =
         { mcName = builtinMethodName m
         , mcOrigin = MethodBuiltIn m
         , mcActive = True
-        , mcIsUploaded = False
+        , mcHome = Nothing
+        , mcSource = Nothing
         , mcDescription = originDescription (MethodBuiltIn m)
         , mcFormat = Nothing
         , mcScoringSets = []
@@ -675,7 +683,8 @@ instance DecodeTOML MethodConfig where
                         <> T.unpack mcName
                         <> "\""
         mcActive <- fromMaybe True <$> getFieldOpt "active"
-        let mcIsUploaded = False -- Methods from TOML are not uploaded
+        let mcHome = Nothing -- A collection the configuration declares changes by copying it
+            mcSource = Nothing
         mcDescription <- maybe (originDescription mcOrigin) Just <$> getFieldOpt "description"
         let mcFormat = Nothing -- Detected later from file content
         mcScoringSets <- fromMaybe [] <$> getFieldOpt "scoring"

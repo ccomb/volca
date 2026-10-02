@@ -1017,6 +1017,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umDepends = []
                             , UploadedDB.umSource = Nothing
                             , UploadedDB.umAllocation = Declared
+                            , UploadedDB.umBuiltIn = Nothing
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1223,6 +1224,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umDepends = []
                             , UploadedDB.umSource = Nothing
                             , UploadedDB.umAllocation = Declared
+                            , UploadedDB.umBuiltIn = Nothing
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1232,7 +1234,8 @@ uploadMethodHandler mName mDesc src =
                             { mcName = name
                             , mcOrigin = MethodFromFile methodDir
                             , mcActive = False
-                            , mcIsUploaded = True
+                            , mcHome = Just uploadDir
+                            , mcSource = Nothing
                             , mcDescription = mDescription
                             , mcFormat = detectedFormatLabel methodFormat
                             , mcScoringSets = []
