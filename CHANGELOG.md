@@ -27,6 +27,9 @@
 - An EcoSpold 1 database lists in its `documentation` the sources its
   datasets cite, once each, under `literature`: the title of each, and the
   whole reference. Databases are read again from their source on first load.
+  A source a converter titled "Created for EcoSpold 1 compatibility", leaving
+  its fields empty and the reference in its text, is named and cited from that
+  text, there and in the activity's own sources; one with no text is left out.
 - An activity carries the dates its dataset states, in `dates`: `created`,
   `lastRevised` and `stated`. EcoSpold 2 records a creation and a last edit,
   EcoSpold 1 a creation, ILCD the day the dataset was last saved. A SimaPro
