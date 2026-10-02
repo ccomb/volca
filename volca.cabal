@@ -92,6 +92,7 @@ library
                      , Method.Mapping
                      , Method.Coverage
                      , Method.Explain
+                     , Method.EditPlan
                      , Method.Journal
                      , Method.Patch
                      , Method.ChemSynonyms
@@ -375,6 +376,7 @@ test-suite lca-tests
                      , AuthorSpec
                      , JournalFileSpec
                      , JournalSpec
+                     , MethodEditPlanSpec
                      , MethodJournalSpec
                      , ActivityWriteHandlerSpec
                      , PersistenceSpec
