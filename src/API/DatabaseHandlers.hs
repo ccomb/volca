@@ -34,6 +34,7 @@ module API.DatabaseHandlers (
     replaceActivityHandler,
     editExchangesHandler,
     exportDatabaseHandler,
+    documentFileHandler,
     exportMethodHandler,
     encodeExportWarnings,
     uploadDatabaseHandler,
@@ -80,7 +81,7 @@ import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, unsnoc)
 import qualified Data.Map as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -202,6 +203,7 @@ import Database.Manager (
     loadDatabase,
     loadFlowSynonyms,
     loadUnitDefs,
+    readDocumentFile,
     readRefDataSource,
     relinkDatabase,
     relinkDatabaseWithMapping,
@@ -706,6 +708,27 @@ exportDatabaseHandler dbName req = do
     ld <- maybe (exportErr err404 ("Database not loaded: " <> dbName)) pure mLoaded
     (bytes, warnings) <- either (exportErr err400) pure (serializeDatabase fmt (ldDatabase ld))
     pure (addHeader (encodeExportWarnings warnings) (BinaryContent bytes))
+
+{- | A file a database ships with one of its literature entries, as an
+attachment named after it. 404 for a database not loaded, a path its
+documentation does not list, or one its package does not hold.
+-}
+documentFileHandler :: Text -> [Text] -> AppM (Headers '[Header "Content-Disposition" Text] BinaryContent)
+documentFileHandler dbName segments = do
+    dbManager <- asks aeDbManager
+    bytes <- liftIO (readDocumentFile dbManager dbName path) >>= either (exportErr err404) pure
+    pure (addHeader (attachment (last' segments)) (BinaryContent (BSL.fromStrict bytes)))
+  where
+    path :: Text
+    path = T.intercalate "/" segments
+
+    last' :: [Text] -> Text
+    last' = maybe path snd . unsnoc
+
+    -- RFC 6266: the UTF-8 name, percent-encoded, beside a plain fallback.
+    attachment :: Text -> Text
+    attachment name =
+        "attachment; filename=\"" <> T.filter (\c -> c /= '"' && c >= ' ' && c < '\DEL') name <> "\"; filename*=UTF-8''" <> T.decodeUtf8 (urlEncode False (T.encodeUtf8 name))
 
 {- | Export a loaded method collection over the same transport as the database
 export: raw octet-stream body, projection warnings percent-encoded in the

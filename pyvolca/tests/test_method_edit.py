@@ -15,7 +15,7 @@ from tests.conftest import _make_response
 BASE = "http://test.local/api/v1/method-collections"
 
 
-def _engine(session, wire: int = 40) -> None:
+def _engine(session, wire: int = 41) -> None:
     """Answer get_version with ``wire``, and every POST with an empty change."""
     session.get.return_value = _make_response(
         {"version": "0.16.0", "gitHash": "abc", "gitTag": "v0.16.0", "buildTarget": "x", "wireVersion": wire}
@@ -120,7 +120,7 @@ def test_history_and_flows(mocked_client):
 
 def test_an_older_engine_is_refused(mocked_client):
     client, session = mocked_client
-    _engine(session, wire=39)
-    with pytest.raises(VoLCAError, match="wire revision >= 40"):
+    _engine(session, wire=40)
+    with pytest.raises(VoLCAError, match="wire revision >= 41"):
         client.set_method_factor("copy", "m", "f", 27.0)
     session.post.assert_not_called()

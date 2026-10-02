@@ -1160,7 +1160,7 @@ class Client:
         return "/".join([f"{self.base_url}/api/v1/method-collections", urllib.parse.quote(collection, safe=""), *rest])
 
     def _edit_method_factors(self, feature: str, collection: str, body: dict) -> dict:
-        self._require_wire(40, feature, engine_hint="0.15.0")
+        self._require_wire(41, feature, engine_hint="0.15.0")
         return self._json(self._session.post(self._method_collection_url(collection, "factors"), json=_drop_none(body)))
 
     def copy_method_collection(self, collection: str, new_name: str) -> dict:
@@ -1175,9 +1175,9 @@ class Client:
         refused. Returns the collection made, whose ``name`` is the one the
         next call takes.
 
-        Needs an engine speaking wire revision 40.
+        Needs an engine speaking wire revision 41.
         """
-        self._require_wire(40, "copy_method_collection", engine_hint="0.15.0")
+        self._require_wire(41, "copy_method_collection", engine_hint="0.15.0")
         return self._json(self._session.post(self._method_collection_url(collection, "copy", urllib.parse.quote(new_name, safe=""))))
 
     def set_method_factor(
@@ -1270,7 +1270,7 @@ class Client:
         undone by restoring the values it replaced, which is refused, naming
         the factor, when a later line changed one of them.
         """
-        self._require_wire(40, "undo_method_edit", engine_hint="0.15.0")
+        self._require_wire(41, "undo_method_edit", engine_hint="0.15.0")
         params = {} if line is None else {"line": line}
         return self._json(self._session.post(self._method_collection_url(collection, "undo"), params=params))
 
@@ -1283,7 +1283,7 @@ class Client:
         it is ``inEffect``, and the ``change`` it made. A collection the
         configuration declares has an empty history.
         """
-        self._require_wire(40, "method_history", engine_hint="0.15.0")
+        self._require_wire(41, "method_history", engine_hint="0.15.0")
         return self._json(self._session.get(self._method_collection_url(collection, "history")))
 
     def search_method_flows(self, collection: str, q: str, *, limit: int | None = None) -> list[dict]:
@@ -1293,7 +1293,7 @@ class Client:
         and compartment a new factor for that flow is written with (50 at most
         unless ``limit`` says otherwise).
         """
-        self._require_wire(40, "search_method_flows", engine_hint="0.15.0")
+        self._require_wire(41, "search_method_flows", engine_hint="0.15.0")
         params: dict = {"q": q}
         if limit is not None:
             params["limit"] = limit
@@ -1358,6 +1358,27 @@ class Client:
         for line in urllib.parse.unquote(header).split("\n"):
             if line:
                 warnings.warn(line, stacklevel=2)
+        return resp.content
+
+    def document_file(self, path: str, db_name: str | None = None) -> bytes:
+        """The bytes of a file a database ships with a literature entry.
+
+        ``path`` is one of the ``files`` a literature entry of the database's
+        setup ``documentation`` lists, such as ``external_docs/report.pdf``;
+        only an ILCD package ships any. Raises VoLCAError on an HTTP error,
+        a 404 when the documentation lists no such file or the package does
+        not hold it.
+        """
+        self._require_wire(40, "document_file", engine_hint="0.15.0")
+        target = self._db(db_name)
+        resp = self._session.get(
+            f"{self.base_url}/api/v1/db/{target}/files/{urllib.parse.quote(path)}",
+            headers={"Accept": "application/octet-stream"},
+        )
+        if resp.status_code >= 400:
+            raise VoLCAError(
+                f"document_file failed (HTTP {resp.status_code}): {resp.text[:500]}"
+            )
         return resp.content
 
     def export_to_file(
@@ -1511,7 +1532,8 @@ class Client:
         tool that wrote the file, its format version, the day, time and project
         it was exported from; under ``systems``, each system description its
         datasets name, and under ``literature`` each literature reference it
-        holds, both with a ``name``, ``category`` and ``sections``. A SimaPro
+        holds, both with a ``name``, ``category``, ``sections`` and ``files``
+        (the files it ships, which :meth:`document_file` reads). A SimaPro
         export says all of it; an EcoSpold 1 database lists under
         ``literature`` the sources its datasets cite, and an ILCD package the
         sources it holds; another format leaves

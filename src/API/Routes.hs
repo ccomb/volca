@@ -181,6 +181,9 @@ type LCAAPI =
                 -- Export a loaded database as raw bytes in the requested format;
                 -- approximation warnings travel percent-encoded in a response header
                 :<|> "db" :> Capture "dbName" Text :> "export" :> ReqBody '[JSON] ExportRequest :> Post '[OctetStream] (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
+                -- A file a database ships with a literature entry, by the path
+                -- the entry lists it under
+                :<|> "db" :> Capture "dbName" Text :> "files" :> CaptureAll "path" Text :> Get '[OctetStream] (Headers '[Header "Content-Disposition" Text] BinaryContent)
                 -- Upload endpoint (streamed octet-stream body; metadata in query params)
                 :<|> "db" :> "upload" :> QueryParam "name" Text :> QueryParam "description" Text :> StreamBody NoFraming OctetStream (SourceIO UploadChunk) :> Post '[JSON] UploadResponse
                 -- Database setup endpoints (for cross-DB linking configuration)
@@ -1468,10 +1471,12 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 40: copying a method collection, changing, adding and removing its
+(revision 41: copying a method collection, changing, adding and removing its
 factors, undoing a change and reading its history, the flows a collection
 characterizes; the @flowRef@ of a compared factor and the @methodId@ of a
 compared category; the @source@ of a listed collection;
+revision 40: the @files@ a literature entry lists and the route serving
+them, @db/{name}/files/{path}@;
 revision 39: @process@ on the activity search, the rows of the processes a
 caller names, in its order;
 revision 38: the catalogue route, every process of a database page by page,
@@ -1559,7 +1564,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 40
+currentWireVersion = 41
 
 getVersion :: AppM Value
 getVersion = do
@@ -2695,6 +2700,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.replaceActivityHandler
             :<|> DBHandlers.editExchangesHandler
             :<|> DBHandlers.exportDatabaseHandler
+            :<|> DBHandlers.documentFileHandler
             :<|> DBHandlers.uploadDatabaseHandler
             :<|> DBHandlers.getDatabaseSetupHandler
             :<|> DBHandlers.addDependencyHandler

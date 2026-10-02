@@ -99,6 +99,7 @@ module Database.Manager (
 
     -- * Staged Database Operations
     getStagedDatabase,
+    readDocumentFile,
     getDatabaseSetupInfo,
     buildLoadedSetupInfo,
     databaseGapReport,
@@ -140,6 +141,7 @@ module Database.Manager (
 ) where
 
 import API.JsonOptions (Stripped (..))
+import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
@@ -175,8 +177,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import GHC.Generics (Generic)
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
-import System.FilePath (takeDirectory, takeExtension, takeFileName, (</>))
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
+import System.FilePath (addTrailingPathSeparator, takeDirectory, takeExtension, takeFileName, (</>))
 import System.Mem (performGC)
 
 import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName, builtinMethods)
@@ -258,10 +260,11 @@ import Types (
     CrossDBLink (..),
     CrossDBLinkingStats (..),
     Database (..),
-    DatabaseDocumentation,
+    DatabaseDocumentation (..),
     ExchangeLocation (..),
     FlowClosure (..),
     GeographyPolicy (..),
+    LibraryDocument (..),
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
@@ -3182,6 +3185,34 @@ getStagedDatabase :: DatabaseManager -> Text -> IO (Maybe StagedDatabase)
 getStagedDatabase manager dbName = do
     stagedDbs <- readTVarIO (dmStagedDbs manager)
     return $ M.lookup dbName stagedDbs
+
+{- | A file a database ships with one of its literature entries, by the path
+the entry lists it under. Only a path the documentation lists is read, and
+only when the file it names, links resolved, lies inside the database's own
+directory: an uploaded archive can hold a link pointing anywhere.
+-}
+readDocumentFile :: DatabaseManager -> Text -> Text -> IO (Either Text BS.ByteString)
+readDocumentFile manager dbName path = runExceptT $ do
+    (docs, config) <- ExceptT (maybe (Left ("Database not loaded: " <> dbName)) Right <$> documented)
+    unless (path `elem` concatMap documentFiles (dbdocLiterature docs)) $
+        throwE ("The documentation of " <> dbName <> " lists no file " <> path)
+    root <- ExceptT (resolveDataPath (dcPath config) >>= traverse Upload.findDataDirectory)
+    let file = root </> T.unpack path
+    present <- liftIO (doesFileExist file)
+    unless present $
+        throwE ("The documentation of " <> dbName <> " lists " <> path <> ", which its package does not hold")
+    inside <- liftIO (isPrefixOf <$> (addTrailingPathSeparator <$> canonicalizePath root) <*> canonicalizePath file)
+    unless inside $
+        throwE ("The documentation of " <> dbName <> " lists " <> path <> ", which leads out of its package")
+    liftIO (BS.readFile file)
+  where
+    documented :: IO (Maybe (DatabaseDocumentation, DatabaseConfig))
+    documented = do
+        loaded <- getDatabase manager dbName
+        staged <- getStagedDatabase manager dbName
+        pure $
+            ((\ld -> (dbDocumentation (ldDatabase ld), ldConfig ld)) <$> loaded)
+                <|> ((\sd -> (sdbDocumentation (sdSimpleDB sd), sdConfig sd)) <$> staged)
 
 {- | Supplier-gap report for a loaded or staged database: what is still
 missing to fully supply its demands from the pinned dependencies, aggregated
