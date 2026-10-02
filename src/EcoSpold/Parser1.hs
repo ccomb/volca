@@ -768,6 +768,7 @@ sourceDocument s = do
             { documentName = fromMaybe reference (mfilter (/= placeholderTitle) (nonEmptyText (s1Title s)))
             , documentCategory = ""
             , documentSections = [DocSection "Description" reference]
+            , documentFiles = []
             }
 
 {- | The provenance sections of one dataset, in the order a reader wants them:

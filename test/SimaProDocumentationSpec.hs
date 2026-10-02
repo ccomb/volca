@@ -61,6 +61,7 @@ spec = describe "SimaPro documentation" $ do
                                     [ DocSection "Description" "Ovens and mixers\n\nThe bakery's own \"rules\""
                                     , DocSection "Cut-off rules" "Less than 1%"
                                     ]
+                                , documentFiles = []
                                 }
                            ]
 
@@ -71,6 +72,7 @@ spec = describe "SimaPro documentation" $ do
                                 { documentName = "Bread book"
                                 , documentCategory = "Food"
                                 , documentSections = [DocSection "Description" "Baking at scale; second edition"]
+                                , documentFiles = []
                                 }
                            ]
 

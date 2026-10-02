@@ -378,6 +378,7 @@ test-suite lca-tests
                      , RefusalReasonsSpec
                      , ExchangeWireSpec
                      , DeleteSelectionSpec
+                     , DocumentFileSpec
                      , ExportSpec
                      , ExportHandlerSpec
                      , ZipSpec

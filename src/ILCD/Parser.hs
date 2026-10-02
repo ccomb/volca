@@ -21,13 +21,13 @@ import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (forM_)
+import Control.Monad (foldM, forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import qualified Data.ByteString as BS
 import Data.Containers.ListUtils (nubOrd)
-import Data.Either (fromRight)
-import Data.List (find)
+import Data.Either (fromRight, partitionEithers)
+import Data.List (find, uncons)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Maybe
@@ -39,8 +39,9 @@ import qualified Data.Text.Read as TR
 import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
 import Database.Allocation (Allocating (..), allocate)
+import Network.HTTP.Types.URI (urlDecode)
 import System.Directory (doesDirectoryExist)
-import System.FilePath (takeFileName, (</>))
+import System.FilePath ((</>))
 import Text.Printf (printf)
 import UnitConversion (UnitConfig)
 import qualified Xeno.SAX as X
@@ -319,8 +320,9 @@ data SrcState = SrcState
     }
 
 {- | One source dataset as a literature entry: its short name, its class, then
-its citation, its description and the files it points at, each a section when
-it says something. A file inside the package is named, an address kept whole.
+its citation and its description, each a section when it says something. A file
+it points at inside the package is listed by its path there, to be served; an
+address, or a path leading out of the package, stays a link to read.
 -}
 parseSourceXML :: BS.ByteString -> Maybe (UUID, LibraryDocument)
 parseSourceXML bytes =
@@ -329,6 +331,7 @@ parseSourceXML bytes =
         Right s -> do
             uuid <- UUID.fromText (srcUUID s)
             (_, name) <- srcName s
+            let (links, files) = partitionEithers (map packagePath (reverse (srcFiles s)))
             pure
                 ( uuid
                 , LibraryDocument
@@ -339,10 +342,11 @@ parseSourceXML bytes =
                         | (label, text) <-
                             [ ("Citation", srcCitation s)
                             , ("Description", maybe "" snd (srcComment s))
-                            , ("File", T.intercalate "\n" (reverse (srcFiles s)))
+                            , ("Link", T.intercalate "\n" links)
                             ]
                         , not (T.null text)
                         ]
+                    , documentFiles = files
                     }
                 )
   where
@@ -350,7 +354,7 @@ parseSourceXML bytes =
 
     attr s name value
         | isElement name "xml:lang" = s{srcLang = bsToText value}
-        | isElement name "uri" && srcInFile s = s{srcFiles = fileName (bsToText value) : srcFiles s}
+        | isElement name "uri" && srcInFile s = s{srcFiles = bsToText value : srcFiles s}
         | otherwise = s
 
     endOpen s _ = s
@@ -372,10 +376,27 @@ parseSourceXML bytes =
     accum :: SrcState -> Text
     accum s = T.strip $ decodeXmlEntities $ decodeNumericRefs $ TE.decodeUtf8 $ BS.concat $ reverse (srcTextAccum s)
 
-    fileName :: Text -> Text
-    fileName uri
-        | "://" `T.isInfixOf` uri = uri
-        | otherwise = T.pack (takeFileName (T.unpack uri))
+{- | Where a file a source dataset points at sits in the package, written from
+the package's root with forward slashes, or the address itself when it is not
+a file of the package: a web address, an absolute path (a Windows one
+included), or one climbing out.
+
+The source dataset lives in @sources/@, so its paths start from there. The
+schema types the attribute as a URI, so a space may come percent-encoded.
+-}
+packagePath :: Text -> Either Text Text
+packagePath uri
+    | "://" `T.isInfixOf` uri || "/" `T.isPrefixOf` path || ":" `T.isPrefixOf` T.drop 1 path = Left uri
+    | otherwise = maybe (Left uri) (Right . T.intercalate "/" . reverse) (foldM step [] ("sources" : T.splitOn "/" path))
+  where
+    path :: Text
+    path = T.replace "\\" "/" (TE.decodeUtf8Lenient (urlDecode False (TE.encodeUtf8 uri)))
+
+    step :: [Text] -> Text -> Maybe [Text]
+    step dirs part
+        | part `elem` ["", "."] = Just dirs
+        | part == ".." = snd <$> uncons dirs
+        | otherwise = Just (part : dirs)
 
 --------------------------------------------------------------------------------
 -- Build FlowDB and UnitDB from ILCD data

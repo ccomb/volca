@@ -856,6 +856,7 @@ libraryDocumentOf fields =
             , label `notElem` ["Name", "Category"]
             , Just text <- [documentedText raw]
             ]
+        , documentFiles = []
         }
   where
     field :: Text -> Text
