@@ -86,7 +86,7 @@ may group the impact categories of another file.
 simaProCollection :: SimaProMethodFile -> (MethodCollection, [Text])
 simaProCollection f =
     let (sets, warnings) = translateScoring (smfMethods f) (smfDamages f) (smfNWSets f)
-     in (MethodCollection (smfMethods f) sets, warnings)
+     in (MethodCollection (smfMethods f) sets [], warnings)
 
 {- | Formula identifiers for display names, made once and then stored as they
 are: a later renaming of the category does not change them. Lower case only,

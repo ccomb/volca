@@ -152,13 +152,18 @@ data Method = Method
     }
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
-{- | A method collection: its impact categories and the scoring sets that
-weigh them into single scores, whether read from the method file or declared
-in the configuration.
+{- | A method collection: its impact categories, the scoring sets that weigh
+them into single scores, and the categories scored without regionalization.
 -}
 data MethodCollection = MethodCollection
     { mcMethods :: ![Method]
     , mcScoringSets :: ![ScoringSet]
+    , mcUnregionalized :: ![Text]
+    {- ^ The categories scored without regionalization: their located factors
+    are dropped, so each flow falls back to the category's unlocated one. Set
+    from the configuration's @global-methods@ for a collection it declares,
+    and by its journal for one that keeps a journal.
+    -}
     }
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
@@ -205,9 +210,11 @@ data ScoringSet = ScoringSet
 
 {- | Where a scoring set comes from. A set read from a SimaPro method file
 stands for its damage categories and normalization-weighting set; the
-response fields that described them until 0.16.0 are read from it alone.
+response fields that described them until 0.16.0 are read from it alone. A set
+the configuration declares, or one a collection's journal created, stands for
+nothing else.
 -}
-data ScoringSetOrigin = ReadFromSimaProFile | DeclaredInConfig
+data ScoringSetOrigin = ReadFromSimaProFile | DeclaredInConfig | CreatedInJournal
     deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
 
 {- | Result of evaluating a ScoringSet against raw LCIA results.

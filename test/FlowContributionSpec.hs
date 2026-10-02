@@ -135,7 +135,7 @@ loadedManager = do
     loadDatabase manager "sample" >>= either (fail . T.unpack) (const (pure ()))
     atomically $
         modifyTVar' (dmLoadedMethods manager) $
-            M.insert collectionName (MethodCollection [climateChange] [singleScore])
+            M.insert collectionName (MethodCollection [climateChange] [singleScore] [])
     pure manager
 
 -- | Run a REST handler against that manager, failing the test on an error status.

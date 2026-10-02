@@ -846,16 +846,14 @@ buildMethodTablesFor manager dbName collection db method = do
     energyDensities <- getMergedEnergyDensities manager
     unitConfig <- getMergedUnitConfig manager
     (mFlows, mUnits) <- getMergedFlowMetadata manager
-    -- A method listed in its collection's 'global-methods' is scored without
+    -- A method listed in its collection's unregionalized categories is scored without
     -- regionalization: drop its located CFs so the broadcast (global) path, the
     -- method's own unlocated default CF, is the single answer, matching a
     -- reference distribution that flattened the spatial factors to a global value.
     -- This assumes the method carries such an unlocated default for the flows in
     -- question; a method whose CFs are all region-tagged would be left with none.
-    -- The config loader warns when a 'global-methods' name matches no method.
-    globalMethods <-
-        maybe [] mcGlobalMethods . M.lookup (unCollectionName collection)
-            <$> readTVarIO (dmAvailableMethods manager)
+    -- The loader warns when such a name matches no method.
+    globalMethods <- maybe [] mcUnregionalized <$> getMethodCollection manager (unCollectionName collection)
     let !raw0 = buildMethodTables cmap vocabulary energyDensities expanded
         !raw =
             if methodName method `elem` globalMethods
@@ -1515,7 +1513,7 @@ loadConfiguredMethods manager config =
                         <> show (length (mcMethods collection))
                         <> " impact categories)"
                 warnZeroTouchPatches (mcName mc) patchStats
-                warnUnknownGlobalMethods mc collection
+                warnUnknownGlobalMethods (mcName mc) collection
                 let !pairs = extractFromILCDFlows flowInfo
                 autoCreateFlowSynonyms manager (mcName mc) (SynonymOrigin ("Auto-extracted from " <> mcName mc)) pairs
 
@@ -1524,18 +1522,18 @@ de-regionalization is keyed by method name, so a typo or a renamed method
 would otherwise be ignored in silence and the method would stay regionalized,
 diverging from the reference.
 -}
-warnUnknownGlobalMethods :: MethodConfig -> MethodCollection -> IO ()
-warnUnknownGlobalMethods mc collection =
+warnUnknownGlobalMethods :: Text -> MethodCollection -> IO ()
+warnUnknownGlobalMethods name collection =
     unless (null unknownGlobals) $
         reportProgress Warning $
             "  [global-methods] collection "
-                <> T.unpack (mcName mc)
+                <> T.unpack name
                 <> ": no method named "
                 <> T.unpack (T.intercalate ", " unknownGlobals)
                 <> ". These stay regionalized; check for a typo."
   where
     unknownGlobals :: [Text]
-    unknownGlobals = filter (`S.notMember` knownMethodNames) (Config.mcGlobalMethods mc)
+    unknownGlobals = filter (`S.notMember` knownMethodNames) (mcUnregionalized collection)
 
     knownMethodNames :: S.Set Text
     knownMethodNames = S.fromList (map methodName (mcMethods collection))
@@ -1774,7 +1772,7 @@ applyMethodConfig mc collection0 = do
         Left ("scoring set " <> quoted (repeated fromFile) <> " is read twice from the method files; a set is named once")
     unless (null clashes) $
         Left ("scoring set " <> quoted clashes <> " is declared in the configuration and also read from the method file; rename the configured one")
-    pure (Method.Patch.applyMethodPatches (Config.mcPatches mc) collection0{Method.Types.mcScoringSets = fromFile <> configured})
+    pure (Method.Patch.applyMethodPatches (Config.mcPatches mc) collection0{Method.Types.mcScoringSets = fromFile <> configured, mcUnregionalized = Config.mcGlobalMethods mc})
 
 -- | The names that two scoring sets carry.
 repeated :: [ScoringSet] -> [Text]
@@ -3954,7 +3952,7 @@ it with its file), so a failure says so.
 -}
 builtinMethodCollection :: BuiltinMethod -> Either Text (MethodCollection, M.Map UUID ILCDFlowInfo)
 builtinMethodCollection builtin =
-    bimap unreadable (\methods -> (MethodCollection methods [], M.empty)) $
+    bimap unreadable (\methods -> (MethodCollection methods [] [], M.empty)) $
         parseMethodCSVBytes (BL.toStrict (builtinMethodContent builtin))
   where
     unreadable :: String -> Text

@@ -53,7 +53,7 @@ mkMethod n name cfs =
         }
 
 collection :: [Method] -> MethodCollection
-collection ms = MethodCollection ms []
+collection ms = MethodCollection ms [] []
 
 {- | What a method reads back as: the methodology is the only field the
 format cannot carry, so re-import stamps its own.
@@ -166,7 +166,7 @@ spec = describe "Method.WriterOlcaSchema" $ do
             let m1 = (mkMethod 7 "Climate change" []){methodMethodology = Just "Environmental Footprint"}
                 m2 = (mkMethod 8 "Acidification" []){methodCategory = ""}
                 ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
-            case serializeOlcaMethodEntries (MethodCollection [m1, m2] [ss]) of
+            case serializeOlcaMethodEntries (MethodCollection [m1, m2] [ss] []) of
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, warnings) -> do
                     warnings `shouldSatisfy` any (T.isInfixOf "1 methodology labels")

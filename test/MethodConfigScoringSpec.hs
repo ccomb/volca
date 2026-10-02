@@ -36,15 +36,19 @@ config sets =
 spec :: Spec
 spec = describe "applyMethodConfig" $ do
     it "keeps the file's scoring sets and adds the configured ones after them" $
-        fmap (map (\s -> (ssName s, ssOrigin s)) . mcScoringSets . fst) (applyMethodConfig (config [configured "Mine"]) (MethodCollection [] [fromFile "EF"]))
+        fmap (map (\s -> (ssName s, ssOrigin s)) . mcScoringSets . fst) (applyMethodConfig (config [configured "Mine"]) (MethodCollection [] [fromFile "EF"] []))
             `shouldBe` Right [("EF", ReadFromSimaProFile), ("Mine", DeclaredInConfig)]
 
     it "refuses two sets of one name read from the method files" $
-        case applyMethodConfig (config []) (MethodCollection [] [fromFile "EF", fromFile "EF"]) of
+        case applyMethodConfig (config []) (MethodCollection [] [fromFile "EF", fromFile "EF"] []) of
             Left err -> err `shouldSatisfy` T.isInfixOf "scoring set 'EF' is read twice from the method files"
             Right _ -> expectationFailure "expected the duplicate to be refused"
 
     it "refuses a configured set named like one read from the file" $
-        case applyMethodConfig (config [configured "EF"]) (MethodCollection [] [fromFile "EF"]) of
+        case applyMethodConfig (config [configured "EF"]) (MethodCollection [] [fromFile "EF"] []) of
             Left err -> err `shouldSatisfy` T.isInfixOf "scoring set 'EF' is declared in the configuration and also read from the method file; rename the configured one"
             Right _ -> expectationFailure "expected the clash to be refused"
+
+    it "carries the configuration's global-methods into the collection" $
+        fmap (mcUnregionalized . fst) (applyMethodConfig (config []){Config.mcGlobalMethods = ["Land use"]} (MethodCollection [] [] []))
+            `shouldBe` Right ["Land use"]
