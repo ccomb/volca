@@ -46,7 +46,7 @@ import Database.Manager (
     clearMethodCachesFor,
     configToScoringSet,
     getMethodCollection,
-    loadMethodCollection,
+    loadMethodCollectionLocked,
     loadMethodCollectionFromConfig,
  )
 import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
@@ -90,7 +90,7 @@ copyMethodCollection manager srcName newName = withMVar (dmMethodEditLock manage
     recorded <- liftIO (recordMethodCopy home slug source seed)
     either (\err -> liftIO (discardCopy manager slug home) >> throwE (EditRefused err)) pure recorded
     liftIO (addMethodCollection manager (copyConfig slug home source))
-    loaded <- liftIO (loadMethodCollection manager slug)
+    loaded <- liftIO (loadMethodCollectionLocked manager slug)
     either (\err -> liftIO (discardCopy manager slug home) >> throwE (EditRefused err)) pure loaded
     pure slug
 

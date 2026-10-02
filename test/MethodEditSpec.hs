@@ -2,6 +2,8 @@
 
 module MethodEditSpec (spec) where
 
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Monad (replicateM_, void)
 import qualified Data.Map.Strict as M
@@ -10,6 +12,7 @@ import Data.UUID (UUID)
 import qualified Data.Vector as V
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
+import System.Timeout (timeout)
 import Test.Hspec
 
 import Config (MethodPatch (..), MethodPatchMatch (..), defaultConfig)
@@ -77,6 +80,16 @@ spec = describe "changing a method collection of one's own" $ do
             atomically $ modifyTVar' (dmMethodIndexCache manager) (M.insert (key "copy") emptyIndex . M.insert (key "plain-indicators") emptyIndex)
             _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 2)
             M.keys <$> readTVarIO (dmMethodIndexCache manager) `shouldReturn` [key "plain-indicators"]
+
+    it "waits for a change being written before unloading the collection" $
+        withScratchDataDir $ do
+            (manager, _, _) <- copyWithMethane
+            takeMVar (dmMethodEditLock manager)
+            done <- newEmptyMVar
+            _ <- forkIO (unloadMethodCollection manager "copy" >>= putMVar done)
+            timeout 100000 (readMVar done) `shouldReturn` Nothing
+            putMVar (dmMethodEditLock manager) ()
+            readMVar done `shouldReturn` Right ()
 
     it "undoes N changes back to the collection it started from, in 2N lines" $
         withScratchDataDir $ do

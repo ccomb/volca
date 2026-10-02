@@ -55,6 +55,7 @@ module Database.Manager (
     -- * Method Operations
     listMethodCollections,
     loadMethodCollection,
+    loadMethodCollectionLocked,
     loadMethodCollectionFromConfig,
     applyMethodConfig,
     configToScoringSet,
@@ -140,7 +141,7 @@ module Database.Manager (
 
 import API.JsonOptions (Stripped (..))
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (MVar, newMVar)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
 import Control.Concurrent.QSem (QSem, newQSem)
 import Control.Concurrent.STM
@@ -4237,9 +4238,16 @@ listMethodCollections manager = do
         | T.isInfixOf ".json" (T.toLower (T.pack p)) = "Regionalized LCIA JSON"
         | otherwise = "ILCD"
 
--- | Load a method collection on demand
+{- | Load a method collection on demand. It takes the edit lock, as unloading
+and deleting do: a collection loaded while a change was being written would
+read the journal without the change's line, and then install itself over it.
+-}
 loadMethodCollection :: DatabaseManager -> Text -> IO (Either Text ())
-loadMethodCollection manager name = do
+loadMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() -> loadMethodCollectionLocked manager name
+
+-- | 'loadMethodCollection' for a caller already holding the edit lock.
+loadMethodCollectionLocked :: DatabaseManager -> Text -> IO (Either Text ())
+loadMethodCollectionLocked manager name = do
     available <- readTVarIO (dmAvailableMethods manager)
     case M.lookup name available of
         Nothing -> return $ Left $ "Method collection not found: " <> name
@@ -4279,7 +4287,7 @@ loadMethodCollection manager name = do
 
 -- | Unload a method collection from memory
 unloadMethodCollection :: DatabaseManager -> Text -> IO (Either Text ())
-unloadMethodCollection manager name = do
+unloadMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() -> do
     loaded <- readTVarIO (dmLoadedMethods manager)
     if M.member name loaded
         then do
@@ -4306,7 +4314,7 @@ addMethodCollection manager mc =
 
 -- | Remove an uploaded method collection (delete files + remove from memory)
 removeMethodCollection :: DatabaseManager -> Text -> IO (Either Text ())
-removeMethodCollection manager name = do
+removeMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() -> do
     available <- readTVarIO (dmAvailableMethods manager)
     loaded <- readTVarIO (dmLoadedMethods manager)
     case M.lookup name available of
