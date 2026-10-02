@@ -172,8 +172,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import GHC.Generics (Generic)
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
-import System.FilePath (takeDirectory, takeExtension, takeFileName, (</>))
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
+import System.FilePath (addTrailingPathSeparator, takeDirectory, takeExtension, takeFileName, (</>))
 import System.Mem (performGC)
 
 import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName)
@@ -3105,10 +3105,15 @@ removeFromMemory manager dbName = do
 --------------------------------------------------------------------------------
 
 -- | Get a staged database by name
+getStagedDatabase :: DatabaseManager -> Text -> IO (Maybe StagedDatabase)
+getStagedDatabase manager dbName = do
+    stagedDbs <- readTVarIO (dmStagedDbs manager)
+    return $ M.lookup dbName stagedDbs
 
 {- | A file a database ships with one of its literature entries, by the path
-the entry lists it under. Only a path the documentation lists is read, so a
-request reaches no file the database does not name.
+the entry lists it under. Only a path the documentation lists is read, and
+only when the file it names, links resolved, lies inside the database's own
+directory: an uploaded archive can hold a link pointing anywhere.
 -}
 readDocumentFile :: DatabaseManager -> Text -> Text -> IO (Either Text BS.ByteString)
 readDocumentFile manager dbName path = runExceptT $ do
@@ -3120,6 +3125,9 @@ readDocumentFile manager dbName path = runExceptT $ do
     present <- liftIO (doesFileExist file)
     unless present $
         throwE ("The documentation of " <> dbName <> " lists " <> path <> ", which its package does not hold")
+    inside <- liftIO (isPrefixOf <$> (addTrailingPathSeparator <$> canonicalizePath root) <*> canonicalizePath file)
+    unless inside $
+        throwE ("The documentation of " <> dbName <> " lists " <> path <> ", which leads out of its package")
     liftIO (BS.readFile file)
   where
     documented :: IO (Maybe (DatabaseDocumentation, DatabaseConfig))
@@ -3129,11 +3137,6 @@ readDocumentFile manager dbName path = runExceptT $ do
         pure $
             ((\ld -> (dbDocumentation (ldDatabase ld), ldConfig ld)) <$> loaded)
                 <|> ((\sd -> (sdbDocumentation (sdSimpleDB sd), sdConfig sd)) <$> staged)
-
-getStagedDatabase :: DatabaseManager -> Text -> IO (Maybe StagedDatabase)
-getStagedDatabase manager dbName = do
-    stagedDbs <- readTVarIO (dmStagedDbs manager)
-    return $ M.lookup dbName stagedDbs
 
 {- | Supplier-gap report for a loaded or staged database: what is still
 missing to fully supply its demands from the pinned dependencies, aggregated

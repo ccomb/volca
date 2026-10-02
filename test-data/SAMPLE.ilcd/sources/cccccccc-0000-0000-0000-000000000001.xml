@@ -11,9 +11,10 @@
       </classificationInformation>
       <sourceCitation>Mining Institute (2020) Coal extraction report</sourceCitation>
       <sourceDescriptionOrComment xml:lang="en">Measured at two mines.</sourceDescriptionOrComment>
-      <referenceToDigitalFile uri="../external_docs/coal report.pdf"/>
+      <referenceToDigitalFile uri="../external_docs/coal%20report.pdf"/>
       <referenceToDigitalFile uri="https://example.org/coal"/>
       <referenceToDigitalFile uri="../../outside.pdf"/>
+      <referenceToDigitalFile uri="C:\docs\report.pdf"/>
     </dataSetInformation>
   </sourceInformation>
   <administrativeInformation>

@@ -39,6 +39,7 @@ import qualified Data.Text.Read as TR
 import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
 import Database.Allocation (Allocating (..), allocate)
+import Network.HTTP.Types.URI (urlDecode)
 import System.Directory (doesDirectoryExist)
 import System.FilePath ((</>))
 import Text.Printf (printf)
@@ -377,17 +378,19 @@ parseSourceXML bytes =
 
 {- | Where a file a source dataset points at sits in the package, written from
 the package's root with forward slashes, or the address itself when it is not
-a file of the package: a web address, an absolute path, or one climbing out.
+a file of the package: a web address, an absolute path (a Windows one
+included), or one climbing out.
 
-The source dataset lives in @sources/@, so its paths start from there.
+The source dataset lives in @sources/@, so its paths start from there. The
+schema types the attribute as a URI, so a space may come percent-encoded.
 -}
 packagePath :: Text -> Either Text Text
 packagePath uri
-    | "://" `T.isInfixOf` uri || "/" `T.isPrefixOf` path = Left uri
+    | "://" `T.isInfixOf` uri || "/" `T.isPrefixOf` path || ":" `T.isPrefixOf` T.drop 1 path = Left uri
     | otherwise = maybe (Left uri) (Right . T.intercalate "/" . reverse) (foldM step [] ("sources" : T.splitOn "/" path))
   where
     path :: Text
-    path = T.replace "\\" "/" uri
+    path = T.replace "\\" "/" (TE.decodeUtf8Lenient (urlDecode False (TE.encodeUtf8 uri)))
 
     step :: [Text] -> Text -> Maybe [Text]
     step dirs part
