@@ -225,7 +225,7 @@ spec = do
             Right db <- parseILCDDirectory defaultUnitConfig Declared "test-data/SAMPLE.ilcd"
             map activityDocumentation (filter ((== "Coal extraction") . activityName) (M.elems (sdbActivities db)))
                 `shouldBe` [
-                               [ DocSection "Data sources" "Coal report\ncccccccc-0000-0000-0000-000000000004"
+                               [ DocSection "Data sources" "Coal report"
                                , DocSection "Review report" "Review statement"
                                ]
                            ]

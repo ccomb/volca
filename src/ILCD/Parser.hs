@@ -46,7 +46,7 @@ import UnitConversion (UnitConfig)
 import qualified Xeno.SAX as X
 
 import EcoSpold.Common (bsToText, decodeNumericRefs, decodeXmlEntities, distributeFiles, isElement)
-import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles, tightCloseTags)
+import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles, readILCDFile)
 import Method.FlowResolver (ILCDFlowInfo (..), parseFlowDirectory)
 import qualified Method.Types as MT
 import Progress (ProgressLevel (..), reportProgress)
@@ -164,7 +164,7 @@ readDataSets dir parse = do
     oneDataSetPerUUID (Data.Maybe.catMaybes claims)
   where
     claimOf :: FilePath -> IO (Maybe (Claimed a))
-    claimOf f = fmap (uncurry (Claimed f)) . parse . tightCloseTags <$> BS.readFile f
+    claimOf f = fmap (uncurry (Claimed f)) . parse <$> readILCDFile f
 
 {- | One dataset per UUID out of what a directory was read as, saying which
 files a newer version superseded.
@@ -546,12 +546,13 @@ data ProcState = ProcState
     , psTimeStamp :: !Text -- <common:timeStamp> text (empty when absent)
     , psCitation :: !(Maybe Text)
     -- ^ The section the open citation of a source dataset belongs to.
-    , psCitedRef :: !Text
-    -- ^ Its refObjectId, the name it goes by when it states no short description.
     , psCitedName :: !(Maybe (Text, Text))
     -- ^ (xml:lang, short description) of the open citation, English winning.
-    , psCited :: ![(Text, Text)]
-    -- ^ (section, source name) of every citation closed so far, latest first.
+    , psCited :: ![DocSection]
+    {- ^ Every named citation closed so far, latest first, one source name under
+    its section. One that states no short description is left out: it names
+    nothing a reader could look for.
+    -}
     }
 
 parseProcessXML :: BS.ByteString -> Maybe ILCDProcessRaw
@@ -589,12 +590,11 @@ parseProcessXML bytes =
             , psProcessType = ""
             , psTimeStamp = ""
             , psCitation = Nothing
-            , psCitedRef = ""
             , psCitedName = Nothing
             , psCited = []
             }
         )
-        (tightCloseTags bytes) of
+        bytes of
         Left _ -> Nothing
         Right s -> buildProcess s
   where
@@ -617,7 +617,7 @@ parseProcessXML bytes =
             s{psPendingCommentLang = "", psTextAccum = []}
         | not (psInExchange s)
         , Just section <- citationSection tag =
-            s{psCitation = Just section, psCitedRef = "", psCitedName = Nothing, psTextAccum = []}
+            s{psCitation = Just section, psCitedName = Nothing, psTextAccum = []}
         | isElement tag "name" && not (psInExchange s) =
             s{psInName = True, psTextAccum = []}
         | isElement tag "class" && not (psInExchange s) =
@@ -629,8 +629,6 @@ parseProcessXML bytes =
             case TR.decimal (bsToText value) of
                 Right (n, _) -> s{psExInternalId = n}
                 Left _ -> s
-        | isElement name "refObjectId" && Data.Maybe.isJust (psCitation s) =
-            s{psCitedRef = bsToText value}
         | isElement name "refObjectId" && psInExchange s && T.null (psExFlowRef s) =
             s{psExFlowRef = bsToText value}
         | isElement name "internalReferenceToCoProduct" && psInExchange s =
@@ -667,7 +665,7 @@ parseProcessXML bytes =
         , citationSection tag == Just section =
             s
                 { psCitation = Nothing
-                , psCited = (section, maybe (psCitedRef s) snd (psCitedName s)) : psCited s
+                , psCited = maybe id ((:) . DocSection section . snd) (psCitedName s) (psCited s)
                 , psTextAccum = []
                 }
         | isElement tag "generalComment" && psInExchange s =
@@ -811,11 +809,11 @@ citationSection :: BS.ByteString -> Maybe Text
 citationSection tag = snd <$> find (isElement tag . fst) citationRoles
 
 -- | One section per role, naming each source it cites once, in the file's order.
-citationSections :: [(Text, Text)] -> [DocSection]
+citationSections :: [DocSection] -> [DocSection]
 citationSections cited =
     [ DocSection section (T.intercalate "\n" names)
     | (_, section) <- citationRoles
-    , let names = nubOrd [name | (s, name) <- cited, s == section, not (T.null name)]
+    , let names = nubOrd [docText c | c <- cited, docLabel c == section]
     , not (null names)
     ]
 
@@ -833,7 +831,7 @@ parseProcessFilesParallel files = do
         return [Claimed path (iprUUID raw) raw | (path, Just raw) <- results]
     parseOneFile :: FilePath -> IO (FilePath, Maybe ILCDProcessRaw)
     parseOneFile path = do
-        bytes <- BS.readFile path
+        bytes <- readILCDFile path
         let parsed = parseProcessXML bytes
         forM_ (parsed >>= either Just (const Nothing) . iprLastRevised) $ \reason ->
             reportProgress Warning (path ++ ": timeStamp: " ++ T.unpack reason)
