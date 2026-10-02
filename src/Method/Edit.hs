@@ -87,7 +87,8 @@ copyMethodCollection manager srcName newName = withMVar (dmMethodEditLock manage
     taken <- liftIO (doesDirectoryExist home)
     when (M.member slug available || taken) $ throwE (NameTaken slug)
     seed <- ExceptT (first EditRefused <$> journalSeed source)
-    ExceptT (first EditRefused <$> recordMethodCopy home slug source seed)
+    recorded <- liftIO (recordMethodCopy home slug source seed)
+    either (\err -> liftIO (discardCopy manager slug home) >> throwE (EditRefused err)) pure recorded
     liftIO (addMethodCollection manager (copyConfig slug home source))
     loaded <- liftIO (loadMethodCollection manager slug)
     either (\err -> liftIO (discardCopy manager slug home) >> throwE (EditRefused err)) pure loaded
@@ -115,21 +116,22 @@ journalSeed source = case mcHome source of
             (mcPatches source)
             (mcGlobalMethods source)
 
-{- | Write a copy's home: its journal, then its @meta.toml@. A directory without
-@meta.toml@ is not discovered, so a copy cut short leaves nothing a restart
-would take for one.
+{- | Write a copy's home: its journal, then its @meta.toml@, which only a
+whole journal earns. A directory without @meta.toml@ is not discovered, so a
+copy cut short leaves nothing a restart would take for one, and its caller
+removes it.
 -}
 recordMethodCopy :: FilePath -> Text -> MethodConfig -> JournalSeed -> IO (Either Text ())
 recordMethodCopy home slug source seed = do
-    written <- try $ do
-        createDirectoryIfMissing True home
-        journaled <- case seed of
-            CopiedJournal from -> do
+    written <- try . runExceptT $ do
+        liftIO (createDirectoryIfMissing True home)
+        case seed of
+            CopiedJournal from -> liftIO $ do
                 exists <- doesFileExist from
-                Right () <$ when exists (copyFile from (journalPath home))
-            SeedLines ops -> sequence_ <$> mapM (\op -> appendEntry home (MethodLine op TakenFromConfiguration)) ops
-        dataPath <- traverse makeAbsolute (filePath (mcOrigin source))
-        UploadedDB.writeUploadMeta
+                when exists (copyFile from (journalPath home))
+            SeedLines ops -> mapM_ (\op -> ExceptT (appendEntry home (MethodLine op TakenFromConfiguration))) ops
+        dataPath <- liftIO (traverse makeAbsolute (filePath (mcOrigin source)))
+        liftIO $ UploadedDB.writeUploadMeta
             home
             UploadedDB.UploadMeta
                 { UploadedDB.umVersion = UploadedDB.metaVersion
@@ -142,9 +144,8 @@ recordMethodCopy home slug source seed = do
                 , UploadedDB.umAllocation = Declared
                 , UploadedDB.umBuiltIn = builtinOf (mcOrigin source)
                 }
-        pure journaled
     pure $ case written of
-        Right result -> result
+        Right result -> first (\err -> "could not record the copy " <> slug <> ": " <> err) result
         Left (err :: SomeException) -> Left ("could not record the copy " <> slug <> ": " <> T.pack (show err))
   where
     filePath :: MethodOrigin -> Maybe FilePath
