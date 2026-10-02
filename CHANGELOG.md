@@ -4,6 +4,15 @@
 
 ### Added
 
+- The activity search, over HTTP and as the `search_activities` tool, takes
+  the processes a caller already chose, as `process` (given once per process
+  over HTTP, a list for the tool): it answers their rows in the order given,
+  through the same place, product, `exact` and classification filters, so a
+  list ranked elsewhere can be shown and narrowed like a search. The name and
+  the sort are not read then. A process
+  the database does not hold is left out; an identifier that is malformed,
+  or names an activity without saying which of its products, is refused.
+  Wire revision 39.
 - A database says what it knows about itself, in the `documentation` of its
   setup: the export its file is (the tool and version that wrote it, the
   version of the file format, the day, time and project it was exported

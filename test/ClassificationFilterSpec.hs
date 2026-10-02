@@ -25,14 +25,14 @@ import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.UUID as UUID
 import qualified Data.Vector.Unboxed as U
-import Servant (ServerError, runHandler)
+import Servant (ServerError (..), runHandler)
 import Test.Hspec
 
 import API.DatabaseHandlers (deleteActivitiesHandler)
 import API.MCP (callTool, noRequestId)
 import API.Routes (getActivityAggregate, searchActivitiesWithCount)
 import API.Types (
-    ActivitySummary,
+    ActivitySummary (..),
     Aggregation (..),
     DeleteClassFilter (..),
     DeleteSelectionRequest (..),
@@ -124,6 +124,25 @@ spec = describe "classification filter match mode" $ do
             rest <- runRest manager (searchREST ["category", "category"] ["food"] ["exact"])
             fmap srTotal rest `shouldBe` Right 1
 
+    describe "REST process" $ do
+        it "answers the processes named, in the order named" $ do
+            (manager, db) <- loadedFixture
+            root <- processOf db rootU
+            supplier <- processOf db supplierU
+            rest <- runRest manager (namedREST [supplier, root])
+            fmap (map prsProcessId . srResults) rest `shouldBe` Right [supplier, root]
+
+        it "lists the processes named over MCP too" $ do
+            (manager, db) <- loadedFixture
+            root <- processOf db rootU
+            search <- tool manager [] "search_activities" [("process", toJSON [root])]
+            answerAt ["total"] search `shouldBe` Just (count 1)
+
+        it "refuses an identifier that is not one" $ do
+            (manager, _) <- loadedFixture
+            rest <- runRest manager (namedREST ["not an identifier"])
+            either (Just . errHTTPCode) (const Nothing) rest `shouldBe` Just 400
+
     describe "delete-by-selection, over HTTP and from the CLI" $
         forM_ [(True, 1), (False, 2)] $ \(exact, n) ->
             it ("exact " <> show exact <> " removes " <> show n) $ do
@@ -180,7 +199,11 @@ runRest manager = runHandler . runApp env
 
 searchREST :: [Text] -> [Text] -> [Text] -> AppM (SearchResults ActivitySummary)
 searchREST systems values modes =
-    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing systems values modes Nothing Nothing Nothing Nothing
+    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing systems values modes [] Nothing Nothing Nothing Nothing
+
+namedREST :: [Text] -> AppM (SearchResults ActivitySummary)
+namedREST processes =
+    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing [] [] [] processes Nothing Nothing Nothing Nothing
 
 deleteRequest :: Bool -> DeleteSelectionRequest
 deleteRequest exact =
