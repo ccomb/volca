@@ -328,6 +328,65 @@ matched alike, the larger value. Synonyms lead to the same choice when two
 names of a method reach one database flow. The log names each such place,
 with every value written there and the one read.
 
+### Changing a method collection
+
+A published method is never changed in place: copy it, then change the copy,
+and compare the copy with the original to see exactly what moved. The copy is
+loaded at once and scores as its source did. Each change is one line appended
+to a journal (`journal.jsonl`) beside the copy's files, which are never
+rewritten; loading the copy reads the files again and replays the journal over
+them. A line records the value it replaced, so a source file that no longer
+holds what a line changed stops the load, naming the line, rather than
+replaying it over something else.
+
+A collection the configuration declares, or one built into the engine, is
+copied the same way. Its copy starts with what the configuration added to the
+files (`patches`, `global-methods`, `scoring-sets`), written as the journal's
+first lines, so the copy holds what the collection held. A copy reads its
+source's files, so the source cannot be deleted while the copy exists. A
+read-only engine refuses all three changes below.
+
+```bash
+# Copy a collection under a new name
+curl -X POST localhost:8080/api/v1/method-collections/plain-indicators/copy/my-indicators
+
+# Change one factor's value: its category, its flow, its location if it has one,
+# and its present value when several factors answer at that place
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/factors \
+  -H 'Content-Type: application/json' \
+  -d '{"op": "set", "methodId": "<category id>", "flowId": "<flow id>", "newValue": 27}'
+
+# Remove it
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/factors \
+  -H 'Content-Type: application/json' \
+  -d '{"op": "remove", "methodId": "<category id>", "flowId": "<flow id>"}'
+
+# Add a factor to a category; the flows the collection already characterizes,
+# with the flow id and compartment to write, come from /flows?q=
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/factors \
+  -H 'Content-Type: application/json' \
+  -d '{"op": "add", "methodId": "<category id>", "factor": {"flowId": "<flow id>", "name": "Ammonia", "direction": "Output", "value": 3, "unit": "kg", "compartment": {"medium": "air", "subcompartment": "", "qualifier": ""}}}'
+
+# Scale, or set, every factor a selector reaches (the selector of a configuration patch)
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/factors \
+  -H 'Content-Type: application/json' \
+  -d '{"op": "scale", "match": {"flowNamePrefix": "Methane"}, "scale": 2}'
+
+# Undo the latest change still in effect, or the line named
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/undo
+curl -X POST 'localhost:8080/api/v1/method-collections/my-indicators/undo?line=3'
+
+# The journal, line by line, and whether each line is still in effect
+curl localhost:8080/api/v1/method-collections/my-indicators/history
+```
+
+Undoing writes the change's inverse as a new line rather than erasing one, so
+the history keeps every step; undoing an undo line redoes the change it took
+back. Undoing a selector puts back the values it replaced, and is refused,
+naming the factor, when a later line changed one of them. Two factors written
+identically at one place cannot be changed one at a time, only together through
+a selector.
+
 ---
 
 ## REST API
@@ -402,6 +461,11 @@ POST   /api/v1/method-collections/{name}/load                            Load a 
 POST   /api/v1/method-collections/{name}/unload                          Unload a method collection
 POST   /api/v1/method-collections/upload                                 Upload a method package
 DELETE /api/v1/method-collections/{name}                                 Delete a method collection
+POST   /api/v1/method-collections/{name}/copy/{newName}                  Copy a method collection, to change it
+POST   /api/v1/method-collections/{name}/factors                         Change a copy's factors
+POST   /api/v1/method-collections/{name}/undo                            Undo a change (?line=)
+GET    /api/v1/method-collections/{name}/history                         A copy's journal of changes
+GET    /api/v1/method-collections/{name}/flows                           Flows a collection characterizes (?q=&limit=)
 
 # Reference data (synonyms / compartments / units share the same shape)
 GET    /api/v1/{flow-synonyms|compartment-mappings|units}                List
@@ -473,6 +537,11 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `compare_activities` | Two activities side by side, exchange by exchange, in one database or across two |
 | `compare_databases` | Two loaded databases side by side: activities added, removed, changed and not paired, down to the exchanges |
 | `compare_method_collections` | Two loaded method collections side by side: for each pair of impact categories, the characterization factors added, removed and changed, with both values and their ratio |
+| `copy_method_collection` | Copy a method collection under a new name, to change the copy |
+| `edit_method_factors` | Change a copy's factors: set, remove or add one, or scale or set every factor a selector reaches |
+| `undo_method_edit` | Undo a change to a copy by writing its inverse, or redo one by undoing its undo |
+| `get_method_history` | A copy's journal of changes, and whether each is still in effect |
+| `search_method_flows` | The flows a loaded method collection characterizes, to name a new factor's flow |
 | `profile_method_collection` | What each impact category of a loaded method collection holds: factors per medium, regionalized factors and locations, zeros, pattern rows, and duplicates |
 | `get_inventory` | LCI biosphere flows (top N by quantity) |
 | `get_impacts` | LCIA score for an activity and method (accepts substitutions) |
