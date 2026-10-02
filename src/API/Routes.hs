@@ -10,8 +10,9 @@ module API.Routes where
 import API.Csv (CSV)
 import API.DatabaseHandlers (explainCFToAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
+import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodFactorAPI (..), MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), FactorEditRequest, MethodEditResponse, MethodFlowAPI, MethodHistoryEntry, MethodFactorAPI (..), MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
@@ -199,6 +200,13 @@ type LCAAPI =
                 :<|> "method-collections" :> Capture "name" Text :> "export" :> ReqBody '[JSON] ExportRequest :> Post '[OctetStream] (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
                 :<|> "method-collections" :> Capture "collection" DM.CollectionName :> "compare" :> QueryParam "other_collection" DM.CollectionName :> QueryParams "pairs" Text :> QueryParam "category" Text :> QueryParam "limit" Int :> Get '[JSON] MethodCollectionComparison
                 :<|> "method-collections" :> Capture "collection" DM.CollectionName :> "profile" :> Get '[JSON] MethodCollectionProfile
+                -- Change a method collection of one's own through its journal; one
+                -- the configuration declares is copied first
+                :<|> "method-collections" :> Capture "collection" Text :> "copy" :> Capture "newName" Text :> Post '[JSON] ActivateResponse
+                :<|> "method-collections" :> Capture "collection" Text :> "factors" :> ReqBody '[JSON] FactorEditRequest :> Post '[JSON] MethodEditResponse
+                :<|> "method-collections" :> Capture "collection" Text :> "undo" :> QueryParam "line" Int :> Post '[JSON] MethodEditResponse
+                :<|> "method-collections" :> Capture "collection" Text :> "history" :> Get '[JSON] [MethodHistoryEntry]
+                :<|> "method-collections" :> Capture "collection" Text :> "flows" :> QueryParam "q" Text :> QueryParam "limit" Int :> Get '[JSON] [MethodFlowAPI]
                 -- Reference data endpoints (flow synonyms, compartment mappings, units)
                 :<|> "flow-synonyms" :> Get '[JSON] RefDataListResponse
                 :<|> "flow-synonyms" :> Capture "name" Text :> "load" :> Post '[JSON] ActivateResponse
@@ -1460,7 +1468,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 39: @process@ on the activity search, the rows of the processes a
+(revision 40: copying a method collection, changing, adding and removing its
+factors, undoing a change and reading its history, the flows a collection
+characterizes; the @flowRef@ of a compared factor and the @methodId@ of a
+compared category; the @source@ of a listed collection;
+revision 39: @process@ on the activity search, the rows of the processes a
 caller names, in its order;
 revision 38: the catalogue route, every process of a database page by page,
 and its fingerprint;
@@ -1547,7 +1559,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 39
+currentWireVersion = 40
 
 getVersion :: AppM Value
 getVersion = do
@@ -2530,6 +2542,7 @@ getMethodCollections = do
                 , mcaPath = mcsPath s
                 , mcaMethodCount = mcsMethodCount s
                 , mcaFormat = Just (mcsFormat s)
+                , mcaSource = mcsSource s
                 }
             | s <- statuses
             ]
@@ -2712,6 +2725,11 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.exportMethodHandler
             :<|> getMethodCollectionComparison
             :<|> getMethodCollectionProfile
+            :<|> MethodEdit.copyMethodCollectionHandler
+            :<|> MethodEdit.editMethodFactorsHandler
+            :<|> MethodEdit.undoMethodEditHandler
+            :<|> MethodEdit.methodHistoryHandler
+            :<|> MethodEdit.methodFlowsHandler
             :<|> DBHandlers.listRefData DBHandlers.FlowSynonyms
             :<|> DBHandlers.loadRefData DBHandlers.FlowSynonyms
             :<|> DBHandlers.unloadRefData DBHandlers.FlowSynonyms

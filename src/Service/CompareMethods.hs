@@ -63,6 +63,7 @@ module Service.CompareMethods (
     compareCollections,
     profileCollection,
     factorReading,
+    factorSide,
     limitMethodComparison,
 ) where
 

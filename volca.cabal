@@ -105,6 +105,7 @@ library
                      , API.JsonOptions
                      , API.DatabaseHandlers
                      , API.Auth
+                     , API.MethodEditHandlers
                      , API.MCP
                      , API.MCP.Enrich
                      , API.MCP.Columnar
@@ -378,6 +379,7 @@ test-suite lca-tests
                      , JournalFileSpec
                      , JournalSpec
                      , MethodCopySpec
+                     , MethodEditHandlerSpec
                      , MethodEditPlanSpec
                      , MethodEditSpec
                      , MethodJournalLoadSpec

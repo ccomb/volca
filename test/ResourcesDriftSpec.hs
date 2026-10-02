@@ -53,7 +53,7 @@ type Divergence = (Text, Text)
 
 {- | Every registry parameter whose name its own route does not carry.
 
-Ninety of them, which is nearly all of them: 'API.OpenApi.enrichParameters'
+Nearly all of them: 'API.OpenApi.enrichParameters'
 matches on the name, so each of these is a description that reaches the
 published spec for nobody. Three separate causes, none of them a typo:
 
@@ -83,6 +83,7 @@ knownDivergences =
     , ("compute_sensitivity", "method_id")
     , ("compute_sensitivity", "perturbations")
     , ("compute_sensitivity", "process_id")
+    , ("copy_method_collection", "new_name")
     , ("count_search_matches", "database")
     , ("count_search_matches", "query")
     , ("derive_database", "database")
@@ -94,6 +95,15 @@ knownDivergences =
     , ("edit_exchanges", "process_id")
     , ("edit_exchanges", "remove")
     , ("edit_exchanges", "set_amounts")
+    , ("edit_method_factors", "factor")
+    , ("edit_method_factors", "flow_id")
+    , ("edit_method_factors", "location")
+    , ("edit_method_factors", "match")
+    , ("edit_method_factors", "method_id")
+    , ("edit_method_factors", "new_value")
+    , ("edit_method_factors", "op")
+    , ("edit_method_factors", "scale")
+    , ("edit_method_factors", "value")
     , ("explain_cf", "database")
     , ("explain_cf", "flow_id")
     , ("explain_cf", "method_id")

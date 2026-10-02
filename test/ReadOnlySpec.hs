@@ -46,9 +46,12 @@ import API.DatabaseHandlers (
     uploadRefData,
  )
 import API.MCP (callTool, noRequestId, toolDefinitions)
+import API.MethodEditHandlers (copyMethodCollectionHandler, editMethodFactorsHandler, methodHistoryHandler, undoMethodEditHandler)
 import API.Resources (Resource (..), allResources, resourceMutates)
 import API.Routes (getHosting, loadMethodCollectionHandler, unloadMethodCollectionHandler)
 import API.Types (
+    FactorEditOp (..),
+    FactorEditRequest (..),
     ActivityInput (..),
     ActivityWriteRequest (..),
     DeleteSelectionRequest (..),
@@ -126,6 +129,9 @@ mutatingHandlers =
     , ("unload-refdata", run (unloadRefData FlowSynonyms "nope"))
     , ("delete-refdata", run (deleteRefData FlowSynonyms "nope"))
     , ("upload-refdata", run (uploadRefData FlowSynonyms (Just "nope") Nothing (source [])))
+    , ("copy-method", run (copyMethodCollectionHandler "nope" "nope-copy"))
+    , ("edit-method-factors", run (editMethodFactorsHandler "nope" (FactorEditRequest SetOne Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)))
+    , ("undo-method-edit", run (undoMethodEditHandler "nope" Nothing))
     ]
   where
     run h env = statusOf <$> runHandler (runApp env h)
@@ -198,7 +204,7 @@ spec = do
 
     describe "Resource registry" $
         it "counts exactly the operations that change shared state as mutations" $
-            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges]
+            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, CopyMethodCollection, EditMethodFactors, UndoMethodEdit]
 
     describe "REST handlers under read_only" $ do
         it "refuse every mutating endpoint with 403" $
@@ -218,6 +224,8 @@ spec = do
             env <- envWith (Just (hosting True))
             listed <- runHandler (runApp env getDatabases)
             statusOf listed `shouldBe` Nothing
+            history <- runHandler (runApp env (methodHistoryHandler "plain-indicators"))
+            statusOf history `shouldBe` Nothing
 
         it "never answer 403 on a writable instance" $
             -- The scratch dir keeps the upload handlers, which really write,
