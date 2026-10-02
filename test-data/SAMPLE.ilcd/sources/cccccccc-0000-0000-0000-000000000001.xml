@@ -13,6 +13,7 @@
       <sourceDescriptionOrComment xml:lang="en">Measured at two mines.</sourceDescriptionOrComment>
       <referenceToDigitalFile uri="../external_docs/coal report.pdf"/>
       <referenceToDigitalFile uri="https://example.org/coal"/>
+      <referenceToDigitalFile uri="../../outside.pdf"/>
     </dataSetInformation>
   </sourceInformation>
   <administrativeInformation>

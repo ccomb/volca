@@ -49,6 +49,13 @@
   converted from or republishes). A closing tag written with a space before
   its bracket is read as closing; it used to be read as opening the element
   again. Databases are read again from their source on first load.
+- A literature entry lists under `files` the files the database ships with
+  it, by their path inside the package, and `GET /api/v1/db/{name}/files/{path}`
+  serves each as an attachment (`document_file` in pyvolca). Only a path the
+  documentation lists is served. Only an ILCD package ships any: a file a
+  source points at inside the package; a web address, or a path leading out
+  of the package, is a `Link` section instead. Wire revision 40. Databases are
+  read again from their source on first load.
 - An activity carries the dates its dataset states, in `dates`: `created`,
   `lastRevised` and `stated`. EcoSpold 2 records a creation and a last edit,
   EcoSpold 1 a creation, ILCD the day the dataset was last saved. A SimaPro

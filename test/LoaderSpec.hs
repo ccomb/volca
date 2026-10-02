@@ -312,7 +312,7 @@ spec = do
             fmap tfCAS (M.lookup flowUUID1 (hvTechFlows merged)) `shouldBe` Just (Just "7732-18-5")
 
         it "keeps one entry of the literature for a source several datasets cite" $ do
-            let cited = LibraryDocument "Overview and Methodology" "" [DocSection "Description" "Frischknecht R. (2007). Overview and Methodology."]
+            let cited = LibraryDocument "Overview and Methodology" "" [DocSection "Description" "Frischknecht R. (2007). Overview and Methodology."] []
                 citing name = (\(key, parsed) -> (key, parsed{pdLiterature = [cited]})) (share name [])
                 merged = harvestOf [citing "activity-a"] <> harvestOf [citing "activity-b"]
             S.toList (hvLiterature merged) `shouldBe` [cited]

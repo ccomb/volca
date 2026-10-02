@@ -95,6 +95,7 @@ module Database.Manager (
 
     -- * Staged Database Operations
     getStagedDatabase,
+    readDocumentFile,
     getDatabaseSetupInfo,
     buildLoadedSetupInfo,
     databaseGapReport,
@@ -136,6 +137,7 @@ module Database.Manager (
 ) where
 
 import API.JsonOptions (Stripped (..))
+import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
 import Control.Concurrent.QSem (QSem, newQSem)
@@ -253,10 +255,11 @@ import Types (
     CrossDBLink (..),
     CrossDBLinkingStats (..),
     Database (..),
-    DatabaseDocumentation,
+    DatabaseDocumentation (..),
     ExchangeLocation (..),
     FlowClosure (..),
     GeographyPolicy (..),
+    LibraryDocument (..),
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
@@ -3102,6 +3105,31 @@ removeFromMemory manager dbName = do
 --------------------------------------------------------------------------------
 
 -- | Get a staged database by name
+
+{- | A file a database ships with one of its literature entries, by the path
+the entry lists it under. Only a path the documentation lists is read, so a
+request reaches no file the database does not name.
+-}
+readDocumentFile :: DatabaseManager -> Text -> Text -> IO (Either Text BS.ByteString)
+readDocumentFile manager dbName path = runExceptT $ do
+    (docs, config) <- ExceptT (maybe (Left ("Database not loaded: " <> dbName)) Right <$> documented)
+    unless (path `elem` concatMap documentFiles (dbdocLiterature docs)) $
+        throwE ("The documentation of " <> dbName <> " lists no file " <> path)
+    root <- ExceptT (resolveDataPath (dcPath config) >>= traverse Upload.findDataDirectory)
+    let file = root </> T.unpack path
+    present <- liftIO (doesFileExist file)
+    unless present $
+        throwE ("The documentation of " <> dbName <> " lists " <> path <> ", which its package does not hold")
+    liftIO (BS.readFile file)
+  where
+    documented :: IO (Maybe (DatabaseDocumentation, DatabaseConfig))
+    documented = do
+        loaded <- getDatabase manager dbName
+        staged <- getStagedDatabase manager dbName
+        pure $
+            ((\ld -> (dbDocumentation (ldDatabase ld), ldConfig ld)) <$> loaded)
+                <|> ((\sd -> (sdbDocumentation (sdSimpleDB sd), sdConfig sd)) <$> staged)
+
 getStagedDatabase :: DatabaseManager -> Text -> IO (Maybe StagedDatabase)
 getStagedDatabase manager dbName = do
     stagedDbs <- readTVarIO (dmStagedDbs manager)

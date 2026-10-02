@@ -239,8 +239,9 @@ spec = do
                                 , documentSections =
                                     [ DocSection "Citation" "Mining Institute (2020) Coal extraction report"
                                     , DocSection "Description" "Measured at two mines."
-                                    , DocSection "File" "coal report.pdf\nhttps://example.org/coal"
+                                    , DocSection "Link" "https://example.org/coal\n../../outside.pdf"
                                     ]
+                                , documentFiles = ["external_docs/coal report.pdf"]
                                 }
                            ]
 

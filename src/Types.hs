@@ -990,6 +990,11 @@ data LibraryDocument = LibraryDocument
     { documentName :: !Text
     , documentCategory :: !Text
     , documentSections :: ![DocSection] -- In the source's order, blank ones left out
+    , documentFiles :: ![Text]
+    {- ^ The files the database ships with this document, by their path inside
+    it ("external_docs/report.pdf"), which is what the files route serves them
+    under. Only an ILCD package ships any.
+    -}
     }
     deriving (Show, Eq, Ord, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped LibraryDocument)

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 39** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 40** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -596,6 +596,16 @@ database. Refused when the key divides no block of the source, or when
 it is the key that source already reads under: either would leave that
 source under a second name.
 
+##### `Client.document_file(path: str, db_name: str | None = None) -> bytes`
+
+The bytes of a file a database ships with a literature entry.
+
+``path`` is one of the ``files`` a literature entry of the database's
+setup ``documentation`` lists, such as ``external_docs/report.pdf``;
+only an ILCD package ships any. Raises VoLCAError on an HTTP error,
+a 404 when the documentation lists no such file or the package does
+not hold it.
+
 ##### `Client.download_flow_synonyms(name: str) -> bytes`
 
 Download a flow-synonyms set as its raw CSV bytes.
@@ -922,7 +932,8 @@ the database says about itself (wire revision 36): under ``export``, the
 tool that wrote the file, its format version, the day, time and project
 it was exported from; under ``systems``, each system description its
 datasets name, and under ``literature`` each literature reference it
-holds, both with a ``name``, ``category`` and ``sections``. A SimaPro
+holds, both with a ``name``, ``category``, ``sections`` and ``files``
+(the files it ships, which `document_file` reads). A SimaPro
 export says all of it; an EcoSpold 1 database lists under
 ``literature`` the sources its datasets cite, and an ILCD package the
 sources it holds; another format leaves

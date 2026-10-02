@@ -559,6 +559,8 @@ History of manual bumps:
 - 52: an ILCD package's sources are read, both as its literature and as the
      documentation of each process that cites them. Nothing changes type, so a
      cache written just before this would keep both empty.
+- 53: a literature entry lists the files the database ships with it. The
+     field does not change the fingerprint.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -566,7 +568,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 52
+     in hi `xor` lo `xor` 53
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
