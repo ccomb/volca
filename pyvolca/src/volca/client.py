@@ -1172,7 +1172,8 @@ class Client:
         It reads its source's files, so the source cannot be deleted while the
         copy exists. The copy is known by the slug of ``new_name`` (lower case,
         words joined by dashes); a name another collection already has is
-        refused.
+        refused. Returns the collection made, whose ``name`` is the one the
+        next call takes.
 
         Needs an engine speaking wire revision 40.
         """

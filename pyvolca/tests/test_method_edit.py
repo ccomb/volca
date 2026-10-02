@@ -31,8 +31,8 @@ def _posted(session) -> tuple[str, dict | None, dict | None]:
 def test_copy(mocked_client):
     client, session = mocked_client
     _engine(session)
-    session.post.return_value = _make_response({"success": True, "message": "Copied", "database": None})
-    client.copy_method_collection("plain-indicators", "my copy")
+    session.post.return_value = _make_response({"name": "my-copy", "source": "plain-indicators"})
+    assert client.copy_method_collection("plain-indicators", "my copy")["name"] == "my-copy"
     url, body, _ = _posted(session)
     assert url == f"{BASE}/plain-indicators/copy/my%20copy"
     assert body is None

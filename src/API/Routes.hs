@@ -45,7 +45,7 @@ import qualified Data.Validation as V
 import qualified Data.Vector as V
 import Database
 import qualified Database.ComputedQuality as CQ
-import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), MethodCollectionStatus (..), getDatabase, getMergedUnitConfig)
+import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
 import EcoSpold.Common (distributeFiles)
 import qualified Expr
@@ -202,7 +202,7 @@ type LCAAPI =
                 :<|> "method-collections" :> Capture "collection" DM.CollectionName :> "profile" :> Get '[JSON] MethodCollectionProfile
                 -- Change a method collection of one's own through its journal; one
                 -- the configuration declares is copied first
-                :<|> "method-collections" :> Capture "collection" Text :> "copy" :> Capture "newName" Text :> Post '[JSON] ActivateResponse
+                :<|> "method-collections" :> Capture "collection" Text :> "copy" :> Capture "newName" Text :> Post '[JSON] MethodCollectionStatusAPI
                 :<|> "method-collections" :> Capture "collection" Text :> "factors" :> ReqBody '[JSON] FactorEditRequest :> Post '[JSON] MethodEditResponse
                 :<|> "method-collections" :> Capture "collection" Text :> "undo" :> QueryParam "line" Int :> Post '[JSON] MethodEditResponse
                 :<|> "method-collections" :> Capture "collection" Text :> "history" :> Get '[JSON] [MethodHistoryEntry]
@@ -2529,23 +2529,7 @@ getMethodCollections :: AppM MethodCollectionListResponse
 getMethodCollections = do
     dbManager <- asks aeDbManager
     statuses <- liftIO $ DM.listMethodCollections dbManager
-    return $
-        MethodCollectionListResponse
-            [ MethodCollectionStatusAPI
-                { mcaName = mcsName s
-                , mcaDisplayName = mcsDisplayName s
-                , mcaDescription = mcsDescription s
-                , mcaStatus = case mcsStatus s of
-                    DM.Loaded -> "loaded"
-                    _ -> "unloaded"
-                , mcaIsUploaded = mcsIsUploaded s
-                , mcaPath = mcsPath s
-                , mcaMethodCount = mcsMethodCount s
-                , mcaFormat = Just (mcsFormat s)
-                , mcaSource = mcsSource s
-                }
-            | s <- statuses
-            ]
+    return (MethodCollectionListResponse (map MethodEdit.methodCollectionStatusAPI statuses))
 
 loadMethodCollectionHandler :: Text -> AppM ActivateResponse
 loadMethodCollectionHandler name = do

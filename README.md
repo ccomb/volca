@@ -349,8 +349,9 @@ source's files, so the source cannot be deleted while the copy exists. A
 read-only engine refuses all three changes below.
 
 ```bash
-# Copy a collection under a new name
-curl -X POST localhost:8080/api/v1/method-collections/plain-indicators/copy/my-indicators
+# Copy a collection under a new name. The answer is the collection made, named
+# by the slug of the name asked for (here my-indicators)
+curl -X POST localhost:8080/api/v1/method-collections/plain-indicators/copy/My%20indicators
 
 # Change one factor's value: its category, its flow, its location if it has one,
 # and its present value when several factors answer at that place

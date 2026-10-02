@@ -11,6 +11,7 @@ collection calls them.
 -}
 module API.MethodEditHandlers (
     copyMethodCollectionHandler,
+    methodCollectionStatusAPI,
     editMethodFactorsHandler,
     undoMethodEditHandler,
     methodHistoryHandler,
@@ -31,22 +32,22 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
-import Servant (ServerError, err400, err404, err409, errBody, throwError)
+import Servant (ServerError, err400, err404, err409, err500, errBody, throwError)
 
 import API.DatabaseHandlers (guardMutation)
 import API.Types (
-    ActivateResponse (..),
     CompartmentAPI (..),
     FactorEditRequest,
     HistoryKindAPI (..),
     MethodChangeAPI (..),
+    MethodCollectionStatusAPI (..),
     MethodEditResponse (..),
     MethodFlowAPI (..),
     MethodHistoryEntry (..),
     toFactorEdit,
  )
 import App.Env (AppEnv (..), AppM)
-import Database.Manager (getMethodCollection)
+import Database.Manager (DatabaseLoadStatus (..), MethodCollectionStatus (..), getMethodCollection, listMethodCollections)
 import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
 import Method.EditPlan (EditEffect (..))
 import Method.Journal (LineKind (..), MethodOp (..))
@@ -54,12 +55,35 @@ import Method.Patch (describePatch)
 import Method.Types (Compartment (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Service.CompareMethods (factorSide)
 
-copyMethodCollectionHandler :: Text -> Text -> AppM ActivateResponse
+{- | The copy answers with the collection it made, because the name it is
+known by is the slug of the one asked for, and the next request needs it.
+-}
+copyMethodCollectionHandler :: Text -> Text -> AppM MethodCollectionStatusAPI
 copyMethodCollectionHandler collection newName = do
     guardMutation
     manager <- asks aeDbManager
     copied <- liftIO (copyMethodCollection manager collection newName) >>= either refuse pure
-    pure (ActivateResponse True ("Copied " <> collection <> " as " <> copied) Nothing)
+    statuses <- liftIO (listMethodCollections manager)
+    case [s | s <- statuses, mcsName s == copied] of
+        [s] -> pure (methodCollectionStatusAPI s)
+        _ -> throwError err500{errBody = BSL.fromStrict (TE.encodeUtf8 ("the copy " <> copied <> " was made but is not listed"))}
+
+methodCollectionStatusAPI :: MethodCollectionStatus -> MethodCollectionStatusAPI
+methodCollectionStatusAPI s =
+    MethodCollectionStatusAPI
+        { mcaName = mcsName s
+        , mcaDisplayName = mcsDisplayName s
+        , mcaDescription = mcsDescription s
+        , mcaStatus = case mcsStatus s of
+            Loaded -> "loaded"
+            PartiallyLinked -> "unloaded"
+            Unloaded -> "unloaded"
+        , mcaIsUploaded = mcsIsUploaded s
+        , mcaPath = mcsPath s
+        , mcaMethodCount = mcsMethodCount s
+        , mcaFormat = Just (mcsFormat s)
+        , mcaSource = mcsSource s
+        }
 
 editMethodFactorsHandler :: Text -> FactorEditRequest -> AppM MethodEditResponse
 editMethodFactorsHandler collection req = do

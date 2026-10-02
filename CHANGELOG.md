@@ -16,7 +16,8 @@
   refuses every change. The flows a collection characterizes can be searched,
   to name the flow of a new factor; a compared factor carries its flow's
   identifier and a compared category its own, so a difference found can be
-  changed at once. A listed collection names the one it is a copy of.
+  changed at once. A listed collection names the one it is a copy of, and a
+  copy answers with the collection it made, under the name it is known by.
   Wire revision 40.
 - The activity search, over HTTP and as the `search_activities` tool, takes
   the processes a caller already chose, as `process` (given once per process

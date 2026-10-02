@@ -16,7 +16,7 @@ import Servant (ServerError, errBody, errHTTPCode, runHandler)
 import Test.Hspec
 
 import API.MethodEditHandlers
-import API.Types (ActivateResponse (..), FactorEditRequest, FactorSide (..), MethodChangeAPI (..), MethodEditResponse (..), MethodFlowAPI (..), MethodHistoryEntry (..))
+import API.Types (FactorEditRequest, FactorSide (..), MethodChangeAPI (..), MethodEditResponse (..), MethodFlowAPI (..), MethodHistoryEntry (..), MethodCollectionStatusAPI (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Database.Manager (CachePolicy (..), getMethodCollection, initDatabaseManager)
@@ -47,7 +47,7 @@ request body = either (\err -> fail ("the request did not decode: " <> err)) pur
 copied :: IO (AppEnv, UUID, UUID)
 copied = do
     e <- env
-    call e (copyMethodCollectionHandler "plain-indicators" "copy") >>= either (fail . show) (\r -> arSuccess r `shouldBe` True)
+    call e (copyMethodCollectionHandler "plain-indicators" "copy") >>= either (fail . show) (\r -> mcaName r `shouldBe` "copy")
     collection <- getMethodCollection (aeDbManager e) "copy"
     case [(methodId m, mcfFlowRef f) | m <- maybe [] mcMethods collection, methodName m == "Methane", f <- methodFactors m, mcfFlowName f == "Methane, fossil"] of
         [(category, flow)] -> pure (e, category, flow)
@@ -66,6 +66,11 @@ failure = either (\err -> Just (errHTTPCode err, BSL.unpack (errBody err))) (con
 
 spec :: Spec
 spec = describe "changing a method collection over HTTP" $ do
+    it "answers a copy with the collection made, under the name it is known by" $
+        withScratchDataDir $ do
+            e <- env
+            made <- call e (copyMethodCollectionHandler "plain-indicators" "My Indicators")
+            fmap (\c -> (mcaName c, mcaSource c, mcaStatus c)) made `shouldBe` Right ("my-indicators", Just "plain-indicators", "loaded")
     it "refuses a set that does not name its category, naming the field" $
         withScratchDataDir $ do
             (e, _, flow) <- copied
