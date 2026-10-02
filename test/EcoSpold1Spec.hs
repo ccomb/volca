@@ -360,6 +360,9 @@ documentedXml =
         , "        <source number=\"2\" firstAuthor=\"Bussa M.\" additionalAuthors=\"Jungbluth N.\""
         , "                year=\"2025\" title=\"LCI long-distance transport of natural gas\""
         , "                publisher=\"ESU-services Ltd.\" placeOfPublications=\"Schaffhausen, CH\"/>"
+        , "        <source number=\"3\" title=\"Created for EcoSpold 1 compatibility\""
+        , "                titleOfAnthology=\"Final report ecoinvent data v2.0\""
+        , "                text=\"Hischier R. (2007) Packaging and Graphical Paper.\\nType: Measurement on site\\n\"/>"
         , "        <validation proofReadingDetails=\"Passed.\" proofReadingValidator=\"41\"/>"
         , "      </modellingAndValidation>"
         , "      <administrativeInformation>"
@@ -511,13 +514,31 @@ spec = do
         it "keeps the methodological report the other source names" $
             withDocumented $ \act ->
                 sectionNamed "Sources" act
-                    `shouldBe` Just "Frischknecht R. (2007). Overview and Methodology. ecoinvent report No. 1. Swiss Centre for LCI, Duebendorf, CH."
+                    `shouldBe` Just "Frischknecht R. (2007). Overview and Methodology. ecoinvent report No. 1. Swiss Centre for LCI, Duebendorf, CH.\nHischier R. (2007) Packaging and Graphical Paper."
 
         it "gives the database every source the dataset cites, titled" $
             case parseWithXeno documentedXml of
                 Left err -> expectationFailure $ "Parse failed: " ++ err
                 Right ParsedDataset{pdLiterature = sources} ->
-                    map documentName sources `shouldBe` ["Overview and Methodology", "LCI long-distance transport of natural gas"]
+                    map documentName sources `shouldBe` ["Overview and Methodology", "LCI long-distance transport of natural gas", "Hischier R. (2007) Packaging and Graphical Paper."]
+
+        it "names a source a converter titled with a placeholder by the reference it wrote in its text" $
+            case parseWithXeno documentedXml of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdLiterature = sources} ->
+                    map documentSections (drop 2 sources)
+                        `shouldBe` [[DocSection "Description" "Hischier R. (2007) Packaging and Graphical Paper."]]
+
+        it "reads a source titled with a placeholder from its fields when it names its author" $
+            case parseWithXeno (BC.unlines [if "Hischier" `BC.isInfixOf` l then "firstAuthor=\"Smith J.\" year=\"2005\" text=\"Report\"/>" else l | l <- BC.lines documentedXml]) of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdLiterature = sources} ->
+                    map documentName (drop 2 sources) `shouldBe` ["Smith J. (2005). Created for EcoSpold 1 compatibility. Final report ecoinvent data v2.0."]
+
+        it "leaves out a source titled with a placeholder and no text, which says nothing" $
+            case parseWithXeno (BC.unlines [if "Hischier" `BC.isInfixOf` l then "text=\"\"/>" else l | l <- BC.lines documentedXml]) of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdLiterature = sources} -> length sources `shouldBe` 2
 
         it "reads the free texts of the process information" $
             withDocumented $ \act -> do

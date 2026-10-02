@@ -20,14 +20,14 @@ module EcoSpold.Parser1 (
 ) where
 
 import Amount (readAmount)
-import Control.Monad (forM_)
+import Control.Monad (forM_, mfilter)
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import Data.Either (fromRight, lefts, rights)
 import qualified Data.IntMap.Strict as IM
 import Data.List (intercalate)
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -200,11 +200,12 @@ data Source1 = Source1
     , s1TitleOfAnthology :: !Text -- Where ecoinvent puts "ecoinvent report No. 1"
     , s1Publisher :: !Text
     , s1Place :: !Text
+    , s1Text :: !Text -- Where a converter that titled the source with a placeholder wrote its reference
     }
     deriving (Eq)
 
 emptySource1 :: Source1
-emptySource1 = Source1 0 "" "" "" "" "" "" ""
+emptySource1 = Source1 0 "" "" "" "" "" "" "" ""
 
 {- | The provenance a dataset states about itself, accumulated as the metadata
 elements go by. Sources and persons are keyed by the number the dataset gives
@@ -375,6 +376,8 @@ docAttr name value state
     | on "source" "titleOfAnthology" = setSource (\s -> s{s1TitleOfAnthology = txt})
     | on "source" "publisher" = setSource (\s -> s{s1Publisher = txt})
     | on "source" "placeOfPublications" = setSource (\s -> s{s1Place = txt})
+    -- Some exporters write the line breaks of this text as a backslash and an n.
+    | on "source" "text" = setSource (\s -> s{s1Text = T.strip (T.replace "\\n" "\n" txt)})
     | on "person" "number" = setDocs (\d -> d{ddPendingPersonNumber = num})
     | on "person" "name" = setDocs (\d -> d{ddPendingPersonName = txt})
     | on "dataset" "timestamp" = setDocs (\d -> d{ddTimestamp = txt})
@@ -731,23 +734,38 @@ methodological report in @titleOfAnthology@ ("ecoinvent report No. 1"), which is
 usually the piece a reader is after, so it follows the title directly.
 -}
 renderSource :: Source1 -> Text
-renderSource s = case joinParts ". " [authors, s1Title s, s1TitleOfAnthology s, publisher] of
-    "" -> ""
-    line -> line <> "."
+renderSource s
+    -- A converter that stands this placeholder in for the title leaves the
+    -- fields empty and writes the reference in the source's text instead; a
+    -- source that names its author is read from its fields as any other.
+    -- With no text either, the source says nothing at all.
+    | s1Title s == placeholderTitle, T.null (s1FirstAuthor s) = maybe "" T.strip (listToMaybe (T.lines (s1Text s)))
+    | otherwise = case joinParts ". " [authors, s1Title s, s1TitleOfAnthology s, publisher] of
+        "" -> ""
+        line -> line <> "."
   where
     authors = joinParts " " [joinParts ", " [s1FirstAuthor s, s1AdditionalAuthors s], year]
     year = maybe "" (\y -> "(" <> y <> ")") (nonEmptyText (s1Year s))
     publisher = joinParts ", " [s1Publisher s, s1Place s]
 
-{- | A source as an entry of the database's literature: its title, and the
-whole reference as its description, where SimaPro keeps a reference's text. A source with no title is named by its reference.
+-- | The title some converters give a source whose reference they wrote in its text.
+placeholderTitle :: Text
+placeholderTitle = "Created for EcoSpold 1 compatibility"
+
+{- | A source as an entry of the database's literature: its title, and its
+reference as its description, where SimaPro keeps a reference's text. A source
+with no title, or a placeholder one, is named by its reference.
+
+The rest of a source's text is left out: past its first line it repeats the
+fields, or holds a word such as "Report" or "pdf", and would split one
+reference into as many entries as there are ways of writing it.
 -}
 sourceDocument :: Source1 -> Maybe LibraryDocument
 sourceDocument s = do
     reference <- nonEmptyText (renderSource s)
     pure
         LibraryDocument
-            { documentName = fromMaybe reference (nonEmptyText (s1Title s))
+            { documentName = fromMaybe reference (mfilter (/= placeholderTitle) (nonEmptyText (s1Title s)))
             , documentCategory = ""
             , documentSections = [DocSection "Description" reference]
             }
