@@ -197,6 +197,13 @@ compareCategoriesSpec = describe "compareCategories" $ do
         let c = compared [(factor "zinc" 1){mcfUnit = ""}] []
         map (\f -> (facDirection f, facUnit f)) (ccpRemoved c) `shouldBe` [(Output, Nothing)]
 
+    it "names the flow of a listed factor and the method of a listed category, which a change addresses" $ do
+        let zinc = (factor "zinc" 1){mcfFlowRef = flowId 7}
+            climate = (category "Climate change" [zinc]){methodId = flowId 8}
+            paired = compareCollections refData [] EveryCategory (Sides (collection [climate]) (collection [category "Climate change" []]))
+        fmap (map (\c -> (csdMethodId (ccpBase c), map facFlowRef (ccpRemoved c))) . mccCategories) paired
+            `shouldBe` Right [(flowId 8, [flowId 7])]
+
     it "keeps apart two rows of one name written per two units" $ do
         let cfs = [factor "water/kg" 1, factor "water/m3" 1000]
         counts (compared cfs cfs) `shouldBe` [0, 0, 0, 2, 0, 0]

@@ -2032,6 +2032,8 @@ data FactorSide = FactorSide
     , facUnit :: !(Maybe Text)
     -- ^ absent when the method states none
     , facValue :: !Double
+    , facFlowRef :: !UUID
+    -- ^ what a change to this factor addresses; last, so factors still sort by name
     }
     deriving (Eq, Ord, Show, Generic)
     deriving (ToJSON, ToSchema) via (Stripped FactorSide)
@@ -2071,6 +2073,8 @@ data CategorySide = CategorySide
     , csdCategory :: !Text
     , csdUnit :: !Text
     , csdFactorCount :: !Int
+    , csdMethodId :: !UUID
+    -- ^ what a change to one of this category's factors addresses
     }
     deriving (Eq, Show, Generic)
     deriving (ToJSON, ToSchema) via (Stripped CategorySide)
