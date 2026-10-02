@@ -40,6 +40,7 @@ library
                      , App.Env
                      , App.Idle
                      , Data.Indexing
+                     , Data.JournalFile
                      , Data.Validation
                      , Progress
                      , UnitConversion
@@ -371,6 +372,7 @@ test-suite lca-tests
                      , DeriveSpec
                      , SourceBlockSpec
                      , AuthorSpec
+                     , JournalFileSpec
                      , JournalSpec
                      , ActivityWriteHandlerSpec
                      , PersistenceSpec
