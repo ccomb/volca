@@ -40,6 +40,8 @@ depends = ["other"]
 deletable = false
 geography_policy = "parent"
 allocation = "wet mass"
+licence = "CC BY 4.0"
+downloads = "refused"
 
 [databases.locationAliases]
 "FR " = "FR"

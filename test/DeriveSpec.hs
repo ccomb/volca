@@ -48,6 +48,7 @@ import Types (
     GeographyPolicy (..),
     exchangeAmount,
     exchangeIsProductOutput,
+    openTerms,
  )
 
 spec :: Spec
@@ -151,6 +152,7 @@ sourceConfig csvPath =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }
 
 {- | One block of two products, declared 51 / 49, whose masses say 25 / 75:

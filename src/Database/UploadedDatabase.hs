@@ -42,7 +42,7 @@ import Text.Read (readMaybe)
 -- Re-export DatabaseFormat from Database.Upload (single definition)
 import Database.Upload (DatabaseFormat (..))
 import Progress (ProgressLevel (..), reportProgress)
-import Types (AllocationKey, allocationKeyText, parseAllocationKey)
+import Types (AllocationKey, Terms (..), allocationKeyText, downloadsCode, parseAllocationKey, parseDownloads)
 
 -- | Metadata for an uploaded database
 data UploadMeta = UploadMeta
@@ -72,17 +72,22 @@ data UploadMeta = UploadMeta
     source declares. A file written before this field existed reads back as
     'Declared', which is what it meant.
     -}
+    , umTerms :: !Terms
+    {- ^ The licence and whether it may be downloaded, as its owner set them; a
+    copy records its source's when it is made. A file written before this field
+    existed allows everything, which is what it did.
+    -}
     }
     deriving (Show, Eq, Generic)
 
 {- | The @meta.toml@ shape this engine writes, stamped by every writer.
 Version 3 added @source@, which is what tells a copy from an upload; version 4
 added @allocation@, without which a re-keyed database came back declared after
-a restart. The parser reads every version, taking absent fields to mean what
+a restart; version 5 added @licence@ and @downloads@. The parser reads every version, taking absent fields to mean what
 their absence meant when they did not exist.
 -}
 metaVersion :: Int
-metaVersion = 4
+metaVersion = 5
 
 -- | Name of the metadata file in each upload directory
 metaFileName :: FilePath
@@ -173,6 +178,11 @@ parseMetaToml content = do
         either (const Nothing) Just $
             parseAllocationKey (maybe "declared" unquote (getValue "allocation"))
 
+    -- Same rule: a refusal nobody can read must not come back as allowed.
+    downloads <-
+        either (const Nothing) Just $
+            parseDownloads (maybe "allowed" unquote (getValue "downloads"))
+
     return
         UploadMeta
             { umVersion = version
@@ -183,6 +193,7 @@ parseMetaToml content = do
             , umDepends = maybe [] parseStringList (getValue "depends")
             , umSource = unquote <$> getValue "source"
             , umAllocation = allocation
+            , umTerms = Terms{termsLicence = unquote <$> getValue "licence", termsDownloads = downloads}
             }
 
 {- | Undo the escaping 'formatMetaToml' writes, so a value survives the round
@@ -244,6 +255,8 @@ formatMetaToml UploadMeta{..} =
                , "allocation = " <> quote (allocationKeyText umAllocation)
                ]
             ++ maybe [] (\s -> ["source = " <> quote s]) umSource
+            ++ maybe [] (\l -> ["licence = " <> quote l]) (termsLicence umTerms)
+            ++ ["downloads = " <> quote (downloadsCode (termsDownloads umTerms))]
   where
     quote t = "\"" <> escapeToml t <> "\""
 
