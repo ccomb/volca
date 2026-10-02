@@ -767,7 +767,7 @@ description r = case r of
         \exact-name tool fail to characterize?'"
     EditExchanges ->
         "LCA / ACV: change what one activity consumes and emits, keeping the \
-        \activity itself. The only tool that writes data. Use it to adjust an \
+        \activity itself. The tool that writes a database's data. Use it to adjust an \
         \imported dataset to the study at hand: drop a substance the scope \
         \excludes, correct an amount, add a supplier the dataset is missing. \
         \Everything the edit does not name stays as it is (classification, \

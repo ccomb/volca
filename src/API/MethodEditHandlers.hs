@@ -18,6 +18,7 @@ module API.MethodEditHandlers (
     historyToAPI,
     collectionFlows,
     refusalStatus,
+    outcomeToAPI,
 ) where
 
 import Control.Monad.IO.Class (liftIO)
