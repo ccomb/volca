@@ -28,9 +28,9 @@ import API.Types (ActivitySummary (..))
 import qualified Data.Text as T
 import Database (buildDatabaseWithMatrices)
 import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
-import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches, mkActivitySummary)
+import Service (ActivityFilterCore (..), SearchFilter (..), activitiesNamed, activityMatches, mkActivitySummary)
 import TestHelpers (shippedGeographies)
-import Types (AllocationKey (..), BuildInputs (..), Database (..))
+import Types (AllocationKey (..), BuildInputs (..), Database (..), ProcessId)
 import UnitConversion (defaultUnitConfig)
 
 spec :: Spec
@@ -108,6 +108,37 @@ spec = do
             withDatabase twoBlocksSharingAName $ \db -> do
                 exactProductsFound db "AGRIBALU" `shouldBe` []
                 exactProductsFound db "AGRIBALU000000003103728" `shouldMatchList` ["Cheese", "Whey"]
+
+    describe "listing the processes a caller names" $ do
+        it "lists them in the order named, whatever the name filter says" $
+            withDatabase twoBlocksSharingAName $ \db ->
+                named db (noFilter{afcName = Just "nothing like it"}) [3, 0]
+                    `shouldBe` [prsProductName s | i <- [3, 0 :: Int], (j, s) <- zip [0 ..] (summaries db), i == j]
+
+        it "still applies the place filter" $
+            withDatabase twoBlocksSharingAName $ \db ->
+                named db (noFilter{afcLocation = Just "ZZ-NOWHERE"}) [0, 1] `shouldBe` []
+
+        it "leaves out a process the database does not hold" $
+            withDatabase twoBlocksSharingAName $ \db ->
+                length (named db noFilter [1, 999]) `shouldBe` 1
+
+-- | The products of the processes named, through the search's other filters.
+named :: Database -> ActivityFilterCore -> [ProcessId] -> [Text]
+named db core pids = [prsProductName (mkActivitySummary db pid act) | (pid, act) <- activitiesNamed shippedGeographies db core pids]
+
+noFilter :: ActivityFilterCore
+noFilter =
+    ActivityFilterCore
+        { afcName = Nothing
+        , afcLocation = Nothing
+        , afcProduct = Nothing
+        , afcClassifications = []
+        , afcLimit = Nothing
+        , afcOffset = Nothing
+        , afcSort = Nothing
+        , afcOrder = Nothing
+        }
 
 -- | Every process of a SimaPro file, loaded and built the way a served one is.
 withDatabase :: BS.ByteString -> (Database -> IO ()) -> IO ()

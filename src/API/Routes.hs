@@ -137,7 +137,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "explain-cf" :> Capture "flowId" Text :> QueryParam "collection" Text :> Get '[JSON] ExplainCFResult
                 :<|> "db" :> Capture "dbName" Text :> "flows" :> QueryParam "q" Text :> QueryParam "lang" Text :> QueryParam "kind" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults FlowSearchResult)
                 :<|> "db" :> Capture "dbName" Text :> "search-counts" :> QueryParam "q" Text :> QueryParam "sort" Text :> QueryParam "exact" Bool :> Get '[JSON] SearchCountsAPI
-                :<|> "db" :> Capture "dbName" Text :> "activities" :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "exact" Bool :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults ActivitySummary)
+                :<|> "db" :> Capture "dbName" Text :> "activities" :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "exact" Bool :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParams "process" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults ActivitySummary)
                 :<|> "db" :> Capture "dbName" Text :> "classifications" :> Get '[JSON] [ClassificationSystem]
                 :<|> "db" :> Capture "dbName" Text :> "catalogue" :> QueryParam "offset" Int :> QueryParam "limit" Int :> Get '[JSON] CataloguePage
                 :<|> "db" :> Capture "dbName" Text :> "catalogue" :> "fingerprint" :> Get '[JSON] CatalogueFingerprint
@@ -1460,7 +1460,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 38: the catalogue route, every process of a database page by page,
+(revision 39: @process@ on the activity search, the rows of the processes a
+caller names, in its order;
+revision 38: the catalogue route, every process of a database page by page,
 and its fingerprint;
 revision 37: the single score a SimaPro method's normalization-weighting set
 gives in @scoringResults@, and the @units@ of the variables a scoring set lists;
@@ -1545,7 +1547,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 38
+currentWireVersion = 39
 
 getVersion :: AppM Value
 getVersion = do
@@ -2566,34 +2568,41 @@ searchFlows dbName queryParam langParam kindParam limitParam offsetParam sortPar
     namedKinds :: Text -> AppM KindFilter
     namedKinds raw = either badRequest (pure . OnlyKinds) (parseKindNames raw)
 
-searchActivitiesWithCount :: Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Bool -> Maybe Text -> [Text] -> [Text] -> [Text] -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> AppM (SearchResults ActivitySummary)
-searchActivitiesWithCount dbName nameParam geoParam productParam exactParam presetParam classSystems classValues classModes limitParam offsetParam sortParam orderParam = do
+{- | The activity search, or with @process@ given, the rows of exactly those
+processes in the order given, through the same place, product and
+classification filters (see 'Service.activitiesNamed').
+-}
+searchActivitiesWithCount :: Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Bool -> Maybe Text -> [Text] -> [Text] -> [Text] -> [Text] -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> AppM (SearchResults ActivitySummary)
+searchActivitiesWithCount dbName nameParam geoParam productParam exactParam presetParam classSystems classValues classModes processParams limitParam offsetParam sortParam orderParam = do
     presets <- asks aeClassificationPresets
-    dbManager <- asks aeDbManager
+    geographies <- asks (DM.managerGeographies . aeDbManager)
     (db, _) <- requireDatabaseByName dbName
     classifications <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
-    let exactMatch = fromMaybe False exactParam
-        sf =
-            Service.SearchFilter
-                { Service.sfCore =
-                    Service.ActivityFilterCore
-                        { Service.afcName = nameParam
-                        , Service.afcLocation = geoParam
-                        , Service.afcProduct = productParam
-                        , Service.afcClassifications = classifications
-                        , Service.afcLimit = limitParam
-                        , Service.afcOffset = offsetParam
-                        , Service.afcSort = sortParam
-                        , Service.afcOrder = orderParam
-                        }
-                , Service.sfExactMatch = exactMatch
+    let core =
+            Service.ActivityFilterCore
+                { Service.afcName = nameParam
+                , Service.afcLocation = geoParam
+                , Service.afcProduct = productParam
+                , Service.afcClassifications = classifications
+                , Service.afcLimit = limitParam
+                , Service.afcOffset = offsetParam
+                , Service.afcSort = sortParam
+                , Service.afcOrder = orderParam
                 }
-    result <- liftIO $ Service.searchActivities (DM.managerGeographies dbManager) db sf
-    case result of
-        Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
-        Right jsonValue -> case fromJSON jsonValue of
-            Success searchResults -> return searchResults
-            Error parseErr -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack parseErr}
+    if null processParams
+        then searched geographies db (Service.SearchFilter core (fromMaybe False exactParam))
+        else do
+            pids <- either throwServiceError pure (Service.processesNamed db processParams)
+            pure (Service.paginateSearchResults offsetParam limitParam 0 (uncurry (Service.mkActivitySummary db)) (Service.activitiesNamed geographies db core pids))
+  where
+    searched :: Geographies -> Database -> Service.SearchFilter -> AppM (SearchResults ActivitySummary)
+    searched geographies db sf = do
+        result <- liftIO $ Service.searchActivities geographies db sf
+        case result of
+            Left err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
+            Right jsonValue -> case fromJSON jsonValue of
+                Success searchResults -> return searchResults
+                Error parseErr -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack parseErr}
 
 getClassifications :: Text -> AppM [ClassificationSystem]
 getClassifications dbName = do

@@ -980,6 +980,33 @@ activityMatches geographies db sFilter@(SearchFilter core exactMatch) =
         | afcOrder core == Just "desc" = flip (activityRowComparator (afcSort core))
         | otherwise = activityRowComparator (afcSort core)
 
+{- | The processes a caller names, in the order named, through the search's
+place, product and classification filters.
+
+The name filter does not apply: a caller that already knows which processes
+it wants (ranked by some measure of its own) asks for their rows, and the
+order it gives is the answer. A process the database does not hold is left
+out, the way a search leaves out what it does not find.
+-}
+activitiesNamed :: Geographies -> Database -> ActivityFilterCore -> [ProcessId] -> [(ProcessId, Activity)]
+activitiesNamed geographies db core =
+    applyStructuredFilters geographies db (afcLocation core) (afcProduct core) (afcClassifications core) False
+        . mapMaybe (\pid -> (,) pid <$> findActivityByProcessId db pid)
+
+{- | The processes a list of identifiers names, for 'activitiesNamed'. One the
+database does not hold is left out; one that is malformed, or names an
+activity without saying which of its products, is refused, since the caller
+asked for something that cannot be answered.
+-}
+processesNamed :: Database -> [Text] -> Either ServiceError [ProcessId]
+processesNamed db = fmap catMaybes . traverse named
+  where
+    named :: Text -> Either ServiceError (Maybe ProcessId)
+    named ref = case resolveActivityAndProcessId db ref of
+        Right (pid, _) -> Right (Just pid)
+        Left (ActivityNotFound _) -> Right Nothing
+        Left refused -> Left refused
+
 {- | How many of each thing one query finds, for the three tabs of a search
 box.
 
