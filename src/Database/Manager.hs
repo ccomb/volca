@@ -782,8 +782,23 @@ mapMethodToFlowsCached manager dbName collection db method = do
             vocabulary <- collectionVocabulary manager collection cmap method
             let ctx = mapContextFor closure (fromMaybe emptySynonymDB (dbSynonymDB db)) (Placing cmap vocabulary)
             result <- mapMethodFlows ctx method
-            atomically $ modifyTVar' (dmMethodMappingCache manager) (M.insert key result)
+            atomically $ cacheIfCurrent manager collection [method] (modifyTVar' (dmMethodMappingCache manager) (M.insert key result))
             return result
+
+{- | Cache what was built from some methods unless a change has since replaced
+one of them. A change to a collection drops what was built from it, but a build
+already under way when the change landed would put its result back, and every
+later score would read the factors the change replaced. Its caller still gets
+the result; the next one builds again. A method its collection does not hold
+under that identifier is cached as before.
+-}
+cacheIfCurrent :: DatabaseManager -> CollectionName -> [Method] -> STM () -> STM ()
+cacheIfCurrent manager (CollectionName name) methods write = do
+    held <- maybe [] mcMethods . M.lookup name <$> readTVar (dmLoadedMethods manager)
+    unless (any (replacedIn held) methods) write
+  where
+    replacedIn :: [Method] -> Method -> Bool
+    replacedIn held method = any (\h -> methodId h == methodId method && h /= method) held
 
 {- | The mappings scoring actually uses: the cached cascade result expanded
 with the database's synonym fan-out and the configured substance edges.
@@ -824,7 +839,7 @@ mapMethodToTablesCached manager dbName collection db method = do
             singleFlight
                 (dmMethodTablesInflight manager)
                 key
-                (modifyTVar' (dmMethodTablesCache manager) . M.insert key)
+                (cacheIfCurrent manager collection [method] . modifyTVar' (dmMethodTablesCache manager) . M.insert key)
                 (buildMethodTablesFor manager dbName collection db method)
 
 {- | The places a collection writes factors at, which decide the @if_absent@
@@ -840,7 +855,7 @@ collectionVocabulary manager collection cmap method = do
         Nothing -> do
             siblings <- maybe [method] mcMethods <$> getMethodCollection manager (unCollectionName collection)
             vocabulary <- Control.Exception.evaluate (methodVocabulary cmap (concatMap methodFactors siblings))
-            atomically $ modifyTVar' (dmMethodVocabularyCache manager) (M.insert collection vocabulary)
+            atomically $ cacheIfCurrent manager collection siblings (modifyTVar' (dmMethodVocabularyCache manager) (M.insert collection vocabulary))
             pure vocabulary
 
 {- | Build the LCIA lookup tables for one method against a database: resolve the
@@ -1056,7 +1071,7 @@ mapMethodSetToTablesCached manager dbName collection db methods = do
             -- same value).
             tables <- mapConcurrently (mapMethodToTablesCached manager dbName collection db) sortedMethods
             let !mst = buildMethodSetTables (zip sortedMethods tables)
-            atomically $ modifyTVar' (dmMethodSetTablesCache manager) (M.insert key mst)
+            atomically $ cacheIfCurrent manager collection sortedMethods (modifyTVar' (dmMethodSetTablesCache manager) (M.insert key mst))
             pure mst
 
 {- | Cached method index (CF tokens, by-medium, by-CAS): built once per
@@ -1072,7 +1087,7 @@ mapMethodToIndexCached manager dbName collection method = do
         Just idx -> pure idx
         Nothing -> do
             let !idx = buildMethodIndex method
-            atomically $ modifyTVar' (dmMethodIndexCache manager) (M.insert key idx)
+            atomically $ cacheIfCurrent manager collection [method] (modifyTVar' (dmMethodIndexCache manager) (M.insert key idx))
             pure idx
 
 {- | Hold a database name against concurrent work for the duration of an

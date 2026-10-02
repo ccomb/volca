@@ -17,7 +17,7 @@ import Test.Hspec
 
 import Config (MethodPatch (..), MethodPatchMatch (..), defaultConfig)
 import Data.JournalFile (journalPath)
-import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getMethodCollection, initDatabaseManager, loadMethodCollection, unloadMethodCollection)
+import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getMethodCollection, initDatabaseManager, loadMethodCollection, mapMethodToIndexCached, unloadMethodCollection)
 import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Edit
 import Method.EditPlan (EditEffect (..), FactorEdit (..), FactorTarget (..))
@@ -80,6 +80,18 @@ spec = describe "changing a method collection of one's own" $ do
             atomically $ modifyTVar' (dmMethodIndexCache manager) (M.insert (key "copy") emptyIndex . M.insert (key "plain-indicators") emptyIndex)
             _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 2)
             M.keys <$> readTVarIO (dmMethodIndexCache manager) `shouldReturn` [key "plain-indicators"]
+
+    it "never caches what was built from a factor a change has since replaced" $
+        withScratchDataDir $ do
+            (manager, category, methane) <- copyWithMethane
+            let methaneOf = maybe [] (filter ((== category) . methodId) . mcMethods)
+            [before] <- methaneOf <$> getMethodCollection manager "copy"
+            _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 2)
+            _ <- mapMethodToIndexCached manager "db" (CollectionName "copy") before
+            M.keys <$> readTVarIO (dmMethodIndexCache manager) `shouldReturn` []
+            [after] <- methaneOf <$> getMethodCollection manager "copy"
+            _ <- mapMethodToIndexCached manager "db" (CollectionName "copy") after
+            M.keys <$> readTVarIO (dmMethodIndexCache manager) `shouldReturn` [("db", CollectionName "copy", category)]
 
     it "waits for a change being written before unloading the collection" $
         withScratchDataDir $ do
