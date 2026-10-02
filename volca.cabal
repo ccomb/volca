@@ -382,6 +382,7 @@ test-suite lca-tests
                      , MethodEditHandlerSpec
                      , MethodEditPlanSpec
                      , MethodEditSpec
+                     , MethodJournalCheckpointsSpec
                      , MethodJournalLoadSpec
                      , MethodJournalSpec
                      , ActivityWriteHandlerSpec
