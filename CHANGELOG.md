@@ -39,6 +39,16 @@
   A source a converter titled "Created for EcoSpold 1 compatibility", leaving
   its fields empty and the reference in its text, is named and cited from that
   text, there and in the activity's own sources; one with no text is left out.
+- An ILCD package lists in its `documentation`, under `literature`, the
+  sources its `sources/` directory holds: the name, class, citation and
+  description of each, and the files it points to, named. Pictures, data set
+  formats and compliance systems are left out, since every dataset of a
+  package cites the same ones. A process serves the sources it cites as its
+  own documentation, one section per role (data sources, LCA method, data
+  handling, review report, LCA report, flow diagram, and the dataset it was
+  converted from or republishes). A closing tag written with a space before
+  its bracket is read as closing; it used to be read as opening the element
+  again. Databases are read again from their source on first load.
 - An activity carries the dates its dataset states, in `dates`: `created`,
   `lastRevised` and `stated`. EcoSpold 2 records a creation and a last edit,
   EcoSpold 1 a creation, ILCD the day the dataset was last saved. A SimaPro

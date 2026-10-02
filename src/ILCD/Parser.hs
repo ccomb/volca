@@ -25,22 +25,27 @@ import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import qualified Data.ByteString as BS
+import Data.Containers.ListUtils (nubOrd)
 import Data.Either (fromRight)
+import Data.List (find)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Maybe
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
 import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
 import Database.Allocation (Allocating (..), allocate)
-import System.FilePath ((</>))
+import System.Directory (doesDirectoryExist)
+import System.FilePath (takeFileName, (</>))
 import Text.Printf (printf)
 import UnitConversion (UnitConfig)
 import qualified Xeno.SAX as X
 
-import EcoSpold.Common (bsToText, distributeFiles, isElement)
+import EcoSpold.Common (bsToText, decodeNumericRefs, decodeXmlEntities, distributeFiles, isElement)
 import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles, tightCloseTags)
 import Method.FlowResolver (ILCDFlowInfo (..), parseFlowDirectory)
 import qualified Method.Types as MT
@@ -57,6 +62,7 @@ data ILCDProcessRaw = ILCDProcessRaw
     , iprClassifications :: !(M.Map Text Text)
     , iprProcessType :: !Text -- ILCD <processType> element value (e.g. "Unit process, single operation"); "" when absent
     , iprLastRevised :: !(Either Text (Maybe Day)) -- dataEntryBy/timeStamp, the last time the dataset was saved; Left when it is not a date
+    , iprDocumentation :: ![DocSection] -- the source datasets it cites, one section per role
     }
 
 {- | Update a comment slot with a newly-seen `<common:generalComment>`.
@@ -132,8 +138,10 @@ parseILCDDirectory unitConfig key dir = runExceptT $ do
     let alloc = Allocating{alKey = key, alUnitConfig = unitConfig, alUnitDB = unitDB}
         activityMap = buildActivityMap alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB processes
 
+    literature <- ExceptT $ parseSources (dir </> "sources")
+
     -- Step 6: Fix supplier links (name-based, like SimaPro)
-    let simpleDb = SimpleDatabase activityMap techFlowDB bioFlowDB wasteFlowDB unitDB noDocumentation
+    let simpleDb = SimpleDatabase activityMap techFlowDB bioFlowDB wasteFlowDB unitDB noDocumentation{dbdocLiterature = literature}
     fixedDb <- liftIO $ fixILCDActivityLinks simpleDb
     liftIO $
         reportProgress Info $
@@ -276,6 +284,98 @@ parseFlowPropertyXML bytes =
 
     cdata = txt
     accum s = T.strip $ T.concat $ reverse $ map bsToText (fpTextAccum s)
+
+--------------------------------------------------------------------------------
+-- Sources: the publications, reports and pictures the processes cite
+--------------------------------------------------------------------------------
+
+{- | The sources a package documents, as its literature. A package without a
+@sources/@ directory documents none.
+
+Pictures, data set formats and compliance systems are left out: a logo, the
+ILCD format or a conformity scheme is cited by every dataset of a package and
+says nothing about where its numbers come from.
+-}
+parseSources :: FilePath -> IO (Either Text [LibraryDocument])
+parseSources dir = do
+    present <- doesDirectoryExist dir
+    if present
+        then fmap (S.toList . S.fromList . filter worthReading . M.elems) <$> readDataSets dir parseSourceXML
+        else pure (Right [])
+  where
+    worthReading :: LibraryDocument -> Bool
+    worthReading d = documentCategory d `notElem` ["Images", "Data set formats", "Compliance systems"]
+
+data SrcState = SrcState
+    { srcUUID :: !Text
+    , srcName :: !(Maybe (Text, Text))
+    , srcClasses :: ![Text]
+    , srcCitation :: !Text
+    , srcComment :: !(Maybe (Text, Text))
+    , srcFiles :: ![Text]
+    , srcLang :: !Text
+    , srcInFile :: !Bool
+    , srcTextAccum :: ![BS.ByteString]
+    }
+
+{- | One source dataset as a literature entry: its short name, its class, then
+its citation, its description and the files it points at, each a section when
+it says something. A file inside the package is named, an address kept whole.
+-}
+parseSourceXML :: BS.ByteString -> Maybe (UUID, LibraryDocument)
+parseSourceXML bytes =
+    case X.fold openTag attr endOpen txt closeTag cdata (SrcState "" Nothing [] "" Nothing [] "" False []) bytes of
+        Left _ -> Nothing
+        Right s -> do
+            uuid <- UUID.fromText (srcUUID s)
+            (_, name) <- srcName s
+            pure
+                ( uuid
+                , LibraryDocument
+                    { documentName = name
+                    , documentCategory = T.intercalate "/" (reverse (srcClasses s))
+                    , documentSections =
+                        [ DocSection label text
+                        | (label, text) <-
+                            [ ("Citation", srcCitation s)
+                            , ("Description", maybe "" snd (srcComment s))
+                            , ("File", T.intercalate "\n" (reverse (srcFiles s)))
+                            ]
+                        , not (T.null text)
+                        ]
+                    }
+                )
+  where
+    openTag s tag = s{srcLang = "", srcInFile = isElement tag "referenceToDigitalFile", srcTextAccum = []}
+
+    attr s name value
+        | isElement name "xml:lang" = s{srcLang = bsToText value}
+        | isElement name "uri" && srcInFile s = s{srcFiles = fileName (bsToText value) : srcFiles s}
+        | otherwise = s
+
+    endOpen s _ = s
+
+    txt s content = s{srcTextAccum = content : srcTextAccum s}
+
+    closeTag s tag
+        | isElement tag "UUID" && T.null (srcUUID s) = s{srcUUID = accum s}
+        | isElement tag "shortName" = s{srcName = pickILCDComment (srcName s) (srcLang s) (accum s)}
+        | isElement tag "class" = s{srcClasses = accum s : srcClasses s}
+        | isElement tag "sourceCitation" = s{srcCitation = accum s}
+        | isElement tag "sourceDescriptionOrComment" = s{srcComment = pickILCDComment (srcComment s) (srcLang s) (accum s)}
+        | otherwise = s
+
+    cdata = txt
+
+    -- Numeric references resolved before the named ones, so an escaped
+    -- literal (@&amp;#13;@) stays the text it was written as.
+    accum :: SrcState -> Text
+    accum s = T.strip $ decodeXmlEntities $ decodeNumericRefs $ TE.decodeUtf8 $ BS.concat $ reverse (srcTextAccum s)
+
+    fileName :: Text -> Text
+    fileName uri
+        | "://" `T.isInfixOf` uri = uri
+        | otherwise = T.pack (takeFileName (T.unpack uri))
 
 --------------------------------------------------------------------------------
 -- Build FlowDB and UnitDB from ILCD data
@@ -444,6 +544,14 @@ data ProcState = ProcState
     , psInClass :: !Bool
     , psProcessType :: !Text -- ILCD <processType> element text (empty when absent)
     , psTimeStamp :: !Text -- <common:timeStamp> text (empty when absent)
+    , psCitation :: !(Maybe Text)
+    -- ^ The section the open citation of a source dataset belongs to.
+    , psCitedRef :: !Text
+    -- ^ Its refObjectId, the name it goes by when it states no short description.
+    , psCitedName :: !(Maybe (Text, Text))
+    -- ^ (xml:lang, short description) of the open citation, English winning.
+    , psCited :: ![(Text, Text)]
+    -- ^ (section, source name) of every citation closed so far, latest first.
     }
 
 parseProcessXML :: BS.ByteString -> Maybe ILCDProcessRaw
@@ -480,6 +588,10 @@ parseProcessXML bytes =
             , psInClass = False
             , psProcessType = ""
             , psTimeStamp = ""
+            , psCitation = Nothing
+            , psCitedRef = ""
+            , psCitedName = Nothing
+            , psCited = []
             }
         )
         (tightCloseTags bytes) of
@@ -501,8 +613,11 @@ parseProcessXML bytes =
                 , psAllocRef = Nothing
                 , psAllocFraction = Nothing
                 }
-        | isElement tag "generalComment" =
+        | isElement tag "generalComment" || isElement tag "shortDescription" =
             s{psPendingCommentLang = "", psTextAccum = []}
+        | not (psInExchange s)
+        , Just section <- citationSection tag =
+            s{psCitation = Just section, psCitedRef = "", psCitedName = Nothing, psTextAccum = []}
         | isElement tag "name" && not (psInExchange s) =
             s{psInName = True, psTextAccum = []}
         | isElement tag "class" && not (psInExchange s) =
@@ -514,6 +629,8 @@ parseProcessXML bytes =
             case TR.decimal (bsToText value) of
                 Right (n, _) -> s{psExInternalId = n}
                 Left _ -> s
+        | isElement name "refObjectId" && Data.Maybe.isJust (psCitation s) =
+            s{psCitedRef = bsToText value}
         | isElement name "refObjectId" && psInExchange s && T.null (psExFlowRef s) =
             s{psExFlowRef = bsToText value}
         | isElement name "internalReferenceToCoProduct" && psInExchange s =
@@ -526,10 +643,10 @@ parseProcessXML bytes =
             s{psLocation = bsToText value}
         | isElement name "name" && not (psInExchange s) && not (psInName s) =
             s{psPendingClassName = bsToText value}
-        | isElement name "xml:lang" && psInExchange s =
+        | isElement name "xml:lang" && (psInExchange s || Data.Maybe.isJust (psCitation s)) =
             -- Capture lang on `<common:generalComment>` (and other tags), only
-            -- inside an exchange. We use it at closeTag time to pick the best
-            -- comment translation.
+            -- inside an exchange or a citation. We use it at closeTag time to
+            -- pick the best translation.
             s{psPendingCommentLang = bsToText value}
         | otherwise = s
 
@@ -540,6 +657,19 @@ parseProcessXML bytes =
          in if BS.null trimmed then s else s{psTextAccum = trimmed : psTextAccum s}
 
     closeTag s tag
+        | isElement tag "shortDescription" && Data.Maybe.isJust (psCitation s) =
+            s
+                { psCitedName = pickILCDComment (psCitedName s) (psPendingCommentLang s) (accum s)
+                , psPendingCommentLang = ""
+                , psTextAccum = []
+                }
+        | Just section <- psCitation s
+        , citationSection tag == Just section =
+            s
+                { psCitation = Nothing
+                , psCited = (section, maybe (psCitedRef s) snd (psCitedName s)) : psCited s
+                , psTextAccum = []
+                }
         | isElement tag "generalComment" && psInExchange s =
             -- Capture per-exchange comment only. Process-level
             -- <generalComment> (inside processInformation, NOT inside an
@@ -651,7 +781,43 @@ parseProcessXML bytes =
                         , iprClassifications = psClassifications s
                         , iprProcessType = psProcessType s
                         , iprLastRevised = readIsoDate (psTimeStamp s)
+                        , iprDocumentation = citationSections (reverse (psCited s))
                         }
+
+{- | The sections a process's citations of source datasets fill, by the element
+citing them, in the order a reader wants them: where the data comes from, how it
+was modelled and reviewed, then the documents and pictures around it.
+
+The format and the compliance system a dataset cites are left out: every dataset
+of a package cites the same ones, and they say how the file is written rather
+than where its numbers come from. A citation inside an exchange is the source of
+that one amount and is not read here.
+-}
+citationRoles :: [(BS.ByteString, Text)]
+citationRoles =
+    [ ("referenceToDataSource", "Data sources")
+    , ("referenceToLCAMethodDetails", "LCA method")
+    , ("referenceToDataHandlingPrinciples", "Data handling")
+    , ("referenceToCompleteReviewReport", "Review report")
+    , ("referenceToConvertedOriginalDataSetFrom", "Converted from")
+    , ("referenceToUnchangedRepublication", "Republication of")
+    , ("referenceToExternalDocumentation", "LCA report")
+    , ("referenceToTechnologyFlowDiagrammOrPicture", "Flow diagram")
+    , ("referenceToTechnologyPictogramme", "Pictogram")
+    ]
+
+-- | The section an element citing a source dataset fills, if it is one read here.
+citationSection :: BS.ByteString -> Maybe Text
+citationSection tag = snd <$> find (isElement tag . fst) citationRoles
+
+-- | One section per role, naming each source it cites once, in the file's order.
+citationSections :: [(Text, Text)] -> [DocSection]
+citationSections cited =
+    [ DocSection section (T.intercalate "\n" names)
+    | (_, section) <- citationRoles
+    , let names = nubOrd [name | (s, name) <- cited, s == section, not (T.null name)]
+    , not (null names)
+    ]
 
 -- | Parse process files in parallel using worker pattern
 parseProcessFilesParallel :: [FilePath] -> IO [Claimed ILCDProcessRaw]
@@ -711,7 +877,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
     Activity
         { activityName = iprName p
         , activityDescription = []
-        , activityDocumentation = [] -- ILCD states its provenance too; not read yet
+        , activityDocumentation = iprDocumentation p
         , activitySynonyms = M.empty
         , activityClassification = iprClassifications p
         , activityLocation = iprLocation p

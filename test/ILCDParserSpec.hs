@@ -221,6 +221,29 @@ spec = do
             M.lookup "ILCDCategories" (activityClassification act)
                 `shouldBe` Just "Energy/Hard coal"
 
+        it "documents an activity with the sources its process cites, one section per role" $ do
+            Right db <- parseILCDDirectory defaultUnitConfig Declared "test-data/SAMPLE.ilcd"
+            map activityDocumentation (filter ((== "Coal extraction") . activityName) (M.elems (sdbActivities db)))
+                `shouldBe` [
+                               [ DocSection "Data sources" "Coal report\ncccccccc-0000-0000-0000-000000000004"
+                               , DocSection "Review report" "Review statement"
+                               ]
+                           ]
+
+        it "reads the sources directory as literature, leaving out pictures and formats" $ do
+            Right db <- parseILCDDirectory defaultUnitConfig Declared "test-data/SAMPLE.ilcd"
+            dbdocLiterature (sdbDocumentation db)
+                `shouldBe` [ LibraryDocument
+                                { documentName = "Coal report"
+                                , documentCategory = "Publications and communications"
+                                , documentSections =
+                                    [ DocSection "Citation" "Mining Institute (2020) Coal extraction report"
+                                    , DocSection "Description" "Measured at two mines."
+                                    , DocSection "File" "coal report.pdf\nhttps://example.org/coal"
+                                    ]
+                                }
+                           ]
+
         it "has two flows (Coal product + CO2 elementary) split across tech and bio" $ do
             Right db <- parseILCDDirectory defaultUnitConfig Declared "test-data/SAMPLE.ilcd"
             (M.size (sdbTechFlows db) + M.size (sdbBioFlows db)) `shouldBe` 2

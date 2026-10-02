@@ -31,6 +31,42 @@
                               type="flow data set"/>
       <exchangeDirection>Output</exchangeDirection>
       <resultingAmount>2.5</resultingAmount>
+      <referenceToDataSource type="source data set" refObjectId="cccccccc-0000-0000-0000-000000000009">
+        <common:shortDescription xml:lang="en">Stack measurement</common:shortDescription>
+      </referenceToDataSource>
     </exchange>
   </exchanges>
+  <modellingAndValidation>
+    <dataSourcesTreatmentAndRepresentativeness>
+      <referenceToDataSource type="source data set" refObjectId="cccccccc-0000-0000-0000-000000000001">
+        <common:shortDescription xml:lang="de">Kohlebericht</common:shortDescription>
+        <common:shortDescription xml:lang="en">Coal report</common:shortDescription>
+      </referenceToDataSource >
+      <referenceToDataSource type="source data set" refObjectId="cccccccc-0000-0000-0000-000000000004"/>
+      <referenceToDataSource type="source data set" refObjectId="cccccccc-0000-0000-0000-000000000001">
+        <common:shortDescription xml:lang="en">Coal report</common:shortDescription>
+      </referenceToDataSource>
+    </dataSourcesTreatmentAndRepresentativeness>
+    <validation>
+      <review type="Independent external review">
+        <common:referenceToCompleteReviewReport type="source data set" refObjectId="cccccccc-0000-0000-0000-000000000005">
+          <common:shortDescription xml:lang="en">Review statement</common:shortDescription>
+        </common:referenceToCompleteReviewReport>
+      </review>
+    </validation>
+    <complianceDeclarations>
+      <compliance>
+        <common:referenceToComplianceSystem type="source data set" refObjectId="cccccccc-0000-0000-0000-000000000003">
+          <common:shortDescription xml:lang="en">ILCD Data Network - Entry-level</common:shortDescription>
+        </common:referenceToComplianceSystem>
+      </compliance>
+    </complianceDeclarations>
+  </modellingAndValidation>
+  <administrativeInformation>
+    <dataEntryBy>
+      <common:referenceToDataSetFormat type="source data set" refObjectId="cccccccc-0000-0000-0000-000000000002">
+        <common:shortDescription xml:lang="en">ILCD format</common:shortDescription>
+      </common:referenceToDataSetFormat>
+    </dataEntryBy>
+  </administrativeInformation>
 </processDataSet>
