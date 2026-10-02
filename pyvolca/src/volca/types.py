@@ -2483,6 +2483,83 @@ def _drop_none(d: dict) -> dict:
     return {k: v for k, v in d.items() if v is not None}
 
 
+@dataclass(frozen=True)
+class FactorMatch:
+    """The characterization factors a selector reaches, as a configuration's
+    ``[[methods.patches]]`` match writes them.
+
+    Every field given must hold: ``category`` and ``flow_name`` exactly,
+    ``flow_name_prefix`` as a prefix, ``cas`` as a CAS number whichever way it
+    is padded, ``subcompartment_contains`` as a substring of the subcompartment,
+    case aside. A selector naming nothing would reach every factor, which is
+    almost certainly a mistake, so it is refused.
+    """
+
+    category: str | None = None
+    flow_name: str | None = None
+    flow_name_prefix: str | None = None
+    cas: str | None = None
+    subcompartment_contains: str | None = None
+
+    def __post_init__(self) -> None:
+        if all(v is None for v in (self.category, self.flow_name, self.flow_name_prefix, self.cas, self.subcompartment_contains)):
+            raise ValueError("a selector names at least one of category, flow_name, flow_name_prefix, cas, subcompartment_contains")
+
+    def to_wire(self) -> dict:
+        return _drop_none(
+            {
+                "category": self.category,
+                "flowName": self.flow_name,
+                "flowNamePrefix": self.flow_name_prefix,
+                "cas": self.cas,
+                "subcompartmentContains": self.subcompartment_contains,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class NewMethodFactor:
+    """A characterization factor written whole, to add to a category.
+
+    ``direction`` is ``"Input"`` (a resource) or ``"Output"`` (an emission);
+    ``compartment`` is ``(medium, subcompartment, qualifier)``, empty strings
+    for the parts a factor leaves open. :meth:`Client.search_method_flows`
+    gives the flow id and compartment of a flow the collection already
+    characterizes.
+    """
+
+    flow_id: str
+    name: str
+    direction: str
+    value: float
+    unit: str
+    compartment: tuple[str, str, str] | None = None
+    cas: str | None = None
+    location: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.direction not in ("Input", "Output"):
+            raise ValueError(f"unknown direction {self.direction!r} (expected Input or Output)")
+
+    def to_wire(self) -> dict:
+        compartment = None
+        if self.compartment is not None:
+            medium, sub, qualifier = self.compartment
+            compartment = {"medium": medium, "subcompartment": sub, "qualifier": qualifier}
+        return _drop_none(
+            {
+                "flowId": self.flow_id,
+                "name": self.name,
+                "direction": self.direction,
+                "value": self.value,
+                "unit": self.unit,
+                "compartment": compartment,
+                "cas": self.cas,
+                "location": self.location,
+            }
+        )
+
+
 # -- Comparing two activities, or two versions of a database --
 
 _LINE_KINDS = {"TechLine": "technosphere", "BioLine": "biosphere", "WasteLine": "waste"}

@@ -20,6 +20,17 @@ Then paste the rendered block at the top of this file and tighten wording.
 
 ## [Unreleased]
 
+### Added
+
+- Change a method collection of your own: `copy_method_collection` copies a
+  collection under a new name, `set_method_factor`, `remove_method_factor` and
+  `add_method_factor` change one factor of the copy, `scale_method_factors` and
+  `set_method_factors` change every factor a `FactorMatch` reaches, and
+  `undo_method_edit` takes a change back by writing its inverse.
+  `method_history` reads the journal of changes and `search_method_flows` the
+  flows a collection characterizes, to name a new factor's flow. They need wire
+  revision 40 (engine 0.16.0).
+
 ### Deprecated
 
 - `LCIAResult.damage_category`, `normalized_score` and `weighted_score`, and

@@ -73,6 +73,7 @@ from .types import (
     Exchange,
     ExchangeSelector,
     ExplainCFResult,
+    FactorMatch,
     Flow,
     FlowDetail,
     FlowMapping,
@@ -85,6 +86,7 @@ from .types import (
     Method,
     MethodDetail,
     MethodFactor,
+    NewMethodFactor,
     PathResult,
     Preset,
     SearchCounts,
@@ -96,6 +98,7 @@ from .types import (
     SupplyChain,
     TechInput,
     WasteOutput,
+    _drop_none,
     parse_exchange_detail,
 )
 from . import _compat
@@ -1150,6 +1153,150 @@ class Client:
                 },
             )
         )
+
+    # -- Changing a method collection of one's own -------------------------
+
+    def _method_collection_url(self, collection: str, *rest: str) -> str:
+        return "/".join([f"{self.base_url}/api/v1/method-collections", urllib.parse.quote(collection, safe=""), *rest])
+
+    def _edit_method_factors(self, feature: str, collection: str, body: dict) -> dict:
+        self._require_wire(40, feature, engine_hint="0.16.0")
+        return self._json(self._session.post(self._method_collection_url(collection, "factors"), json=_drop_none(body)))
+
+    def copy_method_collection(self, collection: str, new_name: str) -> dict:
+        """Copy a method collection under a new name, in order to change it.
+
+        A collection the configuration declares, or one built into the engine,
+        is never changed in place: copy it, then change the copy. The copy
+        scores exactly as its source before any change and is loaded at once.
+        It reads its source's files, so the source cannot be deleted while the
+        copy exists. The copy is known by the slug of ``new_name`` (lower case,
+        words joined by dashes); a name another collection already has is
+        refused.
+
+        Needs an engine speaking wire revision 40.
+        """
+        self._require_wire(40, "copy_method_collection", engine_hint="0.16.0")
+        return self._json(self._session.post(self._method_collection_url(collection, "copy", urllib.parse.quote(new_name, safe=""))))
+
+    def set_method_factor(
+        self,
+        collection: str,
+        method_id: str,
+        flow_id: str,
+        new_value: float,
+        *,
+        location: str | None = None,
+        value: float | None = None,
+    ) -> dict:
+        """Change the value of one characterization factor of a collection of your own.
+
+        The factor is named by its category (``method_id``), its flow and its
+        location (``None`` for a factor written for no location). When several
+        factors answer there, give ``value``, the present value of the one to
+        change; two identical factors cannot be changed one by one, only
+        together through :meth:`set_method_factors`. A collection the
+        configuration declares is refused: copy it with
+        :meth:`copy_method_collection` first.
+
+        Returns ``{"line", "touched", "before", "after"}``: the journal line
+        recording the change, and the factor's value before and after.
+        """
+        return self._edit_method_factors(
+            "set_method_factor",
+            collection,
+            {"op": "set", "methodId": method_id, "flowId": flow_id, "newValue": new_value, "location": location, "value": value},
+        )
+
+    def remove_method_factor(
+        self,
+        collection: str,
+        method_id: str,
+        flow_id: str,
+        *,
+        location: str | None = None,
+        value: float | None = None,
+    ) -> dict:
+        """Remove one characterization factor of a collection of your own.
+
+        Named as in :meth:`set_method_factor`, and refused on the same grounds.
+        """
+        return self._edit_method_factors(
+            "remove_method_factor",
+            collection,
+            {"op": "remove", "methodId": method_id, "flowId": flow_id, "location": location, "value": value},
+        )
+
+    def add_method_factor(self, collection: str, method_id: str, factor: NewMethodFactor) -> dict:
+        """Add a characterization factor to a category of a collection of your own.
+
+        Refused when a factor is already written for that flow at that place:
+        change its value with :meth:`set_method_factor` instead.
+        """
+        return self._edit_method_factors(
+            "add_method_factor",
+            collection,
+            {"op": "add", "methodId": method_id, "factor": factor.to_wire()},
+        )
+
+    def scale_method_factors(self, collection: str, match: FactorMatch, scale: float) -> dict:
+        """Multiply by ``scale`` every factor ``match`` reaches.
+
+        A selector that reaches no factor is refused rather than passed off as
+        done; ``touched`` in the answer says how many changed.
+        """
+        return self._edit_method_factors(
+            "scale_method_factors",
+            collection,
+            {"op": "scale", "match": match.to_wire(), "scale": scale},
+        )
+
+    def set_method_factors(self, collection: str, match: FactorMatch, value: float) -> dict:
+        """Set to ``value`` every factor ``match`` reaches, refused as :meth:`scale_method_factors` is."""
+        return self._edit_method_factors(
+            "set_method_factors",
+            collection,
+            {"op": "set-all", "match": match.to_wire(), "newValue": value},
+        )
+
+    def undo_method_edit(self, collection: str, *, line: int | None = None) -> dict:
+        """Undo a change, by writing its inverse as a new journal line.
+
+        Without ``line``, undoes the latest change still in effect, so calling
+        it again walks back one more, and never reaches what a copy took from
+        its source's configuration. With ``line``, undoes that line whatever
+        it is: naming an undo line redoes the change it undid. A selector is
+        undone by restoring the values it replaced, which is refused, naming
+        the factor, when a later line changed one of them.
+        """
+        self._require_wire(40, "undo_method_edit", engine_hint="0.16.0")
+        params = {} if line is None else {"line": line}
+        return self._json(self._session.post(self._method_collection_url(collection, "undo"), params=params))
+
+    def method_history(self, collection: str) -> list[dict]:
+        """The journal of a collection, one entry per line.
+
+        Each entry gives its ``line``, when it was written (``at``), its
+        ``kind`` (``change``, ``undo`` or ``configuration``, for what a copy
+        took from its source's configuration), the line it ``undoes``, whether
+        it is ``inEffect``, and the ``change`` it made. A collection the
+        configuration declares has an empty history.
+        """
+        self._require_wire(40, "method_history", engine_hint="0.16.0")
+        return self._json(self._session.get(self._method_collection_url(collection, "history")))
+
+    def search_method_flows(self, collection: str, q: str, *, limit: int | None = None) -> list[dict]:
+        """The flows a loaded collection characterizes whose name holds every word of ``q``.
+
+        Once per direction and compartment, sorted by name, with the flow id
+        and compartment a new factor for that flow is written with (50 at most
+        unless ``limit`` says otherwise).
+        """
+        self._require_wire(40, "search_method_flows", engine_hint="0.16.0")
+        params: dict = {"q": q}
+        if limit is not None:
+            params["limit"] = limit
+        return self._json(self._session.get(self._method_collection_url(collection, "flows"), params=params))
 
     def relink(
         self, dep_db: str, mapping_csv: str, db_name: str | None = None
