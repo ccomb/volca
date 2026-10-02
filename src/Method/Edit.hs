@@ -15,6 +15,8 @@ module Method.Edit (
     MethodEditRefusal (..),
     refusalText,
     copyMethodCollection,
+    EditOutcome (..),
+    editMethodFactors,
 ) where
 
 import Control.Concurrent.MVar (withMVar)
@@ -22,7 +24,7 @@ import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Except (ExceptT (..), runExceptT, throwE)
+import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
@@ -33,18 +35,22 @@ import System.FilePath ((</>))
 
 import Builtin (builtinMethodName)
 import Config (MethodConfig (..), MethodOrigin (..))
-import Data.JournalFile (appendEntry, journalPath)
+import Data.JournalFile (Entry, appendEntry, journalPath, readEntries)
 import Database.Manager (
+    CollectionName (..),
     DatabaseManager (..),
     addMethodCollection,
+    clearMethodCachesFor,
     configToScoringSet,
+    getMethodCollection,
     loadMethodCollection,
     loadMethodCollectionFromConfig,
  )
 import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
-import Method.EditPlan (seedLines)
-import Method.Journal (LineKind (..), MethodLine (..), MethodOp)
+import Method.EditPlan (EditEffect, FactorEdit, planEdit, seedLines)
+import Method.Journal (LineKind (..), MethodLine (..), MethodOp, applyMethodOp)
+import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
 import Types (AllocationKey (..))
 
@@ -169,3 +175,56 @@ discardCopy manager slug home = do
         (\(err :: SomeException) -> reportProgress Warning ("could not remove the copy " <> home <> " that did not load: " <> show err))
         pure
         removed
+
+-- | What a change did, and the journal line that records it.
+data EditOutcome = EditOutcome
+    { eoLine :: Int
+    , eoEffect :: EditEffect
+    }
+    deriving (Eq, Show)
+
+{- | Change a loaded collection of one's own, and record the change where a
+later load finds it again.
+
+The order is what makes an acknowledged change durable, as for a database:
+plan the change against the collection in use (every refusal the caller can
+act on comes from there), append its line (the commit point), then swap the
+result in and drop what was built from the old one. A crash before the append
+leaves nothing; after it, the next load replays the line, which is the answer
+the caller was given.
+-}
+editMethodFactors :: DatabaseManager -> Text -> FactorEdit -> IO (Either MethodEditRefusal EditOutcome)
+editMethodFactors manager name edit = withMVar (dmMethodEditLock manager) $ \() -> runExceptT $ do
+    (home, collection) <- ExceptT (editable manager name)
+    entries <- ExceptT (first EditRefused <$> readEntries home)
+    (op, effect) <- except (first EditRefused (planEdit collection edit))
+    changed <- except (first EditRefused (applyMethodOp collection op))
+    line <- ExceptT (commitLine manager name home entries (MethodLine op Change) changed)
+    pure (EditOutcome line effect)
+
+-- | The home and the collection in use of a collection one may change.
+editable :: DatabaseManager -> Text -> IO (Either MethodEditRefusal (FilePath, MethodCollection))
+editable manager name = do
+    available <- readTVarIO (dmAvailableMethods manager)
+    loaded <- getMethodCollection manager name
+    pure $ case (mcHome <$> M.lookup name available, loaded) of
+        (Nothing, _) -> Left (CollectionNotFound name)
+        (Just Nothing, _) -> Left (NotEditable name)
+        (Just (Just _), Nothing) -> Left (CollectionNotLoaded name)
+        (Just (Just home), Just collection) -> Right (home, collection)
+
+{- | Append a line after the ones already read, then install what it
+produced, and give the line's number. The swap adjusts, never inserts: a
+collection unloaded while the line was written stays unloaded, and its next
+load replays the line. The number is counted from the lines read under the
+lock: 'appendEntry' drops a torn tail exactly as 'readEntries' does, so the
+two agree.
+-}
+commitLine :: DatabaseManager -> Text -> FilePath -> [Entry MethodLine] -> MethodLine -> MethodCollection -> IO (Either MethodEditRefusal Int)
+commitLine manager name home before line changed =
+    appendEntry home line >>= \case
+        Left err -> pure (Left (EditRefused err))
+        Right () -> do
+            atomically $ modifyTVar' (dmLoadedMethods manager) (M.adjust (const changed) name)
+            clearMethodCachesFor manager (CollectionName name)
+            pure (Right (length before + 1))

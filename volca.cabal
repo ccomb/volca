@@ -379,6 +379,7 @@ test-suite lca-tests
                      , JournalSpec
                      , MethodCopySpec
                      , MethodEditPlanSpec
+                     , MethodEditSpec
                      , MethodJournalLoadSpec
                      , MethodJournalSpec
                      , ActivityWriteHandlerSpec
