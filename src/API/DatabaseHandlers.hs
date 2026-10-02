@@ -756,7 +756,8 @@ downloadRefusal dbName terms = case termsDownloads terms of
 
 {- | Replace the terms of an uploaded database. 404 for a name the engine does
 not know, 409 for a database whose terms are written elsewhere: in the
-configuration file, or on the source a copy reads.
+configuration file, or on the source a copy reads, 500 for an upload whose
+meta.toml cannot be read.
 -}
 setTermsHandler :: Text -> Terms -> AppM Terms
 setTermsHandler dbName terms = do
@@ -767,6 +768,7 @@ setTermsHandler dbName terms = do
     refused :: TermsRefusal -> AppM Terms
     refused (TermsUnknown msg) = exportErr err404 msg
     refused (TermsHeldElsewhere msg) = exportErr err409 msg
+    refused (TermsUnrecordable msg) = exportErr err500 msg
 
 {- | Export a loaded method collection over the same transport as the database
 export: raw octet-stream body, projection warnings percent-encoded in the

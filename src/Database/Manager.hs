@@ -1755,6 +1755,8 @@ data TermsRefusal
     = TermsUnknown Text
     | -- | Its terms are written somewhere else: the configuration file, or its source.
       TermsHeldElsewhere Text
+    | -- | An upload whose meta.toml cannot be read, so nothing would survive a restart.
+      TermsUnrecordable Text
     deriving (Show, Eq)
 
 {- | Set the terms of an uploaded database. Its meta.toml is written first, as
@@ -1769,7 +1771,7 @@ setUploadTerms manager dbName terms = runExceptT $ do
     config <- ExceptT (maybe (Left (TermsUnknown ("Database not found: " <> dbName))) Right . M.lookup dbName <$> readTVarIO (dmAvailableDbs manager))
     except (heldElsewhere config)
     uploadRoot <- liftIO ((</> T.unpack dbName) <$> UploadedDB.getDatabaseUploadsDir)
-    meta <- liftIO (UploadedDB.readUploadMeta uploadRoot) >>= maybe (throwE (TermsHeldElsewhere (noMetaMessage uploadRoot))) pure
+    meta <- liftIO (UploadedDB.readUploadMeta uploadRoot) >>= maybe (throwE (TermsUnrecordable ("No readable meta.toml under " <> T.pack uploadRoot <> ": the terms of " <> dbName <> " would be lost at the next restart"))) pure
     liftIO $ do
         UploadedDB.writeUploadMeta uploadRoot meta{UploadedDB.umTerms = terms}
         atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust (\c -> c{dcTerms = terms}) dbName)

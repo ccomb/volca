@@ -296,13 +296,8 @@ says otherwise. Reading them from the source also keeps it in step when the
 source's patches change.
 -}
 withSourcePatches :: [DatabaseConfig] -> [DatabaseConfig]
-withSourcePatches configs = map (\config -> config{dcPatches = patchesOf S.empty config}) configs
+withSourcePatches configs = map (\config -> config{dcPatches = dcPatches (fileOwner named config)}) configs
   where
-    patchesOf :: S.Set Text -> DatabaseConfig -> [ExchangePatch]
-    patchesOf seen config =
-        maybe (dcPatches config) (patchesOf (S.insert (dcName config) seen)) $
-            mfilter ((`S.notMember` seen) . dcName) (dcSource config >>= named)
-
     -- The last entry of a repeated name, the one the manager's index keeps.
     named :: Text -> Maybe DatabaseConfig
     named name = find ((== name) . dcName) (reverse configs)
@@ -317,12 +312,19 @@ The config is read again from the map by its name: the copy of it a loaded or
 staged database holds was taken before any change of terms since.
 -}
 termsOf :: Map Text DatabaseConfig -> DatabaseConfig -> Terms
-termsOf configs config = go S.empty (M.findWithDefault config (dcName config) configs)
+termsOf configs config = dcTerms (fileOwner (`M.lookup` configs) (M.findWithDefault config (dcName config) configs))
+
+{- | The database whose files a database reads: itself, or the end of its chain
+of sources, a copy of a copy followed back to the database that owns them. The
+walk stops at a source the lookup does not find, and before a name repeats.
+-}
+fileOwner :: (Text -> Maybe DatabaseConfig) -> DatabaseConfig -> DatabaseConfig
+fileOwner named = go S.empty
   where
-    go :: S.Set Text -> DatabaseConfig -> Terms
-    go seen held =
-        maybe (dcTerms held) (go (S.insert (dcName held) seen)) $
-            mfilter ((`S.notMember` seen) . dcName) (dcSource held >>= (`M.lookup` configs))
+    go :: S.Set Text -> DatabaseConfig -> DatabaseConfig
+    go seen config =
+        maybe config (go (S.insert (dcName config) seen)) $
+            mfilter ((`S.notMember` seen) . dcName) (dcSource config >>= named)
 
 {- | Where a method collection's factors come from. A built-in collection has
 no path: it is in the binary, and a configuration names it only to switch it
@@ -657,14 +659,6 @@ instance DecodeTOML DatabaseConfig where
         dcTerms <- termsDecoder
         pure DatabaseConfig{..}
 
-{- | @allocation@ on a database entry: how its multi-output blocks are divided.
-
-Naming a property here loads the source under that key instead of the one it
-declares. To have both, configure the same path twice under two names: the key
-decides the inventory of every process the load produces, so one database
-carries one key.
--}
-
 {- | @licence@ and @downloads@ on a database entry. A @downloads@ nobody can
 read stops the load rather than reading as allowed: a refusal the engine
 misread would hand out the copies its publisher refused.
@@ -675,6 +669,13 @@ termsDecoder = do
     termsDownloads <- maybe (pure DownloadsAllowed) (either (fail . T.unpack) pure . parseDownloads) =<< getFieldOpt "downloads"
     pure Terms{..}
 
+{- | @allocation@ on a database entry: how its multi-output blocks are divided.
+
+Naming a property here loads the source under that key instead of the one it
+declares. To have both, configure the same path twice under two names: the key
+decides the inventory of every process the load produces, so one database
+carries one key.
+-}
 allocationKeyDecoder :: Decoder AllocationKey
 allocationKeyDecoder = do
     raw <- tomlDecoder :: Decoder Text

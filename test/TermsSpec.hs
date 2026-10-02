@@ -3,6 +3,7 @@
 module TermsSpec (spec) where
 
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Test.Hspec
@@ -87,6 +88,13 @@ spec = do
                 addDatabase manager configured
                 setUploadTerms manager "configured" refused
                     `shouldReturn` Left (TermsHeldElsewhere "configured is set in the configuration file, which is where its terms are written")
+
+        it "refuses an upload whose meta.toml it cannot read, rather than set terms a restart would lose" $
+            withUpload $ \manager home -> do
+                writeFile (home </> "meta.toml") "not a meta file"
+                setUploadTerms manager "upload" refused
+                    `shouldReturn` Left (TermsUnrecordable ("No readable meta.toml under " <> T.pack home <> ": the terms of upload would be lost at the next restart"))
+                databaseTerms manager "upload" `shouldReturn` Just openTerms
 
         it "refuses a name the engine does not know" $
             withScratchDataDir $ do
