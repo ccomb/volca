@@ -9,7 +9,8 @@ module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, call
 
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
-import Data.Aeson.Key (fromText)
+import Data.Aeson.Key (fromText, toText)
+import Data.Scientific (toBoundedInteger)
 import Data.Aeson.KeyMap (KeyMap)
 import Data.Aeson.Types (parseEither)
 import qualified Data.Aeson.KeyMap as KM
@@ -651,6 +652,16 @@ optionalText key args = case KM.lookup (fromText key) args of
     Just (Bool _) -> wrongType "boolean"
   where
     wrongType ty = Left ("Parameter '" <> key <> "' must be a string, got " <> ty)
+
+{- | An optional whole number, refused when given as anything else: read
+loosely, a line number written @"3"@ or @2.6@ would name another line.
+-}
+optionalWhole :: Text -> KeyMap Value -> Either Text (Maybe Int)
+optionalWhole key args = case KM.lookup (fromText key) args of
+    Nothing -> Right Nothing
+    Just Null -> Right Nothing
+    Just (Number n) | Just i <- toBoundedInteger n -> Right (Just i)
+    Just _ -> Left ("Parameter '" <> key <> "' must be a whole number")
 
 -- | Read an argument that may be either a JSON array of strings or a single string.
 textArrayArg :: Text -> KeyMap Value -> [Text]
@@ -1733,22 +1744,22 @@ request's fields in snake case.
 callEditMethodFactors :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callEditMethodFactors dbManager rid args = runTool rid $ do
     collection <- except (requireText "collection" args)
+    mapM_ (\k -> throwE ("Unknown parameter '" <> toText k <> "'")) (filter (`notElem` ("collection" : map fst names)) (KM.keys args))
     request <- except (first T.pack (parseEither parseJSON (Object (KM.fromList fields))))
     edit <- except (toFactorEdit request)
     outcome <- ExceptT (first refusalText <$> editMethodFactors dbManager collection edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where
     fields :: [(Key, Value)]
-    fields =
-        [ (camel, v)
-        | (snake, camel) <- [("op", "op"), ("method_id", "methodId"), ("flow_id", "flowId"), ("location", "location"), ("value", "value"), ("new_value", "newValue"), ("scale", "scale"), ("match", "match"), ("factor", "factor")]
-        , Just v <- [KM.lookup snake args]
-        ]
+    fields = [(camel, v) | (snake, camel) <- names, Just v <- [KM.lookup snake args]]
+    names :: [(Key, Key)]
+    names = [("op", "op"), ("method_id", "methodId"), ("flow_id", "flowId"), ("location", "location"), ("value", "value"), ("new_value", "newValue"), ("scale", "scale"), ("match", "match"), ("factor", "factor")]
 
 callUndoMethodEdit :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callUndoMethodEdit dbManager rid args = runTool rid $ do
     collection <- except (requireText "collection" args)
-    outcome <- ExceptT (first refusalText <$> undoMethodEdit dbManager collection (intArg "line" args))
+    line <- except (optionalWhole "line" args)
+    outcome <- ExceptT (first refusalText <$> undoMethodEdit dbManager collection line)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
 
 callGetMethodHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value

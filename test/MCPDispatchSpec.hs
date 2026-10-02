@@ -202,6 +202,14 @@ spec = describe "MCP database load/unload tools" $ do
                         isError edited `shouldBe` False
                         history <- tool "get_method_history" [("collection", String "copy")]
                         resultText history `shouldSatisfy` maybe False ("FactorSet" `T.isInfixOf`)
+                        quoted <- tool "undo_method_edit" [("collection", String "copy"), ("line", String "1")]
+                        isError quoted `shouldBe` True
+                        fractional <- tool "undo_method_edit" [("collection", String "copy"), ("line", Number 0.6)]
+                        isError fractional `shouldBe` True
+                        misspelt <- tool "edit_method_factors" [("collection", String "copy"), ("op", String "remove"), ("method_id", String (UUID.toText category)), ("flow_id", String (UUID.toText flow)), ("locaton", String "FR")]
+                        isError misspelt `shouldBe` True
+                        after <- tool "get_method_history" [("collection", String "copy")]
+                        resultText after `shouldBe` resultText history
                     found -> expectationFailure ("expected one Methane, fossil factor, found " <> show (length found))
 
     describe "gap-report tool" $ do

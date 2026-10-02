@@ -9,7 +9,7 @@
 
 module API.Types where
 
-import API.JsonOptions (Stripped (..))
+import API.JsonOptions (Stripped (..), parseClosed)
 import Control.DeepSeq (NFData)
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
@@ -2591,7 +2591,10 @@ data FactorEditRequest = FactorEditRequest
     , ferFactor :: Maybe NewFactorAPI
     }
     deriving (Generic)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped FactorEditRequest)
+    deriving (ToJSON, ToSchema) via (Stripped FactorEditRequest)
+
+instance FromJSON FactorEditRequest where
+    parseJSON = parseClosed
 
 -- | The factors a selector reaches, as the configuration's @[[methods.patches]]@ write them.
 data FactorMatchAPI = FactorMatchAPI
@@ -2602,7 +2605,10 @@ data FactorMatchAPI = FactorMatchAPI
     , fmaSubcompartmentContains :: Maybe Text
     }
     deriving (Generic)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped FactorMatchAPI)
+    deriving (ToJSON, ToSchema) via (Stripped FactorMatchAPI)
+
+instance FromJSON FactorMatchAPI where
+    parseJSON = parseClosed
 
 -- | A factor written whole, as a collection holds it.
 data NewFactorAPI = NewFactorAPI
@@ -2616,7 +2622,10 @@ data NewFactorAPI = NewFactorAPI
     , nfaLocation :: Maybe Text
     }
     deriving (Generic)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped NewFactorAPI)
+    deriving (ToJSON, ToSchema) via (Stripped NewFactorAPI)
+
+instance FromJSON NewFactorAPI where
+    parseJSON = parseClosed
 
 data CompartmentAPI = CompartmentAPI
     { cpaMedium :: Text
@@ -2624,7 +2633,10 @@ data CompartmentAPI = CompartmentAPI
     , cpaQualifier :: Text
     }
     deriving (Eq, Ord, Show, Generic)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped CompartmentAPI)
+    deriving (ToJSON, ToSchema) via (Stripped CompartmentAPI)
+
+instance FromJSON CompartmentAPI where
+    parseJSON = parseClosed
 
 -- | What a change did: the journal line recording it, how many factors it touched, and the one factor's value before and after.
 data MethodEditResponse = MethodEditResponse
@@ -2702,7 +2714,7 @@ data MethodFlowAPI = MethodFlowAPI
 
 -- | What a request asks, or why it asks nothing this engine can do.
 toFactorEdit :: FactorEditRequest -> Either Text FactorEdit
-toFactorEdit req = case ferOp req of
+toFactorEdit req = mapM_ finite numbers >> case ferOp req of
     SetOne -> maybe (Left "a set names methodId, flowId and newValue") Right $ do
         target <- named
         SetValue target <$> ferNewValue req
@@ -2713,6 +2725,14 @@ toFactorEdit req = case ferOp req of
     ScaleMany -> selector "a scale names match and scale" (ScaleBy <$> ferScale req)
     SetMany -> selector "a set-all names match and newValue" (SetValueTo <$> ferNewValue req)
   where
+    -- JSON writes an infinite or undefined number as null, so the journal
+    -- would read back another value than the one applied.
+    numbers :: [(Text, Maybe Double)]
+    numbers = [("value", ferValue req), ("newValue", ferNewValue req), ("scale", ferScale req), ("factor.value", nfaValue <$> ferFactor req)]
+    finite :: (Text, Maybe Double) -> Either Text ()
+    finite (field, v)
+        | any (\x -> isNaN x || isInfinite x) v = Left (field <> " must be a finite number")
+        | otherwise = Right ()
     named :: Maybe FactorTarget
     named = (\m f -> FactorTarget m f (ferLocation req) (ferValue req)) <$> ferMethodId req <*> ferFlowId req
     selector :: Text -> Maybe PatchOp -> Either Text FactorEdit

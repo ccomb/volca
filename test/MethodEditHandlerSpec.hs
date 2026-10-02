@@ -57,6 +57,10 @@ setBody :: UUID -> UUID -> String -> String
 setBody category flow rest =
     "{\"op\":\"set\",\"methodId\":\"" <> UUID.toString category <> "\",\"flowId\":\"" <> UUID.toString flow <> "\"" <> rest <> "}"
 
+-- | Why a request did not decode, when it did not.
+refused :: Either String FactorEditRequest -> Maybe String
+refused = either Just (const Nothing)
+
 failure :: Either ServerError a -> Maybe (Int, String)
 failure = either (\err -> Just (errHTTPCode err, BSL.unpack (errBody err))) (const Nothing)
 
@@ -109,6 +113,22 @@ spec = describe "changing a method collection over HTTP" $ do
                         FactorSet{fstCategory = c, fstFactor = f, fstAfter = a} -> (c, facFlowName f, a) `shouldBe` ("Methane", "Methane, fossil", 27)
                         _ -> expectationFailure "expected the first line to set a factor"
                 _ -> expectationFailure "expected two lines of history"
+
+    it "refuses a value too large for a double, which the journal could not write back" $
+        withScratchDataDir $ do
+            (e, category, flow) <- copied
+            body <- request (setBody category flow ",\"newValue\":1e400")
+            answer <- call e (editMethodFactorsHandler "copy" body)
+            fmap fst (failure answer) `shouldBe` Just 400
+            maybe "" snd (failure answer) `shouldSatisfy` ("newValue" `isInfixOf`)
+
+    it "refuses a selector field it does not know rather than reach more factors" $
+        refused (eitherDecode (BSL.pack "{\"op\":\"scale\",\"match\":{\"category\":\"Methane\",\"flow_name\":\"Methane, fossil\"},\"scale\":2}") :: Either String FactorEditRequest)
+            `shouldSatisfy` maybe False ("flow_name" `isInfixOf`)
+
+    it "refuses a request field it does not know rather than address another factor" $
+        refused (eitherDecode (BSL.pack "{\"op\":\"remove\",\"methodId\":\"00000000-0000-0000-0000-000000000000\",\"flowId\":\"00000000-0000-0000-0000-000000000000\",\"loc\":\"FR\"}") :: Either String FactorEditRequest)
+            `shouldSatisfy` maybe False ("loc" `isInfixOf`)
 
     it "lists the flows a collection characterizes whose name holds the words, once each, by name" $
         withScratchDataDir $ do
