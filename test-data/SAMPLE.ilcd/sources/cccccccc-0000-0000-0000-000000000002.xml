@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sourceDataSet xmlns="http://lca.jrc.it/ILCD/Source" xmlns:common="http://lca.jrc.it/ILCD/Common" version="1.1">
+  <sourceInformation>
+    <dataSetInformation>
+      <common:UUID>cccccccc-0000-0000-0000-000000000002</common:UUID>
+      <common:shortName xml:lang="en">ILCD format</common:shortName>
+      <classificationInformation>
+        <common:classification>
+          <common:class level="0">Data set formats</common:class>
+        </common:classification>
+      </classificationInformation>
+
+    </dataSetInformation>
+  </sourceInformation>
+  <administrativeInformation>
+    <dataEntryBy>
+      <common:referenceToDataSetFormat type="source data set" refObjectId="cccccccc-0000-0000-0000-000000000002" uri="../sources/cccccccc-0000-0000-0000-000000000002.xml">
+        <common:shortDescription xml:lang="en">ILCD format</common:shortDescription>
+      </common:referenceToDataSetFormat>
+    </dataEntryBy>
+  </administrativeInformation>
+</sourceDataSet>

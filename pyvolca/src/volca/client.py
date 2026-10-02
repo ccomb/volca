@@ -1365,7 +1365,8 @@ class Client:
         datasets name, and under ``literature`` each literature reference it
         holds, both with a ``name``, ``category`` and ``sections``. A SimaPro
         export says all of it; an EcoSpold 1 database lists under
-        ``literature`` the sources its datasets cite; another format leaves
+        ``literature`` the sources its datasets cite, and an ILCD package the
+        sources it holds; another format leaves
         ``export`` null and both lists empty.
         """
         target = self._db(db_name)

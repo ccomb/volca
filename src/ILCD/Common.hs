@@ -20,10 +20,13 @@ module ILCD.Common (
     Claimed (..),
     Indexed (..),
     latestByUUID,
+    tightCloseTags,
+    readILCDFile,
 ) where
 
 import qualified Data.ByteString as BS
-import Data.Char (toLower)
+import qualified Data.ByteString.Char8 as BS8
+import Data.Char (isSpace, toLower)
 import Data.List (sort, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -39,6 +42,32 @@ import EcoSpold.Common (bsToText, isElement)
 import System.Directory (listDirectory)
 import System.FilePath (takeExtension, (</>))
 import qualified Xeno.SAX as X
+
+{- | The file with the space some packages write before a closing tag's bracket
+(@</referenceToX >@) removed.
+
+The SAX parser takes such a tag for an opening one, so everything it closes
+stays open: a citation seen through it would never end. Only whitespace is legal
+there, so removing it changes nothing a conforming reader would see in the
+markup. A @</@ inside a CDATA section or a comment is rewritten all the same,
+losing at most the spaces before its @>@.
+-}
+tightCloseTags :: BS.ByteString -> BS.ByteString
+tightCloseTags = BS.concat . go
+  where
+    go :: BS.ByteString -> [BS.ByteString]
+    go s = case BS.breakSubstring "</" s of
+        (before, rest)
+            | BS.null rest -> [before]
+            | otherwise ->
+                let (name, after) = BS8.break (\c -> isSpace c || c == '>') (BS.drop 2 rest)
+                 in before : "</" : name : go (BS8.dropWhile isSpace after)
+
+{- | An ILCD file's bytes, ready for the SAX parser: every reader goes through
+here, so none depends on its caller having tightened the closing tags.
+-}
+readILCDFile :: FilePath -> IO BS.ByteString
+readILCDFile = fmap tightCloseTags . BS.readFile
 
 {- | The XML files of a directory, in one order.
 
@@ -143,7 +172,7 @@ latestByUUID claimed = decided <$> traverse rank grouped
     rank (_, claims) = NE.sortBy (comparing (Down . declVersion)) <$> traverse declaring claims
 
     declaring :: Claimed a -> IO (Declared a)
-    declaring c = Declared c . declaredVersion <$> BS.readFile (claimFile c)
+    declaring c = Declared c . declaredVersion <$> readILCDFile (claimFile c)
 
     decided :: [NonEmpty (Declared a)] -> Either Text (Indexed a)
     decided ranked = case concatMap tied ranked of

@@ -45,7 +45,7 @@ import System.FilePath (takeDirectory, (</>))
 import qualified Xeno.SAX as X
 
 import EcoSpold.Common (bsToText, decodeXmlEntitiesFull, distributeFiles, isElement)
-import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles)
+import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles, readILCDFile)
 import Method.Types (Compartment (..))
 import Progress (ProgressLevel (..), reportProgress)
 import SubstanceRegistry (normalizeCAS)
@@ -122,7 +122,7 @@ parseFlowDirectoryFresh dir = do
         return [Claimed path uuid info | (path, Just (uuid, info)) <- results]
     parseOneFile :: FilePath -> IO (FilePath, Maybe (UUID, ILCDFlowInfo))
     parseOneFile path = do
-        bytes <- BS.readFile path
+        bytes <- readILCDFile path
         -- Parsed here and not where the result is used, or the whole directory
         -- would be parsed on whichever thread first looks at the list, with
         -- every file's bytes held until it does.

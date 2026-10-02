@@ -5,6 +5,7 @@ module EcoSpold.Common (
     bsToText,
     decodeXmlEntities,
     decodeXmlEntitiesFull,
+    decodeNumericRefs,
     numericRefChar,
     bsToIntMaybe,
     isElement,

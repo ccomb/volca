@@ -556,6 +556,9 @@ History of manual bumps:
 - 51: an EcoSpold 1 source a converter titled with a placeholder is read from
      the text it wrote the reference in. Nothing changes type, so a cache
      written just before this would keep the placeholder.
+- 52: an ILCD package's sources are read, both as its literature and as the
+     documentation of each process that cites them. Nothing changes type, so a
+     cache written just before this would keep both empty.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -563,7 +566,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 51
+     in hi `xor` lo `xor` 52
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

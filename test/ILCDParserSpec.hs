@@ -11,7 +11,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
-import ILCD.Common (readDataSetVersion)
+import ILCD.Common (readDataSetVersion, tightCloseTags)
 import ILCD.Parser (ILCDDirection (..), ILCDExchangeRaw (..), ILCDProcessRaw (..), ILCDProducer (..), buildSupplierIndex, fixActivityExchanges, parseILCDDirectory, parseProcessXML)
 import System.Directory (copyFile, createDirectoryIfMissing, listDirectory)
 import System.FilePath ((</>))
@@ -220,6 +220,29 @@ spec = do
             let Just act = find ((== "Coal extraction") . activityName) (M.elems (sdbActivities db))
             M.lookup "ILCDCategories" (activityClassification act)
                 `shouldBe` Just "Energy/Hard coal"
+
+        it "documents an activity with the sources its process cites, one section per role" $ do
+            Right db <- parseILCDDirectory defaultUnitConfig Declared "test-data/SAMPLE.ilcd"
+            map activityDocumentation (filter ((== "Coal extraction") . activityName) (M.elems (sdbActivities db)))
+                `shouldBe` [
+                               [ DocSection "Data sources" "Coal report"
+                               , DocSection "Review report" "Review statement"
+                               ]
+                           ]
+
+        it "reads the sources directory as literature, leaving out pictures and formats" $ do
+            Right db <- parseILCDDirectory defaultUnitConfig Declared "test-data/SAMPLE.ilcd"
+            dbdocLiterature (sdbDocumentation db)
+                `shouldBe` [ LibraryDocument
+                                { documentName = "Coal report"
+                                , documentCategory = "Publications and communications"
+                                , documentSections =
+                                    [ DocSection "Citation" "Mining Institute (2020) Coal extraction report"
+                                    , DocSection "Description" "Measured at two mines."
+                                    , DocSection "File" "coal report.pdf\nhttps://example.org/coal"
+                                    ]
+                                }
+                           ]
 
         it "has two flows (Coal product + CO2 elementary) split across tech and bio" $ do
             Right db <- parseILCDDirectory defaultUnitConfig Declared "test-data/SAMPLE.ilcd"
@@ -434,6 +457,11 @@ spec = do
                     Left err -> do
                         err `shouldSatisfy` T.isInfixOf "twin-a.xml"
                         err `shouldSatisfy` T.isInfixOf "twin-b.xml"
+
+    describe "tightCloseTags" $
+        it "removes the space before a closing tag's bracket and nothing else" $
+            tightCloseTags "<a x=\"1 > 2\">t > u</a >\n</b\t></c>"
+                `shouldBe` "<a x=\"1 > 2\">t > u</a>\n</b></c>"
 
     describe "readDataSetVersion" $ do
         it "compares the numbers and not the text" $
