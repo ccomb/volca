@@ -92,6 +92,7 @@ library
                      , Method.Mapping
                      , Method.Coverage
                      , Method.Explain
+                     , Method.Journal
                      , Method.Patch
                      , Method.ChemSynonyms
                      , Method.FlowResolver
@@ -374,6 +375,7 @@ test-suite lca-tests
                      , AuthorSpec
                      , JournalFileSpec
                      , JournalSpec
+                     , MethodJournalSpec
                      , ActivityWriteHandlerSpec
                      , PersistenceSpec
                      , CacheLayoutSpec
