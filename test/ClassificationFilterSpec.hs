@@ -132,6 +132,12 @@ spec = describe "classification filter match mode" $ do
             rest <- runRest manager (namedREST [supplier, root])
             fmap (map prsProcessId . srResults) rest `shouldBe` Right [supplier, root]
 
+        it "lists the processes named over MCP too" $ do
+            (manager, db) <- loadedFixture
+            root <- processOf db rootU
+            search <- tool manager [] "search_activities" [("process", toJSON [root])]
+            answerAt ["total"] search `shouldBe` Just (count 1)
+
         it "refuses an identifier that is not one" $ do
             (manager, _) <- loadedFixture
             rest <- runRest manager (namedREST ["not an identifier"])

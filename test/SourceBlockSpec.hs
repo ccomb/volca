@@ -119,13 +119,21 @@ spec = do
             withDatabase twoBlocksSharingAName $ \db ->
                 named db (noFilter{afcLocation = Just "ZZ-NOWHERE"}) [0, 1] `shouldBe` []
 
+        it "reads the product filter as exactly as the search does" $
+            withDatabase twoBlocksSharingAName $ \db -> do
+                namedExact db False (noFilter{afcProduct = Just "chee"}) [0, 1, 2, 3] `shouldBe` ["Cheese"]
+                namedExact db True (noFilter{afcProduct = Just "chee"}) [0, 1, 2, 3] `shouldBe` []
+
         it "leaves out a process the database does not hold" $
             withDatabase twoBlocksSharingAName $ \db ->
                 length (named db noFilter [1, 999]) `shouldBe` 1
 
 -- | The products of the processes named, through the search's other filters.
 named :: Database -> ActivityFilterCore -> [ProcessId] -> [Text]
-named db core pids = [prsProductName (mkActivitySummary db pid act) | (pid, act) <- activitiesNamed shippedGeographies db core pids]
+named db = namedExact db False
+
+namedExact :: Database -> Bool -> ActivityFilterCore -> [ProcessId] -> [Text]
+namedExact db exact core pids = [prsProductName (mkActivitySummary db pid act) | (pid, act) <- activitiesNamed shippedGeographies db (SearchFilter core exact) pids]
 
 noFilter :: ActivityFilterCore
 noFilter =

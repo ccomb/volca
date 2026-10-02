@@ -912,6 +912,7 @@ params r = case r of
         , Param "classification" "string" Optional "Classification system name to filter by (e.g. 'ISIC rev.4 ecoinvent', 'CPC'). Use list_classifications to see available systems."
         , Param "classification_value" "string" Optional "Value within the classification system to match"
         , Param "classification_match" "string" Optional "Match mode: \"equals\" (case-insensitive equality) or \"contains\" (substring, default)"
+        , Param "process" "array" Optional "Process IDs (activityUUID_productUUID) to list instead of searching: their rows in the order given, through the geo, product, exact and classification filters. name and the sort are not read then. An ID the database does not hold is left out; one that is malformed, or a bare activity UUID naming several processes, is refused."
         , pLimit "Max results (default 20)"
         ]
     SearchFlows ->

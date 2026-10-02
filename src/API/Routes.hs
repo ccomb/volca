@@ -2578,22 +2578,24 @@ searchActivitiesWithCount dbName nameParam geoParam productParam exactParam pres
     geographies <- asks (DM.managerGeographies . aeDbManager)
     (db, _) <- requireDatabaseByName dbName
     classifications <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
-    let core =
-            Service.ActivityFilterCore
-                { Service.afcName = nameParam
-                , Service.afcLocation = geoParam
-                , Service.afcProduct = productParam
-                , Service.afcClassifications = classifications
-                , Service.afcLimit = limitParam
-                , Service.afcOffset = offsetParam
-                , Service.afcSort = sortParam
-                , Service.afcOrder = orderParam
+    let sf =
+            Service.SearchFilter
+                { Service.sfCore =
+                    Service.ActivityFilterCore
+                        { Service.afcName = nameParam
+                        , Service.afcLocation = geoParam
+                        , Service.afcProduct = productParam
+                        , Service.afcClassifications = classifications
+                        , Service.afcLimit = limitParam
+                        , Service.afcOffset = offsetParam
+                        , Service.afcSort = sortParam
+                        , Service.afcOrder = orderParam
+                        }
+                , Service.sfExactMatch = fromMaybe False exactParam
                 }
     if null processParams
-        then searched geographies db (Service.SearchFilter core (fromMaybe False exactParam))
-        else do
-            pids <- either throwServiceError pure (Service.processesNamed db processParams)
-            pure (Service.paginateSearchResults offsetParam limitParam 0 (uncurry (Service.mkActivitySummary db)) (Service.activitiesNamed geographies db core pids))
+        then searched geographies db sf
+        else either throwServiceError pure (Service.searchNamed geographies db sf processParams)
   where
     searched :: Geographies -> Database -> Service.SearchFilter -> AppM (SearchResults ActivitySummary)
     searched geographies db sf = do

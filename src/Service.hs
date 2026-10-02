@@ -981,16 +981,17 @@ activityMatches geographies db sFilter@(SearchFilter core exactMatch) =
         | otherwise = activityRowComparator (afcSort core)
 
 {- | The processes a caller names, in the order named, through the search's
-place, product and classification filters.
+place, product and classification filters, read as exactly as the search
+reads them.
 
-The name filter does not apply: a caller that already knows which processes
-it wants (ranked by some measure of its own) asks for their rows, and the
-order it gives is the answer. A process the database does not hold is left
-out, the way a search leaves out what it does not find.
+The name filter does not apply, nor the sort: a caller that already knows
+which processes it wants (ranked by some measure of its own) asks for their
+rows, and the order it gives is the answer. A process the database does not
+hold is left out, the way a search leaves out what it does not find.
 -}
-activitiesNamed :: Geographies -> Database -> ActivityFilterCore -> [ProcessId] -> [(ProcessId, Activity)]
-activitiesNamed geographies db core =
-    applyStructuredFilters geographies db (afcLocation core) (afcProduct core) (afcClassifications core) False
+activitiesNamed :: Geographies -> Database -> SearchFilter -> [ProcessId] -> [(ProcessId, Activity)]
+activitiesNamed geographies db (SearchFilter core exactMatch) =
+    applyStructuredFilters geographies db (afcLocation core) (afcProduct core) (afcClassifications core) exactMatch
         . mapMaybe (\pid -> (,) pid <$> findActivityByProcessId db pid)
 
 {- | The processes a list of identifiers names, for 'activitiesNamed'. One the
@@ -1006,6 +1007,12 @@ processesNamed db = fmap catMaybes . traverse named
         Right (pid, _) -> Right (Just pid)
         Left (ActivityNotFound _) -> Right Nothing
         Left refused -> Left refused
+
+-- | One page of 'activitiesNamed', for the identifiers a caller gave.
+searchNamed :: Geographies -> Database -> SearchFilter -> [Text] -> Either ServiceError (SearchResults ActivitySummary)
+searchNamed geographies db sf@(SearchFilter core _) refs = do
+    pids <- processesNamed db refs
+    pure (paginateSearchResults (afcOffset core) (afcLimit core) 0 (uncurry (mkActivitySummary db)) (activitiesNamed geographies db sf pids))
 
 {- | How many of each thing one query finds, for the three tabs of a search
 box.

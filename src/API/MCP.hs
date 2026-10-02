@@ -807,7 +807,11 @@ callSearchActivities geographies presets rid args (db, _) = runTool rid $ do
                         }
                 , Service.sfExactMatch = fromMaybe False (boolArg "exact" args)
                 }
-    val <- liftIO (Service.searchActivities geographies db sf) >>= liftShow
+    processes <- except (parseArrayArg "process" Nothing args)
+    val <-
+        if null processes
+            then liftIO (Service.searchActivities geographies db sf) >>= liftShow
+            else toJSON <$> liftService (Service.searchNamed geographies db sf processes)
     pure (toolSuccessJson rid val)
 
 callListClassifications :: RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
