@@ -529,6 +529,12 @@ spec = do
                     map documentSections (drop 2 sources)
                         `shouldBe` [[DocSection "Description" "Hischier R. (2007) Packaging and Graphical Paper."]]
 
+        it "reads a source titled with a placeholder from its fields when it names its author" $
+            case parseWithXeno (BC.unlines [if "Hischier" `BC.isInfixOf` l then "firstAuthor=\"Smith J.\" year=\"2005\" text=\"Report\"/>" else l | l <- BC.lines documentedXml]) of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right ParsedDataset{pdLiterature = sources} ->
+                    map documentName (drop 2 sources) `shouldBe` ["Smith J. (2005). Created for EcoSpold 1 compatibility. Final report ecoinvent data v2.0."]
+
         it "leaves out a source titled with a placeholder and no text, which says nothing" $
             case parseWithXeno (BC.unlines [if "Hischier" `BC.isInfixOf` l then "text=\"\"/>" else l | l <- BC.lines documentedXml]) of
                 Left err -> expectationFailure $ "Parse failed: " ++ err

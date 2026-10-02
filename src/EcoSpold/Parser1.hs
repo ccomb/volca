@@ -736,9 +736,10 @@ usually the piece a reader is after, so it follows the title directly.
 renderSource :: Source1 -> Text
 renderSource s
     -- A converter that stands this placeholder in for the title leaves the
-    -- fields empty and writes the reference in the source's text instead.
+    -- fields empty and writes the reference in the source's text instead; a
+    -- source that names its author is read from its fields as any other.
     -- With no text either, the source says nothing at all.
-    | s1Title s == placeholderTitle = fromMaybe "" (listToMaybe (T.lines (s1Text s)))
+    | s1Title s == placeholderTitle, T.null (s1FirstAuthor s) = maybe "" T.strip (listToMaybe (T.lines (s1Text s)))
     | otherwise = case joinParts ". " [authors, s1Title s, s1TitleOfAnthology s, publisher] of
         "" -> ""
         line -> line <> "."
