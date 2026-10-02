@@ -160,9 +160,11 @@ inEffect lines' = reverse (go S.empty (reverse (zip [1 ..] lines')))
 
 {- | The line an undo takes out. Without a number, the latest change in effect:
 never an undo (so repeated undos walk back rather than toggle) and never what
-a copy took from its source's configuration (so a fresh copy keeps scoring
-like its source). With a number, that line, whatever it is, if it is in
-effect: undoing an undo is how a change is redone.
+a copy took from its source's configuration (so a fresh copy of a configured
+collection keeps scoring like it). A copy of an uploaded collection or of
+another copy takes its source's journal as it is, changes included, and those
+changes can be undone like its own. With a number, that line, whatever it is,
+if it is in effect: undoing an undo is how a change is redone.
 -}
 undoTarget :: [MethodLine] -> Maybe Int -> Either Text Int
 undoTarget lines' = \case

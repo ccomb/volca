@@ -341,8 +341,10 @@ replaying it over something else.
 
 A collection the configuration declares, or one built into the engine, is
 copied the same way. Its copy starts with what the configuration added to the
-files (`patches`, `global-methods`, `scoring-sets`), written as the journal's
-first lines, so the copy holds what the collection held. A copy reads its
+files (`patches`, `global-methods`, `scoring`), written as the journal's
+first lines, so the copy holds what the collection held. A copy of an uploaded
+collection or of another copy takes its source's journal as it is, and can undo
+the changes it inherits like its own. A copy reads its
 source's files, so the source cannot be deleted while the copy exists. A
 read-only engine refuses all three changes below.
 
