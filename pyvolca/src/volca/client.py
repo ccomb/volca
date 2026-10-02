@@ -1160,7 +1160,7 @@ class Client:
         return "/".join([f"{self.base_url}/api/v1/method-collections", urllib.parse.quote(collection, safe=""), *rest])
 
     def _edit_method_factors(self, feature: str, collection: str, body: dict) -> dict:
-        self._require_wire(40, feature, engine_hint="0.16.0")
+        self._require_wire(40, feature, engine_hint="0.15.0")
         return self._json(self._session.post(self._method_collection_url(collection, "factors"), json=_drop_none(body)))
 
     def copy_method_collection(self, collection: str, new_name: str) -> dict:
@@ -1176,7 +1176,7 @@ class Client:
 
         Needs an engine speaking wire revision 40.
         """
-        self._require_wire(40, "copy_method_collection", engine_hint="0.16.0")
+        self._require_wire(40, "copy_method_collection", engine_hint="0.15.0")
         return self._json(self._session.post(self._method_collection_url(collection, "copy", urllib.parse.quote(new_name, safe=""))))
 
     def set_method_factor(
@@ -1269,7 +1269,7 @@ class Client:
         undone by restoring the values it replaced, which is refused, naming
         the factor, when a later line changed one of them.
         """
-        self._require_wire(40, "undo_method_edit", engine_hint="0.16.0")
+        self._require_wire(40, "undo_method_edit", engine_hint="0.15.0")
         params = {} if line is None else {"line": line}
         return self._json(self._session.post(self._method_collection_url(collection, "undo"), params=params))
 
@@ -1282,7 +1282,7 @@ class Client:
         it is ``inEffect``, and the ``change`` it made. A collection the
         configuration declares has an empty history.
         """
-        self._require_wire(40, "method_history", engine_hint="0.16.0")
+        self._require_wire(40, "method_history", engine_hint="0.15.0")
         return self._json(self._session.get(self._method_collection_url(collection, "history")))
 
     def search_method_flows(self, collection: str, q: str, *, limit: int | None = None) -> list[dict]:
@@ -1292,7 +1292,7 @@ class Client:
         and compartment a new factor for that flow is written with (50 at most
         unless ``limit`` says otherwise).
         """
-        self._require_wire(40, "search_method_flows", engine_hint="0.16.0")
+        self._require_wire(40, "search_method_flows", engine_hint="0.15.0")
         params: dict = {"q": q}
         if limit is not None:
             params["limit"] = limit
