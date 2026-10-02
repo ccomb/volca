@@ -82,6 +82,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    openTerms,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -341,6 +342,7 @@ baseConfig name =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }
 
 uploadedConfig :: Text -> FilePath -> DatabaseConfig

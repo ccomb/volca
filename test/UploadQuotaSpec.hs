@@ -23,7 +23,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Manager (CachePolicy (..), DatabaseManager (..), initDatabaseManager)
 import Test.Hspec
-import Types (AllocationKey (..), GeographyPolicy (..))
+import Types (AllocationKey (..), GeographyPolicy (..), openTerms)
 
 -- | A plan allowing @stored@ databases and @loaded@ of them in memory.
 plan :: Int -> Int -> HostingConfig
@@ -62,6 +62,7 @@ uploadedEntry name =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }
 
 spec :: Spec

@@ -59,6 +59,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    openTerms,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -223,6 +224,7 @@ mkConfig name =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }
 
 buildOrFail :: SimpleParts -> IO Database

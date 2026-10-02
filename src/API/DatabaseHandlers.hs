@@ -35,6 +35,8 @@ module API.DatabaseHandlers (
     editExchangesHandler,
     exportDatabaseHandler,
     documentFileHandler,
+    setTermsHandler,
+    downloadRefusal,
     exportMethodHandler,
     encodeExportWarnings,
     uploadDatabaseHandler,
@@ -181,6 +183,7 @@ import Database.Manager (
     RelativeDataPath (..),
     RelinkResult (..),
     SetupError (..),
+    TermsRefusal (..),
     addCompartmentMappings,
     addDatabase,
     addDependencyToStaged,
@@ -190,6 +193,7 @@ import Database.Manager (
     databaseCoverageReport,
     databaseGapReport,
     databaseQualityReport,
+    databaseTerms,
     finalizeDatabase,
     getDatabase,
     getDatabaseSetupInfo,
@@ -214,6 +218,7 @@ import Database.Manager (
     removeMethodCollection,
     removeUnitDefs,
     setDataPath,
+    setUploadTerms,
     setupErrorMessage,
     unloadCompartmentMappings,
     unloadDatabase,
@@ -244,12 +249,15 @@ import Types (
     ClassificationFilter (..),
     ClassificationMatch (..),
     Database (..),
+    Downloads (..),
     GeographyPolicy (..),
     ProcessRef (..),
+    Terms (..),
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
     getUnitNameForBioFlow,
+    openTerms,
     parseAllocationKey,
     processRefText,
     unresolvedCount,
@@ -702,6 +710,7 @@ database that is not loaded, never a 200 with a failure flag.
 -}
 exportDatabaseHandler :: Text -> ExportRequest -> AppM (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
 exportDatabaseHandler dbName req = do
+    refuseUnlessDownloadable dbName
     dbManager <- asks aeDbManager
     fmt <- either (exportErr err400) pure (parseExportFormat (exrFormat req))
     mLoaded <- liftIO (getDatabase dbManager dbName)
@@ -715,6 +724,7 @@ documentation does not list, or one its package does not hold.
 -}
 documentFileHandler :: Text -> [Text] -> AppM (Headers '[Header "Content-Disposition" Text] BinaryContent)
 documentFileHandler dbName segments = do
+    refuseUnlessDownloadable dbName
     dbManager <- asks aeDbManager
     bytes <- liftIO (readDocumentFile dbManager dbName path) >>= either (exportErr err404) pure
     pure (addHeader (attachment (last' segments)) (BinaryContent (BSL.fromStrict bytes)))
@@ -729,6 +739,34 @@ documentFileHandler dbName segments = do
     attachment :: Text -> Text
     attachment name =
         "attachment; filename=\"" <> T.filter (\c -> c /= '"' && c >= ' ' && c < '\DEL') name <> "\"; filename*=UTF-8''" <> T.decodeUtf8 (urlEncode False (T.encodeUtf8 name))
+
+{- | 403 when the terms of a database refuse its download. A name the engine
+does not know passes, so the handler answers it with its own 404.
+-}
+refuseUnlessDownloadable :: Text -> AppM ()
+refuseUnlessDownloadable dbName = do
+    dbManager <- asks aeDbManager
+    liftIO (databaseTerms dbManager dbName) >>= mapM_ (mapM_ (exportErr err403) . downloadRefusal dbName)
+
+-- | Why a database may not be downloaded, in a sentence naming its licence when it has one.
+downloadRefusal :: Text -> Terms -> Maybe Text
+downloadRefusal dbName terms = case termsDownloads terms of
+    DownloadsAllowed -> Nothing
+    DownloadsRefused -> Just ("The terms of " <> dbName <> maybe "" (\l -> " (" <> l <> ")") (termsLicence terms) <> " do not allow downloading it.")
+
+{- | Replace the terms of an uploaded database. 404 for a name the engine does
+not know, 409 for a database whose terms are written elsewhere: in the
+configuration file, or on the source a copy reads.
+-}
+setTermsHandler :: Text -> Terms -> AppM Terms
+setTermsHandler dbName terms = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    liftIO (setUploadTerms dbManager dbName terms) >>= either refused pure
+  where
+    refused :: TermsRefusal -> AppM Terms
+    refused (TermsUnknown msg) = exportErr err404 msg
+    refused (TermsHeldElsewhere msg) = exportErr err409 msg
 
 {- | Export a loaded method collection over the same transport as the database
 export: raw octet-stream body, projection warnings percent-encoded in the
@@ -1040,6 +1078,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umDepends = []
                             , UploadedDB.umSource = Nothing
                             , UploadedDB.umAllocation = Declared
+                            , UploadedDB.umTerms = openTerms
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1061,6 +1100,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , dcAllocation = Declared
                             , dcPatches = []
                             , dcSource = Nothing
+                            , dcTerms = openTerms
                             }
 
                 -- Add to manager
@@ -1246,6 +1286,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umDepends = []
                             , UploadedDB.umSource = Nothing
                             , UploadedDB.umAllocation = Declared
+                            , UploadedDB.umTerms = openTerms
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 

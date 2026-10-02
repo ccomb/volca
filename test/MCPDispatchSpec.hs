@@ -23,7 +23,7 @@ import Test.Hspec
 import API.MCP (RequestId (..), RpcRequest (..), callTool, handleInitialize, mcpCountsAsActivity, noRequestId, toolDefinitions, webUrlBase)
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), ReadOnly (..), ServerName (..), defaultConfig)
 import Database.Manager (CachePolicy (..), addDatabase, initDatabaseManager, loadDatabase)
-import Types (AllocationKey (..), GeographyPolicy (..))
+import Types (AllocationKey (..), GeographyPolicy (..), openTerms)
 
 -- | The tool definition advertised under a given MCP name.
 toolByName :: Text -> Maybe Value
@@ -120,6 +120,7 @@ sampleConfig =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }
 
 -- | Call a tool against that fixture, freshly loaded.

@@ -123,6 +123,7 @@ dbConfigFor name =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }
 
 -- | Install a database in the manager's loaded set, solver and config included.

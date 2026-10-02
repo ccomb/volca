@@ -22,7 +22,7 @@ import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), initDatabaseManager)
 import Service.Catalogue (PageWindow (..), catalogueEntries, catalogueFingerprint, catalogueMaxLimit, cataloguePage, measureOf)
 import TestHelpers (loadSampleDatabase, mkSolverFromDb)
-import Types (Activity (..), AllocationKey (..), Database (..), GeographyPolicy (..))
+import Types (Activity (..), AllocationKey (..), Database (..), GeographyPolicy (..), openTerms)
 import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig)
 
 -- | A tonne beside the kilogram, and a piece that counts rather than weighs.
@@ -149,4 +149,5 @@ sampleConfig =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }

@@ -10,6 +10,7 @@ module Config (
     ServerName (..),
     DatabaseConfig (..),
     withSourcePatches,
+    termsOf,
     MethodConfig (..),
     MethodOrigin (..),
     describeMethodOrigin,
@@ -91,7 +92,7 @@ import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
 import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldOpt, getFieldOptWith, getFieldWith)
-import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), GeographyPolicy (..), PatchOp (..), parseAllocationKey)
+import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), Downloads (..), ExchangePatch (..), ExchangePatchMatch (..), GeographyPolicy (..), PatchOp (..), Terms (..), parseAllocationKey, parseDownloads)
 
 -- | A single classification filter entry (system + value)
 data ClassificationEntry = ClassificationEntry
@@ -281,6 +282,8 @@ data DatabaseConfig = DatabaseConfig
     than left in the upload metadata because a reader of a re-keyed database
     needs to know the shares were recomputed, and from what.
     -}
+    , dcTerms :: !Terms
+    -- ^ The licence it is published under and whether it may be downloaded; a copy is served under its source's, see 'termsOf'
     }
     deriving (Show, Eq, Generic)
 
@@ -303,6 +306,23 @@ withSourcePatches configs = map (\config -> config{dcPatches = patchesOf S.empty
     -- The last entry of a repeated name, the one the manager's index keeps.
     named :: Text -> Maybe DatabaseConfig
     named name = find ((== name) . dcName) (reverse configs)
+
+{- | The terms a database is served under. A copy or a re-keyed database
+reads its source's files, so it is served under its source's terms: were it
+to carry its own, copying a database would be a way round the refusal its
+publisher wrote. A copy whose source is gone keeps the terms recorded when
+it was made.
+
+The config is read again from the map by its name: the copy of it a loaded or
+staged database holds was taken before any change of terms since.
+-}
+termsOf :: Map Text DatabaseConfig -> DatabaseConfig -> Terms
+termsOf configs config = go S.empty (M.findWithDefault config (dcName config) configs)
+  where
+    go :: S.Set Text -> DatabaseConfig -> Terms
+    go seen held =
+        maybe (dcTerms held) (go (S.insert (dcName held) seen)) $
+            mfilter ((`S.notMember` seen) . dcName) (dcSource held >>= (`M.lookup` configs))
 
 {- | Where a method collection's factors come from. A built-in collection has
 no path: it is in the binary, and a configuration names it only to switch it
@@ -634,6 +654,7 @@ instance DecodeTOML DatabaseConfig where
         dcAllocation <- fromMaybe Declared <$> getFieldOptWith allocationKeyDecoder "allocation"
         dcPatches <- fromMaybe [] <$> getFieldOptWith (getArrayOf exchangePatchDecoder) "patches"
         let dcSource = Nothing -- A configured database owns the files it names
+        dcTerms <- termsDecoder
         pure DatabaseConfig{..}
 
 {- | @allocation@ on a database entry: how its multi-output blocks are divided.
@@ -643,6 +664,17 @@ declares. To have both, configure the same path twice under two names: the key
 decides the inventory of every process the load produces, so one database
 carries one key.
 -}
+
+{- | @licence@ and @downloads@ on a database entry. A @downloads@ nobody can
+read stops the load rather than reading as allowed: a refusal the engine
+misread would hand out the copies its publisher refused.
+-}
+termsDecoder :: Decoder Terms
+termsDecoder = do
+    termsLicence <- getFieldOpt "licence"
+    termsDownloads <- maybe (pure DownloadsAllowed) (either (fail . T.unpack) pure . parseDownloads) =<< getFieldOpt "downloads"
+    pure Terms{..}
+
 allocationKeyDecoder :: Decoder AllocationKey
 allocationKeyDecoder = do
     raw <- tomlDecoder :: Decoder Text
@@ -909,7 +941,7 @@ configKeys =
         ,
             ( "databases"
             , keys $
-                map plain ["name", "displayName", "path", "description", "load", "default", "depends", "deletable", "geography_policy", "allocation"]
+                map plain ["name", "displayName", "path", "description", "load", "default", "depends", "deletable", "geography_policy", "allocation", "licence", "downloads"]
                     <> [("locationAliases", AcceptsAnything), ("patches", exchangePatch)]
             )
         ,

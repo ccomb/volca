@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 40** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 41** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -604,7 +604,7 @@ The bytes of a file a database ships with a literature entry.
 setup ``documentation`` lists, such as ``external_docs/report.pdf``;
 only an ILCD package ships any. Raises VoLCAError on an HTTP error,
 a 404 when the documentation lists no such file or the package does
-not hold it.
+not hold it, a 403 when the database's ``terms`` refuse downloads.
 
 ##### `Client.download_flow_synonyms(name: str) -> bytes`
 
@@ -678,7 +678,8 @@ ILCD multi-file trees come back zipped.
 The engine streams the payload as raw bytes. Best-effort approximation
 warnings arrive in the ``X-Volca-Export-Warnings`` response header
 (percent-encoded, newline-joined) and are surfaced through
-`warnings`. Raises VoLCAError on an HTTP error.
+`warnings`. Raises VoLCAError on an HTTP error, a 403 when the
+database's ``terms`` refuse downloads.
 
 ##### `Client.export_method_collection(name: str, fmt: str = 'simapro') -> bytes`
 
@@ -937,7 +938,10 @@ holds, both with a ``name``, ``category``, ``sections`` and ``files``
 export says all of it; an EcoSpold 1 database lists under
 ``literature`` the sources its datasets cite, and an ILCD package the
 sources it holds; another format leaves
-``export`` null and both lists empty.
+``export`` null and both lists empty. ``terms`` is what the database is
+served under (wire revision 41): its ``licence`` in words, or null, and
+``downloads``, ``allowed`` or ``refused``, which `set_terms`
+changes.
 
 ##### `Client.get_stats()`
 
@@ -1242,6 +1246,18 @@ Choose which data file a staged multi-file archive should use.
 ``path`` must be one of the ``availablePaths`` reported by
 `get_setup`, relative to the upload directory. Returns the
 updated ``DatabaseSetupInfo`` dict.
+
+##### `Client.set_terms(downloads: str, licence: str | None = None, db_name: str | None = None) -> dict`
+
+Set the licence of an uploaded database and whether it may be downloaded.
+
+``downloads`` is ``allowed`` or ``refused``; a refused database answers
+`export_database` and `document_file` with a 403, and so
+does every copy of it. ``licence`` is the licence it is published
+under, in words, or None. Returns the terms now in force. Raises
+VoLCAError on an HTTP error: a 409 for a database whose terms are
+written elsewhere, in the configuration file or on the source a copy
+reads.
 
 ##### `Client.unload_database(db_name: str) -> dict`
 
