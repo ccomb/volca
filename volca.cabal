@@ -92,6 +92,7 @@ library
                      , Method.Mapping
                      , Method.Coverage
                      , Method.Explain
+                     , Method.Edit
                      , Method.EditPlan
                      , Method.Journal
                      , Method.Patch
@@ -376,6 +377,7 @@ test-suite lca-tests
                      , AuthorSpec
                      , JournalFileSpec
                      , JournalSpec
+                     , MethodCopySpec
                      , MethodEditPlanSpec
                      , MethodJournalLoadSpec
                      , MethodJournalSpec

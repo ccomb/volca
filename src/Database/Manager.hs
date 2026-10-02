@@ -40,6 +40,7 @@ module Database.Manager (
     mkDepSolverLookup,
     listDatabases,
     clearMethodMappingCacheForDb,
+    clearMethodCachesFor,
 
     -- * Load/Unload
     loadDatabase,
@@ -56,6 +57,7 @@ module Database.Manager (
     loadMethodCollection,
     loadMethodCollectionFromConfig,
     applyMethodConfig,
+    configToScoringSet,
     namedOnce,
     unloadMethodCollection,
     getLoadedMethods,
@@ -138,6 +140,7 @@ module Database.Manager (
 
 import API.JsonOptions (Stripped (..))
 import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
 import Control.Concurrent.QSem (QSem, newQSem)
 import Control.Concurrent.STM
@@ -701,6 +704,13 @@ data DatabaseManager = DatabaseManager
     {- ^ One unit per scoring request allowed to compute at once
     (@max_concurrent_scoring@), 'Nothing' when the instance sets no bound.
     -}
+    , dmMethodEditLock :: !(MVar ())
+    {- ^ Held by every change to a method collection, and by every copy: an
+    edit reads the collection, appends a line and swaps the result in, and two
+    of them interleaved would each swap in a collection missing the other's
+    line. ponytail: one lock for every collection; one per collection if edits
+    ever queue.
+    -}
     }
 
 {- | The databases a root reaches, transitively, through 'dbDependsOn'. The
@@ -1117,6 +1127,22 @@ clearMethodMappingCache manager = atomically $ do
     writeTVar (dmMergedUnitConfigCache manager) Nothing
     writeTVar (dmFlowClosureCache manager) M.empty
 
+{- | Drop what was built from one method collection: its mappings, tables and
+vocabulary against every database. The other collections keep theirs; every
+key already carries the collection it was built from.
+-}
+clearMethodCachesFor :: DatabaseManager -> CollectionName -> IO ()
+clearMethodCachesFor manager collection = atomically $ do
+    modifyTVar' (dmMethodMappingCache manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodTablesCache manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodTablesInflight manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodSetTablesCache manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodIndexCache manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodVocabularyCache manager) (M.delete collection)
+  where
+    keep :: (Text, CollectionName, k) -> v -> Bool
+    keep (_, c, _) _ = c /= collection
+
 {- | Clear cached flow mappings for a specific database, and for every database
 that depends on it: a mapping is built over the root's flow closure, so a
 dependency that changes invalidates its dependents' tables as much as its own.
@@ -1405,6 +1431,7 @@ newManager ManagerSeed{..} = do
     mergedUnitConfigCacheVar <- newTVarIO Nothing
     flowClosureCacheVar <- newTVarIO M.empty
     scoringSlots <- traverse newQSem msScoringSlots
+    methodEditLock <- newMVar ()
     return
         DatabaseManager
             { dmLoadedDbs = loadedDbsVar
@@ -1438,6 +1465,7 @@ newManager ManagerSeed{..} = do
             , dmMergedUnitConfigCache = mergedUnitConfigCacheVar
             , dmFlowClosureCache = flowClosureCacheVar
             , dmScoringSlots = scoringSlots
+            , dmMethodEditLock = methodEditLock
             }
   where
     byName :: [RefDataConfig] -> IO (TVar (Map Text RefDataConfig))
