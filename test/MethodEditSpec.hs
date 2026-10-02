@@ -3,8 +3,9 @@
 module MethodEditSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Control.Monad (void)
+import Control.Monad (replicateM_, void)
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.Vector as V
 import System.Directory (doesFileExist)
@@ -76,3 +77,39 @@ spec = describe "changing a method collection of one's own" $ do
             atomically $ modifyTVar' (dmMethodIndexCache manager) (M.insert (key "copy") emptyIndex . M.insert (key "plain-indicators") emptyIndex)
             _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 2)
             M.keys <$> readTVarIO (dmMethodIndexCache manager) `shouldReturn` [key "plain-indicators"]
+
+    it "undoes N changes back to the collection it started from, in 2N lines" $
+        withScratchDataDir $ do
+            (manager, category, methane) <- copyWithMethane
+            start <- getMethodCollection manager "copy"
+            let at v = FactorTarget category (mcfFlowRef methane) Nothing (Just v)
+            _ <- editMethodFactors manager "copy" (SetValue (at 1) 2)
+            _ <- editMethodFactors manager "copy" (Remove (at 2))
+            _ <- editMethodFactors manager "copy" (Patch anyPatch)
+            replicateM_ 3 (undoMethodEdit manager "copy" Nothing >>= either (expectationFailure . show) (const (pure ())))
+            getMethodCollection manager "copy" `shouldReturn` start
+            fmap length <$> methodHistory manager "copy" `shouldReturn` Right 6
+            void <$> undoMethodEdit manager "copy" Nothing `shouldReturn` Left (EditRefused "there is no change left to undo")
+
+    it "redoes an undone change when asked for its undo line" $
+        withScratchDataDir $ do
+            (manager, category, methane) <- copyWithMethane
+            _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 5)
+            edited <- getMethodCollection manager "copy"
+            _ <- undoMethodEdit manager "copy" Nothing
+            _ <- undoMethodEdit manager "copy" (Just 2)
+            getMethodCollection manager "copy" `shouldReturn` edited
+
+    it "refuses to undo a selector one of whose factors a later line changed, and writes nothing" $
+        withScratchDataDir $ do
+            (manager, category, methane) <- copyWithMethane
+            _ <- editMethodFactors manager "copy" (Patch anyPatch)
+            _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 9)
+            refused <- undoMethodEdit manager "copy" (Just 1)
+            either (T.unpack . refusalText) (const "undone") refused `shouldContain` "Methane, fossil"
+            fmap length <$> methodHistory manager "copy" `shouldReturn` Right 2
+
+    it "gives a collection the configuration declares an empty history" $
+        withScratchDataDir $ do
+            manager <- initDatabaseManager defaultConfig NoCache
+            fmap length <$> methodHistory manager "plain-indicators" `shouldReturn` Right 0

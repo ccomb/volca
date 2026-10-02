@@ -17,6 +17,9 @@ module Method.Edit (
     copyMethodCollection,
     EditOutcome (..),
     editMethodFactors,
+    undoMethodEdit,
+    HistoryLine (..),
+    methodHistory,
 ) where
 
 import Control.Concurrent.MVar (withMVar)
@@ -35,7 +38,7 @@ import System.FilePath ((</>))
 
 import Builtin (builtinMethodName)
 import Config (MethodConfig (..), MethodOrigin (..))
-import Data.JournalFile (Entry, appendEntry, journalPath, readEntries)
+import Data.JournalFile (Entry (..), appendEntry, journalPath, readEntries)
 import Database.Manager (
     CollectionName (..),
     DatabaseManager (..),
@@ -48,8 +51,8 @@ import Database.Manager (
  )
 import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
-import Method.EditPlan (EditEffect, FactorEdit, planEdit, seedLines)
-import Method.Journal (LineKind (..), MethodLine (..), MethodOp, applyMethodOp)
+import Method.EditPlan (EditEffect, FactorEdit, Undo (..), inEffect, inverseOf, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
+import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMethodOp, replayMethodJournal)
 import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
 import Types (AllocationKey (..))
@@ -228,3 +231,68 @@ commitLine manager name home before line changed =
             atomically $ modifyTVar' (dmLoadedMethods manager) (M.adjust (const changed) name)
             clearMethodCachesFor manager (CollectionName name)
             pure (Right (length before + 1))
+
+{- | Undo a line by writing its inverse. The journal never loses a line, so an
+undo is a change like any other and can itself be undone, by naming its line.
+-}
+undoMethodEdit :: DatabaseManager -> Text -> Maybe Int -> IO (Either MethodEditRefusal EditOutcome)
+undoMethodEdit manager name requested = withMVar (dmMethodEditLock manager) $ \() -> runExceptT $ do
+    (home, collection) <- ExceptT (editable manager name)
+    entries <- ExceptT (first EditRefused <$> readEntries home)
+    target <- except (first EditRefused (undoTarget (map jeOp entries) requested))
+    undone <- except (first EditRefused (lineAt target entries))
+    inverse <-
+        except (first EditRefused (inverseOf collection undone)) >>= \case
+            UndoWith op -> pure op
+            UndoSelector patch -> RestoreFactors . restoreOf patch <$> ExceptT (stateBefore manager name target entries)
+    changed <- except (first EditRefused (applyMethodOp collection inverse))
+    line <- ExceptT (commitLine manager name home entries (MethodLine inverse (Undoing target)) changed)
+    pure (EditOutcome line (undoEffect inverse))
+
+-- | What line @k@ of a journal did; 'undoTarget' has already said it exists.
+lineAt :: Int -> [Entry MethodLine] -> Either Text MethodOp
+lineAt k entries = case drop (k - 1) entries of
+    e : _ | k >= 1 -> Right (mlOp (jeOp e))
+    _ -> Left ("the journal has no line " <> T.pack (show k))
+
+{- | The collection just before a line: its files read again and the lines
+before it replayed. Only a selector's undo asks for it, since its inverse is
+the values it replaced. ponytail: reads the files at each such undo; keep the
+parsed source in memory if that wait shows.
+-}
+stateBefore :: DatabaseManager -> Text -> Int -> [Entry MethodLine] -> IO (Either MethodEditRefusal MethodCollection)
+stateBefore manager name target entries = do
+    available <- readTVarIO (dmAvailableMethods manager)
+    case M.lookup name available of
+        Nothing -> pure (Left (CollectionNotFound name))
+        Just mc -> do
+            parsed <- loadMethodCollectionFromConfig mc
+            pure (first EditRefused (parsed >>= \(c, _) -> replayMethodJournal c (take (target - 1) entries)))
+
+-- | One line of a collection's journal, as its history shows it.
+data HistoryLine = HistoryLine
+    { hlLine :: Int
+    , hlAt :: Text
+    , hlOp :: MethodOp
+    , hlKind :: LineKind
+    , hlInEffect :: Bool
+    }
+    deriving (Eq, Show)
+
+{- | A collection's journal, line by line. A collection the configuration
+declares has none, which is an empty history rather than a refusal: the
+history reads the same for every collection.
+-}
+methodHistory :: DatabaseManager -> Text -> IO (Either MethodEditRefusal [HistoryLine])
+methodHistory manager name = do
+    available <- readTVarIO (dmAvailableMethods manager)
+    case mcHome <$> M.lookup name available of
+        Nothing -> pure (Left (CollectionNotFound name))
+        Just Nothing -> pure (Right [])
+        Just (Just home) -> fmap describe . first EditRefused <$> readEntries home
+  where
+    describe :: [Entry MethodLine] -> [HistoryLine]
+    describe entries =
+        [ HistoryLine i (jeAt e) (mlOp (jeOp e)) (mlKind (jeOp e)) effective
+        | (i, e, effective) <- zip3 [1 ..] entries (inEffect (map jeOp entries))
+        ]
