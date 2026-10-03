@@ -134,6 +134,16 @@ spec = describe "changing a method collection of one's own" $ do
             either (T.unpack . refusalText) (const "undone") refused `shouldContain` "Methane, fossil"
             fmap length <$> methodHistory manager "copy" `shouldReturn` Right 2
 
+    it "refuses to undo a change of value a later line changed again, naming that line" $
+        withScratchDataDir $ do
+            (manager, category, methane) <- copyWithMethane
+            let at = FactorTarget category (mcfFlowRef methane) Nothing Nothing
+            _ <- editMethodFactors manager "copy" (SetValue at 2)
+            _ <- editMethodFactors manager "copy" (SetValue at 3)
+            refused <- undoMethodEdit manager "copy" (Just 1)
+            either (T.unpack . refusalText) (const "undone") refused `shouldContain` "undo line 2 first"
+            fmap length <$> methodHistory manager "copy" `shouldReturn` Right 2
+
     it "gives a collection the configuration declares an empty history" $
         withScratchDataDir $ do
             manager <- initDatabaseManager defaultConfig NoCache

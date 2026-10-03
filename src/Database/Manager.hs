@@ -181,7 +181,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import GHC.Generics (Generic)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
-import System.FilePath (addTrailingPathSeparator, takeDirectory, takeExtension, takeFileName, (</>))
+import System.FilePath (addTrailingPathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (</>))
 import System.Mem (performGC)
 
 import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName, builtinMethods)
@@ -4419,11 +4419,13 @@ removeMethodCollection :: DatabaseManager -> Text -> IO (Either Text ())
 removeMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() -> do
     available <- readTVarIO (dmAvailableMethods manager)
     loaded <- readTVarIO (dmLoadedMethods manager)
+    readers <- maybe (pure (Right [])) (`readersOf` M.elems available) (M.lookup name available)
     case M.lookup name available of
         Nothing -> return $ Left $ "Method collection not found: " <> name
         Just mc
-            | (copy : _) <- [mcName other | other <- M.elems available, mcSource other == Just name] ->
-                return $ Left $ name <> " holds the files " <> copy <> " is a copy of. Delete " <> copy <> " first."
+            | Left err <- readers -> return (Left err)
+            | Right (copy : _) <- readers ->
+                return $ Left $ name <> " holds the files " <> copy <> " reads. Delete " <> copy <> " first."
             | Nothing <- mcHome mc
             , MethodBuiltIn _ <- mcOrigin mc ->
                 return $ Left $ "Cannot delete a method built into this engine. Switch it off in volca.toml: [[methods]] name = \"" <> name <> "\", active = false."
@@ -4447,6 +4449,23 @@ removeMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() 
                         -- Directory already missing, just remove from memory
                         atomically $ modifyTVar' (dmAvailableMethods manager) (M.delete name)
                         return $ Right ()
+
+{- | The other collections that read their files from under a collection's
+home. A copy reads its source's files where they lie and keeps a journal of
+its own, so a copy of a copy reads the first source's files, and the copy in
+between holds nothing anyone reads.
+-}
+readersOf :: MethodConfig -> [MethodConfig] -> IO (Either Text [Text])
+readersOf mc others = case mcHome mc of
+    Nothing -> pure (Right [])
+    Just home -> fmap (first unreadable) . Control.Exception.try $ do
+        root <- splitDirectories <$> canonicalizePath home
+        let under :: FilePath -> IO Bool
+            under path = isPrefixOf root . splitDirectories <$> canonicalizePath path
+        map mcName <$> filterM (maybe (pure False) under . methodFiles . mcOrigin) [o | o <- others, mcName o /= mcName mc]
+  where
+    unreadable :: SomeException -> Text
+    unreadable err = "could not tell which collections read the files of " <> mcName mc <> ": " <> T.pack (show err)
 
 --------------------------------------------------------------------------------
 -- Merged reference data helpers

@@ -14,6 +14,7 @@ module Config (
     MethodConfig (..),
     MethodOrigin (..),
     describeMethodOrigin,
+    methodFiles,
     ScoringSetConfig (..),
     MethodPatch (..),
     MethodPatchMatch (..),
@@ -345,7 +346,9 @@ data MethodConfig = MethodConfig
     declares, or the engine carries, has none and is changed by copying it.
     -}
     , mcSource :: !(Maybe Text)
-    -- ^ The collection this one is a copy of, which its files belong to.
+    {- ^ The collection this one was copied from. Its files are the ones its
+    origin names, which for a copy of a copy are the first source's.
+    -}
     , mcDescription :: !(Maybe Text) -- Optional description
     , mcFormat :: !(Maybe Text) -- Detected format ("SimaPro CSV", "ILCD", etc.)
     , mcScoringSets :: ![ScoringSetConfig] -- Formula-based scoring sets
@@ -586,6 +589,11 @@ describeSource (BuiltIn _) = "built-in"
 describeMethodOrigin :: MethodOrigin -> String
 describeMethodOrigin (MethodFromFile path) = path
 describeMethodOrigin (MethodBuiltIn _) = "built-in"
+
+-- | The files a collection is read from; one built into the engine has none.
+methodFiles :: MethodOrigin -> Maybe FilePath
+methodFiles (MethodFromFile path) = Just path
+methodFiles (MethodBuiltIn _) = Nothing
 
 -- | What a collection says about itself when its entry says nothing.
 originDescription :: MethodOrigin -> Maybe Text

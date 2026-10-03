@@ -37,7 +37,7 @@ import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist,
 import System.FilePath ((</>))
 
 import Builtin (builtinMethodName)
-import Config (MethodConfig (..), MethodOrigin (..))
+import Config (MethodConfig (..), MethodOrigin (..), methodFiles)
 import Data.JournalFile (Entry (..), appendEntry, journalPath, readEntries)
 import Database.Manager (
     CollectionName (..),
@@ -51,7 +51,7 @@ import Database.Manager (
  )
 import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
-import Method.EditPlan (EditEffect, FactorEdit, Undo (..), inEffect, inverseOf, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
+import Method.EditPlan (EditEffect, FactorEdit, Undo (..), blockedUndo, inEffect, inverseOf, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
 import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMethodOp, replayMethodJournal)
 import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
@@ -130,7 +130,7 @@ recordMethodCopy home slug source seed = do
                 exists <- doesFileExist from
                 when exists (copyFile from (journalPath home))
             SeedLines ops -> mapM_ (\op -> ExceptT (appendEntry home (MethodLine op TakenFromConfiguration))) ops
-        dataPath <- liftIO (traverse makeAbsolute (filePath (mcOrigin source)))
+        dataPath <- liftIO (traverse makeAbsolute (methodFiles (mcOrigin source)))
         liftIO $
             UploadedDB.writeUploadMeta
                 home
@@ -150,10 +150,6 @@ recordMethodCopy home slug source seed = do
         Right result -> first (\err -> "could not record the copy " <> slug <> ": " <> err) result
         Left (err :: SomeException) -> Left ("could not record the copy " <> slug <> ": " <> T.pack (show err))
   where
-    filePath :: MethodOrigin -> Maybe FilePath
-    filePath = \case
-        MethodFromFile path -> Just path
-        MethodBuiltIn _ -> Nothing
     builtinOf :: MethodOrigin -> Maybe Text
     builtinOf = \case
         MethodFromFile _ -> Nothing
@@ -244,11 +240,12 @@ undoMethodEdit manager name requested = withMVar (dmMethodEditLock manager) $ \(
     entries <- ExceptT (first EditRefused <$> readEntries home)
     target <- except (first EditRefused (undoTarget (map jeOp entries) requested))
     undone <- except (first EditRefused (lineAt target entries))
+    let blocked = EditRefused . blockedUndo collection (map jeOp entries) target
     inverse <-
-        except (first EditRefused (inverseOf collection undone)) >>= \case
+        except (first blocked (inverseOf collection undone)) >>= \case
             UndoWith op -> pure op
             UndoSelector patch -> RestoreFactors . restoreOf patch <$> ExceptT (stateBefore manager name target entries)
-    changed <- except (first EditRefused (applyMethodOp collection inverse))
+    changed <- except (first blocked (applyMethodOp collection inverse))
     line <- ExceptT (commitLine manager name home entries (MethodLine inverse (Undoing target)) changed)
     pure (EditOutcome line (undoEffect inverse))
 
