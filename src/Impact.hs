@@ -116,7 +116,9 @@ The root is never one of them: what the requested database refuses is refused
 before anything is solved, so a root revisited through a cycle stays shown.
 -}
 data LicencedSolution = LicencedSolution
-    { lsShown :: SharedSolver.CrossDBSolution
+    { lsWhole :: SharedSolver.CrossDBSolution
+    -- ^ What the score is read on: the shown part and the withheld ones add up to it.
+    , lsShown :: SharedSolver.CrossDBSolution
     , lsWithheld :: [WithheldPart]
     }
 
@@ -141,10 +143,11 @@ no dependency keeps anything the solution is returned as it is.
 -}
 partitionByLicence :: BioFlowDB -> S.Set Text -> SharedSolver.CrossDBSolution -> LicencedSolution
 partitionByLicence flowDB refusing sol
-    | null withheld = LicencedSolution{lsShown = sol, lsWithheld = []}
+    | null withheld = LicencedSolution{lsWhole = sol, lsShown = sol, lsWithheld = []}
     | otherwise =
         LicencedSolution
-            { lsShown = keeping (`notElem` withheld)
+            { lsWhole = sol
+            , lsShown = keeping (`notElem` withheld)
             , lsWithheld = [WithheldPart{wpDatabase = name, wpSolution = keeping (== name)} | name <- withheld]
             }
   where
@@ -230,10 +233,9 @@ licencedContributionsOf ::
     CollectionName ->
     Method ->
     MethodTables ->
-    SharedSolver.CrossDBSolution ->
+    LicencedSolution ->
     IO (Either Text LicencedContributions)
-licencedContributionsOf dbManager collection method tables sol = do
-    LicencedSolution{lsShown = shown, lsWithheld = parts} <- licencedSolution dbManager SeeDetailedScores sol
+licencedContributionsOf dbManager collection method tables LicencedSolution{lsShown = shown, lsWithheld = parts} = do
     rowsE <- contributionsOf dbManager collection method tables shown
     partsE <- scoreParts dbManager collection method tables parts
     pure (LicencedContributions <$> fmap fst rowsE <*> fmap snd rowsE <*> partsE)

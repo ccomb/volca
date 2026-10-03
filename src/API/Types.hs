@@ -667,7 +667,9 @@ data WithheldShare = WithheldShare
 
 {- | The processes a chain reaches in a database whose licence keeps the
 amounts of its exchanges, in one line: how many, and why they are not listed.
-A count says how far the chain reaches, not what it takes.
+A count says how far the chain reaches, not what it takes. In a supply chain
+it counts the processes the request's filters kept, the ones it would have
+listed; in an aggregation by consumption, every process the chain reaches.
 -}
 data WithheldProcesses = WithheldProcesses
     { wprDatabase :: Text

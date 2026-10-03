@@ -308,6 +308,12 @@ spec = do
               ]
                 `shouldBe` [(String "dep", Number 1)]
 
+        it "keeps its exchanges out of the flow mapping's uncharacterized flows" $ do
+            manager <- managerWith inventoryKept
+            o <- payload =<< callOn manager "get_flow_mapping" [("verbose", Bool True)]
+            (KM.lookup "unmatched_db_flows" o, KM.lookup "withheld" o)
+                `shouldBe` (Just (Array mempty), Just (Array (V.singleton (String "The licence of dep keeps the amounts of its exchanges to itself."))))
+
         it "still details its contributions" $ do
             manager <- managerWith inventoryKept
             o <- payload =<< callOn manager "get_contributing_activities" []

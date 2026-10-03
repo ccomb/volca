@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | MCP (Model Context Protocol) server endpoint.
@@ -644,9 +645,15 @@ liftService = either (throwE . serviceMessage) pure
 caller and travel as is; every other error renders as before.
 -}
 serviceMessage :: Service.ServiceError -> Text
-serviceMessage (Service.NotScorable msg) = msg
-serviceMessage (Service.Withheld msg) = msg
-serviceMessage e = T.pack (show e)
+serviceMessage = \case
+    Service.NotScorable msg -> msg
+    Service.Withheld msg -> msg
+    e@(Service.InvalidUUID _) -> T.pack (show e)
+    e@(Service.InvalidProcessId _) -> T.pack (show e)
+    e@(Service.AmbiguousActivity _) -> T.pack (show e)
+    e@(Service.ActivityNotFound _) -> T.pack (show e)
+    e@(Service.FlowNotFound _) -> T.pack (show e)
+    e@(Service.MatrixError _) -> T.pack (show e)
 
 textArg :: Text -> KeyMap Value -> Maybe Text
 textArg key args = case KM.lookup (fromText key) args of
@@ -1972,11 +1979,12 @@ callGetFlowMapping dbManager rid args = runTool rid $ do
                                 ]
                             | (cf, Nothing) <- mappings
                             ]
-                unmatchedFlows <- liftIO $ buildUnmatchedDbFlows dbManager dbName collection db method args maxUnm
-                pure
+                (unmatchedFlows, withheld) <- liftIO $ buildUnmatchedDbFlows dbManager dbName collection db method args maxUnm
+                pure $
                     [ "unmatched_cfs" .= unmatchedCFs
                     , "unmatched_db_flows" .= unmatchedFlows
                     ]
+                        ++ ["withheld" .= withheld | not (null withheld)]
     pure $
         toolSuccessJson rid $
             object $
@@ -2006,16 +2014,16 @@ buildUnmatchedDbFlows ::
     Method ->
     KeyMap Value ->
     Int ->
-    IO [Value]
+    IO ([Value], [Text])
 buildUnmatchedDbFlows dbManager dbName collection db method args maxN =
     case textArg "process_id" args of
-        Nothing -> pure [] -- caller didn't pin a process; nothing actionable to rank by
+        Nothing -> pure ([], []) -- caller didn't pin a process; nothing actionable to rank by
         Just pidText -> do
             mLoaded <- getDatabase dbManager dbName
             case mLoaded of
-                Nothing -> pure []
+                Nothing -> pure ([], [])
                 Just ld -> case Service.resolveActivityAndProcessId db pidText of
-                    Left _ -> pure []
+                    Left _ -> pure ([], [])
                     Right (pid, _) -> do
                         unitCfg <- DM.getMergedUnitConfig dbManager
                         (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
@@ -2028,9 +2036,14 @@ buildUnmatchedDbFlows dbManager dbName collection db method args maxN =
                                 (ldSharedSolver ld)
                                 pid
                         case invE of
-                            Left _ -> pure []
+                            Left _ -> pure ([], [])
                             Right sol -> do
-                                let inventory = SharedSolver.csInventory sol
+                                -- Each flow carries its quantity in the aggregated inventory,
+                                -- which a licence keeping its amounts keeps out, as in 'diagnosticsOf'.
+                                licence <- fromMaybe LicenceUnstated <$> DM.databaseLicence dbManager dbName
+                                deps <- Impact.withheldDatabases dbManager ReadInventory sol
+                                let kept = [dbName | not (granted licence ReadInventory)] ++ deps
+                                    inventory = SharedSolver.csInventory sol
                                 tables <- DM.mapMethodToTablesCached dbManager dbName collection db method
                                 idx <- DM.mapMethodToIndexCached dbManager dbName collection method
                                 let opts =
@@ -2048,7 +2061,10 @@ buildUnmatchedDbFlows dbManager dbName collection db method args maxN =
                                             (DM.dmChemSynonyms dbManager)
                                             idx
                                             opts
-                                pure (map encodeUncharacterized uncharacterized)
+                                pure
+                                    ( if null kept then map encodeUncharacterized uncharacterized else []
+                                    , map (`withheldSentence` ReadInventory) kept
+                                    )
 
 {- | Why one flow scores with the factor it does.
 

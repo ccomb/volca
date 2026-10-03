@@ -87,7 +87,7 @@
   of a category and of a single score, comparing impacts); the database
   asked stays detailed, and its rows and those lines add up to the score.
   One refusing `inventory` keeps its exchanges out of the diagnostics of a
-  score, refuses the inventory of the database asked and its aggregated
+  score and of the flow mapping, refuses the inventory of the database asked and its aggregated
   biosphere with a 403 or a tool error naming it, and leaves the supply
   chain and the aggregation by supply chain or consumption, which count its
   processes in one line under `withheldDatabases`. Wire revision 46.

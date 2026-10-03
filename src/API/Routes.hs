@@ -711,19 +711,20 @@ computeCategoryResult ::
     Text ->
     DM.CollectionName ->
     Database ->
-    SharedSolver.CrossDBSolution ->
+    Impact.LicencedSolution ->
     Activity ->
     Int ->
     Maybe (Either Text Double) ->
     Method ->
     IO (Either Text LCIAResult)
-computeCategoryResult dbManager dbName collection db sol activity topFlows precomputedScore method = do
+computeCategoryResult dbManager dbName collection db ls activity topFlows precomputedScore method = do
     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
     mappings <- DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- DM.mapMethodToTablesCached dbManager dbName collection db method
-    let inventory = SharedSolver.csInventory sol
-    let stats = computeMappingStats mappings
-    let functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
+    let sol = Impact.lsWhole ls
+        inventory = SharedSolver.csInventory sol
+        stats = computeMappingStats mappings
+        functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
     warnUnknownInventoryFlows ("LCIA " <> methodName method) mFlows inventory
     -- A Left is a scoring integrity error (see 'resolveBatchedScore') – it
     -- propagates instead of collapsing to a 0 the consumer can't tell from a
@@ -735,7 +736,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
     case scoreE of
         Left err -> pure (Left err)
         Right score -> do
-            contribsE <- licencedTopFlows dbManager collection method tables sol score topFlows
+            contribsE <- licencedTopFlows dbManager collection method tables ls score topFlows
             pure (fmap (result stats score functionalUnit) contribsE)
   where
     result :: MappingStats -> Double -> Text -> TopFlows -> LCIAResult
@@ -776,13 +777,13 @@ licencedTopFlows ::
     DM.CollectionName ->
     Method ->
     MethodTables ->
-    SharedSolver.CrossDBSolution ->
+    Impact.LicencedSolution ->
     Double ->
     Int ->
     IO (Either Text TopFlows)
-licencedTopFlows dbManager collection method tables sol score topFlows
+licencedTopFlows dbManager collection method tables ls score topFlows
     | topFlows <= 0 = pure (Right (TopFlows [] []))
-    | otherwise = fmap toTop <$> Impact.licencedContributionsOf dbManager collection method tables sol
+    | otherwise = fmap toTop <$> Impact.licencedContributionsOf dbManager collection method tables ls
   where
     toTop :: Impact.LicencedContributions -> TopFlows
     toTop lc =
@@ -844,6 +845,8 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
         methods = map mctxMethod ctxs
         inventory = SharedSolver.csInventory sol
     scoreMap <- batchedScoresFor dbManager dbName collectionName db sol methods
+    -- Split once: the licences divide the solution, not each method's score.
+    ls <- Impact.licencedSolution dbManager SeeDetailedScores sol
     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
     warnUnknownInventoryFlows ("LCIA batch pid=" <> T.pack (show actPid)) mFlows inventory
     let functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
@@ -853,7 +856,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                 Left err -> pure (Left (err <> " (pid=" <> T.pack (show actPid) <> ")"))
                 Right score -> do
                     tables <- DM.mapMethodToTablesCached dbManager dbName collectionName db method
-                    rowsE <- licencedTopFlows dbManager collectionName method tables sol score topFlows
+                    rowsE <- licencedTopFlows dbManager collectionName method tables ls score topFlows
                     pure (fmap (mkResultForScore ctx method score) rowsE)
         mkResultForScore ctx method score TopFlows{tfRows = topContributors, tfWithheld = withheld} =
             enrichWithNW index $
@@ -917,10 +920,11 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
                 reportProgress Info $
                     "  Inventory UUIDs: " <> intercalate ", " (map UUID.toString $ M.keys inventory)
     scoreMap <- liftIO $ batchedScoresFor dbManager dbName collectionName db sol methods
+    ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
     rawResultsE <-
         liftIO $
             mapConcurrently
-                (\m -> computeCategoryResult dbManager dbName collectionName db sol activity 5 (Just (resolveBatchedScore m scoreMap)) m)
+                (\m -> computeCategoryResult dbManager dbName collectionName db ls activity 5 (Just (resolveBatchedScore m scoreMap)) m)
                 methods
     rawResults <- either scoringError pure (sequence rawResultsE)
     let results = map (enrichWithNW (legacyIndex scoringSets)) rawResults
@@ -1985,7 +1989,8 @@ activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam 
     method <- loadMethodInCollection collectionName methodIdText
     (processId, activity) <- resolveOrThrow db processIdText
     sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
-    resultE <- liftIO $ computeCategoryResult dbManager dbName collectionName db sol activity (fromMaybe 5 topFlowsParam) Nothing method
+    ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
+    resultE <- liftIO $ computeCategoryResult dbManager dbName collectionName db ls activity (fromMaybe 5 topFlowsParam) Nothing method
     result <- either scoringError pure resultE
     when (isNothing mSub) $ liftIO $ logLCIAResult result method
     licence <- DBHandlers.servedLicence dbName
@@ -2035,7 +2040,8 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
                 case eSol of
                     Left err -> pure (PerturbedEntry p (Left err))
                     Right sol -> do
-                        eLcia <- computeCategoryResult dbManager dbName collectionName db sol activity 5 Nothing method
+                        ls <- Impact.licencedSolution dbManager SeeDetailedScores sol
+                        eLcia <- computeCategoryResult dbManager dbName collectionName db ls activity 5 Nothing method
                         pure $ case eLcia of
                             Left err -> PerturbedEntry p (Left err)
                             Right lcia -> PerturbedEntry p (Right (lcia, lrScore lcia - lrScore baselineLcia))
@@ -2045,9 +2051,10 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
             (\err -> throwError err422{errBody = BSL.fromStrict $ T.encodeUtf8 err})
             pure
             eBaselineSol
+    baselineLs <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores baselineSol)
     eBaselineLcia <-
         liftIO $
-            computeCategoryResult dbManager dbName collectionName db baselineSol activity 5 Nothing method
+            computeCategoryResult dbManager dbName collectionName db baselineLs activity 5 Nothing method
     baselineLcia <- either scoringError pure eBaselineLcia
     perturbed <-
         liftIO $
@@ -2258,7 +2265,8 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
         liftIO $ warnUnknownInventoryFlows ("contributing-flows " <> methodName method) mFlows (SharedSolver.csInventory sol)
         score <- liftIO (Impact.scoreSolution dbManager collectionName method tables sol) >>= either scoringError pure
-        top <- liftIO (licencedTopFlows dbManager collectionName method tables sol score lim) >>= either scoringError pure
+        ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
+        top <- liftIO (licencedTopFlows dbManager collectionName method tables ls score lim) >>= either scoringError pure
         return
             ContributingFlowsResult
                 { cfrMethod = methodName method
