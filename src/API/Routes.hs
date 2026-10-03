@@ -59,8 +59,8 @@ import qualified Matrix
 import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
-import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
 import Method.Scoring (ScoringRow (..), rowsOf)
+import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
 import qualified Method.Types as MT
 import Numeric (showFFloat)

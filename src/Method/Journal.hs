@@ -48,10 +48,10 @@ module Method.Journal (
 import Control.Monad (foldM, unless, when, zipWithM)
 import Data.Aeson (FromJSON, Key, Object, ToJSON, Value, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
+import Data.Bifunctor (first)
 import Data.Containers.ListUtils (nubOrd)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
-import Data.Bifunctor (first)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
 import Data.Text (Text)

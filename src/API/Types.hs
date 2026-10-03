@@ -20,6 +20,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.Either (partitionEithers)
 import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (isNothing)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), binarySchema, declareSchemaRef, enum_, format, nullable, properties, required, type_)
@@ -37,7 +38,6 @@ import Database.Author (
     FlowRef (..),
  )
 import GHC.Generics
-import qualified Data.List.NonEmpty as NE
 import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), FactorEdit (..), FactorTarget (..))
 import Method.ScoringEdit (RowDraft (..), ScoringEdit (..))
 import Method.Types (FlowDirection, MethodCF (..))

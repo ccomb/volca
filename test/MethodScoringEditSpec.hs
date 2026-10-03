@@ -3,6 +3,7 @@
 
 module MethodScoringEditSpec (spec) where
 
+import Data.Either (fromRight)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
@@ -51,7 +52,7 @@ soleSet c = case mcScoringSets c of
 -- | A collection holding a set of two rows, "Health" and "Resources", summed.
 twoRows :: MethodCollection
 twoRows =
-    either (const collection) id $
+    fromRight collection $
         leaving collection (NewSet "EF" Nothing [draft "Health" [(1, 1), (2, 1)] (Just 2) (Just 0.5), draft "Resources" [(3, 1)] Nothing (Just 0.25)])
 
 -- | Plan a change, apply it, then apply its inverse.
@@ -94,7 +95,7 @@ spec = describe "planning a change to a scoring set" $ do
             `shouldBe` Right (M.fromList [("Single score", "both + health")], Just "2.0 * climate_change", 3)
 
     it "leaves a score written otherwise as it is" $ do
-        let written = either (const twoRows) id (leaving twoRows (PutScore "EF" "Single score" "2 * health"))
+        let written = fromRight twoRows (leaving twoRows (PutScore "EF" "Single score" "2 * health"))
         fmap ssScores (leaving written (AddRow "EF" (draft "Both" [(1, 1)] (Just 1) (Just 1))) >>= soleSet)
             `shouldBe` Right (M.fromList [("Single score", "2 * health")])
 
@@ -107,7 +108,7 @@ spec = describe "planning a change to a scoring set" $ do
             `shouldBe` Right (["water_use"], ["resources"], M.fromList [("Single score", "resources")], M.fromList [("resources", "Resources")])
 
     it "refuses to take out a row a score reads otherwise, naming the score" $ do
-        let written = either (const twoRows) id (leaving twoRows (PutScore "EF" "Twice" "2 * health"))
+        let written = fromRight twoRows (leaving twoRows (PutScore "EF" "Twice" "2 * health"))
         refusal (leaving written (DeleteRow "EF" "health")) `shouldContain` "'Twice'"
 
     it "rewrites a row's grouping, and refuses a change that changes nothing" $ do
@@ -164,7 +165,7 @@ spec = describe "planning a change to a scoring set" $ do
             ]
 
     it "undoes an added row after a category it reads was renamed" $ do
-        let oneRow = either (const collection) id (leaving collection (NewSet "EF" Nothing [draft "Health" [(1, 1)] Nothing (Just 1)]))
+        let oneRow = fromRight collection (leaving collection (NewSet "EF" Nothing [draft "Health" [(1, 1)] Nothing (Just 1)]))
             undone = do
                 (added, _) <- planScoringEdit oneRow (AddRow "EF" (draft "Water" [(3, 2)] Nothing (Just 1)))
                 withRow <- applyMethodOp oneRow added
@@ -177,7 +178,7 @@ spec = describe "planning a change to a scoring set" $ do
     it "names the later line that changed an entry an undo would give back, and only such a line" $ do
         let lineOf edit start = either (const (MethodLine (SetGlobalMethods [] []) Change)) (\(op, _) -> MethodLine op Change) (planScoringEdit start edit)
             first = lineOf (AddRow "EF" (draft "Water" [(3, 2)] (Just 1) (Just 1))) twoRows
-            withWater = either (const twoRows) id (applyMethodOp twoRows (mlOp first))
+            withWater = fromRight twoRows (applyMethodOp twoRows (mlOp first))
             reweighed = lineOf (ChangeRow "EF" "water" (draft "Water" [(3, 2)] (Just 1) (Just 3))) withWater
             relabelled = lineOf (ChangeRow "EF" "health" (draft "Human health" [(1, 1), (2, 1)] (Just 2) (Just 0.5))) withWater
         T.unpack (blockedUndo withWater [first, reweighed] 1 "replay failed") `shouldContain` "undo line 2 first"

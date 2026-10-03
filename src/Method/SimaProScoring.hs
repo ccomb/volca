@@ -40,8 +40,8 @@ import qualified Data.Text as T
 import GHC.Generics (Generic)
 
 import qualified Expr
-import Method.Types (Method (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 import Method.Scoring (counted, linearTerms, shortNames, singleScoreName, writeSum)
+import Method.Types (Method (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 
 {- | Damage category: groups impact subcategories into a parent category.
 E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.

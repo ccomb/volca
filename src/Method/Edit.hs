@@ -56,8 +56,8 @@ import Database.Manager (
 import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
 import Method.EditPlan (CategoryEdit, EditEffect, FactorEdit, Undo (..), blockedUndo, inEffect, inverseOf, planCategoryEdit, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
-import Method.ScoringEdit (ScoringEdit, planScoringEdit)
 import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMethodOp, opCategory, replayMethodJournal)
+import Method.ScoringEdit (ScoringEdit, planScoringEdit)
 import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
 import Types (AllocationKey (..), Licence (..))

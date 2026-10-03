@@ -50,7 +50,7 @@ import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), ScoreAPI (..), ScoringSetAPI (..), toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
 import Control.Monad (mfilter)
 import qualified Data.List as L
 import qualified Data.Set as Set
@@ -2541,16 +2541,16 @@ callListScoringSets dbManager rid args = do
     encodeScoringSet mc ss =
         let guided = scoringSetAPI mc ss
          in object
-            [ "name" .= ssName ss
-            , "unit" .= ssUnit ss
-            , "variables" .= ssVariables ss
-            , "computed" .= ssComputed ss
-            , "labels" .= ssLabels ss
-            , "units" .= ssUnits ss
-            , "normalization" .= ssNormalization ss
-            , "weighting" .= ssWeighting ss
-            , "scores" .= ssScores ss
-            , "display_multiplier" .= ssDisplayMultiplier ss
-            , "rows" .= ssaRows guided
-            , "sum_of_rows" .= [scoName score | score <- ssaScores guided, scoSumOfRows score]
-            ]
+                [ "name" .= ssName ss
+                , "unit" .= ssUnit ss
+                , "variables" .= ssVariables ss
+                , "computed" .= ssComputed ss
+                , "labels" .= ssLabels ss
+                , "units" .= ssUnits ss
+                , "normalization" .= ssNormalization ss
+                , "weighting" .= ssWeighting ss
+                , "scores" .= ssScores ss
+                , "display_multiplier" .= ssDisplayMultiplier ss
+                , "rows" .= ssaRows guided
+                , "sum_of_rows" .= [scoName score | score <- ssaScores guided, scoSumOfRows score]
+                ]

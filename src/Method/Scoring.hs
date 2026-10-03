@@ -30,9 +30,9 @@ module Method.Scoring (
     counted,
 ) where
 
+import Control.Applicative ((<|>))
 import Data.Char (isAsciiLower, isDigit)
 import Data.Containers.ListUtils (nubOrd)
-import Control.Applicative ((<|>))
 import Data.List (mapAccumL, sort)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S

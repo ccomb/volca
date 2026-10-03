@@ -89,7 +89,8 @@ spec = do
                     `shouldSatisfy` elem (Written "climate_change * climate_change")
 
         it "scores a translated set without refusal" $
-            withSole (translateScoring methods damages [nwSet]) $ \set _ -> checkSet set `shouldBe` Right ()
+            withSole (translateScoring methods damages [nwSet]) $
+                \set _ -> checkSet set `shouldBe` Right ()
 
     describe "shortNames" $ do
         it "lowers, replaces every other character by one underscore, trims the edges" $

@@ -265,7 +265,8 @@ spec = describe "a method collection's journal" $ do
             refusal (applyMethodOp collection (ChangeScoringSet "Single" (ChangedRow "eco") (SetNumber WeightOf "eco" (Just 1) (Just 2) :| []))) `shouldContain` "Single"
 
         it "replays a renaming, then a change under the new name" $
-            fmap (map (\set -> (ssName set, ssWeighting set)) . mcScoringSets)
+            fmap
+                (map (\set -> (ssName set, ssWeighting set)) . mcScoringSets)
                 ( replayMethodJournal
                     weighed
                     [ line (ChangeScoringSet "Single" (RenamedSet "Single" "Renamed") (RenameSet "Single" "Renamed" :| []))
