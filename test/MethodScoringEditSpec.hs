@@ -140,6 +140,10 @@ spec = describe "planning a change to a scoring set" $ do
     it "refuses a normalization of zero in a new set" $
         refusal (leaving collection (NewSet "EF" Nothing [draft "Health" [(1, 1)] (Just 0) (Just 1)])) `shouldContain` "normalization"
 
+    it "refuses a normalization of zero naming the row by its label, as the caller wrote it" $
+        refusal (leaving twoRows (AddRow "EF" (draft "Water use" [(3, 1)] (Just 0) (Just 1))))
+            `shouldBe` "the normalization of 'Water use' is 0.0, which no score can divide by"
+
     it "undoes every change it plans back to where it started" $
         mapM_
             (\edit -> back twoRows edit `shouldBe` Right twoRows)

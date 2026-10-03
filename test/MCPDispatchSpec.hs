@@ -7,6 +7,7 @@ tool at runtime with an "Unknown tool" reply. These tests pin both ends.
 -}
 module MCPDispatchSpec (spec) where
 
+import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Monad (forM_)
 import Data.Aeson (Value (..), decodeStrict)
 import Data.Aeson.Key (Key, fromText, toText)
@@ -23,8 +24,8 @@ import Test.Hspec
 import API.MCP (RequestId (..), RpcRequest (..), callTool, handleInitialize, mcpCountsAsActivity, noRequestId, toolDefinitions, webUrlBase)
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), ReadOnly (..), ServerName (..), defaultConfig)
 import qualified Data.UUID as UUID
-import Database.Manager (CachePolicy (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
-import Method.Types (Method (..), MethodCF (..), MethodCollection (..))
+import Database.Manager (CachePolicy (..), DatabaseManager (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
+import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import TestHelpers (withScratchDataDir)
 import Types (AllocationKey (..), GeographyPolicy (..), Licence (..))
 
@@ -238,6 +239,11 @@ spec = describe "MCP database load/unload tools" $ do
                         isError created `shouldBe` False
                         listed <- tool "list_scoring_sets" [("collection", String "copy")]
                         resultText listed `shouldSatisfy` maybe False (\t -> all (`T.isInfixOf` t) ["\"rows\"", "\"Gas\"", "\"sum_of_rows\":[\"Single score\"]"])
+                        -- A file writing a normalization of 0 is read as a divisor of infinity.
+                        let zeroed set = set{ssNormalization = M.singleton "gas" (1 / 0)}
+                        atomically (modifyTVar' (dmLoadedMethods manager) (M.adjust (\c -> c{mcScoringSets = map zeroed (mcScoringSets c)}) "copy"))
+                        infinite <- tool "list_scoring_sets" [("collection", String "copy")]
+                        resultText infinite `shouldSatisfy` maybe False ("\"normalization\":{\"gas\":\"Infinity\"}" `T.isInfixOf`)
                     found -> expectationFailure ("expected one Methane category, found " <> show (length found))
 
     describe "gap-report tool" $ do

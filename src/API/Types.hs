@@ -39,6 +39,7 @@ import Database.Author (
  )
 import GHC.Generics
 import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), FactorEdit (..), FactorTarget (..))
+import Method.Journal (Exact (..))
 import Method.ScoringEdit (RowDraft (..), ScoringEdit (..))
 import Method.Types (FlowDirection, MethodCF (..))
 import qualified Method.Types as MT
@@ -2904,7 +2905,8 @@ data RowDraftAPI = RowDraftAPI
     { rdaLabel :: Text
     , rdaUnit :: Maybe Text
     , rdaTerms :: [DraftTermAPI]
-    , rdaNormalization :: Maybe Double
+    , rdaNormalization :: Maybe Exact
+    -- ^ a number, or "Infinity" for a row counted as zero, as a set read from a file can hold
     , rdaWeight :: Maybe Double
     }
     deriving (Generic)
@@ -2946,7 +2948,7 @@ toScoringEdit req = case serOp req of
     toRowDraft r =
         maybe
             (Left ("the row '" <> rdaLabel r <> "' groups no category"))
-            (\terms -> Right (RowDraft (rdaLabel r) (rdaUnit r) terms (rdaNormalization r) (rdaWeight r)))
+            (\terms -> Right (RowDraft (rdaLabel r) (rdaUnit r) terms (exact <$> rdaNormalization r) (rdaWeight r)))
             (NE.nonEmpty [(dtaMethodId t, dtaCoefficient t) | t <- rdaTerms r])
 
 -- | A scoring set as rows of a guided grouping, with the scores reading them and every name a formula can read.
@@ -2967,7 +2969,8 @@ data ScoringRowAPI = ScoringRowAPI
     , sraLabel :: Text
     , sraUnit :: Maybe Text
     , sraTerms :: RowTermsAPI
-    , sraNormalization :: Maybe Double
+    , sraNormalization :: Maybe Exact
+    -- ^ "Infinity" when the set counts the row as zero, as a file writing a normalization of 0 is read
     , sraWeight :: Maybe Double
     }
     deriving (Generic)

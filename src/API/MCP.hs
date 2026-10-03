@@ -58,6 +58,7 @@ import qualified Data.Set as Set
 import Matrix (Inventory, applyBiosphereMatrix)
 import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import qualified Method.Explain as Explain
+import Method.Journal (Exact (..))
 import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), Resolution (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude)
 import qualified Method.Mapping as Mapping
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
@@ -2593,7 +2594,8 @@ callListScoringSets dbManager rid args = do
                 , "computed" .= ssComputed ss
                 , "labels" .= ssLabels ss
                 , "units" .= ssUnits ss
-                , "normalization" .= ssNormalization ss
+                , -- an infinite normalization (a file's zero) would be written null
+                  "normalization" .= M.map Exact (ssNormalization ss)
                 , "weighting" .= ssWeighting ss
                 , "scores" .= ssScores ss
                 , "display_multiplier" .= ssDisplayMultiplier ss

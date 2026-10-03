@@ -449,7 +449,10 @@ changed or removed, a rename, a formula written) is one journal line, which
 records each entry it changed with what it found, so an undo gives the set
 back exactly, a set a SimaPro file translates included. A formula naming
 nothing the set holds, two variables reading one another, a normalization of
-zero and a row removed while a score reads it otherwise are refused.
+zero and a row removed while a score reads it otherwise are refused. A file
+writing a normalization of 0 counts that row as zero, which the rows read as
+a normalization of `"Infinity"`, since JSON has no infinity; a change cannot
+ask for one.
 
 ---
 

@@ -179,7 +179,7 @@ resolve collection draft = do
     let names = map fst terms
     unless (length (S.fromList names) == length names) $
         Left ("the row '" <> label <> "' names a category twice")
-    mapM_ (finite ("the normalization of '" <> label <> "'")) (rdNormalization draft)
+    mapM_ (divisor ("the normalization of '" <> label <> "'")) (rdNormalization draft)
     mapM_ (finite ("the weight of '" <> label <> "'")) (rdWeight draft)
     pure (Row label (rdUnit draft >>= either (const Nothing) Just . nonBlank "") terms (rdNormalization draft) (rdWeight draft))
   where
@@ -189,6 +189,11 @@ resolve collection draft = do
         finite ("the coefficient of " <> methodName method) coefficient
         pure (methodName method, coefficient)
 
+    -- The journal refuses a zero too, but by the variable, a name the caller never wrote.
+    divisor :: Text -> Double -> Either Text ()
+    divisor what x = do
+        finite what x
+        when (x == 0) (Left (what <> " is " <> T.pack (show x) <> ", which no score can divide by"))
     finite :: Text -> Double -> Either Text ()
     finite what x = when (isNaN x || isInfinite x) (Left (what <> " is " <> T.pack (show x) <> ", which is not a number a score can use"))
 

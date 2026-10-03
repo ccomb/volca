@@ -43,8 +43,10 @@ module Method.Journal (
     describeFactor,
     oneCategory,
     sameAddress,
+    Exact (..),
 ) where
 
+import Control.Lens ((&), (?~))
 import Control.Monad (foldM, unless, when, zipWithM)
 import Data.Aeson (FromJSON (..), Key, Object, ToJSON (..), Value (..), object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
@@ -54,6 +56,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
+import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), enum_, oneOf, type_)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
@@ -785,6 +788,7 @@ one as null, which reads back as another value; a set translated from a file
 holds one (a normalization the file writes as zero), so it is spelt out.
 -}
 newtype Exact = Exact {exact :: Double}
+    deriving (Eq, Show)
 
 instance ToJSON Exact where
     toJSON (Exact d)
@@ -798,6 +802,16 @@ instance FromJSON Exact where
         String "-Infinity" -> pure (Exact (-1 / 0))
         String "NaN" -> pure (Exact (0 / 0))
         v -> Exact <$> parseJSON v
+
+instance ToSchema Exact where
+    declareNamedSchema _ =
+        pure $
+            NamedSchema (Just "Exact") $
+                mempty
+                    & oneOf
+                        ?~ [ Inline (mempty & type_ ?~ OpenApiNumber)
+                           , Inline (mempty & type_ ?~ OpenApiString & enum_ ?~ ["Infinity", "-Infinity", "NaN"])
+                           ]
 
 -- | Whether a change's verb writes a value or takes one away.
 data Setting = Setting | Removing
