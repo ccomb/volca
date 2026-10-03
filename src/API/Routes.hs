@@ -12,7 +12,7 @@ import API.DatabaseHandlers (explainCFToAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
@@ -210,6 +210,7 @@ type LCAAPI =
                 -- the configuration declares is copied first
                 :<|> "method-collections" :> Capture "collection" Text :> "copy" :> Capture "newName" Text :> Post '[JSON] MethodCollectionStatusAPI
                 :<|> "method-collections" :> Capture "collection" Text :> "factors" :> ReqBody '[JSON] FactorEditRequest :> Post '[JSON] MethodEditResponse
+                :<|> "method-collections" :> Capture "collection" Text :> "categories" :> ReqBody '[JSON] CategoryEditRequest :> Post '[JSON] MethodEditResponse
                 :<|> "method-collections" :> Capture "collection" Text :> "undo" :> QueryParam "line" Int :> Post '[JSON] MethodEditResponse
                 :<|> "method-collections" :> Capture "collection" Text :> "history" :> Get '[JSON] [MethodHistoryEntry]
                 :<|> "method-collections" :> Capture "collection" Text :> "flows" :> QueryParam "q" Text :> QueryParam "limit" Int :> Get '[JSON] [MethodFlowAPI]
@@ -1476,7 +1477,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 42: copying a method collection, changing, adding and removing its
+(revision 43: adding, renaming, changing the unit of and removing a method
+collection's categories, and the @methodId@ a change answers with;
+revision 42: copying a method collection, changing, adding and removing its
 factors, undoing a change and reading its history, the flows a collection
 characterizes; the @flowRef@ of a compared factor and the @methodId@ of a
 compared category; the @source@ of a listed collection;
@@ -1573,7 +1576,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 42
+currentWireVersion = 43
 
 getVersion :: AppM Value
 getVersion = do
@@ -2727,6 +2730,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getMethodCollectionProfile
             :<|> MethodEdit.copyMethodCollectionHandler
             :<|> MethodEdit.editMethodFactorsHandler
+            :<|> MethodEdit.editMethodCategoriesHandler
             :<|> MethodEdit.undoMethodEditHandler
             :<|> MethodEdit.methodHistoryHandler
             :<|> MethodEdit.methodFlowsHandler

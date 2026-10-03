@@ -38,6 +38,23 @@
   ones (`licences()` in pyvolca). The setup of a database and its status in
   the list carry it as `licence`. A database that says nothing has no
   licence and refuses nothing, as before. Wire revision 41.
+- The impact categories of a method collection of one's own can be added,
+  renamed, given another unit and removed, each a journal line undone like the
+  others. A rename carries along the scoring sets and the unregionalized
+  categories naming the category, so they keep scoring it; a name already in
+  use is refused, and so is removing a category a scoring set weighs, naming
+  the set. A change to a collection answers with the category its line names,
+  which is how an addition gives the category it made. Wire revision 43.
+- A database states the terms it is served under: the licence it is
+  published under, in words, and whether it may be downloaded, as `licence`
+  and `downloads = "allowed" | "refused"` on its configuration entry. An
+  uploaded database's owner sets them with `PUT /api/v1/db/{name}/terms`
+  (`set_terms` in pyvolca), and they are kept in its `meta.toml` (version 5).
+  A refused database answers its export and the files of its literature with
+  a 403 naming its licence, and so does every copy of it or database derived
+  from it, which are served under their source's terms. The setup of a
+  database and its status in the list carry them as `terms`. A database that
+  says nothing allows downloads, as before. Wire revision 41.
 - The activity search, over HTTP and as the `search_activities` tool, takes
   the processes a caller already chose, as `process` (given once per process
   over HTTP, a list for the tool): it answers their rows in the order given,

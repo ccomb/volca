@@ -13,6 +13,7 @@ module API.MethodEditHandlers (
     copyMethodCollectionHandler,
     methodCollectionStatusAPI,
     editMethodFactorsHandler,
+    editMethodCategoriesHandler,
     undoMethodEditHandler,
     methodHistoryHandler,
     methodFlowsHandler,
@@ -36,6 +37,7 @@ import Servant (ServerError, err400, err404, err409, err500, errBody, throwError
 
 import API.DatabaseHandlers (guardMutation)
 import API.Types (
+    CategoryEditRequest,
     CompartmentAPI (..),
     FactorEditRequest,
     HistoryKindAPI (..),
@@ -44,11 +46,12 @@ import API.Types (
     MethodEditResponse (..),
     MethodFlowAPI (..),
     MethodHistoryEntry (..),
+    toCategoryEdit,
     toFactorEdit,
  )
 import App.Env (AppEnv (..), AppM)
 import Database.Manager (DatabaseLoadStatus (..), MethodCollectionStatus (..), getMethodCollection, listMethodCollections)
-import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
+import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
 import Method.EditPlan (EditEffect (..))
 import Method.Journal (LineKind (..), MethodOp (..))
 import Method.Patch (describePatch)
@@ -92,6 +95,13 @@ editMethodFactorsHandler collection req = do
     edit <- either (refuse . EditRefused) pure (toFactorEdit req)
     outcomeToAPI <$> (liftIO (editMethodFactors manager collection edit) >>= either refuse pure)
 
+editMethodCategoriesHandler :: Text -> CategoryEditRequest -> AppM MethodEditResponse
+editMethodCategoriesHandler collection req = do
+    guardMutation
+    manager <- asks aeDbManager
+    edit <- either (refuse . EditRefused) pure (toCategoryEdit req)
+    outcomeToAPI <$> (liftIO (editMethodCategories manager collection edit) >>= either refuse pure)
+
 undoMethodEditHandler :: Text -> Maybe Int -> AppM MethodEditResponse
 undoMethodEditHandler collection line = do
     guardMutation
@@ -123,7 +133,7 @@ refusalStatus = \case
     EditRefused _ -> err400
 
 outcomeToAPI :: EditOutcome -> MethodEditResponse
-outcomeToAPI (EditOutcome line effect) = MethodEditResponse line (eeTouched effect) (eeBefore effect) (eeAfter effect)
+outcomeToAPI (EditOutcome line effect category) = MethodEditResponse line (eeTouched effect) (eeBefore effect) (eeAfter effect) category
 
 {- | A collection's journal as a reader of the collection names it. A category
 is named after the collection in use; one it no longer holds, or a collection
@@ -162,6 +172,10 @@ historyToAPI loaded = map entry
         SetGlobalMethods before after -> UnregionalizedSet before after
         CreateScoringSet s -> ScoringSetCreated (ssName s)
         RemoveScoringSet s -> ScoringSetRemoved (ssName s)
+        AddCategory _ m _ -> CategoryAdded (methodName m) (length (methodFactors m))
+        RenameCategory _ before after -> CategoryRenamed before after
+        SetCategoryUnit c before after -> CategoryUnitSet (categoryName c) before after
+        RemoveCategory _ m _ -> CategoryRemoved (methodName m) (length (methodFactors m))
     categoryName :: UUID -> Text
     categoryName c = case [methodName m | m <- maybe [] mcMethods loaded, methodId m == c] of
         name : _ -> name

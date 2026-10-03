@@ -359,7 +359,7 @@ first lines, so the copy holds what the collection held. A copy of an uploaded
 collection or of another copy takes its source's journal as it is, and can undo
 the changes it inherits like its own. A copy reads its
 source's files, so the source cannot be deleted while the copy exists. A
-read-only engine refuses all three changes below.
+read-only engine refuses every change below.
 
 ```bash
 # Copy a collection under a new name. The answer is the collection made, named
@@ -388,6 +388,15 @@ curl -X POST localhost:8080/api/v1/method-collections/my-indicators/factors \
   -H 'Content-Type: application/json' \
   -d '{"op": "scale", "match": {"flowNamePrefix": "Methane"}, "scale": 2}'
 
+# Add a category (it starts with no factor; the answer's methodId names it),
+# rename one, change its unit, or remove it with its factors
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/categories \
+  -H 'Content-Type: application/json' \
+  -d '{"op": "add", "name": "Water use", "unit": "m3"}'
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/categories \
+  -H 'Content-Type: application/json' \
+  -d '{"op": "rename", "methodId": "<category id>", "name": "Water consumption"}'
+
 # Undo the latest change still in effect, or the line named
 curl -X POST localhost:8080/api/v1/method-collections/my-indicators/undo
 curl -X POST 'localhost:8080/api/v1/method-collections/my-indicators/undo?line=3'
@@ -402,6 +411,12 @@ back. Undoing a selector puts back the values it replaced, and is refused,
 naming the factor, when a later line changed one of them. Two factors written
 identically at one place cannot be changed one at a time, only together through
 a selector.
+
+A rename carries along the scoring sets and the unregionalized categories that
+named the category, in the same line, so they keep scoring it; the short names
+of a set's variables never change. A name already in use is refused, and so is
+removing a category a scoring set weighs, naming the set. A removal records the
+category whole, factors included, so its undo puts it back where it was.
 
 ---
 
@@ -479,6 +494,7 @@ POST   /api/v1/method-collections/upload                                 Upload 
 DELETE /api/v1/method-collections/{name}                                 Delete a method collection
 POST   /api/v1/method-collections/{name}/copy/{newName}                  Copy a method collection, to change it
 POST   /api/v1/method-collections/{name}/factors                         Change a copy's factors
+POST   /api/v1/method-collections/{name}/categories                      Add, rename, change the unit of or remove a copy's category
 POST   /api/v1/method-collections/{name}/undo                            Undo a change (?line=)
 GET    /api/v1/method-collections/{name}/history                         A copy's journal of changes
 GET    /api/v1/method-collections/{name}/flows                           Flows a collection characterizes (?q=&limit=)
@@ -555,6 +571,7 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `compare_method_collections` | Two loaded method collections side by side: for each pair of impact categories, the characterization factors added, removed and changed, with both values and their ratio |
 | `copy_method_collection` | Copy a method collection under a new name, to change the copy |
 | `edit_method_factors` | Change a copy's factors: set, remove or add one, or scale or set every factor a selector reaches |
+| `edit_method_categories` | Change a copy's categories: add, rename, change the unit of or remove one |
 | `undo_method_edit` | Undo a change to a copy by writing its inverse, or redo one by undoing its undo |
 | `get_method_history` | A copy's journal of changes, and whether each is still in effect |
 | `search_method_flows` | The flows a loaded method collection characterizes, to name a new factor's flow |

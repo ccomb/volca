@@ -50,12 +50,12 @@ import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits, toFactorEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toCategoryEdit, toExchangeEdits, toFactorEdit)
 import Control.Monad (mfilter)
 import qualified Data.List as L
 import qualified Data.Set as Set
 import Matrix (Inventory, applyBiosphereMatrix)
-import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
+import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
 import qualified Method.Explain as Explain
 import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude)
 import qualified Method.Mapping as Mapping
@@ -545,6 +545,7 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "edit_exchanges" -> callEditExchanges dbManager rid args
     "copy_method_collection" -> callCopyMethodCollection dbManager rid args
     "edit_method_factors" -> callEditMethodFactors dbManager rid args
+    "edit_method_categories" -> callEditMethodCategories dbManager rid args
     "undo_method_edit" -> callUndoMethodEdit dbManager rid args
     "get_method_history" -> callGetMethodHistory dbManager rid args
     "search_method_flows" -> callSearchMethodFlows dbManager rid args
@@ -1743,17 +1744,35 @@ request's fields in snake case.
 -}
 callEditMethodFactors :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callEditMethodFactors dbManager rid args = runTool rid $ do
-    collection <- except (requireText "collection" args)
-    mapM_ (\k -> throwE ("Unknown parameter '" <> toText k <> "'")) (filter (`notElem` ("collection" : map fst names)) (KM.keys args))
-    request <- except (first T.pack (parseEither parseJSON (Object (KM.fromList fields))))
+    (collection, request) <- except (editArguments names args)
     edit <- except (toFactorEdit request)
     outcome <- ExceptT (first refusalText <$> editMethodFactors dbManager collection edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where
-    fields :: [(Key, Value)]
-    fields = [(camel, v) | (snake, camel) <- names, Just v <- [KM.lookup snake args]]
     names :: [(Key, Key)]
     names = [("op", "op"), ("method_id", "methodId"), ("flow_id", "flowId"), ("location", "location"), ("value", "value"), ("new_value", "newValue"), ("scale", "scale"), ("match", "match"), ("factor", "factor")]
+
+-- | Read through the request the HTTP endpoint reads, as 'callEditMethodFactors' does.
+callEditMethodCategories :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callEditMethodCategories dbManager rid args = runTool rid $ do
+    (collection, request) <- except (editArguments names args)
+    edit <- except (toCategoryEdit request)
+    outcome <- ExceptT (first refusalText <$> editMethodCategories dbManager collection edit)
+    return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
+  where
+    names :: [(Key, Key)]
+    names = [("op", "op"), ("method_id", "methodId"), ("name", "name"), ("unit", "unit"), ("impact_category", "impactCategory"), ("methodology", "methodology")]
+
+{- | The collection an edit names, and the request its other arguments make,
+each snake-case argument read as the request's camel-case field. Any other
+argument is refused, naming it.
+-}
+editArguments :: (FromJSON r) => [(Key, Key)] -> KeyMap Value -> Either Text (Text, r)
+editArguments names args = do
+    collection <- requireText "collection" args
+    mapM_ (\k -> Left ("Unknown parameter '" <> toText k <> "'")) (filter (`notElem` ("collection" : map fst names)) (KM.keys args))
+    request <- first T.pack (parseEither parseJSON (Object (KM.fromList [(camel, v) | (snake, camel) <- names, Just v <- [KM.lookup snake args]])))
+    pure (collection, request)
 
 callUndoMethodEdit :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callUndoMethodEdit dbManager rid args = runTool rid $ do
