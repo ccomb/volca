@@ -27,7 +27,7 @@ module Data.JournalFile (
     readEntries,
 ) where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracketOnError, try)
 import Control.Monad (when)
 import Data.Aeson (
     FromJSON (..),
@@ -56,10 +56,12 @@ import System.IO (
     Handle,
     IOMode (ReadWriteMode),
     SeekMode (AbsoluteSeek, SeekFromEnd),
+    hClose,
     hFileSize,
+    hFlush,
     hSeek,
     hSetFileSize,
-    withFile,
+    openFile,
  )
 
 import Progress (ProgressLevel (..), reportProgress)
@@ -115,6 +117,10 @@ a change is on disk by the time its caller answers.
 Stamps the line with the current time, which is why this takes the operation
 rather than a whole entry: when it happened is the journal's business, not its
 caller's.
+
+The line is recorded once it is flushed. A close that fails after that is
+warned about, not refused: the line is on disk and the next replay reads it,
+so refusing would tell the caller a change was not made that was.
 -}
 appendEntry :: (JournalVocabulary op) => FilePath -> op -> IO (Either Text ())
 appendEntry home op = do
@@ -122,18 +128,18 @@ appendEntry home op = do
     let entry = Entry{jeAt = T.pack (iso8601Show now), jeOp = op}
     written <- try $ do
         createDirectoryIfMissing True home
-        withFile (journalPath home) ReadWriteMode $ \handle -> do
+        bracketOnError (openFile (journalPath home) ReadWriteMode) hClose $ \handle -> do
             dropTornTail handle
             hSeek handle SeekFromEnd 0
             BL.hPut handle (encode entry <> "\n")
-    pure $ case written of
-        Right () -> Right ()
-        Left (err :: SomeException) ->
-            Left $
-                "could not record the edit in "
-                    <> T.pack (journalPath home)
-                    <> ": "
-                    <> T.pack (show err)
+            hFlush handle
+            pure handle
+    case written of
+        Right handle -> Right () <$ (try (hClose handle) >>= either warnClose pure)
+        Left (err :: SomeException) -> pure (Left ("could not record the edit in " <> T.pack (journalPath home) <> ": " <> T.pack (show err)))
+  where
+    warnClose :: SomeException -> IO ()
+    warnClose err = reportProgress Warning ("recorded the edit in " <> journalPath home <> " but could not close it: " <> show err)
 
 {- | Remove a torn tail before appending, so the new line starts a line.
 
