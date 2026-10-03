@@ -221,9 +221,11 @@ resourceNeeds r = case r of
     GetConsumers -> Just ReadInventory
     CompareActivities -> Just ReadInventory
     CompareDatabases -> Just ReadInventory
+    -- Each step carries its cumulative quantity and the exchange ratio
+    -- between it and the next.
+    GetPathTo -> Just ReadInventory
     -- What weighs in a score.
     ComputeSensitivity -> Just SeeDetailedScores
-    GetPathTo -> Just SeeDetailedScores
     CompareImpacts -> Just SeeDetailedScores
     GetContributingFlows -> Just SeeDetailedScores
     GetContributingActivities -> Just SeeDetailedScores

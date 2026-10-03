@@ -952,6 +952,7 @@ callSearchFlows rid args (db, _) =
 
 callGetActivity :: Licence -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetActivity licence rid args (db, _) = runTool rid $ do
+    dbName <- except (requireText "database" args)
     pid <- except (requireText "process_id" args)
     _ <- except validatedExchangeType
     val <- liftShow (Service.getActivityInfo db pid)
@@ -973,10 +974,9 @@ callGetActivity licence rid args (db, _) = runTool rid $ do
                 kept
                     | noFilters = ai
                     | otherwise = ai{piActivity = (piActivity ai){pfaExchanges = keptExchanges (pfaExchanges (piActivity ai))}}
-                payload = toJSON (Service.withholdExchangeAmounts dbNameArg licence kept)
+                payload = toJSON (Service.withholdExchangeAmounts dbName licence kept)
              in toolSuccessJson rid (attach payload)
   where
-    dbNameArg = fromMaybe "" (textArg "database" args)
     exchangeType = textArg "exchange_type" args
     flowFilter = textArg "flow" args
     isInputFilter = boolArg "is_input" args
@@ -1406,7 +1406,10 @@ callGetImpacts dbManager mBaseUrl licence rid args =
             -- Under a licence that keeps what weighs in its scores, the score
             -- stays and its flows go, as 'Service.withholdContributors' does.
             topFlows = if granted licence SeeDetailedScores then take topN contribs else []
-            refused = [p | p <- [SeeDetailedScores, ReadInventory], not (granted licence p)]
+            diagnosed = fromMaybe False (boolArg "include_diagnostics" args)
+            -- The inventory is only in the diagnostics, so only they can be trimmed of it.
+            trimmed = SeeDetailedScores : [ReadInventory | diagnosed]
+            refused = [p | p <- trimmed, not (granted licence p)]
             withheldPair = ["withheld" .= map (withheldSentence dbName) refused | not (null refused)]
             webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (lrCollection req) <> "/" <> lrMethodIdText req)
             hasNeg = any ((< 0) . fcContribution) contribs
@@ -1450,7 +1453,7 @@ callGetImpacts dbManager mBaseUrl licence rid args =
                         ]
                             ++ webUrlPair
                             ++ withheldPair
-                            ++ (if fromMaybe False (boolArg "include_diagnostics" args) then diagnosticsFields else [])
+                            ++ (if diagnosed then diagnosticsFields else [])
 
 {- | Handler for the 'compute_sensitivity' MCP tool. Mirrors the REST
 @POST /sensitivity/{collection}/{methodId}@ endpoint: runs Service.computeSensitivities

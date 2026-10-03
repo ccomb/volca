@@ -162,10 +162,11 @@ licence = "CC-BY-4.0"          # the licence it is published under, by SPDX iden
 # refuses = ["download"]       #   inventory | scores | download | results | resell |
                                #   paid-applications. The engine enforces three:
                                #   download (export, literature files); inventory
-                               #   (exchange amounts, supply chain, tree: refused,
+                               #   (exchange amounts, supply chain, tree, path to a
+                               #   supplier: refused,
                                #   and an activity names its exchanges without
                                #   amounts); scores (contributing flows and
-                               #   processes, paths, sensitivity: refused, and a
+                               #   processes, sensitivity: refused, and a
                                #   score keeps its total and categories). The rest
                                #   is shown as the reader's commitment. Each level
                                #   rebuilds the one above, so refusing scores

@@ -2098,7 +2098,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
 
 getActivityPathTo :: Text -> Text -> Maybe Text -> AppM Value
 getActivityPathTo dbName processIdText targetParam = do
-    DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, solver) <- requireDatabaseByName dbName
     target <-
         maybe

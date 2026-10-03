@@ -42,11 +42,12 @@
   every reader, its owner included. Refusing `inventory` refuses the
   operations that answer with exchange amounts (the inventory, the supply
   chain, the consumers, the tree, the graph, the inputs and outputs, the
-  aggregation, comparing processes or databases) with a 403, or a tool error
+  path to a supplier, the aggregation, comparing processes or databases) with
+  a 403, or a tool error
   over MCP; an activity still names its exchanges, without their amounts, as
   `withheld`, and a batch of scores leaves out its unlinked waste. Refusing
   `scores` refuses what weighs in a score (contributing flows and processes,
-  paths, sensitivity, comparing impacts), and a score keeps its total and its
+  sensitivity, comparing impacts), and a score keeps its total and its
   categories, its contributors left out with a sentence in `withheld`. Each
   level rebuilds the one above it, from the files to the inventory to the
   contributions, so an own licence refusing `scores` must refuse `inventory`

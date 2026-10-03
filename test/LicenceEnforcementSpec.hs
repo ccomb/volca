@@ -95,7 +95,13 @@ spec = do
             o <- payload =<< callOn manager "get_impacts" [("top_flows", Number 5)]
             (KM.lookup "score" o, KM.lookup "top_flows" o) `shouldBe` (Just (Number 54), Just (Array mempty))
             KM.lookup "withheld" o
-                `shouldBe` Just (toJSON (["The licence of sample keeps to itself what weighs in its scores.", "The licence of sample keeps the amounts of its exchanges to itself."] :: [Text]))
+                `shouldBe` Just (toJSON (["The licence of sample keeps to itself what weighs in its scores."] :: [Text]))
+
+        it "says the inventory is kept only where the diagnostics would have shown it" $ do
+            manager <- managerUnder inventoryKept
+            o <- payload =<< callOn manager "get_impacts" [("include_diagnostics", Bool True)]
+            (KM.lookup "uncharacterized_flows" o, KM.lookup "withheld" o)
+                `shouldBe` (Just (Array mempty), Just (toJSON (["The licence of sample keeps the amounts of its exchanges to itself."] :: [Text])))
 
         it "refuses a comparison whose second database keeps it" $ do
             manager <- managerUnder LicenceUnstated
