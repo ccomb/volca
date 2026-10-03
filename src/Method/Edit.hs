@@ -37,7 +37,7 @@ import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist,
 import System.FilePath ((</>))
 
 import Builtin (builtinMethodName)
-import Config (MethodConfig (..), MethodOrigin (..))
+import Config (MethodConfig (..), MethodOrigin (..), methodFiles)
 import Data.JournalFile (Entry (..), appendEntry, journalPath, readEntries)
 import Database.Manager (
     CollectionName (..),
@@ -130,7 +130,7 @@ recordMethodCopy home slug source seed = do
                 exists <- doesFileExist from
                 when exists (copyFile from (journalPath home))
             SeedLines ops -> mapM_ (\op -> ExceptT (appendEntry home (MethodLine op TakenFromConfiguration))) ops
-        dataPath <- liftIO (traverse makeAbsolute (filePath (mcOrigin source)))
+        dataPath <- liftIO (traverse makeAbsolute (methodFiles (mcOrigin source)))
         liftIO $
             UploadedDB.writeUploadMeta
                 home
@@ -150,10 +150,6 @@ recordMethodCopy home slug source seed = do
         Right result -> first (\err -> "could not record the copy " <> slug <> ": " <> err) result
         Left (err :: SomeException) -> Left ("could not record the copy " <> slug <> ": " <> T.pack (show err))
   where
-    filePath :: MethodOrigin -> Maybe FilePath
-    filePath = \case
-        MethodFromFile path -> Just path
-        MethodBuiltIn _ -> Nothing
     builtinOf :: MethodOrigin -> Maybe Text
     builtinOf = \case
         MethodFromFile _ -> Nothing

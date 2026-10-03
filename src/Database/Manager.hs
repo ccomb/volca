@@ -4419,11 +4419,12 @@ removeMethodCollection :: DatabaseManager -> Text -> IO (Either Text ())
 removeMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() -> do
     available <- readTVarIO (dmAvailableMethods manager)
     loaded <- readTVarIO (dmLoadedMethods manager)
-    readers <- maybe (pure []) (`readersOf` M.elems available) (M.lookup name available)
+    readers <- maybe (pure (Right [])) (`readersOf` M.elems available) (M.lookup name available)
     case M.lookup name available of
         Nothing -> return $ Left $ "Method collection not found: " <> name
         Just mc
-            | (copy : _) <- readers ->
+            | Left err <- readers -> return (Left err)
+            | Right (copy : _) <- readers ->
                 return $ Left $ name <> " holds the files " <> copy <> " reads. Delete " <> copy <> " first."
             | Nothing <- mcHome mc
             , MethodBuiltIn _ <- mcOrigin mc ->
@@ -4454,19 +4455,17 @@ home. A copy reads its source's files where they lie and keeps a journal of
 its own, so a copy of a copy reads the first source's files, and the copy in
 between holds nothing anyone reads.
 -}
-readersOf :: MethodConfig -> [MethodConfig] -> IO [Text]
+readersOf :: MethodConfig -> [MethodConfig] -> IO (Either Text [Text])
 readersOf mc others = case mcHome mc of
-    Nothing -> pure []
-    Just home -> do
+    Nothing -> pure (Right [])
+    Just home -> fmap (first unreadable) . Control.Exception.try $ do
         root <- splitDirectories <$> canonicalizePath home
         let under :: FilePath -> IO Bool
             under path = isPrefixOf root . splitDirectories <$> canonicalizePath path
-        map mcName <$> filterM (maybe (pure False) under . filesOf . mcOrigin) [o | o <- others, mcName o /= mcName mc]
+        map mcName <$> filterM (maybe (pure False) under . methodFiles . mcOrigin) [o | o <- others, mcName o /= mcName mc]
   where
-    filesOf :: MethodOrigin -> Maybe FilePath
-    filesOf = \case
-        MethodFromFile path -> Just path
-        MethodBuiltIn _ -> Nothing
+    unreadable :: SomeException -> Text
+    unreadable err = "could not tell which collections read the files of " <> mcName mc <> ": " <> T.pack (show err)
 
 --------------------------------------------------------------------------------
 -- Merged reference data helpers
