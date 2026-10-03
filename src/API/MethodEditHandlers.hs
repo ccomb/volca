@@ -65,7 +65,7 @@ import App.Env (AppEnv (..), AppM)
 import Database.Manager (DatabaseLoadStatus (..), MethodCollectionStatus (..), getMethodCollection, listMethodCollections)
 import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import Method.EditPlan (EditEffect (..))
-import Method.Journal (LineKind (..), MethodOp (..))
+import Method.Journal (Exact (..), LineKind (..), MethodOp (..))
 import Method.Patch (describePatch)
 import Method.Scoring (RowTerms (..), ScoringGesture (..), ScoringRow (..), rowsOf, sumOfRows)
 import Method.Types (Compartment (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
@@ -143,7 +143,7 @@ scoringSetAPI collection set =
         }
   where
     row :: ScoringRow -> ScoringRowAPI
-    row r = ScoringRowAPI (srVariable r) (srLabel r) (srUnit r) (terms (srTerms r)) (srNormalization r) (srWeight r)
+    row r = ScoringRowAPI (srVariable r) (srLabel r) (srUnit r) (terms (srTerms r)) (Exact <$> srNormalization r) (srWeight r)
     terms :: RowTerms -> RowTermsAPI
     terms = \case
         Grouped ts -> RowGrouped [RowTermAPI category (M.lookup category ids) coef | (category, coef) <- ts]

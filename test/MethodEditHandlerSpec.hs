@@ -7,9 +7,10 @@ the journal read back in the words of the collection.
 module MethodEditHandlerSpec (spec) where
 
 import Control.Monad ((>=>))
-import Data.Aeson (eitherDecode)
+import Data.Aeson (eitherDecode, encode)
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.List (isInfixOf, nub, sort)
+import qualified Data.Map.Strict as M
 import Data.Maybe (isJust)
 import qualified Data.Text as T
 import Data.UUID (UUID)
@@ -22,7 +23,7 @@ import API.Types (CategoryEditRequest, FactorEditRequest, FactorSide (..), Metho
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Database.Manager (CachePolicy (..), getMethodCollection, initDatabaseManager)
-import Method.Types (Method (..), MethodCF (..), MethodCollection (..))
+import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import TestHelpers (withScratchDataDir)
 
 env :: IO AppEnv
@@ -211,6 +212,22 @@ spec = describe "changing a method collection over HTTP" $ do
             case map mheChange <$> history of
                 Right [ScoringSetCreated{}, ScoringSetChanged{sschSet = "Mine", sschGesture = RowAdded{rwaLabel = label}}] -> label `shouldBe` "Gas twice"
                 _ -> expectationFailure "expected a creation, then a row added"
+
+    it "says a row counted as zero, whose normalization is infinite, and refuses one asked for in a sentence" $
+        withScratchDataDir $ do
+            (e, category, _) <- copied
+            create <- scoringRequest ("{\"op\":\"create\",\"set\":\"Mine\",\"rows\":[" <> rowBody "Gas" category <> "]}")
+            _ <- call e (editScoringSetsHandler "copy" create)
+            collection <- getMethodCollection (aeDbManager e) "copy"
+            -- A file writing a normalization of 0 is read as a divisor of infinity.
+            let zeroed set = set{ssNormalization = M.map (const (1 / 0)) (ssNormalization set)}
+            case maybe [] (\c -> map (scoringSetAPI c . zeroed) (mcScoringSets c)) collection of
+                [ScoringSetAPI{ssaRows = [row]}] -> BSL.unpack (encode row) `shouldContain` "\"normalization\":\"Infinity\""
+                _ -> expectationFailure "expected one set of one row"
+            let infinite = "{\"label\":\"Zero\",\"terms\":[{\"methodId\":\"" <> UUID.toString category <> "\",\"coefficient\":1}],\"normalization\":\"Infinity\"}"
+            add <- scoringRequest ("{\"op\":\"add-row\",\"set\":\"Mine\",\"row\":" <> infinite <> "}")
+            answer <- call e (editScoringSetsHandler "copy" add)
+            failure answer `shouldBe` Just (400, "the normalization of 'Zero' is Infinity, which is not a number a score can use")
 
     it "refuses an add-row that names no row, naming the field" $
         withScratchDataDir $ do

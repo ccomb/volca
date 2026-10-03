@@ -74,7 +74,9 @@
   SimaPro file translates can be changed and removed like any other.
   `GET /api/v1/method-collections/{name}/scoring-sets` reads a collection's
   sets as these rows, with the scores that add them up and every name a
-  formula can read; `list_scoring_sets` gives the same `rows` and
+  formula can read (a row a file counts as zero, writing a normalization of
+  0, has the normalization `"Infinity"`); `list_scoring_sets` gives the
+  same `rows` and
   `sum_of_rows`; `POST` on that route and `edit_scoring_sets` change them.
   An activity's score carries `scoringRows`, the value of every row, a row
   no score reads among them. Wire revision 45.

@@ -1316,7 +1316,8 @@ class Client:
         ``rows``, each with the ``variable`` that names it, its ``label``, its
         ``terms`` (``RowGrouped`` with the ``categories`` it adds up, each
         with its ``methodId`` and ``coefficient``, or ``RowWritten`` with a
-        ``formula`` that is no such sum), its ``normalization`` and
+        ``formula`` that is no such sum), its ``normalization`` (the
+        string ``"Infinity"`` for a row a file counts as zero) and
         ``weight``; its ``scores``, each with its ``formula`` and whether it
         is the ``sumOfRows`` a new row joins; and the ``variables`` a formula
         can read, each with the category it reads or the label of its row.
