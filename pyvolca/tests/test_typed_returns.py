@@ -524,6 +524,18 @@ class TestActivityAllocation:
             ],
         }}
 
+    def test_withheld_exchanges_are_named_without_amounts(self):
+        envelope = self._cheese_envelope()
+        envelope["activity"]["withheld"] = {
+            "reason": "The licence of db keeps the amounts of its exchanges to itself.",
+            "lines": [{"flowName": "milk", "unitName": "kg", "kind": "technosphere",
+                       "isInput": True, "targetActivityName": "milk production"}],
+        }
+        detail = ActivityDetail.from_json(envelope)
+        assert detail.exchanges == []
+        assert detail.withheld.reason.startswith("The licence of db")
+        assert [(x.flow_name, x.target_activity_name) for x in detail.withheld.lines] == [("milk", "milk production")]
+
     def test_all_products_carry_allocation(self):
         detail = ActivityDetail.from_json(self._cheese_envelope())
         shares = {p.product_name: p.allocation_percent for p in detail.all_products}

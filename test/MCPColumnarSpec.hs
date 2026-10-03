@@ -67,6 +67,7 @@ lciaResult fu =
         , lrMappedFlows = 0
         , lrFunctionalUnit = fu
         , lrTopContributors = []
+        , lrWithheld = Nothing
         }
 
 -- | Build an entry against a single scoring set, with explicit total + indicators.
@@ -88,6 +89,7 @@ mkEntry pid name fu setName total inds =
                     M.singleton setName $
                         M.fromList [(k, ScoringIndicator k v) | (k, v) <- inds]
                 , lbrCutoffWaste = []
+                , lbrWithheld = []
                 }
         }
 
