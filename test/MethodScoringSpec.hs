@@ -102,3 +102,7 @@ spec = do
         it "refuses two computed variables a formula cannot tell apart, naming them" $ do
             let set = setWith [("Hh", "cc"), ("hh", "2 * cc")] [("Score", "hh")]
             computeFormulaScores set raw `shouldSatisfy` either (\e -> all (`T.isInfixOf` T.pack e) ["'Hh'", "'hh'", "case"]) (const False)
+
+    describe "shortNames" $
+        it "never names a variable as a function a formula calls" $
+            shortNames ["Max", "Min", "Exp"] `shouldBe` ["max_2", "min_2", "exp_2"]

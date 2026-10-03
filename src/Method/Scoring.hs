@@ -316,10 +316,11 @@ shortNames :: [Text] -> [Text]
 shortNames = snd . mapAccumL (\taken name -> let free = freshName taken name in (S.insert free taken, free)) S.empty
 
 {- | The identifier for one display name, avoiding the names already taken,
-which are given in lower case.
+which are given in lower case, and the names of the functions a formula calls,
+which the reading of what a formula names leaves out.
 -}
 freshName :: S.Set Text -> Text -> Text
-freshName taken name = firstOf [c | c <- base : [base <> "_" <> tshow n | n <- [2 :: Int ..]], not (S.member c taken)]
+freshName taken name = firstOf [c | c <- base : [base <> "_" <> tshow n | n <- [2 :: Int ..]], not (S.member c taken), c `notElem` Expr.functionNames]
   where
     base :: Text
     base =

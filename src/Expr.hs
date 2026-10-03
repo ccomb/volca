@@ -22,6 +22,7 @@ module Expr (
     normalizeExpr,
     isExpression,
     collectIdentifiers,
+    functionNames,
 ) where
 
 import Amount (readAmount)
