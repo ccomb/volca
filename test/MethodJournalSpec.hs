@@ -6,11 +6,13 @@ import Config (MethodPatch (..), MethodPatchMatch (..))
 import Data.Aeson (decodeStrict, encode)
 import qualified Data.ByteString.Lazy as BL
 import Data.JournalFile (Entry (..))
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import Method.Journal
+import Method.Scoring (NumberEntry (..), ScoringChange (..), ScoringGesture (..), TextEntry (..))
 import Method.Types
 import Test.Hspec
 import Types (PatchOp (..))
@@ -197,10 +199,86 @@ spec = describe "a method collection's journal" $ do
                 , RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Freshwater ecotoxicity"
                 , SetCategoryUnit (uuid 100) "CTUe" "PAF.m3.day"
                 , RemoveCategory 0 ecotox (UnregionalizedAt 2)
+                , ChangeScoringSet "Single" (AddedRow "Ecotoxicity") $
+                    SetText CategoryOf "eco" Nothing (Just "Ecotoxicity, freshwater")
+                        :| [ SetText FormulaOf "e" (Just "eco") Nothing
+                           , SetText LabelOf "e" (Just "A") (Just "B")
+                           , SetText VariableUnitOf "e" Nothing (Just "DALY")
+                           , SetText ScoreOf "Single score" (Just "a") (Just "a + e")
+                           , SetNumber NormalizationOf "e" (Just 2) Nothing
+                           , SetNumber WeightOf "e" Nothing (Just 0.3)
+                           , RenameSet "Single" "Other"
+                           , SetUnitOfSet "Pt" "mPt"
+                           , SetDisplayMultiplier (Just 1000) Nothing
+                           , SetDisplayMultiplier Nothing (Just 1000)
+                           ]
+                , ChangeScoringSet "Single" (ChangedRow "B") (SetText CategoryOf "eco" (Just "x") Nothing :| [])
+                , ChangeScoringSet "Single" (RemovedRow "B") (SetText ScoreOf "S" (Just "a") Nothing :| [])
+                , ChangeScoringSet "Single" (RenamedSet "Single" "Other") (RenameSet "Single" "Other" :| [])
+                , ChangeScoringSet "Single" (SetUnitTo "Pt" "mPt") (SetUnitOfSet "Pt" "mPt" :| [])
+                , ChangeScoringSet "Single" (SetMultiplierTo Nothing (Just 2)) (SetDisplayMultiplier Nothing (Just 2) :| [])
+                , ChangeScoringSet "Single" (WroteFormula "e") (SetText FormulaOf "e" (Just "eco") (Just "2 * eco") :| [])
+                , ChangeScoringSet "Single" (AddedScore "S") (SetText ScoreOf "S" Nothing (Just "a") :| [])
+                , ChangeScoringSet "Single" (ChangedScore "S") (SetText ScoreOf "S" (Just "a") (Just "2 * a") :| [])
+                , ChangeScoringSet "Single" (RemovedScore "S") (SetText ScoreOf "S" (Just "a") Nothing :| [])
                 ]
             kinds = cycle [Change, Undoing 1, TakenFromConfiguration]
             entries = zipWith (\op kind -> Entry "t" (MethodLine op kind)) ops kinds
          in mapM_ (\e -> decodeStrict (BL.toStrict (encode e)) `shouldBe` Just e) entries
+
+    it "refuses a change that removes and still writes a value, or sets and writes none" $ do
+        let changeLine change = "{\"v\":1,\"at\":\"t\",\"op\":\"change-scoring-set\",\"set\":\"S\",\"gesture\":{\"kind\":\"changed-row\",\"label\":\"x\"},\"changes\":[" <> change <> "]}"
+        (decodeStrict (changeLine "{\"verb\":\"remove-variable\",\"variable\":\"a\",\"before\":\"x\",\"after\":\"y\"}") :: Maybe (Entry MethodLine)) `shouldBe` Nothing
+        (decodeStrict (changeLine "{\"verb\":\"set-weight\",\"variable\":\"a\",\"before\":1}") :: Maybe (Entry MethodLine)) `shouldBe` Nothing
+        (decodeStrict (changeLine "") :: Maybe (Entry MethodLine)) `shouldBe` Nothing
+
+    describe "a change to a scoring set" $ do
+        let weighed = collection{mcScoringSets = [weighing "Ecotoxicity, freshwater"]}
+            change gesture changes = applyMethodOp weighed (ChangeScoringSet "Single" gesture changes)
+
+        it "applies its changes together" $
+            fmap (map ssWeighting . mcScoringSets) (change (ChangedRow "eco") (SetNumber WeightOf "eco" (Just 1) (Just 0.5) :| [SetText LabelOf "eco" Nothing (Just "Eco")]))
+                `shouldBe` Right [M.fromList [("eco", 0.5)]]
+
+        it "applies none of them when one does not apply" $
+            refusal (change (ChangedRow "eco") (SetNumber WeightOf "eco" (Just 1) (Just 0.5) :| [SetText LabelOf "eco" Nothing (Just "Eco"), SetText LabelOf "other" (Just "x") Nothing]))
+                `shouldContain` "label"
+
+        it "refuses a set that would no longer score, naming what is missing" $
+            refusal (change (ChangedScore "Single score") (SetText ScoreOf "Single score" (Just "eco") (Just "eco + ghost") :| [])) `shouldContain` "ghost"
+
+        it "refuses a variable reading a category the collection does not have" $
+            refusal (change (AddedRow "Land") (SetText CategoryOf "land" Nothing (Just "Land use") :| [])) `shouldContain` "Land use"
+
+        it "refuses a name another scoring set holds" $
+            let two = weighed{mcScoringSets = mcScoringSets weighed <> [(weighing "Ecotoxicity, freshwater"){ssName = "Other"}]}
+             in refusal (applyMethodOp two (ChangeScoringSet "Single" (RenamedSet "Single" "Other") (RenameSet "Single" "Other" :| []))) `shouldContain` "Other"
+
+        it "refuses a normalization of zero or a weight that is not finite, as the line sets it" $ do
+            refusal (change (ChangedRow "eco") (SetNumber NormalizationOf "eco" Nothing (Just 0) :| [])) `shouldContain` "normalization"
+            refusal (change (ChangedRow "eco") (SetNumber WeightOf "eco" (Just 1) (Just (1 / 0)) :| [])) `shouldContain` "weight"
+
+        it "refuses a line that changes one entry twice" $
+            refusal (change (ChangedRow "eco") (SetNumber WeightOf "eco" (Just 1) (Just 2) :| [SetNumber WeightOf "eco" (Just 2) (Just 3)])) `shouldContain` "twice"
+
+        it "names the set it does not find" $
+            refusal (applyMethodOp collection (ChangeScoringSet "Single" (ChangedRow "eco") (SetNumber WeightOf "eco" (Just 1) (Just 2) :| []))) `shouldContain` "Single"
+
+        it "replays a renaming, then a change under the new name" $
+            fmap (map (\set -> (ssName set, ssWeighting set)) . mcScoringSets)
+                ( replayMethodJournal
+                    weighed
+                    [ line (ChangeScoringSet "Single" (RenamedSet "Single" "Renamed") (RenameSet "Single" "Renamed" :| []))
+                    , line (ChangeScoringSet "Renamed" (ChangedRow "eco") (SetNumber WeightOf "eco" (Just 1) (Just 2) :| []))
+                    ]
+                )
+                `shouldBe` Right [("Renamed", M.fromList [("eco", 2)])]
+
+    it "removes a scoring set read from a file, whose origin a journal does not keep" $
+        let fromFile = (weighing "Ecotoxicity, freshwater"){ssOrigin = ReadFromSimaProFile}
+            readBack = decodeStrict (BL.toStrict (encode (line (RemoveScoringSet fromFile))))
+         in fmap mcScoringSets (maybe (Left "unread") (applyMethodOp collection{mcScoringSets = [fromFile]} . mlOp . jeOp) readBack)
+                `shouldBe` Right []
 
     it "refuses a line that both undoes another and comes from the configuration" $
         (decodeStrict "{\"v\":1,\"at\":\"t\",\"op\":\"set-global-methods\",\"before\":[],\"after\":[],\"undoes\":1,\"seed\":true}" :: Maybe (Entry MethodLine))
