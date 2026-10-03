@@ -26,6 +26,7 @@ module API.MethodEditHandlers (
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -140,7 +141,7 @@ is named after the collection in use; one it no longer holds, or a collection
 not loaded, is named by its identifier.
 -}
 historyToAPI :: Maybe MethodCollection -> [HistoryLine] -> [MethodHistoryEntry]
-historyToAPI loaded = map entry
+historyToAPI loaded history = map entry history
   where
     entry :: HistoryLine -> MethodHistoryEntry
     entry h =
@@ -177,9 +178,27 @@ historyToAPI loaded = map entry
         SetCategoryUnit c before after -> CategoryUnitSet (categoryName c) before after
         RemoveCategory _ m _ -> CategoryRemoved (methodName m) (length (methodFactors m))
     categoryName :: UUID -> Text
-    categoryName c = case [methodName m | m <- maybe [] mcMethods loaded, methodId m == c] of
-        name : _ -> name
-        [] -> UUID.toText c
+    categoryName c = fromMaybe (UUID.toText c) (M.lookup c names)
+    -- The collection's own names first; a category it no longer has keeps
+    -- the last name the journal gave it.
+    names :: M.Map UUID Text
+    names =
+        M.fromList [(methodId m, methodName m) | m <- maybe [] mcMethods loaded]
+            `M.union` M.fromList (concatMap (namesIn . hlOp) history)
+    namesIn :: MethodOp -> [(UUID, Text)]
+    namesIn = \case
+        AddCategory _ m _ -> [(methodId m, methodName m)]
+        RemoveCategory _ m _ -> [(methodId m, methodName m)]
+        RenameCategory c _ after -> [(c, after)]
+        SetCategoryUnit{} -> []
+        SetFactor{} -> []
+        RemoveFactor{} -> []
+        AddFactor{} -> []
+        PatchFactors{} -> []
+        RestoreFactors{} -> []
+        SetGlobalMethods{} -> []
+        CreateScoringSet{} -> []
+        RemoveScoringSet{} -> []
 
 {- | The flows a collection characterizes, once each, whose name holds every
 word of the query, case aside; sorted by name, then compartment. Two rows that

@@ -6,6 +6,7 @@ the journal read back in the words of the collection.
 -}
 module MethodEditHandlerSpec (spec) where
 
+import Control.Monad ((>=>))
 import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.List (isInfixOf, nub, sort)
@@ -173,3 +174,13 @@ spec = describe "changing a method collection over HTTP" $ do
             case map mheChange <$> history of
                 Right [CategoryRenamed{crnBefore = b, crnAfter = a}] -> (b, a) `shouldBe` ("Methane", "Methane, all")
                 _ -> expectationFailure "expected one line renaming the category"
+
+    it "names a category removed since by the name it last had" $
+        withScratchDataDir $ do
+            (e, category, _) <- copied
+            let edit op = categoryRequest ("{\"op\":\"" <> op <> "\",\"methodId\":\"" <> UUID.toString category <> "\",\"unit\":\"t\"}")
+            mapM_ (edit >=> call e . editMethodCategoriesHandler "copy") ["set-unit", "remove"]
+            history <- call e (methodHistoryHandler "copy")
+            case map mheChange <$> history of
+                Right [CategoryUnitSet{cusCategory = c}, CategoryRemoved{}] -> c `shouldBe` "Methane"
+                _ -> expectationFailure "expected a change of unit, then a removal"
