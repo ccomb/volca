@@ -30,7 +30,6 @@ module Database.UploadedDatabase (
 import Control.Exception (SomeException, try)
 import Control.Monad (filterM, forM)
 import Data.Maybe (catMaybes, fromMaybe)
-import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -43,7 +42,7 @@ import Text.Read (readMaybe)
 -- Re-export DatabaseFormat from Database.Upload (single definition)
 import Database.Upload (DatabaseFormat (..))
 import Progress (ProgressLevel (..), reportProgress)
-import Types (AllocationKey, Attribution (..), Licence (..), LicenceKeys (..), Permission (Download), allocationKeyText, licenceFromKeys, licenceKeys, ownLicence, parseAllocationKey)
+import Types (AllocationKey, Licence, LicenceKeys (..), allocationKeyText, licenceFromKeys, licenceKeys, parseAllocationKey)
 
 -- | Metadata for an uploaded database
 data UploadMeta = UploadMeta
@@ -90,7 +89,8 @@ data UploadMeta = UploadMeta
 Version 3 added @source@, which is what tells a copy from an upload; version 4
 added @allocation@, without which a re-keyed database came back declared after
 a restart; version 5 added the licence (@licence@ for a standard one; @licence_text@,
-@refuses@ and @attribution@ for an own one); version 6 added
+@refuses@ and @attribution@ for an own one; a @downloads@ key, the switch
+they replaced before any release, stops the file); version 6 added
 @builtin@, the built-in collection a method copy reads. The parser reads every
 version, taking absent fields to mean what their absence meant when they did
 not exist.
@@ -170,7 +170,8 @@ parseMetaToml content = do
             , let v = T.strip $ T.drop 1 rest
             ]
         getValue key = lookup key kvPairs
-        unquote = unescapeToml . T.dropAround (== '"')
+        -- One quote off each end: a value of its own may end in an escaped one.
+        unquote = unescapeToml . unwrap '"'
         -- A list or a flag nobody can read stops the file, as a bad key does.
         licenceKeysOf =
             LicenceKeys (unquote <$> getValue "licence") (unquote <$> getValue "licence_text")
@@ -193,12 +194,11 @@ parseMetaToml content = do
             parseAllocationKey (maybe "declared" unquote (getValue "allocation"))
 
     -- Same rule: a refusal nobody can read must not come back as granted.
-    licence <-
-        either (const Nothing) Just
-            =<< maybe
-                (licenceFromKeys <$> licenceKeysOf)
-                (legacyLicence (unquote <$> getValue "licence") . unquote)
-                (getValue "downloads")
+    -- The downloads switch these keys replaced was never released, and stops
+    -- the file rather than be read as no licence at all.
+    licence <- case getValue "downloads" of
+        Just _ -> Nothing
+        Nothing -> either (const Nothing) Just . licenceFromKeys =<< licenceKeysOf
 
     return
         UploadMeta
@@ -213,6 +213,10 @@ parseMetaToml content = do
             , umAllocation = allocation
             , umLicence = licence
             }
+
+-- | The value between one delimiter at each end, or the value itself when it has none.
+unwrap :: Char -> Text -> Text
+unwrap c t = fromMaybe t (T.stripPrefix (T.singleton c) t >>= T.stripSuffix (T.singleton c))
 
 {- | Undo the escaping 'formatMetaToml' writes, so a value survives the round
 trip it is written for.
@@ -244,17 +248,6 @@ parseStringList raw =
     , not (T.null item)
     , T.isPrefixOf "\"" item
     ]
-
-{- | The licence a file written while @downloads@ was the one switch says,
-read as the own licence it amounts to: its words, and downloads refused or
-not. Nothing for a @downloads@ nobody can read, which stops the file.
--}
-legacyLicence :: Maybe Text -> Text -> Maybe (Either Text Licence)
-legacyLicence words' downloads = case (downloads, words') of
-    ("allowed", Nothing) -> Just (Right LicenceUnstated)
-    ("allowed", Just text) -> Just (LicenceOwn <$> ownLicence text mempty AttributionRequired)
-    ("refused", text) -> Just (LicenceOwn <$> ownLicence (fromMaybe "Downloads refused." text) (S.singleton Download) AttributionRequired)
-    _ -> Nothing
 
 -- | 'parseStringList' for a key where a dropped entry would change the meaning: any entry that is not a quoted string refuses the whole list.
 parseStrictStringList :: Text -> Maybe [Text]

@@ -161,6 +161,10 @@ spec = do
             let licence = LicenceOwn OwnLicence{ownText = "Licensed to \"members\" only", ownRefused = S.fromList [Download, Resell], ownAttribution = AttributionNotRequired}
             fmap umLicence (parseMetaToml (formatMetaToml baseMeta{umLicence = licence})) `shouldBe` Just licence
 
+        it "round-trips an own licence ending in a quote" $ do
+            let licence = LicenceOwn OwnLicence{ownText = "Licensed to \"members\"", ownRefused = S.empty, ownAttribution = AttributionRequired}
+            fmap umLicence (parseMetaToml (formatMetaToml baseMeta{umLicence = licence})) `shouldBe` Just licence
+
         it "round-trips a standard licence" $
             fmap umLicence (parseMetaToml (formatMetaToml baseMeta{umLicence = LicenceStandard ODbL})) `shouldBe` Just (LicenceStandard ODbL)
 
@@ -168,14 +172,9 @@ spec = do
             let toml = "version = 4\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\n"
             fmap umLicence (parseMetaToml toml) `shouldBe` Just LicenceUnstated
 
-        it "reads a file written while downloads was one switch as the own licence it amounts to" $ do
+        -- Ignored, the switch these keys replaced would read a refusal as no licence at all.
+        it "refuses a file still carrying the downloads switch" $ do
             let toml = "version = 5\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\nlicence = \"Members only\"\ndownloads = \"refused\"\n"
-            fmap umLicence (parseMetaToml toml)
-                `shouldBe` Just (LicenceOwn OwnLicence{ownText = "Members only", ownRefused = S.singleton Download, ownAttribution = AttributionRequired})
-
-        -- A refusal misread as granted would hand out the copies it refused.
-        it "refuses a file whose downloads it cannot read" $ do
-            let toml = "version = 5\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\ndownloads = \"never\"\n"
             parseMetaToml toml `shouldBe` Nothing
 
         it "refuses a file with a refusal it cannot read, rather than skip it" $ do

@@ -18,6 +18,7 @@ import API.JsonOptions (Stripped (..))
 import Control.DeepSeq (NFData)
 import Control.Monad ((<=<), (>=>))
 import Data.Aeson (FromJSON (..), ToJSON (..), withObject, withText, (.!=), (.:), (.:?))
+import Data.Aeson.Types (Parser)
 import Data.Int (Int32)
 import qualified Data.IntSet as IS
 import qualified Data.Map as M
@@ -2397,11 +2398,18 @@ instance FromJSON Licence where
             "unstated" -> pure LicenceUnstated
             "standard" -> do
                 licence <- o .: "id" >>= either (fail . T.unpack) (pure . LicenceStandard) . parseSpdx
-                -- An answer sent back carries the refusals its licence derives; others would adjust it.
+                -- An answer sent back carries what its licence derives; anything else would adjust it.
                 refused <- o .:? "refused"
-                if maybe True ((== refusedBy licence) . S.fromList) refused
-                    then pure licence
-                    else fail "a standard licence is not adjusted: send an own licence to refuse more than its text does"
+                attribution <- o .:? "attribution"
+                text <- o .:? "text" :: Parser (Maybe Text)
+                let view = licenceView licence
+                    adjusted =
+                        maybe False ((/= S.fromList (lvRefused view)) . S.fromList) refused
+                            || maybe False (/= lvAttribution view) attribution
+                            || isJust text
+                if adjusted
+                    then fail "a standard licence is not adjusted: send an own licence to say more than its text does"
+                    else pure licence
             "own" -> do
                 text <- o .: "text"
                 refused <- o .:? "refused" .!= []

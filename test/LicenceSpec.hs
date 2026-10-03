@@ -164,6 +164,13 @@ spec = do
         it "refuses a standard licence sent with refusals its text does not make" $
             (A.decode "{\"kind\":\"standard\",\"id\":\"CC-BY-4.0\",\"refused\":[\"download\"]}" :: Maybe Licence) `shouldBe` Nothing
 
+        it "refuses a standard licence sent with an attribution or a text of its own" $
+            mapM_
+                (\body -> (A.decode body :: Maybe Licence) `shouldBe` Nothing)
+                [ "{\"kind\":\"standard\",\"id\":\"CC0-1.0\",\"attribution\":true}"
+                , "{\"kind\":\"standard\",\"id\":\"CC0-1.0\",\"text\":\"Ours\"}"
+                ]
+
     describe "licenceFromKeys" $ do
         it "names the admitted identifiers when it cannot read one" $
             licenceFromKeys keys{lkId = Just "CC BY 4.0"} `shouldSatisfy` either ("CC-BY-4.0" `T.isInfixOf`) (const False)
