@@ -14,7 +14,6 @@ module Method.SimaProScoring (
     NormWeightSet (..),
     SimaProMethodFile (..),
     simaProCollection,
-    shortNames,
     singleScoreName,
     damageOnlySetName,
     translateScoring,
@@ -32,7 +31,6 @@ module Method.SimaProScoring (
 import Control.DeepSeq (NFData)
 import Control.Monad (unless)
 import Data.Aeson (FromJSON, ToJSON)
-import Data.Char (isAsciiLower, isDigit)
 import Data.Containers.ListUtils (nubOrd)
 import Data.List (find, partition, sort)
 import qualified Data.Map.Strict as M
@@ -43,6 +41,7 @@ import GHC.Generics (Generic)
 
 import qualified Expr
 import Method.Types (Method (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
+import Method.Scoring (counted, linearTerms, shortNames)
 
 {- | Damage category: groups impact subcategories into a parent category.
 E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.
@@ -87,35 +86,6 @@ simaProCollection :: SimaProMethodFile -> (MethodCollection, [Text])
 simaProCollection f =
     let (sets, warnings) = translateScoring (smfMethods f) (smfDamages f) (smfNWSets f)
      in (MethodCollection (smfMethods f) sets [], warnings)
-
-{- | Formula identifiers for display names, made once and then stored as they
-are: a later renaming of the category does not change them. Lower case only,
-since a formula reads its names without regard to case.
--}
-shortNames :: [Text] -> [Text]
-shortNames = go S.empty
-  where
-    go :: S.Set Text -> [Text] -> [Text]
-    go _ [] = []
-    go taken (name : rest) =
-        let base = slug name
-            free = firstOf [c | c <- base : [base <> "_" <> tshow n | n <- [2 :: Int ..]], not (S.member c taken)]
-         in free : go (S.insert free taken) rest
-
-    -- The first of an infinite list: total, unlike 'head'.
-    firstOf :: [Text] -> Text
-    firstOf = foldr const ""
-
-    slug :: Text -> Text
-    slug name =
-        let joined = T.intercalate "_" (filter (not . T.null) (T.split (not . isAsciiAlnum) (T.toLower name)))
-         in case T.uncons joined of
-                Nothing -> "v"
-                Just (c, _) | isDigit c -> "v_" <> joined
-                Just _ -> joined
-
-    isAsciiAlnum :: Char -> Bool
-    isAsciiAlnum c = isAsciiLower c || isDigit c
 
 -- | The score a set read from a SimaPro file gives: the sum SimaPro computes.
 singleScoreName :: Text
@@ -305,13 +275,6 @@ blocksOf set = do
     labelOf :: Text -> Text
     labelOf var = M.findWithDefault var var (ssLabels set)
 
-{- | Whether a variable enters SimaPro's single score: it has a weight, and a
-normalization as well unless the set normalizes nothing, which is how SimaPro
-reads a set with normalization switched off.
--}
-counted :: M.Map Text Double -> M.Map Text Double -> Text -> Bool
-counted norm weight v = M.member v weight && (M.null norm || M.member v norm)
-
 {- | What the response fields kept until 0.16.0 say about one impact category:
 the damage it feeds, and its normalized and weighted score, SimaPro's way.
 -}
@@ -382,31 +345,6 @@ legacySetNames sets =
     , ssOrigin s == ReadFromSimaProFile
     , not (M.null (ssNormalization s) && M.null (ssWeighting s))
     ]
-
-{- | The terms of a formula that is a sum of the given variables times
-constant coefficients, in the order the formula names them; 'Nothing' for
-any other formula. Read the way 'scoreWeights' reads a score: one variable
-at one and the others at zero gives its coefficient, and the formula must
-give zero at zero and the weighted sum at another point.
--}
-linearTerms :: [Text] -> Text -> Maybe [(Text, Double)]
-linearTerms allowed formula = do
-    named <- traverse (`M.lookup` byLower) (nubOrd (map T.toLower (Expr.collectIdentifiers Expr.Arithmetic formula)))
-    let zeros = M.fromList [(v, 0) | v <- allowed]
-        at env = either (const Nothing) Just (Expr.evaluate Expr.Arithmetic env formula)
-        probe = M.fromList (zip allowed [2 :: Double ..])
-    atZero <- at zeros
-    coefs <- traverse (\v -> at (M.insert v 1 zeros)) named
-    atProbe <- at probe
-    let expected = sum (zipWith (*) coefs (map (\v -> M.findWithDefault 0 v probe) named))
-        tolerance = 1e-9 * (abs atProbe + abs expected)
-    if atZero == 0 && abs (atProbe - expected) <= tolerance
-        then Just (zip named coefs)
-        else Nothing
-  where
-    -- A formula reads its names without regard to case.
-    byLower :: M.Map Text Text
-    byLower = M.fromList [(T.toLower v, v) | v <- allowed]
 
 tshow :: (Show a) => a -> Text
 tshow = T.pack . show

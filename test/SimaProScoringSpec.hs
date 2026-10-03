@@ -9,6 +9,7 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import Test.Hspec
 
+import Method.Scoring (shortNames)
 import Method.SimaProScoring
 import Method.Types
 
