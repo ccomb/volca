@@ -295,6 +295,9 @@
 
 ### Fixed
 
+- `list_scoring_sets` writes the normalization of a variable a SimaPro file
+  divides by 0 as `"Infinity"`, the divisor that counts it as zero, where it
+  wrote `null`, which reads as no normalization at all.
 - A flow whose method writes two values at one place reads the same value
   whatever the order of the lines. A SimaPro CSV method can write one flow
   twice at one compartment with two values (two flows of an ILCD package,
