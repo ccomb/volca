@@ -40,6 +40,7 @@ module Database.Manager (
     mkDepSolverLookup,
     listDatabases,
     clearMethodMappingCacheForDb,
+    clearMethodCachesFor,
 
     -- * Load/Unload
     loadDatabase,
@@ -54,8 +55,11 @@ module Database.Manager (
     -- * Method Operations
     listMethodCollections,
     loadMethodCollection,
+    loadMethodCollectionLocked,
     loadMethodCollectionFromConfig,
     applyMethodConfig,
+    configToScoringSet,
+    namedOnce,
     unloadMethodCollection,
     getLoadedMethods,
     getMethodCollection,
@@ -143,6 +147,7 @@ import API.JsonOptions (Stripped (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.QSem (QSem, newQSem)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
@@ -160,12 +165,12 @@ import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
 import Data.Indexing (uniqueIndex)
 import qualified Data.Indexing as Indexing
-import Data.List (intercalate, isPrefixOf, sort, sortOn)
+import Data.List (find, intercalate, isPrefixOf, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe, isNothing, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, mapMaybe)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToParamSchema, ToSchema (..), enum_, type_)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
@@ -179,7 +184,7 @@ import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirecto
 import System.FilePath (addTrailingPathSeparator, takeDirectory, takeExtension, takeFileName, (</>))
 import System.Mem (performGC)
 
-import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName)
+import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName, builtinMethods)
 import Config
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -303,6 +308,7 @@ import qualified UnitConversion
 -- CrossDBLinkingStats is now in Types, re-exported from Database.Loader
 
 import API.Types (DepLoadResult (..))
+import Data.JournalFile (readEntries)
 import Database.Author (AuthorContext (..))
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
@@ -312,6 +318,7 @@ import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
 import Method.FlowResolver (ILCDFlowInfo)
 import qualified Method.FlowResolver as FlowResolver
+import Method.Journal (replayMethodJournal)
 import qualified Method.Parser
 import qualified Method.Parser.OlcaSchema as OlcaSchema
 import Method.ParserCSV (parseMethodCSVBytes, stripBOM)
@@ -574,6 +581,7 @@ data MethodCollectionStatus = MethodCollectionStatus
     , mcsDescription :: !(Maybe Text) -- Optional description
     , mcsStatus :: !DatabaseLoadStatus -- Loaded/Unloaded (reuse existing type)
     , mcsIsUploaded :: !Bool -- True if uploaded (vs. configured in TOML)
+    , mcsSource :: !(Maybe Text) -- The collection this one is a copy of
     , mcsPath :: !Text -- Path to method directory
     , mcsMethodCount :: !Int -- Number of impact categories (0 if unloaded)
     , mcsFormat :: !Text -- "SimaPro CSV", "ILCD", etc.
@@ -588,6 +596,7 @@ instance ToJSON MethodCollectionStatus where
             , "mcsDescription" .= mcsDescription
             , "mcsStatus" .= mcsStatus
             , "mcsIsUploaded" .= mcsIsUploaded
+            , "mcsSource" .= mcsSource
             , "mcsPath" .= mcsPath
             , "mcsMethodCount" .= mcsMethodCount
             , "mcsFormat" .= mcsFormat
@@ -601,6 +610,7 @@ instance FromJSON MethodCollectionStatus where
             <*> v .:? "mcsDescription"
             <*> v .: "mcsStatus"
             <*> v .: "mcsIsUploaded"
+            <*> v .:? "mcsSource"
             <*> v .: "mcsPath"
             <*> v .: "mcsMethodCount"
             <*> v .: "mcsFormat"
@@ -709,6 +719,13 @@ data DatabaseManager = DatabaseManager
     {- ^ One unit per scoring request allowed to compute at once
     (@max_concurrent_scoring@), 'Nothing' when the instance sets no bound.
     -}
+    , dmMethodEditLock :: !(MVar ())
+    {- ^ Held by every change to a method collection, and by every copy: an
+    edit reads the collection, appends a line and swaps the result in, and two
+    of them interleaved would each swap in a collection missing the other's
+    line. ponytail: one lock for every collection; one per collection if edits
+    ever queue.
+    -}
     }
 
 {- | The databases a root reaches, transitively, through 'dbDependsOn'. The
@@ -779,8 +796,23 @@ mapMethodToFlowsCached manager dbName collection db method = do
             vocabulary <- collectionVocabulary manager collection cmap method
             let ctx = mapContextFor closure (fromMaybe emptySynonymDB (dbSynonymDB db)) (Placing cmap vocabulary)
             result <- mapMethodFlows ctx method
-            atomically $ modifyTVar' (dmMethodMappingCache manager) (M.insert key result)
+            atomically $ cacheIfCurrent manager collection [method] (modifyTVar' (dmMethodMappingCache manager) (M.insert key result))
             return result
+
+{- | Cache what was built from some methods unless a change has since replaced
+one of them. A change to a collection drops what was built from it, but a build
+already under way when the change landed would put its result back, and every
+later score would read the factors the change replaced. Its caller still gets
+the result; the next one builds again. A method its collection does not hold
+under that identifier is cached as before.
+-}
+cacheIfCurrent :: DatabaseManager -> CollectionName -> [Method] -> STM () -> STM ()
+cacheIfCurrent manager (CollectionName name) methods write = do
+    held <- maybe [] mcMethods . M.lookup name <$> readTVar (dmLoadedMethods manager)
+    unless (any (replacedIn held) methods) write
+  where
+    replacedIn :: [Method] -> Method -> Bool
+    replacedIn held method = any (\h -> methodId h == methodId method && h /= method) held
 
 {- | The mappings scoring actually uses: the cached cascade result expanded
 with the database's synonym fan-out and the configured substance edges.
@@ -821,7 +853,7 @@ mapMethodToTablesCached manager dbName collection db method = do
             singleFlight
                 (dmMethodTablesInflight manager)
                 key
-                (modifyTVar' (dmMethodTablesCache manager) . M.insert key)
+                (cacheIfCurrent manager collection [method] . modifyTVar' (dmMethodTablesCache manager) . M.insert key)
                 (buildMethodTablesFor manager dbName collection db method)
 
 {- | The places a collection writes factors at, which decide the @if_absent@
@@ -837,7 +869,7 @@ collectionVocabulary manager collection cmap method = do
         Nothing -> do
             siblings <- maybe [method] mcMethods <$> getMethodCollection manager (unCollectionName collection)
             vocabulary <- Control.Exception.evaluate (methodVocabulary cmap (concatMap methodFactors siblings))
-            atomically $ modifyTVar' (dmMethodVocabularyCache manager) (M.insert collection vocabulary)
+            atomically $ cacheIfCurrent manager collection siblings (modifyTVar' (dmMethodVocabularyCache manager) (M.insert collection vocabulary))
             pure vocabulary
 
 {- | Build the LCIA lookup tables for one method against a database: resolve the
@@ -860,16 +892,14 @@ buildMethodTablesFor manager dbName collection db method = do
     energyDensities <- getMergedEnergyDensities manager
     unitConfig <- getMergedUnitConfig manager
     (mFlows, mUnits) <- getMergedFlowMetadata manager
-    -- A method listed in its collection's 'global-methods' is scored without
+    -- A method listed in its collection's unregionalized categories is scored without
     -- regionalization: drop its located CFs so the broadcast (global) path, the
     -- method's own unlocated default CF, is the single answer, matching a
     -- reference distribution that flattened the spatial factors to a global value.
     -- This assumes the method carries such an unlocated default for the flows in
     -- question; a method whose CFs are all region-tagged would be left with none.
-    -- The config loader warns when a 'global-methods' name matches no method.
-    globalMethods <-
-        maybe [] mcGlobalMethods . M.lookup (unCollectionName collection)
-            <$> readTVarIO (dmAvailableMethods manager)
+    -- The loader warns when such a name matches no method.
+    globalMethods <- maybe [] mcUnregionalized <$> getMethodCollection manager (unCollectionName collection)
     let !raw0 = buildMethodTables cmap vocabulary energyDensities expanded
         !raw =
             if methodName method `elem` globalMethods
@@ -1055,7 +1085,7 @@ mapMethodSetToTablesCached manager dbName collection db methods = do
             -- same value).
             tables <- mapConcurrently (mapMethodToTablesCached manager dbName collection db) sortedMethods
             let !mst = buildMethodSetTables (zip sortedMethods tables)
-            atomically $ modifyTVar' (dmMethodSetTablesCache manager) (M.insert key mst)
+            atomically $ cacheIfCurrent manager collection sortedMethods (modifyTVar' (dmMethodSetTablesCache manager) (M.insert key mst))
             pure mst
 
 {- | Cached method index (CF tokens, by-medium, by-CAS): built once per
@@ -1071,7 +1101,7 @@ mapMethodToIndexCached manager dbName collection method = do
         Just idx -> pure idx
         Nothing -> do
             let !idx = buildMethodIndex method
-            atomically $ modifyTVar' (dmMethodIndexCache manager) (M.insert key idx)
+            atomically $ cacheIfCurrent manager collection [method] (modifyTVar' (dmMethodIndexCache manager) (M.insert key idx))
             pure idx
 
 {- | Hold a database name against concurrent work for the duration of an
@@ -1126,6 +1156,22 @@ clearMethodMappingCache manager = atomically $ do
     writeTVar (dmMergedFlowMetadataCache manager) Nothing
     writeTVar (dmMergedUnitConfigCache manager) Nothing
     writeTVar (dmFlowClosureCache manager) M.empty
+
+{- | Drop what was built from one method collection: its mappings, tables and
+vocabulary against every database. The other collections keep theirs; every
+key already carries the collection it was built from.
+-}
+clearMethodCachesFor :: DatabaseManager -> CollectionName -> IO ()
+clearMethodCachesFor manager collection = atomically $ do
+    modifyTVar' (dmMethodMappingCache manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodTablesCache manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodTablesInflight manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodSetTablesCache manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodIndexCache manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodVocabularyCache manager) (M.delete collection)
+  where
+    keep :: (Text, CollectionName, k) -> v -> Bool
+    keep (_, c, _) _ = c /= collection
 
 {- | Clear cached flow mappings for a specific database, and for every database
 that depends on it: a mapping is built over the root's flow closure, so a
@@ -1415,6 +1461,7 @@ newManager ManagerSeed{..} = do
     mergedUnitConfigCacheVar <- newTVarIO Nothing
     flowClosureCacheVar <- newTVarIO M.empty
     scoringSlots <- traverse newQSem msScoringSlots
+    methodEditLock <- newMVar ()
     return
         DatabaseManager
             { dmLoadedDbs = loadedDbsVar
@@ -1448,6 +1495,7 @@ newManager ManagerSeed{..} = do
             , dmMergedUnitConfigCache = mergedUnitConfigCacheVar
             , dmFlowClosureCache = flowClosureCacheVar
             , dmScoringSlots = scoringSlots
+            , dmMethodEditLock = methodEditLock
             }
   where
     byName :: [RefDataConfig] -> IO (TVar (Map Text RefDataConfig))
@@ -1529,7 +1577,7 @@ loadConfiguredMethods manager config =
                         <> show (length (mcMethods collection))
                         <> " impact categories)"
                 warnZeroTouchPatches (mcName mc) patchStats
-                warnUnknownGlobalMethods mc collection
+                warnUnknownGlobalMethods (mcName mc) collection
                 let !pairs = extractFromILCDFlows flowInfo
                 autoCreateFlowSynonyms manager (mcName mc) (SynonymOrigin ("Auto-extracted from " <> mcName mc)) pairs
 
@@ -1538,18 +1586,18 @@ de-regionalization is keyed by method name, so a typo or a renamed method
 would otherwise be ignored in silence and the method would stay regionalized,
 diverging from the reference.
 -}
-warnUnknownGlobalMethods :: MethodConfig -> MethodCollection -> IO ()
-warnUnknownGlobalMethods mc collection =
+warnUnknownGlobalMethods :: Text -> MethodCollection -> IO ()
+warnUnknownGlobalMethods name collection =
     unless (null unknownGlobals) $
         reportProgress Warning $
             "  [global-methods] collection "
-                <> T.unpack (mcName mc)
+                <> T.unpack name
                 <> ": no method named "
                 <> T.unpack (T.intercalate ", " unknownGlobals)
                 <> ". These stay regionalized; check for a typo."
   where
     unknownGlobals :: [Text]
-    unknownGlobals = filter (`S.notMember` knownMethodNames) (Config.mcGlobalMethods mc)
+    unknownGlobals = filter (`S.notMember` knownMethodNames) (mcUnregionalized collection)
 
     knownMethodNames :: S.Set Text
     knownMethodNames = S.fromList (map methodName (mcMethods collection))
@@ -1824,22 +1872,30 @@ applyMethodConfig mc collection0 = do
         fromFile = Method.Types.mcScoringSets collection0
         clashes = [ssName s | s <- configured, ssName s `elem` map ssName fromFile]
         quoted = T.intercalate ", " . map (\n -> "'" <> n <> "'")
-    unless (null (repeated fromFile)) $
-        Left ("scoring set " <> quoted (repeated fromFile) <> " is read twice from the method files; a set is named once")
     unless (null clashes) $
         Left ("scoring set " <> quoted clashes <> " is declared in the configuration and also read from the method file; rename the configured one")
-    pure (Method.Patch.applyMethodPatches (Config.mcPatches mc) collection0{Method.Types.mcScoringSets = fromFile <> configured})
+    pure (Method.Patch.applyMethodPatches (Config.mcPatches mc) collection0{Method.Types.mcScoringSets = fromFile <> configured, mcUnregionalized = Config.mcGlobalMethods mc})
 
 -- | The names that two scoring sets carry.
 repeated :: [ScoringSet] -> [Text]
 repeated sets = M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(ssName s, 1) | s <- sets]))
 
-{- | Load a configured collection and fold its configuration in: the
-collection, how many factors each patch touched, and its ILCD flow
-definitions.
+{- | Load a collection and fold in what is added to its files: its
+configuration for a collection the configuration declares, its journal for one
+under @uploads/methods/@. Never both: a collection there has no configuration.
+Gives the collection, how many factors each configured patch touched, and its
+ILCD flow definitions.
 -}
 loadConfiguredCollection :: MethodConfig -> IO (Either Text ((MethodCollection, [(Config.MethodPatch, Int)]), M.Map UUID ILCDFlowInfo))
-loadConfiguredCollection mc = (>>= bitraverse (applyMethodConfig mc) pure) <$> loadMethodCollectionFromConfig mc
+loadConfiguredCollection mc = case mcHome mc of
+    Nothing -> (>>= bitraverse (applyMethodConfig mc) pure) <$> loadMethodCollectionFromConfig mc
+    Just home -> do
+        parsed <- loadMethodCollectionFromConfig mc
+        entries <- readEntries home
+        pure $ do
+            (collection, flowInfo) <- parsed
+            replayed <- replayMethodJournal collection =<< entries
+            pure ((replayed, []), flowInfo)
 
 {- | Surface a patch that matched no characterization factor: the selector is
 almost certainly wrong (a typo'd category or flow name), and staying silent
@@ -1858,25 +1914,45 @@ warnZeroTouchPatches collName stats =
 discoverUploadedMethodConfigs :: IO [MethodConfig]
 discoverUploadedMethodConfigs = do
     uploads <- UploadedDB.discoverUploadedMethods
-    forM uploads $ \(slug, dirPath, meta) -> do
+    fmap catMaybes . forM uploads $ \(slug, dirPath, meta) -> do
         reportProgress Info $ "Discovered uploaded method: " <> T.unpack slug
-        -- Find the actual method XML directory (e.g., ILCD/lciamethods/)
-        methodDir <- findMethodDirectory dirPath
-        -- Read the format off the directory rather than meta.toml: the file on
-        -- disk may predate method-aware detection, and can't drift this way.
-        methodFormat <- detectMethodFormat methodDir
-        return
-            MethodConfig
-                { mcName = UploadedDB.umDisplayName meta
-                , mcOrigin = MethodFromFile methodDir
-                , mcActive = False -- Never auto-load uploaded methods
-                , mcIsUploaded = True
-                , mcDescription = UploadedDB.umDescription meta
-                , mcFormat = detectedFormatLabel methodFormat
-                , mcScoringSets = []
-                , mcGlobalMethods = []
-                , mcPatches = []
-                }
+        originOf dirPath meta >>= \case
+            Left err -> Nothing <$ reportProgress Warning (dirPath <> ": " <> T.unpack err <> ", the collection is left out")
+            Right (origin, format) ->
+                pure . Just $
+                    MethodConfig
+                        { mcName = UploadedDB.umDisplayName meta
+                        , mcOrigin = origin
+                        , mcActive = False -- Never auto-load uploaded methods
+                        , mcHome = Just dirPath
+                        , mcSource = UploadedDB.umSource meta
+                        , mcDescription = UploadedDB.umDescription meta
+                        , mcFormat = format
+                        , mcScoringSets = []
+                        , mcGlobalMethods = []
+                        , mcPatches = []
+                        }
+
+{- | Where an uploaded collection's factors come from, and the format they are
+in. An upload holds its own files, found inside its directory; a copy points
+at its source's, or names the collection built into the engine it was taken
+from. The format is read off the files rather than meta.toml: the file on disk
+may predate method-aware detection, and can't drift this way.
+-}
+originOf :: FilePath -> UploadedDB.UploadMeta -> IO (Either Text (MethodOrigin, Maybe Text))
+originOf dirPath meta = case (UploadedDB.umBuiltIn meta, UploadedDB.umSource meta) of
+    (Just name, _) ->
+        pure $
+            maybe
+                (Left ("no collection named " <> name <> " is built into this engine"))
+                (\b -> Right (MethodBuiltIn b, Nothing))
+                (find ((== name) . builtinMethodName) builtinMethods)
+    (Nothing, Just _) -> fromFiles (UploadedDB.umDataPath meta)
+    -- Find the actual method directory (e.g., ILCD/lciamethods/)
+    (Nothing, Nothing) -> fromFiles =<< findMethodDirectory dirPath
+  where
+    fromFiles :: FilePath -> IO (Either Text (MethodOrigin, Maybe Text))
+    fromFiles methodDir = Right . (,) (MethodFromFile methodDir) . detectedFormatLabel <$> detectMethodFormat methodDir
 
 -- | Get a database by name
 getDatabase :: DatabaseManager -> Text -> IO (Maybe LoadedDatabase)
@@ -4031,9 +4107,22 @@ data ParsedMethodFiles = ParsedMethodFiles
 
 -- | Load the methods a MethodConfig names, from the binary or from disk.
 loadMethodCollectionFromConfig :: MethodConfig -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
-loadMethodCollectionFromConfig mc = case mcOrigin mc of
-    MethodBuiltIn builtin -> pure (builtinMethodCollection builtin)
-    MethodFromFile path -> loadMethodCollectionFromPath path
+loadMethodCollectionFromConfig mc = (>>= bitraverse namedOnce pure) <$> parsed
+  where
+    parsed :: IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
+    parsed = case mcOrigin mc of
+        MethodBuiltIn builtin -> pure (builtinMethodCollection builtin)
+        MethodFromFile path -> loadMethodCollectionFromPath path
+
+{- | Scores are reported by set name, so two sets of one name read from the
+method files would hide each other; the load stops and names them. A check on
+the files, so it holds whatever is folded in after them.
+-}
+namedOnce :: MethodCollection -> Either Text MethodCollection
+namedOnce collection = case repeated (Method.Types.mcScoringSets collection) of
+    [] -> Right collection
+    twice ->
+        Left ("scoring set " <> T.intercalate ", " (map (\n -> "'" <> n <> "'") twice) <> " is read twice from the method files; a set is named once")
 
 {- | A built-in collection is a columnar method CSV, with no flow definitions
 beside it. It cannot fail to parse unless the build did (BuiltinSpec compares
@@ -4041,7 +4130,7 @@ it with its file), so a failure says so.
 -}
 builtinMethodCollection :: BuiltinMethod -> Either Text (MethodCollection, M.Map UUID ILCDFlowInfo)
 builtinMethodCollection builtin =
-    bimap unreadable (\methods -> (MethodCollection methods [], M.empty)) $
+    bimap unreadable (\methods -> (MethodCollection methods [] [], M.empty)) $
         parseMethodCSVBytes (BL.toStrict (builtinMethodContent builtin))
   where
     unreadable :: String -> Text
@@ -4232,7 +4321,8 @@ listMethodCollections manager = do
             , mcsDisplayName = mcName mc
             , mcsDescription = mcDescription mc
             , mcsStatus = if M.member name loaded then Loaded else Unloaded
-            , mcsIsUploaded = mcIsUploaded mc
+            , mcsIsUploaded = isJust (mcHome mc)
+            , mcsSource = mcSource mc
             , mcsPath = T.pack (describeMethodOrigin (mcOrigin mc))
             , mcsMethodCount = maybe 0 (length . mcMethods) (M.lookup name loaded)
             , mcsFormat = fromMaybe (formatOf (mcOrigin mc)) (mcFormat mc)
@@ -4250,9 +4340,16 @@ listMethodCollections manager = do
         | T.isInfixOf ".json" (T.toLower (T.pack p)) = "Regionalized LCIA JSON"
         | otherwise = "ILCD"
 
--- | Load a method collection on demand
+{- | Load a method collection on demand. It takes the edit lock, as unloading
+and deleting do: a collection loaded while a change was being written would
+read the journal without the change's line, and then install itself over it.
+-}
 loadMethodCollection :: DatabaseManager -> Text -> IO (Either Text ())
-loadMethodCollection manager name = do
+loadMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() -> loadMethodCollectionLocked manager name
+
+-- | 'loadMethodCollection' for a caller already holding the edit lock.
+loadMethodCollectionLocked :: DatabaseManager -> Text -> IO (Either Text ())
+loadMethodCollectionLocked manager name = do
     available <- readTVarIO (dmAvailableMethods manager)
     case M.lookup name available of
         Nothing -> return $ Left $ "Method collection not found: " <> name
@@ -4292,7 +4389,7 @@ loadMethodCollection manager name = do
 
 -- | Unload a method collection from memory
 unloadMethodCollection :: DatabaseManager -> Text -> IO (Either Text ())
-unloadMethodCollection manager name = do
+unloadMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() -> do
     loaded <- readTVarIO (dmLoadedMethods manager)
     if M.member name loaded
         then do
@@ -4319,24 +4416,22 @@ addMethodCollection manager mc =
 
 -- | Remove an uploaded method collection (delete files + remove from memory)
 removeMethodCollection :: DatabaseManager -> Text -> IO (Either Text ())
-removeMethodCollection manager name = do
+removeMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() -> do
     available <- readTVarIO (dmAvailableMethods manager)
     loaded <- readTVarIO (dmLoadedMethods manager)
     case M.lookup name available of
         Nothing -> return $ Left $ "Method collection not found: " <> name
         Just mc
-            | MethodBuiltIn _ <- mcOrigin mc ->
+            | (copy : _) <- [mcName other | other <- M.elems available, mcSource other == Just name] ->
+                return $ Left $ name <> " holds the files " <> copy <> " is a copy of. Delete " <> copy <> " first."
+            | Nothing <- mcHome mc
+            , MethodBuiltIn _ <- mcOrigin mc ->
                 return $ Left $ "Cannot delete a method built into this engine. Switch it off in volca.toml: [[methods]] name = \"" <> name <> "\", active = false."
-            | not (mcIsUploaded mc) ->
+            | Nothing <- mcHome mc ->
                 return $ Left "Cannot delete configured method. Edit volca.toml to remove it."
             | M.member name loaded ->
                 return $ Left "Cannot delete loaded method. Close it first."
-            | otherwise -> do
-                -- Find and delete the upload directory
-                methodUploadsDir <- UploadedDB.getMethodUploadsDir
-                -- The slug is derived from the directory name; search for it
-                let slug = Upload.slugify name
-                    uploadDir = methodUploadsDir </> T.unpack slug
+            | Just uploadDir <- mcHome mc -> do
                 pathExists <- doesDirectoryExist uploadDir
                 if pathExists
                     then do

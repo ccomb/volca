@@ -21,6 +21,7 @@ baseMeta =
         , umDepends = []
         , umSource = Nothing
         , umAllocation = Declared
+        , umBuiltIn = Nothing
         , umTerms = openTerms
         }
 
@@ -98,6 +99,7 @@ spec = do
                         , umDepends = []
                         , umSource = Nothing
                         , umAllocation = Declared
+                        , umBuiltIn = Nothing
                         , umTerms = openTerms
                         }
 

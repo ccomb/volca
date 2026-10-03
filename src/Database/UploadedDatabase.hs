@@ -65,6 +65,11 @@ data UploadMeta = UploadMeta
     A file written before this field existed is not a copy, which is what it
     meant.
     -}
+    , umBuiltIn :: !(Maybe Text)
+    {- ^ The collection built into the engine a method copy reads, in place of
+    a path: such a copy has no file to point at. A file written before this
+    field existed reads none, which is what it meant.
+    -}
     , umAllocation :: !AllocationKey
     {- ^ The key this database's multi-output blocks were divided under. The
     only durable record of it: a re-keyed database owns no files of its own,
@@ -83,11 +88,13 @@ data UploadMeta = UploadMeta
 {- | The @meta.toml@ shape this engine writes, stamped by every writer.
 Version 3 added @source@, which is what tells a copy from an upload; version 4
 added @allocation@, without which a re-keyed database came back declared after
-a restart; version 5 added @licence@ and @downloads@. The parser reads every version, taking absent fields to mean what
-their absence meant when they did not exist.
+a restart; version 5 added @licence@ and @downloads@; version 6 added
+@builtin@, the built-in collection a method copy reads. The parser reads every
+version, taking absent fields to mean what their absence meant when they did
+not exist.
 -}
 metaVersion :: Int
-metaVersion = 5
+metaVersion = 6
 
 -- | Name of the metadata file in each upload directory
 metaFileName :: FilePath
@@ -192,6 +199,7 @@ parseMetaToml content = do
             , umDataPath = dataPath
             , umDepends = maybe [] parseStringList (getValue "depends")
             , umSource = unquote <$> getValue "source"
+            , umBuiltIn = unquote <$> getValue "builtin"
             , umAllocation = allocation
             , umTerms = Terms{termsLicence = unquote <$> getValue "licence", termsDownloads = downloads}
             }
@@ -255,6 +263,7 @@ formatMetaToml UploadMeta{..} =
                , "allocation = " <> quote (allocationKeyText umAllocation)
                ]
             ++ maybe [] (\s -> ["source = " <> quote s]) umSource
+            ++ maybe [] (\b -> ["builtin = " <> quote b]) umBuiltIn
             ++ maybe [] (\l -> ["licence = " <> quote l]) (termsLicence umTerms)
             ++ ["downloads = " <> quote (downloadsCode (termsDownloads umTerms))]
   where

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 41** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 42** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -405,6 +405,13 @@ Declare ``dep_name`` as a dependency of the target database.
 Returns the engine's ``DatabaseSetupInfo`` dict describing the updated
 dependency topology.
 
+##### `Client.add_method_factor(collection: str, method_id: str, factor: NewMethodFactor) -> dict`
+
+Add a characterization factor to a category of a collection of your own.
+
+Refused when a factor is already written for that flow at that place:
+change its value with `set_method_factor` instead.
+
 ##### `Client.aggregate(process_id: str, scope: AggregateScope | str, *, is_input: bool | None = None, max_depth: int | None = None, filter_name: str | None = None, filter_name_not: list[str] | str | None = None, filter_unit: str | None = None, preset: str | None = None, filter_classification: list[ClassificationFilter] | None = None, filter_target_name: str | None = None, filter_consumer: str | None = None, filter_consumer_not: list[str] | str | None = None, filter_is_reference: bool | None = None, group_by: str | None = None, aggregate: AggregateOp | str | None = None) -> AggregateResult`
 
 SQL-group-by aggregation over direct exchanges, supply chain, or biosphere flows.
@@ -502,6 +509,21 @@ Copy a loaded database in memory under a new name.
 Returns the engine's ``ActivateResponse`` dict
 (``{"success", "message", "database"?}``). Raises VoLCAError if the
 engine reports ``success=false``.
+
+##### `Client.copy_method_collection(collection: str, new_name: str) -> dict`
+
+Copy a method collection under a new name, in order to change it.
+
+A collection the configuration declares, or one built into the engine,
+is never changed in place: copy it, then change the copy. The copy
+scores exactly as its source before any change and is loaded at once.
+It reads its source's files, so the source cannot be deleted while the
+copy exists. The copy is known by the slug of ``new_name`` (lower case,
+words joined by dashes); a name another collection already has is
+refused. Returns the collection made, whose ``name`` is the one the
+next call takes.
+
+Needs an engine speaking wire revision 42.
 
 ##### `Client.count_search_matches(query: str) -> SearchCounts`
 
@@ -1060,6 +1082,16 @@ Load a staged method collection so its methods become available.
 
 Load a staged reference-data set of ``kind`` into memory.
 
+##### `Client.method_history(collection: str) -> list[dict]`
+
+The journal of a collection, one entry per line.
+
+Each entry gives its ``line``, when it was written (``at``), its
+``kind`` (``change``, ``undo`` or ``configuration``, for what a copy
+took from its source's configuration), the line it ``undoes``, whether
+it is ``inEffect``, and the ``change`` it made. A collection the
+configuration declares has an empty history.
+
 ##### `Client.profile_method_collection(collection: str) -> dict`
 
 What each impact category of a loaded method collection holds.
@@ -1105,6 +1137,12 @@ Remove ``dep_name`` from the target database's dependencies.
 
 Returns the updated ``DatabaseSetupInfo`` dict.
 
+##### `Client.remove_method_factor(collection: str, method_id: str, flow_id: str, *, location: str | None = None, value: float | None = None) -> dict`
+
+Remove one characterization factor of a collection of your own.
+
+Named as in `set_method_factor`, and refused on the same grounds.
+
 ##### `Client.replace_activity(process_id: str, activity: ActivityInput, db_name: str | None = None) -> dict`
 
 Rewrite one activity the database already holds, keeping its identity.
@@ -1147,6 +1185,13 @@ Args:
 
 Returns:
     ``{name: matches}`` for every input name, in input order.
+
+##### `Client.scale_method_factors(collection: str, match: FactorMatch, scale: float) -> dict`
+
+Multiply by ``scale`` every factor ``match`` reaches.
+
+A selector that reaches no factor is refused rather than passed off as
+done; ``touched`` in the answer says how many changed.
 
 ##### `Client.score_activities(process_ids: list[str], *, collection: str | None = None, top_flows: int | None = None, exclude_long_term: bool | None = None) -> BatchScores`
 
@@ -1239,6 +1284,14 @@ Args:
     sort: Sort key: ``"name"`` (default), ``"category"``, or ``"unit"``.
     order: ``"desc"`` to reverse; ascending otherwise.
 
+##### `Client.search_method_flows(collection: str, q: str, *, limit: int | None = None) -> list[dict]`
+
+The flows a loaded collection characterizes whose name holds every word of ``q``.
+
+Once per direction and compartment, sorted by name, with the flow id
+and compartment a new factor for that flow is written with (50 at most
+unless ``limit`` says otherwise).
+
 ##### `Client.set_data_path(path: str, db_name: str | None = None) -> dict`
 
 Choose which data file a staged multi-file archive should use.
@@ -1246,6 +1299,25 @@ Choose which data file a staged multi-file archive should use.
 ``path`` must be one of the ``availablePaths`` reported by
 `get_setup`, relative to the upload directory. Returns the
 updated ``DatabaseSetupInfo`` dict.
+
+##### `Client.set_method_factor(collection: str, method_id: str, flow_id: str, new_value: float, *, location: str | None = None, value: float | None = None) -> dict`
+
+Change the value of one characterization factor of a collection of your own.
+
+The factor is named by its category (``method_id``), its flow and its
+location (``None`` for a factor written for no location). When several
+factors answer there, give ``value``, the present value of the one to
+change; two identical factors cannot be changed one by one, only
+together through `set_method_factors`. A collection the
+configuration declares is refused: copy it with
+`copy_method_collection` first.
+
+Returns ``{"line", "touched", "before", "after"}``: the journal line
+recording the change, and the factor's value before and after.
+
+##### `Client.set_method_factors(collection: str, match: FactorMatch, value: float) -> dict`
+
+Set to ``value`` every factor ``match`` reaches, refused as `scale_method_factors` is.
 
 ##### `Client.set_terms(downloads: str, licence: str | None = None, db_name: str | None = None) -> dict`
 
@@ -1258,6 +1330,17 @@ under, in words, or None. Returns the terms now in force. Raises
 VoLCAError on an HTTP error: a 409 for a database whose terms are
 written elsewhere, in the configuration file or on the source a copy
 reads.
+
+##### `Client.undo_method_edit(collection: str, *, line: int | None = None) -> dict`
+
+Undo a change, by writing its inverse as a new journal line.
+
+Without ``line``, undoes the latest change still in effect, so calling
+it again walks back one more, and never reaches what a copy took from
+its source's configuration. With ``line``, undoes that line whatever
+it is: naming an undo line redoes the change it undid. A selector is
+undone by restoring the values it replaced, which is refused, naming
+the factor, when a later line changed one of them.
 
 ##### `Client.unload_database(db_name: str) -> dict`
 
@@ -2127,6 +2210,25 @@ the flow scores nothing) or ``"no_factor"``.
 | `steps_tried` | `list[ExplainedStep]` | list() |
 | `regional_factor_count` | `int` | 0 |
 
+### `FactorMatch`
+
+The characterization factors a selector reaches, as a configuration's
+``[[methods.patches]]`` match writes them.
+
+Every field given must hold: ``category`` and ``flow_name`` exactly,
+``flow_name_prefix`` as a prefix, ``cas`` as a CAS number whichever way it
+is padded, ``subcompartment_contains`` as a substring of the subcompartment,
+case aside. A selector naming nothing would reach every factor, which is
+almost certainly a mistake, so it is refused.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `category` | `str \| None` | None |
+| `flow_name` | `str \| None` | None |
+| `flow_name_prefix` | `str \| None` | None |
+| `cas` | `str \| None` | None |
+| `subcompartment_contains` | `str \| None` | None |
+
 ### `ExplainedFlow`
 
 The flow an explanation is about, as the cascade sees it.
@@ -2485,6 +2587,27 @@ when the engine predates these fields.
 | `compartment` | `str \| None` | None |
 | `location` | `str \| None` | None |
 | `reading` | `FactorReading \| None` | None |
+
+### `NewMethodFactor`
+
+A characterization factor written whole, to add to a category.
+
+``direction`` is ``"Input"`` (a resource) or ``"Output"`` (an emission);
+``compartment`` is ``(medium, subcompartment, qualifier)``, empty strings
+for the parts a factor leaves open. `Client.search_method_flows`
+gives the flow id and compartment of a flow the collection already
+characterizes.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `flow_id` | `str` | _required_ |
+| `name` | `str` | _required_ |
+| `direction` | `str` | _required_ |
+| `value` | `float` | _required_ |
+| `unit` | `str` | _required_ |
+| `compartment` | `tuple[str, str, str] \| None` | None |
+| `cas` | `str \| None` | None |
+| `location` | `str \| None` | None |
 
 ### `ReadLocation`
 

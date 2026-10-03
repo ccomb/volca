@@ -9,14 +9,16 @@ module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, call
 
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
-import Data.Aeson.Key (fromText)
+import Data.Aeson.Key (fromText, toText)
 import Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
+import Data.Aeson.Types (parseEither)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Scientific (toBoundedInteger)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -46,12 +48,14 @@ import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
+import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toExchangeEdits, toFactorEdit)
 import Control.Monad (mfilter)
 import qualified Data.List as L
 import qualified Data.Set as Set
 import Matrix (Inventory, applyBiosphereMatrix)
+import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
 import qualified Method.Explain as Explain
 import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude)
 import qualified Method.Mapping as Mapping
@@ -539,6 +543,11 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "get_computed_quality_report" -> callGetComputedQualityReport dbManager mHosting rid args
     "get_characterization_coverage" -> callGetCoverageReport dbManager rid args
     "edit_exchanges" -> callEditExchanges dbManager rid args
+    "copy_method_collection" -> callCopyMethodCollection dbManager rid args
+    "edit_method_factors" -> callEditMethodFactors dbManager rid args
+    "undo_method_edit" -> callUndoMethodEdit dbManager rid args
+    "get_method_history" -> callGetMethodHistory dbManager rid args
+    "search_method_flows" -> callSearchMethodFlows dbManager rid args
     _ -> return $ toolError rid ("Unknown tool: " <> name)
 
 -- Helper: extract database, then run action
@@ -643,6 +652,16 @@ optionalText key args = case KM.lookup (fromText key) args of
     Just (Bool _) -> wrongType "boolean"
   where
     wrongType ty = Left ("Parameter '" <> key <> "' must be a string, got " <> ty)
+
+{- | An optional whole number, refused when given as anything else: read
+loosely, a line number written @"3"@ or @2.6@ would name another line.
+-}
+optionalWhole :: Text -> KeyMap Value -> Either Text (Maybe Int)
+optionalWhole key args = case KM.lookup (fromText key) args of
+    Nothing -> Right Nothing
+    Just Null -> Right Nothing
+    Just (Number n) | Just i <- toBoundedInteger n -> Right (Just i)
+    Just _ -> Left ("Parameter '" <> key <> "' must be a whole number")
 
 -- | Read an argument that may be either a JSON array of strings or a single string.
 textArrayArg :: Text -> KeyMap Value -> [Text]
@@ -1687,9 +1706,9 @@ callGetGapReport dbManager rid args = runTool rid $ do
     report <- ExceptT (DM.databaseGapReport dbManager dbName)
     return $ toolSuccessJson rid (toJSON (gapReportToAPI (intArg "limit" args) report))
 
-{- | The one tool that writes. It assembles the same request the HTTP endpoint
-reads and goes through the same domain call, so what an assistant may change,
-and what it is refused, are exactly what a person is.
+{- | The tool that writes a database's data. It assembles the same request the
+HTTP endpoint reads and goes through the same domain call, so what an assistant
+may change, and what it is refused, are exactly what a person is.
 
 Every list defaults to empty: an assistant that only removes a line should not
 have to state four empty arrays to say so. An edit that ends up naming nothing
@@ -1710,6 +1729,52 @@ callEditExchanges dbManager rid args = runTool rid $ do
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
     report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName processId edits)
     return $ toolSuccessJson rid (toJSON (editReportToAPI report))
+
+callCopyMethodCollection :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callCopyMethodCollection dbManager rid args = runTool rid $ do
+    collection <- except (requireText "collection" args)
+    newName <- except (requireText "new_name" args)
+    copied <- ExceptT (first refusalText <$> copyMethodCollection dbManager collection newName)
+    return $ toolSuccessJson rid (object ["collection" .= copied])
+
+{- | Read through the request the HTTP endpoint reads, so a change an assistant
+asks for is refused or taken exactly as a person's is. The arguments are the
+request's fields in snake case.
+-}
+callEditMethodFactors :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callEditMethodFactors dbManager rid args = runTool rid $ do
+    collection <- except (requireText "collection" args)
+    mapM_ (\k -> throwE ("Unknown parameter '" <> toText k <> "'")) (filter (`notElem` ("collection" : map fst names)) (KM.keys args))
+    request <- except (first T.pack (parseEither parseJSON (Object (KM.fromList fields))))
+    edit <- except (toFactorEdit request)
+    outcome <- ExceptT (first refusalText <$> editMethodFactors dbManager collection edit)
+    return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
+  where
+    fields :: [(Key, Value)]
+    fields = [(camel, v) | (snake, camel) <- names, Just v <- [KM.lookup snake args]]
+    names :: [(Key, Key)]
+    names = [("op", "op"), ("method_id", "methodId"), ("flow_id", "flowId"), ("location", "location"), ("value", "value"), ("new_value", "newValue"), ("scale", "scale"), ("match", "match"), ("factor", "factor")]
+
+callUndoMethodEdit :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callUndoMethodEdit dbManager rid args = runTool rid $ do
+    collection <- except (requireText "collection" args)
+    line <- except (optionalWhole "line" args)
+    outcome <- ExceptT (first refusalText <$> undoMethodEdit dbManager collection line)
+    return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
+
+callGetMethodHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callGetMethodHistory dbManager rid args = runTool rid $ do
+    collection <- except (requireText "collection" args)
+    history <- ExceptT (first refusalText <$> methodHistory dbManager collection)
+    loaded <- liftIO (DM.getMethodCollection dbManager collection)
+    return $ toolSuccessJson rid (toJSON (historyToAPI loaded history))
+
+callSearchMethodFlows :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callSearchMethodFlows dbManager rid args = runTool rid $ do
+    collection <- except (requireText "collection" args)
+    loaded <- liftIO (DM.getMethodCollection dbManager collection)
+    found <- maybe (throwE (refusalText (CollectionNotLoaded collection))) pure loaded
+    return $ toolSuccessJson rid (toJSON (collectionFlows (fromMaybe "" (textArg "q" args)) (intArg "limit" args) found))
 
 {- | Dataset-soundness report: what is malformed in the database itself. Same
 wire shape as the REST endpoint ('qualityReportToAPI'), so both surfaces stay

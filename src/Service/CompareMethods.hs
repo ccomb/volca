@@ -63,6 +63,7 @@ module Service.CompareMethods (
     compareCollections,
     profileCollection,
     factorReading,
+    factorSide,
     limitMethodComparison,
 ) where
 
@@ -702,6 +703,7 @@ categorySide m =
         , csdCategory = methodCategory m
         , csdUnit = methodUnit m
         , csdFactorCount = length (methodFactors m)
+        , csdMethodId = methodId m
         }
 
 factorSide :: MethodCF -> FactorSide
@@ -714,6 +716,7 @@ factorSide cf =
         , facLocation = mcfConsumerLocation cf
         , facUnit = mfilter (not . T.null) (Just (mcfUnit cf))
         , facValue = mcfValue cf
+        , facFlowRef = mcfFlowRef cf
         }
   where
     path :: Compartment -> Text

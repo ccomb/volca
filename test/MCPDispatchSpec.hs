@@ -22,7 +22,10 @@ import Test.Hspec
 
 import API.MCP (RequestId (..), RpcRequest (..), callTool, handleInitialize, mcpCountsAsActivity, noRequestId, toolDefinitions, webUrlBase)
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), ReadOnly (..), ServerName (..), defaultConfig)
-import Database.Manager (CachePolicy (..), addDatabase, initDatabaseManager, loadDatabase)
+import qualified Data.UUID as UUID
+import Database.Manager (CachePolicy (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
+import Method.Types (Method (..), MethodCF (..), MethodCollection (..))
+import TestHelpers (withScratchDataDir)
 import Types (AllocationKey (..), GeographyPolicy (..), openTerms)
 
 -- | The tool definition advertised under a given MCP name.
@@ -174,6 +177,41 @@ spec = describe "MCP database load/unload tools" $ do
         resp <- call "unload_database"
         isError resp `shouldBe` True
         resultText resp `shouldSatisfy` maybe False ("Database not loaded:" `T.isInfixOf`)
+
+    describe "method collection change tools" $ do
+        it "ask for the collection and what to do" $
+            fmap requiredOf (toolByName "edit_method_factors") `shouldBe` Just ["collection", "op"]
+
+        it "copy a collection, change a factor of the copy and read it back in its history" $
+            withScratchDataDir $ do
+                manager <- initDatabaseManager defaultConfig NoCache
+                let tool name = callTool manager [] Nothing Nothing noRequestId name . KM.fromList
+                copied <- tool "copy_method_collection" [("collection", String "plain-indicators"), ("new_name", String "copy")]
+                isError copied `shouldBe` False
+                collection <- getMethodCollection manager "copy"
+                case [(methodId m, mcfFlowRef f) | m <- maybe [] mcMethods collection, methodName m == "Methane", f <- methodFactors m, mcfFlowName f == "Methane, fossil"] of
+                    [(category, flow)] -> do
+                        edited <-
+                            tool
+                                "edit_method_factors"
+                                [ ("collection", String "copy")
+                                , ("op", String "set")
+                                , ("method_id", String (UUID.toText category))
+                                , ("flow_id", String (UUID.toText flow))
+                                , ("new_value", Number 27)
+                                ]
+                        isError edited `shouldBe` False
+                        history <- tool "get_method_history" [("collection", String "copy")]
+                        resultText history `shouldSatisfy` maybe False ("FactorSet" `T.isInfixOf`)
+                        quoted <- tool "undo_method_edit" [("collection", String "copy"), ("line", String "1")]
+                        isError quoted `shouldBe` True
+                        fractional <- tool "undo_method_edit" [("collection", String "copy"), ("line", Number 0.6)]
+                        isError fractional `shouldBe` True
+                        misspelt <- tool "edit_method_factors" [("collection", String "copy"), ("op", String "remove"), ("method_id", String (UUID.toText category)), ("flow_id", String (UUID.toText flow)), ("locaton", String "FR")]
+                        isError misspelt `shouldBe` True
+                        after <- tool "get_method_history" [("collection", String "copy")]
+                        resultText after `shouldBe` resultText history
+                    found -> expectationFailure ("expected one Methane, fossil factor, found " <> show (length found))
 
     describe "gap-report tool" $ do
         it "is advertised with a required 'database' parameter" $

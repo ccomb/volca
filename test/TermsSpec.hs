@@ -55,6 +55,7 @@ withUpload k = withScratchDataDir $ do
             , UploadedDB.umDepends = []
             , UploadedDB.umSource = Nothing
             , UploadedDB.umAllocation = Declared
+            , UploadedDB.umBuiltIn = Nothing
             , UploadedDB.umTerms = openTerms
             }
     manager <- initDatabaseManager defaultConfig NoCache

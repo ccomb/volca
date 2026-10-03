@@ -35,7 +35,8 @@ import Database.Author (
     validateAuthored,
  )
 import Database.Journal (
-    JournalEvent (..),
+    Entry (..),
+    JournalEvent,
     JournalOp (..),
     appendEvent,
     journalPath,
@@ -202,7 +203,7 @@ spec = do
 -- ---------------------------------------------------------------------------
 
 event :: JournalOp -> JournalEvent
-event = JournalEvent "2026-08-03T09:12:41Z"
+event = Entry "2026-08-03T09:12:41Z"
 
 -- | Replay, keeping only what a failed assertion can print.
 replayOutcome :: AuthorContext -> [JournalEvent] -> Either Text ()

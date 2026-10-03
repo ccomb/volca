@@ -58,7 +58,7 @@ mkMethod n name cfs =
         }
 
 collection :: [Method] -> MethodCollection
-collection ms = MethodCollection ms []
+collection ms = MethodCollection ms [] []
 
 {- | Re-read the exported package the way the loader does: build the flow
 enrichment map from the @flows\/@ entries, then parse each @lciamethods\/@ file
@@ -166,7 +166,7 @@ spec = describe "Method.WriterILCD" $ do
         it "counts scoring sets" $ do
             let m = mkMethod 1 "Climate change" []
                 ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty Nothing M.empty DeclaredInConfig
-            case serializeIlcdMethodEntries (MethodCollection [m] [ss]) of
+            case serializeIlcdMethodEntries (MethodCollection [m] [ss] []) of
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, warnings) -> do
                     warnings `shouldSatisfy` any (T.isInfixOf "1 formula scoring sets")
@@ -243,7 +243,8 @@ methodConfig path =
         { mcName = "reload"
         , mcOrigin = MethodFromFile path
         , mcActive = True
-        , mcIsUploaded = False
+        , mcHome = Nothing
+        , mcSource = Nothing
         , mcDescription = Nothing
         , mcFormat = Nothing
         , mcScoringSets = []

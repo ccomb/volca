@@ -40,17 +40,13 @@ disagree, the engine's minting has changed under a journal written by an older
 one, and the replay stops there instead of silently landing the activity under
 a different identity.
 
-The second is the version on every line. A line this engine cannot read is
-refused, never skipped.
-
-The last line is the exception, and only when it is the last: a line is
-written and flushed before its edit is acknowledged, so a torn final line
-belongs to an edit no caller was ever told had happened. It is dropped with a
-warning. A line that fails to parse anywhere else refuses the whole journal.
+The second is the version on every line, and the rule for a torn last
+line, which the file shares with every journal ('Data.JournalFile').
 -}
 module Database.Journal (
     -- * What a journal records
-    JournalEvent (..),
+    Entry (..),
+    JournalEvent,
     JournalOp (..),
 
     -- * The file
@@ -69,44 +65,29 @@ module Database.Journal (
 ) where
 
 import Control.Exception (SomeException, try)
-import Control.Monad (foldM, when)
+import Control.Monad (foldM)
 import Data.Aeson (
-    FromJSON (..),
     Object,
-    ToJSON (..),
     Value,
-    eitherDecodeStrict,
-    encode,
     object,
     withObject,
     (.:),
     (.:?),
     (.=),
  )
-import Data.Aeson.Types (Pair, Parser, parseEither)
+import Data.Aeson.Types (Pair, Parser)
 import Data.Bifunctor (bimap, first)
 import Data.Bits (xor)
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Lazy as BL
-import Data.Char (isSpace)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Data.Time.Clock (getCurrentTime)
-import Data.Time.Format.ISO8601 (iso8601Show)
 import qualified Data.UUID as UUID
 import Data.Word (Word64)
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Directory (doesFileExist)
 import System.FilePath ((</>))
-import System.IO (
-    Handle,
-    IOMode (ReadWriteMode),
-    SeekMode (AbsoluteSeek, SeekFromEnd),
-    hFileSize,
-    hSeek,
-    hSetFileSize,
-    withFile,
- )
+
+import Data.JournalFile (Entry (..), JournalVocabulary (..), appendEntry, journalPath, readEntries)
 
 import Database.Author (
     AuthorContext (..),
@@ -135,14 +116,8 @@ import Types (BioDirection (..), Compartment (..), Database, getActivity)
 -- What a journal records
 -- ---------------------------------------------------------------------------
 
-{- | One line of the journal: what was done, and when. The timestamp is
-provenance for whoever reads the file; the replay never looks at it.
--}
-data JournalEvent = JournalEvent
-    { jeAt :: Text
-    , jeOp :: JournalOp
-    }
-    deriving (Eq, Show)
+-- | One line of a database's journal.
+type JournalEvent = Entry JournalOp
 
 {- | The ways a database changes. Each carries what the edit produced, so a
 replay can check that it still produces it: an identity for the operations
@@ -164,129 +139,19 @@ data JournalOp
       Edited Text [(ExchangeEdit, Int)]
     deriving (Eq, Show)
 
--- | The version this engine writes, and the only one it reads.
-journalVersion :: Int
-journalVersion = 1
-
--- | A database's journal, given the upload directory that database lives in.
-journalPath :: FilePath -> FilePath
-journalPath home = home </> "journal.jsonl"
-
 -- ---------------------------------------------------------------------------
 -- The file
 -- ---------------------------------------------------------------------------
 
 {- | Record an edit. Appends one line and closes the file before returning, so
 an edit is on disk by the time its caller answers.
-
-Stamps the line with the current time, which is why this takes the operation
-rather than a whole event: when it happened is the journal's business, not its
-caller's.
 -}
 appendEvent :: FilePath -> JournalOp -> IO (Either Text ())
-appendEvent home op = do
-    now <- getCurrentTime
-    let event = JournalEvent{jeAt = T.pack (iso8601Show now), jeOp = op}
-    written <- try $ do
-        createDirectoryIfMissing True home
-        withFile (journalPath home) ReadWriteMode $ \handle -> do
-            dropTornTail handle
-            hSeek handle SeekFromEnd 0
-            BL.hPut handle (encode event <> "\n")
-    pure $ case written of
-        Right () -> Right ()
-        Left (err :: SomeException) ->
-            Left $
-                "could not record the edit in "
-                    <> T.pack (journalPath home)
-                    <> ": "
-                    <> T.pack (show err)
+appendEvent = appendEntry
 
-{- | Remove a torn tail before appending, so the new line starts a line.
-
-A file that does not end in a newline carries the tail of an append that was
-cut short, which belongs to an edit that was never acknowledged (the line is
-on disk before the caller is answered). Appending straight after it would fuse
-the new line with the debris, turning an edit that /was/ acknowledged into a
-line no replay can read. Truncating to the last newline drops exactly what the
-replay's torn-last-line rule would have dropped, one write earlier.
--}
-dropTornTail :: Handle -> IO ()
-dropTornTail handle = do
-    size <- hFileSize handle
-    when (size > 0) $ do
-        hSeek handle AbsoluteSeek (size - 1)
-        lastByte <- BS.hGet handle 1
-        when (lastByte /= "\n") $ do
-            hSeek handle AbsoluteSeek 0
-            bytes <- BS.hGet handle (fromIntegral size)
-            hSetFileSize handle (fromIntegral (BS.length (BS.dropWhileEnd (/= '\n') bytes)))
-
-{- | Read a database's journal. A database with no journal has made no edits,
-which is not an error.
-
-A torn last line is dropped with a warning (see the module header); anything
-else unreadable refuses the whole file, naming the line.
--}
+-- | Read a database's journal. A database with no journal has made no edits.
 readJournal :: FilePath -> IO (Either Text [JournalEvent])
-readJournal home = do
-    let path = journalPath home
-    exists <- doesFileExist path
-    if not exists
-        then pure (Right [])
-        else
-            try (BS.readFile path) >>= \case
-                Left (err :: SomeException) ->
-                    pure $ Left $ "could not read " <> T.pack path <> ": " <> T.pack (show err)
-                Right bytes -> decodeLines path bytes
-
-{- | What a line turned out to be.
-
-The distinction is what keeps the last-line exception honest. A line that is
-not JSON at all is a write that was cut short. A line that is complete JSON
-says something definite, and if this engine cannot read what it says – a
-version it does not know, an operation it has no verb for – that is a refusal
-wherever the line sits, including at the end. Otherwise a newer engine's
-entries, which are exactly the ones at the end of the file, would be dropped
-as debris.
--}
-data LineProblem
-    = Torn String
-    | Unreadable String
-
-decodeLines :: FilePath -> BS.ByteString -> IO (Either Text [JournalEvent])
-decodeLines path bytes =
-    case problems of
-        [] -> pure (Right events)
-        [(i, Torn err)] | i == lastLine -> do
-            reportProgress Warning $
-                "The last line of "
-                    <> path
-                    <> " is incomplete and was dropped ("
-                    <> err
-                    <> "). A line is written before its edit is acknowledged, so no\
-                       \ edit anyone was told about is lost."
-            pure (Right events)
-        ((i, problem) : _) -> pure (Left (situate i problem))
-  where
-    numbered =
-        [ (i, line)
-        | (i, line) <- zip [1 :: Int ..] (BS.lines bytes)
-        , not (BS.all isSpace line)
-        ]
-    results = [(i, readLine line) | (i, line) <- numbered]
-    events = [event | (_, Right event) <- results]
-    problems = [(i, problem) | (i, Left problem) <- results]
-    lastLine = length numbered
-    situate i problem =
-        T.pack path <> " line " <> T.pack (show i) <> " " <> case problem of
-            Torn err -> "is not complete JSON: " <> T.pack err
-            Unreadable err -> "is not an entry this engine reads: " <> T.pack err
-
-readLine :: BS.ByteString -> Either LineProblem JournalEvent
-readLine line = case eitherDecodeStrict line of
-    Left err -> Left (Torn err)
-    Right value -> first Unreadable (parseEither parseJSON value)
+readJournal = readEntries
 
 -- ---------------------------------------------------------------------------
 -- Keeping a cache honest about the journal
@@ -470,23 +335,14 @@ opName = \case
 -- that separation enforceable.
 -- ---------------------------------------------------------------------------
 
-instance ToJSON JournalEvent where
-    toJSON event = object $ ["v" .= journalVersion, "at" .= jeAt event] <> opFields (jeOp event)
+-- | The version this engine writes for a database's journal, and the only one it reads.
+instance JournalVocabulary JournalOp where
+    vocabularyVersion _ = 1
+    opFields = databaseOpFields
+    parseOp = databaseParseOp
 
-instance FromJSON JournalEvent where
-    parseJSON = withObject "journal entry" $ \o -> do
-        version <- o .: "v"
-        if version /= journalVersion
-            then
-                fail $
-                    "journal format version "
-                        <> show (version :: Int)
-                        <> ", but this engine reads version "
-                        <> show journalVersion
-            else JournalEvent <$> o .: "at" <*> parseOp o
-
-opFields :: JournalOp -> [Pair]
-opFields = \case
+databaseOpFields :: JournalOp -> [Pair]
+databaseOpFields = \case
     Created activities written ->
         [ "op" .= ("create" :: Text)
         , "activities" .= map activityJSON activities
@@ -499,8 +355,8 @@ opFields = \case
     Edited target edits ->
         ["op" .= ("edit" :: Text), "target" .= target, "edits" .= map editJSON edits]
 
-parseOp :: Object -> Parser JournalOp
-parseOp o =
+databaseParseOp :: Object -> Parser JournalOp
+databaseParseOp o =
     o .: "op" >>= \case
         ("create" :: Text) ->
             Created <$> (o .: "activities" >>= traverse parseActivity) <*> o .: "written"

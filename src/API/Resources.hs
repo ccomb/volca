@@ -52,10 +52,12 @@ of an activity: adjusting an imported dataset to the study at hand is analysis
 work, done on a database of one's own, and the engine refuses it on the
 background data it reads from its configuration.
 
-Infrastructure stays in Routes.hs only: method-collection management,
-upload, delete, relink, copy, auth, version. Those administer the installation
-rather than answer a question about it, and have no analyst-facing equivalent
-across every surface.
+Infrastructure stays in Routes.hs only: method-collection loading, upload
+and delete, relink, database copy, auth, version. Those administer the
+installation rather than answer a question about it, and have no
+analyst-facing equivalent across every surface. Copying and changing a method
+collection are analysis work, the method counterpart of editing an inventory,
+and so are here.
 -}
 data Resource
     = ListDatabases
@@ -97,6 +99,11 @@ data Resource
     | GetComputedQualityReport
     | GetCoverageReport
     | EditExchanges
+    | CopyMethodCollection
+    | EditMethodFactors
+    | UndoMethodEdit
+    | GetMethodHistory
+    | SearchMethodFlows
     deriving (Eq, Ord, Show, Bounded, Enum)
 
 -- | Whether a parameter must be supplied by the caller.
@@ -185,6 +192,11 @@ resourceMutates r = case r of
     GetComputedQualityReport -> False
     GetCoverageReport -> False
     EditExchanges -> True
+    CopyMethodCollection -> True
+    EditMethodFactors -> True
+    UndoMethodEdit -> True
+    GetMethodHistory -> False
+    SearchMethodFlows -> False
 
 -- ---------------------------------------------------------------------------
 -- Projection: canonical HTTP route (primary GET)
@@ -248,6 +260,11 @@ apiPath r = case r of
     GetComputedQualityReport -> Just (GET, ["db", "{dbName}", "computed-quality-report"])
     GetCoverageReport -> Just (GET, ["db", "{dbName}", "characterization-coverage"])
     EditExchanges -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "exchanges"])
+    CopyMethodCollection -> Just (POST, ["method-collections", "{collection}", "copy", "{newName}"])
+    EditMethodFactors -> Just (POST, ["method-collections", "{collection}", "factors"])
+    UndoMethodEdit -> Just (POST, ["method-collections", "{collection}", "undo"])
+    GetMethodHistory -> Just (GET, ["method-collections", "{collection}", "history"])
+    SearchMethodFlows -> Just (GET, ["method-collections", "{collection}", "flows"])
 
 {- | The full OpenAPI path template for a resource, e.g.
 @"/api/v1/db/{dbName}/activity/{processId}/impacts/{collection}/{methodId}"@.
@@ -304,6 +321,11 @@ mcpName r = case r of
     GetComputedQualityReport -> "get_computed_quality_report"
     GetCoverageReport -> "get_characterization_coverage"
     EditExchanges -> "edit_exchanges"
+    CopyMethodCollection -> "copy_method_collection"
+    EditMethodFactors -> "edit_method_factors"
+    UndoMethodEdit -> "undo_method_edit"
+    GetMethodHistory -> "get_method_history"
+    SearchMethodFlows -> "search_method_flows"
 
 -- ---------------------------------------------------------------------------
 -- Projection: human-readable description (shared across surfaces)
@@ -745,7 +767,7 @@ description r = case r of
         \exact-name tool fail to characterize?'"
     EditExchanges ->
         "LCA / ACV: change what one activity consumes and emits, keeping the \
-        \activity itself. The only tool that writes data. Use it to adjust an \
+        \activity itself. The tool that writes a database's data. Use it to adjust an \
         \imported dataset to the study at hand: drop a substance the scope \
         \excludes, correct an amount, add a supplier the dataset is missing. \
         \Everything the edit does not name stays as it is (classification, \
@@ -761,6 +783,51 @@ description r = case r of
         \configuration: copy it first (that background data is shared with \
         \everyone). If the answer says transient, the edit is in memory only \
         \and an unload undoes it."
+    CopyMethodCollection ->
+        "LCA / ACV: copy a method collection under a new name, in order to \
+        \change it. A collection the configuration declares, or one built into \
+        \the engine, is never changed in place: it is copied, and the copy is \
+        \changed. The copy scores exactly as its source before any change, and \
+        \is loaded at once. It reads its source's files, so the source cannot \
+        \be deleted while the copy exists. The copy is named by the slug of \
+        \'new_name' (lower case, words joined by dashes), which the response \
+        \gives; a name another collection already has is refused."
+    EditMethodFactors ->
+        "LCA / ACV: change one characterization factor of a loaded collection \
+        \of one's own (a copy or an upload), remove it, add one, or rescale or \
+        \set every factor a selector reaches. 'op' says which: 'set' and \
+        \'remove' name a factor by method_id (from list_methods), flow_id and \
+        \location (from get_characterization or the factors of the method), \
+        \and 'value', its present value, chooses when several factors answer \
+        \at that place; 'add' names method_id and the whole factor; 'scale' \
+        \and 'set-all' name a selector 'match'. Anything that does not name \
+        \exactly one factor is refused, naming the candidates; two identical \
+        \factors are reached only by a selector; a selector that touches \
+        \nothing is refused. The response gives the journal line that records \
+        \the change and how many factors it touched. A collection the \
+        \configuration declares is refused: copy it with \
+        \copy_method_collection first."
+    UndoMethodEdit ->
+        "LCA / ACV: undo a change to a collection of one's own, by writing its \
+        \inverse as a new journal line. Without 'line', undoes the latest \
+        \change still in effect, so repeated calls walk back one change at a \
+        \time, and never what a copy took from its source's configuration. \
+        \With 'line', undoes that line, whatever it is: naming an undo line \
+        \redoes the change it undid. A selector is undone by restoring the \
+        \values it replaced; a factor a later line changed refuses that, \
+        \naming it."
+    GetMethodHistory ->
+        "LCA / ACV: the journal of a method collection, one entry per change: \
+        \its line number, when it was written, what it changed (the category \
+        \and factor, the values before and after, the selector and how many \
+        \factors it touched), whether it undoes another line, and whether it \
+        \is still in effect. A collection the configuration declares has an \
+        \empty history."
+    SearchMethodFlows ->
+        "LCA / ACV: the flows a loaded method collection characterizes, once \
+        \per direction and compartment, whose name holds every word of 'q' \
+        \(case aside), sorted by name. Gives the flow_id and compartment a new \
+        \factor for that flow is written with."
 
 -- ---------------------------------------------------------------------------
 -- Projection: parameter schema
@@ -1158,4 +1225,32 @@ params r = case r of
         , Param "add_inputs" "array" Optional "Technosphere inputs to add. Each is {provider, amount} plus optional unit and comment. The flow follows from the provider."
         , Param "add_biosphere" "array" Optional "Biosphere lines to add. Each is {direction, amount} plus either flow (an existing flow id) or name + compartment + unit, which reach the flow the database declares under them and introduce one only when nothing does."
         , Param "add_waste_outputs" "array" Optional "Waste outputs to add. Each is {provider, amount} plus optional unit and comment, where the provider is the treatment process."
+        ]
+    CopyMethodCollection ->
+        [ Param "collection" "string" Required "Method collection to copy"
+        , Param "new_name" "string" Required "Name of the copy; it is known by its slug"
+        ]
+    EditMethodFactors ->
+        [ Param "collection" "string" Required "Loaded method collection of one's own: a copy or an upload"
+        , Param "op" "string" Required "set, remove, add, scale or set-all"
+        , Param "method_id" "string" Optional "The impact category (from list_methods), for set, remove and add"
+        , Param "flow_id" "string" Optional "The factor's flow, for set and remove"
+        , Param "location" "string" Optional "The factor's location, for set and remove; absent for a factor written for no location"
+        , Param "value" "number" Optional "The factor's present value, for set and remove, when several factors answer at that place"
+        , Param "new_value" "number" Optional "The value to write, for set and set-all"
+        , Param "scale" "number" Optional "The factor to multiply by, for scale"
+        , Param "match" "object" Optional "The selector, for scale and set-all: {category, flowName, flowNamePrefix, cas, subcompartmentContains}, at least one of them"
+        , Param "factor" "object" Optional "The factor to add: {flowId, name, direction (Input or Output), value, unit, compartment {medium, subcompartment, qualifier}, cas, location}"
+        ]
+    UndoMethodEdit ->
+        [ Param "collection" "string" Required "Loaded method collection of one's own"
+        , Param "line" "integer" Optional "The journal line to undo (from get_method_history); the latest change in effect when absent"
+        ]
+    GetMethodHistory ->
+        [ Param "collection" "string" Required "Method collection name"
+        ]
+    SearchMethodFlows ->
+        [ Param "collection" "string" Required "Loaded method collection"
+        , Param "q" "string" Optional "Words the flow name holds; every flow when absent"
+        , pLimit "Max flows to return, in name order (default: 50)"
         ]

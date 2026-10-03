@@ -322,6 +322,7 @@ recordDerived slug srcConfig key = do
                 , UploadedDB.umDepends = dcDepends srcConfig
                 , UploadedDB.umSource = Just (dcName srcConfig)
                 , UploadedDB.umAllocation = key
+                , UploadedDB.umBuiltIn = Nothing
                 , UploadedDB.umTerms = dcTerms srcConfig
                 }
         pure
@@ -418,6 +419,7 @@ recordCopy slug src = do
                 , -- A copy holds the source's value as it stands, which the
                   -- source's own key produced.
                   UploadedDB.umAllocation = dcAllocation config
+                , UploadedDB.umBuiltIn = Nothing
                 , UploadedDB.umTerms = dcTerms config
                 }
     pure $ case written of

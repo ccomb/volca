@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 41
-"""The newest wire revision this pyvolca understands (revision 41 added
+KNOWN_WIRE = 42
+"""The newest wire revision this pyvolca understands (revision 42 added
+copying a method collection, changing the factors of a copy, undoing a change
+and reading its history, and the flows a collection characterizes; revision 41 added
 the ``terms`` of a database's setup and of its entry in the list, which ``set_terms`` changes; revision 40 added
 the ``files`` a literature entry ships, read by ``document_file``; revision 39 added
 ``process`` on the activity search, the rows of the processes named, in the

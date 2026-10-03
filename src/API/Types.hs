@@ -9,7 +9,8 @@
 
 module API.Types where
 
-import API.JsonOptions (Stripped (..))
+import API.JsonOptions (Stripped (..), parseClosed)
+import Config (MethodPatch (..), MethodPatchMatch (..))
 import Control.DeepSeq (NFData)
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
@@ -20,6 +21,7 @@ import qualified Data.ByteString.Lazy as BSL
 import Data.Either (partitionEithers)
 import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
 import qualified Data.Map as M
+import Data.Maybe (isNothing)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), binarySchema, declareSchemaRef, enum_, format, nullable, properties, required, type_)
 import qualified Data.OpenApi.Lens as OA
 import Data.Proxy (Proxy (..))
@@ -35,7 +37,9 @@ import Database.Author (
     FlowRef (..),
  )
 import GHC.Generics
-import Method.Types (FlowDirection)
+import Method.EditPlan (FactorEdit (..), FactorTarget (..))
+import Method.Types (FlowDirection, MethodCF (..))
+import qualified Method.Types as MT
 import Servant.API.ContentTypes (MimeRender (..), MimeUnrender (..), OctetStream)
 import Types (
     BioDirection (..),
@@ -49,6 +53,7 @@ import Types (
     FlowKind (..),
     NativeActivityType (..),
     NativeProcessId (..),
+    PatchOp (..),
     Pedigree,
     Severity,
     TechRole,
@@ -534,6 +539,7 @@ data MethodCollectionStatusAPI = MethodCollectionStatusAPI
     , mcaPath :: Text -- Data path
     , mcaMethodCount :: Int -- Number of impact categories (0 if unloaded)
     , mcaFormat :: Maybe Text -- Format (e.g. "ILCD")
+    , mcaSource :: Maybe Text -- The collection this one is a copy of
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped MethodCollectionStatusAPI)
@@ -2034,6 +2040,8 @@ data FactorSide = FactorSide
     , facUnit :: !(Maybe Text)
     -- ^ absent when the method states none
     , facValue :: !Double
+    , facFlowRef :: !UUID
+    -- ^ what a change to this factor addresses; last, so factors still sort by name
     }
     deriving (Eq, Ord, Show, Generic)
     deriving (ToJSON, ToSchema) via (Stripped FactorSide)
@@ -2073,6 +2081,8 @@ data CategorySide = CategorySide
     , csdCategory :: !Text
     , csdUnit :: !Text
     , csdFactorCount :: !Int
+    , csdMethodId :: !UUID
+    -- ^ what a change to one of this category's factors addresses
     }
     deriving (Eq, Show, Generic)
     deriving (ToJSON, ToSchema) via (Stripped CategorySide)
@@ -2529,3 +2539,225 @@ bioDirection raw = case T.toLower (T.strip raw) of
     "resource" -> Right Resource
     "emission" -> Right Emission
     other -> Left ("unknown biosphere direction: " <> other <> " (expected resource|emission)")
+
+-- ---------------------------------------------------------------------------
+-- Changing a method collection of one's own
+-- ---------------------------------------------------------------------------
+
+-- | What one request does. Read from the five words below; any other is refused naming them.
+data FactorEditOp = SetOne | RemoveOne | AddOne | ScaleMany | SetMany
+    deriving (Eq, Show, Enum, Bounded)
+
+factorEditOpName :: FactorEditOp -> Text
+factorEditOpName = \case
+    SetOne -> "set"
+    RemoveOne -> "remove"
+    AddOne -> "add"
+    ScaleMany -> "scale"
+    SetMany -> "set-all"
+
+instance FromJSON FactorEditOp where
+    parseJSON = withText "op" $ \t ->
+        maybe
+            (fail ("op " <> show t <> " is none of " <> T.unpack (T.intercalate ", " (map factorEditOpName [minBound .. maxBound]))))
+            pure
+            (lookup t [(factorEditOpName o, o) | o <- [minBound .. maxBound]])
+
+instance ToJSON FactorEditOp where
+    toJSON = toJSON . factorEditOpName
+
+instance ToSchema FactorEditOp where
+    declareNamedSchema _ =
+        pure $
+            NamedSchema (Just "FactorEditOp") $
+                mempty
+                    & type_
+                        ?~ OpenApiString
+                    & enum_
+                        ?~ map (toJSON . factorEditOpName) [minBound .. maxBound]
+
+{- | One change asked of a collection's factors. Which fields count follows
+from 'op': a set names the factor (its category, flow and place, and its
+present value when several answer there) and the new value; a removal names
+the factor; an addition names the category and the whole factor; a scale or a
+set-all names a selector and the factor or the value it applies.
+-}
+data FactorEditRequest = FactorEditRequest
+    { ferOp :: FactorEditOp
+    , ferMethodId :: Maybe UUID
+    , ferFlowId :: Maybe UUID
+    , ferLocation :: Maybe Text
+    , ferValue :: Maybe Double
+    , ferNewValue :: Maybe Double
+    , ferScale :: Maybe Double
+    , ferMatch :: Maybe FactorMatchAPI
+    , ferFactor :: Maybe NewFactorAPI
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped FactorEditRequest)
+
+instance FromJSON FactorEditRequest where
+    parseJSON = parseClosed
+
+-- | The factors a selector reaches, as the configuration's @[[methods.patches]]@ write them.
+data FactorMatchAPI = FactorMatchAPI
+    { fmaCategory :: Maybe Text
+    , fmaFlowName :: Maybe Text
+    , fmaFlowNamePrefix :: Maybe Text
+    , fmaCas :: Maybe Text
+    , fmaSubcompartmentContains :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped FactorMatchAPI)
+
+instance FromJSON FactorMatchAPI where
+    parseJSON = parseClosed
+
+-- | A factor written whole, as a collection holds it.
+data NewFactorAPI = NewFactorAPI
+    { nfaFlowId :: UUID
+    , nfaName :: Text
+    , nfaDirection :: FlowDirection
+    , nfaValue :: Double
+    , nfaCompartment :: Maybe CompartmentAPI
+    , nfaCas :: Maybe Text
+    , nfaUnit :: Text
+    , nfaLocation :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped NewFactorAPI)
+
+instance FromJSON NewFactorAPI where
+    parseJSON = parseClosed
+
+data CompartmentAPI = CompartmentAPI
+    { cpaMedium :: Text
+    , cpaSubcompartment :: Text
+    , cpaQualifier :: Text
+    }
+    deriving (Eq, Ord, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped CompartmentAPI)
+
+instance FromJSON CompartmentAPI where
+    parseJSON = parseClosed
+
+-- | What a change did: the journal line recording it, how many factors it touched, and the one factor's value before and after.
+data MethodEditResponse = MethodEditResponse
+    { merLine :: Int
+    , merTouched :: Int
+    , merBefore :: Maybe Double
+    , merAfter :: Maybe Double
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped MethodEditResponse)
+
+-- | Why a journal line is there: a change asked for, the undo of another line, or what a copy took from its source's configuration.
+data HistoryKindAPI = ChangeLine | UndoLine | ConfigurationLine
+    deriving (Eq, Show, Enum, Bounded)
+
+historyKindName :: HistoryKindAPI -> Text
+historyKindName = \case
+    ChangeLine -> "change"
+    UndoLine -> "undo"
+    ConfigurationLine -> "configuration"
+
+instance ToJSON HistoryKindAPI where
+    toJSON = toJSON . historyKindName
+
+instance ToSchema HistoryKindAPI where
+    declareNamedSchema _ =
+        pure $
+            NamedSchema (Just "HistoryKindAPI") $
+                mempty
+                    & type_
+                        ?~ OpenApiString
+                    & enum_
+                        ?~ map (toJSON . historyKindName) [minBound .. maxBound]
+
+-- | One line of a collection's journal.
+data MethodHistoryEntry = MethodHistoryEntry
+    { mheLine :: Int
+    , mheAt :: Text
+    , mheKind :: HistoryKindAPI
+    , mheUndoes :: Maybe Int
+    -- ^ the line this one undoes, for an undo
+    , mheInEffect :: Bool
+    -- ^ false once a later line in effect undoes it
+    , mheChange :: MethodChangeAPI
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped MethodHistoryEntry)
+
+-- | What a journal line changed, in the words a reader of the collection uses.
+data MethodChangeAPI
+    = FactorSet {fstCategory :: Text, fstFactor :: FactorSide, fstBefore :: Double, fstAfter :: Double}
+    | FactorRemoved {frmCategory :: Text, frmFactor :: FactorSide}
+    | FactorAdded {fadCategory :: Text, fadFactor :: FactorSide}
+    | FactorsPatched {fptSelector :: Text, fptTouched :: Int}
+    | FactorsRestored {frsTouched :: Int}
+    | UnregionalizedSet {unrBefore :: [Text], unrAfter :: [Text]}
+    | ScoringSetCreated {sscrName :: Text}
+    | ScoringSetRemoved {ssrmName :: Text}
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped MethodChangeAPI)
+
+{- | A flow a collection characterizes, once per direction and compartment.
+Ordered by name, then compartment: the order a list of them is read in.
+-}
+data MethodFlowAPI = MethodFlowAPI
+    { mflName :: Text
+    , mflCompartment :: Maybe CompartmentAPI
+    , mflFlowId :: UUID
+    , mflDirection :: FlowDirection
+    , mflCas :: Maybe Text
+    , mflUnit :: Text
+    }
+    deriving (Eq, Ord, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped MethodFlowAPI)
+
+-- | What a request asks, or why it asks nothing this engine can do.
+toFactorEdit :: FactorEditRequest -> Either Text FactorEdit
+toFactorEdit req =
+    mapM_ finite numbers >> case ferOp req of
+        SetOne -> maybe (Left "a set names methodId, flowId and newValue") Right $ do
+            target <- named
+            SetValue target <$> ferNewValue req
+        RemoveOne -> maybe (Left "a remove names methodId and flowId") (Right . Remove) named
+        AddOne ->
+            maybe (Left "an add names methodId and factor") Right $
+                Add <$> ferMethodId req <*> (newFactor <$> ferFactor req)
+        ScaleMany -> selector "a scale names match and scale" (ScaleBy <$> ferScale req)
+        SetMany -> selector "a set-all names match and newValue" (SetValueTo <$> ferNewValue req)
+  where
+    -- JSON writes an infinite or undefined number as null, so the journal
+    -- would read back another value than the one applied.
+    numbers :: [(Text, Maybe Double)]
+    numbers = [("value", ferValue req), ("newValue", ferNewValue req), ("scale", ferScale req), ("factor.value", nfaValue <$> ferFactor req)]
+    finite :: (Text, Maybe Double) -> Either Text ()
+    finite (field, v)
+        | any (\x -> isNaN x || isInfinite x) v = Left (field <> " must be a finite number")
+        | otherwise = Right ()
+    named :: Maybe FactorTarget
+    named = (\m f -> FactorTarget m f (ferLocation req) (ferValue req)) <$> ferMethodId req <*> ferFlowId req
+    selector :: Text -> Maybe PatchOp -> Either Text FactorEdit
+    selector missing op = case (ferMatch req, op) of
+        (Just m, Just o)
+            | emptyMatch m -> Left "match: at least one selector field must be set"
+            | otherwise -> Right (Patch (MethodPatch Nothing (matchOf m) o))
+        _ -> Left missing
+    emptyMatch :: FactorMatchAPI -> Bool
+    emptyMatch m = all isNothing [fmaCategory m, fmaFlowName m, fmaFlowNamePrefix m, fmaCas m, fmaSubcompartmentContains m]
+    matchOf :: FactorMatchAPI -> MethodPatchMatch
+    matchOf m = MethodPatchMatch (fmaCategory m) (fmaFlowName m) (fmaFlowNamePrefix m) (fmaCas m) (fmaSubcompartmentContains m)
+    newFactor :: NewFactorAPI -> MethodCF
+    newFactor n =
+        MethodCF
+            { mcfFlowRef = nfaFlowId n
+            , mcfFlowName = nfaName n
+            , mcfDirection = nfaDirection n
+            , mcfValue = nfaValue n
+            , mcfCompartment = (\c -> MT.Compartment (cpaMedium c) (cpaSubcompartment c) (cpaQualifier c)) <$> nfaCompartment n
+            , mcfCAS = nfaCas n
+            , mcfUnit = nfaUnit n
+            , mcfConsumerLocation = nfaLocation n
+            }

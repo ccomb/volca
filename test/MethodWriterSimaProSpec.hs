@@ -46,7 +46,7 @@ mkMethod name cfs =
         }
 
 collection :: [Method] -> MethodCollection
-collection ms = MethodCollection ms []
+collection ms = MethodCollection ms [] []
 
 -- | Parse a SimaPro method file into the collection the engine keeps.
 parseCollection :: BS.ByteString -> Either String MethodCollection
@@ -186,7 +186,7 @@ spec = describe "Method.WriterSimaPro" $ do
 
         it "leaves out a scoring set SimaPro cannot hold, with a warning, and writes the rest" $ do
             let ss = ScoringSet "EF score" "Pt" M.empty M.empty M.empty M.empty M.empty M.empty (Just 1000) M.empty DeclaredInConfig
-                mc = MethodCollection [mkMethod "Climate change" []] [ss]
+                mc = MethodCollection [mkMethod "Climate change" []] [ss] []
             case serialize mc of
                 Left err -> expectationFailure (T.unpack err)
                 Right (out, warnings) -> do

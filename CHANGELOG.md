@@ -4,6 +4,21 @@
 
 ### Added
 
+- A method collection can be changed: copy it under a new name, then set,
+  remove or add a factor of the copy, or scale or set every factor a selector
+  reaches, the selector a configuration patch writes. Each change is a line of
+  a journal kept beside the copy's files, which are never rewritten, and the
+  copy is rebuilt from the files and the journal on every load. A change is
+  undone by writing its inverse, so the history keeps every step and an undo
+  can itself be undone. A collection the configuration declares is copied with
+  what the configuration added to it, written as the journal's first lines. A
+  copy's source cannot be deleted while the copy exists, and a read-only engine
+  refuses every change. The flows a collection characterizes can be searched,
+  to name the flow of a new factor; a compared factor carries its flow's
+  identifier and a compared category its own, so a difference found can be
+  changed at once. A listed collection names the one it is a copy of, and a
+  copy answers with the collection it made, under the name it is known by.
+  Wire revision 42.
 - A database states the terms it is served under: the licence it is
   published under, in words, and whether it may be downloaded, as `licence`
   and `downloads = "allowed" | "refused"` on its configuration entry. An

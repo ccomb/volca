@@ -40,6 +40,7 @@ library
                      , App.Env
                      , App.Idle
                      , Data.Indexing
+                     , Data.JournalFile
                      , Data.Validation
                      , Progress
                      , UnitConversion
@@ -91,6 +92,9 @@ library
                      , Method.Mapping
                      , Method.Coverage
                      , Method.Explain
+                     , Method.Edit
+                     , Method.EditPlan
+                     , Method.Journal
                      , Method.Patch
                      , Method.ChemSynonyms
                      , Method.FlowResolver
@@ -101,6 +105,7 @@ library
                      , API.JsonOptions
                      , API.DatabaseHandlers
                      , API.Auth
+                     , API.MethodEditHandlers
                      , API.MCP
                      , API.MCP.Enrich
                      , API.MCP.Columnar
@@ -371,7 +376,15 @@ test-suite lca-tests
                      , DeriveSpec
                      , SourceBlockSpec
                      , AuthorSpec
+                     , JournalFileSpec
                      , JournalSpec
+                     , MethodCopySpec
+                     , MethodEditHandlerSpec
+                     , MethodEditPlanSpec
+                     , MethodEditSpec
+                     , MethodJournalCheckpointsSpec
+                     , MethodJournalLoadSpec
+                     , MethodJournalSpec
                      , ActivityWriteHandlerSpec
                      , PersistenceSpec
                      , CacheLayoutSpec
