@@ -366,7 +366,9 @@ class LCIABatchResult:
     breakdown of each scoring set, already multiplied by the set's
     ``displayMultiplier`` and expressed in its display unit (see
     :class:`ScoringIndicator`). Lets callers render per-indicator charts
-    alongside the aggregate ``scoring_results``.
+    alongside the aggregate ``scoring_results``. ``scoring_rows`` gives
+    the same for every row of each set as :meth:`Client.scoring_sets` reads
+    it, a row no score reads among them, its ``category`` the row's label.
     """
 
     results: list[LCIAResult]
@@ -377,10 +379,12 @@ class LCIABatchResult:
     scoring_results: dict[str, dict[str, float]] = field(default_factory=dict)
     scoring_units: dict[str, str] = field(default_factory=dict)
     scoring_indicators: dict[str, dict[str, ScoringIndicator]] = field(default_factory=dict)
+    scoring_rows: dict[str, dict[str, ScoringIndicator]] = field(default_factory=dict)
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIABatchResult":
         raw_indicators = d.get("scoringIndicators", {})
+        raw_rows = d.get("scoringRows", {})
         return cls(
             results=[LCIAResult.from_json(r) for r in d.get("results", [])],
             single_score=d.get("singleScore"),
@@ -393,6 +397,7 @@ class LCIABatchResult:
                 set_name: {var: ScoringIndicator.from_json(si) for var, si in per_set.items()}
                 for set_name, per_set in raw_indicators.items()
             },
+            scoring_rows={set_name: {var: ScoringIndicator.from_json(si) for var, si in per_set.items()} for set_name, per_set in raw_rows.items()},
         )
 
 
@@ -2561,6 +2566,38 @@ class NewMethodFactor:
                 "compartment": compartment,
                 "cas": self.cas,
                 "location": self.location,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class ScoringRow:
+    """A row of a scoring set: the categories it groups, each by its
+    ``method_id`` times a coefficient, under a label, with a normalization
+    (a divisor) and a weight.
+
+    A row with a weight joins the score that adds up the rows. A row groups
+    at least one category.
+    """
+
+    label: str
+    terms: dict[str, float]
+    normalization: float | None = None
+    weight: float | None = None
+    unit: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.terms:
+            raise ValueError(f"the row {self.label!r} groups no category")
+
+    def to_wire(self) -> dict:
+        return _drop_none(
+            {
+                "label": self.label,
+                "terms": [{"methodId": m, "coefficient": c} for m, c in self.terms.items()],
+                "normalization": self.normalization,
+                "weight": self.weight,
+                "unit": self.unit,
             }
         )
 

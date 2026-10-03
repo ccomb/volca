@@ -35,6 +35,13 @@ Then paste the rendered block at the top of this file and tighten wording.
   naming it follow), `set_method_category_unit` changes its unit and
   `remove_method_category` removes it with its factors. They need wire revision
   43 (engine 0.15.0).
+- Change a collection's scoring sets: `scoring_sets` reads them as rows, and
+  `create_scoring_set`, `remove_scoring_set`, `rename_scoring_set`,
+  `set_scoring_set_unit`, `set_scoring_set_multiplier`, `add_scoring_row`,
+  `change_scoring_row`, `remove_scoring_row`, `set_scoring_formula`,
+  `set_score` and `remove_score` change them, a row written as a
+  `ScoringRow`. `LCIABatchResult.scoring_rows` gives the value of every row.
+  They need wire revision 44 (engine 0.15.0).
 
 ### Deprecated
 
