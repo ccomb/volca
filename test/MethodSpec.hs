@@ -16,7 +16,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import Method.FlowResolver (ILCDFlowInfo (..), parseCompartment, parseFlowXML)
-import Method.Mapping (LCIAOutcome (..), MatchStrategy (..), computeLCIAScore)
+import Method.Mapping (LCIAOutcome (..), MatchStrategy (..), Resolution (..), computeLCIAScore)
 import Method.Parser
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.ParserNW (parseNormWeightCSVBytes)
@@ -834,8 +834,8 @@ spec = do
                     co2Flow = mkTestFlow co2Uuid "Carbon dioxide"
                     ch4Flow = mkTestFlow ch4Uuid "Methane"
                     mappings =
-                        [ (co2CF, Just (co2Flow, ByUUID))
-                        , (ch4CF, Just (ch4Flow, ByUUID))
+                        [ (co2CF, Just (Resolution co2Flow ByUUID))
+                        , (ch4CF, Just (Resolution ch4Flow ByUUID))
                         ]
                 -- Score = 10*1 + 2*28 = 10 + 56 = 66
                 loScore (computeLCIAScore defaultUnitConfig M.empty M.empty inventory mappings) `shouldBe` 66.0
@@ -848,7 +848,7 @@ spec = do
                     ch4CF = MethodCF ch4Uuid "Methane" Output 28.0 Nothing Nothing "kg" Nothing
                     co2Flow = mkTestFlow co2Uuid "Carbon dioxide"
                     mappings =
-                        [ (co2CF, Just (co2Flow, ByUUID))
+                        [ (co2CF, Just (Resolution co2Flow ByUUID))
                         , (ch4CF, Nothing) -- CH4 not mapped
                         ]
                 -- Score = 10*1 = 10 (CH4 ignored because not mapped)
@@ -862,7 +862,7 @@ spec = do
                     -- Method has N2O that's not in inventory
                     n2oCF = MethodCF n2oUuid "Dinitrogen monoxide" Output 265.0 Nothing Nothing "kg" Nothing
                     n2oFlow = mkTestFlow n2oUuid "Dinitrogen monoxide"
-                    mappings = [(n2oCF, Just (n2oFlow, ByName))]
+                    mappings = [(n2oCF, Just (Resolution n2oFlow ByName))]
                 -- Score = 0 (N2O not in inventory)
                 loScore (computeLCIAScore defaultUnitConfig M.empty M.empty inventory mappings) `shouldBe` 0.0
 
@@ -872,7 +872,7 @@ spec = do
                     inventory = M.fromList [(oilUuid, -5.0)]
                     oilCF = MethodCF oilUuid "Crude oil" Input 42.0 Nothing Nothing "MJ" Nothing
                     oilFlow = mkTestFlow oilUuid "Crude oil"
-                    mappings = [(oilCF, Just (oilFlow, ByUUID))]
+                    mappings = [(oilCF, Just (Resolution oilFlow ByUUID))]
                 -- Score = -5 * 42 = -210 (negative = resource depletion)
                 loScore (computeLCIAScore defaultUnitConfig M.empty M.empty inventory mappings) `shouldBe` (-210.0)
 

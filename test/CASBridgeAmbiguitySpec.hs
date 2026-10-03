@@ -23,7 +23,7 @@ import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Method.Mapping (MatchStrategy (..), buildMethodTables, cfValue, lookupCFForFlow, mtCasCF, mtRegionalCasCF, projectRegionalResourceFlows)
+import Method.Mapping (MatchStrategy (..), Resolution (..), buildMethodTables, cfValue, lookupCFForFlow, mtCasCF, mtRegionalCasCF, projectRegionalResourceFlows)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import SubstanceRegistry (CASNumber (..))
 import SynonymDB (emptySynonymDB)
@@ -64,7 +64,7 @@ mkFlow i name cas =
 water :: Maybe Text
 water = Just "7732-18-5"
 
-score :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> BiosphereFlow -> Maybe Double
+score :: [(MethodCF, Maybe Resolution)] -> BiosphereFlow -> Maybe Double
 score mappings flow =
     fmap cfValue (lookupCFForFlow (buildMethodTables mempty mempty M.empty mappings) (bfId flow) (Just flow))
 
@@ -76,8 +76,8 @@ spec = describe "CAS bridge ambiguity guard" $ do
         -- which is what arms the bridge. Their values differ at the same
         -- (CAS, medium, sub), so no single value stands for the CAS.
         let mappings =
-                [ (mkCF 1 "Water" "" water 42.955, Just (mkFlow 1 "Water" water, ByName))
-                , (mkCF 2 "Water, lake, CH" "" water 1.44, Just (mkFlow 1 "Water" water, ByCAS))
+                [ (mkCF 1 "Water" "" water 42.955, Just (Resolution (mkFlow 1 "Water" water) ByName))
+                , (mkCF 2 "Water, lake, CH" "" water 1.44, Just (Resolution (mkFlow 1 "Water" water) ByCAS))
                 ]
         -- Turbined water: same CAS, no CF of its own – deliberately excluded
         -- by the method, and it must stay that way.
@@ -87,14 +87,14 @@ spec = describe "CAS bridge ambiguity guard" $ do
         -- "Water, lake, AT" matches nothing in this database, but its value
         -- still shows the method regionalizes water – the bridge must refuse.
         let mappings =
-                [ (mkCF 1 "Water" "" water 42.955, Just (mkFlow 1 "Water" water, ByCAS))
+                [ (mkCF 1 "Water" "" water 42.955, Just (Resolution (mkFlow 1 "Water" water) ByCAS))
                 , (mkCF 2 "Water, lake, AT" "" water 1.89, Nothing)
                 ]
         score mappings (mkFlow 99 "Water, turbine use" water) `shouldBe` Nothing
 
     it "still bridges a CAS with one factor line" $ do
         let mappings =
-                [(mkCF 1 "Chlorpyrifos" "" (Just "2921-88-2") 5.0, Just (mkFlow 1 "Chlorpyriphos-ethyl" (Just "2921-88-2"), ByCAS))]
+                [(mkCF 1 "Chlorpyrifos" "" (Just "2921-88-2") 5.0, Just (Resolution (mkFlow 1 "Chlorpyriphos-ethyl" (Just "2921-88-2")) ByCAS))]
         score mappings (mkFlow 99 "Chlorpyriphos" (Just "2921-88-2")) `shouldBe` Just 5.0
 
     it "ignores consumer-located rows: their variance is dispatched by location, not guessed" $ do
@@ -103,8 +103,8 @@ spec = describe "CAS bridge ambiguity guard" $ do
         -- flow with no location.
         let located = (mkCF 2 "Water" "" water 1.44){mcfConsumerLocation = Just "CH"}
             mappings =
-                [ (mkCF 1 "Water" "" water 42.955, Just (mkFlow 1 "Water" water, ByCAS))
-                , (located, Just (mkFlow 1 "Water" water, ByCAS))
+                [ (mkCF 1 "Water" "" water 42.955, Just (Resolution (mkFlow 1 "Water" water) ByCAS))
+                , (located, Just (Resolution (mkFlow 1 "Water" water) ByCAS))
                 ]
         score mappings (mkFlow 99 "Water, unspecified natural origin" water) `shouldBe` Just 42.955
 
@@ -113,8 +113,8 @@ spec = describe "CAS bridge ambiguity guard" $ do
         -- already arbitrated to the unspecified default; that arbitration is
         -- not ambiguity.
         let mappings =
-                [ (mkCF 1 "Particulates" "" (Just "1234-56-7") 1.0, Just (mkFlow 1 "Particulates, alias" (Just "1234-56-7"), ByCAS))
-                , (mkCF 2 "Particulates" "indoor" (Just "1234-56-7") 100.0, Just (mkFlow 2 "Particulates, indoor" (Just "1234-56-7"), ByName))
+                [ (mkCF 1 "Particulates" "" (Just "1234-56-7") 1.0, Just (Resolution (mkFlow 1 "Particulates, alias" (Just "1234-56-7")) ByCAS))
+                , (mkCF 2 "Particulates" "indoor" (Just "1234-56-7") 100.0, Just (Resolution (mkFlow 2 "Particulates, indoor" (Just "1234-56-7")) ByName))
                 ]
         score mappings (mkFlow 99 "Dust" (Just "1234-56-7")) `shouldBe` Just 1.0
 
@@ -131,9 +131,9 @@ spec = describe "CAS bridge ambiguity guard" $ do
             inFlow = mkFlow 12 "Water, lake, IN" water
             bioFlows = M.fromList [(bfId f, f) | f <- [plainFlow, chFlow, inFlow]]
             mappings =
-                [ (mkCF 1 "Water" "" water 42.955, Just (plainFlow, ByCAS))
-                , ((mkCF 2 "Water, lake" "" water 1.44){mcfConsumerLocation = Just "CH"}, Just (chFlow, ByCAS))
-                , ((mkCF 3 "Water, lake" "" water 100.0){mcfConsumerLocation = Just "IN"}, Just (inFlow, ByCAS))
+                [ (mkCF 1 "Water" "" water 42.955, Just (Resolution plainFlow ByCAS))
+                , ((mkCF 2 "Water, lake" "" water 1.44){mcfConsumerLocation = Just "CH"}, Just (Resolution chFlow ByCAS))
+                , ((mkCF 3 "Water, lake" "" water 100.0){mcfConsumerLocation = Just "IN"}, Just (Resolution inFlow ByCAS))
                 ]
             tables =
                 buildMethodTables mempty mempty M.empty $

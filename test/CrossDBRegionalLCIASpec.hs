@@ -349,7 +349,7 @@ spec = describe "cross-DB regional LCIA" $ do
                         , mcfConsumerLocation = Nothing -- key: makes it non-regional
                         }
                 universalTables =
-                    buildTables rootDb [(universalCF, Just (testFlow, ByUUID))]
+                    buildTables rootDb [(universalCF, Just (Resolution testFlow ByUUID))]
             eRes <-
                 SS.computeInventoryMatrixWithDepsCached
                     kgUnitConfig
@@ -452,7 +452,7 @@ spec = describe "cross-DB regional LCIA" $ do
                         , mcfUnit = "kg"
                         , mcfConsumerLocation = Nothing
                         }
-                    , Just (testFlow, ByName)
+                    , Just (Resolution testFlow ByName)
                     )
                 ]
             rootFlat = buildTables rootDb (universal 2)

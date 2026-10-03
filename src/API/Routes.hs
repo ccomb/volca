@@ -57,7 +57,7 @@ import qualified Impact.Score as Score
 import Matrix (Inventory, Vector)
 import qualified Matrix
 import qualified Method.Explain as Explain
-import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
+import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), Resolution (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
 import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
@@ -2513,7 +2513,7 @@ getCharacterization dbName methodIdText flowFilter limitParam mCollection = do
     mappings <- liftIO $ DM.effectiveMethodMappings dbManager dbName collectionName db method
     let matched =
             [ (cf, f, strat)
-            | (cf, Just (f, strat)) <- mappings
+            | (cf, Just (Resolution f strat)) <- mappings
             , matchesQuery queryLower (mcfFlowName cf) (bfName f)
             ]
         sorted = sortOn (\(cf, _, _) -> negate (abs (mcfValue cf))) matched

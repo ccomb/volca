@@ -106,6 +106,7 @@ module Method.Mapping (
 
     -- * Matching strategies
     MatchStrategy (..),
+    Resolution (..),
     strategyToText,
     provenanceStrategyText,
     findFlowByUUID,
@@ -179,6 +180,12 @@ data MatchStrategy
       -}
       ByProxy
     deriving (Eq, Show)
+
+-- | The database flow a method line attaches to, and the bridge that attached it.
+data Resolution = Resolution
+    { resFlow :: !BiosphereFlow
+    , resStrategy :: !MatchStrategy
+    }
 
 {- | Per-strategy mapping counters. Forms a 'Monoid' (field-wise sum, all-zero
 identity) so per-batch stats compose with '<>' and 'computeMappingStats'
@@ -290,7 +297,7 @@ methods, so there the inner parallelism mostly nests under that outer fan-out.
 mapMethodFlows ::
     MapContext ->
     Method ->
-    IO [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+    IO [(MethodCF, Maybe Resolution)]
 mapMethodFlows ctx0 method = do
     caps <- getNumCapabilities
     let (exclusionCFs, plainCFs) = partition isExclusionCF (methodFactors method)
@@ -323,14 +330,14 @@ are tried in cascade order – UUID → name → synonym → CAS – and the fir
 target flow is present in the by-UUID index wins. A matcher resolving to a flow
 absent from that index is skipped, so resolution falls through to the next.
 -}
-resolveCF :: MapContext -> MethodCF -> Maybe (BiosphereFlow, MatchStrategy)
+resolveCF :: MapContext -> MethodCF -> Maybe Resolution
 resolveCF ctx cf =
     canon ByUUID (findFlowByUUID (mcBioFlowsByUUID ctx) (mcfFlowRef cf))
         <|> canon ByName (findFlowByNameComp (mcPlacing ctx) (mcBioFlowsByName ctx) (mcfFlowName cf) (mcfCompartment cf))
         <|> canon BySynonym (findFlowBySynonymMemo ctx cf)
         <|> canon ByCAS (findFlowByCASWithinSubstance ctx cf)
   where
-    canon strat found = found >>= \flow -> (,strat) <$> M.lookup (bfId flow) (mcBioFlowsByUUID ctx)
+    canon strat found = found >>= \flow -> (`Resolution` strat) <$> M.lookup (bfId flow) (mcBioFlowsByUUID ctx)
 
 {- | The CAS match, kept within the row's own substance. A CAS number names a
 molecule, and a method can split one molecule into substances the registry
@@ -504,12 +511,12 @@ expandPatternCF ::
     -- | exclusions declared for this category, see 'isExclusionCF'
     [MethodCF] ->
     MethodCF ->
-    ([(MethodCF, Maybe (BiosphereFlow, MatchStrategy))], [Text])
+    ([(MethodCF, Maybe Resolution)], [Text])
 expandPatternCF flows exclusions cf
     | not (isConstrainedCF cf) = refuse "has no name prefix, CAS or compartment; refusing to match every flow"
     | null selected = refuse "matches no flow in this database"
     | null matches = refuse "matches only flows its exclusions take back"
-    | otherwise = ([(materialize f, Just (f, ByName)) | f <- matches], [])
+    | otherwise = ([(materialize f, Just (Resolution f ByName)) | f <- matches], [])
   where
     refuse why = ([(cf, Nothing)], ["wildcard CF '" <> mcfFlowName cf <> "' " <> why])
     selected = filter (selectsFlow cf) (M.elems flows)
@@ -538,15 +545,15 @@ exception wherever the flow re-enters.
 dropExcludedMappings ::
     -- | exclusions declared for this category, see 'isExclusionCF'
     [MethodCF] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+    [(MethodCF, Maybe Resolution)] ->
+    [(MethodCF, Maybe Resolution)]
 dropExcludedMappings [] = id
 dropExcludedMappings exclusions = filter kept
   where
     excluded = excludedBy exclusions
     -- An unmatched row carries no flow to judge, and dropping it would hide the
     -- gap the coverage report exists to show.
-    kept (_, Just (f, _)) = not (excluded f)
+    kept (_, Just (Resolution f _)) = not (excluded f)
     kept (_, Nothing) = True
 
 {- | Why an exclusion row could not do its job, if it could not. An exclusion
@@ -572,7 +579,7 @@ Judged on the whole database, not on the flows of that name: a substance the
 database has in water and not in air leaves a factor stated in air unmatched
 too, and that is the database's inventory, not its vocabulary.
 -}
-compartmentGapWarning :: CompartmentMap -> M.Map Text [BiosphereFlow] -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> Maybe Text
+compartmentGapWarning :: CompartmentMap -> M.Map Text [BiosphereFlow] -> [(MethodCF, Maybe Resolution)] -> Maybe Text
 compartmentGapWarning cmap flowsByName mappings
     | null gaps = Nothing
     | otherwise =
@@ -782,8 +789,8 @@ pickByCompartment (Placing cmap vocabulary) name flows (Just stated) =
 Each 'MatchStrategy' must be named below – adding a new variant is a
 compile error here until it gets a row.
 -}
-computeMappingStats :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> MappingStats
-computeMappingStats = foldMap (tally . fmap snd . snd)
+computeMappingStats :: [(MethodCF, Maybe Resolution)] -> MappingStats
+computeMappingStats = foldMap (tally . fmap resStrategy . snd)
   where
     one = mempty{msTotal = 1}
     tally Nothing = one{msUnmatched = 1}
@@ -1189,12 +1196,12 @@ first used to get the country factors.
 -}
 spreadLocatedRows ::
     M.Map Text [BiosphereFlow] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+    [(MethodCF, Maybe Resolution)] ->
+    [(MethodCF, Maybe Resolution)]
 spreadLocatedRows flowsByName mappings =
     mappings
-        ++ [ (cf, Just (namesake, strategy))
-           | (cf, Just (flow, strategy)) <- mappings
+        ++ [ (cf, Just (Resolution namesake strategy))
+           | (cf, Just (Resolution flow strategy)) <- mappings
            , isJust (mcfConsumerLocation cf)
            , namesake <- M.findWithDefault [] (normalizeName (bfName flow)) flowsByName
            , bfId namesake /= bfId flow
@@ -1243,13 +1250,13 @@ preferBetter@.
 expandSynonymMappings ::
     SynonymDB ->
     M.Map Text [BiosphereFlow] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+    [(MethodCF, Maybe Resolution)] ->
+    [(MethodCF, Maybe Resolution)]
 expandSynonymMappings synDB flowsByName mappings =
     mappings ++ concatMap expand mappings
   where
     expand (cf, _) =
-        [ (cf, Just (flow, BySynonym))
+        [ (cf, Just (Resolution flow BySynonym))
         | peer <- synonymNames (viewFor (mcfDirection cf) synDB) (mcfFlowName cf)
         , flow <- M.findWithDefault [] peer flowsByName
         ]
@@ -1287,7 +1294,7 @@ directionExcludedCFs ::
     Placing ->
     SynonymDB ->
     M.Map Text [BiosphereFlow] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] ->
+    [(MethodCF, Maybe Resolution)] ->
     [MethodCF]
 directionExcludedCFs place synDB flowsByName mappings =
     [ cf
@@ -1334,8 +1341,8 @@ use.
 projectRegionalResourceFlows ::
     SynonymDB ->
     M.Map UUID BiosphereFlow ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+    [(MethodCF, Maybe Resolution)] ->
+    [(MethodCF, Maybe Resolution)]
 projectRegionalResourceFlows synDB bioFlows mappings =
     mappings ++ projected
   where
@@ -1365,7 +1372,7 @@ projectRegionalResourceFlows synDB bioFlows mappings =
         M.fromListWith
             preferHigherCF
             [ ((grp, med, mcfConsumerLocation cf), cf)
-            | (cf, Just (flow, _)) <- mappings
+            | (cf, Just (Resolution flow _)) <- mappings
             , let med = flowMedium flow
             , Just grp <- [lookupSynonymGroup (dirView med) (bfName flow)]
             ]
@@ -1396,7 +1403,7 @@ projectRegionalResourceFlows synDB bioFlows mappings =
     projected
         | not hasLocatedWaterCF = []
         | otherwise =
-            [ (cf{mcfConsumerLocation = Nothing}, Just (flow, BySynonym))
+            [ (cf{mcfConsumerLocation = Nothing}, Just (Resolution flow BySynonym))
             | flow <- M.elems bioFlows
             , let med = flowMedium flow
             , isWaterMedium med
@@ -1439,11 +1446,11 @@ unchanged when no @substance_edges.csv@ is loaded.
 expandProxyEdges ::
     ProxyTargets ->
     [SR.SubstanceEdge] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+    [(MethodCF, Maybe Resolution)] ->
+    [(MethodCF, Maybe Resolution)]
 expandProxyEdges targets edges mappings =
     mappings
-        ++ [ (cf{mcfValue = mcfValue cf * f}, Just (toFlow, ByProxy))
+        ++ [ (cf{mcfValue = mcfValue cf * f}, Just (Resolution toFlow ByProxy))
            | (from, to, f) <- proxies
            , cf <- cfsMatching from
            , toFlow <- flowsMatching to
@@ -1552,8 +1559,8 @@ cfOf cf = CF (mcfValue cf) (CFUnit (mcfUnit cf))
 {- | A method line as a table holds it: its factor, and which database flow the
 build resolved it to.
 -}
-entryOf :: MethodCF -> Maybe (BiosphereFlow, MatchStrategy) -> TableEntry
-entryOf cf mflow = TableEntry (cfOf cf) (BuildProvenance (snd <$> mflow) cf)
+entryOf :: MethodCF -> Maybe Resolution -> TableEntry
+entryOf cf mflow = TableEntry (cfOf cf) (BuildProvenance (resStrategy <$> mflow) cf)
 
 {- | The one value a group of entries agrees on, or nothing where they disagree.
 
@@ -1585,7 +1592,7 @@ read literally ('isEnergyUnit'), so a table carrying the expression its results
 are written in rather than the quantity its factors are written per (@"MJ, net
 calorific value"@) states no price and gets none.
 -}
-energyPriceOf :: CompartmentMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> EnergyPrice
+energyPriceOf :: CompartmentMap -> [(MethodCF, Maybe Resolution)] -> EnergyPrice
 energyPriceOf cmap mappings = case priced of
     [] -> NoEnergyLines
     entries -> maybe EnergyLinesDisagree EnergyPriced (agreedValue entries)
@@ -1598,7 +1605,7 @@ energyPriceOf cmap mappings = case priced of
         , Just (Just NaturalResource, _) <- [cfMediumSub cmap cf]
         ]
 
-buildMethodTables :: CompartmentMap -> MethodVocabulary -> EnergyDensityMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> MethodTables
+buildMethodTables :: CompartmentMap -> MethodVocabulary -> EnergyDensityMap -> [(MethodCF, Maybe Resolution)] -> MethodTables
 buildMethodTables cmap vocabulary energyDensities mappings =
     MethodTables
         { mtUuidCF =
@@ -1613,7 +1620,7 @@ buildMethodTables cmap vocabulary energyDensities mappings =
                 M.fromListWith
                     preferBetter
                     [ (bfId flow, (entryOf cf mflow, rawNameMatches cf mflow))
-                    | (cf, mflow@(Just (flow, ByUUID))) <- mappings
+                    | (cf, mflow@(Just (Resolution flow ByUUID))) <- mappings
                     , Nothing <- [mcfConsumerLocation cf]
                     ]
         , mtUnitVariantCF =
@@ -1689,7 +1696,7 @@ buildMethodTables cmap vocabulary energyDensities mappings =
                     (servedOver (preferLargerBy teCF))
                     [ ((casNo, medium, sub), bridged)
                     | (cf, mflow) <- mappings
-                    , let bridged = entryOf cf mflow <$ mfilter (servedByCasBridge . snd) mflow
+                    , let bridged = entryOf cf mflow <$ mfilter (servedByCasBridge . resStrategy) mflow
                     , Just cas <- [mcfCAS cf]
                     , Just casNo <- [SR.casKey cas]
                     , Nothing <- [mcfConsumerLocation cf]
@@ -1712,7 +1719,7 @@ buildMethodTables cmap vocabulary energyDensities mappings =
                     [ ((casNo, medium, sub), bridged)
                     | (cf, mflow) <- mappings
                     , Just loc <- [mcfConsumerLocation cf]
-                    , let bridged = maybe M.empty (const (M.singleton (Location loc) (cfOf cf))) (mfilter (servedByCasBridge . snd) mflow)
+                    , let bridged = maybe M.empty (const (M.singleton (Location loc) (cfOf cf))) (mfilter (servedByCasBridge . resStrategy) mflow)
                     , Just cas <- [mcfCAS cf]
                     , Just casNo <- [SR.casKey cas]
                     , Just (medium, sub) <- [cfMediumSub cmap cf]
@@ -1727,7 +1734,7 @@ buildMethodTables cmap vocabulary energyDensities mappings =
                 M.fromListWith
                     preferRegional
                     [ ((bfId flow, Location loc), (m, cfOf cf))
-                    | (cf, Just (flow, _)) <- mappings
+                    | (cf, Just (Resolution flow _)) <- mappings
                     , Just m <- [cfSubcompMatchesFlow cf flow]
                     , Just loc <- [mcfConsumerLocation cf]
                     ]
@@ -1850,16 +1857,18 @@ buildMethodTables cmap vocabulary energyDensities mappings =
         p2 = entryPriority (teProvenance eb)
 
     rawNameMatches cf mflow = case mflow of
-        Just (flow, _) -> T.toLower (T.strip (mcfFlowName cf)) == T.toLower (T.strip (bfName flow))
+        Just (Resolution flow _) -> T.toLower (T.strip (mcfFlowName cf)) == T.toLower (T.strip (bfName flow))
         Nothing -> False
 
     -- Use matched flow's name only for name/synonym/proxy matches: those key
     -- the CF under the database flow it resolved to, not the method CF's own name.
     nameKey cf mflow = normalizeName $ case mflow of
-        Just (flow, ByName) -> bfName flow
-        Just (flow, BySynonym) -> bfName flow
-        Just (flow, ByProxy) -> bfName flow
-        _ -> mcfFlowName cf
+        Just (Resolution flow ByName) -> bfName flow
+        Just (Resolution flow BySynonym) -> bfName flow
+        Just (Resolution flow ByProxy) -> bfName flow
+        Just (Resolution _ ByUUID) -> mcfFlowName cf
+        Just (Resolution _ ByCAS) -> mcfFlowName cf
+        Nothing -> mcfFlowName cf
 
 -- | A place the method states two values for, and the one scoring reads.
 data ContestedFactor = ContestedFactor
@@ -1883,7 +1892,7 @@ path the score takes, and a place counts only when that value is one of its
 own: a contest the flow reads past is not a choice this score made. Equal
 values are not a contest.
 -}
-contestedFactors :: CompartmentMap -> MethodTables -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [ContestedFactor]
+contestedFactors :: CompartmentMap -> MethodTables -> [(MethodCF, Maybe Resolution)] -> [ContestedFactor]
 contestedFactors cmap tables mappings =
     [ ContestedFactor flow cf (S.toAscList values) kept
     | ((fid, _), (flow, cf, values)) <- M.toList byPlace
@@ -1898,7 +1907,7 @@ contestedFactors cmap tables mappings =
         M.fromListWith
             (\(flow, cf, new) (_, _, old) -> (flow, cf, S.union new old))
             [ ((bfId flow, cfMediumSub cmap cf), (flow, cf, S.singleton (mcfValue cf)))
-            | (cf, Just (flow, _)) <- mappings
+            | (cf, Just (Resolution flow _)) <- mappings
             , Nothing <- [mcfConsumerLocation cf]
             ]
 
@@ -2362,7 +2371,7 @@ computeLCIAScoreFromTables unitConfig unitDB flowDB inventory tables =
 no energy densities. Prefer the cached path ('mapMethodToTablesCached' +
 'computeLCIAScoreFromTables') in hot loops.
 -}
-computeLCIAScore :: UnitConfig -> UnitDB -> BioFlowDB -> Inventory -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> LCIAOutcome
+computeLCIAScore :: UnitConfig -> UnitDB -> BioFlowDB -> Inventory -> [(MethodCF, Maybe Resolution)] -> LCIAOutcome
 computeLCIAScore unitConfig unitDB flowDB inventory mappings =
     computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables mempty mempty M.empty mappings)
 

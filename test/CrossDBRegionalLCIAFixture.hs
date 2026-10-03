@@ -51,7 +51,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 
-import Method.Mapping (MatchStrategy (..), MethodTables, buildMethodTables, fillBroadcastVector, fillRegionalActivityWeights)
+import Method.Mapping (MatchStrategy (..), MethodTables, Resolution (..), buildMethodTables, fillBroadcastVector, fillRegionalActivityWeights)
 import Method.Types (FlowDirection (..), MethodCF (..))
 import TestHelpers (unitDef)
 import Types
@@ -196,8 +196,8 @@ linkAt consumerDb supplierDb supplierName supIdx coeff =
                 }
      in consumerDb{dbCrossDBLinks = link : dbCrossDBLinks consumerDb}
 
-regionalMappings :: [(Text, Double)] -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
-regionalMappings = map (\(loc, v) -> (cf loc v, Just (testFlow, ByName)))
+regionalMappings :: [(Text, Double)] -> [(MethodCF, Maybe Resolution)]
+regionalMappings = map (\(loc, v) -> (cf loc v, Just (Resolution testFlow ByName)))
   where
     cf loc v =
         MethodCF
@@ -211,7 +211,7 @@ regionalMappings = map (\(loc, v) -> (cf loc v, Just (testFlow, ByName)))
             , mcfConsumerLocation = Just loc
             }
 
-buildTables :: Database -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> MethodTables
+buildTables :: Database -> [(MethodCF, Maybe Resolution)] -> MethodTables
 buildTables db mappings =
     let raw = buildMethodTables mempty mempty M.empty mappings
         withBroadcast = fillBroadcastVector kgUnitConfig (dbUnits db) (dbBioFlows db) raw

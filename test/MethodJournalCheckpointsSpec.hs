@@ -18,7 +18,7 @@ import Database.Manager (CachePolicy (..), DatabaseManager, getMethodCollection,
 import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Edit
 import Method.EditPlan (FactorEdit (..), FactorTarget (..))
-import Method.Mapping (MatchStrategy (..), buildMethodTables, contestedFactors)
+import Method.Mapping (MatchStrategy (..), Resolution (..), buildMethodTables, contestedFactors)
 import Method.Types (Compartment (..), CompartmentMap (..), Method (..), MethodCF (..), MethodCollection (..))
 import Service.Compare (Sides (..))
 import Service.CompareMethods (CompareMethodsContext (..), Scope (..), compareCollections)
@@ -181,8 +181,8 @@ spec = describe "what a method collection's journal promises" $ do
             fmap contested after `shouldBe` Right 0
   where
     -- Every turpentine line matched to one flow, as a database holding it once would.
-    matched :: Method -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
-    matched method = [(f, Just (turpentine f, ByUUID)) | f <- named "turpentine" method]
+    matched :: Method -> [(MethodCF, Maybe Resolution)]
+    matched method = [(f, Just (Resolution (turpentine f) ByUUID)) | f <- named "turpentine" method]
 
     turpentine :: MethodCF -> BiosphereFlow
     turpentine f = BiosphereFlow (mcfFlowRef f) "turpentine" UUID.nil M.empty Nothing Nothing Nothing

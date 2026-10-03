@@ -57,7 +57,7 @@ import qualified Data.Set as Set
 import Matrix (Inventory, applyBiosphereMatrix)
 import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
 import qualified Method.Explain as Explain
-import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude)
+import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), Resolution (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude)
 import qualified Method.Mapping as Mapping
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Network.HTTP.Types.Header (RequestHeaders, hAccept, hAllow, hHost)
@@ -1978,7 +1978,7 @@ callGetCharacterization dbManager rid args = runTool rid $ do
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
     let matched =
             [ (cf, f, strat)
-            | (cf, Just (f, strat)) <- mappings
+            | (cf, Just (Resolution f strat)) <- mappings
             , matchQuery queryLower (mcfFlowName cf) (bfName f)
             ]
         sorted = L.sortOn (\(cf, _, _) -> negate (abs (mcfValue cf))) matched

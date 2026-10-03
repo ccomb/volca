@@ -148,8 +148,8 @@ mkDB locsAndEmissions =
 -- EF method CFs (whose UUIDs differ from the database flow UUIDs) get
 -- resolved in production: regional cells fill 'mtRegionalizedCF', but the
 -- universal broadcast for F remains empty unless a non-regional CF is added.
-regionalMappings :: [(Text, Double)] -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
-regionalMappings = map (\(loc, v) -> (cf loc v, Just (testFlow, ByName)))
+regionalMappings :: [(Text, Double)] -> [(MethodCF, Maybe Resolution)]
+regionalMappings = map (\(loc, v) -> (cf loc v, Just (Resolution testFlow ByName)))
   where
     cf loc v =
         MethodCF
@@ -166,7 +166,7 @@ regionalMappings = map (\(loc, v) -> (cf loc v, Just (testFlow, ByName)))
 buildTables ::
     Database ->
     M.Map Location [Location] ->
-    [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] ->
+    [(MethodCF, Maybe Resolution)] ->
     MethodTables
 buildTables db hier mappings =
     let raw = buildMethodTables mempty mempty M.empty mappings
@@ -199,7 +199,7 @@ withUniversalFlow db =
                 <> U.fromList [SparseTriple 1 (fromIntegral c) 1 | c <- [0 .. fromIntegral (dbActivityCount db) - 1 :: Int]]
         }
 
-universalMapping :: Double -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+universalMapping :: Double -> [(MethodCF, Maybe Resolution)]
 universalMapping v =
     [
         ( MethodCF
@@ -212,7 +212,7 @@ universalMapping v =
             , mcfUnit = "kg"
             , mcfConsumerLocation = Nothing
             }
-        , Just (methaneFlow, ByName)
+        , Just (Resolution methaneFlow ByName)
         )
     ]
 
