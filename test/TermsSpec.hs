@@ -10,7 +10,7 @@ import Test.Hspec
 
 import API.DatabaseHandlers (downloadRefusal)
 import Config (DatabaseConfig (..), defaultConfig)
-import Database.Manager (CachePolicy (..), DatabaseManager, TermsRefusal (..), addDatabase, databaseTerms, initDatabaseManager, setUploadTerms)
+import Database.Manager (CachePolicy (..), DatabaseManager, DatabaseStatus (..), TermsRefusal (..), addDatabase, databaseTerms, initDatabaseManager, listDatabases, setUploadTerms)
 import qualified Database.UploadedDatabase as UploadedDB
 import TestHelpers (withScratchDataDir)
 import Types (AllocationKey (..), Downloads (..), GeographyPolicy (..), Terms (..), openTerms)
@@ -76,6 +76,12 @@ spec = do
             withUpload $ \manager _ -> do
                 _ <- setUploadTerms manager "upload" refused
                 databaseTerms manager "copy" `shouldReturn` Just refused
+
+        it "lists a copy under the terms its source was given after the copy was made" $
+            withUpload $ \manager _ -> do
+                _ <- setUploadTerms manager "upload" refused
+                listed <- listDatabases manager
+                [dsTerms s | s <- listed, dsName s == "copy"] `shouldBe` [refused]
 
         it "refuses to set the terms of a copy, which are its source's" $
             withUpload $ \manager _ ->

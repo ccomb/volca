@@ -146,7 +146,7 @@ import API.Types (
     toExchangeEdits,
  )
 import App.Env (AppEnv (..), AppM)
-import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, messageOr, readOnlyRefusalFor)
+import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, messageOr, readOnlyRefusalFor, termsOf)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.Reader (asks)
 import Data.Aeson (Value)
@@ -284,8 +284,9 @@ loadDatabaseHandler dbName = do
             result <- liftIO $ loadDatabase dbManager dbName
             case result of
                 Left err -> return $ LoadFailed err
-                Right (loadedDb, depResults) ->
-                    return $ LoadSucceeded (makeStatusFromLoadedDb loadedDb) depResults
+                Right (loadedDb, depResults) -> do
+                    configs <- liftIO (readTVarIO (dmAvailableDbs dbManager))
+                    return $ LoadSucceeded (makeStatusFromLoadedDb configs loadedDb) depResults
 
 -- | Unload a database from memory
 unloadDatabaseHandler :: Text -> AppM ActivateResponse
@@ -565,7 +566,9 @@ deriveDatabaseHandler dbName newName mAllocation = do
         Nothing ->
             liftIO (deriveDatabase dbManager dbName newName key) >>= \case
                 Left err -> pure (LoadFailed err)
-                Right (loadedDb, depResults) -> pure (LoadSucceeded (makeStatusFromLoadedDb loadedDb) depResults)
+                Right (loadedDb, depResults) -> do
+                    configs <- liftIO (readTVarIO (dmAvailableDbs dbManager))
+                    pure (LoadSucceeded (makeStatusFromLoadedDb configs loadedDb) depResults)
   where
     badKey :: Text -> AppM a
     badKey err = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 ("allocation: " <> err))}
@@ -1131,15 +1134,19 @@ convertDbStatus ds =
         , dsaDependsOn = dsDependsOn ds
         , dsaAllocation = allocationKeyText (dsAllocation ds)
         , dsaSource = dsSource ds
+        , dsaTerms = dsTerms ds
         }
   where
     statusToText Unloaded = "unloaded"
     statusToText PartiallyLinked = "partially_linked"
     statusToText Loaded = "loaded"
 
--- | Create DatabaseStatusAPI from a loaded database (derives status from linking stats)
-makeStatusFromLoadedDb :: LoadedDatabase -> DatabaseStatusAPI
-makeStatusFromLoadedDb loaded =
+{- | Create DatabaseStatusAPI from a loaded database (derives status from linking
+stats). The configurations are there for its terms, which a copy takes from its
+source.
+-}
+makeStatusFromLoadedDb :: M.Map Text DatabaseConfig -> LoadedDatabase -> DatabaseStatusAPI
+makeStatusFromLoadedDb configs loaded =
     let config = ldConfig loaded
         db = ldDatabase loaded
         status =
@@ -1159,6 +1166,7 @@ makeStatusFromLoadedDb loaded =
             , dsaDependsOn = dcDepends config
             , dsaAllocation = allocationKeyText (dcAllocation config)
             , dsaSource = dcSource config
+            , dsaTerms = termsOf configs config
             }
 
 -- uploadFormatToMeta removed - types are now unified (UploadedDB re-exports from Upload)
@@ -1246,7 +1254,7 @@ finalizeDatabaseHandler dbName = do
             return $ ActivateResponse False ("Server exception: " <> T.pack (show ex)) Nothing
         Right (Left err) -> return $ ActivateResponse False err Nothing
         Right (Right loaded) -> do
-            let status = makeStatusFromLoadedDb loaded
+            status <- (`makeStatusFromLoadedDb` loaded) <$> liftIO (readTVarIO (dmAvailableDbs dbManager))
             return $ ActivateResponse True ("Finalized database: " <> dcDisplayName (ldConfig loaded)) (Just status)
 
 {- | Upload a new method collection

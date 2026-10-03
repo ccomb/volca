@@ -289,6 +289,7 @@ import Types (
     enrichBioFlowCAS,
     flowClosure,
     initializeRuntimeFields,
+    openTerms,
     parseAllocationKey,
     reasonsOf,
     sharedFlowSynonyms,
@@ -521,6 +522,7 @@ data DatabaseStatus = DatabaseStatus
     , dsDependsOn :: ![Text] -- Names of databases this one depends on (for cross-DB linking)
     , dsAllocation :: !AllocationKey -- The key its multi-output blocks were divided under
     , dsSource :: !(Maybe Text) -- The database whose files it reads, when it owns none
+    , dsTerms :: !Terms -- What it is served under, its source's for a copy
     }
     deriving (Show, Eq, Generic)
 
@@ -539,6 +541,7 @@ instance ToJSON DatabaseStatus where
             , "dsDependsOn" .= dsDependsOn
             , "dsAllocation" .= allocationKeyText dsAllocation
             , "dsSource" .= dsSource
+            , "dsTerms" .= dsTerms
             ]
 
 instance FromJSON DatabaseStatus where
@@ -561,6 +564,8 @@ instance FromJSON DatabaseStatus where
             -- misreading the field was put on the wire to end.
             <*> (v .:? "dsAllocation" A..!= "declared" >>= either (fail . T.unpack) pure . parseAllocationKey)
             <*> v .:? "dsSource"
+            -- Before terms were on the wire every database could be downloaded.
+            <*> v .:? "dsTerms" A..!= openTerms
 
 -- | Status of a method collection (e.g., EF-3.1) for API responses
 data MethodCollectionStatus = MethodCollectionStatus
@@ -1916,6 +1921,7 @@ listDatabases manager = do
                 , dsDependsOn = dcDepends config
                 , dsAllocation = dcAllocation config
                 , dsSource = dcSource config
+                , dsTerms = termsOf availableDbs config
                 }
 
 -- | File extensions 'resolveDataPath' knows how to extract as archives.
