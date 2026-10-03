@@ -6,23 +6,26 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Monad (replicateM_, void)
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.Vector as V
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, makeAbsolute)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Hspec
 
-import Config (MethodPatch (..), MethodPatchMatch (..), defaultConfig)
+import Config (Config (..), MethodOrigin (..), MethodPatch (..), MethodPatchMatch (..), ScoringSetConfig (..), defaultConfig)
+import qualified Config
 import Data.JournalFile (journalPath)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getMethodCollection, initDatabaseManager, loadMethodCollection, mapMethodToIndexCached, unloadMethodCollection)
 import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Edit
 import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), EditEffect (..), FactorEdit (..), FactorTarget (..))
 import Method.Mapping (MethodIndex (..))
-import Method.Types (Method (..), MethodCF (..), MethodCollection (..))
+import Method.ScoringEdit (RowDraft (..), ScoringEdit (..))
+import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import TestHelpers (withScratchDataDir)
 import Types (PatchOp (..))
 
@@ -36,6 +39,45 @@ copyWithMethane = do
     case [(methodId m, f) | m <- maybe [] mcMethods collection, methodName m == "Methane", f <- methodFactors m, mcfFlowName f == "Methane, fossil"] of
         [(category, methane)] -> pure (manager, category, methane)
         found -> fail ("expected one Methane, fossil factor in the Methane category, found " <> show (length found))
+
+-- | The identifier of the one category of a collection with that name.
+categoryNamed :: Maybe MethodCollection -> T.Text -> IO UUID
+categoryNamed collection name = case [methodId m | m <- maybe [] mcMethods collection, methodName m == name] of
+    [category] -> pure category
+    found -> fail ("expected one category " <> T.unpack name <> ", found " <> show (length found))
+
+{- | A collection read from a SimaPro file, whose normalization-weighting set
+translates to a scoring set, and to which the configuration adds a set
+weighing a variable it does not declare.
+-}
+simaPro :: IO DatabaseManager
+simaPro = do
+    file <- makeAbsolute "test/data/simapro_method.csv"
+    let orphan = ScoringSetConfig "Mine" "Pt" (M.singleton "cc" "Climate change") M.empty M.empty M.empty (M.fromList [("cc", 1), ("ghost", 2)]) M.empty Nothing
+        configured =
+            Config.MethodConfig
+                { Config.mcName = "sp"
+                , Config.mcOrigin = MethodFromFile file
+                , Config.mcActive = True
+                , Config.mcHome = Nothing
+                , Config.mcSource = Nothing
+                , Config.mcDescription = Nothing
+                , Config.mcFormat = Nothing
+                , Config.mcScoringSets = [orphan]
+                , Config.mcGlobalMethods = []
+                , Config.mcPatches = []
+                }
+    manager <- initDatabaseManager defaultConfig{cfgMethods = [configured]} NoCache
+    copied <- copyMethodCollection manager "sp" "copy"
+    copied `shouldBe` Right "copy"
+    pure manager
+
+-- | The collection as a reload reads it back from its journal.
+reloaded :: DatabaseManager -> IO (Maybe MethodCollection)
+reloaded manager = do
+    _ <- unloadMethodCollection manager "copy"
+    _ <- loadMethodCollection manager "copy"
+    getMethodCollection manager "copy"
 
 anyPatch :: MethodPatch
 anyPatch = MethodPatch Nothing (MethodPatchMatch Nothing Nothing (Just "Methane") Nothing Nothing) (ScaleBy 2)
@@ -170,3 +212,41 @@ spec = describe "changing a method collection of one's own" $ do
             refused <- undoMethodEdit manager "copy" (Just 1)
             either (T.unpack . refusalText) (const "undone") refused `shouldContain` "undo line 2 first"
             fmap length <$> methodHistory manager "copy" `shouldReturn` Right 2
+
+    it "creates a scoring set, adds a row to it, and keeps both across a reload" $
+        withScratchDataDir $ do
+            (manager, methaneCategory, _) <- copyWithMethane
+            start <- getMethodCollection manager "copy"
+            water <- categoryNamed start "Water used"
+            created <- editScoringSets manager "copy" (NewSet "Mine" Nothing [RowDraft "Gas" Nothing ((methaneCategory, 1) :| []) (Just 2) (Just 0.5)])
+            fmap eoLine created `shouldBe` Right 1
+            added <- editScoringSets manager "copy" (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) (Just 4) (Just 0.25)))
+            fmap eoLine added `shouldBe` Right 2
+            edited <- getMethodCollection manager "copy"
+            back <- reloaded manager
+            back `shouldBe` edited
+            fmap (map (\set -> (ssName set, ssScores set)) . mcScoringSets) back `shouldBe` Just [("Mine", M.singleton "Single score" "gas + water")]
+
+    it "removes a set a SimaPro file translates, reloads, and undoes it back to what a replay reads" $
+        withScratchDataDir $ do
+            manager <- simaPro
+            changed <- editScoringSets manager "copy" (ChangeMultiplier "Test NW set" (Just 1000))
+            fmap eoLine changed `shouldBe` Right 2
+            removed <- editScoringSets manager "copy" (DeleteSet "Test NW set")
+            fmap eoLine removed `shouldBe` Right 3
+            withoutSet <- getMethodCollection manager "copy"
+            reloaded manager `shouldReturn` withoutSet
+            fmap (map ssName . mcScoringSets) withoutSet `shouldBe` Just ["Mine"]
+            undone <- undoMethodEdit manager "copy" (Just 3)
+            fmap eoLine undone `shouldBe` Right 4
+            restored <- getMethodCollection manager "copy"
+            reloaded manager `shouldReturn` restored
+            fmap (map (\set -> (ssName set, ssDisplayMultiplier set)) . mcScoringSets) restored `shouldBe` Just [("Mine", Nothing), ("Test NW set", Just 1000)]
+
+    it "adds a row to a configured set that weighs a variable it does not declare" $
+        withScratchDataDir $ do
+            manager <- simaPro
+            start <- getMethodCollection manager "copy"
+            water <- categoryNamed start "Water use"
+            added <- editScoringSets manager "copy" (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) Nothing (Just 1)))
+            fmap eoLine added `shouldBe` Right 2
