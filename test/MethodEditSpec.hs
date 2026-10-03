@@ -20,7 +20,7 @@ import Data.JournalFile (journalPath)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getMethodCollection, initDatabaseManager, loadMethodCollection, mapMethodToIndexCached, unloadMethodCollection)
 import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Edit
-import Method.EditPlan (EditEffect (..), FactorEdit (..), FactorTarget (..))
+import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), EditEffect (..), FactorEdit (..), FactorTarget (..))
 import Method.Mapping (MethodIndex (..))
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..))
 import TestHelpers (withScratchDataDir)
@@ -148,3 +148,25 @@ spec = describe "changing a method collection of one's own" $ do
         withScratchDataDir $ do
             manager <- initDatabaseManager defaultConfig NoCache
             fmap length <$> methodHistory manager "plain-indicators" `shouldReturn` Right 0
+
+    it "adds a category, answers with its identifier, and keeps it across a reload" $
+        withScratchDataDir $ do
+            (manager, _, _) <- copyWithMethane
+            added <- editMethodCategories manager "copy" (NewCategory (CategoryDraft "A category of my own" "kg" Nothing Nothing))
+            category <- either (fail . show) (maybe (fail "no category in the answer") pure . eoCategory) added
+            before <- getMethodCollection manager "copy"
+            _ <- unloadMethodCollection manager "copy"
+            _ <- loadMethodCollection manager "copy"
+            after <- getMethodCollection manager "copy"
+            after `shouldBe` before
+            fmap (map methodName . filter ((== category) . methodId) . mcMethods) after `shouldBe` Just ["A category of my own"]
+
+    it "refuses to undo the addition of a category a later line added a factor to, naming that line" $
+        withScratchDataDir $ do
+            (manager, _, methane) <- copyWithMethane
+            added <- editMethodCategories manager "copy" (NewCategory (CategoryDraft "A category of my own" "kg" Nothing Nothing))
+            category <- either (fail . show) (maybe (fail "no category in the answer") pure . eoCategory) added
+            _ <- editMethodFactors manager "copy" (Add category methane)
+            refused <- undoMethodEdit manager "copy" (Just 1)
+            either (T.unpack . refusalText) (const "undone") refused `shouldContain` "undo line 2 first"
+            fmap length <$> methodHistory manager "copy" `shouldReturn` Right 2

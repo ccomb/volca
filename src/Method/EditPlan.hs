@@ -16,6 +16,9 @@ module Method.EditPlan (
     FactorEdit (..),
     EditEffect (..),
     planEdit,
+    CategoryDraft (..),
+    CategoryEdit (..),
+    planCategoryEdit,
 
     -- * Undoing
     inEffect,
@@ -30,20 +33,24 @@ module Method.EditPlan (
     seedLines,
 ) where
 
-import Data.List (elemIndices)
+import Control.Monad (when)
+import Data.List (elemIndex, elemIndices, find, findIndex)
 import Data.Maybe (listToMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
+import qualified Data.UUID as UUID
 
 import Config (MethodPatch (..))
 import Method.Journal (
     LineKind (..),
     MethodLine (..),
     MethodOp (..),
+    Regionalization (..),
     Restore (..),
     describeFactor,
+    nameIsFree,
     oneCategory,
     sameAddress,
  )
@@ -116,6 +123,67 @@ planEdit collection = \case
     Patch patch -> case snd (applyMethodPatches [patch] collection) of
         [(_, touched)] | touched > 0 -> pure (PatchFactors patch touched, EditEffect touched Nothing Nothing)
         _ -> Left ("\"" <> describePatch patch <> "\" touches no factor of this collection")
+
+-- | A category to create: it starts with no factor.
+data CategoryDraft = CategoryDraft
+    { cdName :: Text
+    , cdUnit :: Text
+    , cdImpactCategory :: Maybe Text
+    -- ^ The impact category it belongs to; its name when absent, as most files write it.
+    , cdMethodology :: Maybe Text
+    }
+    deriving (Eq, Show)
+
+-- | A change asked of a collection's categories.
+data CategoryEdit
+    = NewCategory CategoryDraft
+    | Rename UUID Text
+    | ChangeUnit UUID Text
+    | Delete UUID
+    deriving (Eq, Show)
+
+{- | The line a change to a category records, or why it cannot be recorded. A
+new category takes the identifier it is given, drawn by the caller, so that
+planning stays pure. A name or a unit is read with its edges trimmed; a change
+that would change nothing is refused, as it would only crowd the history.
+-}
+planCategoryEdit :: UUID -> MethodCollection -> CategoryEdit -> Either Text (MethodOp, EditEffect)
+planCategoryEdit fresh collection = \case
+    NewCategory draft -> do
+        name <- nonBlank "name" (cdName draft)
+        unit <- nonBlank "unit" (cdUnit draft)
+        nameIsFree collection name
+        let method = Method fresh name Nothing unit (maybe name T.strip (cdImpactCategory draft)) (cdMethodology draft) []
+        pure (AddCategory Nothing method Regionalized, EditEffect 0 Nothing Nothing)
+    Rename category asked -> do
+        method <- oneCategory collection category
+        name <- nonBlank "name" asked
+        when (name == methodName method) $ Left (methodName method <> " is already named " <> name)
+        nameIsFree collection name
+        pure (RenameCategory category (methodName method) name, EditEffect 0 Nothing Nothing)
+    ChangeUnit category asked -> do
+        method <- oneCategory collection category
+        unit <- nonBlank "unit" asked
+        when (unit == methodUnit method) $ Left (methodName method <> " is already in " <> unit)
+        pure (SetCategoryUnit category (methodUnit method) unit, EditEffect 0 Nothing Nothing)
+    Delete category -> do
+        method <- oneCategory collection category
+        position <- positionOf collection method
+        pure (RemoveCategory position method (rankIn collection (methodName method)), EditEffect (length (methodFactors method)) Nothing Nothing)
+  where
+    nonBlank :: Text -> Text -> Either Text Text
+    nonBlank field raw
+        | T.null (T.strip raw) = Left ("a category needs a " <> field)
+        | otherwise = Right (T.strip raw)
+
+-- | Where a category stands among the collection's categories.
+positionOf :: MethodCollection -> Method -> Either Text Int
+positionOf collection method =
+    maybe (Left (methodName method <> " is no longer in the collection")) Right (findIndex ((== methodId method) . methodId) (mcMethods collection))
+
+-- | Where a category stands among the unregionalized ones now.
+rankIn :: MethodCollection -> Text -> Regionalization
+rankIn collection name = maybe Regionalized UnregionalizedAt (elemIndex name (mcUnregionalized collection))
 
 -- | The one factor a target names, with its category and position.
 locate :: MethodCollection -> FactorTarget -> Either Text (UUID, Int, MethodCF)
@@ -219,6 +287,14 @@ inverseOf collection = \case
     -- create one in this version, and they are at the end already.
     CreateScoringSet set -> Right (UndoWith (RemoveScoringSet set))
     RemoveScoringSet set -> Right (UndoWith (CreateScoringSet set))
+    -- The category as it was added: factors added since make the removal
+    -- refuse, and the refusal names the line that added them.
+    AddCategory _ method _ -> do
+        position <- positionOf collection method
+        Right (UndoWith (RemoveCategory position method (rankIn collection (methodName method))))
+    RenameCategory category before after -> Right (UndoWith (RenameCategory category after before))
+    SetCategoryUnit category before after -> Right (UndoWith (SetCategoryUnit category after before))
+    RemoveCategory position method regionalization -> Right (UndoWith (AddCategory (Just position) method regionalization))
 
 {- | The values a selector replaced, read from the collection just before it.
 
@@ -237,45 +313,87 @@ restoreOf patch before =
     ]
 
 {- | Why line @target@ cannot be undone, when a later line in effect changed
-one of its factors since: that line, named, so its author knows which undo to
-ask for first. Any other reason is left as the replay gave it.
+a factor or a category it changed: that line, named, so its author knows which
+undo to ask for first. Any other reason is left as the replay gave it.
 -}
 blockedUndo :: MethodCollection -> [MethodLine] -> Int -> Text -> Text
 blockedUndo collection lines' target reason =
     maybe reason refusal . listToMaybe . reverse $
-        [ (i, factor)
+        [ (i, reach)
         | (i, l, True) <- zip3 [1 ..] lines' (inEffect lines')
         , i > target
-        , (category, factor) <- touchedBy collection (mlOp l)
-        , any (\(c, f) -> c == category && sameAddress f factor) undone
+        , reach <- reachOf collection (mlOp l)
+        , any (`blocks` reach) undone
         ]
   where
-    undone :: [(UUID, MethodCF)]
-    undone = foldMap (touchedBy collection . mlOp) (take 1 (drop (target - 1) lines'))
-    refusal :: (Int, MethodCF) -> Text
-    refusal (i, factor) =
+    undone :: [Reach]
+    undone = foldMap (reachOf collection . mlOp) (take 1 (drop (target - 1) lines'))
+    refusal :: (Int, Reach) -> Text
+    refusal (i, reach) =
         "line "
             <> T.pack (show target)
             <> " cannot be undone alone: line "
             <> T.pack (show i)
             <> " has changed "
-            <> describeFactor factor
+            <> describeReach reach
             <> " since; undo line "
             <> T.pack (show i)
             <> " first"
 
--- | The factors a line touches, with their category; a selector's are read from the collection.
-touchedBy :: MethodCollection -> MethodOp -> [(UUID, MethodCF)]
-touchedBy collection = \case
-    SetFactor category factor _ -> [(category, factor)]
-    RemoveFactor category _ factor -> [(category, factor)]
-    AddFactor category _ factor -> [(category, factor)]
-    RestoreFactors restores -> [(rsMethod r, rsFactor r) | r <- restores]
+{- | What a line reaches: a factor of a category, a category's name or unit,
+or a category's existence.
+-}
+data Reach
+    = FactorOf UUID MethodCF
+    | DefinitionOf UUID Text
+    | ExistenceOf UUID Text
+
+-- | What a line reaches; a selector's factors are read from the collection.
+reachOf :: MethodCollection -> MethodOp -> [Reach]
+reachOf collection = \case
+    SetFactor category factor _ -> [FactorOf category factor]
+    RemoveFactor category _ factor -> [FactorOf category factor]
+    AddFactor category _ factor -> [FactorOf category factor]
+    RestoreFactors restores -> [FactorOf (rsMethod r) (rsFactor r) | r <- restores]
     PatchFactors patch _ ->
-        [(methodId method, factor) | method <- mcMethods collection, factor <- methodFactors method, cfMatches (mpMatch patch) (methodName method) factor]
+        [FactorOf (methodId method) factor | method <- mcMethods collection, factor <- methodFactors method, cfMatches (mpMatch patch) (methodName method) factor]
+    AddCategory _ method _ -> [ExistenceOf (methodId method) (methodName method)]
+    RemoveCategory _ method _ -> [ExistenceOf (methodId method) (methodName method)]
+    RenameCategory category _ after -> [DefinitionOf category after]
+    SetCategoryUnit category _ _ -> [DefinitionOf category (nameOf category)]
     SetGlobalMethods _ _ -> []
     CreateScoringSet _ -> []
     RemoveScoringSet _ -> []
+  where
+    nameOf :: UUID -> Text
+    nameOf category = maybe (UUID.toText category) methodName (find ((== category) . methodId) (mcMethods collection))
+
+{- | Whether a later line reaching the second blocks undoing a line reaching
+the first. A factor is named by its category's identifier, so a rename or a
+change of unit never blocks a factor's undo, nor a factor a rename's; the
+category's removal or addition blocks everything in it.
+-}
+blocks :: Reach -> Reach -> Bool
+blocks undone later = case (undone, later) of
+    (FactorOf c f, FactorOf c' g) -> c == c' && sameAddress f g
+    (FactorOf c _, ExistenceOf c' _) -> c == c'
+    (FactorOf _ _, DefinitionOf _ _) -> False
+    (DefinitionOf _ _, FactorOf _ _) -> False
+    (DefinitionOf c _, DefinitionOf c' _) -> c == c'
+    (DefinitionOf c _, ExistenceOf c' _) -> c == c'
+    (ExistenceOf c _, other) -> c == categoryOf other
+  where
+    categoryOf :: Reach -> UUID
+    categoryOf = \case
+        FactorOf c' _ -> c'
+        DefinitionOf c' _ -> c'
+        ExistenceOf c' _ -> c'
+
+describeReach :: Reach -> Text
+describeReach = \case
+    FactorOf _ factor -> describeFactor factor
+    DefinitionOf _ name -> name
+    ExistenceOf _ name -> name
 
 -- | What writing a line does, in the terms a change reports.
 undoEffect :: MethodOp -> EditEffect
@@ -288,6 +406,10 @@ undoEffect = \case
     SetGlobalMethods _ _ -> EditEffect 0 Nothing Nothing
     CreateScoringSet _ -> EditEffect 0 Nothing Nothing
     RemoveScoringSet _ -> EditEffect 0 Nothing Nothing
+    AddCategory _ method _ -> EditEffect (length (methodFactors method)) Nothing Nothing
+    RemoveCategory _ method _ -> EditEffect (length (methodFactors method)) Nothing Nothing
+    RenameCategory{} -> EditEffect 0 Nothing Nothing
+    SetCategoryUnit{} -> EditEffect 0 Nothing Nothing
 
 {- | The first lines of a copy of a collection the configuration declares: what
 the configuration adds to the files, in the order it applies them (the

@@ -29,6 +29,7 @@ module Method.Journal (
     -- * What a line records
     MethodOp (..),
     Restore (..),
+    Regionalization (..),
     LineKind (..),
     MethodLine (..),
 
@@ -38,6 +39,8 @@ module Method.Journal (
 
     -- * Shared with the planning of a change
     opName,
+    opCategory,
+    nameIsFree,
     describeFactor,
     oneCategory,
     sameAddress,
@@ -94,6 +97,17 @@ data MethodOp
       CreateScoringSet ScoringSet
     | -- | A scoring set taken out, in full.
       RemoveScoringSet ScoringSet
+    | -- | A category at a position (the end when absent), in full, factors included, with its place among the unregionalized categories.
+      AddCategory (Maybe Int) Method Regionalization
+    | {- | The category, the name it had and the one written. The scoring sets'
+      variables and the unregionalized categories that named it follow, in the
+      same line: left behind, a set would stop scoring without a word.
+      -}
+      RenameCategory UUID Text Text
+    | -- | The category, the unit it had and the one written.
+      SetCategoryUnit UUID Text Text
+    | -- | The position the category held, the category in full, and its place among the unregionalized categories.
+      RemoveCategory Int Method Regionalization
     deriving (Eq, Show)
 
 -- | One value given back by 'RestoreFactors'.
@@ -105,6 +119,13 @@ data Restore = Restore
     , rsValue :: Double
     -- ^ The value it gets back.
     }
+    deriving (Eq, Show)
+
+{- | Whether a category is scored without regionalization, and if so its rank
+in that list: a category put back returns to the same rank, so the list reads
+the same as before it left.
+-}
+data Regionalization = Regionalized | UnregionalizedAt Int
     deriving (Eq, Show)
 
 -- | Why a line is in the journal.
@@ -170,6 +191,10 @@ applyMethodOp collection = \case
         | set `elem` mcScoringSets collection ->
             Right collection{mcScoringSets = filter (/= set) (mcScoringSets collection)}
         | otherwise -> Left ("the scoring set '" <> ssName set <> "' is not there as recorded")
+    AddCategory position method regionalization -> addCategory position method regionalization collection
+    RenameCategory category before after -> renameCategory category before after collection
+    SetCategoryUnit category before after -> inCategory category (setUnit before after) collection
+    RemoveCategory position method regionalization -> removeCategory position method regionalization collection
 
 {- | The one category an identifier names. Two categories under one identifier
 would make a line mean two things, so that is a refusal too.
@@ -186,6 +211,100 @@ inCategory :: UUID -> (Method -> Either Text Method) -> MethodCollection -> Eith
 inCategory category change collection = do
     changed <- change =<< oneCategory collection category
     pure collection{mcMethods = map (\m -> if methodId m == category then changed else m) (mcMethods collection)}
+
+-- | Insert a category, refusing an identifier or a name the collection already holds.
+addCategory :: Maybe Int -> Method -> Regionalization -> MethodCollection -> Either Text MethodCollection
+addCategory position method regionalization collection = do
+    unless (all ((/= methodId method) . methodId) (mcMethods collection)) $
+        Left ("an impact category already has the identifier " <> UUID.toText (methodId method))
+    nameIsFree collection (methodName method)
+    at <- maybe (Right (length (mcMethods collection))) within position
+    unregionalized <- enterUnregionalized regionalization (methodName method) (mcUnregionalized collection)
+    pure collection{mcMethods = insertAt at method (mcMethods collection), mcUnregionalized = unregionalized}
+  where
+    within :: Int -> Either Text Int
+    within p
+        | p >= 0 && p <= length (mcMethods collection) = Right p
+        | otherwise = Left ("position " <> showT p <> " is past the end of the impact categories")
+
+{- | A name nothing in the collection uses yet: no category, and no scoring
+set or unregionalized list naming a category the collection does not have.
+A name such a set already holds would catch the new category without a
+word, and a rename's undo would then take that name away from the set.
+-}
+nameIsFree :: MethodCollection -> Text -> Either Text ()
+nameIsFree collection name
+    | any ((== name) . methodName) (mcMethods collection) = Left ("an impact category is already named " <> name)
+    | (s : _) <- filter (elem name . M.elems . ssVariables) (mcScoringSets collection) =
+        Left ("the scoring set " <> ssName s <> " already names " <> name <> ", which no impact category has")
+    | name `elem` mcUnregionalized collection =
+        Left ("the unregionalized categories already name " <> name <> ", which no impact category has")
+    | otherwise = Right ()
+
+{- | Rename the one category a line names, and every name that pointed at it.
+The name has to be its own: two categories sharing it would leave the sets
+naming it unable to say which one.
+-}
+renameCategory :: UUID -> Text -> Text -> MethodCollection -> Either Text MethodCollection
+renameCategory category before after collection = do
+    method <- oneCategory collection category
+    unless (methodName method == before) $
+        Left ("the impact category " <> UUID.toText category <> " is named " <> methodName method <> ", not " <> before <> " as recorded")
+    unless (length (filter ((== before) . methodName) (mcMethods collection)) == 1) $
+        Left ("several impact categories are named " <> before <> ": the scoring sets naming it cannot tell which one")
+    nameIsFree collection after
+    pure
+        collection
+            { mcMethods = map (\m -> if methodId m == category then m{methodName = after} else m) (mcMethods collection)
+            , mcScoringSets = map (\s -> s{ssVariables = M.map follow (ssVariables s)}) (mcScoringSets collection)
+            , mcUnregionalized = map follow (mcUnregionalized collection)
+            }
+  where
+    follow :: Text -> Text
+    follow name = if name == before then after else name
+
+setUnit :: Text -> Text -> Method -> Either Text Method
+setUnit before after method
+    | methodUnit method == before = Right method{methodUnit = after}
+    | otherwise = Left (methodName method <> " is in " <> methodUnit method <> ", not " <> before <> " as recorded")
+
+{- | Take out the category at a position, when it is the one recorded, with
+its place among the unregionalized ones. A category a scoring set weighs
+stays: the set would stop scoring.
+-}
+removeCategory :: Int -> Method -> Regionalization -> MethodCollection -> Either Text MethodCollection
+removeCategory position method regionalization collection = case splitAt position (mcMethods collection) of
+    (front, found : back)
+        | position >= 0
+        , found == method -> do
+            unlessWeighed
+            unregionalized <- leaveUnregionalized regionalization (methodName method) (mcUnregionalized collection)
+            pure collection{mcMethods = front <> back, mcUnregionalized = unregionalized}
+    _ -> Left (methodName method <> " is not at position " <> showT position <> " of the impact categories as recorded")
+  where
+    unlessWeighed :: Either Text ()
+    unlessWeighed = case [ssName s | s <- mcScoringSets collection, methodName method `elem` M.elems (ssVariables s)] of
+        [] -> Right ()
+        sets -> Left (methodName method <> " is weighed by the scoring set " <> T.intercalate ", " sets <> ": take it out of the set first")
+
+enterUnregionalized :: Regionalization -> Text -> [Text] -> Either Text [Text]
+enterUnregionalized regionalization name names = case regionalization of
+    Regionalized -> Right names
+    UnregionalizedAt i
+        | i >= 0 && i <= length names -> Right (insertAt i name names)
+        | otherwise -> Left ("rank " <> showT i <> " is past the end of the unregionalized categories")
+
+leaveUnregionalized :: Regionalization -> Text -> [Text] -> Either Text [Text]
+leaveUnregionalized regionalization name names = case regionalization of
+    Regionalized
+        | name `notElem` names -> Right names
+        | otherwise -> Left (name <> " is scored without regionalization, which the line did not record")
+    UnregionalizedAt i -> case splitAt i names of
+        (front, found : back) | i >= 0, found == name -> Right (front <> back)
+        _ -> Left (name <> " is not at rank " <> showT i <> " of the unregionalized categories as recorded")
+
+insertAt :: Int -> a -> [a] -> [a]
+insertAt i x xs = take i xs <> (x : drop i xs)
 
 -- | Replace the one factor equal to the recorded one.
 replaceFactor :: MethodCF -> (MethodCF -> MethodCF) -> Method -> Either Text Method
@@ -219,7 +338,7 @@ addAt position factor method = case position of
     Just i
         | i >= 0
         , i <= length (methodFactors method) ->
-            Right method{methodFactors = take i (methodFactors method) <> (factor : drop i (methodFactors method))}
+            Right method{methodFactors = insertAt i factor (methodFactors method)}
         | otherwise -> Left ("position " <> showT i <> " is past the end of " <> methodName method)
 
 -- | One flow at one place: the address a factor is written under.
@@ -288,6 +407,26 @@ opName = \case
     AddFactor{} -> "add-factor"
     CreateScoringSet _ -> "create-scoring-set"
     RemoveScoringSet _ -> "remove-scoring-set"
+    AddCategory{} -> "add-category"
+    RenameCategory{} -> "rename-category"
+    SetCategoryUnit{} -> "set-category-unit"
+    RemoveCategory{} -> "remove-category"
+
+-- | The one category a line names, when it names one: what a change answers with.
+opCategory :: MethodOp -> Maybe UUID
+opCategory = \case
+    SetFactor category _ _ -> Just category
+    RemoveFactor category _ _ -> Just category
+    AddFactor category _ _ -> Just category
+    AddCategory _ method _ -> Just (methodId method)
+    RenameCategory category _ _ -> Just category
+    SetCategoryUnit category _ _ -> Just category
+    RemoveCategory _ method _ -> Just (methodId method)
+    PatchFactors _ _ -> Nothing
+    RestoreFactors _ -> Nothing
+    SetGlobalMethods _ _ -> Nothing
+    CreateScoringSet _ -> Nothing
+    RemoveScoringSet _ -> Nothing
 
 -- ---------------------------------------------------------------------------
 -- Codec
@@ -337,6 +476,12 @@ verbFields = \case
         ["category" .= UUID.toText category, "factor" .= factorJSON factor] <> maybe [] (\p -> ["position" .= p]) position
     CreateScoringSet set -> ["set" .= scoringSetJSON set]
     RemoveScoringSet set -> ["set" .= scoringSetJSON set]
+    AddCategory position method regionalization ->
+        ["category" .= categoryJSON method] <> maybe [] (\p -> ["position" .= p]) position <> regionalizationFields regionalization
+    RenameCategory category before after -> ["category" .= UUID.toText category, "before" .= before, "after" .= after]
+    SetCategoryUnit category before after -> ["category" .= UUID.toText category, "before" .= before, "after" .= after]
+    RemoveCategory position method regionalization ->
+        ["category" .= categoryJSON method, "position" .= position] <> regionalizationFields regionalization
   where
     opValue :: PatchOp -> [Pair]
     opValue = \case
@@ -354,6 +499,10 @@ parseVerb o = \case
     "add-factor" -> AddFactor <$> category <*> o .:? "position" <*> (o .: "factor" >>= parseFactor)
     "create-scoring-set" -> CreateScoringSet <$> (o .: "set" >>= parseScoringSet)
     "remove-scoring-set" -> RemoveScoringSet <$> (o .: "set" >>= parseScoringSet)
+    "add-category" -> AddCategory <$> o .:? "position" <*> (o .: "category" >>= parseCategory) <*> regionalization
+    "rename-category" -> RenameCategory <$> category <*> o .: "before" <*> o .: "after"
+    "set-category-unit" -> SetCategoryUnit <$> category <*> o .: "before" <*> o .: "after"
+    "remove-category" -> RemoveCategory <$> o .: "position" <*> (o .: "category" >>= parseCategory) <*> regionalization
     other -> fail ("unknown method journal operation: " <> T.unpack other)
   where
     category :: Parser UUID
@@ -363,6 +512,37 @@ parseVerb o = \case
         match <- o .: "match" >>= parseMatch
         description <- o .:? "description"
         PatchFactors (MethodPatch description match op) <$> o .: "touched"
+    regionalization :: Parser Regionalization
+    regionalization = maybe Regionalized UnregionalizedAt <$> o .:? "unregionalized-at"
+
+regionalizationFields :: Regionalization -> [Pair]
+regionalizationFields = \case
+    Regionalized -> []
+    UnregionalizedAt i -> ["unregionalized-at" .= i]
+
+-- | A category in full, its factors included: what an addition puts and a removal takes.
+categoryJSON :: Method -> Value
+categoryJSON m =
+    object $
+        [ "id" .= UUID.toText (methodId m)
+        , "name" .= methodName m
+        , "unit" .= methodUnit m
+        , "impact-category" .= methodCategory m
+        , "factors" .= map factorJSON (methodFactors m)
+        ]
+            <> maybe [] (\d -> ["description" .= d]) (methodDescription m)
+            <> maybe [] (\d -> ["methodology" .= d]) (methodMethodology m)
+
+parseCategory :: Value -> Parser Method
+parseCategory = withObject "impact category" $ \o ->
+    Method
+        <$> (o .: "id" >>= parseUUID)
+        <*> o .: "name"
+        <*> o .:? "description"
+        <*> o .: "unit"
+        <*> o .: "impact-category"
+        <*> o .:? "methodology"
+        <*> (o .: "factors" >>= traverse parseFactor)
 
 parseUUID :: Text -> Parser UUID
 parseUUID raw = maybe (fail ("not an identifier: " <> T.unpack raw)) pure (UUID.fromText raw)

@@ -3,6 +3,7 @@
 module MethodCopySpec (spec) where
 
 import Control.Monad (void)
+import Data.List (find)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -15,7 +16,8 @@ import Config (Config (..), MethodConfig (..), MethodOrigin (..), MethodPatch (.
 import Data.JournalFile (Entry (..), readEntries)
 import Database.Manager (CachePolicy (..), getMethodCollection, initDatabaseManager, loadMethodCollection, removeMethodCollection, unloadMethodCollection)
 import Database.UploadedDatabase (getMethodUploadsDir)
-import Method.Edit (MethodEditRefusal (..), copyMethodCollection)
+import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, undoMethodEdit)
+import Method.EditPlan (CategoryEdit (..))
 import Method.Journal (MethodLine (..), opName)
 import Method.Types (MethodCollection, ScoringSet (..), ScoringSetOrigin (..))
 import qualified Method.Types
@@ -133,3 +135,20 @@ spec = describe "copying a method collection" $ do
             refused <- removeMethodCollection manager "ecotox"
             either T.unpack (const "deleted") refused `shouldContain` "second"
             loadMethodCollection manager "second" `shouldReturn` Right ()
+
+    it "renames a category a scoring set weighs, the set following, and gives the name back on undo" $
+        withScratchDataDir $
+            withSystemTempDirectory "method" $ \dir -> do
+                TIO.writeFile (dir </> "ecotox.csv") methodCsv
+                manager <- initDatabaseManager defaultConfig{cfgMethods = [configured dir]} NoCache
+                _ <- copyMethodCollection manager "ecotox" "mine"
+                collection <- getMethodCollection manager "mine"
+                category <-
+                    maybe (fail "no Ecotoxicity category") (pure . Method.Types.methodId) $
+                        find ((== "Ecotoxicity") . Method.Types.methodName) (maybe [] Method.Types.mcMethods collection)
+                _ <- editMethodCategories manager "mine" (Rename category "Ecotoxicity, total")
+                renamed <- getMethodCollection manager "mine"
+                fmap (concatMap (M.elems . ssVariables) . Method.Types.mcScoringSets) renamed `shouldBe` Just ["Ecotoxicity, total"]
+                fmap Method.Types.mcUnregionalized renamed `shouldBe` Just ["Ecotoxicity, total"]
+                _ <- undoMethodEdit manager "mine" Nothing
+                getMethodCollection manager "mine" `shouldReturn` collection

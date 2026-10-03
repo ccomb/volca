@@ -17,6 +17,7 @@ module Method.Edit (
     copyMethodCollection,
     EditOutcome (..),
     editMethodFactors,
+    editMethodCategories,
     undoMethodEdit,
     HistoryLine (..),
     methodHistory,
@@ -33,6 +34,8 @@ import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.UUID (UUID)
+import Data.UUID.V4 (nextRandom)
 import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute, removeDirectoryRecursive)
 import System.FilePath ((</>))
 
@@ -51,8 +54,8 @@ import Database.Manager (
  )
 import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
-import Method.EditPlan (EditEffect, FactorEdit, Undo (..), blockedUndo, inEffect, inverseOf, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
-import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMethodOp, replayMethodJournal)
+import Method.EditPlan (CategoryEdit, EditEffect, FactorEdit, Undo (..), blockedUndo, inEffect, inverseOf, planCategoryEdit, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
+import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMethodOp, opCategory, replayMethodJournal)
 import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
 import Types (AllocationKey (..), Licence (..))
@@ -178,12 +181,26 @@ discardCopy manager slug home = do
         pure
         removed
 
--- | What a change did, and the journal line that records it.
+-- | What a change did, the journal line that records it, and the one category it names, if any.
 data EditOutcome = EditOutcome
     { eoLine :: Int
     , eoEffect :: EditEffect
+    , eoCategory :: Maybe UUID
     }
     deriving (Eq, Show)
+
+-- | Change the factors of a loaded collection of one's own.
+editMethodFactors :: DatabaseManager -> Text -> FactorEdit -> IO (Either MethodEditRefusal EditOutcome)
+editMethodFactors manager name edit = editWith manager name (`planEdit` edit)
+
+{- | Change a category of a loaded collection of one's own, as a factor is
+changed. A new category's identifier is drawn here, so that planning stays
+pure and the line records it: a replay gives it back the same one.
+-}
+editMethodCategories :: DatabaseManager -> Text -> CategoryEdit -> IO (Either MethodEditRefusal EditOutcome)
+editMethodCategories manager name edit = do
+    fresh <- nextRandom
+    editWith manager name (\collection -> planCategoryEdit fresh collection edit)
 
 {- | Change a loaded collection of one's own, and record the change where a
 later load finds it again.
@@ -195,14 +212,14 @@ result in and drop what was built from the old one. A crash before the append
 leaves nothing; after it, the next load replays the line, which is the answer
 the caller was given.
 -}
-editMethodFactors :: DatabaseManager -> Text -> FactorEdit -> IO (Either MethodEditRefusal EditOutcome)
-editMethodFactors manager name edit = withMVar (dmMethodEditLock manager) $ \() -> runExceptT $ do
+editWith :: DatabaseManager -> Text -> (MethodCollection -> Either Text (MethodOp, EditEffect)) -> IO (Either MethodEditRefusal EditOutcome)
+editWith manager name plan = withMVar (dmMethodEditLock manager) $ \() -> runExceptT $ do
     (home, collection) <- ExceptT (editable manager name)
     entries <- ExceptT (first EditRefused <$> readEntries home)
-    (op, effect) <- except (first EditRefused (planEdit collection edit))
+    (op, effect) <- except (first EditRefused (plan collection))
     changed <- except (first EditRefused (applyMethodOp collection op))
     line <- ExceptT (commitLine manager name home entries (MethodLine op Change) changed)
-    pure (EditOutcome line effect)
+    pure (EditOutcome line effect (opCategory op))
 
 -- | The home and the collection in use of a collection one may change.
 editable :: DatabaseManager -> Text -> IO (Either MethodEditRefusal (FilePath, MethodCollection))
@@ -247,7 +264,7 @@ undoMethodEdit manager name requested = withMVar (dmMethodEditLock manager) $ \(
             UndoSelector patch -> RestoreFactors . restoreOf patch <$> ExceptT (stateBefore manager name target entries)
     changed <- except (first blocked (applyMethodOp collection inverse))
     line <- ExceptT (commitLine manager name home entries (MethodLine inverse (Undoing target)) changed)
-    pure (EditOutcome line (undoEffect inverse))
+    pure (EditOutcome line (undoEffect inverse) (opCategory inverse))
 
 -- | What line @k@ of a journal did; 'undoTarget' has already said it exists.
 lineAt :: Int -> [Entry MethodLine] -> Either Text MethodOp
