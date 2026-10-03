@@ -40,7 +40,7 @@ depends = ["other"]
 deletable = false
 geography_policy = "parent"
 allocation = "wet mass"
-licence = "CC BY 4.0"
+licence = "CC-BY-4.0"
 downloads = "refused"
 
 [databases.locationAliases]
@@ -54,6 +54,13 @@ set-value = 0.0
 [[databases.patches]]
 match = { flow-name = "Other" }
 scale = 0.5
+
+[[databases]]
+name = "own"
+path = "own.zip"
+licence_text = "Members only"
+refuses = ["download"]
+attribution = false
 
 [[methods]]
 name = "EF"
