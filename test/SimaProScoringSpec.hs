@@ -9,7 +9,7 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Method.Scoring (shortNames)
+import Method.Scoring (RowTerms (..), ScoringRow (..), checkSet, rowsOf, shortNames, sumOfRows)
 import Method.SimaProScoring
 import Method.Types
 
@@ -60,6 +60,37 @@ withSole (sets, warnings) check = case sets of
 
 spec :: Spec
 spec = do
+    describe "a translated set read as rows" $ do
+        it "gives each damage as a row grouping its categories" $
+            withSole (translateScoring methods damages [nwSet]) $ \set _ ->
+                [(srVariable r, srLabel r, srTerms r, srWeight r) | r <- rowsOf set]
+                    `shouldBe` [ ("climate_change_2", "Climate change", Grouped [("Climate change", 1)], Just 0.2106)
+                               , ("ecotoxicity_freshwater", "Ecotoxicity, freshwater", Grouped [("Ecotoxicity, freshwater - part 1", 1), ("Ecotoxicity, freshwater - part 2", 1)], Just 0.0192)
+                               ]
+
+        it "gives a weighted category no damage groups as a row of one category" $ do
+            let ungrouped = nwSet{nwWeighting = M.insert "Water use" 0.08 (nwWeighting nwSet)}
+            withSole (translateScoring methods damages [ungrouped]) $ \set _ ->
+                [(srVariable r, srTerms r) | r <- rowsOf set, srVariable r == "water_use"] `shouldBe` [("water_use", Grouped [("Water use", 1)])]
+
+        it "gives the damages of a set that weighs nothing as rows with no weight" $
+            withSole (translateScoring methods damages []) $ \set _ ->
+                map srWeight (rowsOf set) `shouldBe` [Nothing, Nothing]
+
+        it "reads the single score as the sum of the rows, in any order, and no other score" $
+            withSole (translateScoring methods damages [nwSet]) $ \set _ -> do
+                sumOfRows set singleScoreName `shouldBe` True
+                sumOfRows set{ssScores = M.singleton singleScoreName "ecotoxicity_freshwater + climate_change_2"} singleScoreName `shouldBe` True
+                sumOfRows set{ssScores = M.singleton singleScoreName "2 * climate_change_2 + ecotoxicity_freshwater"} singleScoreName `shouldBe` False
+
+        it "reads a formula that is no weighted sum as written" $
+            withSole (translateScoring methods damages [nwSet]) $ \set _ ->
+                map srTerms (rowsOf set{ssComputed = M.insert "climate_change_2" "climate_change * climate_change" (ssComputed set)})
+                    `shouldSatisfy` elem (Written "climate_change * climate_change")
+
+        it "scores a translated set without refusal" $
+            withSole (translateScoring methods damages [nwSet]) $ \set _ -> checkSet set `shouldBe` Right ()
+
     describe "shortNames" $ do
         it "lowers, replaces every other character by one underscore, trims the edges" $
             shortNames ["Ecotoxicity, freshwater - part 1", "Climate change"]

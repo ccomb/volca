@@ -8,6 +8,16 @@ module Method.Scoring (
     NumberEntry (..),
     ScoringChange (..),
     applyChange,
+    ScoringKey (..),
+    keyOf,
+    ScoringGesture (..),
+    invertGesture,
+    checkSet,
+    ScoringRow (..),
+    RowTerms (..),
+    rowsOf,
+    sumOfRows,
+    singleScoreName,
     shortNames,
     freshName,
     linearTerms,
@@ -16,14 +26,15 @@ module Method.Scoring (
 
 import Data.Char (isAsciiLower, isDigit)
 import Data.Containers.ListUtils (nubOrd)
-import Data.List (mapAccumL)
+import Control.Applicative ((<|>))
+import Data.List (mapAccumL, sort)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 
 import qualified Expr
-import Method.Types (ScoringSet (..))
+import Method.Types (ScoringSet (..), computeFormulaScores)
 
 -- | The entries of a scoring set that hold text, each keyed by a variable or, for 'ScoreOf', a score.
 data TextEntry
@@ -96,6 +107,131 @@ applyChange change set = case change of
 
     quoted :: Text -> Text
     quoted t = "'" <> t <> "'"
+
+-- | Which entry of a set a change touches, without its values: what a line reaches.
+data ScoringKey
+    = TextKey TextEntry Text
+    | NumberKey NumberEntry Text
+    | -- | the name, the unit or the display multiplier, which every entry is read under
+      WholeSet
+    deriving (Eq, Ord, Show)
+
+keyOf :: ScoringChange -> ScoringKey
+keyOf (SetText entry key _ _) = TextKey entry key
+keyOf (SetNumber entry key _ _) = NumberKey entry key
+keyOf (RenameSet _ _) = WholeSet
+keyOf (SetUnitOfSet _ _) = WholeSet
+keyOf (SetDisplayMultiplier _ _) = WholeSet
+
+-- | What one line did to a set, as its history says it in a sentence.
+data ScoringGesture
+    = -- | a row, by its label
+      AddedRow Text
+    | -- | a row, by its label after the line
+      ChangedRow Text
+    | RemovedRow Text
+    | RenamedSet Text Text
+    | SetUnitTo Text Text
+    | SetMultiplierTo (Maybe Double) (Maybe Double)
+    | -- | the formula of an existing variable, by its label or its name
+      WroteFormula Text
+    | AddedScore Text
+    | ChangedScore Text
+    | RemovedScore Text
+    deriving (Eq, Show)
+
+-- | What the line undoing a gesture did.
+invertGesture :: ScoringGesture -> ScoringGesture
+invertGesture (AddedRow label) = RemovedRow label
+invertGesture (ChangedRow label) = ChangedRow label
+invertGesture (RemovedRow label) = AddedRow label
+invertGesture (RenamedSet before after) = RenamedSet after before
+invertGesture (SetUnitTo before after) = SetUnitTo after before
+invertGesture (SetMultiplierTo before after) = SetMultiplierTo after before
+invertGesture (WroteFormula name) = WroteFormula name
+invertGesture (AddedScore name) = RemovedScore name
+invertGesture (ChangedScore name) = ChangedScore name
+invertGesture (RemovedScore name) = AddedScore name
+
+{- | Whether a set still scores: every formula is read with the categories the
+set names at one, so a name the set does not have, a formula that cannot be
+read and two computed variables that read each other are refused, by what the
+computation itself says. Two variables a formula cannot tell apart are refused
+too, since one would hide the other. Nothing else: an entry naming no variable
+is never read, and a set that loads today must stay editable once copied.
+-}
+checkSet :: ScoringSet -> Either Text ()
+checkSet set = do
+    maybe (Right ()) Left (M.foldr (\names found -> found <|> clash names) Nothing byLower)
+    either (Left . T.pack) (const (Right ())) (computeFormulaScores set probe)
+  where
+    probe :: M.Map Text Double
+    probe = M.fromList [(category, 1) | category <- M.elems (ssVariables set)]
+
+    byLower :: M.Map Text [Text]
+    byLower = M.fromListWith (<>) [(T.toLower v, [v]) | v <- M.keys (ssVariables set) <> M.keys (ssComputed set)]
+
+    clash :: [Text] -> Maybe Text
+    clash names = case sort names of
+        first : second : _ ->
+            Just (T.concat ["The scoring set '", ssName set, "' names two variables '", first, "' and '", second, "', which a formula cannot tell apart."])
+        _ -> Nothing
+
+-- | The score a set read from a SimaPro file gives: the sum SimaPro computes.
+singleScoreName :: Text
+singleScoreName = "Single score"
+
+-- | One row of a set's guided grouping: a computed variable, or a simple one with a weight.
+data ScoringRow = ScoringRow
+    { srVariable :: Text
+    , srLabel :: Text
+    -- ^ its label, or the category of a simple variable, or its name
+    , srUnit :: Maybe Text
+    , srTerms :: RowTerms
+    , srNormalization :: Maybe Double
+    , srWeight :: Maybe Double
+    }
+    deriving (Eq, Show)
+
+data RowTerms
+    = -- | categories, each times its coefficient
+      Grouped [(Text, Double)]
+    | -- | a formula that is no weighted sum of categories
+      Written Text
+    deriving (Eq, Show)
+
+{- | A set as the rows of a guided grouping: every computed variable, weighted
+or not, then every simple variable that has a weight, which is a category no
+damage groups.
+-}
+rowsOf :: ScoringSet -> [ScoringRow]
+rowsOf set =
+    [row v (M.findWithDefault v v (ssLabels set)) (terms formula) | (v, formula) <- M.toList (ssComputed set)]
+        <> [ row v (M.findWithDefault category v (ssLabels set)) (Grouped [(category, 1)])
+           | (v, category) <- M.toList (ssVariables set)
+           , M.member v (ssWeighting set)
+           ]
+  where
+    row :: Text -> Text -> RowTerms -> ScoringRow
+    row v label t = ScoringRow v label (M.lookup v (ssUnits set)) t (M.lookup v (ssNormalization set)) (M.lookup v (ssWeighting set))
+
+    terms :: Text -> RowTerms
+    terms formula =
+        maybe
+            (Written formula)
+            (\ts -> Grouped [(M.findWithDefault p p (ssVariables set), coef) | (p, coef) <- ts])
+            (linearTerms (M.keys (ssVariables set)) formula)
+
+{- | Whether a score is the sum of the rows, each once, of those that enter a
+single score ('counted'), in whatever order: the score a new row joins.
+-}
+sumOfRows :: ScoringSet -> Text -> Bool
+sumOfRows set score = case (scored, M.lookup score (ssScores set)) of
+    (_ : _, Just formula) -> fmap M.fromList (linearTerms (map srVariable (rowsOf set)) formula) == Just (M.fromList [(v, 1) | v <- scored])
+    _ -> False
+  where
+    scored :: [Text]
+    scored = filter (counted (ssNormalization set) (ssWeighting set)) (map srVariable (rowsOf set))
 
 -- | How an entry is named in a sentence.
 textWord :: TextEntry -> Text

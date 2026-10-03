@@ -76,6 +76,20 @@ spec = do
             , SetDisplayMultiplier Nothing (Just 1000)
             ]
 
+  describe "checkSet" $ do
+    it "accepts a set that scores, an entry naming no variable included" $
+        checkSet base{ssWeighting = M.insert "nowhere" 0.5 (ssWeighting base)} `shouldBe` Right ()
+
+    it "refuses a formula naming nothing in the set" $
+        checkSet base{ssScores = M.singleton "Score" "a + ghost"} `shouldSatisfy` either ("ghost" `T.isInfixOf`) (const False)
+
+    it "refuses a formula it cannot read" $
+        checkSet base{ssScores = M.singleton "Score" "a +"} `shouldSatisfy` either ("Score" `T.isInfixOf`) (const False)
+
+    it "refuses a simple and a computed variable whose names differ only by case" $
+        checkSet base{ssComputed = M.insert "CC" "2" (ssComputed base)}
+            `shouldBe` Left "The scoring set 'Test' names two variables 'CC' and 'cc', which a formula cannot tell apart."
+
   describe "Computed variables" $ do
       it "computes a variable after the ones it reads, whatever the length of their formulas" $ do
         let set = setWith [("b", "2 * a"), ("a", "cc + ozone_depletion_long_name")] [("Score", "b")]

@@ -41,7 +41,7 @@ import GHC.Generics (Generic)
 
 import qualified Expr
 import Method.Types (Method (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
-import Method.Scoring (counted, linearTerms, shortNames)
+import Method.Scoring (counted, linearTerms, shortNames, singleScoreName)
 
 {- | Damage category: groups impact subcategories into a parent category.
 E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.
@@ -86,10 +86,6 @@ simaProCollection :: SimaProMethodFile -> (MethodCollection, [Text])
 simaProCollection f =
     let (sets, warnings) = translateScoring (smfMethods f) (smfDamages f) (smfNWSets f)
      in (MethodCollection (smfMethods f) sets [], warnings)
-
--- | The score a set read from a SimaPro file gives: the sum SimaPro computes.
-singleScoreName :: Text
-singleScoreName = "Single score"
 
 -- | The set a file with damage categories and no normalization-weighting set gives.
 damageOnlySetName :: Text
