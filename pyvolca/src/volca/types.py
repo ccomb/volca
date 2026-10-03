@@ -314,6 +314,37 @@ class FlowContribution(FromJson):
 
 
 @dataclass
+class WithheldShare:
+    """A dependency whose licence keeps what weighs in its scores, in one
+    line: its part of the score and why it is not detailed. The detailed
+    rows and these lines add up to the score (wire revision 46)."""
+
+    database: str
+    contribution: float
+    share_pct: float
+    reason: str
+
+    @classmethod
+    def from_json(cls, d: dict) -> "WithheldShare":
+        return cls(database=d["database"], contribution=d["contribution"], share_pct=d["sharePct"], reason=d["reason"])
+
+
+@dataclass
+class WithheldProcesses:
+    """A dependency whose licence keeps the amounts of its exchanges, in one
+    line of a supply chain or an aggregation: how many of its processes are
+    reached, and why they are not listed (wire revision 46)."""
+
+    database: str
+    processes: int
+    reason: str
+
+    @classmethod
+    def from_json(cls, d: dict) -> "WithheldProcesses":
+        return cls(database=d["database"], processes=d["processes"], reason=d["reason"])
+
+
+@dataclass
 class LCIAResult:
     """LCIA score for one impact category on one activity.
 
@@ -339,6 +370,7 @@ class LCIAResult:
     withheld: str | None = None
     """Why ``top_contributors`` is empty, when the database's licence keeps
     what weighs in its scores to itself (wire revision 44)."""
+    withheld_databases: list[WithheldShare] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIAResult":
@@ -355,6 +387,7 @@ class LCIAResult:
             weighted_score=d.get("weightedScore"),
             top_contributors=[FlowContribution.from_json(c) for c in d.get("topContributors", [])],
             withheld=d.get("withheld"),
+            withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
         )
 
 
@@ -802,6 +835,9 @@ class SupplyChain:
     filtered_activities: int
     entries: list[SupplyChainEntry] = field(default_factory=list)
     edges: list[SupplyChainEdge] = field(default_factory=list)
+    withheld_databases: list[WithheldProcesses] = field(default_factory=list)
+    """Dependencies whose processes are counted rather than listed, out of
+    ``entries`` and ``filtered_activities``."""
 
     @property
     def has_more(self) -> bool:
@@ -821,6 +857,7 @@ class SupplyChain:
             filtered_activities=d["filteredActivities"],
             entries=[SupplyChainEntry.from_json(e) for e in d["supplyChain"]],
             edges=[SupplyChainEdge.from_json(e) for e in d.get("edges", [])],
+            withheld_databases=[WithheldProcesses.from_json(w) for w in d.get("withheldDatabases", [])],
         )
 
 
@@ -1514,6 +1551,9 @@ class AggregateResult:
     filtered_unit: str | None
     filtered_count: int
     groups: list[AggregateGroup] = field(default_factory=list)
+    withheld_databases: list[WithheldProcesses] = field(default_factory=list)
+    """Dependencies counted rather than summed, out of the total, the count
+    and the groups."""
 
     @classmethod
     def from_json(cls, d: dict) -> "AggregateResult":
@@ -1523,6 +1563,7 @@ class AggregateResult:
             filtered_unit=d.get("filteredUnit"),
             filtered_count=d["filteredCount"],
             groups=[AggregateGroup.from_json(g) for g in d.get("groups", [])],
+            withheld_databases=[WithheldProcesses.from_json(w) for w in d.get("withheldDatabases", [])],
         )
 
 
@@ -1896,6 +1937,7 @@ class ContributingFlows:
     unit: str
     total_score: float
     top_flows: list[FlowContribution] = field(default_factory=list)
+    withheld_databases: list[WithheldShare] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, d: dict) -> "ContributingFlows":
@@ -1904,6 +1946,7 @@ class ContributingFlows:
             unit=d["unit"],
             total_score=d["totalScore"],
             top_flows=[FlowContribution.from_json(f) for f in d.get("topFlows", [])],
+            withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
         )
 
 
@@ -1920,6 +1963,7 @@ class ContributingActivities:
     unit: str
     total_score: float
     activities: list[ActivityContribution] = field(default_factory=list)
+    withheld_databases: list[WithheldShare] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, d: dict) -> "ContributingActivities":
@@ -1928,6 +1972,7 @@ class ContributingActivities:
             unit=d["unit"],
             total_score=d["totalScore"],
             activities=[ActivityContribution.from_json(a) for a in d.get("activities", [])],
+            withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
         )
 
 

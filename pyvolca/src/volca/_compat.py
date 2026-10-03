@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 45
-"""The newest wire revision this pyvolca understands (revision 45 added
+KNOWN_WIRE = 46
+"""The newest wire revision this pyvolca understands (revision 46 added
+the ``withheld_databases`` a dependency's licence groups its part in;
+revision 45 added
 reading a collection's scoring sets as rows and changing them, and the
 ``scoring_rows`` of an activity's score; revision 44 added
 what a database's licence withholds from an activity and a score;

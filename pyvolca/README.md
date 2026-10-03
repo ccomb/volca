@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 45** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 46** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1804,6 +1804,31 @@ The exchanges of an activity whose licence keeps their amounts, and why.
 | `reason` | `str` | _required_ |
 | `lines` | `list[ExchangeName]` | _required_ |
 
+### `WithheldProcesses`
+
+A dependency whose licence keeps the amounts of its exchanges, in one
+line of a supply chain or an aggregation: how many of its processes are
+reached, and why they are not listed (wire revision 46).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `database` | `str` | _required_ |
+| `processes` | `int` | _required_ |
+| `reason` | `str` | _required_ |
+
+### `WithheldShare`
+
+A dependency whose licence keeps what weighs in its scores, in one
+line: its part of the score and why it is not detailed. The detailed
+rows and these lines add up to the score (wire revision 46).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `database` | `str` | _required_ |
+| `contribution` | `float` | _required_ |
+| `share_pct` | `float` | _required_ |
+| `reason` | `str` | _required_ |
+
 ### `DatasetDates`
 
 The days a dataset says it was written on, each under its format's meaning.
@@ -1901,6 +1926,7 @@ was set; empty otherwise.
 | `filtered_unit` | `str \| None` | _required_ |
 | `filtered_count` | `int` | _required_ |
 | `groups` | `list[AggregateGroup]` | list() |
+| `withheld_databases` | `list[WithheldProcesses]` | list() |
 
 ### `AmbiguousActivities`
 
@@ -2184,6 +2210,7 @@ reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
 | `unit` | `str` | _required_ |
 | `total_score` | `float` | _required_ |
 | `activities` | `list[ActivityContribution]` | list() |
+| `withheld_databases` | `list[WithheldShare]` | list() |
 
 ### `ContributingFlows`
 
@@ -2200,6 +2227,7 @@ flows were truncated. If you need exhaustive coverage, pass a generous
 | `unit` | `str` | _required_ |
 | `total_score` | `float` | _required_ |
 | `top_flows` | `list[FlowContribution]` | list() |
+| `withheld_databases` | `list[WithheldShare]` | list() |
 
 ### `DatabaseComparison`
 
@@ -2625,6 +2653,7 @@ much of it the source says the process produces.
 | `weighted_score` | `float \| None` | None |
 | `top_contributors` | `list[FlowContribution]` | list() |
 | `withheld` | `str \| None` | None |
+| `withheld_databases` | `list[WithheldShare]` | list() |
 
 ### `MappingStatus`
 
@@ -3079,6 +3108,7 @@ lengths by hand.
 | `filtered_activities` | `int` | _required_ |
 | `entries` | `list[SupplyChainEntry]` | list() |
 | `edges` | `list[SupplyChainEdge]` | list() |
+| `withheld_databases` | `list[WithheldProcesses]` | list() |
 
 #### Properties
 
