@@ -8,7 +8,7 @@ import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Method.Mapping (ContestedFactor (..), MatchStrategy (..), buildMethodTables, cfValue, contestedFactors, lookupCFForFlow)
+import Method.Mapping (ContestedFactor (..), MatchStrategy (..), Resolution (..), buildMethodTables, cfValue, contestedFactors, lookupCFForFlow)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import Types (BiosphereFlow (..), Medium (..))
 import qualified Types as VT
@@ -43,14 +43,14 @@ turpentine =
         , bfCompartment = Just (VT.Compartment Soil (Just "agricultural"))
         }
 
-mappingsOf :: MatchStrategy -> [MethodCF] -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
-mappingsOf how cfs = [(cf, Just (turpentine, how)) | cf <- cfs]
+mappingsOf :: MatchStrategy -> [MethodCF] -> [(MethodCF, Maybe Resolution)]
+mappingsOf how cfs = [(cf, Just (Resolution turpentine how)) | cf <- cfs]
 
-score :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> Maybe Double
+score :: [(MethodCF, Maybe Resolution)] -> Maybe Double
 score mappings =
     fmap cfValue (lookupCFForFlow (buildMethodTables mempty mempty M.empty mappings) (bfId turpentine) (Just turpentine))
 
-contested :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [([Double], Double)]
+contested :: [(MethodCF, Maybe Resolution)] -> [([Double], Double)]
 contested mappings =
     [(cfoValues c, cfoKept c) | c <- contestedFactors mempty (buildMethodTables mempty mempty M.empty mappings) mappings]
 
@@ -82,8 +82,8 @@ spec = describe "two factors at one place" $ do
         -- The identifier line reads first; the two name lines it shadows are
         -- part of the same contest.
         let ownSpelling = large{mcfFlowName = "turpentine (gum)", mcfValue = 1}
-            byName v = (large{mcfFlowRef = mkUUID 2, mcfValue = v}, Just (turpentine, ByName))
-            mappings = [(ownSpelling, Just (turpentine, ByUUID)), byName 2, byName 3]
+            byName v = (large{mcfFlowRef = mkUUID 2, mcfValue = v}, Just (Resolution turpentine ByName))
+            mappings = [(ownSpelling, Just (Resolution turpentine ByUUID)), byName 2, byName 3]
         score mappings `shouldBe` Just 1
         contested mappings `shouldBe` [([1, 2, 3], 1)]
 

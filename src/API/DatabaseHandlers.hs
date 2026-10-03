@@ -36,7 +36,9 @@ module API.DatabaseHandlers (
     exportDatabaseHandler,
     documentFileHandler,
     setLicenceHandler,
-    downloadRefusal,
+    licenceRefusal,
+    refuseUnlessGranted,
+    servedLicence,
     exportMethodHandler,
     encodeExportWarnings,
     uploadDatabaseHandler,
@@ -251,7 +253,7 @@ import Types (
     Database (..),
     GeographyPolicy (..),
     Licence (..),
-    Permission (Download),
+    Permission (..),
     ProcessRef (..),
     allocationKeyText,
     bfCompartmentName,
@@ -261,6 +263,7 @@ import Types (
     parseAllocationKey,
     processRefText,
     unresolvedCount,
+    withheldSentence,
  )
 
 -- | List all databases
@@ -713,7 +716,7 @@ database that is not loaded, never a 200 with a failure flag.
 -}
 exportDatabaseHandler :: Text -> ExportRequest -> AppM (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
 exportDatabaseHandler dbName req = do
-    refuseUnlessDownloadable dbName
+    refuseUnlessGranted Download dbName
     dbManager <- asks aeDbManager
     fmt <- either (exportErr err400) pure (parseExportFormat (exrFormat req))
     mLoaded <- liftIO (getDatabase dbManager dbName)
@@ -727,7 +730,7 @@ documentation does not list, or one its package does not hold.
 -}
 documentFileHandler :: Text -> [Text] -> AppM (Headers '[Header "Content-Disposition" Text] BinaryContent)
 documentFileHandler dbName segments = do
-    refuseUnlessDownloadable dbName
+    refuseUnlessGranted Download dbName
     dbManager <- asks aeDbManager
     bytes <- liftIO (readDocumentFile dbManager dbName path) >>= either (exportErr err404) pure
     pure (addHeader (attachment (last' segments)) (BinaryContent (BSL.fromStrict bytes)))
@@ -743,20 +746,29 @@ documentFileHandler dbName segments = do
     attachment name =
         "attachment; filename=\"" <> T.filter (\c -> c /= '"' && c >= ' ' && c < '\DEL') name <> "\"; filename*=UTF-8''" <> T.decodeUtf8 (urlEncode False (T.encodeUtf8 name))
 
-{- | 403 when the licence of a database refuses its download. A name the engine
-does not know passes, so the handler answers it with its own 404.
+{- | 403 when the licence of a database refuses what the handler is about to
+serve. A name the engine does not know passes, so the handler answers it with
+its own 404.
 -}
-refuseUnlessDownloadable :: Text -> AppM ()
-refuseUnlessDownloadable dbName = do
+refuseUnlessGranted :: Permission -> Text -> AppM ()
+refuseUnlessGranted p dbName = do
     dbManager <- asks aeDbManager
-    liftIO (databaseLicence dbManager dbName) >>= mapM_ (mapM_ (exportErr err403) . downloadRefusal dbName)
+    liftIO (databaseLicence dbManager dbName) >>= mapM_ (mapM_ (exportErr err403) . licenceRefusal p dbName)
 
--- | Why a database may not be downloaded, when its licence refuses it.
-downloadRefusal :: Text -> Licence -> Maybe Text
-downloadRefusal dbName licence
-    | granted licence Download = Nothing
-    -- Only an own licence refuses it, and its text is too long to quote here.
-    | otherwise = Just ("The licence of " <> dbName <> " does not allow downloading it.")
+{- | The licence a database is served under, for the handlers that trim their
+answer to it. Read after the handler has resolved the database, so a name the
+engine does not know has already been answered with a 404.
+-}
+servedLicence :: Text -> AppM Licence
+servedLicence dbName = do
+    dbManager <- asks aeDbManager
+    fromMaybe LicenceUnstated <$> liftIO (databaseLicence dbManager dbName)
+
+-- | Why a database's licence refuses a permission, when it does.
+licenceRefusal :: Permission -> Text -> Licence -> Maybe Text
+licenceRefusal p dbName licence
+    | granted licence p = Nothing
+    | otherwise = Just (withheldSentence dbName p)
 
 {- | Replace the licence of an uploaded database. 404 for a name the engine does
 not know, 409 for a database whose licence is written elsewhere: in the

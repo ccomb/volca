@@ -179,17 +179,17 @@ _GAS_WIRE = {"label": "Gas", "terms": [{"methodId": "m", "coefficient": 1.0}], "
 )
 def test_scoring_set_changes(mocked_client, call, expected):
     client, session = mocked_client
-    _engine(session, wire=44)
+    _engine(session, wire=45)
     call(client)
     url, body, _ = _posted(session)
     assert url == f"{BASE}/copy/scoring-sets"
     assert body == expected
 
 
-def test_scoring_set_changes_need_wire_44(mocked_client):
+def test_scoring_set_changes_need_wire_45(mocked_client):
     client, session = mocked_client
-    _engine(session, wire=43)
-    with pytest.raises(VoLCAError, match="wire revision >= 44"):
+    _engine(session, wire=44)
+    with pytest.raises(VoLCAError, match="wire revision >= 45"):
         client.add_scoring_row("copy", "Mine", _GAS)
     session.post.assert_not_called()
 

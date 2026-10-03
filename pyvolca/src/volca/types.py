@@ -336,6 +336,9 @@ class LCIAResult:
     normalized_score: float | None = None  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
     weighted_score: float | None = None  # in Pt. Deprecated: read `scoring_results`; removed with engine 0.16.0.
     top_contributors: list[FlowContribution] = field(default_factory=list)
+    withheld: str | None = None
+    """Why ``top_contributors`` is empty, when the database's licence keeps
+    what weighs in its scores to itself (wire revision 44)."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIAResult":
@@ -351,6 +354,7 @@ class LCIAResult:
             normalized_score=d.get("normalizedScore"),
             weighted_score=d.get("weightedScore"),
             top_contributors=[FlowContribution.from_json(c) for c in d.get("topContributors", [])],
+            withheld=d.get("withheld"),
         )
 
 
@@ -380,6 +384,9 @@ class LCIABatchResult:
     scoring_units: dict[str, str] = field(default_factory=dict)
     scoring_indicators: dict[str, dict[str, ScoringIndicator]] = field(default_factory=dict)
     scoring_rows: dict[str, dict[str, ScoringIndicator]] = field(default_factory=dict)
+    withheld: list[str] = field(default_factory=list)
+    """What the database's licence keeps out of these scores, one sentence
+    each (wire revision 44)."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIABatchResult":
@@ -398,6 +405,7 @@ class LCIABatchResult:
                 for set_name, per_set in raw_indicators.items()
             },
             scoring_rows={set_name: {var: ScoringIndicator.from_json(si) for var, si in per_set.items()} for set_name, per_set in raw_rows.items()},
+            withheld=d.get("withheld", []),
         )
 
 
@@ -1292,6 +1300,46 @@ class DatasetDates:
 
 
 @dataclass
+class ExchangeName:
+    """An exchange named without its amount, as a database whose licence
+    keeps its amounts lets it be read."""
+
+    flow_name: str
+    unit_name: str
+    kind: str  # "technosphere" | "biosphere" | "waste"
+    is_input: bool
+    compartment: Compartment | None = None
+    target_activity_name: str | None = None
+    target_location: str | None = None
+    target_process_id: str | None = None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ExchangeName":
+        return cls(
+            flow_name=d["flowName"],
+            unit_name=d["unitName"],
+            kind=d["kind"],
+            is_input=d["isInput"],
+            compartment=Compartment.from_json(d.get("compartment")),
+            target_activity_name=d.get("targetActivityName"),
+            target_location=d.get("targetLocation"),
+            target_process_id=d.get("targetProcessId"),
+        )
+
+
+@dataclass
+class WithheldExchanges:
+    """The exchanges of an activity whose licence keeps their amounts, and why."""
+
+    reason: str
+    lines: list[ExchangeName]
+
+    @classmethod
+    def from_json(cls, d: dict) -> "WithheldExchanges":
+        return cls(reason=d["reason"], lines=[ExchangeName.from_json(x) for x in d.get("lines", [])])
+
+
+@dataclass
 class ActivityDetail:
     """Typed wrapper around the JSON returned by GET /activity/{pid}.
 
@@ -1323,6 +1371,10 @@ class ActivityDetail:
     exchanges: list[Exchange]
     native_id: str | None = None
     dates: DatasetDates = field(default_factory=DatasetDates)
+    withheld: "WithheldExchanges | None" = None
+    """Set when the database's licence keeps the amounts of its exchanges to
+    itself: ``exchanges`` is then empty, and this names them without their
+    amounts (wire revision 44)."""
 
     @classmethod
     def from_json(cls, d: dict) -> "ActivityDetail":
@@ -1342,6 +1394,7 @@ class ActivityDetail:
             exchanges=[parse_exchange(e) for e in pfa.get("exchanges", [])],
             native_id=pfa.get("nativeId"),
             dates=DatasetDates.from_json(pfa.get("dates")),
+            withheld=WithheldExchanges.from_json(pfa["withheld"]) if pfa.get("withheld") else None,
         )
 
     @property

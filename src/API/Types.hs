@@ -65,7 +65,9 @@ import Types (
     Unit,
     WasteFlow (..),
     WasteRole (..),
+    exchangeKindChoices,
     exchangeKindName,
+    parseExchangeKind,
     parseMedium,
     unknownMedium,
  )
@@ -632,6 +634,7 @@ data LCIAResult = LCIAResult
     , lrMappedFlows :: Int -- Number of flows successfully mapped
     , lrFunctionalUnit :: Text -- What the score is per: one unit of the reference product, e.g. "1.00 kg of Butter, unsalted"
     , lrTopContributors :: [FlowContributionEntry] -- Top contributing elementary flows
+    , lrWithheld :: Maybe Text -- Set when the licence keeps what weighs in the score to itself: then the contributors are empty
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LCIAResult)
@@ -745,6 +748,8 @@ data LCIABatchResult = LCIABatchResult
     weighted value), for every row of the set as list_scoring_sets reads it,
     including a row no score reads.
     -}
+    , lbrWithheld :: [Text]
+    -- ^ What the licence of the scored database keeps to itself, one sentence each: the contributors, the amounts of its unlinked waste
     , lbrCutoffWaste :: [CutoffWasteFlow]
     {- ^ Orphan waste exchanges on the scored activity – flows the dataset author
     left unmodelled. They contribute 0 to the score; surfacing them lets
@@ -1706,6 +1711,31 @@ data ExchangeWithUnit = ExchangeWithUnit
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeWithUnit)
 
+{- | An exchange named without its amount: what a reader sees of a dataset whose
+licence keeps the amounts of its exchanges to itself. Enough to tell what the
+process is made of, not to rebuild it.
+-}
+data ExchangeName = ExchangeName
+    { xnFlowName :: Text
+    , xnUnitName :: Text
+    , xnKind :: ExchangeKind
+    , xnIsInput :: Bool
+    , xnCompartment :: Maybe Compartment -- Biosphere compartment, Nothing for technosphere
+    , xnTargetActivityName :: Maybe Text -- Supplier, or the treatment a waste goes to
+    , xnTargetLocation :: Maybe Text
+    , xnTargetProcessId :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeName)
+
+-- | The exchanges of a dataset whose licence keeps their amounts, and why.
+data WithheldExchanges = WithheldExchanges
+    { weReason :: Text
+    , weLines :: [ExchangeName]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped WithheldExchanges)
+
 -- | Activity information optimized for API responses
 data ActivityForAPI = ActivityForAPI
     { pfaProcessId :: Text -- ProcessId format: "activityUUID_productUUID"
@@ -1723,6 +1753,7 @@ data ActivityForAPI = ActivityForAPI
     , pfaAllProducts :: [ActivitySummary] -- All products from same activityUUID
     , pfaExchanges :: [ExchangeWithUnit] -- Exchanges with unit names
     , pfaNativeType :: Maybe NativeActivityType -- Source-native activity type
+    , pfaWithheld :: Maybe WithheldExchanges -- Set when the licence keeps the amounts to itself: then the exchanges are empty, and these name them
     , pfaNativeId :: Maybe NativeProcessId -- The identifier the source gave the dataset block this came out of (SimaPro's "Process identifier", EcoSpold 1's dataset number); Nothing when the format has none, and when the format's identifier is the activity UUID the process id already spells
     }
     deriving (Generic)
@@ -2350,6 +2381,9 @@ result reports and what a filter accepts are the same three strings.
 -}
 instance ToJSON ExchangeKind where
     toJSON = toJSON . exchangeKindName
+
+instance FromJSON ExchangeKind where
+    parseJSON = withText "ExchangeKind" (\t -> maybe (fail (T.unpack ("kind: expected " <> exchangeKindChoices <> ", got " <> t))) pure (parseExchangeKind t))
 
 instance ToSchema ExchangeKind where
     declareNamedSchema _ =

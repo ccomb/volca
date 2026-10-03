@@ -32,6 +32,7 @@ module API.Resources (
     requiredParams,
     optionalParams,
     resourceMutates,
+    resourceNeeds,
     apiPath,
     apiPathText,
 ) where
@@ -39,6 +40,7 @@ module API.Resources (
 import Data.Text (Text)
 import qualified Data.Text as T
 import Network.HTTP.Types.Method (StdMethod (..))
+import Types (Permission (..))
 
 {- | Every operation VoLCA exposes through its user-facing surfaces.
 
@@ -201,6 +203,72 @@ resourceMutates r = case r of
     UndoMethodEdit -> True
     GetMethodHistory -> False
     SearchMethodFlows -> False
+
+{- | The permission a database's licence must grant for the operation to answer
+at all, judged on each database it is asked about. 'Nothing' for the ones
+always answered: their answers carry names, counts and factors, or are trimmed
+by the operation itself to what the licence leaves (an activity's exchanges
+without their amounts, a score without what weighs in it).
+
+Exhaustive like 'resourceMutates', so a new operation is classed when it is
+added.
+-}
+resourceNeeds :: Resource -> Maybe Permission
+resourceNeeds r = case r of
+    -- Exchange amounts: an aggregate's direct scope, and a supply chain's
+    -- first rung, are the activity's own inputs with their quantities.
+    GetInventory -> Just ReadInventory
+    Aggregate -> Just ReadInventory
+    GetSupplyChain -> Just ReadInventory
+    GetConsumers -> Just ReadInventory
+    CompareActivities -> Just ReadInventory
+    CompareDatabases -> Just ReadInventory
+    -- Each step carries its cumulative quantity and the exchange ratio
+    -- between it and the next.
+    GetPathTo -> Just ReadInventory
+    -- What weighs in a score.
+    ComputeSensitivity -> Just SeeDetailedScores
+    CompareImpacts -> Just SeeDetailedScores
+    GetContributingFlows -> Just SeeDetailedScores
+    GetContributingActivities -> Just SeeDetailedScores
+    GetScoreContributingFlows -> Just SeeDetailedScores
+    GetScoreContributingActivities -> Just SeeDetailedScores
+    -- Trimmed by the operation itself.
+    GetActivity -> Nothing
+    GetImpacts -> Nothing
+    ScoreActivity -> Nothing
+    ScoreActivities -> Nothing
+    -- Not yet trimmed: their offenders and gaps can quote amounts.
+    GetGapReport -> Nothing
+    GetQualityReport -> Nothing
+    GetComputedQualityReport -> Nothing
+    ListDatabases -> Nothing
+    LoadDatabase -> Nothing
+    UnloadDatabase -> Nothing
+    DeriveDatabase -> Nothing
+    ListPresets -> Nothing
+    SearchActivities -> Nothing
+    SearchFlows -> Nothing
+    CountSearchMatches -> Nothing
+    ListClassifications -> Nothing
+    ListGeographies -> Nothing
+    ListMethods -> Nothing
+    ListScoringSets -> Nothing
+    GetFlowMapping -> Nothing
+    GetCharacterization -> Nothing
+    ExplainCF -> Nothing
+    GetCoverageReport -> Nothing
+    -- Its reply echoes the lines the caller wrote.
+    EditExchanges -> Nothing
+    CompareMethodCollections -> Nothing
+    ProfileMethodCollection -> Nothing
+    CopyMethodCollection -> Nothing
+    EditMethodFactors -> Nothing
+    EditMethodCategories -> Nothing
+    EditMethodScoringSets -> Nothing
+    UndoMethodEdit -> Nothing
+    GetMethodHistory -> Nothing
+    SearchMethodFlows -> Nothing
 
 -- ---------------------------------------------------------------------------
 -- Projection: canonical HTTP route (primary GET)

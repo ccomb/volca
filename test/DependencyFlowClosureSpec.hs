@@ -26,6 +26,7 @@ import qualified Database.Manager as DM
 import Method.Mapping (
     LongTermMode (..),
     MatchStrategy (..),
+    Resolution (..),
     computeRegionalizedLCIAScore,
     mtRegionalizedCF,
  )
@@ -145,8 +146,8 @@ install manager name db = do
                     }
 
 -- | The flows the effective mappings actually reach.
-reachedFlows :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [UUID]
-reachedFlows mappings = [bfId f | (_, Just (f, _)) <- mappings]
+reachedFlows :: [(MethodCF, Maybe Resolution)] -> [UUID]
+reachedFlows mappings = [bfId f | (_, Just (Resolution f _)) <- mappings]
 
 {- | Root and dependency, both loaded. The root owns @rootFlows@ and declares
 the dependency; the dependency owns 'riverWater'.
@@ -228,7 +229,7 @@ spec = do
                 mappings =
                     [
                         ( (namedCF "Water, river" 6.98){mcfFlowRef = bfId riverWater}
-                        , Just (riverWater, ByUUID)
+                        , Just (Resolution riverWater ByUUID)
                         )
                     ]
                 tables = buildTables emitting mappings

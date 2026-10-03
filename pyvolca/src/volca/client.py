@@ -1321,13 +1321,13 @@ class Client:
         is the ``sumOfRows`` a new row joins; and the ``variables`` a formula
         can read, each with the category it reads or the label of its row.
 
-        Needs an engine speaking wire revision 44.
+        Needs an engine speaking wire revision 45.
         """
-        self._require_wire(44, "scoring_sets", engine_hint="0.15.0")
+        self._require_wire(45, "scoring_sets", engine_hint="0.15.0")
         return self._json(self._session.get(self._method_collection_url(collection, "scoring-sets")))
 
     def _edit_scoring_sets(self, feature: str, collection: str, body: dict) -> dict:
-        self._require_wire(44, feature, engine_hint="0.15.0")
+        self._require_wire(45, feature, engine_hint="0.15.0")
         return self._json(self._session.post(self._method_collection_url(collection, "scoring-sets"), json=_drop_none(body)))
 
     def create_scoring_set(self, collection: str, name: str, rows: list[ScoringRow], *, unit: str | None = None) -> dict:

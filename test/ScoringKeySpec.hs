@@ -27,6 +27,7 @@ mkR name category score =
         , lrMappedFlows = 0
         , lrFunctionalUnit = ""
         , lrTopContributors = []
+        , lrWithheld = Nothing
         }
 
 -- | Minimal Method for score-resolution tests.

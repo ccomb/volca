@@ -5,7 +5,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), NodeType (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -1208,8 +1208,66 @@ convertActivityForAPI db processId activity =
             , pfaAllProducts = allProducts
             , pfaExchanges = map (toExchangeWithUnit db linkMap) (exchanges activity)
             , pfaNativeType = activityNativeType activity
+            , pfaWithheld = Nothing
             , pfaNativeId = activityNativeId activity
             }
+
+{- | An activity as its database's licence lets it be read. Under a licence that
+keeps the amounts of its exchanges, the exchanges are named without them, which
+says what the process is made of without handing out the recipe. The reference
+line is left out: the product names it already, and read as an input it would
+count a treatment's waste among what the process consumes.
+
+Applied by each surface after its own filters, which read the full exchanges.
+-}
+withholdExchangeAmounts :: Text -> Licence -> ActivityInfo -> ActivityInfo
+withholdExchangeAmounts dbName licence info
+    | granted licence ReadInventory = info
+    | otherwise =
+        info
+            { piActivity =
+                activity
+                    { pfaExchanges = []
+                    , pfaWithheld = Just (WithheldExchanges (withheldSentence dbName ReadInventory) (map exchangeNameOf (filter (not . exchangeIsReference . ewuExchange) (pfaExchanges activity))))
+                    }
+            }
+  where
+    activity = piActivity info
+
+{- | A score as its database's licence lets it be read: under a licence that
+keeps what weighs in its scores, the score stays and its contributors go.
+-}
+withholdContributors :: Text -> Licence -> LCIAResult -> LCIAResult
+withholdContributors dbName licence result
+    | granted licence SeeDetailedScores = result
+    | otherwise = result{lrTopContributors = [], lrWithheld = Just (withheldSentence dbName SeeDetailedScores)}
+
+{- | Every score of a batch trimmed the same way, and its unlinked waste, whose
+amounts are exchange amounts, gone under a licence that keeps those.
+-}
+withholdBatch :: Text -> Licence -> LCIABatchResult -> LCIABatchResult
+withholdBatch dbName licence batch =
+    batch
+        { lbrResults = map (withholdContributors dbName licence) (lbrResults batch)
+        , lbrCutoffWaste = if amountsShown then lbrCutoffWaste batch else []
+        , lbrWithheld = [withheldSentence dbName p | p <- [SeeDetailedScores, ReadInventory], not (granted licence p)]
+        }
+  where
+    amountsShown :: Bool
+    amountsShown = granted licence ReadInventory
+
+exchangeNameOf :: ExchangeWithUnit -> ExchangeName
+exchangeNameOf ewu =
+    ExchangeName
+        { xnFlowName = ewuFlowName ewu
+        , xnUnitName = ewuUnitName ewu
+        , xnKind = exchangeKindOf (ewuExchange ewu)
+        , xnIsInput = exchangeIsInput (ewuExchange ewu)
+        , xnCompartment = ewuCompartment ewu
+        , xnTargetActivityName = ewuTargetActivityName ewu
+        , xnTargetLocation = ewuTargetLocation ewu
+        , xnTargetProcessId = ewuTargetProcessId ewu
+        }
 
 {- | Resolved target activity for a technosphere or waste exchange. Either all
 three fields are present (Just TargetRef) or none (Nothing) – the formerly

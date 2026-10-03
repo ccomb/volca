@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 44** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 45** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1286,7 +1286,7 @@ with its ``methodId`` and ``coefficient``, or ``RowWritten`` with a
 is the ``sumOfRows`` a new row joins; and the ``variables`` a formula
 can read, each with the category it reads or the label of its row.
 
-Needs an engine speaking wire revision 44.
+Needs an engine speaking wire revision 45.
 
 ##### `Client.search_activities(name: str | None = None, *, geo: str | None = None, product: str | None = None, preset: str | None = None, classification: str | None = None, classification_value: str | None = None, classification_match: MatchModeLike | None = None, page: int | None = None, page_size: int | None = None, limit: int | None = None, offset: int | None = None, sort: str | None = None, order: str | None = None, exact: bool = False) -> SearchResults[Activity]`
 
@@ -1735,6 +1735,7 @@ or written without saying which (see `DatasetDates`).
 | `exchanges` | `list[Union[TechnosphereExchange, BiosphereExchange, WasteExchange]]` | _required_ |
 | `native_id` | `str \| None` | None |
 | `dates` | `DatasetDates` | DatasetDates() |
+| `withheld` | `WithheldExchanges \| None` | None |
 
 #### Properties
 
@@ -1776,6 +1777,31 @@ Only the technosphere inputs (ingredients from other activities).
 Excludes biosphere inputs (resource extractions) and waste
 outputs. The common case when answering "what does this activity
 consume from upstream?".
+
+### `ExchangeName`
+
+An exchange named without its amount, as a database whose licence
+keeps its amounts lets it be read.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `flow_name` | `str` | _required_ |
+| `unit_name` | `str` | _required_ |
+| `kind` | `str` | _required_ |
+| `is_input` | `bool` | _required_ |
+| `compartment` | `Compartment \| None` | None |
+| `target_activity_name` | `str \| None` | None |
+| `target_location` | `str \| None` | None |
+| `target_process_id` | `str \| None` | None |
+
+### `WithheldExchanges`
+
+The exchanges of an activity whose licence keeps their amounts, and why.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `reason` | `str` | _required_ |
+| `lines` | `list[ExchangeName]` | _required_ |
 
 ### `DatasetDates`
 
@@ -2571,6 +2597,7 @@ it, a row no score reads among them, its ``category`` the row's label.
 | `scoring_units` | `dict[str, str]` | dict() |
 | `scoring_indicators` | `dict[str, dict[str, ScoringIndicator]]` | dict() |
 | `scoring_rows` | `dict[str, dict[str, ScoringIndicator]]` | dict() |
+| `withheld` | `list[str]` | list() |
 
 ### `LCIAResult`
 
@@ -2596,6 +2623,7 @@ much of it the source says the process produces.
 | `normalized_score` | `float \| None` | None |
 | `weighted_score` | `float \| None` | None |
 | `top_contributors` | `list[FlowContribution]` | list() |
+| `withheld` | `str \| None` | None |
 
 ### `MappingStatus`
 

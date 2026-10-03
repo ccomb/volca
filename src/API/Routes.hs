@@ -57,7 +57,7 @@ import qualified Impact.Score as Score
 import Matrix (Inventory, Vector)
 import qualified Matrix
 import qualified Method.Explain as Explain
-import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
+import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), Resolution (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
 import Method.Scoring (ScoringRow (..), rowsOf)
 import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
@@ -514,6 +514,7 @@ mkLCIABatchResult results evaluated scoringSets cutoffWaste =
         , lbrScoringUnits = M.fromList [(ssName ss, ssUnit ss) | ss <- scoringSets]
         , lbrScoringIndicators = M.fromList [(ssName ss, scoringIndicators ss e) | (ss, e) <- evaluated]
         , lbrScoringRows = M.fromList [(ssName ss, scoringRows ss e) | (ss, e) <- evaluated]
+        , lbrWithheld = []
         , lbrCutoffWaste = cutoffWaste
         }
 
@@ -761,6 +762,7 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
             , lrMappedFlows = msTotal stats - msUnmatched stats
             , lrFunctionalUnit = functionalUnit
             , lrTopContributors = topContributors
+            , lrWithheld = Nothing
             }
 
 -- | Say which flows of an inventory the merged metadata has no record of.
@@ -849,6 +851,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                     , lrMappedFlows = mctxMappedFlows ctx
                     , lrFunctionalUnit = functionalUnit
                     , lrTopContributors = topContributors
+                    , lrWithheld = Nothing
                     }
     resultsE <- sequence <$> traverse mkResultIO ctxs
     case resultsE of
@@ -856,7 +859,8 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
         Right results -> do
             let rawScoreMap = rawScoreMapByName results
             evaluated <- computeAllScoringSets (mcScoringSets collection) rawScoreMap
-            pure (Right (mkLCIABatchResult results evaluated (mcScoringSets collection) (Service.buildCutoffWaste db activity)))
+            licence <- fromMaybe LicenceUnstated <$> DM.databaseLicence dbManager dbName
+            pure (Right (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated (mcScoringSets collection) (Service.buildCutoffWaste db activity))))
 
 {- | Top-level LCIA batch entry point – AppM-returning. Used by the Servant
 routes (via thin where-aliases) and by API.BatchImpacts.
@@ -919,7 +923,8 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
                         <> T.unpack name
                         <> "': "
                         <> intercalate ", " [T.unpack k <> "=" <> showFFloat (Just 6) v "" | (k, v) <- M.toList scores]
-    pure (mkLCIABatchResult results evaluated scoringSets (Service.buildCutoffWaste db activity))
+    licence <- DBHandlers.servedLicence dbName
+    pure (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated scoringSets (Service.buildCutoffWaste db activity)))
 
 {- | Everything one chunk of a batch needs and no chunk changes: the database
 being scored, the collection scoring it, and the per-method contexts prepared
@@ -1479,8 +1484,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 44: reading a collection's scoring sets as rows and changing
+(revision 45: reading a collection's scoring sets as rows and changing
 them, and the @scoringRows@ an activity's score carries;
+revision 44: the @withheld@ of an activity, a score and a batch of scores,
+and the inventory and contributions a database's licence refuses answered
+with a 403;
 revision 43: adding, renaming, changing the unit of and removing a method
 collection's categories, and the @methodId@ a change answers with;
 revision 42: copying a method collection, changing, adding and removing its
@@ -1580,7 +1588,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 44
+currentWireVersion = 45
 
 getVersion :: AppM Value
 getVersion = do
@@ -1694,9 +1702,10 @@ postAuth loginReq = do
 getActivityInfo :: Text -> Text -> AppM ActivityInfo
 getActivityInfo dbName processId = do
     (db, _) <- requireDatabaseByName dbName
+    licence <- DBHandlers.servedLicence dbName
     result <- either throwServiceError pure (Service.getActivityInfo db processId)
     case fromJSON result of
-        Success activityInfo -> return activityInfo
+        Success activityInfo -> return (Service.withholdExchangeAmounts dbName licence activityInfo)
         Error err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack err}
 
 getActivityFlows :: Text -> Text -> AppM [FlowSummary]
@@ -1707,12 +1716,14 @@ getActivityFlows dbName processId = do
 
 getActivityInputs :: Text -> Text -> AppM [ExchangeDetail]
 getActivityInputs dbName processId = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, _) <- requireDatabaseByName dbName
     withValidatedActivity db processId $ \activity ->
         return $ Service.getActivityInputDetails db activity
 
 getActivityOutputs :: Text -> Text -> AppM [ExchangeDetail]
 getActivityOutputs dbName processId = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, _) <- requireDatabaseByName dbName
     withValidatedActivity db processId $ \activity ->
         return $ Service.getActivityOutputDetails db activity
@@ -1727,6 +1738,7 @@ getActivityReferenceProduct dbName processId = do
 
 getActivityTree :: Text -> Text -> AppM TreeExport
 getActivityTree dbName processId = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     maxTreeDepth <- asks aeMaxTreeDepth
     (db, _) <- requireDatabaseByName dbName
@@ -1739,6 +1751,7 @@ back-substitution path so dep-DB inventories merge into the response.
 -}
 activityInventoryCore :: Text -> Text -> Maybe SubstitutionRequest -> AppM InventoryExport
 activityInventoryCore dbName processIdText mSub = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     (processId, activity) <- resolveOrThrow db processIdText
@@ -1751,6 +1764,7 @@ getActivityInventory dbName processIdText = activityInventoryCore dbName process
 
 getActivityGraph :: Text -> Text -> Maybe Double -> AppM GraphExport
 getActivityGraph dbName processId maybeCutoff = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, sharedSolver) <- requireDatabaseByName dbName
     let cutoffPercent = fromMaybe 1.0 maybeCutoff
     result <- liftIO $ Service.buildActivityGraph db sharedSolver processId cutoffPercent
@@ -1779,6 +1793,7 @@ activitySupplyChainCore ::
     Maybe SubstitutionRequest ->
     AppM SupplyChainResponse
 activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam includeEdgesParam mSub = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     presets <- asks aeClassificationPresets
     (db, sharedSolver) <- requireDatabaseByName dbName
@@ -1880,6 +1895,7 @@ getActivityAggregate ::
     Maybe Text ->
     AppM Aggregation
 getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam fnameParam fnameNotParam funitParam presetParam fclassParams ftargetParam fconsumerParam fconsumerNotParam fexchangeTypeParam freferenceParam groupByParam aggregateParam = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     presets <- asks aeClassificationPresets
     (db, sharedSolver) <- requireDatabaseByName dbName
@@ -1944,7 +1960,8 @@ activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam 
     resultE <- liftIO $ computeCategoryResult dbManager dbName collectionName db sol activity (fromMaybe 5 topFlowsParam) Nothing method
     result <- either scoringError pure resultE
     when (isNothing mSub) $ liftIO $ logLCIAResult result method
-    pure result
+    licence <- DBHandlers.servedLicence dbName
+    pure (Service.withholdContributors dbName licence result)
 
 getActivityLCIA :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> AppM LCIAResult
 getActivityLCIA dbName processIdText collectionName methodIdText topFlowsParam =
@@ -1959,6 +1976,7 @@ through the cross-DB graph (regional CFs on dep DBs still apply).
 -}
 postActivitySensitivity :: Text -> Text -> DM.CollectionName -> Text -> SensitivityRequest -> AppM SensitivityResponse
 postActivitySensitivity dbName processIdText collectionName methodIdText senReq = do
+    DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
     requireFullyLinked dbName db
@@ -2059,6 +2077,7 @@ getActivityConsumers ::
     Maybe Bool ->
     AppM ConsumersResponse
 getActivityConsumers dbName processIdText nameFilter locationFilter productFilter presetParam classSystems classValues classModes limitParam offsetParam maxDepthParam sortParam orderParam includeEdgesParam = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     presets <- asks aeClassificationPresets
     dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
@@ -2083,6 +2102,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
 
 getActivityPathTo :: Text -> Text -> Maybe Text -> AppM Value
 getActivityPathTo dbName processIdText targetParam = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, solver) <- requireDatabaseByName dbName
     target <-
         maybe
@@ -2104,6 +2124,7 @@ getActivityPathTo dbName processIdText targetParam = do
 -- | One activity against another, in this database or in another loaded one.
 getActivityComparison :: Text -> Text -> Maybe Text -> Maybe Text -> AppM ActivityComparison
 getActivityComparison dbName processIdText otherProcessParam otherDbParam = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     otherProcessId <-
         maybe
             (throwError err400{errBody = "Missing required 'other_process_id' query parameter"})
@@ -2118,6 +2139,7 @@ getActivityComparison dbName processIdText otherProcessParam otherDbParam = do
 
 getDatabaseComparison :: Text -> Maybe Text -> Maybe Int -> AppM DatabaseComparison
 getDatabaseComparison dbName otherDbParam limitParam = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
     otherName <-
         maybe
             (throwError err400{errBody = "Missing required 'other_database' query parameter"})
@@ -2195,7 +2217,8 @@ getMethodCollectionComparison collection otherParam forcedPairs categoryParam li
     failed (PairsRefused r) = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 (CompareMethods.refusalMessage r))}
 
 getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
-getContributingFlows dbName processIdText collectionName methodIdText limitParam mExcludeLT =
+getContributingFlows dbName processIdText collectionName methodIdText limitParam mExcludeLT = do
+    DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
         dbManager <- asks aeDbManager
         let lim = fromMaybe 20 limitParam
@@ -2218,7 +2241,8 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
                 }
 
 getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
-getContributingActivities dbName processIdText collectionName methodIdText limitParam mExcludeLT =
+getContributingActivities dbName processIdText collectionName methodIdText limitParam mExcludeLT = do
+    DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
         dbManager <- asks aeDbManager
         let lim = fromMaybe 10 limitParam
@@ -2310,6 +2334,7 @@ scoreHeading rs = Heading{hdName = Score.scoreTitle rs, hdUnit = Score.scoreUnit
 
 getScoreContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
 getScoreContributingActivities dbName processIdText collectionName setName scoreName limitParam mExcludeLT = do
+    DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     dbManager <- asks aeDbManager
     (rs, parts) <-
         withActivityAndScore
@@ -2325,6 +2350,7 @@ getScoreContributingActivities dbName processIdText collectionName setName score
 
 getScoreContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
 getScoreContributingFlows dbName processIdText collectionName setName scoreName limitParam mExcludeLT = do
+    DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     (rs, (total, rows)) <-
         withActivityAndScore
             ScoreQuery
@@ -2517,7 +2543,7 @@ getCharacterization dbName methodIdText flowFilter limitParam mCollection = do
     mappings <- liftIO $ DM.effectiveMethodMappings dbManager dbName collectionName db method
     let matched =
             [ (cf, f, strat)
-            | (cf, Just (f, strat)) <- mappings
+            | (cf, Just (Resolution f strat)) <- mappings
             , matchesQuery queryLower (mcfFlowName cf) (bfName f)
             ]
         sorted = sortOn (\(cf, _, _) -> negate (abs (mcfValue cf))) matched

@@ -252,10 +252,10 @@ spec = do
                 byName = M.singleton "water" [fDep, fVapour, fRoot]
                 located = (mkCFComp "Water" "water" "unspecified" (-12.1)){mcfConsumerLocation = Just "FR"}
                 global = mkCFComp "Water" "water" "unspecified" (-42.955)
-                flowsOf = map (fmap (bfId . fst) . snd)
-            flowsOf (spreadLocatedRows byName [(located, Just (fDep, ByName))])
+                flowsOf = map (fmap (bfId . resFlow) . snd)
+            flowsOf (spreadLocatedRows byName [(located, Just (Resolution fDep ByName))])
                 `shouldMatchList` [Just fidDep, Just fidRoot]
-            flowsOf (spreadLocatedRows byName [(global, Just (fDep, ByName))]) `shouldBe` [Just fidDep]
+            flowsOf (spreadLocatedRows byName [(global, Just (Resolution fDep ByName))]) `shouldBe` [Just fidDep]
 
     describe "findFlowByCAS" $ do
         it "finds flow by CAS number" $ do
@@ -337,7 +337,7 @@ spec = do
             inputCF = (mkCF "freshwater" Nothing 1.0){mcfDirection = Input}
             outputCF = (mkCF "freshwater" Nothing 1.0){mcfDirection = Output}
             fannedIds cf fid =
-                [bfId flow | (_, Just (flow, _)) <- drop 1 (expandSynonymMappings synDB (flowsByName fid) [(cf, Nothing)])]
+                [bfId flow | (_, Just (Resolution flow _)) <- drop 1 (expandSynonymMappings synDB (flowsByName fid) [(cf, Nothing)])]
 
         it "fans an INPUT CF out onto the withdrawal resource flow" $ do
             fid <- nextRandom
@@ -365,7 +365,7 @@ spec = do
             let coalFlow = mkFlow fid "Coal, hard" NaturalResource Nothing
                 flowsByName = M.singleton "coal hard" [coalFlow]
             [ bfId flow
-              | (_, Just (flow, BySynonym)) <-
+              | (_, Just (Resolution flow BySynonym)) <-
                     drop 1 (expandSynonymMappings synDB flowsByName [(energyCF, Nothing)])
               ]
                 `shouldBe` [fid]
@@ -381,7 +381,7 @@ spec = do
             freshFlow fid = mkFlow fid "Water, fresh, AU" NaturalResource Nothing
             flowsByName fid = M.singleton (normalizeName "Water, fresh, AU") [freshFlow fid]
             fannedIds cf fid =
-                [bfId flow | (_, Just (flow, BySynonym)) <- drop 1 (expandSynonymMappings synDB (flowsByName fid) [(cf, Nothing)])]
+                [bfId flow | (_, Just (Resolution flow BySynonym)) <- drop 1 (expandSynonymMappings synDB (flowsByName fid) [(cf, Nothing)])]
 
         it "fans a regional factor out to the synonym at the same region" $ do
             fid <- nextRandom
@@ -432,9 +432,9 @@ spec = do
                 cf3 = mkCF "n2o" Nothing 298.0
                 cf4 = mkCF "hfc" Nothing 1300.0
                 mappings =
-                    [ (cf1, Just (f1, ByUUID))
-                    , (cf2, Just (f2, ByName))
-                    , (cf3, Just (f3, ByCAS))
+                    [ (cf1, Just (Resolution f1 ByUUID))
+                    , (cf2, Just (Resolution f2 ByName))
+                    , (cf3, Just (Resolution f3 ByCAS))
                     , (cf4, Nothing)
                     ]
                 stats = computeMappingStats mappings
@@ -457,7 +457,7 @@ spec = do
             let flow = mkFlow fid "co2" Air Nothing
                 unit = Unit{unitId = nil, unitName = "kg", unitSymbol = "kg", unitComment = ""}
                 cf = mkCF "co2" Nothing 1.0
-                mapping = [(cf, Just (flow, ByUUID))]
+                mapping = [(cf, Just (Resolution flow ByUUID))]
                 inventory = M.singleton fid 100.0
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton nil unit
@@ -473,7 +473,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = mkCF "co2" Nothing 1.0
-                mapping = [(cf, Just (flow, ByUUID))]
+                mapping = [(cf, Just (Resolution flow ByUUID))]
                 inventory = M.singleton fid 0.0
                 score = loScore (computeLCIAScore defaultUnitConfig M.empty (M.singleton fid flow) inventory mapping)
             score `shouldBe` 0.0
@@ -578,7 +578,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = mkCF "co2" Nothing 1.0 -- mcfUnit = "kg"
-                mapping = [(cf, Just (flow, ByUUID))]
+                mapping = [(cf, Just (Resolution flow ByUUID))]
                 inventory = M.singleton fid 100.0
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton nil (unitNamed "m") -- length, not mass
@@ -589,7 +589,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = mkCF "co2" Nothing 2.0 -- mcfUnit = "kg"
-                mapping = [(cf, Just (flow, ByUUID))]
+                mapping = [(cf, Just (Resolution flow ByUUID))]
                 inventory = M.singleton fid 1000.0 -- 1000 g
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton nil (unitNamed "g")
@@ -617,7 +617,7 @@ spec = do
             fid <- nextRandom
             uidM3 <- nextRandom
             let flow = (mkFlow fid "Gas, natural/m3" NaturalResource (Just "in ground")){bfUnitId = uidM3}
-                mappings = [(cfPerKg, Just (flow, ByName)), (cfPerM3, Just (flow, ByName))]
+                mappings = [(cfPerKg, Just (Resolution flow ByName)), (cfPerM3, Just (Resolution flow ByName))]
                 unitDB = M.singleton uidM3 Unit{unitId = uidM3, unitName = "m3", unitSymbol = "m3", unitComment = ""}
                 flowDB = M.singleton fid flow
                 score ms = loScore (computeLCIAScoreFromTables cfg unitDB flowDB (M.singleton fid 2.0) (buildMethodTables mempty mempty M.empty ms))
@@ -716,7 +716,7 @@ spec = do
         it "loses the key to a larger factor a proxy match carries" $ do
             served <-
                 servedFor $ \target ->
-                    [ (borrowedAt 20.0, Just (target, ByProxy))
+                    [ (borrowedAt 20.0, Just (Resolution target ByProxy))
                     , (unresolvedAt 5.0, Nothing)
                     ]
             served `shouldBe` Just 20.0
@@ -724,7 +724,7 @@ spec = do
         it "takes the key from a smaller factor a proxy match carries" $ do
             served <-
                 servedFor $ \target ->
-                    [ (borrowedAt 5.0, Just (target, ByProxy))
+                    [ (borrowedAt 5.0, Just (Resolution target ByProxy))
                     , (unresolvedAt 20.0, Nothing)
                     ]
             served `shouldBe` Just 20.0
@@ -733,7 +733,7 @@ spec = do
             -- Without this the two tests above prove nothing: the rows have
             -- different names, and they compete only because a proxy match
             -- files its row under the flow it borrowed from.
-            served <- servedFor $ \target -> [(borrowedAt 5.0, Just (target, ByProxy))]
+            served <- servedFor $ \target -> [(borrowedAt 5.0, Just (Resolution target ByProxy))]
             served `shouldBe` Just 5.0
 
     describe "the sea is a subcompartment like any other" $ do
@@ -751,7 +751,7 @@ spec = do
                             mempty
                             mempty
                             M.empty
-                            [(cf, Just (flow, ByName)) | cf <- cfs]
+                            [(cf, Just (Resolution flow ByName)) | cf <- cfs]
                     flowDB = M.singleton fid flow
                 pure
                     ( loScore
@@ -816,7 +816,7 @@ spec = do
                             M.empty
                             (M.singleton fid flow)
                             (M.singleton fid 1.0)
-                            (buildMethodTables cmap mempty M.empty [(cf, Just (flow, ByName)) | cf <- cfs])
+                            (buildMethodTables cmap mempty M.empty [(cf, Just (Resolution flow ByName)) | cf <- cfs])
             score [uns, mkCFComp "Nitrogen, total" "water" "sea water" 0.0] `shouldBe` 0.0
             score [uns] `shouldBe` 1.0
 
@@ -834,7 +834,7 @@ spec = do
                     -- cfUns matched ByCAS on a sibling flow, so the CAS bridge
                     -- serves it; cfLt matched nothing, and only takes its place.
                     matched = (mkFlow mid "Iron, ion" Water Nothing){bfCAS = Just "7439-89-6"}
-                    tables = buildMethodTables mempty mempty M.empty [(cfUns, Just (matched, ByCAS)), (cfLt, Nothing)]
+                    tables = buildMethodTables mempty mempty M.empty [(cfUns, Just (Resolution matched ByCAS)), (cfLt, Nothing)]
                     flowDB = M.singleton fid flow
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB (M.singleton fid 1.0) tables))
 
@@ -881,7 +881,7 @@ spec = do
             scoreAt cfs medium sub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Silver (I)" medium (Just sub)
-                    tables = buildMethodTables cmap (methodVocabulary cmap cfs) M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
+                    tables = buildMethodTables cmap (methodVocabulary cmap cfs) M.empty [(cf, Just (Resolution flow ByName)) | cf <- cfs]
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
 
         it "gives agricultural soil its own factor, and forestry and industrial soil the non-agricultural one" $ do
@@ -900,7 +900,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "Silver (I)" Soil (Just "forestry")
                 exclusion = mkCFComp "!Silver*" "soil" "forestry" 0.0
-                tables = buildMethodTables cmap (methodVocabulary cmap (exclusion : soilCFs)) M.empty [(cf, Just (flow, ByName)) | cf <- soilCFs]
+                tables = buildMethodTables cmap (methodVocabulary cmap (exclusion : soilCFs)) M.empty [(cf, Just (Resolution flow ByName)) | cf <- soilCFs]
             loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables)
                 `shouldBe` 3.0
 
@@ -923,7 +923,7 @@ spec = do
                 scoreOf sub = do
                     fid <- nextRandom
                     let flow = mkFlow fid "1,1,1-Trichloroethane" Water (Just sub)
-                        tables = buildMethodTables cmap (methodVocabulary cmap matrix) M.empty [(cf, Just (flow, ByName)) | cf <- matrix]
+                        tables = buildMethodTables cmap (methodVocabulary cmap matrix) M.empty [(cf, Just (Resolution flow ByName)) | cf <- matrix]
                     pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
             scoreOf "ground-" `shouldReturn` 0.0
             scoreOf "surface water" `shouldReturn` 1700.0
@@ -973,7 +973,7 @@ spec = do
         let scoreAt cfs sub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Nitrogen oxides" Air (Just sub)
-                    tables = buildMethodTables cmap mempty M.empty [(cf, Just (flow, ByName)) | cf <- cfs]
+                    tables = buildMethodTables cmap mempty M.empty [(cf, Just (Resolution flow ByName)) | cf <- cfs]
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
             ilcd sub val = (mkCF "Nitrogen oxides" Nothing val){mcfCompartment = parseCompartment ["Emissions", "Emissions to air", sub]}
             highAltitudeILCD =
@@ -990,7 +990,7 @@ spec = do
                 scoreLT sub = do
                     fid <- nextRandom
                     let flow = mkFlow fid "Nitrogen oxides" Air (Just sub)
-                        tables = buildMethodTables cmap (methodVocabulary cmap longTermILCD) M.empty [(cf, Just (flow, ByName)) | cf <- longTermILCD]
+                        tables = buildMethodTables cmap (methodVocabulary cmap longTermILCD) M.empty [(cf, Just (Resolution flow ByName)) | cf <- longTermILCD]
                     pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
             scoreLT "low population density, long-term" `shouldReturn` 0.5
             scoreLT "low. pop., long-term" `shouldReturn` 0.5
@@ -1048,7 +1048,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = mkCF "co2" Nothing 1.0
-                tables = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByUUID))]
+                tables = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
                 inventory = M.singleton fid 100.0
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton nil (unitNamed "m")
@@ -1087,7 +1087,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = mkCF "co2" Nothing 1.0
-                stats = computeMappingStats [(cf, Just (flow, BySynonym))]
+                stats = computeMappingStats [(cf, Just (Resolution flow BySynonym))]
             msBySynonym stats `shouldBe` 1
 
     describe "findFlowBySynonym (finds via synonym)" $ do
@@ -1149,7 +1149,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air Nothing
                 cf = mkCFComp "ammonia" "air" "" 0.747
-            compartmentGapWarning mempty (M.singleton "ammonia" [flow]) [(cf, Just (flow, ByName))] `shouldBe` Nothing
+            compartmentGapWarning mempty (M.singleton "ammonia" [flow]) [(cf, Just (Resolution flow ByName))] `shouldBe` Nothing
 
     describe "fillBroadcastVector + computeLCIAScoreFromTables (Phase 1)" $ do
         let mkUnit uid name = Unit{unitId = uid, unitName = name, unitSymbol = name, unitComment = ""}
@@ -1159,7 +1159,7 @@ spec = do
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air Nothing){bfUnitId = uidKg}
                 cf = (mkCF "co2" Nothing 2.5){mcfUnit = "kg"}
-                rawTables = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByUUID))]
+                rawTables = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 4.0 :: Double)]
@@ -1184,7 +1184,7 @@ spec = do
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air Nothing){bfUnitId = uidKg}
                 cf = (mkCF "co2" Nothing 1.0e-3){mcfUnit = "g"}
-                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByUUID))]
+                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 1.0 :: Double)]
@@ -1203,7 +1203,7 @@ spec = do
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air (Just "high pop")){bfUnitId = uidKg}
                 cf = (mkCFComp "co2" "air" "high pop" 3.0){mcfUnit = "kg"}
-                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByName))]
+                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByName))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 2.0 :: Double)]
@@ -1219,7 +1219,7 @@ spec = do
             -- Flow has subcomp "high pop", but CF only has medium-level entry (subcomp "")
             let flow = (mkFlow fid "co2" Air (Just "high pop")){bfUnitId = uidKg}
                 cf = (mkCFComp "co2" "air" "" 5.0){mcfUnit = "kg"}
-                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByName))]
+                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByName))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 1.0 :: Double)]
@@ -1235,7 +1235,7 @@ spec = do
             uidKg <- nextRandom
             let flowLocal = (mkFlow fidLocal "co2" Air Nothing){bfUnitId = uidKg}
                 cf = (mkCF "co2" Nothing 1.5){mcfUnit = "kg"}
-                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (flowLocal, ByUUID))]
+                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flowLocal ByUUID))]
                 flowDBAtBuild = M.singleton fidLocal flowLocal
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 filled = fillBroadcastVector defaultUnitConfig unitDB flowDBAtBuild tables0
@@ -1267,7 +1267,7 @@ spec = do
                     unitDB = M.singleton uid ((unitNamed unitName'){unitId = uid})
                     filled =
                         fillBroadcastVector cfg unitDB flowDB $
-                            buildMethodTables mempty mempty densities [(cf, Just (flow, ByUUID))]
+                            buildMethodTables mempty mempty densities [(cf, Just (Resolution flow ByUUID))]
                 pure (fid, [bfId f | (f, _, _) <- zeroedMatchedCFs cfg unitDB flowDB filled])
             fillFor = fillWith M.empty
 
@@ -1445,7 +1445,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = (mkCF "co2" Nothing 1.0){mcfFlowRef = fid}
-                tables = buildMethodTables mempty mempty M.empty [(cf, Just (flow, ByUUID))]
+                tables = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
                 idx = buildMethodIndex (mkMethod [cf])
                 inv = M.singleton fid 100.0
                 flowDB = M.singleton fid flow
@@ -1490,7 +1490,7 @@ spec = do
             occupationFlows = [occAnnual, occOrchard, occSea, occIndustrial, occBenthos]
             u = uuidFromInt
             -- Compare by UUID: BiosphereFlow has no Eq/Show instance.
-            expandedIds = map (fmap (bfId . fst) . snd) . fst
+            expandedIds = map (fmap (bfId . resFlow) . snd) . fst
 
         it "detects a trailing-star name as a pattern, a literal name as not" $ do
             isPatternCF (mkCF "Occupation*" Nothing 1.0) `shouldBe` True
@@ -1529,13 +1529,13 @@ spec = do
         it "a pattern matching no flow surfaces one unmatched row and a warning" $ do
             let cf = mkCFComp "Uranium*" "natural resource" "" 1.0
                 (rows, warnings) = expandPatternCF flowDB [] cf
-            map (fmap (bfId . fst) . snd) rows `shouldBe` [Nothing]
+            map (fmap (bfId . resFlow) . snd) rows `shouldBe` [Nothing]
             length warnings `shouldBe` 1
 
         it "a bare * constrained by nothing is refused, not matched to everything" $ do
             let cf = mkCF "*" Nothing 1.0
                 (rows, warnings) = expandPatternCF flowDB [] cf
-            map (fmap (bfId . fst) . snd) rows `shouldBe` [Nothing]
+            map (fmap (bfId . resFlow) . snd) rows `shouldBe` [Nothing]
             length warnings `shouldBe` 1
 
         it "reads a leading ! as an exclusion, not as a pattern" $ do
@@ -1574,7 +1574,7 @@ spec = do
             let cf = mkCFComp "Transformation*" "natural resource" "" 1.0
                 all' = mkCFComp "!Transformation*" "natural resource" "" 1.0
                 (rows, warnings) = expandPatternCF flowDB [all'] cf
-            map (fmap (bfId . fst) . snd) rows `shouldBe` [Nothing]
+            map (fmap (bfId . resFlow) . snd) rows `shouldBe` [Nothing]
             length warnings `shouldBe` 1
 
         it "mapMethodFlows subtracts the category's exclusions from its patterns" $ do
@@ -1596,7 +1596,7 @@ spec = do
             mappings <- mapMethodFlows ctx method
             -- The exclusion rows themselves never become factors: a method that
             -- kept them would characterize the very flows it just disowned.
-            map (fmap (bfId . fst) . snd) mappings
+            map (fmap (bfId . resFlow) . snd) mappings
                 `shouldMatchList` map (Just . bfId) [occAnnual, occOrchard, occIndustrial]
 
         it "an exclusion still holds when the synonym fan-out re-reaches its flow" $ do
@@ -1624,7 +1624,7 @@ spec = do
                         ]
             mappings <- mapMethodFlows ctx method
             let expanded = expandSynonymMappings synDB (byName allFlows) mappings
-                ids = map (fmap (bfId . fst) . snd)
+                ids = map (fmap (bfId . resFlow) . snd)
             -- The bridge really does hand the excluded flow back – without this
             -- the test below would pass on an expansion that never reached it.
             ids expanded `shouldSatisfy` elem (Just (bfId occBenthos))
@@ -1647,7 +1647,7 @@ spec = do
                         }
                 ctx = MapContext flowDB (byName allFlows) M.empty emptySynonymDB M.empty mempty M.empty
             mappings <- mapMethodFlows ctx method
-            map (fmap (bfId . fst) . snd) mappings
+            map (fmap (bfId . resFlow) . snd) mappings
                 `shouldMatchList` map (Just . bfId) (waterRiver : occupationFlows)
 
     -- Lint of the shipped method file, like RegistryLintSpec for data/flows.csv:

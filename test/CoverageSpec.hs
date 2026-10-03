@@ -20,7 +20,7 @@ import Data.Aeson (decode, encode)
 import API.DatabaseHandlers (coverageReportToAPI)
 import API.Types (CollectionBridgesAPI (..), CoverageReportAPI (..))
 import Method.Coverage
-import Method.Mapping (MatchStrategy (..))
+import Method.Mapping (MatchStrategy (..), Resolution (..))
 import Method.Types (FlowDirection (..), MethodCF (..))
 import Types (BiosphereFlow (..))
 
@@ -61,7 +61,7 @@ spec = describe "Method.Coverage.collectionBridges" $ do
         let cf = cfNamed "Bromomethane" (Just "74-83-9")
             fExact = flowNamed 1 "Bromomethane" (Just "74-83-9")
             fBridge = flowNamed 2 "Methane, bromo-, Halon 1001" (Just "74-83-9")
-            cb = collectionBridges "EF3.1" 2 2 [[(cf, Just (fExact, ByName)), (cf, Just (fBridge, BySynonym))]]
+            cb = collectionBridges "EF3.1" 2 2 [[(cf, Just (Resolution fExact ByName)), (cf, Just (Resolution fBridge BySynonym))]]
         cbGroups cb
             `shouldBe` [ BridgeGroup
                             (Just "74-83-9")
@@ -72,7 +72,7 @@ spec = describe "Method.Coverage.collectionBridges" $ do
     it "does not flag a flow the method reaches by its own exact name" $ do
         let cf = cfNamed "Bromomethane" Nothing
             f = flowNamed 1 "Bromomethane" Nothing
-        cbGroups (collectionBridges "m" 1 1 [[(cf, Just (f, ByName))]]) `shouldBe` []
+        cbGroups (collectionBridges "m" 1 1 [[(cf, Just (Resolution f ByName))]]) `shouldBe` []
 
     it "excludes a flow bridged by one factor but exact-named by another" $ do
         -- The same flow name matches factor B by name, so an exact-name tool
@@ -80,15 +80,15 @@ spec = describe "Method.Coverage.collectionBridges" $ do
         let cfA = cfNamed "Bromomethane" Nothing
             cfB = cfNamed "Methane, bromo-, Halon 1001" Nothing
             f = flowNamed 1 "Methane, bromo-, Halon 1001" Nothing
-        cbGroups (collectionBridges "m" 1 1 [[(cfA, Just (f, BySynonym)), (cfB, Just (f, ByName))]])
+        cbGroups (collectionBridges "m" 1 1 [[(cfA, Just (Resolution f BySynonym)), (cfB, Just (Resolution f ByName))]])
             `shouldBe` []
 
     it "groups bridged names under their shared rename target, sorted and deduped across methods" $ do
         let cf = cfNamed "Bromomethane" (Just "74-83-9")
             f1 = flowNamed 1 "Methane, bromo-, Halon 1001" (Just "74-83-9")
             f2 = flowNamed 2 "Bromomethane, halon" Nothing
-            m1 = [(cf, Just (f1, BySynonym))]
-            m2 = [(cf, Just (f1, BySynonym)), (cf, Just (f2, ByCAS))]
+            m1 = [(cf, Just (Resolution f1 BySynonym))]
+            m2 = [(cf, Just (Resolution f1 BySynonym)), (cf, Just (Resolution f2 ByCAS))]
         cbGroups (collectionBridges "m" 5 2 [m1, m2])
             `shouldBe` [ BridgeGroup
                             (Just "74-83-9")
@@ -115,8 +115,8 @@ spec = describe "Method.Coverage.collectionBridges" $ do
                     2
                     2
                     [
-                        [ (cfNamed "Bromomethane" Nothing, Just (flowNamed 1 "Methane, bromo-, Halon 1001" Nothing, BySynonym))
-                        , (cfNamed "Bromotrifluoromethane" Nothing, Just (flowNamed 2 "Methane, bromotrifluoro-, Halon 1301" Nothing, BySynonym))
+                        [ (cfNamed "Bromomethane" Nothing, Just (Resolution (flowNamed 1 "Methane, bromo-, Halon 1001" Nothing) BySynonym))
+                        , (cfNamed "Bromotrifluoromethane" Nothing, Just (Resolution (flowNamed 2 "Methane, bromotrifluoro-, Halon 1301" Nothing) BySynonym))
                         ]
                     ]
             report = CoverageReport "agb" [twoGroups]

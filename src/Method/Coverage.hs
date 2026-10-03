@@ -33,7 +33,7 @@ import Data.Maybe (catMaybes, listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 
-import Method.Mapping (MatchStrategy (..))
+import Method.Mapping (MatchStrategy (..), Resolution (..))
 import Method.Types (MethodCF (..))
 import Types (BiosphereFlow (..))
 
@@ -104,7 +104,7 @@ collectionBridges ::
     -- | flows the collection characterizes (distinct, bridges included)
     Int ->
     -- | per-method effective mappings (factor, matched flow + winning strategy)
-    [[(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]] ->
+    [[(MethodCF, Maybe Resolution)]] ->
     CollectionBridges
 collectionBridges name total characterized perMethod =
     CollectionBridges name total characterized groups
@@ -112,7 +112,7 @@ collectionBridges name total characterized perMethod =
     tuples =
         [ (cf, flow, strat)
         | mappings <- perMethod
-        , (cf, Just (flow, strat)) <- mappings
+        , (cf, Just (Resolution flow strat)) <- mappings
         ]
     reachOf (_, _, strat) = strategyReach strat
     exactNameIds =

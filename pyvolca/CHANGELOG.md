@@ -41,7 +41,7 @@ Then paste the rendered block at the top of this file and tighten wording.
   `change_scoring_row`, `remove_scoring_row`, `set_scoring_formula`,
   `set_score` and `remove_score` change them, a row written as a
   `ScoringRow`. `LCIABatchResult.scoring_rows` gives the value of every row.
-  They need wire revision 44 (engine 0.15.0).
+  They need wire revision 45 (engine 0.15.0).
 
 ### Deprecated
 
