@@ -5,7 +5,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -32,6 +32,7 @@ import qualified Data.Vector.Unboxed as U
 import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.MatrixBuild (findProducer, linkedProducer)
+import Impact (PartScore (..))
 import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix, depDemandsToVector, perturbA, perturbABatch, perturbGlobal, toList)
 import qualified Matrix.Export as MatrixExport
 import Method.Mapping (LongTermMode (..))
@@ -83,6 +84,10 @@ data SupplyChainFilter = SupplyChainFilter
     , scfMaxDepth :: !(Maybe Int)
     , scfMinQuantity :: !(Maybe Double)
     , scfEdges :: !Edges
+    , scfWithheld :: !(S.Set Text)
+    {- ^ The databases whose licence keeps the amounts of their exchanges:
+    reached as a dependency, their processes come back as one line each.
+    -}
     }
 
 {- | Filter for reverse-walk (/consumers). Adds a depth cap but no
@@ -152,6 +157,8 @@ data ServiceError
       -}
       NotScorable Text
     | MatrixError Text -- Generic error from matrix computations
+    | -- | A licence keeps what the answer would read; the text says whose.
+      Withheld Text
     deriving (Show)
 
 {- | Validate UUID format, returning the parsed UUID so callers do not have to
@@ -1240,7 +1247,21 @@ keeps what weighs in its scores, the score stays and its contributors go.
 withholdContributors :: Text -> Licence -> LCIAResult -> LCIAResult
 withholdContributors dbName licence result
     | granted licence SeeDetailedScores = result
-    | otherwise = result{lrTopContributors = [], lrWithheld = Just (withheldSentence dbName SeeDetailedScores)}
+    | otherwise = result{lrTopContributors = [], lrWithheldDatabases = [], lrWithheld = Just (withheldSentence dbName SeeDetailedScores)}
+
+{- | The line each dependency that keeps its detail is answered as, its share
+taken of the score its part belongs to.
+-}
+withheldShares :: Double -> [PartScore] -> [WithheldShare]
+withheldShares total parts =
+    [ WithheldShare
+        { wsDatabase = name
+        , wsContribution = c
+        , wsSharePct = if total /= 0 then c / total * 100 else 0
+        , wsReason = withheldSentence name SeeDetailedScores
+        }
+    | PartScore{psDatabase = name, psScore = c} <- parts
+    ]
 
 {- | Every score of a batch trimmed the same way, and its unlinked waste, whose
 amounts are exchange amounts, gone under a licence that keeps those.
@@ -2121,6 +2142,7 @@ buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf 
             , scrFilteredActivities = length entries
             , scrSupplyChain = sortAndPaginate (scfCore scf) entries
             , scrEdges = edges
+            , scrWithheldDatabases = []
             }
 
 {- | Cross-DB supply-chain expansion: starts with the root DB walk, then for
@@ -2181,7 +2203,8 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup rootDb ro
     pure $ case eDep of
         Left err -> Left err
         Right depCollected ->
-            let Collected total entries edges = rootCollected <> depCollected
+            let (Collected total entries edges, withheld) =
+                    withholdEntries (S.delete rootDbName (scfWithheld scf)) (rootCollected <> depCollected)
              in Right
                     SupplyChainResponse
                         { scrRoot = rootSummary
@@ -2189,7 +2212,27 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup rootDb ro
                         , scrFilteredActivities = length entries
                         , scrSupplyChain = sortAndPaginate (scfCore scf) entries
                         , scrEdges = edges
+                        , scrWithheldDatabases = withheld
                         }
+
+{- | Take the entries of the refusing databases out of a chain, and the edges
+touching them: each of those databases leaves one line counting its
+processes. The total stays, a count of what the chain reaches; the entries
+are filtered before a page is cut, so no page comes out short.
+-}
+withholdEntries :: S.Set Text -> Collected -> (Collected, [WithheldProcesses])
+withholdEntries refusing (Collected total entries edges) =
+    ( Collected total shown (filter (not . touches) edges)
+    , [ WithheldProcesses{wprDatabase = name, wprProcesses = n, wprReason = withheldSentence name ReadInventory}
+      | (name, n) <- M.toList (M.fromListWith (+) [(sceDatabaseName e, 1) | e <- hidden])
+      ]
+    )
+  where
+    hidden, shown :: [SupplyChainEntry]
+    (hidden, shown) = L.partition ((`S.member` refusing) . sceDatabaseName) entries
+
+    touches :: SupplyChainEdge -> Bool
+    touches e = sceEdgeFromDb e `S.member` refusing || sceEdgeToDb e `S.member` refusing
 
 {- | Recursive helper: for every cross-DB link emerging from @consumerScaling@,
 solve the induced dep demand and collect entries\/edges from the dep DB

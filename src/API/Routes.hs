@@ -12,7 +12,7 @@ import API.DatabaseHandlers (explainCFToAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
@@ -577,6 +577,7 @@ serviceErrorToServerError = \case
     -- and cross-DB unit-conversion failures – all client-submitted invariant
     -- breakages. Surface as 422 like the rest of the cross-DB pipeline.
     Service.MatrixError msg -> err422{errBody = utf8Body msg}
+    Service.Withheld msg -> err403{errBody = utf8Body msg}
   where
     utf8Body = BSL.fromStrict . T.encodeUtf8
 
@@ -734,22 +735,11 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
     case scoreE of
         Left err -> pure (Left err)
         Right score -> do
-            contribsE <- contributionsFor tables score
+            contribsE <- licencedTopFlows dbManager collection method tables sol score topFlows
             pure (fmap (result stats score functionalUnit) contribsE)
   where
-    -- The rows come from the same path as the score, so their shares sum to
-    -- it. A regionalized method has no other way to say which flow made which
-    -- part of its score: read region-blind from the merged inventory, the
-    -- shares add up to something else entirely.
-    contributionsFor :: MethodTables -> Double -> IO (Either Text [FlowContributionEntry])
-    contributionsFor tables score
-        | topFlows <= 0 = pure (Right [])
-        | otherwise = do
-            contribsE <- Impact.contributionsOf dbManager collection method tables sol
-            pure (fmap (topContributorRows (Explain.flowMatchKind tables) score topFlows . fst) contribsE)
-
-    result :: MappingStats -> Double -> Text -> [FlowContributionEntry] -> LCIAResult
-    result stats score functionalUnit topContributors =
+    result :: MappingStats -> Double -> Text -> TopFlows -> LCIAResult
+    result stats score functionalUnit TopFlows{tfRows = topContributors, tfWithheld = withheld} =
         LCIAResult
             { lrMethodId = methodId method
             , lrMethodName = methodName method
@@ -763,6 +753,42 @@ computeCategoryResult dbManager dbName collection db sol activity topFlows preco
             , lrFunctionalUnit = functionalUnit
             , lrTopContributors = topContributors
             , lrWithheld = Nothing
+            , lrWithheldDatabases = withheld
+            }
+
+-- | The flows a score publishes, and the line of each dependency that keeps its detail.
+data TopFlows = TopFlows
+    { tfRows :: [FlowContributionEntry]
+    , tfWithheld :: [WithheldShare]
+    }
+
+{- | The biggest flows of a score as the licences of the databases it reads let
+them be read. The rows come from the same path as the score, so their shares
+sum to it with the dependencies' lines. A regionalized method has no other way
+to say which flow made which part of its score: read region-blind from the
+merged inventory, the shares add up to something else entirely.
+
+When no flow is asked for, nothing is walked and no line is given either: the
+lines stand beside the rows they complete.
+-}
+licencedTopFlows ::
+    DatabaseManager ->
+    DM.CollectionName ->
+    Method ->
+    MethodTables ->
+    SharedSolver.CrossDBSolution ->
+    Double ->
+    Int ->
+    IO (Either Text TopFlows)
+licencedTopFlows dbManager collection method tables sol score topFlows
+    | topFlows <= 0 = pure (Right (TopFlows [] []))
+    | otherwise = fmap toTop <$> Impact.licencedContributionsOf dbManager collection method tables sol
+  where
+    toTop :: Impact.LicencedContributions -> TopFlows
+    toTop lc =
+        TopFlows
+            { tfRows = topContributorRows (Explain.flowMatchKind tables) score topFlows (Impact.lcRows lc)
+            , tfWithheld = Service.withheldShares score (Impact.lcWithheld lc)
             }
 
 -- | Say which flows of an inventory the merged metadata has no record of.
@@ -826,18 +852,10 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
             case resolveBatchedScore method scoreMap of
                 Left err -> pure (Left (err <> " (pid=" <> T.pack (show actPid) <> ")"))
                 Right score -> do
-                    rowsE <- topContributorsOf method score
+                    tables <- DM.mapMethodToTablesCached dbManager dbName collectionName db method
+                    rowsE <- licencedTopFlows dbManager collectionName method tables sol score topFlows
                     pure (fmap (mkResultForScore ctx method score) rowsE)
-        -- Read by the same path as the score, so the shares sum to it. The
-        -- merged inventory has forgotten where each kilogram was emitted,
-        -- which is exactly what a regionalized factor needs to know.
-        topContributorsOf method score
-            | topFlows <= 0 = pure (Right [])
-            | otherwise = do
-                tables <- DM.mapMethodToTablesCached dbManager dbName collectionName db method
-                contribsE <- Impact.contributionsOf dbManager collectionName method tables sol
-                pure (fmap (topContributorRows (Explain.flowMatchKind tables) score topFlows . fst) contribsE)
-        mkResultForScore ctx method score topContributors =
+        mkResultForScore ctx method score TopFlows{tfRows = topContributors, tfWithheld = withheld} =
             enrichWithNW index $
                 LCIAResult
                     { lrMethodId = methodId method
@@ -852,6 +870,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                     , lrFunctionalUnit = functionalUnit
                     , lrTopContributors = topContributors
                     , lrWithheld = Nothing
+                    , lrWithheldDatabases = withheld
                     }
     resultsE <- sequence <$> traverse mkResultIO ctxs
     case resultsE of
@@ -1068,6 +1087,7 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
                 Service.FlowNotFound _ -> False
                 Service.NotScorable _ -> False
                 Service.MatrixError _ -> False
+                Service.Withheld _ -> False
             ]
     t0 <- liftIO getCurrentTime
     ctxs <- liftIO $ mapConcurrently (prepMethodCtx dbManager dbName collectionName db) (mcMethods collection)
@@ -1278,6 +1298,8 @@ mergeClassFilters presets presetParam systems values modes =
 
 -- | Build a 'Service.SupplyChainFilter' shared by GET and POST handlers.
 buildSupplyChainFilter ::
+    -- | The databases whose licence keeps their amounts
+    S.Set Text ->
     [Config.ClassificationPreset] ->
     Maybe Text ->
     Maybe Int ->
@@ -1294,7 +1316,7 @@ buildSupplyChainFilter ::
     Maybe Text ->
     Service.Edges ->
     Either Text Service.SupplyChainFilter
-buildSupplyChainFilter presets nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam edges = do
+buildSupplyChainFilter refusing presets nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam edges = do
     classifications <- mergeClassFilters presets presetParam classSystems classValues classModes
     pure
         Service.SupplyChainFilter
@@ -1312,6 +1334,7 @@ buildSupplyChainFilter presets nameFilter limitParam minQuantity offsetParam max
             , Service.scfMaxDepth = maxDepthParam
             , Service.scfMinQuantity = minQuantity
             , Service.scfEdges = edges
+            , Service.scfWithheld = refusing
             }
 
 buildFlowEntry :: Database -> MethodTables -> UUID -> FlowCFEntry
@@ -1588,7 +1611,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 45
+currentWireVersion = 46
 
 getVersion :: AppM Value
 getVersion = do
@@ -1756,6 +1779,7 @@ activityInventoryCore dbName processIdText mSub = do
     (db, sharedSolver) <- requireDatabaseByName dbName
     (processId, activity) <- resolveOrThrow db processIdText
     sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
+    liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ (\msg -> throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)})
     (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
     pure $ Service.convertToInventoryExport db mFlows mUnits processId activity (SharedSolver.csInventory sol)
 
@@ -1798,9 +1822,11 @@ activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity o
     presets <- asks aeClassificationPresets
     (db, sharedSolver) <- requireDatabaseByName dbName
     let edges = if fromMaybe False includeEdgesParam then Service.WithEdges else Service.EntriesOnly
+    refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
     scf <-
         either badRequest pure $
             buildSupplyChainFilter
+                refusing
                 presets
                 nameFilter
                 limitParam
@@ -1924,6 +1950,7 @@ getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam fnam
         Just msg -> throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
         Nothing -> return ()
     presetFilters <- either badRequest pure (Config.expandClassificationPreset presets presetParam)
+    refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
     let explicitFilters = mapMaybe parseClassFilter fclassParams
         params =
             Agg.AggregateParams
@@ -1941,6 +1968,7 @@ getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam fnam
                 , Agg.apFilterIsReference = freferenceParam
                 , Agg.apGroupBy = groupByParam
                 , Agg.apAggregate = aggFn
+                , Agg.apWithheld = refusing
                 }
     unitCfg <- liftIO $ getMergedUnitConfig dbManager
     (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
@@ -2230,14 +2258,14 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
         liftIO $ warnUnknownInventoryFlows ("contributing-flows " <> methodName method) mFlows (SharedSolver.csInventory sol)
         score <- liftIO (Impact.scoreSolution dbManager collectionName method tables sol) >>= either scoringError pure
-        (rawContribs, _) <-
-            liftIO (Impact.contributionsOf dbManager collectionName method tables sol) >>= either scoringError pure
+        top <- liftIO (licencedTopFlows dbManager collectionName method tables sol score lim) >>= either scoringError pure
         return
             ContributingFlowsResult
                 { cfrMethod = methodName method
                 , cfrUnit = methodUnit method
                 , cfrTotalScore = score
-                , cfrTopFlows = topContributorRows (Explain.flowMatchKind tables) score lim rawContribs
+                , cfrTopFlows = tfRows top
+                , cfrWithheldDatabases = tfWithheld top
                 }
 
 getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
@@ -2254,7 +2282,8 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
         contributions <-
             liftIO (Impact.processContributionsOf dbManager collectionName method tables sol)
                 >>= either scoringError pure
-        liftIO $ activitiesResult dbManager dbName Heading{hdName = methodName method, hdUnit = methodUnit method} lim contributions
+        withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
+        liftIO $ activitiesResult dbManager dbName Heading{hdName = methodName method, hdUnit = methodUnit method} lim (Impact.splitProcessParts withheld contributions)
 
 -- | What a list of contributions answers for, as the answer names it.
 data Heading = Heading
@@ -2263,7 +2292,9 @@ data Heading = Heading
     }
 
 {- | The biggest contributing activities of a score, from every activity's
-part of it. The parts are the terms of the score, so their sum is it.
+part of it. The parts are the terms of the score, so their sum is it, with the
+line of each dependency that keeps its detail. Those are set aside before the
+ranking, so a page is never short of the processes it could show.
 -}
 activitiesResult ::
     DatabaseManager ->
@@ -2271,9 +2302,9 @@ activitiesResult ::
     Text ->
     Heading ->
     Int ->
-    M.Map (Text, ProcessId) Double ->
+    Impact.ProcessParts ->
     IO ContributingActivitiesResult
-activitiesResult dbManager dbName heading lim contributions = do
+activitiesResult dbManager dbName heading lim Impact.ProcessParts{Impact.ppShown = contributions, Impact.ppWithheld = withheld} = do
     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
     rows <- mapM (mkCrossDBContrib dbManager dbName mFlows mUnits score) top
     pure
@@ -2282,10 +2313,11 @@ activitiesResult dbManager dbName heading lim contributions = do
             , carUnit = hdUnit heading
             , carTotalScore = score
             , carActivities = rows
+            , carWithheldDatabases = Service.withheldShares score withheld
             }
   where
     score :: Double
-    score = sum (M.elems contributions)
+    score = sum (M.elems contributions) + sum (map Impact.psScore withheld)
 
     top :: [((Text, ProcessId), Double)]
     top = take lim (sortOn (\(_, c) -> negate (abs c)) (M.toList contributions))
@@ -2345,13 +2377,16 @@ getScoreContributingActivities dbName processIdText collectionName setName score
                 , sqRef = ScoreRef{srSet = setName, srScore = scoreName}
                 , sqExcludeLongTerm = mExcludeLT
                 }
-            Score.activityParts
+            ( \src score sol -> do
+                withheld <- Impact.withheldDatabases dbManager SeeDetailedScores sol
+                fmap (Impact.splitProcessParts withheld) <$> Score.activityParts src score sol
+            )
     liftIO $ activitiesResult dbManager dbName (scoreHeading rs) (fromMaybe 10 limitParam) parts
 
 getScoreContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
 getScoreContributingFlows dbName processIdText collectionName setName scoreName limitParam mExcludeLT = do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
-    (rs, (total, rows)) <-
+    (rs, Score.ScoreFlows{Score.sfTotal = total, Score.sfRows = rows, Score.sfWithheld = withheld}) <-
         withActivityAndScore
             ScoreQuery
                 { sqDbName = dbName
@@ -2360,7 +2395,7 @@ getScoreContributingFlows dbName processIdText collectionName setName scoreName 
                 , sqRef = ScoreRef{srSet = setName, srScore = scoreName}
                 , sqExcludeLongTerm = mExcludeLT
                 }
-            (Score.flowParts "contributing-flows")
+            (Score.licencedFlowParts "contributing-flows")
     let heading = scoreHeading rs
     pure
         ContributingFlowsResult
@@ -2368,6 +2403,7 @@ getScoreContributingFlows dbName processIdText collectionName setName scoreName 
             , cfrUnit = hdUnit heading
             , cfrTotalScore = total
             , cfrTopFlows = topContributorRows (const Nothing) total (fromMaybe 20 limitParam) rows
+            , cfrWithheldDatabases = Service.withheldShares total withheld
             }
 
 getFlowDetail :: Text -> Text -> AppM FlowDetail

@@ -171,7 +171,13 @@ licence = "CC-BY-4.0"          # the licence it is published under, by SPDX iden
                                #   is shown as the reader's commitment. Each level
                                #   rebuilds the one above, so refusing scores
                                #   refuses inventory and download too, and
-                               #   refusing inventory refuses download
+                               #   refusing inventory refuses download.
+                               #   Reached as another database's dependency,
+                               #   it holds the same: refusing scores, it is
+                               #   one line of the score, "dep: 42 %";
+                               #   refusing inventory, the aggregated
+                               #   inventory is refused and the supply chain
+                               #   counts its processes in one line
 # attribution = true           #   results must name the publisher (the default)
                                # A copy is served under its source's licence; an
                                # upload's owner sets its own with PUT /db/{name}/licence

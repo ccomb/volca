@@ -40,6 +40,18 @@ module Impact (
     contributionsOf,
     processContributionsOf,
     withLongTermPolicy,
+    LicencedSolution (..),
+    WithheldPart (..),
+    PartScore (..),
+    partitionByLicence,
+    licencedSolution,
+    scoreParts,
+    LicencedContributions (..),
+    licencedContributionsOf,
+    withheldDatabases,
+    inventoryRefusal,
+    ProcessParts (..),
+    splitProcessParts,
     unknownInventoryFlows,
     warnUnknownFlowIds,
 ) where
@@ -47,14 +59,18 @@ module Impact (
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
 import Data.Bifunctor (first)
+import Data.Containers.ListUtils (nubOrd)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
+import Data.Maybe (listToMaybe)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 
-import Database.Manager (CollectionName, DatabaseManager (..), getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached)
-import Matrix (Inventory, Vector)
+import qualified Data.Vector.Unboxed as U
+import Database.Manager (CollectionName, DatabaseManager (..), getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
+import Matrix (Inventory, Vector, applyBiosphereMatrix)
 import Method.Mapping (
     FlowContribution (..),
     LCIAOutcome (..),
@@ -71,7 +87,7 @@ import Method.Mapping (
 import Method.Types (Method (..))
 import Progress (ProgressLevel (..), reportProgress)
 import qualified SharedSolver
-import Types (BioFlowDB, Database, ProcessId)
+import Types (BioFlowDB, Database, Permission (..), ProcessId, includedSentence)
 
 {- | Record the long-term emission policy on a solution: drop the delayed
 emissions from its inventory and say so, in one move.
@@ -91,6 +107,153 @@ withLongTermPolicy dbManager ExcludeLongTerm sol = do
             { SharedSolver.csInventory = applyLongTermMode mFlows ExcludeLongTerm (SharedSolver.csInventory sol)
             , SharedSolver.csLongTerm = ExcludeLongTerm
             }
+
+{- | A solution split by what the licences of the databases it reads let a
+reader see in detail: the part shown, and one part per dependency that keeps
+its detail to itself, each to be answered as a single line.
+
+The root is never one of them: what the requested database refuses is refused
+before anything is solved, so a root revisited through a cycle stays shown.
+-}
+data LicencedSolution = LicencedSolution
+    { lsShown :: SharedSolver.CrossDBSolution
+    , lsWithheld :: [WithheldPart]
+    }
+
+-- | One dependency's share of a solution, alone.
+data WithheldPart = WithheldPart
+    { wpDatabase :: Text
+    , wpSolution :: SharedSolver.CrossDBSolution
+    }
+
+{- | Split a solution by the databases whose licence refuses a permission.
+
+A part keeps every database of the solution and zeroes the vectors of the
+others, rather than dropping them: whether a method is scored regionalized is
+asked of the databases a solution lists, and a dependency dropped from the
+list would switch the others to the flat path, scored with other tables, and
+the parts would no longer add up to the score. A database listed twice (two
+links reaching it, or a cycle) moves as one, its parts summed.
+
+The inventory of a part is rebuilt the way the solver builds it, each
+database's biosphere times its vector, then the long-term policy again. When
+no dependency keeps anything the solution is returned as it is.
+-}
+partitionByLicence :: BioFlowDB -> S.Set Text -> SharedSolver.CrossDBSolution -> LicencedSolution
+partitionByLicence flowDB refusing sol
+    | null withheld = LicencedSolution{lsShown = sol, lsWithheld = []}
+    | otherwise =
+        LicencedSolution
+            { lsShown = keeping (`notElem` withheld)
+            , lsWithheld = [WithheldPart{wpDatabase = name, wpSolution = keeping (== name)} | name <- withheld]
+            }
+  where
+    scalings :: NE.NonEmpty (Text, Database, Vector)
+    scalings = SharedSolver.csScalings sol
+
+    withheld :: [Text]
+    withheld = withheldNames refusing sol
+
+    keeping :: (Text -> Bool) -> SharedSolver.CrossDBSolution
+    keeping kept =
+        let scalings' = fmap (\(name, db, sv) -> (name, db, if kept name then sv else U.map (const 0) sv)) scalings
+         in sol
+                { SharedSolver.csScalings = scalings'
+                , SharedSolver.csInventory =
+                    applyLongTermMode flowDB (SharedSolver.csLongTerm sol) $
+                        M.unionsWith (+) [applyBiosphereMatrix db sv | (name, db, sv) <- NE.toList scalings, kept name]
+                }
+
+-- | The dependencies of a solution among the refusing databases, each once.
+withheldNames :: S.Set Text -> SharedSolver.CrossDBSolution -> [Text]
+withheldNames refusing sol =
+    nubOrd [name | (name, _, _) <- NE.toList scalings, name /= root, name `S.member` refusing]
+  where
+    scalings :: NE.NonEmpty (Text, Database, Vector)
+    scalings = SharedSolver.csScalings sol
+
+    root :: Text
+    root = let (name, _, _) = NE.head scalings in name
+
+-- | 'partitionByLicence' under the licences the engine serves.
+licencedSolution :: DatabaseManager -> Permission -> SharedSolver.CrossDBSolution -> IO LicencedSolution
+licencedSolution dbManager permission sol = do
+    (mFlows, _) <- getMergedFlowMetadata dbManager
+    refusing <- refusingDatabases dbManager permission
+    pure (partitionByLicence mFlows refusing sol)
+
+-- | 'withheldNames' under the licences the engine serves.
+withheldDatabases :: DatabaseManager -> Permission -> SharedSolver.CrossDBSolution -> IO [Text]
+withheldDatabases dbManager permission sol = (`withheldNames` sol) <$> refusingDatabases dbManager permission
+
+{- | Why the aggregated inventory of a solution is not answered, when it
+sums the exchanges of a dependency whose licence keeps their amounts. A line
+for that dependency could carry no amount, and the inventory without its part
+would read as a total.
+-}
+inventoryRefusal :: DatabaseManager -> SharedSolver.CrossDBSolution -> IO (Maybe Text)
+inventoryRefusal dbManager sol = fmap (includedSentence root) . listToMaybe <$> withheldDatabases dbManager ReadInventory sol
+  where
+    root :: Text
+    root = let (name, _, _) = NE.head (SharedSolver.csScalings sol) in name
+
+-- | What one database that keeps its detail adds to a score, in one number.
+data PartScore = PartScore
+    { psDatabase :: Text
+    , psScore :: Double
+    }
+
+-- | Each withheld part's score, by the database that keeps it.
+scoreParts ::
+    DatabaseManager ->
+    CollectionName ->
+    Method ->
+    MethodTables ->
+    [WithheldPart] ->
+    IO (Either Text [PartScore])
+scoreParts dbManager collection method tables parts =
+    sequence <$> traverse (\p -> fmap (PartScore (wpDatabase p)) <$> scoreSolution dbManager collection method tables (wpSolution p)) parts
+
+{- | The flows of a score as the licences of its databases let them be read:
+those of the part shown, with the flow UUIDs the merged metadata has no record
+of, and one score per dependency that keeps what weighs in its scores. The
+rows and those scores add up to the score.
+-}
+data LicencedContributions = LicencedContributions
+    { lcRows :: [FlowContribution]
+    , lcUnknown :: [UUID]
+    , lcWithheld :: [PartScore]
+    }
+
+licencedContributionsOf ::
+    DatabaseManager ->
+    CollectionName ->
+    Method ->
+    MethodTables ->
+    SharedSolver.CrossDBSolution ->
+    IO (Either Text LicencedContributions)
+licencedContributionsOf dbManager collection method tables sol = do
+    LicencedSolution{lsShown = shown, lsWithheld = parts} <- licencedSolution dbManager SeeDetailedScores sol
+    rowsE <- contributionsOf dbManager collection method tables shown
+    partsE <- scoreParts dbManager collection method tables parts
+    pure (LicencedContributions <$> fmap fst rowsE <*> fmap snd rowsE <*> partsE)
+
+{- | Every process's part of a score, split by the databases that keep theirs:
+the parts shown, and each withheld database's parts summed into one. They add
+up to the score.
+-}
+data ProcessParts = ProcessParts
+    { ppShown :: M.Map (Text, ProcessId) Double
+    , ppWithheld :: [PartScore]
+    }
+
+-- | A process id names its database, so nothing is solved again.
+splitProcessParts :: [Text] -> M.Map (Text, ProcessId) Double -> ProcessParts
+splitProcessParts names contributions =
+    ProcessParts
+        { ppShown = M.filterWithKey (\(name, _) _ -> name `notElem` names) contributions
+        , ppWithheld = [PartScore name (sum [c | ((n, _), c) <- M.toList contributions, n == name]) | name <- names]
+        }
 
 {- | The score of one method against a cross-database solution.
 

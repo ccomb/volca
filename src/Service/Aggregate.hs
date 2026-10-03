@@ -20,8 +20,10 @@ module Service.Aggregate (
 
 import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, mapMaybe)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -37,6 +39,7 @@ import API.Types (
     InventoryFlowDetail (..),
     SupplyChainEntry (..),
     SupplyChainResponse (..),
+    WithheldProcesses (..),
     apiFlowName,
  )
 import Database (Geographies)
@@ -65,6 +68,7 @@ import Types (
     CrossDBLink (..),
     Database (..),
     ExchangeKind (..),
+    Permission (..),
     SparseTriple (..),
     UnitDB,
     activityClassification,
@@ -76,9 +80,11 @@ import Types (
     exchangeIsInput,
     exchangeIsReference,
     exchangeKindOf,
+    includedSentence,
     processIdToText,
     qualifyRef,
     supplierRefText,
+    withheldSentence,
  )
 import UnitConversion (UnitConfig)
 
@@ -121,6 +127,11 @@ data AggregateParams = AggregateParams
     , apFilterIsReference :: Maybe Bool
     , apGroupBy :: Maybe Text
     , apAggregate :: AggregateFn
+    , apWithheld :: S.Set Text
+    {- ^ The databases whose licence keeps the amounts of their exchanges.
+    Reached as a dependency, they leave one line each, or refuse the
+    biosphere, which sums their exchanges into the root's.
+    -}
     }
     deriving (Show)
 
@@ -141,6 +152,7 @@ emptyAggregateParams s =
         , apFilterIsReference = Nothing
         , apGroupBy = Nothing
         , apAggregate = AggSum
+        , apWithheld = S.empty
         }
 
 -- ---------------------------------------------------------------------------
@@ -200,15 +212,17 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidTex
                                 supplyVec
                                 []
                                 af
-                        return $ fmap (reduce params . rowsFromSupplyChain) eResp
+                        return $ fmap (\resp -> (reduce params (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
                 ScopeBiosphere -> do
                     solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
                     case solE of
                         Left err -> return (Left (MatrixError err))
-                        Right sol ->
-                            let inventory = SharedSolver.csInventory sol
-                                export = convertToInventoryExport db flowDB unitDB processId activity inventory
-                             in return $ Right $ reduce params (rowsFromBiosphere export)
+                        Right sol
+                            | dep : _ <- withheldOf (SharedSolver.csScalings sol) -> return (Left (Withheld (includedSentence dbName dep)))
+                            | otherwise ->
+                                let inventory = SharedSolver.csInventory sol
+                                    export = convertToInventoryExport db flowDB unitDB processId activity inventory
+                                 in return $ Right $ reduce params (rowsFromBiosphere export)
                 ScopeConsumption -> do
                     -- ponytail: reuses the biosphere solve, whose inventory half is
                     -- discarded here; a scaling-only cross-DB walk is the upgrade
@@ -217,9 +231,27 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidTex
                     case solE of
                         Left err -> return (Left (MatrixError err))
                         Right sol ->
-                            let rootRefMagnitude = referenceMagnitude activity
-                             in return $ Right $ reduce params (rowsFromConsumption rootRefMagnitude (SharedSolver.csScalings sol))
+                            let (root :| deps) = SharedSolver.csScalings sol
+                                (hidden, shown) = L.partition (\(name, _, _) -> withholds name) deps
+                             in return $
+                                    Right
+                                        (reduce params (rowsFromConsumption (referenceMagnitude activity) (root :| shown)))
+                                            { aggWithheldDatabases = consumptionLines hidden
+                                            }
   where
+    withholds :: Text -> Bool
+    withholds name = name /= dbName && name `S.member` apWithheld params
+
+    withheldOf :: NonEmpty (Text, Database, VU.Vector Double) -> [Text]
+    withheldOf scalings = [name | (name, _, _) <- NE.toList scalings, withholds name]
+
+    -- A process counts when the chain reaches it, its scaling not zero.
+    consumptionLines :: [(Text, Database, VU.Vector Double)] -> [WithheldProcesses]
+    consumptionLines hidden =
+        [ WithheldProcesses{wprDatabase = name, wprProcesses = n, wprReason = withheldSentence name ReadInventory}
+        | (name, n) <- M.toList (M.fromListWith (+) [(name, VU.length (VU.filter (/= 0) s)) | (name, _, s) <- hidden])
+        ]
+
     emptyFilter maxD =
         SupplyChainFilter
             { scfCore =
@@ -236,6 +268,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidTex
             , scfMaxDepth = maxD
             , scfMinQuantity = Nothing
             , scfEdges = EntriesOnly
+            , scfWithheld = apWithheld params
             }
 
 -- ---------------------------------------------------------------------------
@@ -481,6 +514,7 @@ reduce p rowsAll =
             , aggFilteredUnit = unit
             , aggFilteredCount = fnCount
             , aggGroups = sortGroups groups
+            , aggWithheldDatabases = []
             }
   where
     mkGroup total (key, rs) =

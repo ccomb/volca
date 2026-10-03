@@ -28,6 +28,7 @@ mkR name category score =
         , lrFunctionalUnit = ""
         , lrTopContributors = []
         , lrWithheld = Nothing
+        , lrWithheldDatabases = []
         }
 
 -- | Minimal Method for score-resolution tests.

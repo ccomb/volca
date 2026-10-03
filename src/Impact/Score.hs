@@ -22,6 +22,8 @@ module Impact.Score (
     scoreUnit,
     activityParts,
     flowParts,
+    ScoreFlows (..),
+    licencedFlowParts,
 ) where
 
 import Control.Monad (forM, mfilter, unless)
@@ -41,7 +43,7 @@ import Matrix (Inventory)
 import Method.Mapping (FlowContribution (..), MethodTables)
 import Method.Types (Method (..), ScoringSet (..), scoreWeights)
 import qualified SharedSolver
-import Types (BiosphereFlow (..), Database, ProcessId)
+import Types (BiosphereFlow (..), Database, Permission (..), ProcessId)
 
 -- | One score of a scoring set: two names side by side, kept apart so they cannot be swapped.
 data ScoreRef = ScoreRef
@@ -172,6 +174,39 @@ flowParts surface src rs sol = runExceptT $ do
             , fcFactor = maybe 0 (c /) (mfilter (/= 0) (M.lookup fid inventory))
             , fcContribution = c
             }
+
+{- | A score's flows as the licences of the databases it reads let them be
+read: the score, the flows of the part shown, and one part per dependency that
+keeps what weighs in its scores. The flows and the parts add up to the score.
+-}
+data ScoreFlows = ScoreFlows
+    { sfTotal :: Double
+    , sfRows :: [FlowContribution]
+    , sfWithheld :: [Impact.PartScore]
+    }
+
+licencedFlowParts ::
+    -- | the surface that asks, named in the log line about unknown flows
+    Text ->
+    Source ->
+    ResolvedScore ->
+    SharedSolver.CrossDBSolution ->
+    IO (Either ScoreRefusal ScoreFlows)
+licencedFlowParts surface src rs sol = runExceptT $ do
+    Impact.LicencedSolution{Impact.lsShown = shown, Impact.lsWithheld = withheld} <-
+        liftIO (Impact.licencedSolution (srcManager src) SeeDetailedScores sol)
+    (shownScore, rows) <- ExceptT (flowParts surface src rs shown)
+    parts <- forM withheld $ \p -> Impact.PartScore (Impact.wpDatabase p) <$> ExceptT (scoreOf src rs (Impact.wpSolution p))
+    pure ScoreFlows{sfTotal = shownScore + sum (map Impact.psScore parts), sfRows = rows, sfWithheld = parts}
+
+-- | The score alone: each indicator's, weighed.
+scoreOf :: Source -> ResolvedScore -> SharedSolver.CrossDBSolution -> IO (Either ScoreRefusal Double)
+scoreOf src rs sol = runExceptT $ do
+    scores <- forM (rsIndicators rs) $ \method -> do
+        tables <- liftIO $ tablesOf src method
+        (,) (methodName method) <$> withExceptT ScoringFailed (ExceptT (Impact.scoreSolution (srcManager src) (srcCollection src) method tables sol))
+    weights <- except (weightsOf rs (M.fromList scores))
+    pure (sum (M.intersectionWith (*) weights (M.fromList scores)))
 
 -- | A method's tables against the root database.
 tablesOf :: Source -> Method -> IO MethodTables

@@ -12,7 +12,7 @@ import Data.Aeson
 import Data.Aeson.Key (fromText, toText)
 import Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
-import Data.Aeson.Types (parseEither)
+import Data.Aeson.Types (Pair, parseEither)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
@@ -50,7 +50,7 @@ import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
 import Control.Monad (forM, mfilter)
 import Data.List (find)
 import qualified Data.List as L
@@ -564,7 +564,7 @@ dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case na
     "get_flow_mapping" -> callGetFlowMapping dbManager rid args
     "get_characterization" -> callGetCharacterization dbManager rid args
     "explain_cf" -> callExplainCF dbManager mBaseUrl rid args
-    "get_contributing_flows" -> callGetContributingFlows dbManager mBaseUrl rid args
+    "get_contributing_flows" -> callGetContributingFlows dbManager mBaseUrl licence rid args
     "get_contributing_activities" -> callGetContributingActivities dbManager mBaseUrl rid args
     "get_score_contributing_flows" -> callGetScoreContributingFlows dbManager mBaseUrl rid args
     "get_score_contributing_activities" -> callGetScoreContributingActivities dbManager mBaseUrl rid args
@@ -636,15 +636,17 @@ requireDatabase dbManager dbName =
 liftShow :: (Show e) => Either e a -> ExceptT Text IO a
 liftShow = either (throwE . T.pack . show) pure
 
-{- | Lift a service result. A refusal to score is a sentence written for the
-caller and travels as is; every other error renders as before.
--}
+-- | Lift a service result, per 'serviceMessage'.
 liftService :: Either Service.ServiceError a -> ExceptT Text IO a
-liftService = either (throwE . render) pure
-  where
-    render :: Service.ServiceError -> Text
-    render (Service.NotScorable msg) = msg
-    render e = T.pack (show e)
+liftService = either (throwE . serviceMessage) pure
+
+{- | A refusal to score and a licence's refusal are sentences written for the
+caller and travel as is; every other error renders as before.
+-}
+serviceMessage :: Service.ServiceError -> Text
+serviceMessage (Service.NotScorable msg) = msg
+serviceMessage (Service.Withheld msg) = msg
+serviceMessage e = T.pack (show e)
 
 textArg :: Text -> KeyMap Value -> Maybe Text
 textArg key args = case KM.lookup (fromText key) args of
@@ -1022,6 +1024,7 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
     (dbName, pid) <- except $ (,) <$> requireText "database" args <*> requireText "process_id" args
     ld <- requireDatabase dbManager dbName
     classifications <- except (classificationFilters presets args)
+    refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
     let db = ldDatabase ld
         solver = ldSharedSolver ld
         depLookup = DM.mkDepSolverLookup dbManager
@@ -1042,6 +1045,7 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
                 , Service.scfMinQuantity = doubleArg "min_quantity" args
                 , -- No MCP tool asks for the subgraph's edges; the REST route does.
                   Service.scfEdges = Service.EntriesOnly
+                , Service.scfWithheld = refusing
                 }
     subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
@@ -1077,6 +1081,7 @@ callAggregate dbManager presets rid args (db, solver) =
                         Right filterExchangeType -> case presetFilters presets args of
                             Left err -> return $ toolError rid err
                             Right fromPreset -> do
+                                refusing <- DM.refusingDatabases dbManager ReadInventory
                                 let params =
                                         Agg.AggregateParams
                                             { Agg.apScope = scope
@@ -1096,12 +1101,13 @@ callAggregate dbManager presets rid args (db, solver) =
                                             , Agg.apFilterIsReference = boolArg "filter_is_reference" args
                                             , Agg.apGroupBy = textArg "group_by" args
                                             , Agg.apAggregate = fn
+                                            , Agg.apWithheld = refusing
                                             }
                                 unitCfg <- DM.getMergedUnitConfig dbManager
                                 (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
                                 result <- Agg.aggregate unitCfg (DM.managerGeographies dbManager) mFlows mUnits db dbName solver (DM.mkDepSolverLookup dbManager) pid params
                                 case result of
-                                    Left err -> return $ toolError rid (T.pack $ show err)
+                                    Left err -> return $ toolError rid (serviceMessage err)
                                     Right agg -> return $ toolSuccessJson rid (toJSON agg)
   where
     scopeFromArg = case textArg "scope" args of
@@ -1186,12 +1192,12 @@ callGetInventory dbManager rid args =
         -- Empty subs: same as GET path (plain cross-DB inventory).
         -- Non-empty subs: route through the substitution-aware pipeline so
         -- dep DBs re-solve against the substituted root scaling.
-        inventory <-
+        sol <-
             ExceptT $
                 if null subs
-                    then fmap (fmap SharedSolver.csInventory) (computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver processId)
+                    then computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver processId
                     else
-                        either (Left . T.pack . show) (Right . SharedSolver.csInventory)
+                        first (T.pack . show)
                             <$> Service.inventoryWithSubsAndDeps
                                 unitCfg
                                 (DM.mkDepSolverLookup dbManager)
@@ -1200,7 +1206,8 @@ callGetInventory dbManager rid args =
                                 solver
                                 processId
                                 subs
-        let inv = Service.convertToInventoryExport db mFlows mUnits processId activity inventory
+        liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ throwE
+        let inv = Service.convertToInventoryExport db mFlows mUnits processId activity (SharedSolver.csInventory sol)
             flows = ieFlows inv
             -- The query read the way search_flows reads it, synonyms
             -- included, and only its closest match kept.
@@ -1278,6 +1285,13 @@ data ImpactsResult = ImpactsResult
     , irUnknownUuids :: ![UUID.UUID]
     , irFunctionalUnit :: !Text
     -- ^ What one score is reported against, per 'Service.functionalUnitOf'.
+    , irWithheld :: ![Impact.PartScore]
+    {- ^ The part of each dependency whose licence keeps what weighs in its
+    scores: its flows are not in 'irContribs', which add up to the score with
+    these.
+    -}
+    , irInventoryWithheld :: ![Text]
+    -- ^ The dependencies whose licence keeps the amounts of their exchanges.
     }
 
 {- | Run a fully resolved LCA request: solve inventory, map flows, score.
@@ -1318,11 +1332,18 @@ runImpactsRequest dbManager args req = do
                             subs
     let ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
     sol <- liftIO (Impact.withLongTermPolicy dbManager ltMode solved)
-    let inventory = SharedSolver.csInventory sol
+    -- Flows, coverage and diagnostics are read from the part the licences
+    -- let be detailed: a dependency that keeps what weighs in its scores
+    -- answers its part as one number.
+    Impact.LicencedSolution{Impact.lsShown = shown, Impact.lsWithheld = parts} <-
+        liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
+    inventoryWithheld <- liftIO (Impact.withheldDatabases dbManager ReadInventory sol)
+    let inventory = SharedSolver.csInventory shown
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
     score <- ExceptT (Impact.scoreSolution dbManager collection method tables sol)
-    (rawContribs, _) <- ExceptT (Impact.contributionsOf dbManager collection method tables sol)
+    (rawContribs, _) <- ExceptT (Impact.contributionsOf dbManager collection method tables shown)
+    withheld <- ExceptT (Impact.scoreParts dbManager collection method tables parts)
     let stats = computeMappingStats mappings
         unknownUuids = Impact.unknownInventoryFlows mFlows inventory
         contribs = L.sortOn (negate . abs . fcContribution) rawContribs
@@ -1372,6 +1393,8 @@ runImpactsRequest dbManager args req = do
             , irContribs = contribs
             , irUnknownUuids = unknownUuids
             , irFunctionalUnit = functionalUnit
+            , irWithheld = withheld
+            , irInventoryWithheld = inventoryWithheld
             }
 
 {- | How much of an inventory's mass a score characterized: the flows it
@@ -1385,6 +1408,36 @@ characterizedMass scored =
 -- | How much the inventory holds in all, characterized or not.
 inventoryMass :: Inventory -> Double
 inventoryMass = M.foldl' (\acc qty -> acc + abs qty) 0
+
+-- | The diagnostics of a score, and what they leave out.
+data Diagnostics = Diagnostics
+    { dgFields :: ![Pair]
+    , dgWithheld :: ![Text]
+    -- ^ One sentence per licence that emptied the uncharacterized flows.
+    }
+
+{- | Each uncharacterized flow carries its quantity in the aggregated
+inventory, so a licence keeping its amounts, the database's own or a
+dependency's, empties them. The share is a ratio and stays.
+-}
+diagnosticsOf :: Text -> Licence -> ImpactsResult -> Diagnostics
+diagnosticsOf dbName licence ir =
+    Diagnostics
+        { dgFields =
+            [ "uncharacterized_flows" .= map encodeUncharacterized (if null kept then loUncharacterized outcome else [])
+            , "characterized_share"
+                .= ( if loInventoryAbsSum outcome > 0
+                        then loCharacterizedSum outcome / loInventoryAbsSum outcome
+                        else 1 :: Double
+                   )
+            ]
+        , dgWithheld = [withheldSentence name ReadInventory | name <- kept]
+        }
+  where
+    outcome :: LCIAOutcome
+    outcome = irOutcome ir
+    kept :: [Text]
+    kept = [dbName | not (granted licence ReadInventory)] ++ irInventoryWithheld ir
 
 {- | Handler for the 'get_impacts' MCP tool (computes LCIA score).
 Historically named 'get_lcia' -- the MCP surface now uses 'impacts'
@@ -1409,24 +1462,21 @@ callGetImpacts dbManager mBaseUrl licence rid args =
             -- stays and its flows go, as 'Service.withholdContributors' does.
             topFlows = if granted licence SeeDetailedScores then take topN contribs else []
             diagnosed = fromMaybe False (boolArg "include_diagnostics" args)
-            -- The inventory is only in the diagnostics, so only they can be trimmed of it.
-            trimmed = SeeDetailedScores : [ReadInventory | diagnosed]
-            refused = [p | p <- trimmed, not (granted licence p)]
-            withheldPair = ["withheld" .= map (withheldSentence dbName) refused | not (null refused)]
+            Diagnostics{dgFields = diagnosticsFields, dgWithheld = diagnosticsWithheld} = diagnosticsOf dbName licence ir
+            sentences =
+                [withheldSentence dbName SeeDetailedScores | not (granted licence SeeDetailedScores)]
+                    ++ (if diagnosed then diagnosticsWithheld else [])
+            withheldPair = ["withheld" .= sentences | not (null sentences)]
+            -- Under the database's own refusal its dependencies' shares say what weighs in it too.
+            sharesPair =
+                [ "withheld_databases" .= Service.withheldShares score (irWithheld ir)
+                | granted licence SeeDetailedScores
+                , not (null (irWithheld ir))
+                ]
             webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (lrCollection req) <> "/" <> lrMethodIdText req)
             hasNeg = any ((< 0) . fcContribution) contribs
             unknownUuids = irUnknownUuids ir
         liftIO $ Impact.warnUnknownFlowIds ("MCP get_impacts " <> methodName method) unknownUuids
-        let outcome = irOutcome ir
-            diagnosticsFields =
-                -- Each uncharacterized flow carries its inventory quantity.
-                [ "uncharacterized_flows" .= map encodeUncharacterized (if granted licence ReadInventory then loUncharacterized outcome else [])
-                , "characterized_share"
-                    .= ( if loInventoryAbsSum outcome > 0
-                            then loCharacterizedSum outcome / loInventoryAbsSum outcome
-                            else 1 :: Double
-                       )
-                ]
         pure $
             toolSuccessJson rid $
                 attachMarketHintByName (activityName (raActivity ra)) $
@@ -1455,6 +1505,7 @@ callGetImpacts dbManager mBaseUrl licence rid args =
                         ]
                             ++ webUrlPair
                             ++ withheldPair
+                            ++ sharesPair
                             ++ (if diagnosed then diagnosticsFields else [])
 
 {- | Handler for the 'compute_sensitivity' MCP tool. Mirrors the REST
@@ -1666,7 +1717,7 @@ callCompareImpacts dbManager rid args =
                 if loInventoryAbsSum outcome > 0
                     then loCharacterizedSum outcome / loInventoryAbsSum outcome
                     else 1 :: Double
-         in object
+         in object $
                 [ "database" .= lrDbName req
                 , "process_id" .= raText (lrResolved req)
                 , "method" .= methodName (lrMethod req)
@@ -1674,6 +1725,8 @@ callCompareImpacts dbManager rid args =
                 , "unit" .= methodUnit (lrMethod req)
                 , "characterized_share" .= characterizedShare
                 ]
+                    -- The flows a dependency keeps are not in the alignment; its share is.
+                    ++ ["withheld_databases" .= Service.withheldShares (loScore outcome) (irWithheld ir) | not (null (irWithheld ir))]
     encodeContrib f c =
         object
             [ "flow_name" .= bfName f
@@ -2206,8 +2259,8 @@ ensureLinked dbName op db =
                         <> op
                         <> "."
 
-callGetContributingFlows :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
-callGetContributingFlows dbManager mBaseUrl rid args =
+callGetContributingFlows :: DatabaseManager -> Maybe Text -> Licence -> RequestId -> KeyMap Value -> IO Value
+callGetContributingFlows dbManager mBaseUrl licence rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
         ir <- runImpactsRequest dbManager args req
@@ -2220,18 +2273,13 @@ callGetContributingFlows dbManager mBaseUrl rid args =
             top = take lim contribs
             hasNeg = any ((< 0) . fcContribution) contribs
             tables = irTables ir
-            outcome = irOutcome ir
             webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (lrCollection req) <> "#contributing-flows/" <> lrMethodIdText req)
+            Diagnostics{dgFields = diagnostics, dgWithheld = diagnosticsWithheld} = diagnosticsOf dbName licence ir
             diagnosticsFields
                 | fromMaybe False (boolArg "include_diagnostics" args) =
-                    [ "uncharacterized_flows" .= map encodeUncharacterized (loUncharacterized outcome)
-                    , "characterized_share"
-                        .= ( if loInventoryAbsSum outcome > 0
-                                then loCharacterizedSum outcome / loInventoryAbsSum outcome
-                                else 1 :: Double
-                           )
-                    ]
+                    diagnostics ++ ["withheld" .= diagnosticsWithheld | not (null diagnosticsWithheld)]
                 | otherwise = []
+            withheldPair = ["withheld_databases" .= Service.withheldShares score (irWithheld ir) | not (null (irWithheld ir))]
         liftIO $ Impact.warnUnknownFlowIds ("MCP get_contributing_flows " <> methodName method) (irUnknownUuids ir)
         pure $
             toolSuccessJson rid $
@@ -2254,6 +2302,7 @@ callGetContributingFlows dbManager mBaseUrl rid args =
                            | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- top
                            ]
                     ]
+                        ++ withheldPair
                         ++ webUrlPair
                         ++ diagnosticsFields
 
@@ -2284,22 +2333,20 @@ callGetContributingActivities dbManager mBaseUrl rid args =
         sol <- liftIO (Impact.withLongTermPolicy dbManager ltMode solved)
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
         contributions <- ExceptT (Impact.processContributionsOf dbManager collection method tables sol)
-        -- The terms of the score, so their sum is it.
-        let score = sum (M.elems contributions)
-            sorted = L.sortOn (\(_, c) -> negate (abs c)) (M.toList contributions)
-            top = take lim sorted
-            hasNeg = any (\(_, c) -> c < 0) top
-            view = ImpactsView{ivCollection = lrCollection req, ivFragment = "contributing-activities/" <> lrMethodIdText req}
+        withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
+        let view = ImpactsView{ivCollection = lrCollection req, ivFragment = "contributing-activities/" <> lrMethodIdText req}
+            ProcessLines{plScore = score, plTop = top, plWithheld = withheldLines} = processLines lim (Impact.splitProcessParts withheld contributions)
         rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl view mUnits score) top
         pure $
             toolSuccessJson rid $
-                object
+                object $
                     [ "method" .= methodName method
                     , "unit" .= methodUnit method
                     , "total_score" .= score
-                    , "has_negative_contributions" .= hasNeg
+                    , "has_negative_contributions" .= any ((< 0) . snd) top
                     , "processes" .= rows
                     ]
+                        ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
 
 -- | One score of a scoring set, with the activity it is asked of, solved.
 data ScoreRequest = ScoreRequest
@@ -2365,7 +2412,8 @@ callGetScoreContributingFlows :: DatabaseManager -> Maybe Text -> RequestId -> K
 callGetScoreContributingFlows dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadScoreRequest dbManager args
-        (score, contribs) <- ExceptT (first Score.refusalMessage <$> Score.flowParts "MCP get_score_contributing_flows" (scrSource req) (scrScore req) (scrSolution req))
+        Score.ScoreFlows{Score.sfTotal = score, Score.sfRows = contribs, Score.sfWithheld = withheld} <-
+            ExceptT (first Score.refusalMessage <$> Score.licencedFlowParts "MCP get_score_contributing_flows" (scrSource req) (scrScore req) (scrSolution req))
         let top = take (fromMaybe 20 (intArg "limit" args)) (L.sortOn (negate . abs . fcContribution) contribs)
         pure $
             toolSuccessJson rid $
@@ -2387,6 +2435,7 @@ callGetScoreContributingFlows dbManager mBaseUrl rid args =
                            | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- top
                            ]
                     ]
+                        ++ ["withheld_databases" .= Service.withheldShares score withheld | not (null withheld)]
                         ++ webUrlField mBaseUrl (impactsViewPath (srcDbName (scrSource req)) (raText (scrActivity req)) (scoreView req ByFlow))
 
 callGetScoreContributingActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
@@ -2394,21 +2443,40 @@ callGetScoreContributingActivities dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadScoreRequest dbManager args
         contributions <- ExceptT (first Score.refusalMessage <$> Score.activityParts (scrSource req) (scrScore req) (scrSolution req))
+        withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores (scrSolution req))
         (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-        -- The terms of the score, so their sum is it.
-        let score = sum (M.elems contributions)
-            top = take (fromMaybe 10 (intArg "limit" args)) (L.sortOn (negate . abs . snd) (M.toList contributions))
-            dbName = srcDbName (scrSource req)
-        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl (scoreView req ByActivity) mUnits score) top
+        let ProcessLines{plScore = score, plTop = top, plWithheld = withheldLines} =
+                processLines (fromMaybe 10 (intArg "limit" args)) (Impact.splitProcessParts withheld contributions)
+        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager (srcDbName (scrSource req)) mBaseUrl (scoreView req ByActivity) mUnits score) top
         pure $
             toolSuccessJson rid $
-                object
+                object $
                     [ "method" .= Score.scoreTitle (scrScore req)
                     , "unit" .= Score.scoreUnit (scrScore req)
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . snd) top
                     , "processes" .= rows
                     ]
+                        ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
+
+-- | The processes weighing in a score, heaviest first, and one line per dependency keeping its own.
+data ProcessLines = ProcessLines
+    { plScore :: !Double
+    -- ^ The shown terms and the dependencies' lines, so it is the score.
+    , plTop :: ![((Text, ProcessId), Double)]
+    , plWithheld :: ![WithheldShare]
+    }
+
+processLines :: Int -> Impact.ProcessParts -> ProcessLines
+processLines lim Impact.ProcessParts{Impact.ppShown = shown, Impact.ppWithheld = parts} =
+    ProcessLines
+        { plScore = score
+        , plTop = take lim (L.sortOn (negate . abs . snd) (M.toList shown))
+        , plWithheld = Service.withheldShares score parts
+        }
+  where
+    score :: Double
+    score = sum (M.elems shown) + sum (map Impact.psScore parts)
 
 callListGeographies :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callListGeographies dbManager rid args = runTool rid $ do
