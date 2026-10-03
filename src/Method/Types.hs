@@ -54,8 +54,8 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Csv (HasHeader (..), decode)
-import Data.Indexing (collisions, uniqueIndex)
 import Data.Graph (SCC (..), stronglyConnComp)
+import Data.Indexing (collisions, uniqueIndex)
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
@@ -329,14 +329,23 @@ scoreWeights ss scoreName rawScores = do
 
 {- | Resolve computed variables by evaluating formulas, each after the computed
 variables it reads. Names are read without regard to case, as formulas read
-them; two computed variables that read each other, directly or not, are refused
-by name.
+them; two computed variables that read each other, directly or not, or that
+differ only by case, are refused by name.
 -}
 resolveComputed :: M.Map Text Double -> M.Map Text Text -> Either String (M.Map Text Double)
-resolveComputed env formulas = traverse acyclic (stronglyConnComp graph) >>= foldM step env
+resolveComputed env formulas = mapM_ (Left . clash) clashes >> traverse acyclic (stronglyConnComp graph) >>= foldM step env
   where
-    byKey :: M.Map Text Text
-    byKey = M.fromList [(T.toLower v, v) | v <- M.keys formulas]
+    byKey :: M.Map Text [Text]
+    byKey = M.fromListWith (<>) [(T.toLower v, [v]) | v <- M.keys formulas]
+
+    clashes :: [[Text]]
+    clashes = [vs | vs@(_ : _ : _) <- M.elems byKey]
+
+    clash :: [Text] -> String
+    clash vs = "Computed variables " <> quoted vs <> " differ only by case, which a formula cannot tell apart."
+
+    quoted :: [Text] -> String
+    quoted vs = intercalate ", " ["'" <> T.unpack v <> "'" | v <- vs]
 
     graph :: [((Text, Text), Text, [Text])]
     graph =
@@ -347,10 +356,7 @@ resolveComputed env formulas = traverse acyclic (stronglyConnComp graph) >>= fol
     acyclic :: SCC (Text, Text) -> Either String (Text, Text)
     acyclic (AcyclicSCC vf) = Right vf
     acyclic (NECyclicSCC vfs) =
-        Left $
-            "Computed variables "
-                <> intercalate ", " ["'" <> T.unpack v <> "'" | (v, _) <- NE.toList vfs]
-                <> " read each other, so none of them can be computed."
+        Left ("Computed variables " <> quoted (map fst (NE.toList vfs)) <> " read each other, so none of them can be computed.")
 
     step :: M.Map Text Double -> (Text, Text) -> Either String (M.Map Text Double)
     step currentEnv (varName, formula) =
