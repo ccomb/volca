@@ -2023,6 +2023,11 @@ it a column of shares cannot say which of the two it is showing.
 for one read straight from its files. Both are ``None`` against an engine
 older than wire revision 20.
 
+``terms`` is what it is served under, its source's for a copy: a
+``licence`` in words or ``None``, and ``downloads``, ``"allowed"`` or
+``"refused"``, the same shape `Client.set_terms` returns. ``None``
+against an engine older than wire revision 41, which refused no download.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `name` | `str` | _required_ |
@@ -2037,6 +2042,7 @@ older than wire revision 20.
 | `depends_on` | `list[str]` | list() |
 | `allocation` | `str \| None` | None |
 | `source` | `str \| None` | None |
+| `terms` | `dict \| None` | None |
 
 ### `ExchangeChange`
 
