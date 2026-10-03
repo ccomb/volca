@@ -1466,8 +1466,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 41: the @terms@ of a database's setup, its licence and whether
-it may be downloaded, and the route setting them, @db/{name}/terms@;
+(revision 41: the @terms@ of a database's setup and of its status in the
+list, its licence and whether it may be downloaded, and the route setting
+them, @db/{name}/terms@;
 revision 40: the @files@ a literature entry lists and the route serving
 them, @db/{name}/files/{path}@;
 revision 39: @process@ on the activity search, the rows of the processes a

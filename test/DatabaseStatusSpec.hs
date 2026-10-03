@@ -11,7 +11,7 @@ import Test.Hspec
 import API.DatabaseHandlers (convertDbStatus)
 import API.Types (DatabaseStatusAPI (..))
 import Database.Manager (DatabaseLoadStatus (..), DatabaseStatus (..))
-import Types (AllocationKey (..), AllocationProperty (..))
+import Types (AllocationKey (..), AllocationProperty (..), Downloads (..), Terms (..), openTerms)
 
 mkStatus :: [A.Value -> A.Value] -> DatabaseStatus
 mkStatus _ =
@@ -28,6 +28,7 @@ mkStatus _ =
         , dsDependsOn = ["ecoinvent-3-9-1-adapted", "wfldb"]
         , dsAllocation = ByProperty WetMass
         , dsSource = Just "agribalyse-3-2-declared"
+        , dsTerms = Terms{termsLicence = Just "Members only", termsDownloads = DownloadsRefused}
         }
 
 spec :: Spec
@@ -83,3 +84,11 @@ spec = do
             let api = convertDbStatus (mkStatus [])
             dsaAllocation api `shouldBe` "wet mass"
             dsaSource api `shouldBe` Just "agribalyse-3-2-declared"
+
+        it "says the terms it is served under" $
+            termsDownloads (dsaTerms (convertDbStatus (mkStatus []))) `shouldBe` DownloadsRefused
+
+        it "reads a status written before terms were on the wire as downloadable" $
+            case A.toJSON (mkStatus []) of
+                A.Object o -> (dsTerms <$> A.decode (encode (KM.delete "dsTerms" o))) `shouldBe` Just openTerms
+                other -> expectationFailure ("expected object, got: " <> show other)

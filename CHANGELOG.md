@@ -12,8 +12,8 @@
   A refused database answers its export and the files of its literature with
   a 403 naming its licence, and so does every copy of it or database derived
   from it, which are served under their source's terms. The setup of a
-  database carries them as `terms`. A database that says nothing allows
-  downloads, as before. Wire revision 41.
+  database and its status in the list carry them as `terms`. A database that
+  says nothing allows downloads, as before. Wire revision 41.
 - The activity search, over HTTP and as the `search_activities` tool, takes
   the processes a caller already chose, as `process` (given once per process
   over HTTP, a list for the tool): it answers their rows in the order given,
