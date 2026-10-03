@@ -35,7 +35,7 @@ module Method.EditPlan (
 
 import Control.Monad (when)
 import Data.List (elemIndex, elemIndices, find, findIndex)
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -50,7 +50,6 @@ import Method.Journal (
     Regionalization (..),
     Restore (..),
     describeFactor,
-    nameIsFree,
     oneCategory,
     sameAddress,
  )
@@ -152,14 +151,12 @@ planCategoryEdit fresh collection = \case
     NewCategory draft -> do
         name <- nonBlank "name" (cdName draft)
         unit <- nonBlank "unit" (cdUnit draft)
-        nameIsFree collection name
-        let method = Method fresh name Nothing unit (maybe name T.strip (cdImpactCategory draft)) (cdMethodology draft) []
+        let method = Method fresh name Nothing unit (fromMaybe name (cdImpactCategory draft >>= given)) (cdMethodology draft) []
         pure (AddCategory Nothing method Regionalized, EditEffect 0 Nothing Nothing)
     Rename category asked -> do
         method <- oneCategory collection category
         name <- nonBlank "name" asked
         when (name == methodName method) $ Left (methodName method <> " is already named " <> name)
-        nameIsFree collection name
         pure (RenameCategory category (methodName method) name, EditEffect 0 Nothing Nothing)
     ChangeUnit category asked -> do
         method <- oneCategory collection category
@@ -175,6 +172,8 @@ planCategoryEdit fresh collection = \case
     nonBlank field raw
         | T.null (T.strip raw) = Left ("a category needs a " <> field)
         | otherwise = Right (T.strip raw)
+    given :: Text -> Maybe Text
+    given = either (const Nothing) Just . nonBlank ""
 
 -- | Where a category stands among the collection's categories.
 positionOf :: MethodCollection -> Method -> Either Text Int
@@ -340,12 +339,13 @@ blockedUndo collection lines' target reason =
             <> T.pack (show i)
             <> " first"
 
-{- | What a line reaches: a factor of a category, a category's name or unit,
-or a category's existence.
+{- | What a line reaches: a factor of a category, a category's name, its
+unit, or its existence. Each one is named as the refusal reads it.
 -}
 data Reach
     = FactorOf UUID MethodCF
-    | DefinitionOf UUID Text
+    | NameOf UUID Text
+    | UnitOf UUID Text
     | ExistenceOf UUID Text
 
 -- | What a line reaches; a selector's factors are read from the collection.
@@ -359,8 +359,8 @@ reachOf collection = \case
         [FactorOf (methodId method) factor | method <- mcMethods collection, factor <- methodFactors method, cfMatches (mpMatch patch) (methodName method) factor]
     AddCategory _ method _ -> [ExistenceOf (methodId method) (methodName method)]
     RemoveCategory _ method _ -> [ExistenceOf (methodId method) (methodName method)]
-    RenameCategory category _ after -> [DefinitionOf category after]
-    SetCategoryUnit category _ _ -> [DefinitionOf category (nameOf category)]
+    RenameCategory category _ after -> [NameOf category after]
+    SetCategoryUnit category _ _ -> [UnitOf category ("the unit of " <> nameOf category)]
     SetGlobalMethods _ _ -> []
     CreateScoringSet _ -> []
     RemoveScoringSet _ -> []
@@ -370,29 +370,36 @@ reachOf collection = \case
 
 {- | Whether a later line reaching the second blocks undoing a line reaching
 the first. A factor is named by its category's identifier, so a rename or a
-change of unit never blocks a factor's undo, nor a factor a rename's; the
+change of unit never blocks a factor's undo, nor a factor a rename's; a name
+and a unit are changed apart, so neither blocks the other's undo; the
 category's removal or addition blocks everything in it.
 -}
 blocks :: Reach -> Reach -> Bool
 blocks undone later = case (undone, later) of
     (FactorOf c f, FactorOf c' g) -> c == c' && sameAddress f g
-    (FactorOf c _, ExistenceOf c' _) -> c == c'
-    (FactorOf _ _, DefinitionOf _ _) -> False
-    (DefinitionOf _ _, FactorOf _ _) -> False
-    (DefinitionOf c _, DefinitionOf c' _) -> c == c'
-    (DefinitionOf c _, ExistenceOf c' _) -> c == c'
+    (NameOf c _, NameOf c' _) -> c == c'
+    (UnitOf c _, UnitOf c' _) -> c == c'
     (ExistenceOf c _, other) -> c == categoryOf other
+    (other, ExistenceOf c _) -> c == categoryOf other
+    (FactorOf _ _, NameOf _ _) -> False
+    (FactorOf _ _, UnitOf _ _) -> False
+    (NameOf _ _, FactorOf _ _) -> False
+    (NameOf _ _, UnitOf _ _) -> False
+    (UnitOf _ _, FactorOf _ _) -> False
+    (UnitOf _ _, NameOf _ _) -> False
   where
     categoryOf :: Reach -> UUID
     categoryOf = \case
         FactorOf c' _ -> c'
-        DefinitionOf c' _ -> c'
+        NameOf c' _ -> c'
+        UnitOf c' _ -> c'
         ExistenceOf c' _ -> c'
 
 describeReach :: Reach -> Text
 describeReach = \case
     FactorOf _ factor -> describeFactor factor
-    DefinitionOf _ name -> name
+    NameOf _ name -> name
+    UnitOf _ unit -> unit
     ExistenceOf _ name -> name
 
 -- | What writing a line does, in the terms a change reports.

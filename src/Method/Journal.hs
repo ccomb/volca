@@ -40,7 +40,6 @@ module Method.Journal (
     -- * Shared with the planning of a change
     opName,
     opCategory,
-    nameIsFree,
     describeFactor,
     oneCategory,
     sameAddress,

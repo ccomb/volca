@@ -187,14 +187,18 @@ spec = describe "planning a change to a method collection" $ do
         let draft name unit = NewCategory (CategoryDraft name unit Nothing Nothing)
         refusal (planCategoryEdit (uuid 200) collection (draft "  " "Pt")) `shouldContain` "name"
         refusal (planCategoryEdit (uuid 200) collection (draft "Land use" "")) `shouldContain` "unit"
-        refusal (planCategoryEdit (uuid 200) collection (draft "Ecotoxicity, freshwater " "Pt")) `shouldContain` "already named"
+        refusal (planCategoryEdit (uuid 200) collection (draft "Ecotoxicity, freshwater " "Pt") >>= applyMethodOp collection . fst) `shouldContain` "already named"
+
+    it "takes a blank impact category for none, and so the name" $
+        fmap fst (planCategoryEdit (uuid 200) collection (NewCategory (CategoryDraft "Land use" "Pt" (Just "  ") Nothing)))
+            `shouldBe` Right (AddCategory Nothing ecotox{methodId = uuid 200, methodName = "Land use", methodUnit = "Pt", methodCategory = "Land use", methodFactors = []} Regionalized)
 
     it "plans a rename with the name it replaces, and refuses one that changes nothing, a name in use, or one a second category shares" $ do
         fmap fst (planCategoryEdit (uuid 1) collection (Rename (uuid 100) "Freshwater ecotoxicity"))
             `shouldBe` Right (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Freshwater ecotoxicity")
         refusal (planCategoryEdit (uuid 1) collection (Rename (uuid 100) "Ecotoxicity, freshwater")) `shouldContain` "already named"
         let dangling = collection{mcUnregionalized = ["Land use"]}
-        refusal (planCategoryEdit (uuid 1) dangling (Rename (uuid 100) "Land use")) `shouldContain` "no impact category has"
+        refusal (planCategoryEdit (uuid 1) dangling (Rename (uuid 100) "Land use") >>= applyMethodOp dangling . fst) `shouldContain` "no impact category has"
         let twins = collection{mcMethods = [ecotox, landUse{methodName = "Ecotoxicity, freshwater"}]}
         refusal (planCategoryEdit (uuid 1) twins (Rename (uuid 100) "Other") >>= applyMethodOp twins . fst) `shouldContain` "several impact categories"
 
@@ -231,6 +235,14 @@ spec = describe "planning a change to a method collection" $ do
     it "names the later line that removed the category of a factor change being undone" $ do
         let lines' = [MethodLine (SetFactor (uuid 100) ammonia 4) Change, MethodLine (RemoveCategory 0 ecotox Regionalized) Change]
         T.unpack (blockedUndo (MethodCollection [] [] []) lines' 1 "replay failed") `shouldContain` "undo line 2 first"
+
+    it "does not blame a later change of unit for a rename it did not block" $ do
+        let lines' = [MethodLine (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Other") Change, MethodLine (SetCategoryUnit (uuid 100) "CTUe" "PAF") Change]
+        blockedUndo collection lines' 1 "replay failed" `shouldBe` "replay failed"
+
+    it "names the later rename that blocks undoing a rename" $ do
+        let lines' = [MethodLine (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Other") Change, MethodLine (RenameCategory (uuid 100) "Other" "Third") Change]
+        T.unpack (blockedUndo collection lines' 1 "replay failed") `shouldContain` "undo line 2 first"
 
     it "does not blame a later rename for a factor change it did not block" $ do
         let lines' = [MethodLine (SetFactor (uuid 100) ammonia 4) Change, MethodLine (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Other") Change]
