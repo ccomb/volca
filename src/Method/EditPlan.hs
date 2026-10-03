@@ -23,6 +23,7 @@ module Method.EditPlan (
     Undo (..),
     inverseOf,
     restoreOf,
+    blockedUndo,
     undoEffect,
 
     -- * A copy's first lines
@@ -80,9 +81,20 @@ data EditEffect = EditEffect
 -- | The line a change records, and what it does; or why it cannot be recorded.
 planEdit :: MethodCollection -> FactorEdit -> Either Text (MethodOp, EditEffect)
 planEdit collection = \case
+    -- Two identical factors can only be changed together, by a selector:
+    -- a value that makes them so leaves no change of value to undo it with.
     SetValue target value -> do
-        (category, _, factor) <- locate collection target
-        pure (SetFactor category factor value, EditEffect 1 (Just (mcfValue factor)) (Just value))
+        (category, position, factor) <- locate collection target
+        method <- oneCategory collection category
+        let changed = factor{mcfValue = value}
+        case [other | (i, other) <- zip [0 ..] (methodFactors method), i /= position, other == changed] of
+            [] -> pure (SetFactor category factor value, EditEffect 1 (Just (mcfValue factor)) (Just value))
+            _ ->
+                Left $
+                    describeFactor changed
+                        <> " is already in "
+                        <> methodName method
+                        <> ": the two would be identical and could no longer be changed one by one; remove this one instead"
     Remove target -> do
         (category, position, factor) <- locate collection target
         pure (RemoveFactor category position factor, EditEffect 1 (Just (mcfValue factor)) Nothing)
@@ -128,6 +140,13 @@ locate collection target = do
                         <> " times, identically, in "
                         <> methodName method
                         <> ": none can be changed alone, only a selector reaches them together"
+            | Just _ <- ftValue target ->
+                Left $
+                    "several factors of "
+                        <> methodName method
+                        <> " at this place have this value: "
+                        <> T.intercalate "; " (map (describeFactor . snd) several)
+                        <> ". None can be changed alone, only a selector reaches them together"
             | otherwise ->
                 Left $
                     "several factors of "
@@ -216,6 +235,47 @@ restoreOf patch before =
     , (i, factor) <- zip [0 ..] (methodFactors method)
     , cfMatches (mpMatch patch) (methodName method) factor
     ]
+
+{- | Why line @target@ cannot be undone, when a later line in effect changed
+one of its factors since: that line, named, so its author knows which undo to
+ask for first. Any other reason is left as the replay gave it.
+-}
+blockedUndo :: MethodCollection -> [MethodLine] -> Int -> Text -> Text
+blockedUndo collection lines' target reason =
+    maybe reason refusal . listToMaybe . reverse $
+        [ (i, factor)
+        | (i, l, True) <- zip3 [1 ..] lines' (inEffect lines')
+        , i > target
+        , (category, factor) <- touchedBy collection (mlOp l)
+        , any (\(c, f) -> c == category && sameAddress f factor) undone
+        ]
+  where
+    undone :: [(UUID, MethodCF)]
+    undone = foldMap (touchedBy collection . mlOp) (take 1 (drop (target - 1) lines'))
+    refusal :: (Int, MethodCF) -> Text
+    refusal (i, factor) =
+        "line "
+            <> T.pack (show target)
+            <> " cannot be undone alone: line "
+            <> T.pack (show i)
+            <> " has changed "
+            <> describeFactor factor
+            <> " since; undo line "
+            <> T.pack (show i)
+            <> " first"
+
+-- | The factors a line touches, with their category; a selector's are read from the collection.
+touchedBy :: MethodCollection -> MethodOp -> [(UUID, MethodCF)]
+touchedBy collection = \case
+    SetFactor category factor _ -> [(category, factor)]
+    RemoveFactor category _ factor -> [(category, factor)]
+    AddFactor category _ factor -> [(category, factor)]
+    RestoreFactors restores -> [(rsMethod r, rsFactor r) | r <- restores]
+    PatchFactors patch _ ->
+        [(methodId method, factor) | method <- mcMethods collection, factor <- methodFactors method, cfMatches (mpMatch patch) (methodName method) factor]
+    SetGlobalMethods _ _ -> []
+    CreateScoringSet _ -> []
+    RemoveScoringSet _ -> []
 
 -- | What writing a line does, in the terms a change reports.
 undoEffect :: MethodOp -> EditEffect

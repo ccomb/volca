@@ -51,7 +51,7 @@ import Database.Manager (
  )
 import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
-import Method.EditPlan (EditEffect, FactorEdit, Undo (..), inEffect, inverseOf, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
+import Method.EditPlan (EditEffect, FactorEdit, Undo (..), blockedUndo, inEffect, inverseOf, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
 import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMethodOp, replayMethodJournal)
 import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
@@ -244,11 +244,12 @@ undoMethodEdit manager name requested = withMVar (dmMethodEditLock manager) $ \(
     entries <- ExceptT (first EditRefused <$> readEntries home)
     target <- except (first EditRefused (undoTarget (map jeOp entries) requested))
     undone <- except (first EditRefused (lineAt target entries))
+    let blocked = EditRefused . blockedUndo collection (map jeOp entries) target
     inverse <-
-        except (first EditRefused (inverseOf collection undone)) >>= \case
+        except (first blocked (inverseOf collection undone)) >>= \case
             UndoWith op -> pure op
             UndoSelector patch -> RestoreFactors . restoreOf patch <$> ExceptT (stateBefore manager name target entries)
-    changed <- except (first EditRefused (applyMethodOp collection inverse))
+    changed <- except (first blocked (applyMethodOp collection inverse))
     line <- ExceptT (commitLine manager name home entries (MethodLine inverse (Undoing target)) changed)
     pure (EditOutcome line (undoEffect inverse))
 

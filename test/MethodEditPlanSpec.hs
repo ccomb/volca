@@ -85,6 +85,27 @@ spec = describe "planning a change to a method collection" $ do
         let twins = collection{mcMethods = [ecotox{methodFactors = [turpentineA, turpentineA]}]}
          in refusal (planEdit twins (Remove (target 1 (Just 8.399)))) `shouldContain` "selector"
 
+    it "says a selector reaches factors that share the value named, rather than asking for it again" $
+        let industrial = turpentineA{mcfCompartment = Just (Compartment "soil" "industrial" "")}
+            shared = collection{mcMethods = [ecotox{methodFactors = [turpentineA, industrial]}]}
+            refused = refusal (planEdit shared (SetValue (target 1 (Just 8.399)) 2))
+         in do
+                refused `shouldContain` "selector"
+                refused `shouldNotContain` "Name the value"
+
+    it "refuses a value that would make two factors at one place identical" $
+        refusal (planEdit collection (SetValue (target 1 (Just 1.1619)) 8.399)) `shouldContain` "identical"
+
+    it "names the later line that changed the factor an undo would give back" $ do
+        let lines' = [MethodLine (SetFactor (uuid 100) ammonia 4) Change, MethodLine (SetFactor (uuid 100) ammonia{mcfValue = 4} 5) Change]
+            now = collection{mcMethods = [ecotox{methodFactors = [turpentineA, ammonia{mcfValue = 5}, turpentineB]}]}
+        T.unpack (blockedUndo now lines' 1 "replay failed") `shouldContain` "undo line 2 first"
+        blockedUndo now (take 1 lines') 1 "replay failed" `shouldBe` "replay failed"
+
+    it "names a later selector that changed the factor an undo would give back" $ do
+        let lines' = [MethodLine (SetFactor (uuid 100) ammonia 4) Change, MethodLine (PatchFactors ammoniaPatch 1) Change]
+        T.unpack (blockedUndo collection lines' 1 "replay failed") `shouldContain` "line 2"
+
     it "names the values an address holds when the stated one is not there" $
         refusal (planEdit collection (SetValue (target 2 (Just 5)) 1)) `shouldContain` "3.0"
 
