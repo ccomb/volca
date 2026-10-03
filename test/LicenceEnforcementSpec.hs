@@ -131,6 +131,9 @@ spec = do
             lines' `shouldNotBe` mempty
             -- A name says what the process is made of; an amount would be the recipe.
             T.pack (show lines') `shouldSatisfy` (not . ("amount" `T.isInfixOf`))
+            -- The product names the reference line already.
+            [name | Object line <- toList lines', Just (String name) <- [KM.lookup "flowName" line]]
+                `shouldNotContain` ["product D"]
 
     describe "REST, under a licence keeping its inventory" $ do
         it "refuses the inventory and the tree" $ do
