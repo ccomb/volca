@@ -4,6 +4,10 @@
 it: a SimaPro file's translation, the configuration, or a journal.
 -}
 module Method.Scoring (
+    TextEntry (..),
+    NumberEntry (..),
+    ScoringChange (..),
+    applyChange,
     shortNames,
     freshName,
     linearTerms,
@@ -19,6 +23,91 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import qualified Expr
+import Method.Types (ScoringSet (..))
+
+-- | The entries of a scoring set that hold text, each keyed by a variable or, for 'ScoreOf', a score.
+data TextEntry
+    = -- | the impact category a simple variable reads
+      CategoryOf
+    | -- | the formula of a computed variable
+      FormulaOf
+    | LabelOf
+    | -- | the unit of a computed variable
+      VariableUnitOf
+    | -- | the formula of a score
+      ScoreOf
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+-- | The entries of a scoring set that hold a number, keyed by a variable.
+data NumberEntry = NormalizationOf | WeightOf
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+{- | One entry of a scoring set changed, with what it held before and what it
+holds after; 'Nothing' is an entry absent, so setting and removing are the
+same change and undoing one exchanges its two values.
+-}
+data ScoringChange
+    = SetText TextEntry Text (Maybe Text) (Maybe Text)
+    | SetNumber NumberEntry Text (Maybe Double) (Maybe Double)
+    | RenameSet Text Text
+    | SetUnitOfSet Text Text
+    | SetDisplayMultiplier (Maybe Double) (Maybe Double)
+    deriving (Eq, Show)
+
+{- | Apply one change, provided the set holds what the change says it held
+before: a line is replayed on the set it was written against, or refused.
+-}
+applyChange :: ScoringChange -> ScoringSet -> Either Text ScoringSet
+applyChange change set = case change of
+    SetText entry key before after -> textEntry entry (changed (textWord entry) quoted key before after)
+    SetNumber entry key before after -> numberEntry entry (changed (numberWord entry) tshow key before after)
+    RenameSet before after
+        | ssName set == before -> Right set{ssName = after}
+        | otherwise -> Left (T.concat ["The scoring set is named '", ssName set, "', not '", before, "' as recorded."])
+    SetUnitOfSet before after
+        | ssUnit set == before -> Right set{ssUnit = after}
+        | otherwise -> Left (T.concat ["The scoring set '", ssName set, "' has the unit '", ssUnit set, "', not '", before, "' as recorded."])
+    SetDisplayMultiplier before after
+        | ssDisplayMultiplier set == before -> Right set{ssDisplayMultiplier = after}
+        | otherwise -> Left (mismatch "display multiplier" "" (maybe "none" tshow (ssDisplayMultiplier set)) (maybe "none" tshow before))
+  where
+    textEntry :: TextEntry -> (M.Map Text Text -> Either Text (M.Map Text Text)) -> Either Text ScoringSet
+    textEntry CategoryOf f = (\m -> set{ssVariables = m}) <$> f (ssVariables set)
+    textEntry FormulaOf f = (\m -> set{ssComputed = m}) <$> f (ssComputed set)
+    textEntry LabelOf f = (\m -> set{ssLabels = m}) <$> f (ssLabels set)
+    textEntry VariableUnitOf f = (\m -> set{ssUnits = m}) <$> f (ssUnits set)
+    textEntry ScoreOf f = (\m -> set{ssScores = m}) <$> f (ssScores set)
+
+    numberEntry :: NumberEntry -> (M.Map Text Double -> Either Text (M.Map Text Double)) -> Either Text ScoringSet
+    numberEntry NormalizationOf f = (\m -> set{ssNormalization = m}) <$> f (ssNormalization set)
+    numberEntry WeightOf f = (\m -> set{ssWeighting = m}) <$> f (ssWeighting set)
+
+    changed :: (Eq v) => Text -> (v -> Text) -> Text -> Maybe v -> Maybe v -> M.Map Text v -> Either Text (M.Map Text v)
+    changed word shown key before after entries
+        | M.lookup key entries == before = Right (M.alter (const after) key entries)
+        | otherwise = Left (mismatch word key (maybe "none" shown (M.lookup key entries)) (maybe "none" shown before))
+
+    mismatch :: Text -> Text -> Text -> Text -> Text
+    mismatch word key found recorded =
+        T.concat ["The scoring set '", ssName set, "' has the ", word, " ", found, forKey, ", not ", recorded, " as recorded."]
+      where
+        forKey :: Text
+        forKey = if T.null key then "" else " for '" <> key <> "'"
+
+    quoted :: Text -> Text
+    quoted t = "'" <> t <> "'"
+
+-- | How an entry is named in a sentence.
+textWord :: TextEntry -> Text
+textWord CategoryOf = "category"
+textWord FormulaOf = "formula"
+textWord LabelOf = "label"
+textWord VariableUnitOf = "unit"
+textWord ScoreOf = "score formula"
+
+numberWord :: NumberEntry -> Text
+numberWord NormalizationOf = "normalization"
+numberWord WeightOf = "weight"
 
 {- | Formula identifiers for display names, made once and then stored as they
 are: a later renaming of the category does not change them. Lower case only,
