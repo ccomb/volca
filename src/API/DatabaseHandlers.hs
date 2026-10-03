@@ -285,8 +285,8 @@ loadDatabaseHandler dbName = do
             case result of
                 Left err -> return $ LoadFailed err
                 Right (loadedDb, depResults) -> do
-                    configs <- liftIO (readTVarIO (dmAvailableDbs dbManager))
-                    return $ LoadSucceeded (makeStatusFromLoadedDb configs loadedDb) depResults
+                    status <- liftIO (loadedStatus dbManager loadedDb)
+                    return $ LoadSucceeded status depResults
 
 -- | Unload a database from memory
 unloadDatabaseHandler :: Text -> AppM ActivateResponse
@@ -567,8 +567,8 @@ deriveDatabaseHandler dbName newName mAllocation = do
             liftIO (deriveDatabase dbManager dbName newName key) >>= \case
                 Left err -> pure (LoadFailed err)
                 Right (loadedDb, depResults) -> do
-                    configs <- liftIO (readTVarIO (dmAvailableDbs dbManager))
-                    pure (LoadSucceeded (makeStatusFromLoadedDb configs loadedDb) depResults)
+                    status <- liftIO (loadedStatus dbManager loadedDb)
+                    pure (LoadSucceeded status depResults)
   where
     badKey :: Text -> AppM a
     badKey err = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 ("allocation: " <> err))}
@@ -1141,6 +1141,10 @@ convertDbStatus ds =
     statusToText PartiallyLinked = "partially_linked"
     statusToText Loaded = "loaded"
 
+-- | The status of a database just loaded, under the terms in force now.
+loadedStatus :: DatabaseManager -> LoadedDatabase -> IO DatabaseStatusAPI
+loadedStatus manager loaded = (`makeStatusFromLoadedDb` loaded) <$> readTVarIO (dmAvailableDbs manager)
+
 {- | Create DatabaseStatusAPI from a loaded database (derives status from linking
 stats). The configurations are there for its terms, which a copy takes from its
 source.
@@ -1254,7 +1258,7 @@ finalizeDatabaseHandler dbName = do
             return $ ActivateResponse False ("Server exception: " <> T.pack (show ex)) Nothing
         Right (Left err) -> return $ ActivateResponse False err Nothing
         Right (Right loaded) -> do
-            status <- (`makeStatusFromLoadedDb` loaded) <$> liftIO (readTVarIO (dmAvailableDbs dbManager))
+            status <- liftIO (loadedStatus dbManager loaded)
             return $ ActivateResponse True ("Finalized database: " <> dcDisplayName (ldConfig loaded)) (Just status)
 
 {- | Upload a new method collection
