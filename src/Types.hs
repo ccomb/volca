@@ -2248,7 +2248,7 @@ standardTerms CCBYNC =
         "https://creativecommons.org/licenses/by-nc/4.0/"
         (S.fromList [Resell, PaidApplications])
         AttributionRequired
-        ["No use primarily intended for commercial advantage, not only reselling the data or a paid application."]
+        ["Any other use primarily intended for commercial advantage is refused too."]
 standardTerms ODbL =
     StandardTerms "Open Data Commons Open Database License 1.0" "https://opendatacommons.org/licenses/odbl/1-0/" S.empty AttributionRequired [shareAlike]
 standardTerms Etalab =
