@@ -17,7 +17,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Scientific (toBoundedInteger)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -51,7 +51,8 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, fi
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toCategoryEdit, toExchangeEdits, toFactorEdit)
-import Control.Monad (mfilter)
+import Control.Monad (forM, mfilter)
+import Data.List (find)
 import qualified Data.List as L
 import qualified Data.Set as Set
 import Matrix (Inventory, applyBiosphereMatrix)
@@ -68,7 +69,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount, withheldSentence)
 
 -- ---------------------------------------------------------------------------
 -- JSON-RPC 2.0 types
@@ -503,7 +504,47 @@ callTool _ _ mHosting _ rid name _
 -- handler, so no tool can answer as if the caller had asked for no filter.
 callTool _ presets _ _ rid _ args
     | Left err <- presetFilters presets args = return $ toolError rid err
-callTool dbManager presets mHosting mBaseUrl rid name args = case name of
+callTool dbManager presets mHosting mBaseUrl rid name args = do
+    licences <- requestedLicences dbManager args
+    case licenceRefusalFor name licences of
+        Just refusal -> pure (toolError rid refusal)
+        Nothing -> dispatchTool dbManager presets mHosting mBaseUrl rid name args (licenceOfDatabase licences)
+
+-- | A database a call names, under the argument naming it, and its licence.
+data NamedLicence = NamedLicence
+    { nlArgument :: !Text
+    , nlDatabase :: !Text
+    , nlLicence :: !Licence
+    }
+
+{- | The licence of each database a call names, read once for the call. A name
+the engine does not know is left out, so its tool answers its own "not
+loaded". compare_impacts is the one tool that names its two sides otherwise.
+-}
+requestedLicences :: DatabaseManager -> KeyMap Value -> IO [NamedLicence]
+requestedLicences dbManager args =
+    fmap catMaybes . forM ["database", "database_a", "database_b"] $ \key ->
+        case KM.lookup (fromText key) args of
+            Just (String dbName) -> fmap (NamedLicence key dbName) <$> DM.databaseLicence dbManager dbName
+            _ -> pure Nothing
+
+{- | Why a tool is refused before it runs: the first database it names whose
+licence does not grant what the tool's answer is made of.
+-}
+licenceRefusalFor :: Text -> [NamedLicence] -> Maybe Text
+licenceRefusalFor name licences = do
+    resource <- find ((== name) . R.mcpName) R.allResources
+    needed <- R.resourceNeeds resource
+    listToMaybe [withheldSentence (nlDatabase l) needed | l <- licences, not (granted (nlLicence l) needed)]
+
+{- | The licence of the database a call reads, for the tools that trim their
+answer to it. A call naming none reads none, so there is nothing to trim.
+-}
+licenceOfDatabase :: [NamedLicence] -> Licence
+licenceOfDatabase = maybe LicenceUnstated nlLicence . find ((== "database") . nlArgument)
+
+dispatchTool :: DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> Licence -> IO Value
+dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case name of
     "list_databases" -> callListDatabases dbManager rid
     "load_database" -> callLoadDatabase dbManager mHosting rid args
     "unload_database" -> callUnloadDatabase dbManager rid args
@@ -512,11 +553,11 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "search_activities" -> withDb dbManager rid args $ callSearchActivities (DM.managerGeographies dbManager) presets rid args
     "search_flows" -> withDb dbManager rid args $ callSearchFlows rid args
     "count_search_matches" -> withDb dbManager rid args $ callCountSearchMatches (DM.managerGeographies dbManager) rid args
-    "get_activity" -> withDb dbManager rid args $ callGetActivity rid args
+    "get_activity" -> withDb dbManager rid args $ callGetActivity licence rid args
     "get_supply_chain" -> callGetSupplyChain dbManager presets rid args
     "aggregate" -> withDb dbManager rid args $ callAggregate dbManager presets rid args
     "get_inventory" -> callGetInventory dbManager rid args
-    "get_impacts" -> callGetImpacts dbManager mBaseUrl rid args
+    "get_impacts" -> callGetImpacts dbManager mBaseUrl licence rid args
     "compute_sensitivity" -> callComputeSensitivity dbManager mBaseUrl rid args
     "list_methods" -> callListMethods dbManager rid
     "get_flow_mapping" -> callGetFlowMapping dbManager rid args
@@ -909,8 +950,8 @@ callSearchFlows rid args (db, _) =
     badKind :: Text -> Text
     badKind got = "kind must be one of: " <> exchangeKindChoices <> " (got " <> got <> ")"
 
-callGetActivity :: RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callGetActivity rid args (db, _) = runTool rid $ do
+callGetActivity :: Licence -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callGetActivity licence rid args (db, _) = runTool rid $ do
     pid <- except (requireText "process_id" args)
     _ <- except validatedExchangeType
     val <- liftShow (Service.getActivityInfo db pid)
@@ -921,25 +962,21 @@ callGetActivity rid args (db, _) = runTool rid $ do
         -- activity to a caller who asked for a subset of it looks like the
         -- subset, and nothing in the reply says otherwise.
         Error _
+            -- Unread, its amounts cannot be taken out, so it is not handed over.
+            | not (granted licence ReadInventory) -> toolError rid "Could not read this activity's exchanges to withhold their amounts"
             | noFilters -> toolSuccessJson rid val
             | otherwise -> toolError rid "Could not read this activity's exchanges, so the filters asked for could not be applied"
         Success ai ->
             -- Single resolve: take the activity name from the 'ActivityInfo'
             -- already in hand instead of asking the engine to resolve the PID again.
             let attach = attachMarketHintByName (pfaActivityName (piActivity ai))
-                payload
-                    | noFilters = val
-                    | otherwise =
-                        toJSON
-                            ai
-                                { piActivity =
-                                    (piActivity ai)
-                                        { pfaExchanges =
-                                            keptExchanges (pfaExchanges (piActivity ai))
-                                        }
-                                }
+                kept
+                    | noFilters = ai
+                    | otherwise = ai{piActivity = (piActivity ai){pfaExchanges = keptExchanges (pfaExchanges (piActivity ai))}}
+                payload = toJSON (Service.withholdExchangeAmounts dbNameArg licence kept)
              in toolSuccessJson rid (attach payload)
   where
+    dbNameArg = fromMaybe "" (textArg "database" args)
     exchangeType = textArg "exchange_type" args
     flowFilter = textArg "flow" args
     isInputFilter = boolArg "is_input" args
@@ -1352,8 +1389,8 @@ Historically named 'get_lcia' -- the MCP surface now uses 'impacts'
 per the naming audit; internal Haskell types keep the 'LCIA' acronym
 (LCIAResult, computeLCIAScore) since they're the domain term of art.
 -}
-callGetImpacts :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
-callGetImpacts dbManager mBaseUrl rid args =
+callGetImpacts :: DatabaseManager -> Maybe Text -> Licence -> RequestId -> KeyMap Value -> IO Value
+callGetImpacts dbManager mBaseUrl licence rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
         ir <- runImpactsRequest dbManager args req
@@ -1366,14 +1403,19 @@ callGetImpacts dbManager mBaseUrl rid args =
             stats = irMappingStats ir
             functionalUnit = irFunctionalUnit ir
             contribs = irContribs ir
-            topFlows = take topN contribs
+            -- Under a licence that keeps what weighs in its scores, the score
+            -- stays and its flows go, as 'Service.withholdContributors' does.
+            topFlows = if granted licence SeeDetailedScores then take topN contribs else []
+            refused = [p | p <- [SeeDetailedScores, ReadInventory], not (granted licence p)]
+            withheldPair = ["withheld" .= map (withheldSentence dbName) refused | not (null refused)]
             webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (lrCollection req) <> "/" <> lrMethodIdText req)
             hasNeg = any ((< 0) . fcContribution) contribs
             unknownUuids = irUnknownUuids ir
         liftIO $ Impact.warnUnknownFlowIds ("MCP get_impacts " <> methodName method) unknownUuids
         let outcome = irOutcome ir
             diagnosticsFields =
-                [ "uncharacterized_flows" .= map encodeUncharacterized (loUncharacterized outcome)
+                -- Each uncharacterized flow carries its inventory quantity.
+                [ "uncharacterized_flows" .= map encodeUncharacterized (if granted licence ReadInventory then loUncharacterized outcome else [])
                 , "characterized_share"
                     .= ( if loInventoryAbsSum outcome > 0
                             then loCharacterizedSum outcome / loInventoryAbsSum outcome
@@ -1407,6 +1449,7 @@ callGetImpacts dbManager mBaseUrl rid args =
                                ]
                         ]
                             ++ webUrlPair
+                            ++ withheldPair
                             ++ (if fromMaybe False (boolArg "include_diagnostics" args) then diagnosticsFields else [])
 
 {- | Handler for the 'compute_sensitivity' MCP tool. Mirrors the REST

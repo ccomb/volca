@@ -2181,16 +2181,17 @@ instance ToSchema Permission where
     declareNamedSchema _ = pure (codeSchema "Permission" permissionCode)
 
 {- | Whether the engine itself refuses a permission a licence does not grant,
-or can only show it to the reader as their undertaking. Download is the one
-it observes: everything else happens outside it, or is not yet held back.
+or can only show it to the reader as their undertaking. The engine holds back
+what it serves: the files, the exchanges with their amounts, and what weighs
+in a score. What is done with a result once it is out happens outside it.
 -}
 data Enforcement = Enforced | Commitment
     deriving (Show, Eq)
 
 enforcement :: Permission -> Enforcement
 enforcement Download = Enforced
-enforcement ReadInventory = Commitment
-enforcement SeeDetailedScores = Commitment
+enforcement ReadInventory = Enforced
+enforcement SeeDetailedScores = Enforced
 enforcement PublishResults = Commitment
 enforcement Resell = Commitment
 enforcement PaidApplications = Commitment
@@ -2265,11 +2266,42 @@ data OwnLicence = OwnLicence
     }
     deriving (Show, Eq, Generic)
 
--- | An own licence has a text: one with none would claim terms nobody can read.
+{- | An own licence has a text: one with none would claim terms nobody can read.
+
+Its refusals nest, because each level rebuilds the one below it: the file holds
+the inventory, and the inventory recomputes the contributions. Refusing one
+while granting what rebuilds it refuses nothing, so it is not a licence anyone
+can be held to, and it is refused with what it is missing.
+-}
 ownLicence :: Text -> S.Set Permission -> Attribution -> Either Text OwnLicence
 ownLicence text refused attribution
     | T.null (T.strip text) = Left "an own licence needs its text, and this one is empty"
+    | (p, missing) : _ <- unnested refused = Left (nestingRefusal p missing)
     | otherwise = Right (OwnLicence text refused attribution)
+
+{- | Each refused permission whose refusal is undone by another one granted,
+with what has to be refused beside it.
+-}
+unnested :: S.Set Permission -> [(Permission, [Permission])]
+unnested refused =
+    [ (p, missing)
+    | p <- S.toList refused
+    , let missing = filter (`S.notMember` refused) (rebuiltBy p)
+    , not (null missing)
+    ]
+
+-- | The permissions whose grant would rebuild what this one holds back.
+rebuiltBy :: Permission -> [Permission]
+rebuiltBy SeeDetailedScores = [ReadInventory, Download]
+rebuiltBy ReadInventory = [Download]
+rebuiltBy Download = []
+rebuiltBy PublishResults = []
+rebuiltBy Resell = []
+rebuiltBy PaidApplications = []
+
+nestingRefusal :: Permission -> [Permission] -> Text
+nestingRefusal p missing =
+    "refusing " <> permissionCode p <> " refuses " <> T.intercalate " and " (map permissionCode missing) <> " too, since they rebuild it"
 
 {- | What the publisher of a database allows. Unstated is not CC0: nothing is
 refused, and nothing is claimed either.
@@ -2284,6 +2316,21 @@ refusedBy (LicenceOwn own) = ownRefused own
 
 granted :: Licence -> Permission -> Bool
 granted licence = (`S.notMember` refusedBy licence)
+
+{- | What a reader is told in place of what the licence of a database holds
+back. Said of the database rather than quoted from the licence: an own
+licence's text is the publisher's, of any length.
+-}
+withheldSentence :: Text -> Permission -> Text
+withheldSentence dbName p = "The licence of " <> dbName <> " " <> withheld p <> "."
+  where
+    withheld :: Permission -> Text
+    withheld SeeDetailedScores = "keeps to itself what weighs in its scores"
+    withheld ReadInventory = "keeps the amounts of its exchanges to itself"
+    withheld Download = "does not allow downloading it"
+    withheld PublishResults = "does not allow publishing results computed from it"
+    withheld Resell = "does not allow reselling it"
+    withheld PaidApplications = "does not allow using it in a paid application"
 
 {- | The keys a database states its licence with, in the engine's config and in
 an upload's metadata alike: @licence@ names a standard one, @licence_text@,

@@ -38,6 +38,20 @@
   ones (`licences()` in pyvolca). The setup of a database and its status in
   the list carry it as `licence`. A database that says nothing has no
   licence and refuses nothing, as before. Wire revision 41.
+- The engine enforces two more permissions of a database's licence, for
+  every reader, its owner included. Refusing `inventory` refuses the
+  operations that answer with exchange amounts (the inventory, the supply
+  chain, the consumers, the tree, the graph, the inputs and outputs, the
+  aggregation, comparing processes or databases) with a 403, or a tool error
+  over MCP; an activity still names its exchanges, without their amounts, as
+  `withheld`, and a batch of scores leaves out its unlinked waste. Refusing
+  `scores` refuses what weighs in a score (contributing flows and processes,
+  paths, sensitivity, comparing impacts), and a score keeps its total and its
+  categories, its contributors left out with a sentence in `withheld`. Each
+  level rebuilds the one above it, from the files to the inventory to the
+  contributions, so an own licence refusing `scores` must refuse `inventory`
+  and `download` too, and one refusing `inventory` must refuse `download`;
+  one that does not is refused with what it is missing. Wire revision 44.
 - The impact categories of a method collection of one's own can be added,
   renamed, given another unit and removed, each a journal line undone like the
   others. A rename carries along the scoring sets and the unregionalized

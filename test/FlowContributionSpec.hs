@@ -11,7 +11,15 @@ sample database's product D emits 2 kg of fossil carbon dioxide and the method
 gives that flow a factor of 27, so the factor is 27 and the contribution 54.
 A single score weighing that indicator twice reads 54 per kilogram and 108.
 -}
-module FlowContributionSpec (spec) where
+module FlowContributionSpec (
+    spec,
+    collectionName,
+    managerUnder,
+    methodIdText,
+    payloadOf,
+    productD,
+    sampleConfig,
+) where
 
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Data.Aeson (Object, Value (..), decodeStrict)
@@ -130,9 +138,13 @@ sampleConfig =
 
 -- | A manager holding the sample database and the one-method collection.
 loadedManager :: IO DatabaseManager
-loadedManager = do
+loadedManager = managerUnder LicenceUnstated
+
+-- | The same, with the sample database served under the licence given.
+managerUnder :: Licence -> IO DatabaseManager
+managerUnder licence = do
     manager <- initDatabaseManager defaultConfig NoCache
-    addDatabase manager sampleConfig
+    addDatabase manager sampleConfig{dcLicence = licence}
     loadDatabase manager "sample" >>= either (fail . T.unpack) (const (pure ()))
     atomically $
         modifyTVar' (dmLoadedMethods manager) $
@@ -175,15 +187,16 @@ mcpPayload mBaseUrl tool extraArgs = do
                 ]
                     ++ extraArgs
     maybe (fail ("unexpected " <> T.unpack tool <> " reply: " <> show reply)) pure (payloadOf reply)
-  where
-    payloadOf :: Value -> Maybe Object
-    payloadOf reply = do
-        Object o <- Just reply
-        Object r <- KM.lookup "result" o
-        Array content <- KM.lookup "content" r
-        Object c <- listToMaybe (toList content)
-        String text <- KM.lookup "text" c
-        decodeStrict (encodeUtf8 text)
+
+-- | The JSON object an MCP tool reply carries as its text.
+payloadOf :: Value -> Maybe Object
+payloadOf reply = do
+    Object o <- Just reply
+    Object r <- KM.lookup "result" o
+    Array content <- KM.lookup "content" r
+    Object c <- listToMaybe (toList content)
+    String text <- KM.lookup "text" c
+    decodeStrict (encodeUtf8 text)
 
 -- | Call an MCP tool on product D, and read the two numbers of every @top_flows@ row.
 mcpRows :: Text -> [(Key, Value)] -> IO [FactorAndContribution]
