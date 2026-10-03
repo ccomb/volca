@@ -266,28 +266,20 @@ diffSets old new =
     differing :: (Eq v) => M.Map Text v -> M.Map Text v -> [(Text, Maybe v, Maybe v)]
     differing a b = [(k, M.lookup k a, M.lookup k b) | k <- S.toList (M.keysSet a <> M.keysSet b), M.lookup k a /= M.lookup k b]
 
-{- | The change that takes an entry back to what a change found there, from
-what the set holds there now: the undo of a line reads the set as it is, so a
-category renamed since does not stop it.
+{- | The change that takes an entry back to what a change found there. It
+expects what the change wrote, so an entry a later line changed again refuses
+the undo, and that line is named; the one exception is the category a variable
+reads, which a rename of the category changes in every set, and which is read
+as the set holds it now.
 -}
 revertChange :: ScoringSet -> ScoringChange -> ScoringChange
 revertChange set = \case
-    SetText entry key before _ -> SetText entry key (M.lookup key (textField entry)) before
-    SetNumber entry key before _ -> SetNumber entry key (M.lookup key (numberField entry)) before
-    RenameSet before _ -> RenameSet (ssName set) before
-    SetUnitOfSet before _ -> SetUnitOfSet (ssUnit set) before
-    SetDisplayMultiplier before _ -> SetDisplayMultiplier (ssDisplayMultiplier set) before
-  where
-    textField :: TextEntry -> M.Map Text Text
-    textField CategoryOf = ssVariables set
-    textField FormulaOf = ssComputed set
-    textField LabelOf = ssLabels set
-    textField VariableUnitOf = ssUnits set
-    textField ScoreOf = ssScores set
-
-    numberField :: NumberEntry -> M.Map Text Double
-    numberField NormalizationOf = ssNormalization set
-    numberField WeightOf = ssWeighting set
+    SetText CategoryOf key before _ -> SetText CategoryOf key (M.lookup key (ssVariables set)) before
+    SetText entry key before after -> SetText entry key after before
+    SetNumber entry key before after -> SetNumber entry key after before
+    RenameSet before after -> RenameSet after before
+    SetUnitOfSet before after -> SetUnitOfSet after before
+    SetDisplayMultiplier before after -> SetDisplayMultiplier after before
 
 {- | A sum of variables times coefficients, as a formula: a coefficient of one
 is not written, and a sum of nothing is zero.

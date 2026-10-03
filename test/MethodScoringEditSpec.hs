@@ -183,3 +183,14 @@ spec = describe "planning a change to a scoring set" $ do
             relabelled = lineOf (ChangeRow "EF" "health" (draft "Human health" [(1, 1), (2, 1)] (Just 2) (Just 0.5))) withWater
         T.unpack (blockedUndo withWater [first, reweighed] 1 "replay failed") `shouldContain` "undo line 2 first"
         blockedUndo withWater [first, relabelled] 1 "replay failed" `shouldBe` "replay failed"
+
+    it "refuses to undo an added row once a later row changed the score it joined" $ do
+        let undone = do
+                (water, _) <- planScoringEdit twoRows (AddRow "EF" (draft "Water" [(3, 2)] (Just 1) (Just 1)))
+                withWater <- applyMethodOp twoRows water
+                (air, _) <- planScoringEdit withWater (AddRow "EF" (draft "Air" [(2, 3)] (Just 1) (Just 1)))
+                withAir <- applyMethodOp withWater air
+                inverseOf withAir water >>= \case
+                    UndoWith inverse -> applyMethodOp withAir inverse
+                    UndoSelector _ -> Left "no selector here"
+        refusal undone `shouldContain` "Single score"
