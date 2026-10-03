@@ -636,6 +636,7 @@ data LCIAResult = LCIAResult
     , lrFunctionalUnit :: Text -- What the score is per: one unit of the reference product, e.g. "1.00 kg of Butter, unsalted"
     , lrTopContributors :: [FlowContributionEntry] -- Top contributing elementary flows
     , lrWithheld :: Maybe Text -- Set when the licence keeps what weighs in the score to itself: then the contributors are empty
+    , lrWithheldDatabases :: [WithheldShare] -- The databases the score reads whose licence keeps their detail: their part in one line each, their flows left out of the contributors
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LCIAResult)
@@ -646,9 +647,37 @@ data ContributingFlowsResult = ContributingFlowsResult
     , cfrUnit :: Text
     , cfrTotalScore :: Double
     , cfrTopFlows :: [FlowContributionEntry]
+    , cfrWithheldDatabases :: [WithheldShare] -- Dependencies whose licence keeps their detail: their flows are not among the top flows, their part is one line each
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingFlowsResult)
+
+{- | What a database whose licence keeps what weighs in its scores adds to a
+score it is read by, in one line: its part and why it is not detailed. The
+detailed rows and these lines add up to the score.
+-}
+data WithheldShare = WithheldShare
+    { wsDatabase :: Text
+    , wsContribution :: Double -- In the score's unit
+    , wsSharePct :: Double -- Percentage of the total score (0-100)
+    , wsReason :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped WithheldShare)
+
+{- | The processes a chain reaches in a database whose licence keeps the
+amounts of its exchanges, in one line: how many, and why they are not listed.
+A count says how far the chain reaches, not what it takes. In a supply chain
+it counts the processes the request's filters kept, the ones it would have
+listed; in an aggregation by consumption, every process the chain reaches.
+-}
+data WithheldProcesses = WithheldProcesses
+    { wprDatabase :: Text
+    , wprProcesses :: Int
+    , wprReason :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped WithheldProcesses)
 
 -- | A single activity's contribution to an LCIA score
 data ActivityContribution = ActivityContribution
@@ -668,6 +697,7 @@ data ContributingActivitiesResult = ContributingActivitiesResult
     , carUnit :: Text
     , carTotalScore :: Double
     , carActivities :: [ActivityContribution]
+    , carWithheldDatabases :: [WithheldShare] -- Dependencies whose licence keeps their detail: their processes are not listed, their part is one line each
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingActivitiesResult)
@@ -700,6 +730,9 @@ instance NFData LCIABatchResult
 instance NFData LCIAResult
 
 instance NFData FlowContributionEntry
+
+instance NFData WithheldShare
+instance NFData WithheldProcesses
 
 instance NFData ScoringIndicator
 
@@ -1484,6 +1517,7 @@ data SupplyChainResponse = SupplyChainResponse
     , scrFilteredActivities :: Int
     , scrSupplyChain :: [SupplyChainEntry]
     , scrEdges :: [SupplyChainEdge]
+    , scrWithheldDatabases :: [WithheldProcesses] -- Not in the chain above nor in its counts but the total
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped SupplyChainResponse)
@@ -1865,6 +1899,7 @@ data Aggregation = Aggregation
     , aggFilteredUnit :: Maybe Text -- Nothing when matched items have heterogeneous units
     , aggFilteredCount :: Int -- count of items matching the filters
     , aggGroups :: [AggregationGroup] -- one entry per group_by bucket (empty when group_by omitted)
+    , aggWithheldDatabases :: [WithheldProcesses] -- Not in the total, the count nor the groups
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped Aggregation)

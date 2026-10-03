@@ -11,7 +11,7 @@ need no flow to point at: never the synonym bridge, the proxy edges or the
 regional projection. The inventory was right, the factors were missing, and
 nothing said so.
 -}
-module DependencyFlowClosureSpec (spec) where
+module DependencyFlowClosureSpec (spec, install) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Data.Map.Strict as M

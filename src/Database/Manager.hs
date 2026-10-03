@@ -101,6 +101,7 @@ module Database.Manager (
     getStagedDatabase,
     readDocumentFile,
     databaseLicence,
+    refusingDatabases,
     setUploadLicence,
     LicenceRefusal (..),
     getDatabaseSetupInfo,
@@ -272,6 +273,7 @@ import Types (
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
+    Permission (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierAmbiguity (..),
@@ -293,6 +295,7 @@ import Types (
     deduplicateUnresolved,
     enrichBioFlowCAS,
     flowClosure,
+    granted,
     initializeRuntimeFields,
     parseAllocationKey,
     reasonsOf,
@@ -1801,6 +1804,15 @@ databaseLicence :: DatabaseManager -> Text -> IO (Maybe Licence)
 databaseLicence manager dbName = do
     configs <- readTVarIO (dmAvailableDbs manager)
     pure (licenceOf configs <$> M.lookup dbName configs)
+
+{- | The databases whose licence refuses a permission. One reached as a
+dependency of another is answered in one line, or not at all, rather than
+read in detail.
+-}
+refusingDatabases :: DatabaseManager -> Permission -> IO (S.Set Text)
+refusingDatabases manager permission = do
+    configs <- readTVarIO (dmAvailableDbs manager)
+    pure (M.keysSet (M.filter (\config -> not (granted (licenceOf configs config) permission)) configs))
 
 -- | Why the licence of a database cannot be set through the engine.
 data LicenceRefusal

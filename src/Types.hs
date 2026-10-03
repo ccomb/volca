@@ -2332,6 +2332,13 @@ withheldSentence dbName p = "The licence of " <> dbName <> " " <> withheld p <> 
     withheld Resell = "does not allow reselling it"
     withheld PaidApplications = "does not allow using it in a paid application"
 
+{- | Why the aggregated inventory of a database is refused: it sums a
+dependency's exchanges, whose amounts that dependency's licence keeps.
+-}
+includedSentence :: Text -> Text -> Text
+includedSentence dbName dependency =
+    "The inventory of " <> dbName <> " includes " <> dependency <> "'s, whose licence keeps the amounts of its exchanges to itself."
+
 {- | The keys a database states its licence with, in the engine's config and in
 an upload's metadata alike: @licence@ names a standard one, @licence_text@,
 @refuses@ and @attribution@ write an own one.

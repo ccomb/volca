@@ -46,7 +46,7 @@ emptyCore =
         }
 
 emptySupply :: SupplyChainFilter
-emptySupply = SupplyChainFilter emptyCore Nothing Nothing EntriesOnly
+emptySupply = SupplyChainFilter emptyCore Nothing Nothing EntriesOnly mempty
 
 emptyConsumer :: ConsumerFilter
 emptyConsumer = ConsumerFilter emptyCore Nothing EntriesOnly

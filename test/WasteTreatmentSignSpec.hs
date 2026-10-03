@@ -254,6 +254,7 @@ supplierQuantityOf name key acts = do
             Nothing
             Nothing
             EntriesOnly
+            mempty
 
 -- | Intra-DB scoring of the producer's CO2 (single database, static triples).
 scoreIntra :: T.Text -> M.Map (UUID, UUID) Activity -> IO Double

@@ -80,6 +80,17 @@
   `sum_of_rows`; `POST` on that route and `edit_scoring_sets` change them.
   An activity's score carries `scoringRows`, the value of every row, a row
   no score reads among them. Wire revision 45.
+- A database's licence holds where another database reaches it as a
+  dependency. One refusing `scores` comes back as one line under
+  `withheldDatabases`, its part of the score and why, wherever a score is
+  broken down (the top flows of a score, contributing flows and processes,
+  of a category and of a single score, comparing impacts); the database
+  asked stays detailed, and its rows and those lines add up to the score.
+  One refusing `inventory` keeps its exchanges out of the diagnostics of a
+  score and of the flow mapping, refuses the inventory of the database asked and its aggregated
+  biosphere with a 403 or a tool error naming it, and leaves the supply
+  chain and the aggregation by supply chain or consumption, which count its
+  processes in one line under `withheldDatabases`. Wire revision 46.
 - A database states the terms it is served under: the licence it is
   published under, in words, and whether it may be downloaded, as `licence`
   and `downloads = "allowed" | "refused"` on its configuration entry. An

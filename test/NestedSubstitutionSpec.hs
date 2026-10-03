@@ -292,6 +292,7 @@ spec = do
                         , scfMaxDepth = Nothing
                         , scfMinQuantity = Nothing
                         , scfEdges = EntriesOnly
+                        , scfWithheld = mempty
                         }
             eResp <-
                 buildSupplyChainFromScalingVectorCrossDB
