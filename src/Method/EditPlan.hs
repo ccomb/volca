@@ -35,6 +35,7 @@ module Method.EditPlan (
 
 import Control.Monad (when)
 import Data.List (elemIndex, elemIndices, find, findIndex)
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe, listToMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -54,6 +55,7 @@ import Method.Journal (
     sameAddress,
  )
 import Method.Patch (applyMethodPatches, cfMatches, describePatch)
+import Method.Scoring (ScoringChange (..), ScoringKey (..), invertGesture, keyOf, numberEntryWord, revertChange, textEntryWord)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 import Types (applyPatchOp)
 
@@ -282,10 +284,18 @@ inverseOf collection = \case
         case elemIndices factor (methodFactors method) of
             [position] -> Right (UndoWith (RemoveFactor category position factor))
             _ -> Left (describeFactor factor <> " is no longer in " <> methodName method <> " as it was added")
-    -- A set comes back at the end of the list. Only a copy's first lines
-    -- create one in this version, and they are at the end already.
+    -- A set comes back at the end of the list, as one the journal created:
+    -- that is what a replay of the line reads back, whatever the set was.
     CreateScoringSet set -> Right (UndoWith (RemoveScoringSet set))
-    RemoveScoringSet set -> Right (UndoWith (CreateScoringSet set))
+    RemoveScoringSet set -> Right (UndoWith (CreateScoringSet set{ssOrigin = CreatedInJournal}))
+    -- Each entry goes back to what the line found, from what the set holds
+    -- now: a category renamed since does not stop the undo.
+    ChangeScoringSet name gesture changes -> do
+        let current = foldl nameAfter name changes
+        set <- case filter ((== current) . ssName) (mcScoringSets collection) of
+            [one] -> Right one
+            _ -> Left ("there is no longer one scoring set named '" <> current <> "'")
+        Right (UndoWith (ChangeScoringSet current (invertGesture gesture) (NE.reverse (fmap (revertChange set) changes))))
     -- The category as it was added: factors added since make the removal
     -- refuse, and the refusal names the line that added them.
     AddCategory _ method _ -> do
@@ -339,10 +349,24 @@ blockedUndo collection lines' target reason =
             <> T.pack (show i)
             <> " first"
 
-{- | What a line reaches: a factor of a category, a category's name, its
-unit, or its existence. Each one is named as the refusal reads it.
+-- | The name a set has after a change.
+nameAfter :: Text -> ScoringChange -> Text
+nameAfter name = \case
+    RenameSet _ after -> after
+    SetText{} -> name
+    SetNumber{} -> name
+    SetUnitOfSet{} -> name
+    SetDisplayMultiplier{} -> name
+
+{- | What a line reaches: something of a category, or an entry of a scoring
+set by the set's name. Each one is named as the refusal reads it.
 -}
 data Reach
+    = OfCategory CategoryReach
+    | OfScoringSet Text ScoringKey
+
+-- | What a line reaches in a category: a factor, its name, its unit, or its existence.
+data CategoryReach
     = FactorOf UUID MethodCF
     | NameOf UUID Text
     | UnitOf UUID Text
@@ -351,19 +375,26 @@ data Reach
 -- | What a line reaches; a selector's factors are read from the collection.
 reachOf :: MethodCollection -> MethodOp -> [Reach]
 reachOf collection = \case
-    SetFactor category factor _ -> [FactorOf category factor]
-    RemoveFactor category _ factor -> [FactorOf category factor]
-    AddFactor category _ factor -> [FactorOf category factor]
-    RestoreFactors restores -> [FactorOf (rsMethod r) (rsFactor r) | r <- restores]
+    SetFactor category factor _ -> [OfCategory (FactorOf category factor)]
+    RemoveFactor category _ factor -> [OfCategory (FactorOf category factor)]
+    AddFactor category _ factor -> [OfCategory (FactorOf category factor)]
+    RestoreFactors restores -> [OfCategory (FactorOf (rsMethod r) (rsFactor r)) | r <- restores]
     PatchFactors patch _ ->
-        [FactorOf (methodId method) factor | method <- mcMethods collection, factor <- methodFactors method, cfMatches (mpMatch patch) (methodName method) factor]
-    AddCategory _ method _ -> [ExistenceOf (methodId method) (methodName method)]
-    RemoveCategory _ method _ -> [ExistenceOf (methodId method) (methodName method)]
-    RenameCategory category _ after -> [NameOf category after]
-    SetCategoryUnit category _ _ -> [UnitOf category ("the unit of " <> nameOf category)]
+        [ OfCategory (FactorOf (methodId method) factor)
+        | method <- mcMethods collection
+        , factor <- methodFactors method
+        , cfMatches (mpMatch patch) (methodName method) factor
+        ]
+    AddCategory _ method _ -> [OfCategory (ExistenceOf (methodId method) (methodName method))]
+    RemoveCategory _ method _ -> [OfCategory (ExistenceOf (methodId method) (methodName method))]
+    RenameCategory category _ after -> [OfCategory (NameOf category after)]
+    SetCategoryUnit category _ _ -> [OfCategory (UnitOf category ("the unit of " <> nameOf category))]
     SetGlobalMethods _ _ -> []
-    CreateScoringSet _ -> []
-    RemoveScoringSet _ -> []
+    CreateScoringSet set -> [OfScoringSet (ssName set) WholeSet]
+    RemoveScoringSet set -> [OfScoringSet (ssName set) WholeSet]
+    -- A renamed set is reached under both its names.
+    ChangeScoringSet name _ changes ->
+        [OfScoringSet n (keyOf c) | c <- NE.toList changes, n <- name : [after | RenameSet _ after <- [c]]]
   where
     nameOf :: UUID -> Text
     nameOf category = maybe (UUID.toText category) methodName (find ((== category) . methodId) (mcMethods collection))
@@ -375,7 +406,13 @@ and a unit are changed apart, so neither blocks the other's undo; the
 category's removal or addition blocks everything in it.
 -}
 blocks :: Reach -> Reach -> Bool
-blocks undone later = case (undone, later) of
+blocks (OfCategory undone) (OfCategory later) = blocksCategory undone later
+blocks (OfScoringSet set key) (OfScoringSet set' key') = set == set' && (key == key' || key == WholeSet || key' == WholeSet)
+blocks (OfCategory _) (OfScoringSet _ _) = False
+blocks (OfScoringSet _ _) (OfCategory _) = False
+
+blocksCategory :: CategoryReach -> CategoryReach -> Bool
+blocksCategory undone later = case (undone, later) of
     (FactorOf c f, FactorOf c' g) -> c == c' && sameAddress f g
     (NameOf c _, NameOf c' _) -> c == c'
     (UnitOf c _, UnitOf c' _) -> c == c'
@@ -388,7 +425,7 @@ blocks undone later = case (undone, later) of
     (UnitOf _ _, FactorOf _ _) -> False
     (UnitOf _ _, NameOf _ _) -> False
   where
-    categoryOf :: Reach -> UUID
+    categoryOf :: CategoryReach -> UUID
     categoryOf = \case
         FactorOf c' _ -> c'
         NameOf c' _ -> c'
@@ -397,10 +434,16 @@ blocks undone later = case (undone, later) of
 
 describeReach :: Reach -> Text
 describeReach = \case
-    FactorOf _ factor -> describeFactor factor
-    NameOf _ name -> name
-    UnitOf _ unit -> unit
-    ExistenceOf _ name -> name
+    OfCategory (FactorOf _ factor) -> describeFactor factor
+    OfCategory (NameOf _ name) -> name
+    OfCategory (UnitOf _ unit) -> unit
+    OfCategory (ExistenceOf _ name) -> name
+    OfScoringSet set WholeSet -> "the scoring set '" <> set <> "'"
+    OfScoringSet set (TextKey entry key) -> describeEntry (textEntryWord entry) key set
+    OfScoringSet set (NumberKey entry key) -> describeEntry (numberEntryWord entry) key set
+  where
+    describeEntry :: Text -> Text -> Text -> Text
+    describeEntry word key set = "the " <> word <> " of '" <> key <> "' in the scoring set '" <> set <> "'"
 
 -- | What writing a line does, in the terms a change reports.
 undoEffect :: MethodOp -> EditEffect
@@ -417,6 +460,7 @@ undoEffect = \case
     RemoveCategory _ method _ -> EditEffect (length (methodFactors method)) Nothing Nothing
     RenameCategory{} -> EditEffect 0 Nothing Nothing
     SetCategoryUnit{} -> EditEffect 0 Nothing Nothing
+    ChangeScoringSet{} -> EditEffect 0 Nothing Nothing
 
 {- | The first lines of a copy of a collection the configuration declares: what
 the configuration adds to the files, in the order it applies them (the

@@ -12,7 +12,7 @@ import API.DatabaseHandlers (explainCFToAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringIndicator (..), SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
@@ -59,6 +59,7 @@ import qualified Matrix
 import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), Resolution (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
+import Method.Scoring (ScoringRow (..), rowsOf)
 import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
 import qualified Method.Types as MT
@@ -211,6 +212,8 @@ type LCAAPI =
                 :<|> "method-collections" :> Capture "collection" Text :> "copy" :> Capture "newName" Text :> Post '[JSON] MethodCollectionStatusAPI
                 :<|> "method-collections" :> Capture "collection" Text :> "factors" :> ReqBody '[JSON] FactorEditRequest :> Post '[JSON] MethodEditResponse
                 :<|> "method-collections" :> Capture "collection" Text :> "categories" :> ReqBody '[JSON] CategoryEditRequest :> Post '[JSON] MethodEditResponse
+                :<|> "method-collections" :> Capture "collection" Text :> "scoring-sets" :> Get '[JSON] [ScoringSetAPI]
+                :<|> "method-collections" :> Capture "collection" Text :> "scoring-sets" :> ReqBody '[JSON] ScoringEditRequest :> Post '[JSON] MethodEditResponse
                 :<|> "method-collections" :> Capture "collection" Text :> "undo" :> QueryParam "line" Int :> Post '[JSON] MethodEditResponse
                 :<|> "method-collections" :> Capture "collection" Text :> "history" :> Get '[JSON] [MethodHistoryEntry]
                 :<|> "method-collections" :> Capture "collection" Text :> "flows" :> QueryParam "q" Text :> QueryParam "limit" Int :> Get '[JSON] [MethodFlowAPI]
@@ -496,21 +499,21 @@ legacyIndex = maybe M.empty legacyReadings . legacySet
 -- | Assemble an LCIABatchResult from the post-characterization parts. Pure.
 mkLCIABatchResult ::
     [LCIAResult] ->
-    M.Map Text (M.Map Text Double) ->
+    [(ScoringSet, ScoringEvaluation)] ->
     [ScoringSet] ->
-    M.Map Text (M.Map Text ScoringIndicator) ->
     [CutoffWasteFlow] ->
     LCIABatchResult
-mkLCIABatchResult results scoringResults scoringSets scoringIndicators cutoffWaste =
+mkLCIABatchResult results evaluated scoringSets cutoffWaste =
     LCIABatchResult
         { lbrResults = results
         , lbrSingleScore = Nothing
         , lbrSingleScoreUnit = Nothing
         , lbrNormWeightSetName = listToMaybe (legacySetNames scoringSets)
         , lbrAvailableNWsets = legacySetNames scoringSets
-        , lbrScoringResults = scoringResults
+        , lbrScoringResults = scoresOf evaluated
         , lbrScoringUnits = M.fromList [(ssName ss, ssUnit ss) | ss <- scoringSets]
-        , lbrScoringIndicators = scoringIndicators
+        , lbrScoringIndicators = M.fromList [(ssName ss, scoringIndicators ss e) | (ss, e) <- evaluated]
+        , lbrScoringRows = M.fromList [(ssName ss, scoringRows ss e) | (ss, e) <- evaluated]
         , lbrWithheld = []
         , lbrCutoffWaste = cutoffWaste
         }
@@ -855,10 +858,9 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
         Left err -> pure (Left err)
         Right results -> do
             let rawScoreMap = rawScoreMapByName results
-            (scoringResults, scoringIndicators) <-
-                computeAllScoringSets (mcScoringSets collection) rawScoreMap
+            evaluated <- computeAllScoringSets (mcScoringSets collection) rawScoreMap
             licence <- fromMaybe LicenceUnstated <$> DM.databaseLicence dbManager dbName
-            pure (Right (Service.withholdBatch dbName licence (mkLCIABatchResult results scoringResults (mcScoringSets collection) scoringIndicators (Service.buildCutoffWaste db activity))))
+            pure (Right (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated (mcScoringSets collection) (Service.buildCutoffWaste db activity))))
 
 {- | Top-level LCIA batch entry point – AppM-returning. Used by the Servant
 routes (via thin where-aliases) and by API.BatchImpacts.
@@ -904,7 +906,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
     rawResults <- either scoringError pure (sequence rawResultsE)
     let results = map (enrichWithNW (legacyIndex scoringSets)) rawResults
         rawScoreMap = rawScoreMapByName rawResults
-    (scoringResults, scoringIndicators) <- liftIO $ computeAllScoringSets scoringSets rawScoreMap
+    evaluated <- liftIO $ computeAllScoringSets scoringSets rawScoreMap
     when (isNothing mSub) $
         liftIO $ do
             t2 <- getCurrentTime
@@ -915,14 +917,14 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
                     <> " categories ("
                     <> showFFloat (Just 2) (realToFrac (diffUTCTime t2 t0) :: Double) ""
                     <> "s)"
-            forM_ (M.toList scoringResults) $ \(name, scores) ->
+            forM_ (M.toList (scoresOf evaluated)) $ \(name, scores) ->
                 reportProgress Info $
                     "  Scoring '"
                         <> T.unpack name
                         <> "': "
                         <> intercalate ", " [T.unpack k <> "=" <> showFFloat (Just 6) v "" | (k, v) <- M.toList scores]
     licence <- DBHandlers.servedLicence dbName
-    pure (Service.withholdBatch dbName licence (mkLCIABatchResult results scoringResults scoringSets scoringIndicators (Service.buildCutoffWaste db activity)))
+    pure (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated scoringSets (Service.buildCutoffWaste db activity)))
 
 {- | Everything one chunk of a batch needs and no chunk changes: the database
 being scored, the collection scoring it, and the per-method contexts prepared
@@ -1482,7 +1484,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 44: the @withheld@ of an activity, a score and a batch of scores,
+(revision 45: reading a collection's scoring sets as rows and changing
+them, and the @scoringRows@ an activity's score carries;
+revision 44: the @withheld@ of an activity, a score and a batch of scores,
 and the inventory and contributions a database's licence refuses answered
 with a 403;
 revision 43: adding, renaming, changing the unit of and removing a method
@@ -1584,7 +1588,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 44
+currentWireVersion = 45
 
 getVersion :: AppM Value
 getVersion = do
@@ -2757,6 +2761,8 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> MethodEdit.copyMethodCollectionHandler
             :<|> MethodEdit.editMethodFactorsHandler
             :<|> MethodEdit.editMethodCategoriesHandler
+            :<|> MethodEdit.scoringSetsHandler
+            :<|> MethodEdit.editScoringSetsHandler
             :<|> MethodEdit.undoMethodEditHandler
             :<|> MethodEdit.methodHistoryHandler
             :<|> MethodEdit.methodFlowsHandler
@@ -2798,14 +2804,10 @@ rawScoreMapByName :: [LCIAResult] -> M.Map Text Double
 rawScoreMapByName results = M.fromList [(lrMethodName r, lrScore r) | r <- results]
 
 {- | Evaluate every scoring set against the raw impact score map.
-Returns (setName → scoreName → value, setName → varName → ScoringIndicator).
 Scoring sets that fail to evaluate are logged as warnings and omitted.
 Values are pre-multiplied by each set's displayMultiplier (default 1.0).
 -}
-computeAllScoringSets ::
-    [ScoringSet] ->
-    M.Map Text Double ->
-    IO (M.Map Text (M.Map Text Double), M.Map Text (M.Map Text ScoringIndicator))
+computeAllScoringSets :: [ScoringSet] -> M.Map Text Double -> IO [(ScoringSet, ScoringEvaluation)]
 computeAllScoringSets scoringSets rawScoreMap = do
     evaluations <- forM scoringSets $ \ss ->
         case computeFormulaScores ss rawScoreMap of
@@ -2817,25 +2819,29 @@ computeAllScoringSets scoringSets rawScoreMap = do
                         <> "' failed: "
                         <> err
                 pure Nothing
-    let ok = [(ss, e) | Just (ss, e) <- evaluations]
-        scores = M.fromList [(ssName ss, seScores e) | (ss, e) <- ok]
-        indicators = M.fromList [(ssName ss, toIndicators ss e) | (ss, e) <- ok]
-    pure (scores, indicators)
+    pure [(ss, e) | Just (ss, e) <- evaluations]
+
+-- | Each set's scores, by the set's name.
+scoresOf :: [(ScoringSet, ScoringEvaluation)] -> M.Map Text (M.Map Text Double)
+scoresOf evaluated = M.fromList [(ssName ss, seScores e) | (ss, e) <- evaluated]
+
+{- | The variables a score formula reads, each with its value. Intermediate
+helpers (consumed by `computed` but not referenced in any `scores.*` formula)
+are hidden from the breakdown.
+-}
+scoringIndicators :: ScoringSet -> ScoringEvaluation -> M.Map Text ScoringIndicator
+scoringIndicators ss e =
+    M.mapWithKey (\var val -> ScoringIndicator (M.findWithDefault var var names) val) (M.filterWithKey (\var _ -> S.member var displayed) (seNwEnv e))
   where
-    -- Only emit rows for variables that actually contribute to a score formula.
-    -- Intermediate helpers (consumed by `computed` but not referenced in any
-    -- `scores.*` formula) are hidden from the breakdown.
-    toIndicators ss e =
-        let displayed = S.fromList (concatMap (Expr.collectIdentifiers Expr.Arithmetic) (M.elems (ssScores ss)))
-            names = ssLabels ss <> ssVariables ss
-         in M.mapWithKey
-                ( \var val ->
-                    ScoringIndicator
-                        { siCategory = M.findWithDefault var var names
-                        , siValue = val
-                        }
-                )
-                (M.filterWithKey (\var _ -> S.member var displayed) (seNwEnv e))
+    displayed :: S.Set Text
+    displayed = S.fromList (concatMap (Expr.collectIdentifiers Expr.Arithmetic) (M.elems (ssScores ss)))
+    names :: M.Map Text Text
+    names = ssLabels ss <> ssVariables ss
+
+-- | Every row of a set with its value, read or not by a score.
+scoringRows :: ScoringSet -> ScoringEvaluation -> M.Map Text ScoringIndicator
+scoringRows ss e =
+    M.fromList [(srVariable r, ScoringIndicator (srLabel r) value) | r <- rowsOf ss, Just value <- [M.lookup (srVariable r) (seNwEnv e)]]
 
 -- | Helper function to apply pagination to search results
 paginateResults :: [a] -> Maybe Int -> Maybe Int -> IO (SearchResults a)

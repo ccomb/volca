@@ -88,6 +88,7 @@ mkEntry pid name fu setName total inds =
                 , lbrScoringIndicators =
                     M.singleton setName $
                         M.fromList [(k, ScoringIndicator k v) | (k, v) <- inds]
+                , lbrScoringRows = M.empty
                 , lbrCutoffWaste = []
                 , lbrWithheld = []
                 }

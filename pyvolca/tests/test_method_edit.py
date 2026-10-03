@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from volca.client import VoLCAError
-from volca.types import FactorMatch, NewMethodFactor
+from volca.types import FactorMatch, LCIABatchResult, NewMethodFactor, ScoringRow
 from tests.conftest import _make_response
 
 BASE = "http://test.local/api/v1/method-collections"
@@ -153,3 +153,52 @@ def test_category_changes_need_wire_43(mocked_client):
     _engine(session, wire=42)
     with pytest.raises(VoLCAError, match="wire revision >= 43"):
         client.add_method_category("copy", "Water use", "m3")
+
+
+_GAS = ScoringRow("Gas", {"m": 1.0}, normalization=2.0, weight=0.5)
+_GAS_WIRE = {"label": "Gas", "terms": [{"methodId": "m", "coefficient": 1.0}], "normalization": 2.0, "weight": 0.5}
+
+
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        (lambda c: c.create_scoring_set("copy", "Mine", [_GAS]), {"op": "create", "set": "Mine", "rows": [_GAS_WIRE]}),
+        (lambda c: c.create_scoring_set("copy", "Mine", [], unit="mPt"), {"op": "create", "set": "Mine", "unit": "mPt", "rows": []}),
+        (lambda c: c.remove_scoring_set("copy", "Mine"), {"op": "remove", "set": "Mine"}),
+        (lambda c: c.rename_scoring_set("copy", "Mine", "Ours"), {"op": "rename", "set": "Mine", "name": "Ours"}),
+        (lambda c: c.set_scoring_set_unit("copy", "Mine", "mPt"), {"op": "set-unit", "set": "Mine", "unit": "mPt"}),
+        (lambda c: c.set_scoring_set_multiplier("copy", "Mine", 1000.0), {"op": "set-multiplier", "set": "Mine", "multiplier": 1000.0}),
+        (lambda c: c.set_scoring_set_multiplier("copy", "Mine", None), {"op": "set-multiplier", "set": "Mine"}),
+        (lambda c: c.add_scoring_row("copy", "Mine", _GAS), {"op": "add-row", "set": "Mine", "row": _GAS_WIRE}),
+        (lambda c: c.change_scoring_row("copy", "Mine", "gas", _GAS), {"op": "change-row", "set": "Mine", "variable": "gas", "row": _GAS_WIRE}),
+        (lambda c: c.remove_scoring_row("copy", "Mine", "gas"), {"op": "remove-row", "set": "Mine", "variable": "gas"}),
+        (lambda c: c.set_scoring_formula("copy", "Mine", "gas", "2 * methane"), {"op": "set-formula", "set": "Mine", "variable": "gas", "formula": "2 * methane"}),
+        (lambda c: c.set_score("copy", "Mine", "Twice", "2 * gas"), {"op": "set-score", "set": "Mine", "score": "Twice", "formula": "2 * gas"}),
+        (lambda c: c.remove_score("copy", "Mine", "Twice"), {"op": "remove-score", "set": "Mine", "score": "Twice"}),
+    ],
+)
+def test_scoring_set_changes(mocked_client, call, expected):
+    client, session = mocked_client
+    _engine(session, wire=45)
+    call(client)
+    url, body, _ = _posted(session)
+    assert url == f"{BASE}/copy/scoring-sets"
+    assert body == expected
+
+
+def test_scoring_set_changes_need_wire_45(mocked_client):
+    client, session = mocked_client
+    _engine(session, wire=44)
+    with pytest.raises(VoLCAError, match="wire revision >= 45"):
+        client.add_scoring_row("copy", "Mine", _GAS)
+    session.post.assert_not_called()
+
+
+def test_a_row_groups_a_category():
+    with pytest.raises(ValueError, match="groups no category"):
+        ScoringRow("Empty", {})
+
+
+def test_a_score_reads_the_value_of_every_row():
+    result = LCIABatchResult.from_json({"results": [], "scoringRows": {"Mine": {"gas": {"category": "Gas", "value": 3.0}}}})
+    assert result.scoring_rows["Mine"]["gas"].value == 3.0

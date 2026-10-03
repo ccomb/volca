@@ -45,10 +45,13 @@ module Method.Journal (
     sameAddress,
 ) where
 
-import Control.Monad (foldM, unless, zipWithM)
-import Data.Aeson (Object, Value, object, withObject, (.:), (.:?), (.=))
+import Control.Monad (foldM, unless, when, zipWithM)
+import Data.Aeson (FromJSON (..), Key, Object, ToJSON (..), Value (..), object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
 import Data.Bifunctor (first)
+import Data.Containers.ListUtils (nubOrd)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
@@ -59,6 +62,16 @@ import qualified Data.UUID as UUID
 import Config (MethodPatch (..), MethodPatchMatch (..))
 import Data.JournalFile (Entry (..), JournalVocabulary (..))
 import Method.Patch (applyMethodPatches)
+import Method.Scoring (
+    NumberEntry (..),
+    ScoringChange (..),
+    ScoringGesture (..),
+    ScoringKey,
+    TextEntry (..),
+    applyChange,
+    checkSet,
+    keyOf,
+ )
 import Method.Types (
     Compartment (..),
     FlowDirection (..),
@@ -107,6 +120,11 @@ data MethodOp
       SetCategoryUnit UUID Text Text
     | -- | The position the category held, the category in full, and its place among the unregionalized categories.
       RemoveCategory Int Method Regionalization
+    | {- | One gesture on one scoring set, named as it was before the line: the
+      changes apply in order, all or none, each to an entry of its own, and
+      the set must still score after.
+      -}
+      ChangeScoringSet Text ScoringGesture (NonEmpty ScoringChange)
     deriving (Eq, Show)
 
 -- | One value given back by 'RestoreFactors'.
@@ -187,13 +205,80 @@ applyMethodOp collection = \case
             Left ("a scoring set named '" <> ssName set <> "' is already there")
         | otherwise -> Right collection{mcScoringSets = mcScoringSets collection <> [set]}
     RemoveScoringSet set
-        | set `elem` mcScoringSets collection ->
-            Right collection{mcScoringSets = filter (/= set) (mcScoringSets collection)}
+        | any (sameSet set) (mcScoringSets collection) ->
+            Right collection{mcScoringSets = filter (not . sameSet set) (mcScoringSets collection)}
         | otherwise -> Left ("the scoring set '" <> ssName set <> "' is not there as recorded")
     AddCategory position method regionalization -> addCategory position method regionalization collection
     RenameCategory category before after -> renameCategory category before after collection
     SetCategoryUnit category before after -> inCategory category (setUnit before after) collection
     RemoveCategory position method regionalization -> removeCategory position method regionalization collection
+    ChangeScoringSet name _ changes -> changeScoringSet name changes collection
+
+{- | Two scoring sets alike but for their origin, which a journal does not
+keep: a set read from a file, once written in a line, reads back as one the
+journal created.
+-}
+sameSet :: ScoringSet -> ScoringSet -> Bool
+sameSet a b = a{ssOrigin = CreatedInJournal} == b{ssOrigin = CreatedInJournal}
+
+{- | Apply a line's changes to the one set it names, then check the set still
+scores. What the line itself writes is held to more than what the set already
+held: a category it names must be one of the collection, a number it sets
+must be one a score can use, and a new name must be free. A set read from a
+file may already hold a normalization of zero, and keeps it.
+-}
+changeScoringSet :: Text -> NonEmpty ScoringChange -> MethodCollection -> Either Text MethodCollection
+changeScoringSet name changes collection = do
+    unless (length (nubOrd keys) == length keys) $
+        Left ("the line changes one entry of the scoring set '" <> name <> "' twice")
+    set <- case filter ((== name) . ssName) (mcScoringSets collection) of
+        [one] -> Right one
+        [] -> Left ("there is no scoring set named '" <> name <> "'; the collection has " <> listed (map ssName (mcScoringSets collection)))
+        _ -> Left ("several scoring sets are named '" <> name <> "'")
+    changed <- foldM (flip applyChange) set changes
+    mapM_ written changes
+    checkSet changed
+    pure collection{mcScoringSets = map (\s -> if ssName s == name then changed else s) (mcScoringSets collection)}
+  where
+    keys :: [ScoringKey]
+    keys = map keyOf (NE.toList changes)
+
+    written :: ScoringChange -> Either Text ()
+    written = \case
+        SetText entry variable _ after -> textWritten entry variable after
+        SetNumber entry variable _ after -> numberWritten entry variable after
+        SetDisplayMultiplier _ after -> maybe (Right ()) multiplier after
+        SetUnitOfSet _ _ -> Right ()
+        RenameSet _ after ->
+            when (after `elem` map ssName (mcScoringSets collection)) $
+                Left ("a scoring set named '" <> after <> "' is already there")
+
+    textWritten :: TextEntry -> Text -> Maybe Text -> Either Text ()
+    textWritten CategoryOf variable (Just category) =
+        unless (category `elem` map methodName (mcMethods collection)) $
+            Left ("the variable '" <> variable <> "' reads '" <> category <> "', which is no impact category of this collection")
+    textWritten CategoryOf _ Nothing = Right ()
+    textWritten FormulaOf _ _ = Right ()
+    textWritten LabelOf _ _ = Right ()
+    textWritten VariableUnitOf _ _ = Right ()
+    textWritten ScoreOf _ _ = Right ()
+
+    numberWritten :: NumberEntry -> Text -> Maybe Double -> Either Text ()
+    -- An infinite normalization counts the variable as zero: it is how a
+    -- file's zero normalization reads, and an undo puts it back.
+    numberWritten NormalizationOf variable (Just n) =
+        when (n == 0 || isNaN n || n == -1 / 0) $
+            Left ("the normalization of '" <> variable <> "' is " <> showT n <> ", which no score can divide by")
+    numberWritten WeightOf variable (Just w) =
+        when (isNaN w || isInfinite w) $
+            Left ("the weight of '" <> variable <> "' is " <> showT w <> ", which is not a number a score can use")
+    numberWritten NormalizationOf _ Nothing = Right ()
+    numberWritten WeightOf _ Nothing = Right ()
+
+    multiplier :: Double -> Either Text ()
+    multiplier m =
+        when (m == 0 || isNaN m || isInfinite m) $
+            Left ("the display multiplier is " <> showT m <> ", which shows no score")
 
 {- | The one category an identifier names. Two categories under one identifier
 would make a line mean two things, so that is a refusal too.
@@ -410,6 +495,7 @@ opName = \case
     RenameCategory{} -> "rename-category"
     SetCategoryUnit{} -> "set-category-unit"
     RemoveCategory{} -> "remove-category"
+    ChangeScoringSet{} -> "change-scoring-set"
 
 -- | The one category a line names, when it names one: what a change answers with.
 opCategory :: MethodOp -> Maybe UUID
@@ -426,6 +512,7 @@ opCategory = \case
     SetGlobalMethods _ _ -> Nothing
     CreateScoringSet _ -> Nothing
     RemoveScoringSet _ -> Nothing
+    ChangeScoringSet{} -> Nothing
 
 -- ---------------------------------------------------------------------------
 -- Codec
@@ -481,6 +568,9 @@ verbFields = \case
     SetCategoryUnit category before after -> ["category" .= UUID.toText category, "before" .= before, "after" .= after]
     RemoveCategory position method regionalization ->
         ["category" .= categoryJSON method, "position" .= position] <> regionalizationFields regionalization
+    -- "set" names the set here, where a creation or a removal carries it whole.
+    ChangeScoringSet name gesture changes ->
+        ["set" .= name, "gesture" .= gestureJSON gesture, "changes" .= map changeJSON (NE.toList changes)]
   where
     opValue :: PatchOp -> [Pair]
     opValue = \case
@@ -502,6 +592,12 @@ parseVerb o = \case
     "rename-category" -> RenameCategory <$> category <*> o .: "before" <*> o .: "after"
     "set-category-unit" -> SetCategoryUnit <$> category <*> o .: "before" <*> o .: "after"
     "remove-category" -> RemoveCategory <$> o .: "position" <*> (o .: "category" >>= parseCategory) <*> regionalization
+    "change-scoring-set" -> do
+        changes <- o .: "changes" >>= traverse parseChange
+        ChangeScoringSet
+            <$> o .: "set"
+            <*> (o .: "gesture" >>= parseGesture)
+            <*> maybe (fail "a change to a scoring set changes something") pure (NE.nonEmpty changes)
     other -> fail ("unknown method journal operation: " <> T.unpack other)
   where
     category :: Parser UUID
@@ -627,6 +723,135 @@ parseRestore = withObject "restored factor" $ \o ->
         <*> (o .: "factor" >>= parseFactor)
         <*> o .: "value"
 
+{- | The words of one change: a set or remove verb for each entry, as the
+change writes a value or takes one away. A removal says what it removed; a
+setting says what it writes, but for the display multiplier, whose absence is
+one.
+-}
+changeJSON :: ScoringChange -> Value
+changeJSON = \case
+    SetText entry key before after ->
+        object (verbOf (textVerbs entry) after <> [textKeyField entry .= key] <> values before after)
+    SetNumber entry key before after ->
+        object (verbOf (numberVerbs entry) after <> ["variable" .= key] <> values (Exact <$> before) (Exact <$> after))
+    RenameSet before after -> object ["verb" .= ("rename-scoring-set" :: Text), "before" .= before, "after" .= after]
+    SetUnitOfSet before after -> object ["verb" .= ("set-scoring-unit" :: Text), "before" .= before, "after" .= after]
+    SetDisplayMultiplier before after -> object (("verb" .= ("set-display-multiplier" :: Text)) : values (Exact <$> before) (Exact <$> after))
+  where
+    verbOf :: (Text, Text) -> Maybe a -> [Pair]
+    verbOf (set, remove) after = ["verb" .= maybe remove (const set) after]
+
+    values :: (ToJSON a) => Maybe a -> Maybe a -> [Pair]
+    values before after = maybe [] (\b -> ["before" .= b]) before <> maybe [] (\a -> ["after" .= a]) after
+
+parseChange :: Value -> Parser ScoringChange
+parseChange = withObject "scoring set change" $ \o -> do
+    verb <- o .: "verb"
+    let texts = [(entry, settingOf (textVerbs entry) verb) | entry <- [minBound .. maxBound]]
+        numbers = [(entry, settingOf (numberVerbs entry) verb) | entry <- [minBound .. maxBound]]
+    case (verb :: Text, [(e, w) | (e, Just w) <- texts], [(e, w) | (e, Just w) <- numbers]) of
+        ("rename-scoring-set", _, _) -> RenameSet <$> o .: "before" <*> o .: "after"
+        ("set-scoring-unit", _, _) -> SetUnitOfSet <$> o .: "before" <*> o .: "after"
+        ("set-display-multiplier", _, _) -> SetDisplayMultiplier <$> (fmap exact <$> o .:? "before") <*> (fmap exact <$> o .:? "after")
+        (_, [(entry, setting)], []) -> do
+            (before, after) <- valued o setting
+            key <- o .: textKeyField entry
+            pure (SetText entry key before after)
+        (_, [], [(entry, setting)]) -> do
+            (before, after) <- valued o setting
+            key <- o .: "variable"
+            pure (SetNumber entry key (exact <$> before) (exact <$> after))
+        _ -> fail ("unknown scoring set change: " <> T.unpack verb)
+  where
+    settingOf :: (Text, Text) -> Text -> Maybe Setting
+    settingOf (set, remove) verb
+        | verb == set = Just Setting
+        | verb == remove = Just Removing
+        | otherwise = Nothing
+
+    valued :: (FromJSON a) => Object -> Setting -> Parser (Maybe a, Maybe a)
+    valued o setting = do
+        before <- o .:? "before"
+        after <- o .:? "after"
+        case (setting, before, after) of
+            (Setting, _, Just _) -> pure (before, after)
+            (Setting, _, Nothing) -> fail "a setting writes a value"
+            (Removing, Just _, Nothing) -> pure (before, Nothing)
+            (Removing, Nothing, _) -> fail "a removal says what it removed"
+            (Removing, Just _, Just _) -> fail "a removal writes no value"
+
+{- | A number as a journal writes it. JSON has no infinity, and aeson writes
+one as null, which reads back as another value; a set translated from a file
+holds one (a normalization the file writes as zero), so it is spelt out.
+-}
+newtype Exact = Exact {exact :: Double}
+
+instance ToJSON Exact where
+    toJSON (Exact d)
+        | isNaN d = String "NaN"
+        | isInfinite d = String (if d > 0 then "Infinity" else "-Infinity")
+        | otherwise = toJSON d
+
+instance FromJSON Exact where
+    parseJSON = \case
+        String "Infinity" -> pure (Exact (1 / 0))
+        String "-Infinity" -> pure (Exact (-1 / 0))
+        String "NaN" -> pure (Exact (0 / 0))
+        v -> Exact <$> parseJSON v
+
+-- | Whether a change's verb writes a value or takes one away.
+data Setting = Setting | Removing
+
+textVerbs :: TextEntry -> (Text, Text)
+textVerbs = \case
+    CategoryOf -> ("set-variable", "remove-variable")
+    FormulaOf -> ("set-formula", "remove-computed")
+    LabelOf -> ("set-label", "remove-label")
+    VariableUnitOf -> ("set-variable-unit", "remove-variable-unit")
+    ScoreOf -> ("set-score", "remove-score")
+
+textKeyField :: TextEntry -> Key
+textKeyField = \case
+    ScoreOf -> "score"
+    CategoryOf -> "variable"
+    FormulaOf -> "variable"
+    LabelOf -> "variable"
+    VariableUnitOf -> "variable"
+
+numberVerbs :: NumberEntry -> (Text, Text)
+numberVerbs = \case
+    NormalizationOf -> ("set-normalization", "remove-normalization")
+    WeightOf -> ("set-weight", "remove-weight")
+
+gestureJSON :: ScoringGesture -> Value
+gestureJSON = \case
+    AddedRow label -> object ["kind" .= ("added-row" :: Text), "label" .= label]
+    ChangedRow label -> object ["kind" .= ("changed-row" :: Text), "label" .= label]
+    RemovedRow label -> object ["kind" .= ("removed-row" :: Text), "label" .= label]
+    RenamedSet before after -> object ["kind" .= ("renamed-set" :: Text), "before" .= before, "after" .= after]
+    SetUnitTo before after -> object ["kind" .= ("set-unit" :: Text), "before" .= before, "after" .= after]
+    SetMultiplierTo before after ->
+        object (("kind" .= ("set-multiplier" :: Text)) : maybe [] (\b -> ["before" .= b]) before <> maybe [] (\a -> ["after" .= a]) after)
+    WroteFormula name -> object ["kind" .= ("wrote-formula" :: Text), "name" .= name]
+    AddedScore name -> object ["kind" .= ("added-score" :: Text), "name" .= name]
+    ChangedScore name -> object ["kind" .= ("changed-score" :: Text), "name" .= name]
+    RemovedScore name -> object ["kind" .= ("removed-score" :: Text), "name" .= name]
+
+parseGesture :: Value -> Parser ScoringGesture
+parseGesture = withObject "gesture" $ \o ->
+    o .: "kind" >>= \case
+        "added-row" -> AddedRow <$> o .: "label"
+        "changed-row" -> ChangedRow <$> o .: "label"
+        "removed-row" -> RemovedRow <$> o .: "label"
+        "renamed-set" -> RenamedSet <$> o .: "before" <*> o .: "after"
+        "set-unit" -> SetUnitTo <$> o .: "before" <*> o .: "after"
+        "set-multiplier" -> SetMultiplierTo <$> o .:? "before" <*> o .:? "after"
+        "wrote-formula" -> WroteFormula <$> o .: "name"
+        "added-score" -> AddedScore <$> o .: "name"
+        "changed-score" -> ChangedScore <$> o .: "name"
+        "removed-score" -> RemovedScore <$> o .: "name"
+        other -> fail ("unknown scoring set gesture: " <> T.unpack (other :: Text))
+
 {- | A scoring set, without its origin: a set read back from a journal is one
 the journal created, whatever wrote the line.
 -}
@@ -638,12 +863,12 @@ scoringSetJSON s =
         , "variables" .= ssVariables s
         , "computed" .= ssComputed s
         , "labels" .= ssLabels s
-        , "normalization" .= ssNormalization s
-        , "weighting" .= ssWeighting s
+        , "normalization" .= M.map Exact (ssNormalization s)
+        , "weighting" .= M.map Exact (ssWeighting s)
         , "scores" .= ssScores s
         , "units" .= ssUnits s
         ]
-            <> maybe [] (\m -> ["display-multiplier" .= m]) (ssDisplayMultiplier s)
+            <> maybe [] (\m -> ["display-multiplier" .= Exact m]) (ssDisplayMultiplier s)
 
 parseScoringSet :: Value -> Parser ScoringSet
 parseScoringSet = withObject "scoring set" $ \o ->
@@ -653,9 +878,9 @@ parseScoringSet = withObject "scoring set" $ \o ->
         <*> o .: "variables"
         <*> o .: "computed"
         <*> o .: "labels"
-        <*> o .: "normalization"
-        <*> o .: "weighting"
+        <*> (M.map exact <$> o .: "normalization")
+        <*> (M.map exact <$> o .: "weighting")
         <*> o .: "scores"
-        <*> o .:? "display-multiplier"
+        <*> (fmap exact <$> o .:? "display-multiplier")
         <*> o .: "units"
         <*> pure CreatedInJournal

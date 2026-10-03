@@ -46,7 +46,7 @@ import API.DatabaseHandlers (
     uploadRefData,
  )
 import API.MCP (callTool, noRequestId, toolDefinitions)
-import API.MethodEditHandlers (copyMethodCollectionHandler, editMethodCategoriesHandler, editMethodFactorsHandler, methodHistoryHandler, undoMethodEditHandler)
+import API.MethodEditHandlers (copyMethodCollectionHandler, editMethodCategoriesHandler, editMethodFactorsHandler, editScoringSetsHandler, methodHistoryHandler, undoMethodEditHandler)
 import API.Resources (Resource (..), allResources, resourceMutates)
 import API.Routes (getHosting, loadMethodCollectionHandler, unloadMethodCollectionHandler)
 import API.Types (
@@ -59,6 +59,8 @@ import API.Types (
     FactorEditOp (..),
     FactorEditRequest (..),
     RelinkRequest (..),
+    ScoringEditOp (..),
+    ScoringEditRequest (..),
  )
 import App.Env (AppEnv (..), runApp)
 import Config (HostingConfig (..), ReadOnly (..), defaultConfig, hostingReadOnly, readOnlyRefusal, readOnlyRefusalFor)
@@ -134,6 +136,7 @@ mutatingHandlers =
     , ("copy-method", run (copyMethodCollectionHandler "nope" "nope-copy"))
     , ("edit-method-factors", run (editMethodFactorsHandler "nope" (FactorEditRequest SetOne Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)))
     , ("edit-method-categories", run (editMethodCategoriesHandler "nope" (CategoryEditRequest AddCategoryOp Nothing (Just "x") (Just "kg") Nothing Nothing)))
+    , ("edit-scoring-sets", run (editScoringSetsHandler "nope" (ScoringEditRequest RemoveSetOp "x" Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)))
     , ("undo-method-edit", run (undoMethodEditHandler "nope" Nothing))
     ]
   where
@@ -207,7 +210,7 @@ spec = do
 
     describe "Resource registry" $
         it "counts exactly the operations that change shared state as mutations" $
-            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, CopyMethodCollection, EditMethodFactors, EditMethodCategories, UndoMethodEdit]
+            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
 
     describe "REST handlers under read_only" $ do
         it "refuse every mutating endpoint with 403" $

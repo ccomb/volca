@@ -104,6 +104,7 @@ data Resource
     | CopyMethodCollection
     | EditMethodFactors
     | EditMethodCategories
+    | EditMethodScoringSets
     | UndoMethodEdit
     | GetMethodHistory
     | SearchMethodFlows
@@ -198,6 +199,7 @@ resourceMutates r = case r of
     CopyMethodCollection -> True
     EditMethodFactors -> True
     EditMethodCategories -> True
+    EditMethodScoringSets -> True
     UndoMethodEdit -> True
     GetMethodHistory -> False
     SearchMethodFlows -> False
@@ -263,6 +265,7 @@ resourceNeeds r = case r of
     CopyMethodCollection -> Nothing
     EditMethodFactors -> Nothing
     EditMethodCategories -> Nothing
+    EditMethodScoringSets -> Nothing
     UndoMethodEdit -> Nothing
     GetMethodHistory -> Nothing
     SearchMethodFlows -> Nothing
@@ -323,7 +326,7 @@ apiPath r = case r of
     ProfileMethodCollection -> Just (GET, ["method-collections", "{collection}", "profile"])
     ScoreActivity -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "impacts", "{collection}"])
     ScoreActivities -> Just (POST, ["db", "{dbName}", "impacts", "{collection}"])
-    ListScoringSets -> Nothing -- MCP-only: scoring sets are configuration metadata, no REST equivalent yet
+    ListScoringSets -> Just (GET, ["method-collections", "{collection}", "scoring-sets"])
     GetGapReport -> Just (GET, ["db", "{dbName}", "gap-report"])
     GetQualityReport -> Just (GET, ["db", "{dbName}", "quality-report"])
     GetComputedQualityReport -> Just (GET, ["db", "{dbName}", "computed-quality-report"])
@@ -332,6 +335,7 @@ apiPath r = case r of
     CopyMethodCollection -> Just (POST, ["method-collections", "{collection}", "copy", "{newName}"])
     EditMethodFactors -> Just (POST, ["method-collections", "{collection}", "factors"])
     EditMethodCategories -> Just (POST, ["method-collections", "{collection}", "categories"])
+    EditMethodScoringSets -> Just (POST, ["method-collections", "{collection}", "scoring-sets"])
     UndoMethodEdit -> Just (POST, ["method-collections", "{collection}", "undo"])
     GetMethodHistory -> Just (GET, ["method-collections", "{collection}", "history"])
     SearchMethodFlows -> Just (GET, ["method-collections", "{collection}", "flows"])
@@ -394,6 +398,7 @@ mcpName r = case r of
     CopyMethodCollection -> "copy_method_collection"
     EditMethodFactors -> "edit_method_factors"
     EditMethodCategories -> "edit_method_categories"
+    EditMethodScoringSets -> "edit_scoring_sets"
     UndoMethodEdit -> "undo_method_edit"
     GetMethodHistory -> "get_method_history"
     SearchMethodFlows -> "search_method_flows"
@@ -767,8 +772,12 @@ description r = case r of
         \intermediates, display labels (variable → human-readable indicator \
         \name shown in score breakdowns), normalization and weighting \
         \factors, and the score \
-        \formulas. Use the returned set names as keys when interpreting \
-        \score_activity / score_activities responses."
+        \formulas; and the same set read as 'rows' (each a label, the \
+        \categories it groups with their coefficient or a formula, its \
+        \normalization and weight) with 'sum_of_rows', the scores that add \
+        \up the rows, which a new row joins. Use the returned set names as \
+        \keys when interpreting score_activity / score_activities responses, \
+        \and the rows' variables when changing a set with edit_scoring_sets."
     GetGapReport ->
         "LCA / ACV: supplier-gap report of a database: every input demand \
         \still unsupplied after internal resolution and cross-database \
@@ -889,6 +898,22 @@ description r = case r of
         \category. A name already in use is refused, and so is removing a \
         \category a scoring set weighs, naming the set. The response gives \
         \the journal line and the category's method_id."
+    EditMethodScoringSets ->
+        "LCA / ACV: change the scoring sets of a loaded collection of one's \
+        \own (a copy or an upload), each named by 'set'. 'op' says what: \
+        \'create' a set from 'rows' (and optionally 'unit'), 'remove' it, \
+        \'rename' it to 'name', 'set-unit' to 'unit', 'set-multiplier' to \
+        \'multiplier' (none drops it); 'add-row' a 'row', 'change-row' or \
+        \'remove-row' the row of 'variable' (from list_scoring_sets); \
+        \'set-formula' of an existing computed 'variable'; 'set-score' a \
+        \'score' to a 'formula', or 'remove-score'. A row is {label, terms: \
+        \[{methodId, coefficient}], normalization, weight, unit}, its \
+        \categories named by method_id (from list_methods). A row with a \
+        \weight joins the score that sums the rows; a score written \
+        \otherwise is left as it is. A formula naming nothing the set \
+        \holds, a cycle, a normalization of zero, and a row removed while \
+        \a score reads it otherwise are refused, in a sentence. The \
+        \response gives the journal line; undo_method_edit undoes it whole."
     UndoMethodEdit ->
         "LCA / ACV: undo a change to a collection of one's own, by writing its \
         \inverse as a new journal line. Without 'line', undoes the latest \
@@ -1332,6 +1357,19 @@ params r = case r of
         , Param "unit" "string" Optional "The category's unit, for add and set-unit"
         , Param "impact_category" "string" Optional "The impact category a new one belongs to; its name when absent"
         , Param "methodology" "string" Optional "The methodology of a new category"
+        ]
+    EditMethodScoringSets ->
+        [ Param "collection" "string" Required "Loaded method collection of one's own: a copy or an upload"
+        , Param "op" "string" Required "create, remove, rename, set-unit, set-multiplier, add-row, change-row, remove-row, set-formula, set-score or remove-score"
+        , Param "set" "string" Required "The scoring set (from list_scoring_sets); for create, the new set's name"
+        , Param "name" "string" Optional "The set's new name, for rename"
+        , Param "unit" "string" Optional "The set's unit, for create and set-unit"
+        , Param "multiplier" "number" Optional "The display multiplier, for set-multiplier; absent to drop it"
+        , Param "variable" "string" Optional "The row or computed variable (from list_scoring_sets), for change-row, remove-row and set-formula"
+        , Param "formula" "string" Optional "The formula, for set-formula and set-score"
+        , Param "score" "string" Optional "The score's name, for set-score and remove-score"
+        , Param "row" "object" Optional "The row, for add-row and change-row: {label, terms: [{methodId, coefficient}], normalization, weight, unit}"
+        , Param "rows" "array" Optional "The rows of a new set, for create"
         ]
     UndoMethodEdit ->
         [ Param "collection" "string" Required "Loaded method collection of one's own"

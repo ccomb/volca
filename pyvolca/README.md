@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 44** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 45** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -423,6 +423,12 @@ Add a characterization factor to a category of a collection of your own.
 Refused when a factor is already written for that flow at that place:
 change its value with `set_method_factor` instead.
 
+##### `Client.add_scoring_row(collection: str, set_name: str, row: ScoringRow) -> dict`
+
+Add a row to a scoring set; with a weight, it joins the score that adds up the rows.
+
+A score written otherwise is left as it is. A label already in use is refused.
+
 ##### `Client.aggregate(process_id: str, scope: AggregateScope | str, *, is_input: bool | None = None, max_depth: int | None = None, filter_name: str | None = None, filter_name_not: list[str] | str | None = None, filter_unit: str | None = None, preset: str | None = None, filter_classification: list[ClassificationFilter] | None = None, filter_target_name: str | None = None, filter_consumer: str | None = None, filter_consumer_not: list[str] | str | None = None, filter_is_reference: bool | None = None, group_by: str | None = None, aggregate: AggregateOp | str | None = None) -> AggregateResult`
 
 SQL-group-by aggregation over direct exchanges, supply chain, or biosphere flows.
@@ -465,6 +471,10 @@ Escape hatch: call any OpenAPI operation by operationId.
 Returns the raw JSON (no dataclass wrapping). Use this for
 operations that don't have an ergonomic wrapper yet, or for new
 endpoints added after the installed pyvolca was released.
+
+##### `Client.change_scoring_row(collection: str, set_name: str, variable: str, row: ScoringRow) -> dict`
+
+Make the row of ``variable`` (from `scoring_sets`) the row given.
 
 ##### `Client.compare_activities(process_id: str, other_process_id: str, *, other_database: str | None = None) -> ActivityComparison`
 
@@ -576,6 +586,14 @@ carries what the engine wants you to know but would not refuse over
 Needs an engine speaking wire revision 5 (the routes do not exist
 before it, and an absent route is a 404 that reads exactly like a
 misspelled database name).
+
+##### `Client.create_scoring_set(collection: str, name: str, rows: list[ScoringRow], *, unit: str | None = None) -> dict`
+
+Create a scoring set in a collection of your own, from its rows.
+
+Its ``Single score`` adds up the rows that have a weight. ``unit`` is
+``Pt`` when not given. Every change to a set is one journal line,
+undone whole with `undo_method_edit`.
 
 ##### `Client.delete_activities(*, name: str = '', location: str = '', product: str = '', classifications: list[dict | tuple] | None = None, exact: bool = False, keep: list[str] | None = None, extra: list[str] | None = None, ids: list[str] | None = None, db_name: str | None = None) -> dict`
 
@@ -1169,12 +1187,28 @@ Remove one characterization factor of a collection of your own.
 
 Named as in `set_method_factor`, and refused on the same grounds.
 
+##### `Client.remove_score(collection: str, set_name: str, score: str) -> dict`
+
+Remove a score of a scoring set.
+
+##### `Client.remove_scoring_row(collection: str, set_name: str, variable: str) -> dict`
+
+Remove the row of ``variable``, refused while a score reads it other than as a sum of rows.
+
+##### `Client.remove_scoring_set(collection: str, name: str) -> dict`
+
+Remove a scoring set of a collection of your own.
+
 ##### `Client.rename_method_category(collection: str, method_id: str, name: str) -> dict`
 
 Rename an impact category of a collection of your own.
 
 The scoring sets and the unregionalized categories naming it follow,
 so they keep scoring it. A name already in use is refused.
+
+##### `Client.rename_scoring_set(collection: str, name: str, new_name: str) -> dict`
+
+Rename a scoring set of a collection of your own.
 
 ##### `Client.replace_activity(process_id: str, activity: ActivityInput, db_name: str | None = None) -> dict`
 
@@ -1238,6 +1272,21 @@ contributors per category; ``exclude_long_term`` drops long-term
 emissions from the totals. Left without a ``collection``, the call runs
 against the only loaded one, and refuses when several are loaded rather
 than picking one.
+
+##### `Client.scoring_sets(collection: str) -> list[dict]`
+
+The scoring sets of a loaded collection, each read as rows.
+
+Each set gives its ``name``, ``unit`` and ``displayMultiplier``; its
+``rows``, each with the ``variable`` that names it, its ``label``, its
+``terms`` (``RowGrouped`` with the ``categories`` it adds up, each
+with its ``methodId`` and ``coefficient``, or ``RowWritten`` with a
+``formula`` that is no such sum), its ``normalization`` and
+``weight``; its ``scores``, each with its ``formula`` and whether it
+is the ``sumOfRows`` a new row joins; and the ``variables`` a formula
+can read, each with the category it reads or the label of its row.
+
+Needs an engine speaking wire revision 45.
 
 ##### `Client.search_activities(name: str | None = None, *, geo: str | None = None, product: str | None = None, preset: str | None = None, classification: str | None = None, classification_value: str | None = None, classification_match: MatchModeLike | None = None, page: int | None = None, page_size: int | None = None, limit: int | None = None, offset: int | None = None, sort: str | None = None, order: str | None = None, exact: bool = False) -> SearchResults[Activity]`
 
@@ -1371,6 +1420,22 @@ recording the change, and the factor's value before and after.
 ##### `Client.set_method_factors(collection: str, match: FactorMatch, value: float) -> dict`
 
 Set to ``value`` every factor ``match`` reaches, refused as `scale_method_factors` is.
+
+##### `Client.set_score(collection: str, set_name: str, score: str, formula: str) -> dict`
+
+Add a score to a scoring set, or write its formula.
+
+##### `Client.set_scoring_formula(collection: str, set_name: str, variable: str, formula: str) -> dict`
+
+Write the formula of a computed ``variable``, refused when it names nothing the set holds.
+
+##### `Client.set_scoring_set_multiplier(collection: str, name: str, multiplier: float | None) -> dict`
+
+Set the multiplier a scoring set's values are shown with, or drop it with ``None``.
+
+##### `Client.set_scoring_set_unit(collection: str, name: str, unit: str) -> dict`
+
+Change the unit a scoring set's scores are expressed in.
 
 ##### `Client.undo_method_edit(collection: str, *, line: int | None = None) -> dict`
 
@@ -2517,7 +2582,9 @@ engine TOML (PEF, ECS, or any named set).
 breakdown of each scoring set, already multiplied by the set's
 ``displayMultiplier`` and expressed in its display unit (see
 `ScoringIndicator`). Lets callers render per-indicator charts
-alongside the aggregate ``scoring_results``.
+alongside the aggregate ``scoring_results``. ``scoring_rows`` gives
+the same for every row of each set as `Client.scoring_sets` reads
+it, a row no score reads among them, its ``category`` the row's label.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -2529,6 +2596,7 @@ alongside the aggregate ``scoring_results``.
 | `scoring_results` | `dict[str, dict[str, float]]` | dict() |
 | `scoring_units` | `dict[str, str]` | dict() |
 | `scoring_indicators` | `dict[str, dict[str, ScoringIndicator]]` | dict() |
+| `scoring_rows` | `dict[str, dict[str, ScoringIndicator]]` | dict() |
 | `withheld` | `list[str]` | list() |
 
 ### `LCIAResult`
@@ -2676,6 +2744,23 @@ characterizes.
 | `compartment` | `tuple[str, str, str] \| None` | None |
 | `cas` | `str \| None` | None |
 | `location` | `str \| None` | None |
+
+### `ScoringRow`
+
+A row of a scoring set: the categories it groups, each by its
+``method_id`` times a coefficient, under a label, with a normalization
+(a divisor) and a weight.
+
+A row with a weight joins the score that adds up the rows. A row groups
+at least one category.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `label` | `str` | _required_ |
+| `terms` | `dict[str, float]` | _required_ |
+| `normalization` | `float \| None` | None |
+| `weight` | `float \| None` | None |
+| `unit` | `str \| None` | None |
 
 ### `ReadLocation`
 

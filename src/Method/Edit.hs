@@ -18,6 +18,7 @@ module Method.Edit (
     EditOutcome (..),
     editMethodFactors,
     editMethodCategories,
+    editScoringSets,
     undoMethodEdit,
     HistoryLine (..),
     methodHistory,
@@ -56,6 +57,7 @@ import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
 import Method.EditPlan (CategoryEdit, EditEffect, FactorEdit, Undo (..), blockedUndo, inEffect, inverseOf, planCategoryEdit, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
 import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMethodOp, opCategory, replayMethodJournal)
+import Method.ScoringEdit (ScoringEdit, planScoringEdit)
 import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
 import Types (AllocationKey (..), Licence (..))
@@ -201,6 +203,10 @@ editMethodCategories :: DatabaseManager -> Text -> CategoryEdit -> IO (Either Me
 editMethodCategories manager name edit = do
     fresh <- nextRandom
     editWith manager name (\collection -> planCategoryEdit fresh collection edit)
+
+-- | A change to one of a collection's scoring sets, recorded as one line.
+editScoringSets :: DatabaseManager -> Text -> ScoringEdit -> IO (Either MethodEditRefusal EditOutcome)
+editScoringSets manager name edit = editWith manager name (`planScoringEdit` edit)
 
 {- | Change a loaded collection of one's own, and record the change where a
 later load finds it again.

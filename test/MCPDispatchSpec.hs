@@ -225,6 +225,21 @@ spec = describe "MCP database load/unload tools" $ do
                 isError unknown `shouldBe` True
                 resultText unknown `shouldSatisfy` maybe False ("label" `T.isInfixOf`)
 
+        it "create a scoring set on a copy, which list_scoring_sets reads back as rows summed into its single score" $
+            withScratchDataDir $ do
+                manager <- initDatabaseManager defaultConfig NoCache
+                let tool name = callTool manager [] Nothing Nothing noRequestId name . KM.fromList
+                _ <- tool "copy_method_collection" [("collection", String "plain-indicators"), ("new_name", String "copy")]
+                collection <- getMethodCollection manager "copy"
+                case [methodId m | m <- maybe [] mcMethods collection, methodName m == "Methane"] of
+                    [category] -> do
+                        let row = fromMaybe Null (decodeStrict (encodeUtf8 ("{\"label\":\"Gas\",\"terms\":[{\"methodId\":\"" <> UUID.toText category <> "\",\"coefficient\":1}],\"weight\":1}")))
+                        created <- tool "edit_scoring_sets" [("collection", String "copy"), ("op", String "create"), ("set", String "Mine"), ("rows", Array (pure row))]
+                        isError created `shouldBe` False
+                        listed <- tool "list_scoring_sets" [("collection", String "copy")]
+                        resultText listed `shouldSatisfy` maybe False (\t -> all (`T.isInfixOf` t) ["\"rows\"", "\"Gas\"", "\"sum_of_rows\":[\"Single score\"]"])
+                    found -> expectationFailure ("expected one Methane category, found " <> show (length found))
+
     describe "gap-report tool" $ do
         it "is advertised with a required 'database' parameter" $
             fmap requiredOf (toolByName "get_gap_report") `shouldBe` Just ["database"]

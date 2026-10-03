@@ -74,6 +74,7 @@ from .types import (
     ExchangeSelector,
     ExplainCFResult,
     FactorMatch,
+    ScoringRow,
     Flow,
     FlowDetail,
     FlowMapping,
@@ -1307,6 +1308,91 @@ class Client:
         :meth:`undo_method_edit`, which puts it back with its factors.
         """
         return self._edit_method_categories("remove_method_category", collection, {"op": "remove", "methodId": method_id})
+
+    def scoring_sets(self, collection: str) -> list[dict]:
+        """The scoring sets of a loaded collection, each read as rows.
+
+        Each set gives its ``name``, ``unit`` and ``displayMultiplier``; its
+        ``rows``, each with the ``variable`` that names it, its ``label``, its
+        ``terms`` (``RowGrouped`` with the ``categories`` it adds up, each
+        with its ``methodId`` and ``coefficient``, or ``RowWritten`` with a
+        ``formula`` that is no such sum), its ``normalization`` and
+        ``weight``; its ``scores``, each with its ``formula`` and whether it
+        is the ``sumOfRows`` a new row joins; and the ``variables`` a formula
+        can read, each with the category it reads or the label of its row.
+
+        Needs an engine speaking wire revision 45.
+        """
+        self._require_wire(45, "scoring_sets", engine_hint="0.15.0")
+        return self._json(self._session.get(self._method_collection_url(collection, "scoring-sets")))
+
+    def _edit_scoring_sets(self, feature: str, collection: str, body: dict) -> dict:
+        self._require_wire(45, feature, engine_hint="0.15.0")
+        return self._json(self._session.post(self._method_collection_url(collection, "scoring-sets"), json=_drop_none(body)))
+
+    def create_scoring_set(self, collection: str, name: str, rows: list[ScoringRow], *, unit: str | None = None) -> dict:
+        """Create a scoring set in a collection of your own, from its rows.
+
+        Its ``Single score`` adds up the rows that have a weight. ``unit`` is
+        ``Pt`` when not given. Every change to a set is one journal line,
+        undone whole with :meth:`undo_method_edit`.
+        """
+        return self._edit_scoring_sets(
+            "create_scoring_set",
+            collection,
+            {"op": "create", "set": name, "unit": unit, "rows": [r.to_wire() for r in rows]},
+        )
+
+    def remove_scoring_set(self, collection: str, name: str) -> dict:
+        """Remove a scoring set of a collection of your own."""
+        return self._edit_scoring_sets("remove_scoring_set", collection, {"op": "remove", "set": name})
+
+    def rename_scoring_set(self, collection: str, name: str, new_name: str) -> dict:
+        """Rename a scoring set of a collection of your own."""
+        return self._edit_scoring_sets("rename_scoring_set", collection, {"op": "rename", "set": name, "name": new_name})
+
+    def set_scoring_set_unit(self, collection: str, name: str, unit: str) -> dict:
+        """Change the unit a scoring set's scores are expressed in."""
+        return self._edit_scoring_sets("set_scoring_set_unit", collection, {"op": "set-unit", "set": name, "unit": unit})
+
+    def set_scoring_set_multiplier(self, collection: str, name: str, multiplier: float | None) -> dict:
+        """Set the multiplier a scoring set's values are shown with, or drop it with ``None``."""
+        return self._edit_scoring_sets("set_scoring_set_multiplier", collection, {"op": "set-multiplier", "set": name, "multiplier": multiplier})
+
+    def add_scoring_row(self, collection: str, set_name: str, row: ScoringRow) -> dict:
+        """Add a row to a scoring set; with a weight, it joins the score that adds up the rows.
+
+        A score written otherwise is left as it is. A label already in use is refused.
+        """
+        return self._edit_scoring_sets("add_scoring_row", collection, {"op": "add-row", "set": set_name, "row": row.to_wire()})
+
+    def change_scoring_row(self, collection: str, set_name: str, variable: str, row: ScoringRow) -> dict:
+        """Make the row of ``variable`` (from :meth:`scoring_sets`) the row given."""
+        return self._edit_scoring_sets(
+            "change_scoring_row",
+            collection,
+            {"op": "change-row", "set": set_name, "variable": variable, "row": row.to_wire()},
+        )
+
+    def remove_scoring_row(self, collection: str, set_name: str, variable: str) -> dict:
+        """Remove the row of ``variable``, refused while a score reads it other than as a sum of rows."""
+        return self._edit_scoring_sets("remove_scoring_row", collection, {"op": "remove-row", "set": set_name, "variable": variable})
+
+    def set_scoring_formula(self, collection: str, set_name: str, variable: str, formula: str) -> dict:
+        """Write the formula of a computed ``variable``, refused when it names nothing the set holds."""
+        return self._edit_scoring_sets(
+            "set_scoring_formula",
+            collection,
+            {"op": "set-formula", "set": set_name, "variable": variable, "formula": formula},
+        )
+
+    def set_score(self, collection: str, set_name: str, score: str, formula: str) -> dict:
+        """Add a score to a scoring set, or write its formula."""
+        return self._edit_scoring_sets("set_score", collection, {"op": "set-score", "set": set_name, "score": score, "formula": formula})
+
+    def remove_score(self, collection: str, set_name: str, score: str) -> dict:
+        """Remove a score of a scoring set."""
+        return self._edit_scoring_sets("remove_score", collection, {"op": "remove-score", "set": set_name, "score": score})
 
     def undo_method_edit(self, collection: str, *, line: int | None = None) -> dict:
         """Undo a change, by writing its inverse as a new journal line.
