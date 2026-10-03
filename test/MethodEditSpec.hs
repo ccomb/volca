@@ -9,10 +9,12 @@ import Control.Monad (replicateM_, void)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.UUID (UUID)
 import qualified Data.Vector as V
 import System.Directory (doesFileExist, makeAbsolute)
 import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout (timeout)
 import Test.Hspec
 
@@ -24,6 +26,7 @@ import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Edit
 import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), EditEffect (..), FactorEdit (..), FactorTarget (..))
 import Method.Mapping (MethodIndex (..))
+import Method.Scoring (ScoringRow (..), rowsOf)
 import Method.ScoringEdit (RowDraft (..), ScoringEdit (..))
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import TestHelpers (withScratchDataDir)
@@ -51,8 +54,11 @@ translates to a scoring set, and to which the configuration adds a set
 weighing a variable it does not declare.
 -}
 simaPro :: IO DatabaseManager
-simaPro = do
-    file <- makeAbsolute "test/data/simapro_method.csv"
+simaPro = makeAbsolute "test/data/simapro_method.csv" >>= simaProFrom
+
+-- | The same, from the file given.
+simaProFrom :: FilePath -> IO DatabaseManager
+simaProFrom file = do
     let orphan = ScoringSetConfig "Mine" "Pt" (M.singleton "cc" "Climate change") M.empty M.empty M.empty (M.fromList [("cc", 1), ("ghost", 2)]) M.empty Nothing
         configured =
             Config.MethodConfig
@@ -250,3 +256,42 @@ spec = describe "changing a method collection of one's own" $ do
             water <- categoryNamed start "Water use"
             added <- editScoringSets manager "copy" (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) Nothing (Just 1)))
             fmap eoLine added `shouldBe` Right 2
+
+    it "changes and removes a set holding a normalization its file writes as zero, and loads it back" $
+        withScratchDataDir $
+            withSystemTempDirectory "method" $ \dir -> do
+                source <- TIO.readFile "test/data/simapro_method.csv"
+                let file = dir </> "zero.csv"
+                TIO.writeFile file (T.replace "Water use;8.71937749334747E-5" "Water use;0" source)
+                manager <- simaProFrom file
+                start <- getMethodCollection manager "copy"
+                water <- categoryNamed start "Water use"
+                variable <- case [srVariable r | set <- maybe [] mcScoringSets start, ssName set == "Test NW set", r <- rowsOf set, srLabel r == "Water use"] of
+                    [v] -> pure v
+                    found -> fail ("expected one row Water use, found " <> show found)
+                changed <- editScoringSets manager "copy" (ChangeRow "Test NW set" variable (RowDraft "Water use" Nothing ((water, 1) :| []) (Just 2) (Just 0.0851)))
+                fmap eoLine changed `shouldBe` Right 2
+                edited <- getMethodCollection manager "copy"
+                reloaded manager `shouldReturn` edited
+                undone <- undoMethodEdit manager "copy" (Just 2)
+                fmap eoLine undone `shouldBe` Right 3
+                restored <- getMethodCollection manager "copy"
+                reloaded manager `shouldReturn` restored
+                fmap (map ssNormalization . filter ((== "Test NW set") . ssName) . mcScoringSets) restored
+                    `shouldBe` fmap (map ssNormalization . filter ((== "Test NW set") . ssName) . mcScoringSets) start
+                removed <- editScoringSets manager "copy" (DeleteSet "Test NW set")
+                fmap eoLine removed `shouldBe` Right 4
+                withoutSet <- getMethodCollection manager "copy"
+                reloaded manager `shouldReturn` withoutSet
+
+    it "refuses to undo an added row a later row joined in the same score, naming that line" $
+        withScratchDataDir $ do
+            (manager, methane, _) <- copyWithMethane
+            start <- getMethodCollection manager "copy"
+            water <- categoryNamed start "Water used"
+            co2 <- categoryNamed start "Fossil CO2"
+            _ <- editScoringSets manager "copy" (NewSet "Mine" Nothing [RowDraft "Gas" Nothing ((methane, 1) :| []) Nothing (Just 1)])
+            _ <- editScoringSets manager "copy" (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) Nothing (Just 1)))
+            _ <- editScoringSets manager "copy" (AddRow "Mine" (RowDraft "Carbon" Nothing ((co2, 1) :| []) Nothing (Just 1)))
+            refused <- undoMethodEdit manager "copy" (Just 2)
+            either (T.unpack . refusalText) (const "undone") refused `shouldContain` "undo line 3 first"

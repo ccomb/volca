@@ -46,7 +46,7 @@ module Method.Journal (
 ) where
 
 import Control.Monad (foldM, unless, when, zipWithM)
-import Data.Aeson (FromJSON, Key, Object, ToJSON, Value, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), Key, Object, ToJSON (..), Value (..), object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
 import Data.Bifunctor (first)
 import Data.Containers.ListUtils (nubOrd)
@@ -264,8 +264,10 @@ changeScoringSet name changes collection = do
     textWritten ScoreOf _ _ = Right ()
 
     numberWritten :: NumberEntry -> Text -> Maybe Double -> Either Text ()
+    -- An infinite normalization counts the variable as zero: it is how a
+    -- file's zero normalization reads, and an undo puts it back.
     numberWritten NormalizationOf variable (Just n) =
-        when (n == 0 || isNaN n || isInfinite n) $
+        when (n == 0 || isNaN n || n == -1 / 0) $
             Left ("the normalization of '" <> variable <> "' is " <> showT n <> ", which no score can divide by")
     numberWritten WeightOf variable (Just w) =
         when (isNaN w || isInfinite w) $
@@ -731,10 +733,10 @@ changeJSON = \case
     SetText entry key before after ->
         object (verbOf (textVerbs entry) after <> [textKeyField entry .= key] <> values before after)
     SetNumber entry key before after ->
-        object (verbOf (numberVerbs entry) after <> ["variable" .= key] <> values before after)
+        object (verbOf (numberVerbs entry) after <> ["variable" .= key] <> values (Exact <$> before) (Exact <$> after))
     RenameSet before after -> object ["verb" .= ("rename-scoring-set" :: Text), "before" .= before, "after" .= after]
     SetUnitOfSet before after -> object ["verb" .= ("set-scoring-unit" :: Text), "before" .= before, "after" .= after]
-    SetDisplayMultiplier before after -> object (("verb" .= ("set-display-multiplier" :: Text)) : values before after)
+    SetDisplayMultiplier before after -> object (("verb" .= ("set-display-multiplier" :: Text)) : values (Exact <$> before) (Exact <$> after))
   where
     verbOf :: (Text, Text) -> Maybe a -> [Pair]
     verbOf (set, remove) after = ["verb" .= maybe remove (const set) after]
@@ -750,7 +752,7 @@ parseChange = withObject "scoring set change" $ \o -> do
     case (verb :: Text, [(e, w) | (e, Just w) <- texts], [(e, w) | (e, Just w) <- numbers]) of
         ("rename-scoring-set", _, _) -> RenameSet <$> o .: "before" <*> o .: "after"
         ("set-scoring-unit", _, _) -> SetUnitOfSet <$> o .: "before" <*> o .: "after"
-        ("set-display-multiplier", _, _) -> SetDisplayMultiplier <$> o .:? "before" <*> o .:? "after"
+        ("set-display-multiplier", _, _) -> SetDisplayMultiplier <$> (fmap exact <$> o .:? "before") <*> (fmap exact <$> o .:? "after")
         (_, [(entry, setting)], []) -> do
             (before, after) <- valued o setting
             key <- o .: textKeyField entry
@@ -758,7 +760,7 @@ parseChange = withObject "scoring set change" $ \o -> do
         (_, [], [(entry, setting)]) -> do
             (before, after) <- valued o setting
             key <- o .: "variable"
-            pure (SetNumber entry key before after)
+            pure (SetNumber entry key (exact <$> before) (exact <$> after))
         _ -> fail ("unknown scoring set change: " <> T.unpack verb)
   where
     settingOf :: (Text, Text) -> Text -> Maybe Setting
@@ -777,6 +779,25 @@ parseChange = withObject "scoring set change" $ \o -> do
             (Removing, Just _, Nothing) -> pure (before, Nothing)
             (Removing, Nothing, _) -> fail "a removal says what it removed"
             (Removing, Just _, Just _) -> fail "a removal writes no value"
+
+{- | A number as a journal writes it. JSON has no infinity, and aeson writes
+one as null, which reads back as another value; a set translated from a file
+holds one (a normalization the file writes as zero), so it is spelt out.
+-}
+newtype Exact = Exact {exact :: Double}
+
+instance ToJSON Exact where
+    toJSON (Exact d)
+        | isNaN d = String "NaN"
+        | isInfinite d = String (if d > 0 then "Infinity" else "-Infinity")
+        | otherwise = toJSON d
+
+instance FromJSON Exact where
+    parseJSON = \case
+        String "Infinity" -> pure (Exact (1 / 0))
+        String "-Infinity" -> pure (Exact (-1 / 0))
+        String "NaN" -> pure (Exact (0 / 0))
+        v -> Exact <$> parseJSON v
 
 -- | Whether a change's verb writes a value or takes one away.
 data Setting = Setting | Removing
@@ -842,12 +863,12 @@ scoringSetJSON s =
         , "variables" .= ssVariables s
         , "computed" .= ssComputed s
         , "labels" .= ssLabels s
-        , "normalization" .= ssNormalization s
-        , "weighting" .= ssWeighting s
+        , "normalization" .= M.map Exact (ssNormalization s)
+        , "weighting" .= M.map Exact (ssWeighting s)
         , "scores" .= ssScores s
         , "units" .= ssUnits s
         ]
-            <> maybe [] (\m -> ["display-multiplier" .= m]) (ssDisplayMultiplier s)
+            <> maybe [] (\m -> ["display-multiplier" .= Exact m]) (ssDisplayMultiplier s)
 
 parseScoringSet :: Value -> Parser ScoringSet
 parseScoringSet = withObject "scoring set" $ \o ->
@@ -857,9 +878,9 @@ parseScoringSet = withObject "scoring set" $ \o ->
         <*> o .: "variables"
         <*> o .: "computed"
         <*> o .: "labels"
-        <*> o .: "normalization"
-        <*> o .: "weighting"
+        <*> (M.map exact <$> o .: "normalization")
+        <*> (M.map exact <$> o .: "weighting")
         <*> o .: "scores"
-        <*> o .:? "display-multiplier"
+        <*> (fmap exact <$> o .:? "display-multiplier")
         <*> o .: "units"
         <*> pure CreatedInJournal
