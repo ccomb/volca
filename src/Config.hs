@@ -961,7 +961,7 @@ configKeys =
         ,
             ( "databases"
             , keys $
-                map plain ["name", "displayName", "path", "description", "load", "default", "depends", "deletable", "geography_policy", "allocation", "licence", "downloads"]
+                map plain ["name", "displayName", "path", "description", "load", "default", "depends", "deletable", "geography_policy", "allocation", "licence", "licence_text", "refuses", "attribution", "downloads"]
                     <> [("locationAliases", AcceptsAnything), ("patches", exchangePatch)]
             )
         ,
