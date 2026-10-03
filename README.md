@@ -160,9 +160,18 @@ licence = "CC-BY-4.0"          # the licence it is published under, by SPDX iden
                                # instead of `licence`:
 # licence_text = "..."         #   its text, shown on its setup
 # refuses = ["download"]       #   inventory | scores | download | results | resell |
-                               #   paid-applications. The engine enforces download
-                               #   (export, literature files); the rest is shown as
-                               #   the reader's commitment
+                               #   paid-applications. The engine enforces three:
+                               #   download (export, literature files); inventory
+                               #   (exchange amounts, supply chain, tree, path to a
+                               #   supplier: refused,
+                               #   and an activity names its exchanges without
+                               #   amounts); scores (contributing flows and
+                               #   processes, sensitivity: refused, and a
+                               #   score keeps its total and categories). The rest
+                               #   is shown as the reader's commitment. Each level
+                               #   rebuilds the one above, so refusing scores
+                               #   refuses inventory and download too, and
+                               #   refusing inventory refuses download
 # attribution = true           #   results must name the publisher (the default)
                                # A copy is served under its source's licence; an
                                # upload's owner sets its own with PUT /db/{name}/licence
