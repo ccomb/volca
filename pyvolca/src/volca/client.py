@@ -1260,6 +1260,54 @@ class Client:
             {"op": "set-all", "match": match.to_wire(), "newValue": value},
         )
 
+    def _edit_method_categories(self, feature: str, collection: str, body: dict) -> dict:
+        self._require_wire(43, feature, engine_hint="0.15.0")
+        return self._json(self._session.post(self._method_collection_url(collection, "categories"), json=_drop_none(body)))
+
+    def add_method_category(
+        self,
+        collection: str,
+        name: str,
+        unit: str,
+        *,
+        impact_category: str | None = None,
+        methodology: str | None = None,
+    ) -> dict:
+        """Add an impact category to a collection of your own.
+
+        It starts with no factor: add them with :meth:`add_method_factor`,
+        naming the category by the ``methodId`` the answer gives. A name
+        already in use is refused. ``impact_category`` is the name when not
+        given.
+
+        Needs an engine speaking wire revision 43.
+        """
+        return self._edit_method_categories(
+            "add_method_category",
+            collection,
+            {"op": "add", "name": name, "unit": unit, "impactCategory": impact_category, "methodology": methodology},
+        )
+
+    def rename_method_category(self, collection: str, method_id: str, name: str) -> dict:
+        """Rename an impact category of a collection of your own.
+
+        The scoring sets and the unregionalized categories naming it follow,
+        so they keep scoring it. A name already in use is refused.
+        """
+        return self._edit_method_categories("rename_method_category", collection, {"op": "rename", "methodId": method_id, "name": name})
+
+    def set_method_category_unit(self, collection: str, method_id: str, unit: str) -> dict:
+        """Change the unit an impact category of a collection of your own is expressed in."""
+        return self._edit_method_categories("set_method_category_unit", collection, {"op": "set-unit", "methodId": method_id, "unit": unit})
+
+    def remove_method_category(self, collection: str, method_id: str) -> dict:
+        """Remove an impact category of a collection of your own, with its factors.
+
+        Refused while a scoring set weighs it, naming the set. Undone with
+        :meth:`undo_method_edit`, which puts it back with its factors.
+        """
+        return self._edit_method_categories("remove_method_category", collection, {"op": "remove", "methodId": method_id})
+
     def undo_method_edit(self, collection: str, *, line: int | None = None) -> dict:
         """Undo a change, by writing its inverse as a new journal line.
 

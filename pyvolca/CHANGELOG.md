@@ -30,6 +30,11 @@ Then paste the rendered block at the top of this file and tighten wording.
   `method_history` reads the journal of changes and `search_method_flows` the
   flows a collection characterizes, to name a new factor's flow. They need wire
   revision 42 (engine 0.15.0).
+- Change a collection's impact categories: `add_method_category` adds one
+  (with no factor yet), `rename_method_category` renames one (the scoring sets
+  naming it follow), `set_method_category_unit` changes its unit and
+  `remove_method_category` removes it with its factors. They need wire revision
+  43 (engine 0.15.0).
 
 ### Deprecated
 
