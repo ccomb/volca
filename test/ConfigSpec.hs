@@ -33,6 +33,7 @@ import Config (
     redirectIntoDataDir,
     refDataDecoder,
     resolveConfigPaths,
+    termsOf,
     unknownKeys,
     validateConfig,
     withBuiltins,
@@ -49,7 +50,7 @@ import System.FilePath (normalise)
 import TOML (getArrayOf, getFieldWith)
 import qualified TOML
 import Test.Hspec
-import Types (ClassificationFilter (..), ClassificationMatch (..), PatchOp (..))
+import Types (ClassificationFilter (..), ClassificationMatch (..), Downloads (..), PatchOp (..), Terms (..), openTerms)
 
 serverOn :: Text -> ServerConfig
 serverOn host =
@@ -384,6 +385,51 @@ spec = do
                     dcPatches source `shouldNotBe` []
                     map dcPatches (withSourcePatches [source, derived, copy, upload])
                         `shouldBe` [dcPatches source, dcPatches source, dcPatches source, []]
+
+    describe "DatabaseConfig terms" $ do
+        let decodeDatabase t = TOML.decode t :: Either TOML.TOMLError DatabaseConfig
+            entry extra = T.unlines (["name = \"src\"", "path = \"src.csv\""] ++ extra)
+            refused = Terms{termsLicence = Just "Members only", termsDownloads = DownloadsRefused}
+
+        it "allows downloads when the entry says nothing" $
+            fmap dcTerms (decodeDatabase (entry [])) `shouldBe` Right openTerms
+
+        it "reads the licence and a refusal" $
+            fmap dcTerms (decodeDatabase (entry ["licence = \"Members only\"", "downloads = \"refused\""]))
+                `shouldBe` Right refused
+
+        -- A refusal misread as allowed would hand out the copies it refused.
+        it "rejects a downloads value it cannot read" $
+            case decodeDatabase (entry ["downloads = \"no\""]) of
+                Left _ -> pure ()
+                Right _ -> expectationFailure "expected a decode error for an unknown downloads value"
+
+        it "serves a copy, and a copy of it, under the terms of the database whose files they read" $
+            case decodeDatabase (entry ["downloads = \"refused\""]) of
+                Left e -> expectationFailure (show e)
+                Right source -> do
+                    let copy = source{dcName = "copy", dcIsUploaded = True, dcSource = Just "src", dcTerms = openTerms}
+                        copyOfCopy = copy{dcName = "copy2", dcSource = Just "copy"}
+                        configs = M.fromList [(dcName c, c) | c <- [source, copy, copyOfCopy]]
+                    map (termsDownloads . termsOf configs) [copy, copyOfCopy] `shouldBe` [DownloadsRefused, DownloadsRefused]
+
+        it "reads terms changed since a loaded database took its copy of the config" $
+            case decodeDatabase (entry []) of
+                Left e -> expectationFailure (show e)
+                Right held ->
+                    termsOf (M.singleton "src" held{dcTerms = refused}) held `shouldBe` refused
+
+        it "keeps a copy's own terms when its source is gone, and stops on a loop" $
+            case decodeDatabase (entry []) of
+                Left e -> expectationFailure (show e)
+                Right base -> do
+                    let orphan = base{dcName = "orphan", dcSource = Just "gone", dcTerms = refused}
+                        a = base{dcName = "a", dcSource = Just "b", dcTerms = refused}
+                        b = base{dcName = "b", dcSource = Just "a"}
+                        configs = M.fromList [(dcName c, c) | c <- [orphan, a, b]]
+                    termsOf configs orphan `shouldBe` refused
+                    -- A loop ends at the last database before one repeats.
+                    termsOf configs a `shouldBe` dcTerms b
 
     let registry path uploaded = RefDataConfig{rdName = "flows", rdSource = FromFile path, rdActive = True, rdIsUploaded = uploaded, rdIsAuto = False, rdDescription = Nothing}
         reading path = defaultConfig{cfgFlowSynonyms = [registry path False]}

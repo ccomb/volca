@@ -58,6 +58,7 @@ import Types (
     Severity,
     TechRole,
     TechnosphereFlow (..),
+    Terms (..),
     UUID,
     Unit,
     WasteFlow (..),
@@ -941,6 +942,7 @@ data DatabaseStatusAPI = DatabaseStatusAPI
     shares says something untrue.
     -}
     , dsaSource :: Maybe Text -- The database whose files it reads, when it owns none (a copy, or a re-keyed load)
+    , dsaTerms :: Terms -- What it is served under, its source's for a copy
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseStatusAPI)

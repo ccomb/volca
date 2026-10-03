@@ -65,6 +65,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    openTerms,
     processIdToText,
  )
 import UnitConversion (defaultUnitConfig)
@@ -316,6 +317,7 @@ fixtureConfig =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }
 
 mkUUID :: Int -> UUID

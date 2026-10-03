@@ -1160,7 +1160,7 @@ class Client:
         return "/".join([f"{self.base_url}/api/v1/method-collections", urllib.parse.quote(collection, safe=""), *rest])
 
     def _edit_method_factors(self, feature: str, collection: str, body: dict) -> dict:
-        self._require_wire(41, feature, engine_hint="0.15.0")
+        self._require_wire(42, feature, engine_hint="0.15.0")
         return self._json(self._session.post(self._method_collection_url(collection, "factors"), json=_drop_none(body)))
 
     def copy_method_collection(self, collection: str, new_name: str) -> dict:
@@ -1175,9 +1175,9 @@ class Client:
         refused. Returns the collection made, whose ``name`` is the one the
         next call takes.
 
-        Needs an engine speaking wire revision 41.
+        Needs an engine speaking wire revision 42.
         """
-        self._require_wire(41, "copy_method_collection", engine_hint="0.15.0")
+        self._require_wire(42, "copy_method_collection", engine_hint="0.15.0")
         return self._json(self._session.post(self._method_collection_url(collection, "copy", urllib.parse.quote(new_name, safe=""))))
 
     def set_method_factor(
@@ -1270,7 +1270,7 @@ class Client:
         undone by restoring the values it replaced, which is refused, naming
         the factor, when a later line changed one of them.
         """
-        self._require_wire(41, "undo_method_edit", engine_hint="0.15.0")
+        self._require_wire(42, "undo_method_edit", engine_hint="0.15.0")
         params = {} if line is None else {"line": line}
         return self._json(self._session.post(self._method_collection_url(collection, "undo"), params=params))
 
@@ -1283,7 +1283,7 @@ class Client:
         it is ``inEffect``, and the ``change`` it made. A collection the
         configuration declares has an empty history.
         """
-        self._require_wire(41, "method_history", engine_hint="0.15.0")
+        self._require_wire(42, "method_history", engine_hint="0.15.0")
         return self._json(self._session.get(self._method_collection_url(collection, "history")))
 
     def search_method_flows(self, collection: str, q: str, *, limit: int | None = None) -> list[dict]:
@@ -1293,7 +1293,7 @@ class Client:
         and compartment a new factor for that flow is written with (50 at most
         unless ``limit`` says otherwise).
         """
-        self._require_wire(41, "search_method_flows", engine_hint="0.15.0")
+        self._require_wire(42, "search_method_flows", engine_hint="0.15.0")
         params: dict = {"q": q}
         if limit is not None:
             params["limit"] = limit
@@ -1335,7 +1335,8 @@ class Client:
         The engine streams the payload as raw bytes. Best-effort approximation
         warnings arrive in the ``X-Volca-Export-Warnings`` response header
         (percent-encoded, newline-joined) and are surfaced through
-        :mod:`warnings`. Raises VoLCAError on an HTTP error.
+        :mod:`warnings`. Raises VoLCAError on an HTTP error, a 403 when the
+        database's ``terms`` refuse downloads.
         """
         fmt_norm = fmt.strip().lower()
         if fmt_norm not in _EXPORT_FORMATS:
@@ -1367,7 +1368,7 @@ class Client:
         setup ``documentation`` lists, such as ``external_docs/report.pdf``;
         only an ILCD package ships any. Raises VoLCAError on an HTTP error,
         a 404 when the documentation lists no such file or the package does
-        not hold it.
+        not hold it, a 403 when the database's ``terms`` refuse downloads.
         """
         self._require_wire(40, "document_file", engine_hint="0.15.0")
         target = self._db(db_name)
@@ -1380,6 +1381,29 @@ class Client:
                 f"document_file failed (HTTP {resp.status_code}): {resp.text[:500]}"
             )
         return resp.content
+
+    def set_terms(
+        self, downloads: str, licence: str | None = None, db_name: str | None = None
+    ) -> dict:
+        """Set the licence of an uploaded database and whether it may be downloaded.
+
+        ``downloads`` is ``allowed`` or ``refused``; a refused database answers
+        :meth:`export_database` and :meth:`document_file` with a 403, and so
+        does every copy of it. ``licence`` is the licence it is published
+        under, in words, or None. Returns the terms now in force. Raises
+        VoLCAError on an HTTP error: a 409 for a database whose terms are
+        written elsewhere, in the configuration file or on the source a copy
+        reads.
+        """
+        self._require_wire(41, "set_terms", engine_hint="0.15.0")
+        target = self._db(db_name)
+        resp = self._session.put(
+            f"{self.base_url}/api/v1/db/{target}/terms",
+            json={"licence": licence, "downloads": downloads},
+        )
+        if resp.status_code >= 400:
+            raise VoLCAError(f"set_terms failed (HTTP {resp.status_code}): {resp.text[:500]}")
+        return resp.json()
 
     def export_to_file(
         self, fmt: str, out_path: str, db_name: str | None = None
@@ -1537,7 +1561,10 @@ class Client:
         export says all of it; an EcoSpold 1 database lists under
         ``literature`` the sources its datasets cite, and an ILCD package the
         sources it holds; another format leaves
-        ``export`` null and both lists empty.
+        ``export`` null and both lists empty. ``terms`` is what the database is
+        served under (wire revision 41): its ``licence`` in words, or null, and
+        ``downloads``, ``allowed`` or ``refused``, which :meth:`set_terms`
+        changes.
         """
         target = self._db(db_name)
         return self._json(self._session.get(f"{self.base_url}/api/v1/db/{target}/setup"))

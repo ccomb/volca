@@ -18,7 +18,17 @@
   identifier and a compared category its own, so a difference found can be
   changed at once. A listed collection names the one it is a copy of, and a
   copy answers with the collection it made, under the name it is known by.
-  Wire revision 41.
+  Wire revision 42.
+- A database states the terms it is served under: the licence it is
+  published under, in words, and whether it may be downloaded, as `licence`
+  and `downloads = "allowed" | "refused"` on its configuration entry. An
+  uploaded database's owner sets them with `PUT /api/v1/db/{name}/terms`
+  (`set_terms` in pyvolca), and they are kept in its `meta.toml` (version 5).
+  A refused database answers its export and the files of its literature with
+  a 403 naming its licence, and so does every copy of it or database derived
+  from it, which are served under their source's terms. The setup of a
+  database and its status in the list carry them as `terms`. A database that
+  says nothing allows downloads, as before. Wire revision 41.
 - The activity search, over HTTP and as the `search_activities` tool, takes
   the processes a caller already chose, as `process` (given once per process
   over HTTP, a list for the tool): it answers their rows in the order given,

@@ -73,6 +73,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    openTerms,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -409,6 +410,7 @@ uploadedConfig name dataDir =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }
 
 -- ---------------------------------------------------------------------------

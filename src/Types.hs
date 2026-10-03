@@ -17,7 +17,7 @@ module Types (
 import API.JsonOptions (Stripped (..))
 import Control.DeepSeq (NFData)
 import Control.Monad ((<=<), (>=>))
-import Data.Aeson (FromJSON (..), ToJSON (..))
+import Data.Aeson (FromJSON (..), ToJSON (..), withText)
 import Data.Int (Int32)
 import qualified Data.IntSet as IS
 import qualified Data.Map as M
@@ -2140,6 +2140,46 @@ data GeographyPolicy
     | GeoParent
     | GeoGlobal
     deriving (Show, Eq, Generic, NFData, Store)
+
+{- | Whether a database may leave the engine as a file: its export in any
+format, and the files its literature ships. Reading and scoring it are not
+concerned, which is the line licences usually draw: results may be shown
+where the data itself may not be copied.
+-}
+data Downloads = DownloadsAllowed | DownloadsRefused
+    deriving (Show, Eq, Enum, Bounded, Generic)
+
+downloadsCode :: Downloads -> Text
+downloadsCode DownloadsAllowed = "allowed"
+downloadsCode DownloadsRefused = "refused"
+
+parseDownloads :: Text -> Either Text Downloads
+parseDownloads "allowed" = Right DownloadsAllowed
+parseDownloads "refused" = Right DownloadsRefused
+parseDownloads other = Left ("downloads: expected \"allowed\" or \"refused\", got \"" <> other <> "\"")
+
+instance ToJSON Downloads where
+    toJSON = toJSON . downloadsCode
+
+instance FromJSON Downloads where
+    parseJSON = withText "Downloads" (either (fail . T.unpack) pure . parseDownloads)
+
+instance ToSchema Downloads where
+    declareNamedSchema _ = pure (codeSchema "Downloads" downloadsCode)
+
+{- | What the publisher of a database allows, as the engine is told it: the
+licence it is published under, in words, and whether it may be downloaded.
+-}
+data Terms = Terms
+    { termsLicence :: !(Maybe Text)
+    , termsDownloads :: !Downloads
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped Terms)
+
+-- | What a database that says nothing allows: everything, as before it could say.
+openTerms :: Terms
+openTerms = Terms{termsLicence = Nothing, termsDownloads = DownloadsAllowed}
 
 {- | Classification of how a candidate's location relates to the requested one.
 Produced by 'Database.CrossLinking.acceptableLocation' and surfaced alongside

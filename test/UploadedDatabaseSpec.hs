@@ -7,7 +7,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import Database.UploadedDatabase
-import Types (AllocationKey (..))
+import Types (AllocationKey (..), Downloads (..), Terms (..), openTerms)
 
 -- | Minimal UploadMeta without description
 baseMeta :: UploadMeta
@@ -22,6 +22,7 @@ baseMeta =
         , umSource = Nothing
         , umAllocation = Declared
         , umBuiltIn = Nothing
+        , umTerms = openTerms
         }
 
 spec :: Spec
@@ -99,6 +100,7 @@ spec = do
                         , umSource = Nothing
                         , umAllocation = Declared
                         , umBuiltIn = Nothing
+                        , umTerms = openTerms
                         }
 
         it "parses meta with description" $ do
@@ -153,6 +155,19 @@ spec = do
             -- the binary cache, so a restart lost it without saying so.
             let meta = baseMeta{umDepends = ["agribalyse", "ecoinvent"]}
             fmap umDepends (parseMetaToml (formatMetaToml meta)) `shouldBe` Just ["agribalyse", "ecoinvent"]
+
+        it "round-trips the licence and a refused download" $ do
+            let terms = Terms{termsLicence = Just "Licensed to \"members\" only", termsDownloads = DownloadsRefused}
+            fmap umTerms (parseMetaToml (formatMetaToml baseMeta{umTerms = terms})) `shouldBe` Just terms
+
+        it "reads a file written before the terms existed as allowing everything" $ do
+            let toml = "version = 4\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\n"
+            fmap umTerms (parseMetaToml toml) `shouldBe` Just openTerms
+
+        -- A refusal misread as allowed would hand out the copies it refused.
+        it "refuses a file whose downloads it cannot read" $ do
+            let toml = "version = 5\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\ndownloads = \"never\"\n"
+            parseMetaToml toml `shouldBe` Nothing
 
         it "reads a file written before the dependency pin existed as pinning nothing" $ do
             let toml = "version = 1\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\n"

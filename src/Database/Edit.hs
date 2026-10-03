@@ -62,7 +62,7 @@ import qualified Data.Vector as V
 import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, makeAbsolute)
 import System.FilePath ((</>))
 
-import Config (DatabaseConfig (..))
+import Config (DatabaseConfig (..), termsOf)
 import Database (Geographies)
 import Database.Author (
     AuthorContext (..),
@@ -227,8 +227,11 @@ loadDerived ::
     DatabaseConfig ->
     AllocationKey ->
     IO (Either Text (LoadedDatabase, [DepLoadResult]))
-loadDerived manager slug srcConfig key =
-    recordDerived slug srcConfig key >>= \case
+loadDerived manager slug srcConfig key = do
+    -- The terms in force, recorded so a derived database whose source is
+    -- later gone keeps the ones it was served under.
+    inForce <- termsOf <$> readTVarIO (dmAvailableDbs manager) <*> pure srcConfig
+    recordDerived slug srcConfig{dcTerms = inForce} key >>= \case
         Left err -> pure (Left err)
         Right derivedConfig -> do
             atomically $ modifyTVar' (dmAvailableDbs manager) (M.insert slug derivedConfig)
@@ -320,6 +323,7 @@ recordDerived slug srcConfig key = do
                 , UploadedDB.umSource = Just (dcName srcConfig)
                 , UploadedDB.umAllocation = key
                 , UploadedDB.umBuiltIn = Nothing
+                , UploadedDB.umTerms = dcTerms srcConfig
                 }
         pure
             srcConfig
@@ -347,7 +351,11 @@ kind of quiet loss this ordering exists to refuse. Nothing after the write can
 fail into an inconsistent state: the registry swap is a pure STM commit.
 -}
 registerCopy :: DatabaseManager -> Text -> LoadedDatabase -> IO (Either Text ())
-registerCopy manager slug src =
+registerCopy manager slug loaded = do
+    -- The terms in force, not the ones the source was loaded with: a change
+    -- since reached the registry and not the loaded config.
+    inForce <- termsOf <$> readTVarIO (dmAvailableDbs manager) <*> pure (ldConfig loaded)
+    let src = loaded{ldConfig = (ldConfig loaded){dcTerms = inForce}}
     recordCopy slug src >>= \case
         Left err -> pure (Left err)
         Right () -> do
@@ -412,6 +420,7 @@ recordCopy slug src = do
                   -- source's own key produced.
                   UploadedDB.umAllocation = dcAllocation config
                 , UploadedDB.umBuiltIn = Nothing
+                , UploadedDB.umTerms = dcTerms config
                 }
     pure $ case written of
         Right () -> Right ()

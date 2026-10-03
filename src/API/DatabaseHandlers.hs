@@ -35,6 +35,8 @@ module API.DatabaseHandlers (
     editExchangesHandler,
     exportDatabaseHandler,
     documentFileHandler,
+    setTermsHandler,
+    downloadRefusal,
     exportMethodHandler,
     encodeExportWarnings,
     uploadDatabaseHandler,
@@ -144,7 +146,7 @@ import API.Types (
     toExchangeEdits,
  )
 import App.Env (AppEnv (..), AppM)
-import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, messageOr, readOnlyRefusalFor)
+import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, messageOr, readOnlyRefusalFor, termsOf)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.Reader (asks)
 import Data.Aeson (Value)
@@ -181,6 +183,7 @@ import Database.Manager (
     RelativeDataPath (..),
     RelinkResult (..),
     SetupError (..),
+    TermsRefusal (..),
     addCompartmentMappings,
     addDatabase,
     addDependencyToStaged,
@@ -190,6 +193,7 @@ import Database.Manager (
     databaseCoverageReport,
     databaseGapReport,
     databaseQualityReport,
+    databaseTerms,
     finalizeDatabase,
     getDatabase,
     getDatabaseSetupInfo,
@@ -214,6 +218,7 @@ import Database.Manager (
     removeMethodCollection,
     removeUnitDefs,
     setDataPath,
+    setUploadTerms,
     setupErrorMessage,
     unloadCompartmentMappings,
     unloadDatabase,
@@ -244,12 +249,15 @@ import Types (
     ClassificationFilter (..),
     ClassificationMatch (..),
     Database (..),
+    Downloads (..),
     GeographyPolicy (..),
     ProcessRef (..),
+    Terms (..),
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
     getUnitNameForBioFlow,
+    openTerms,
     parseAllocationKey,
     processRefText,
     unresolvedCount,
@@ -276,8 +284,9 @@ loadDatabaseHandler dbName = do
             result <- liftIO $ loadDatabase dbManager dbName
             case result of
                 Left err -> return $ LoadFailed err
-                Right (loadedDb, depResults) ->
-                    return $ LoadSucceeded (makeStatusFromLoadedDb loadedDb) depResults
+                Right (loadedDb, depResults) -> do
+                    status <- liftIO (loadedStatus dbManager loadedDb)
+                    return $ LoadSucceeded status depResults
 
 -- | Unload a database from memory
 unloadDatabaseHandler :: Text -> AppM ActivateResponse
@@ -557,7 +566,9 @@ deriveDatabaseHandler dbName newName mAllocation = do
         Nothing ->
             liftIO (deriveDatabase dbManager dbName newName key) >>= \case
                 Left err -> pure (LoadFailed err)
-                Right (loadedDb, depResults) -> pure (LoadSucceeded (makeStatusFromLoadedDb loadedDb) depResults)
+                Right (loadedDb, depResults) -> do
+                    status <- liftIO (loadedStatus dbManager loadedDb)
+                    pure (LoadSucceeded status depResults)
   where
     badKey :: Text -> AppM a
     badKey err = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 ("allocation: " <> err))}
@@ -702,6 +713,7 @@ database that is not loaded, never a 200 with a failure flag.
 -}
 exportDatabaseHandler :: Text -> ExportRequest -> AppM (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
 exportDatabaseHandler dbName req = do
+    refuseUnlessDownloadable dbName
     dbManager <- asks aeDbManager
     fmt <- either (exportErr err400) pure (parseExportFormat (exrFormat req))
     mLoaded <- liftIO (getDatabase dbManager dbName)
@@ -715,6 +727,7 @@ documentation does not list, or one its package does not hold.
 -}
 documentFileHandler :: Text -> [Text] -> AppM (Headers '[Header "Content-Disposition" Text] BinaryContent)
 documentFileHandler dbName segments = do
+    refuseUnlessDownloadable dbName
     dbManager <- asks aeDbManager
     bytes <- liftIO (readDocumentFile dbManager dbName path) >>= either (exportErr err404) pure
     pure (addHeader (attachment (last' segments)) (BinaryContent (BSL.fromStrict bytes)))
@@ -729,6 +742,36 @@ documentFileHandler dbName segments = do
     attachment :: Text -> Text
     attachment name =
         "attachment; filename=\"" <> T.filter (\c -> c /= '"' && c >= ' ' && c < '\DEL') name <> "\"; filename*=UTF-8''" <> T.decodeUtf8 (urlEncode False (T.encodeUtf8 name))
+
+{- | 403 when the terms of a database refuse its download. A name the engine
+does not know passes, so the handler answers it with its own 404.
+-}
+refuseUnlessDownloadable :: Text -> AppM ()
+refuseUnlessDownloadable dbName = do
+    dbManager <- asks aeDbManager
+    liftIO (databaseTerms dbManager dbName) >>= mapM_ (mapM_ (exportErr err403) . downloadRefusal dbName)
+
+-- | Why a database may not be downloaded, in a sentence naming its licence when it has one.
+downloadRefusal :: Text -> Terms -> Maybe Text
+downloadRefusal dbName terms = case termsDownloads terms of
+    DownloadsAllowed -> Nothing
+    DownloadsRefused -> Just ("The terms of " <> dbName <> maybe "" (\l -> " (" <> l <> ")") (termsLicence terms) <> " do not allow downloading it.")
+
+{- | Replace the terms of an uploaded database. 404 for a name the engine does
+not know, 409 for a database whose terms are written elsewhere: in the
+configuration file, or on the source a copy reads, 500 for an upload whose
+meta.toml cannot be read.
+-}
+setTermsHandler :: Text -> Terms -> AppM Terms
+setTermsHandler dbName terms = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    liftIO (setUploadTerms dbManager dbName terms) >>= either refused pure
+  where
+    refused :: TermsRefusal -> AppM Terms
+    refused (TermsUnknown msg) = exportErr err404 msg
+    refused (TermsHeldElsewhere msg) = exportErr err409 msg
+    refused (TermsUnrecordable msg) = exportErr err500 msg
 
 {- | Export a loaded method collection over the same transport as the database
 export: raw octet-stream body, projection warnings percent-encoded in the
@@ -1041,6 +1084,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umSource = Nothing
                             , UploadedDB.umAllocation = Declared
                             , UploadedDB.umBuiltIn = Nothing
+                            , UploadedDB.umTerms = openTerms
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1062,6 +1106,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , dcAllocation = Declared
                             , dcPatches = []
                             , dcSource = Nothing
+                            , dcTerms = openTerms
                             }
 
                 -- Add to manager
@@ -1090,15 +1135,23 @@ convertDbStatus ds =
         , dsaDependsOn = dsDependsOn ds
         , dsaAllocation = allocationKeyText (dsAllocation ds)
         , dsaSource = dsSource ds
+        , dsaTerms = dsTerms ds
         }
   where
     statusToText Unloaded = "unloaded"
     statusToText PartiallyLinked = "partially_linked"
     statusToText Loaded = "loaded"
 
--- | Create DatabaseStatusAPI from a loaded database (derives status from linking stats)
-makeStatusFromLoadedDb :: LoadedDatabase -> DatabaseStatusAPI
-makeStatusFromLoadedDb loaded =
+-- | The status of a database just loaded, under the terms in force now.
+loadedStatus :: DatabaseManager -> LoadedDatabase -> IO DatabaseStatusAPI
+loadedStatus manager loaded = (`makeStatusFromLoadedDb` loaded) <$> readTVarIO (dmAvailableDbs manager)
+
+{- | Create DatabaseStatusAPI from a loaded database (derives status from linking
+stats). The configurations are there for its terms, which a copy takes from its
+source.
+-}
+makeStatusFromLoadedDb :: M.Map Text DatabaseConfig -> LoadedDatabase -> DatabaseStatusAPI
+makeStatusFromLoadedDb configs loaded =
     let config = ldConfig loaded
         db = ldDatabase loaded
         status =
@@ -1118,6 +1171,7 @@ makeStatusFromLoadedDb loaded =
             , dsaDependsOn = dcDepends config
             , dsaAllocation = allocationKeyText (dcAllocation config)
             , dsaSource = dcSource config
+            , dsaTerms = termsOf configs config
             }
 
 -- uploadFormatToMeta removed - types are now unified (UploadedDB re-exports from Upload)
@@ -1205,7 +1259,7 @@ finalizeDatabaseHandler dbName = do
             return $ ActivateResponse False ("Server exception: " <> T.pack (show ex)) Nothing
         Right (Left err) -> return $ ActivateResponse False err Nothing
         Right (Right loaded) -> do
-            let status = makeStatusFromLoadedDb loaded
+            status <- liftIO (loadedStatus dbManager loaded)
             return $ ActivateResponse True ("Finalized database: " <> dcDisplayName (ldConfig loaded)) (Just status)
 
 {- | Upload a new method collection
@@ -1248,6 +1302,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umSource = Nothing
                             , UploadedDB.umAllocation = Declared
                             , UploadedDB.umBuiltIn = Nothing
+                            , UploadedDB.umTerms = openTerms
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 

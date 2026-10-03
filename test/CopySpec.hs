@@ -33,6 +33,7 @@ import Database.Manager (
     LoadedDatabase (..),
     initDatabaseManager,
  )
+import qualified Database.UploadedDatabase as UploadedDB
 import Matrix (buildDemandVector)
 import SharedSolver (
     SharedSolver,
@@ -40,12 +41,14 @@ import SharedSolver (
     getFactorization,
     solveWithSharedSolver,
  )
+import System.FilePath ((</>))
 import TestHelpers (withScratchDataDir)
 import Types (
     Activity (..),
     AllocationKey (..),
     BuildInputs (..),
     Database (..),
+    Downloads (..),
     Exchange (..),
     GeographyPolicy (..),
     LocationSource (..),
@@ -54,11 +57,13 @@ import Types (
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
+    Terms (..),
     UUID,
     Unit (..),
     noDates,
     noDocumentation,
     noProperties,
+    openTerms,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -86,6 +91,19 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
         -- Same data: identical activity count to the source.
         V.length (dbActivities (ldDatabase copy))
             `shouldBe` V.length (dbActivities srcDb)
+
+    -- What a restart reads back once the source is gone: the terms in force
+    -- when the copy was made, not the ones the source was loaded with.
+    it "records the terms its source is served under now" $ do
+        manager <- initDatabaseManager defaultConfig NoCache
+        srcDb <- buildOrFail (supplierDB 100 ["p1"])
+        installLoaded manager "source" srcDb
+        let refused = Terms{termsLicence = Just "Members only", termsDownloads = DownloadsRefused}
+        atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust (\c -> c{dcTerms = refused}) "source")
+
+        _ <- copyDatabase manager "source" "mycopy"
+        home <- (</> "mycopy") <$> UploadedDB.getDatabaseUploadsDir
+        fmap UploadedDB.umTerms <$> UploadedDB.readUploadMeta home `shouldReturn` Just refused
 
     it "is a deep, independent value: dropping the copy does not touch the source" $ do
         manager <- initDatabaseManager defaultConfig NoCache
@@ -223,6 +241,7 @@ mkConfig name =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
+        , dcTerms = openTerms
         }
 
 buildOrFail :: SimpleParts -> IO Database

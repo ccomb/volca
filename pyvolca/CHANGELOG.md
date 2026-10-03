@@ -29,7 +29,7 @@ Then paste the rendered block at the top of this file and tighten wording.
   `undo_method_edit` takes a change back by writing its inverse.
   `method_history` reads the journal of changes and `search_method_flows` the
   flows a collection characterizes, to name a new factor's flow. They need wire
-  revision 41 (engine 0.15.0).
+  revision 42 (engine 0.15.0).
 
 ### Deprecated
 

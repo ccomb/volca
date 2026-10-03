@@ -252,6 +252,11 @@ class DatabaseInfo(FromJson):
     ``source`` names the database this one was derived from, and is ``None``
     for one read straight from its files. Both are ``None`` against an engine
     older than wire revision 20.
+
+    ``terms`` is what it is served under, its source's for a copy: a
+    ``licence`` in words or ``None``, and ``downloads``, ``"allowed"`` or
+    ``"refused"``, the same shape :meth:`Client.set_terms` returns. ``None``
+    against an engine older than wire revision 41, which refused no download.
     """
 
     name: str
@@ -266,6 +271,7 @@ class DatabaseInfo(FromJson):
     depends_on: list[str] = field(default_factory=list)
     allocation: str | None = None
     source: str | None = None
+    terms: dict | None = None
 
     @classmethod
     def from_json(cls, d: dict) -> "DatabaseInfo":
