@@ -41,7 +41,7 @@ import GHC.Generics (Generic)
 
 import qualified Expr
 import Method.Types (Method (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
-import Method.Scoring (counted, linearTerms, shortNames, singleScoreName)
+import Method.Scoring (counted, linearTerms, shortNames, singleScoreName, writeSum)
 
 {- | Damage category: groups impact subcategories into a parent category.
 E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.
@@ -157,14 +157,7 @@ translateScoring methods damages nwSets
 
     -- A damage grouping nothing is a damage of zero, which SimaPro keeps.
     grouping :: DamageCategory -> Text
-    grouping dc = case dcImpacts dc of
-        [] -> "0"
-        impacts -> T.intercalate " + " [term coef c | (c, coef) <- impacts]
-
-    term :: Double -> Text -> Text
-    term coef c =
-        let v = M.findWithDefault c c catVar
-         in if coef == 1 then v else tshow coef <> " * " <> v
+    grouping dc = writeSum [(M.findWithDefault c c catVar, coef) | (c, coef) <- dcImpacts dc]
 
     ghostWarnings, twiceWarnings, strayWarnings :: [Text]
     ghostWarnings =
@@ -341,6 +334,3 @@ legacySetNames sets =
     , ssOrigin s == ReadFromSimaProFile
     , not (M.null (ssNormalization s) && M.null (ssWeighting s))
     ]
-
-tshow :: (Show a) => a -> Text
-tshow = T.pack . show

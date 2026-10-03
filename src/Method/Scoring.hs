@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | The shape of a scoring set, read and written the same way whatever made
@@ -8,6 +9,11 @@ module Method.Scoring (
     NumberEntry (..),
     ScoringChange (..),
     applyChange,
+    diffSets,
+    revertChange,
+    writeSum,
+    textEntryWord,
+    numberEntryWord,
     ScoringKey (..),
     keyOf,
     ScoringGesture (..),
@@ -70,8 +76,8 @@ before: a line is replayed on the set it was written against, or refused.
 -}
 applyChange :: ScoringChange -> ScoringSet -> Either Text ScoringSet
 applyChange change set = case change of
-    SetText entry key before after -> textEntry entry (changed (textWord entry) quoted key before after)
-    SetNumber entry key before after -> numberEntry entry (changed (numberWord entry) tshow key before after)
+    SetText entry key before after -> textEntry entry (changed (textEntryWord entry) quoted key before after)
+    SetNumber entry key before after -> numberEntry entry (changed (numberEntryWord entry) tshow key before after)
     RenameSet before after
         | ssName set == before -> Right set{ssName = after}
         | otherwise -> Left (T.concat ["The scoring set is named '", ssName set, "', not '", before, "' as recorded."])
@@ -233,17 +239,74 @@ sumOfRows set score = case (scored, M.lookup score (ssScores set)) of
     scored :: [Text]
     scored = filter (counted (ssNormalization set) (ssWeighting set)) (map srVariable (rowsOf set))
 
--- | How an entry is named in a sentence.
-textWord :: TextEntry -> Text
-textWord CategoryOf = "category"
-textWord FormulaOf = "formula"
-textWord LabelOf = "label"
-textWord VariableUnitOf = "unit"
-textWord ScoreOf = "score formula"
+{- | The changes that turn one set into another, one per entry that differs:
+how a gesture computed as the set it should leave becomes a journal line. The
+entries come first and the name last, so every change reads the set under the
+name the line gives it.
+-}
+diffSets :: ScoringSet -> ScoringSet -> [ScoringChange]
+diffSets old new =
+    texts CategoryOf ssVariables
+        <> texts FormulaOf ssComputed
+        <> texts LabelOf ssLabels
+        <> texts VariableUnitOf ssUnits
+        <> texts ScoreOf ssScores
+        <> numbers NormalizationOf ssNormalization
+        <> numbers WeightOf ssWeighting
+        <> [SetDisplayMultiplier (ssDisplayMultiplier old) (ssDisplayMultiplier new) | ssDisplayMultiplier old /= ssDisplayMultiplier new]
+        <> [SetUnitOfSet (ssUnit old) (ssUnit new) | ssUnit old /= ssUnit new]
+        <> [RenameSet (ssName old) (ssName new) | ssName old /= ssName new]
+  where
+    texts :: TextEntry -> (ScoringSet -> M.Map Text Text) -> [ScoringChange]
+    texts entry field = [SetText entry k b a | (k, b, a) <- differing (field old) (field new)]
 
-numberWord :: NumberEntry -> Text
-numberWord NormalizationOf = "normalization"
-numberWord WeightOf = "weight"
+    numbers :: NumberEntry -> (ScoringSet -> M.Map Text Double) -> [ScoringChange]
+    numbers entry field = [SetNumber entry k b a | (k, b, a) <- differing (field old) (field new)]
+
+    differing :: (Eq v) => M.Map Text v -> M.Map Text v -> [(Text, Maybe v, Maybe v)]
+    differing a b = [(k, M.lookup k a, M.lookup k b) | k <- S.toList (M.keysSet a <> M.keysSet b), M.lookup k a /= M.lookup k b]
+
+{- | The change that takes an entry back to what a change found there, from
+what the set holds there now: the undo of a line reads the set as it is, so a
+category renamed since does not stop it.
+-}
+revertChange :: ScoringSet -> ScoringChange -> ScoringChange
+revertChange set = \case
+    SetText entry key before _ -> SetText entry key (M.lookup key (textField entry)) before
+    SetNumber entry key before _ -> SetNumber entry key (M.lookup key (numberField entry)) before
+    RenameSet before _ -> RenameSet (ssName set) before
+    SetUnitOfSet before _ -> SetUnitOfSet (ssUnit set) before
+    SetDisplayMultiplier before _ -> SetDisplayMultiplier (ssDisplayMultiplier set) before
+  where
+    textField :: TextEntry -> M.Map Text Text
+    textField CategoryOf = ssVariables set
+    textField FormulaOf = ssComputed set
+    textField LabelOf = ssLabels set
+    textField VariableUnitOf = ssUnits set
+    textField ScoreOf = ssScores set
+
+    numberField :: NumberEntry -> M.Map Text Double
+    numberField NormalizationOf = ssNormalization set
+    numberField WeightOf = ssWeighting set
+
+{- | A sum of variables times coefficients, as a formula: a coefficient of one
+is not written, and a sum of nothing is zero.
+-}
+writeSum :: [(Text, Double)] -> Text
+writeSum [] = "0"
+writeSum terms = T.intercalate " + " [if coef == 1 then v else tshow coef <> " * " <> v | (v, coef) <- terms]
+
+-- | How an entry is named in a sentence.
+textEntryWord :: TextEntry -> Text
+textEntryWord CategoryOf = "category"
+textEntryWord FormulaOf = "formula"
+textEntryWord LabelOf = "label"
+textEntryWord VariableUnitOf = "unit"
+textEntryWord ScoreOf = "score formula"
+
+numberEntryWord :: NumberEntry -> Text
+numberEntryWord NormalizationOf = "normalization"
+numberEntryWord WeightOf = "weight"
 
 {- | Formula identifiers for display names, made once and then stored as they
 are: a later renaming of the category does not change them. Lower case only,

@@ -89,6 +89,7 @@ library
                      , Method.WriterSimaPro
                      , Method.ParserNW
                      , Method.Scoring
+                     , Method.ScoringEdit
                      , Method.SimaProScoring
                      , Method.Mapping
                      , Method.Coverage
@@ -387,6 +388,7 @@ test-suite lca-tests
                      , MethodJournalLoadSpec
                      , MethodJournalSpec
                      , MethodScoringSpec
+                     , MethodScoringEditSpec
                      , ActivityWriteHandlerSpec
                      , PersistenceSpec
                      , CacheLayoutSpec
