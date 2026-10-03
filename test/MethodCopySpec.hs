@@ -119,3 +119,17 @@ spec = describe "copying a method collection" $ do
             _ <- unloadMethodCollection manager "ecotox-copy"
             removeMethodCollection manager "ecotox-copy" `shouldReturn` Right ()
             doesFileExist (home </> "method.csv") `shouldReturn` True
+
+    it "deletes a copy a copy was made from, and keeps the files both read" $
+        withScratchDataDir $ do
+            home <- (</> "ecotox") <$> getMethodUploadsDir
+            writeUpload home
+            manager <- initDatabaseManager defaultConfig NoCache
+            _ <- loadMethodCollection manager "ecotox"
+            copyMethodCollection manager "ecotox" "first" `shouldReturn` Right "first"
+            copyMethodCollection manager "first" "second" `shouldReturn` Right "second"
+            mapM_ (unloadMethodCollection manager) ["first", "second"]
+            removeMethodCollection manager "first" `shouldReturn` Right ()
+            refused <- removeMethodCollection manager "ecotox"
+            either T.unpack (const "deleted") refused `shouldContain` "second"
+            loadMethodCollection manager "second" `shouldReturn` Right ()

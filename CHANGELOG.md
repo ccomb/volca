@@ -12,7 +12,8 @@
   undone by writing its inverse, so the history keeps every step and an undo
   can itself be undone. A collection the configuration declares is copied with
   what the configuration added to it, written as the journal's first lines. A
-  copy's source cannot be deleted while the copy exists, and a read-only engine
+  collection whose files a copy reads cannot be deleted while the copy exists
+  (a copy of a copy reads the first source's files), and a read-only engine
   refuses every change. The flows a collection characterizes can be searched,
   to name the flow of a new factor; a compared factor carries its flow's
   identifier and a compared category its own, so a difference found can be
