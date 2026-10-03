@@ -18,7 +18,7 @@ import Servant (ServerError, errBody, errHTTPCode, runHandler)
 import Test.Hspec
 
 import API.MethodEditHandlers
-import API.Types (CategoryEditRequest, FactorEditRequest, FactorSide (..), MethodChangeAPI (..), MethodCollectionStatusAPI (..), MethodEditResponse (..), MethodFlowAPI (..), MethodHistoryEntry (..))
+import API.Types (CategoryEditRequest, FactorEditRequest, FactorSide (..), MethodChangeAPI (..), MethodCollectionStatusAPI (..), MethodEditResponse (..), MethodFlowAPI (..), MethodHistoryEntry (..), RowTermAPI (..), RowTermsAPI (..), ScoreAPI (..), ScoringEditRequest, ScoringGestureAPI (..), ScoringRowAPI (..), ScoringSetAPI (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Database.Manager (CachePolicy (..), getMethodCollection, initDatabaseManager)
@@ -44,6 +44,14 @@ call e h = runHandler (runApp e h)
 -- | A request as a client sends it: bytes, read by the instance the route uses.
 request :: String -> IO FactorEditRequest
 request body = either (\err -> fail ("the request did not decode: " <> err)) pure (eitherDecode (BSL.pack body))
+
+scoringRequest :: String -> IO ScoringEditRequest
+scoringRequest body = either (\err -> fail ("the request did not decode: " <> err)) pure (eitherDecode (BSL.pack body))
+
+-- | A row grouping one category, as a client writes it.
+rowBody :: String -> UUID -> String
+rowBody label category =
+    "{\"label\":\"" <> label <> "\",\"terms\":[{\"methodId\":\"" <> UUID.toString category <> "\",\"coefficient\":1}],\"normalization\":2,\"weight\":0.5}"
 
 categoryRequest :: String -> IO CategoryEditRequest
 categoryRequest body = either (\err -> fail ("the request did not decode: " <> err)) pure (eitherDecode (BSL.pack body))
@@ -184,3 +192,30 @@ spec = describe "changing a method collection over HTTP" $ do
             case map mheChange <$> history of
                 Right [CategoryUnitSet{cusCategory = c}, CategoryRemoved{}] -> c `shouldBe` "Methane"
                 _ -> expectationFailure "expected a change of unit, then a removal"
+
+    it "creates a scoring set over HTTP, reads it back as rows, and names the gesture in the history" $
+        withScratchDataDir $ do
+            (e, category, _) <- copied
+            create <- scoringRequest ("{\"op\":\"create\",\"set\":\"Mine\",\"rows\":[" <> rowBody "Gas" category <> "]}")
+            created <- call e (editScoringSetsHandler "copy" create)
+            fmap merLine created `shouldBe` Right 1
+            sets <- call e (scoringSetsHandler "copy")
+            case sets of
+                Right [ScoringSetAPI{ssaName = "Mine", ssaRows = [ScoringRowAPI{sraLabel = "Gas", sraTerms = RowGrouped [term], sraWeight = Just 0.5}], ssaScores = [score]}] -> do
+                    (rtaCategory term, rtaMethodId term) `shouldBe` ("Methane", Just category)
+                    (scoName score, scoSumOfRows score) `shouldBe` ("Single score", True)
+                _ -> expectationFailure "expected one set of one row grouping Methane, and its single score"
+            add <- scoringRequest ("{\"op\":\"add-row\",\"set\":\"Mine\",\"row\":" <> rowBody "Gas twice" category <> "}")
+            _ <- call e (editScoringSetsHandler "copy" add)
+            history <- call e (methodHistoryHandler "copy")
+            case map mheChange <$> history of
+                Right [ScoringSetCreated{}, ScoringSetChanged{sschSet = "Mine", sschGesture = RowAdded{rwaLabel = label}}] -> label `shouldBe` "Gas twice"
+                _ -> expectationFailure "expected a creation, then a row added"
+
+    it "refuses an add-row that names no row, naming the field" $
+        withScratchDataDir $ do
+            (e, _, _) <- copied
+            body <- scoringRequest "{\"op\":\"add-row\",\"set\":\"Mine\"}"
+            answer <- call e (editScoringSetsHandler "copy" body)
+            fmap fst (failure answer) `shouldBe` Just 400
+            maybe "" snd (failure answer) `shouldSatisfy` ("row" `isInfixOf`)

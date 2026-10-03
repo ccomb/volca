@@ -45,6 +45,23 @@
   use is refused, and so is removing a category a scoring set weighs, naming
   the set. A change to a collection answers with the category its line names,
   which is how an addition gives the category it made. Wire revision 43.
+- The scoring sets of a method collection of one's own can be changed: a set
+  is created from rows, renamed, given another unit or display multiplier,
+  and removed; a row, which groups categories each times a coefficient with
+  a normalization and a weight, is added, changed and removed; a computed
+  variable's formula and a score are written. Each gesture is one journal
+  line, undone at once. A row with a weight joins the score that adds up the
+  rows (the `Single score` a new set starts with), and a score written
+  otherwise is left as it is. A formula naming nothing the set holds, two
+  variables reading one another, a normalization of zero, and a row removed
+  while a score reads it otherwise are refused, in a sentence. A set a
+  SimaPro file translates can be changed and removed like any other.
+  `GET /api/v1/method-collections/{name}/scoring-sets` reads a collection's
+  sets as these rows, with the scores that add them up and every name a
+  formula can read; `list_scoring_sets` gives the same `rows` and
+  `sum_of_rows`; `POST` on that route and `edit_scoring_sets` change them.
+  An activity's score carries `scoringRows`, the value of every row, a row
+  no score reads among them. Wire revision 44.
 - A database states the terms it is served under: the licence it is
   published under, in words, and whether it may be downloaded, as `licence`
   and `downloads = "allowed" | "refused"` on its configuration entry. An

@@ -6,9 +6,10 @@ take their impact-category name, computed variables take their entry in
 -}
 module ScoringLabelSpec (spec) where
 
-import API.Routes (computeAllScoringSets)
+import API.Routes (computeAllScoringSets, scoringIndicators, scoringRows)
 import API.Types (ScoringIndicator (..))
 import qualified Data.Map.Strict as M
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Method.Types (ScoringSet (..), ScoringSetOrigin (..))
 import Test.Hspec
@@ -45,8 +46,14 @@ rawScores =
 -- | Display name of one breakdown indicator, straight from the scoring pass.
 categoryOf :: ScoringSet -> Text -> IO (Maybe Text)
 categoryOf ss var = do
-    (_, indicators) <- computeAllScoringSets [ss] rawScores
-    pure (siCategory <$> (M.lookup (ssName ss) indicators >>= M.lookup var))
+    evaluated <- computeAllScoringSets [ss] rawScores
+    pure (listToMaybe [siCategory i | (s, e) <- evaluated, Just i <- [M.lookup var (scoringIndicators s e)]])
+
+-- | Every row of a set with its label and value, by the row's variable.
+rowsOfSet :: ScoringSet -> IO [(Text, (Text, Double))]
+rowsOfSet ss = do
+    evaluated <- computeAllScoringSets [ss] rawScores
+    pure [(v, (siCategory i, siValue i)) | (s, e) <- evaluated, (v, i) <- M.toList (scoringRows s e)]
 
 spec :: Spec
 spec = describe "scoring indicator display names" $ do
@@ -58,3 +65,7 @@ spec = describe "scoring indicator display names" $ do
 
     it "falls back to the raw key for a computed variable with no label" $
         categoryOf scoringSet{ssLabels = M.empty} "etf" >>= (`shouldBe` Just "etf")
+
+    it "values every row, a row no score reads among them" $
+        rowsOfSet scoringSet{ssComputed = M.insert "extra" "etfi" (ssComputed scoringSet), ssWeighting = M.insert "extra" 2 (ssWeighting scoringSet)}
+            >>= (`shouldBe` [("cch", ("Climate change", 10)), ("etf", ("Ecotoxicity, freshwater", 7)), ("extra", ("extra", 6))])

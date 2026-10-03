@@ -397,6 +397,19 @@ curl -X POST localhost:8080/api/v1/method-collections/my-indicators/categories \
   -H 'Content-Type: application/json' \
   -d '{"op": "rename", "methodId": "<category id>", "name": "Water consumption"}'
 
+# A collection's scoring sets as rows, then a set of one's own, a row added
+# to it (it joins the single score), and that row removed by its variable
+curl localhost:8080/api/v1/method-collections/my-indicators/scoring-sets
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/scoring-sets \
+  -H 'Content-Type: application/json' \
+  -d '{"op": "create", "set": "Mine", "rows": [{"label": "Gas", "terms": [{"methodId": "<category id>", "coefficient": 1}], "normalization": 2, "weight": 0.5}]}'
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/scoring-sets \
+  -H 'Content-Type: application/json' \
+  -d '{"op": "add-row", "set": "Mine", "row": {"label": "Water", "terms": [{"methodId": "<category id>", "coefficient": 1}], "weight": 0.25}}'
+curl -X POST localhost:8080/api/v1/method-collections/my-indicators/scoring-sets \
+  -H 'Content-Type: application/json' \
+  -d '{"op": "remove-row", "set": "Mine", "variable": "water"}'
+
 # Undo the latest change still in effect, or the line named
 curl -X POST localhost:8080/api/v1/method-collections/my-indicators/undo
 curl -X POST 'localhost:8080/api/v1/method-collections/my-indicators/undo?line=3'
@@ -417,6 +430,17 @@ named the category, in the same line, so they keep scoring it; the short names
 of a set's variables never change. A name already in use is refused, and so is
 removing a category a scoring set weighs, naming the set. A removal records the
 category whole, factors included, so its undo puts it back where it was.
+
+A scoring set reads as rows: each groups categories, each times a coefficient,
+under a label, with a normalization and a weight, and a row whose formula is
+no such sum is read as that formula. A row with a weight joins the score that
+adds up the rows, the `Single score` a new set starts with; a score written
+otherwise is left as it is, and says so. A gesture on a set (a row added,
+changed or removed, a rename, a formula written) is one journal line, which
+records each entry it changed with what it found, so an undo gives the set
+back exactly, a set a SimaPro file translates included. A formula naming
+nothing the set holds, two variables reading one another, a normalization of
+zero and a row removed while a score reads it otherwise are refused.
 
 ---
 
@@ -495,6 +519,8 @@ DELETE /api/v1/method-collections/{name}                                 Delete 
 POST   /api/v1/method-collections/{name}/copy/{newName}                  Copy a method collection, to change it
 POST   /api/v1/method-collections/{name}/factors                         Change a copy's factors
 POST   /api/v1/method-collections/{name}/categories                      Add, rename, change the unit of or remove a copy's category
+GET    /api/v1/method-collections/{name}/scoring-sets                    A collection's scoring sets, as rows
+POST   /api/v1/method-collections/{name}/scoring-sets                    Change a copy's scoring sets: a set, a row, a formula, a score
 POST   /api/v1/method-collections/{name}/undo                            Undo a change (?line=)
 GET    /api/v1/method-collections/{name}/history                         A copy's journal of changes
 GET    /api/v1/method-collections/{name}/flows                           Flows a collection characterizes (?q=&limit=)
@@ -572,6 +598,7 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `copy_method_collection` | Copy a method collection under a new name, to change the copy |
 | `edit_method_factors` | Change a copy's factors: set, remove or add one, or scale or set every factor a selector reaches |
 | `edit_method_categories` | Change a copy's categories: add, rename, change the unit of or remove one |
+| `edit_scoring_sets` | Change a copy's scoring sets: create, rename or remove a set, add, change or remove a row, write a formula or a score |
 | `undo_method_edit` | Undo a change to a copy by writing its inverse, or redo one by undoing its undo |
 | `get_method_history` | A copy's journal of changes, and whether each is still in effect |
 | `search_method_flows` | The flows a loaded method collection characterizes, to name a new factor's flow |
@@ -580,7 +607,7 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `get_impacts` | LCIA score for an activity and method (accepts substitutions) |
 | `score_activity` | Full LCIA panel + every configured scoring set for one activity (replaces N×get_impacts calls) |
 | `score_activities` | Same shape as score_activity, batched over N activities in one multi-RHS solve |
-| `list_scoring_sets` | List formula-based scoring sets configured on every loaded method collection |
+| `list_scoring_sets` | List formula-based scoring sets configured on every loaded method collection, and each as rows |
 | `get_contributing_flows` | Top biosphere flows contributing to an LCIA score |
 | `get_contributing_activities` | Top upstream activities contributing to an LCIA score |
 | `get_score_contributing_flows` | Top biosphere flows contributing to one score of a scoring set |

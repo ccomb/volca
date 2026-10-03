@@ -14,6 +14,9 @@ module API.MethodEditHandlers (
     methodCollectionStatusAPI,
     editMethodFactorsHandler,
     editMethodCategoriesHandler,
+    editScoringSetsHandler,
+    scoringSetsHandler,
+    scoringSetAPI,
     undoMethodEditHandler,
     methodHistoryHandler,
     methodFlowsHandler,
@@ -47,15 +50,24 @@ import API.Types (
     MethodEditResponse (..),
     MethodFlowAPI (..),
     MethodHistoryEntry (..),
+    RowTermAPI (..),
+    RowTermsAPI (..),
+    ScoreAPI (..),
+    ScoringEditRequest,
+    ScoringGestureAPI (..),
+    ScoringRowAPI (..),
+    ScoringSetAPI (..),
     toCategoryEdit,
     toFactorEdit,
+    toScoringEdit,
  )
 import App.Env (AppEnv (..), AppM)
 import Database.Manager (DatabaseLoadStatus (..), MethodCollectionStatus (..), getMethodCollection, listMethodCollections)
-import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
+import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import Method.EditPlan (EditEffect (..))
 import Method.Journal (LineKind (..), MethodOp (..))
 import Method.Patch (describePatch)
+import Method.Scoring (RowTerms (..), ScoringGesture (..), ScoringRow (..), rowsOf, sumOfRows)
 import Method.Types (Compartment (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Service.CompareMethods (factorSide)
 
@@ -102,6 +114,46 @@ editMethodCategoriesHandler collection req = do
     manager <- asks aeDbManager
     edit <- either (refuse . EditRefused) pure (toCategoryEdit req)
     outcomeToAPI <$> (liftIO (editMethodCategories manager collection edit) >>= either refuse pure)
+
+editScoringSetsHandler :: Text -> ScoringEditRequest -> AppM MethodEditResponse
+editScoringSetsHandler collection req = do
+    guardMutation
+    manager <- asks aeDbManager
+    edit <- either (refuse . EditRefused) pure (toScoringEdit req)
+    outcomeToAPI <$> (liftIO (editScoringSets manager collection edit) >>= either refuse pure)
+
+scoringSetsHandler :: Text -> AppM [ScoringSetAPI]
+scoringSetsHandler collection = do
+    manager <- asks aeDbManager
+    loaded <- liftIO (getMethodCollection manager collection)
+    maybe (refuse (CollectionNotLoaded collection)) (\c -> pure (map (scoringSetAPI c) (mcScoringSets c))) loaded
+
+{- | A set as the rows of a guided grouping. A category a row reads carries
+its identifier when the collection holds exactly one category of that name.
+-}
+scoringSetAPI :: MethodCollection -> ScoringSet -> ScoringSetAPI
+scoringSetAPI collection set =
+    ScoringSetAPI
+        { ssaName = ssName set
+        , ssaUnit = ssUnit set
+        , ssaDisplayMultiplier = ssDisplayMultiplier set
+        , ssaRows = map row (rowsOf set)
+        , ssaScores = [ScoreAPI name formula (sumOfRows set name) | (name, formula) <- M.toList (ssScores set)]
+        , ssaVariables = ssVariables set <> M.mapWithKey (\v _ -> M.findWithDefault v v (ssLabels set)) (ssComputed set)
+        }
+  where
+    row :: ScoringRow -> ScoringRowAPI
+    row r = ScoringRowAPI (srVariable r) (srLabel r) (srUnit r) (terms (srTerms r)) (srNormalization r) (srWeight r)
+    terms :: RowTerms -> RowTermsAPI
+    terms = \case
+        Grouped ts -> RowGrouped [RowTermAPI category (M.lookup category ids) coef | (category, coef) <- ts]
+        Written formula -> RowWritten formula
+    ids :: M.Map Text UUID
+    ids = M.mapMaybe sole (M.fromListWith (<>) [(methodName m, [methodId m]) | m <- mcMethods collection])
+    sole :: [UUID] -> Maybe UUID
+    sole = \case
+        [one] -> Just one
+        _ -> Nothing
 
 undoMethodEditHandler :: Text -> Maybe Int -> AppM MethodEditResponse
 undoMethodEditHandler collection line = do
@@ -177,6 +229,19 @@ historyToAPI loaded history = map entry history
         RenameCategory _ before after -> CategoryRenamed before after
         SetCategoryUnit c before after -> CategoryUnitSet (categoryName c) before after
         RemoveCategory _ m _ -> CategoryRemoved (methodName m) (length (methodFactors m))
+        ChangeScoringSet set gesture _ -> ScoringSetChanged set (gestureAPI gesture)
+    gestureAPI :: ScoringGesture -> ScoringGestureAPI
+    gestureAPI = \case
+        AddedRow label -> RowAdded label
+        ChangedRow label -> RowChanged label
+        RemovedRow label -> RowRemoved label
+        RenamedSet before after -> SetRenamed before after
+        SetUnitTo before after -> SetUnitChanged before after
+        SetMultiplierTo before after -> MultiplierSet before after
+        WroteFormula variable -> FormulaWritten variable
+        AddedScore name -> ScoreAdded name
+        ChangedScore name -> ScoreChanged name
+        RemovedScore name -> ScoreRemoved name
     categoryName :: UUID -> Text
     categoryName c = fromMaybe (UUID.toText c) (M.lookup c names)
     -- The collection's own names first; a category it no longer has keeps
@@ -199,6 +264,7 @@ historyToAPI loaded history = map entry history
         SetGlobalMethods{} -> []
         CreateScoringSet{} -> []
         RemoveScoringSet{} -> []
+        ChangeScoringSet{} -> []
 
 {- | The flows a collection characterizes, once each, whose name holds every
 word of the query, case aside; sorted by name, then compartment. Two rows that

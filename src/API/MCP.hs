@@ -48,14 +48,14 @@ import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
-import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI)
+import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), toCategoryEdit, toExchangeEdits, toFactorEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), Substitution (..), SubstitutionRequest (..), ScoreAPI (..), ScoringSetAPI (..), toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
 import Control.Monad (mfilter)
 import qualified Data.List as L
 import qualified Data.Set as Set
 import Matrix (Inventory, applyBiosphereMatrix)
-import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
+import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import qualified Method.Explain as Explain
 import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude)
 import qualified Method.Mapping as Mapping
@@ -546,6 +546,7 @@ callTool dbManager presets mHosting mBaseUrl rid name args = case name of
     "copy_method_collection" -> callCopyMethodCollection dbManager rid args
     "edit_method_factors" -> callEditMethodFactors dbManager rid args
     "edit_method_categories" -> callEditMethodCategories dbManager rid args
+    "edit_scoring_sets" -> callEditScoringSets dbManager rid args
     "undo_method_edit" -> callUndoMethodEdit dbManager rid args
     "get_method_history" -> callGetMethodHistory dbManager rid args
     "search_method_flows" -> callSearchMethodFlows dbManager rid args
@@ -1763,6 +1764,17 @@ callEditMethodCategories dbManager rid args = runTool rid $ do
     names :: [(Key, Key)]
     names = [("op", "op"), ("method_id", "methodId"), ("name", "name"), ("unit", "unit"), ("impact_category", "impactCategory"), ("methodology", "methodology")]
 
+-- | Read through the request the HTTP endpoint reads, as 'callEditMethodFactors' does.
+callEditScoringSets :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callEditScoringSets dbManager rid args = runTool rid $ do
+    (collection, request) <- except (editArguments names args)
+    edit <- except (toScoringEdit request)
+    outcome <- ExceptT (first refusalText <$> editScoringSets dbManager collection edit)
+    return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
+  where
+    names :: [(Key, Key)]
+    names = [(k, k) | k <- ["op", "set", "name", "unit", "multiplier", "variable", "formula", "score", "row", "rows"]]
+
 {- | The collection an edit names, and the request its other arguments make,
 each snake-case argument read as the request's camel-case field. Any other
 argument is refused, naming it.
@@ -2519,15 +2531,16 @@ callListScoringSets dbManager rid args = do
             [ "collections"
                 .= [ object
                         [ "collection" .= cName
-                        , "scoring_sets" .= map encodeScoringSet (mcScoringSets mc)
+                        , "scoring_sets" .= map (encodeScoringSet mc) (mcScoringSets mc)
                         ]
                    | (cName, mc) <- M.toList loaded
                    ]
             ]
 
-    encodeScoringSet :: ScoringSet -> Value
-    encodeScoringSet ss =
-        object
+    encodeScoringSet :: MethodCollection -> ScoringSet -> Value
+    encodeScoringSet mc ss =
+        let guided = scoringSetAPI mc ss
+         in object
             [ "name" .= ssName ss
             , "unit" .= ssUnit ss
             , "variables" .= ssVariables ss
@@ -2538,4 +2551,6 @@ callListScoringSets dbManager rid args = do
             , "weighting" .= ssWeighting ss
             , "scores" .= ssScores ss
             , "display_multiplier" .= ssDisplayMultiplier ss
+            , "rows" .= ssaRows guided
+            , "sum_of_rows" .= [scoName score | score <- ssaScores guided, scoSumOfRows score]
             ]

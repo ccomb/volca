@@ -37,7 +37,9 @@ import Database.Author (
     FlowRef (..),
  )
 import GHC.Generics
+import qualified Data.List.NonEmpty as NE
 import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), FactorEdit (..), FactorTarget (..))
+import Method.ScoringEdit (RowDraft (..), ScoringEdit (..))
 import Method.Types (FlowDirection, MethodCF (..))
 import qualified Method.Types as MT
 import Servant.API.ContentTypes (MimeRender (..), MimeUnrender (..), OctetStream)
@@ -738,6 +740,11 @@ data LCIABatchResult = LCIABatchResult
     -- ^ Scoring set name → display unit (e.g., "Pts", "µPts PEF")
     , lbrScoringIndicators :: M.Map Text (M.Map Text ScoringIndicator)
     -- ^ Scoring set name → (variable name → indicator). One row per scoring variable.
+    , lbrScoringRows :: M.Map Text (M.Map Text ScoringIndicator)
+    {- ^ Scoring set name → (row variable → its label and its normalized,
+    weighted value), for every row of the set as list_scoring_sets reads it,
+    including a row no score reads.
+    -}
     , lbrCutoffWaste :: [CutoffWasteFlow]
     {- ^ Orphan waste exchanges on the scored activity – flows the dataset author
     left unmodelled. They contribute 0 to the score; surfacing them lets
@@ -2765,8 +2772,197 @@ data MethodChangeAPI
     | CategoryRenamed {crnBefore :: Text, crnAfter :: Text}
     | CategoryUnitSet {cusCategory :: Text, cusBefore :: Text, cusAfter :: Text}
     | CategoryRemoved {crmName :: Text, crmFactors :: Int}
+    | ScoringSetChanged {sschSet :: Text, sschGesture :: ScoringGestureAPI}
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped MethodChangeAPI)
+
+-- | What one change did to a scoring set, as the person who asked for it said it.
+data ScoringGestureAPI
+    = RowAdded {rwaLabel :: Text}
+    | RowChanged {rwcLabel :: Text}
+    | RowRemoved {rwrLabel :: Text}
+    | SetRenamed {strBefore :: Text, strAfter :: Text}
+    | SetUnitChanged {sucBefore :: Text, sucAfter :: Text}
+    | MultiplierSet {mlsBefore :: Maybe Double, mlsAfter :: Maybe Double}
+    | FormulaWritten {fmwVariable :: Text}
+    | ScoreAdded {scaName :: Text}
+    | ScoreChanged {scgName :: Text}
+    | ScoreRemoved {scrName :: Text}
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoringGestureAPI)
+
+-- | What one request does to a collection's scoring sets. Read from the words below; any other is refused naming them.
+data ScoringEditOp
+    = CreateSetOp
+    | RemoveSetOp
+    | RenameSetOp
+    | SetSetUnitOp
+    | SetMultiplierOp
+    | AddRowOp
+    | ChangeRowOp
+    | RemoveRowOp
+    | SetFormulaOp
+    | SetScoreOp
+    | RemoveScoreOp
+    deriving (Eq, Show, Enum, Bounded)
+
+scoringEditOpName :: ScoringEditOp -> Text
+scoringEditOpName = \case
+    CreateSetOp -> "create"
+    RemoveSetOp -> "remove"
+    RenameSetOp -> "rename"
+    SetSetUnitOp -> "set-unit"
+    SetMultiplierOp -> "set-multiplier"
+    AddRowOp -> "add-row"
+    ChangeRowOp -> "change-row"
+    RemoveRowOp -> "remove-row"
+    SetFormulaOp -> "set-formula"
+    SetScoreOp -> "set-score"
+    RemoveScoreOp -> "remove-score"
+
+instance FromJSON ScoringEditOp where
+    parseJSON = withText "op" $ \t ->
+        maybe
+            (fail ("op " <> show t <> " is none of " <> T.unpack (T.intercalate ", " (map scoringEditOpName [minBound .. maxBound]))))
+            pure
+            (lookup t [(scoringEditOpName o, o) | o <- [minBound .. maxBound]])
+
+instance ToJSON ScoringEditOp where
+    toJSON = toJSON . scoringEditOpName
+
+instance ToSchema ScoringEditOp where
+    declareNamedSchema _ =
+        pure $
+            NamedSchema (Just "ScoringEditOp") $
+                mempty
+                    & type_
+                        ?~ OpenApiString
+                    & enum_
+                        ?~ map (toJSON . scoringEditOpName) [minBound .. maxBound]
+
+{- | One change asked of a collection's scoring sets, each naming its set.
+A creation names the rows (and optionally the unit); a rename names the new
+'name'; a change of unit the 'unit'; a change of multiplier the 'multiplier',
+or none to drop it; a row is added as a 'row', changed or removed by its
+'variable'; a formula is written for an existing computed 'variable'; a score
+is set with its 'formula' or removed, by its 'score'.
+-}
+data ScoringEditRequest = ScoringEditRequest
+    { serOp :: ScoringEditOp
+    , serSet :: Text
+    , serName :: Maybe Text
+    , serUnit :: Maybe Text
+    , serMultiplier :: Maybe Double
+    , serVariable :: Maybe Text
+    , serFormula :: Maybe Text
+    , serScore :: Maybe Text
+    , serRow :: Maybe RowDraftAPI
+    , serRows :: Maybe [RowDraftAPI]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoringEditRequest)
+
+instance FromJSON ScoringEditRequest where
+    parseJSON = parseClosed
+
+-- | A row as a caller writes it: the categories it groups by their identifier, each times its coefficient.
+data RowDraftAPI = RowDraftAPI
+    { rdaLabel :: Text
+    , rdaUnit :: Maybe Text
+    , rdaTerms :: [DraftTermAPI]
+    , rdaNormalization :: Maybe Double
+    , rdaWeight :: Maybe Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped RowDraftAPI)
+
+instance FromJSON RowDraftAPI where
+    parseJSON = parseClosed
+
+data DraftTermAPI = DraftTermAPI
+    { dtaMethodId :: UUID
+    , dtaCoefficient :: Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped DraftTermAPI)
+
+instance FromJSON DraftTermAPI where
+    parseJSON = parseClosed
+
+-- | What a change asks of a collection's scoring sets, or the field it lacks.
+toScoringEdit :: ScoringEditRequest -> Either Text ScoringEdit
+toScoringEdit req = case serOp req of
+    CreateSetOp -> NewSet set (serUnit req) <$> maybe (Left "a create names rows") (mapM toRowDraft) (serRows req)
+    RemoveSetOp -> Right (DeleteSet set)
+    RenameSetOp -> needs "a rename names name" (RenameScoringSet set <$> serName req)
+    SetSetUnitOp -> needs "a set-unit names unit" (ChangeSetUnit set <$> serUnit req)
+    SetMultiplierOp -> Right (ChangeMultiplier set (serMultiplier req))
+    AddRowOp -> maybe (Left "an add-row names row") (fmap (AddRow set) . toRowDraft) (serRow req)
+    ChangeRowOp -> maybe (Left "a change-row names variable and row") (\(v, r) -> ChangeRow set v <$> toRowDraft r) ((,) <$> serVariable req <*> serRow req)
+    RemoveRowOp -> needs "a remove-row names variable" (DeleteRow set <$> serVariable req)
+    SetFormulaOp -> needs "a set-formula names variable and formula" (WriteFormula set <$> serVariable req <*> serFormula req)
+    SetScoreOp -> needs "a set-score names score and formula" (PutScore set <$> serScore req <*> serFormula req)
+    RemoveScoreOp -> needs "a remove-score names score" (DeleteScore set <$> serScore req)
+  where
+    set :: Text
+    set = serSet req
+    needs :: Text -> Maybe ScoringEdit -> Either Text ScoringEdit
+    needs missing = maybe (Left missing) Right
+    toRowDraft :: RowDraftAPI -> Either Text RowDraft
+    toRowDraft r =
+        maybe
+            (Left ("the row '" <> rdaLabel r <> "' groups no category"))
+            (\terms -> Right (RowDraft (rdaLabel r) (rdaUnit r) terms (rdaNormalization r) (rdaWeight r)))
+            (NE.nonEmpty [(dtaMethodId t, dtaCoefficient t) | t <- rdaTerms r])
+
+-- | A scoring set as rows of a guided grouping, with the scores reading them and every name a formula can read.
+data ScoringSetAPI = ScoringSetAPI
+    { ssaName :: Text
+    , ssaUnit :: Text
+    , ssaDisplayMultiplier :: Maybe Double
+    , ssaRows :: [ScoringRowAPI]
+    , ssaScores :: [ScoreAPI]
+    , ssaVariables :: M.Map Text Text
+    -- ^ every name a formula of the set can read → the category it reads, or the label of the row it computes
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoringSetAPI)
+
+data ScoringRowAPI = ScoringRowAPI
+    { sraVariable :: Text
+    , sraLabel :: Text
+    , sraUnit :: Maybe Text
+    , sraTerms :: RowTermsAPI
+    , sraNormalization :: Maybe Double
+    , sraWeight :: Maybe Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoringRowAPI)
+
+-- | What a row adds up: categories, each times its coefficient, or a formula that is no such sum.
+data RowTermsAPI
+    = RowGrouped {grpCategories :: [RowTermAPI]}
+    | RowWritten {wrtFormula :: Text}
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped RowTermsAPI)
+
+-- | A category a row reads; its identifier when the collection holds a category of that name.
+data RowTermAPI = RowTermAPI
+    { rtaCategory :: Text
+    , rtaMethodId :: Maybe UUID
+    , rtaCoefficient :: Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped RowTermAPI)
+
+-- | A score, and whether it is the sum of the rows, which a new row joins.
+data ScoreAPI = ScoreAPI
+    { scoName :: Text
+    , scoFormula :: Text
+    , scoSumOfRows :: Bool
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoreAPI)
 
 {- | A flow a collection characterizes, once per direction and compartment.
 Ordered by name, then compartment: the order a list of them is read in.
