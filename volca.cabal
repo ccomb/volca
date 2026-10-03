@@ -385,6 +385,7 @@ test-suite lca-tests
                      , MethodJournalCheckpointsSpec
                      , MethodJournalLoadSpec
                      , MethodJournalSpec
+                     , MethodScoringSpec
                      , ActivityWriteHandlerSpec
                      , PersistenceSpec
                      , CacheLayoutSpec

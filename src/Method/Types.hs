@@ -48,14 +48,15 @@ module Method.Types (
 
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
-import Control.Monad (unless)
+import Control.Monad (foldM, unless)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Csv (HasHeader (..), decode)
 import Data.Indexing (collisions, uniqueIndex)
-import Data.List (sortOn)
+import Data.Graph (SCC (..), stronglyConnComp)
+import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -326,17 +327,33 @@ scoreWeights ss scoreName rawScores = do
             , T.pack "' is not a weighted sum of its indicators, so it cannot be split by flow or by activity."
             ]
 
-{- | Resolve computed variables by evaluating formulas.
-Uses topological sort to handle dependencies between computed variables.
+{- | Resolve computed variables by evaluating formulas, each after the computed
+variables it reads. Names are read without regard to case, as formulas read
+them; two computed variables that read each other, directly or not, are refused
+by name.
 -}
 resolveComputed :: M.Map Text Double -> M.Map Text Text -> Either String (M.Map Text Double)
-resolveComputed env formulas = foldl step (Right env) sorted
+resolveComputed env formulas = traverse acyclic (stronglyConnComp graph) >>= foldM step env
   where
-    -- Simple topological sort: evaluate in order of formula length as heuristic
-    -- (shorter formulas are less likely to depend on longer ones)
-    sorted = sortOn (T.length . snd) (M.toList formulas)
-    step (Left err) _ = Left err
-    step (Right currentEnv) (varName, formula) =
+    byKey :: M.Map Text Text
+    byKey = M.fromList [(T.toLower v, v) | v <- M.keys formulas]
+
+    graph :: [((Text, Text), Text, [Text])]
+    graph =
+        [ ((v, f), T.toLower v, filter (`M.member` byKey) (map T.toLower (Expr.collectIdentifiers Expr.Arithmetic f)))
+        | (v, f) <- M.toList formulas
+        ]
+
+    acyclic :: SCC (Text, Text) -> Either String (Text, Text)
+    acyclic (AcyclicSCC vf) = Right vf
+    acyclic (NECyclicSCC vfs) =
+        Left $
+            "Computed variables "
+                <> intercalate ", " ["'" <> T.unpack v <> "'" | (v, _) <- NE.toList vfs]
+                <> " read each other, so none of them can be computed."
+
+    step :: M.Map Text Double -> (Text, Text) -> Either String (M.Map Text Double)
+    step currentEnv (varName, formula) =
         case Expr.evaluate Expr.Arithmetic currentEnv formula of
             Left err ->
                 Left $
