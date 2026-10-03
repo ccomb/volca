@@ -101,6 +101,7 @@ data Resource
     | EditExchanges
     | CopyMethodCollection
     | EditMethodFactors
+    | EditMethodCategories
     | UndoMethodEdit
     | GetMethodHistory
     | SearchMethodFlows
@@ -194,6 +195,7 @@ resourceMutates r = case r of
     EditExchanges -> True
     CopyMethodCollection -> True
     EditMethodFactors -> True
+    EditMethodCategories -> True
     UndoMethodEdit -> True
     GetMethodHistory -> False
     SearchMethodFlows -> False
@@ -262,6 +264,7 @@ apiPath r = case r of
     EditExchanges -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "exchanges"])
     CopyMethodCollection -> Just (POST, ["method-collections", "{collection}", "copy", "{newName}"])
     EditMethodFactors -> Just (POST, ["method-collections", "{collection}", "factors"])
+    EditMethodCategories -> Just (POST, ["method-collections", "{collection}", "categories"])
     UndoMethodEdit -> Just (POST, ["method-collections", "{collection}", "undo"])
     GetMethodHistory -> Just (GET, ["method-collections", "{collection}", "history"])
     SearchMethodFlows -> Just (GET, ["method-collections", "{collection}", "flows"])
@@ -323,6 +326,7 @@ mcpName r = case r of
     EditExchanges -> "edit_exchanges"
     CopyMethodCollection -> "copy_method_collection"
     EditMethodFactors -> "edit_method_factors"
+    EditMethodCategories -> "edit_method_categories"
     UndoMethodEdit -> "undo_method_edit"
     GetMethodHistory -> "get_method_history"
     SearchMethodFlows -> "search_method_flows"
@@ -807,6 +811,17 @@ description r = case r of
         \the change and how many factors it touched. A collection the \
         \configuration declares is refused: copy it with \
         \copy_method_collection first."
+    EditMethodCategories ->
+        "LCA / ACV: add an impact category to a loaded collection of one's \
+        \own (a copy or an upload), rename one, change its unit, or remove \
+        \it. 'op' says which: 'add' names 'name' and 'unit' (and optionally \
+        \'impact_category' and 'methodology'), and the category starts with \
+        \no factor, to add with edit_method_factors; 'rename', 'set-unit' \
+        \and 'remove' name 'method_id' (from list_methods). A rename carries \
+        \along the scoring sets and the unregionalized categories naming the \
+        \category. A name already in use is refused, and so is removing a \
+        \category a scoring set weighs, naming the set. The response gives \
+        \the journal line and the category's method_id."
     UndoMethodEdit ->
         "LCA / ACV: undo a change to a collection of one's own, by writing its \
         \inverse as a new journal line. Without 'line', undoes the latest \
@@ -1241,6 +1256,15 @@ params r = case r of
         , Param "scale" "number" Optional "The factor to multiply by, for scale"
         , Param "match" "object" Optional "The selector, for scale and set-all: {category, flowName, flowNamePrefix, cas, subcompartmentContains}, at least one of them"
         , Param "factor" "object" Optional "The factor to add: {flowId, name, direction (Input or Output), value, unit, compartment {medium, subcompartment, qualifier}, cas, location}"
+        ]
+    EditMethodCategories ->
+        [ Param "collection" "string" Required "Loaded method collection of one's own: a copy or an upload"
+        , Param "op" "string" Required "add, rename, set-unit or remove"
+        , Param "method_id" "string" Optional "The impact category (from list_methods), for rename, set-unit and remove"
+        , Param "name" "string" Optional "The category's name, for add and rename"
+        , Param "unit" "string" Optional "The category's unit, for add and set-unit"
+        , Param "impact_category" "string" Optional "The impact category a new one belongs to; its name when absent"
+        , Param "methodology" "string" Optional "The methodology of a new category"
         ]
     UndoMethodEdit ->
         [ Param "collection" "string" Required "Loaded method collection of one's own"

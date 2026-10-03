@@ -13,6 +13,7 @@ module API.MethodEditHandlers (
     copyMethodCollectionHandler,
     methodCollectionStatusAPI,
     editMethodFactorsHandler,
+    editMethodCategoriesHandler,
     undoMethodEditHandler,
     methodHistoryHandler,
     methodFlowsHandler,
@@ -25,6 +26,7 @@ module API.MethodEditHandlers (
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -36,6 +38,7 @@ import Servant (ServerError, err400, err404, err409, err500, errBody, throwError
 
 import API.DatabaseHandlers (guardMutation)
 import API.Types (
+    CategoryEditRequest,
     CompartmentAPI (..),
     FactorEditRequest,
     HistoryKindAPI (..),
@@ -44,11 +47,12 @@ import API.Types (
     MethodEditResponse (..),
     MethodFlowAPI (..),
     MethodHistoryEntry (..),
+    toCategoryEdit,
     toFactorEdit,
  )
 import App.Env (AppEnv (..), AppM)
 import Database.Manager (DatabaseLoadStatus (..), MethodCollectionStatus (..), getMethodCollection, listMethodCollections)
-import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
+import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, methodHistory, refusalText, undoMethodEdit)
 import Method.EditPlan (EditEffect (..))
 import Method.Journal (LineKind (..), MethodOp (..))
 import Method.Patch (describePatch)
@@ -92,6 +96,13 @@ editMethodFactorsHandler collection req = do
     edit <- either (refuse . EditRefused) pure (toFactorEdit req)
     outcomeToAPI <$> (liftIO (editMethodFactors manager collection edit) >>= either refuse pure)
 
+editMethodCategoriesHandler :: Text -> CategoryEditRequest -> AppM MethodEditResponse
+editMethodCategoriesHandler collection req = do
+    guardMutation
+    manager <- asks aeDbManager
+    edit <- either (refuse . EditRefused) pure (toCategoryEdit req)
+    outcomeToAPI <$> (liftIO (editMethodCategories manager collection edit) >>= either refuse pure)
+
 undoMethodEditHandler :: Text -> Maybe Int -> AppM MethodEditResponse
 undoMethodEditHandler collection line = do
     guardMutation
@@ -123,14 +134,14 @@ refusalStatus = \case
     EditRefused _ -> err400
 
 outcomeToAPI :: EditOutcome -> MethodEditResponse
-outcomeToAPI (EditOutcome line effect) = MethodEditResponse line (eeTouched effect) (eeBefore effect) (eeAfter effect)
+outcomeToAPI (EditOutcome line effect category) = MethodEditResponse line (eeTouched effect) (eeBefore effect) (eeAfter effect) category
 
 {- | A collection's journal as a reader of the collection names it. A category
 is named after the collection in use; one it no longer holds, or a collection
 not loaded, is named by its identifier.
 -}
 historyToAPI :: Maybe MethodCollection -> [HistoryLine] -> [MethodHistoryEntry]
-historyToAPI loaded = map entry
+historyToAPI loaded history = map entry history
   where
     entry :: HistoryLine -> MethodHistoryEntry
     entry h =
@@ -162,10 +173,32 @@ historyToAPI loaded = map entry
         SetGlobalMethods before after -> UnregionalizedSet before after
         CreateScoringSet s -> ScoringSetCreated (ssName s)
         RemoveScoringSet s -> ScoringSetRemoved (ssName s)
+        AddCategory _ m _ -> CategoryAdded (methodName m) (length (methodFactors m))
+        RenameCategory _ before after -> CategoryRenamed before after
+        SetCategoryUnit c before after -> CategoryUnitSet (categoryName c) before after
+        RemoveCategory _ m _ -> CategoryRemoved (methodName m) (length (methodFactors m))
     categoryName :: UUID -> Text
-    categoryName c = case [methodName m | m <- maybe [] mcMethods loaded, methodId m == c] of
-        name : _ -> name
-        [] -> UUID.toText c
+    categoryName c = fromMaybe (UUID.toText c) (M.lookup c names)
+    -- The collection's own names first; a category it no longer has keeps
+    -- the last name the journal gave it.
+    names :: M.Map UUID Text
+    names =
+        M.fromList [(methodId m, methodName m) | m <- maybe [] mcMethods loaded]
+            `M.union` M.fromList (concatMap (namesIn . hlOp) history)
+    namesIn :: MethodOp -> [(UUID, Text)]
+    namesIn = \case
+        AddCategory _ m _ -> [(methodId m, methodName m)]
+        RemoveCategory _ m _ -> [(methodId m, methodName m)]
+        RenameCategory c _ after -> [(c, after)]
+        SetCategoryUnit{} -> []
+        SetFactor{} -> []
+        RemoveFactor{} -> []
+        AddFactor{} -> []
+        PatchFactors{} -> []
+        RestoreFactors{} -> []
+        SetGlobalMethods{} -> []
+        CreateScoringSet{} -> []
+        RemoveScoringSet{} -> []
 
 {- | The flows a collection characterizes, once each, whose name holds every
 word of the query, case aside; sorted by name, then compartment. Two rows that

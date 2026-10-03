@@ -213,6 +213,18 @@ spec = describe "MCP database load/unload tools" $ do
                         resultText after `shouldBe` resultText history
                     found -> expectationFailure ("expected one Methane, fossil factor, found " <> show (length found))
 
+        it "add a category to a copy, answering with its identifier, and refuse an argument they do not know" $
+            withScratchDataDir $ do
+                manager <- initDatabaseManager defaultConfig NoCache
+                let tool name = callTool manager [] Nothing Nothing noRequestId name . KM.fromList
+                _ <- tool "copy_method_collection" [("collection", String "plain-indicators"), ("new_name", String "copy")]
+                added <- tool "edit_method_categories" [("collection", String "copy"), ("op", String "add"), ("name", String "A category of my own"), ("unit", String "kg")]
+                isError added `shouldBe` False
+                resultText added `shouldSatisfy` maybe False ("methodId" `T.isInfixOf`)
+                unknown <- tool "edit_method_categories" [("collection", String "copy"), ("op", String "add"), ("name", String "Another"), ("unit", String "kg"), ("label", String "x")]
+                isError unknown `shouldBe` True
+                resultText unknown `shouldSatisfy` maybe False ("label" `T.isInfixOf`)
+
     describe "gap-report tool" $ do
         it "is advertised with a required 'database' parameter" $
             fmap requiredOf (toolByName "get_gap_report") `shouldBe` Just ["database"]

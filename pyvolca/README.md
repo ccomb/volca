@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 42** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 43** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -404,6 +404,17 @@ Declare ``dep_name`` as a dependency of the target database.
 
 Returns the engine's ``DatabaseSetupInfo`` dict describing the updated
 dependency topology.
+
+##### `Client.add_method_category(collection: str, name: str, unit: str, *, impact_category: str | None = None, methodology: str | None = None) -> dict`
+
+Add an impact category to a collection of your own.
+
+It starts with no factor: add them with `add_method_factor`,
+naming the category by the ``methodId`` the answer gives. A name
+already in use is refused. ``impact_category`` is the name when not
+given.
+
+Needs an engine speaking wire revision 43.
 
 ##### `Client.add_method_factor(collection: str, method_id: str, factor: NewMethodFactor) -> dict`
 
@@ -1145,11 +1156,25 @@ Remove ``dep_name`` from the target database's dependencies.
 
 Returns the updated ``DatabaseSetupInfo`` dict.
 
+##### `Client.remove_method_category(collection: str, method_id: str) -> dict`
+
+Remove an impact category of a collection of your own, with its factors.
+
+Refused while a scoring set weighs it, naming the set. Undone with
+`undo_method_edit`, which puts it back with its factors.
+
 ##### `Client.remove_method_factor(collection: str, method_id: str, flow_id: str, *, location: str | None = None, value: float | None = None) -> dict`
 
 Remove one characterization factor of a collection of your own.
 
 Named as in `set_method_factor`, and refused on the same grounds.
+
+##### `Client.rename_method_category(collection: str, method_id: str, name: str) -> dict`
+
+Rename an impact category of a collection of your own.
+
+The scoring sets and the unregionalized categories naming it follow,
+so they keep scoring it. A name already in use is refused.
 
 ##### `Client.replace_activity(process_id: str, activity: ActivityInput, db_name: str | None = None) -> dict`
 
@@ -1323,6 +1348,10 @@ Returns the licence now in force, with the permissions it settles.
 Raises VoLCAError on an HTTP error: a 409 for a database whose licence
 is written elsewhere, in the configuration file or on the source a
 copy reads.
+
+##### `Client.set_method_category_unit(collection: str, method_id: str, unit: str) -> dict`
+
+Change the unit an impact category of a collection of your own is expressed in.
 
 ##### `Client.set_method_factor(collection: str, method_id: str, flow_id: str, new_value: float, *, location: str | None = None, value: float | None = None) -> dict`
 

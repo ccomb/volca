@@ -46,12 +46,14 @@ import API.DatabaseHandlers (
     uploadRefData,
  )
 import API.MCP (callTool, noRequestId, toolDefinitions)
-import API.MethodEditHandlers (copyMethodCollectionHandler, editMethodFactorsHandler, methodHistoryHandler, undoMethodEditHandler)
+import API.MethodEditHandlers (copyMethodCollectionHandler, editMethodCategoriesHandler, editMethodFactorsHandler, methodHistoryHandler, undoMethodEditHandler)
 import API.Resources (Resource (..), allResources, resourceMutates)
 import API.Routes (getHosting, loadMethodCollectionHandler, unloadMethodCollectionHandler)
 import API.Types (
     ActivityInput (..),
     ActivityWriteRequest (..),
+    CategoryEditOp (..),
+    CategoryEditRequest (..),
     DeleteSelectionRequest (..),
     ExchangeEditRequest (..),
     FactorEditOp (..),
@@ -131,6 +133,7 @@ mutatingHandlers =
     , ("upload-refdata", run (uploadRefData FlowSynonyms (Just "nope") Nothing (source [])))
     , ("copy-method", run (copyMethodCollectionHandler "nope" "nope-copy"))
     , ("edit-method-factors", run (editMethodFactorsHandler "nope" (FactorEditRequest SetOne Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)))
+    , ("edit-method-categories", run (editMethodCategoriesHandler "nope" (CategoryEditRequest AddCategoryOp Nothing (Just "x") (Just "kg") Nothing Nothing)))
     , ("undo-method-edit", run (undoMethodEditHandler "nope" Nothing))
     ]
   where
@@ -204,7 +207,7 @@ spec = do
 
     describe "Resource registry" $
         it "counts exactly the operations that change shared state as mutations" $
-            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, CopyMethodCollection, EditMethodFactors, UndoMethodEdit]
+            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, CopyMethodCollection, EditMethodFactors, EditMethodCategories, UndoMethodEdit]
 
     describe "REST handlers under read_only" $ do
         it "refuse every mutating endpoint with 403" $

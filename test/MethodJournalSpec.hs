@@ -53,6 +53,13 @@ ecotox =
 collection :: MethodCollection
 collection = MethodCollection [ecotox] [] []
 
+-- | A set weighing one category under the variable « eco ».
+weighing :: T.Text -> ScoringSet
+weighing category = ScoringSet "Single" "Pt" (M.fromList [("eco", category)]) M.empty M.empty M.empty (M.fromList [("eco", 1)]) (M.fromList [("Single score", "eco")]) Nothing M.empty CreatedInJournal
+
+landUse :: Method
+landUse = ecotox{methodId = uuid 200, methodName = "Land use", methodUnit = "Pt", methodCategory = "Land use", methodFactors = [ammonia]}
+
 factorsOf :: MethodCollection -> [MethodCF]
 factorsOf = concatMap methodFactors . mcMethods
 
@@ -123,6 +130,55 @@ spec = describe "a method collection's journal" $ do
         refusal (replayMethodJournal collection [line (PatchFactors ammoniaPatch 1), line (SetFactor (uuid 100) ammonia 1)])
             `shouldContain` "journal line 2 (set-factor)"
 
+    it "adds a category at the end, or at a position, and refuses an identifier or a name already there" $ do
+        fmap (map methodName . mcMethods) (applyMethodOp collection (AddCategory Nothing landUse Regionalized))
+            `shouldBe` Right ["Ecotoxicity, freshwater", "Land use"]
+        fmap (map methodName . mcMethods) (applyMethodOp collection (AddCategory (Just 0) landUse Regionalized))
+            `shouldBe` Right ["Land use", "Ecotoxicity, freshwater"]
+        refusal (applyMethodOp collection (AddCategory Nothing landUse{methodId = uuid 100} Regionalized)) `shouldContain` "identifier"
+        refusal (applyMethodOp collection (AddCategory Nothing landUse{methodName = "Ecotoxicity, freshwater"} Regionalized)) `shouldContain` "already named"
+
+    it "refuses a new category whose name a scoring set already holds for no category" $
+        refusal (applyMethodOp collection{mcScoringSets = [weighing "Land use"]} (AddCategory Nothing landUse Regionalized))
+            `shouldContain` "the scoring set Single already names Land use"
+
+    it "renames a category, and the scoring sets and unregionalized categories naming it follow" $
+        let named = collection{mcScoringSets = [weighing "Ecotoxicity, freshwater"], mcUnregionalized = ["Ecotoxicity, freshwater"]}
+            renamed = applyMethodOp named (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Freshwater ecotoxicity")
+         in do
+                fmap (map methodName . mcMethods) renamed `shouldBe` Right ["Freshwater ecotoxicity"]
+                fmap (map ssVariables . mcScoringSets) renamed `shouldBe` Right [M.fromList [("eco", "Freshwater ecotoxicity")]]
+                fmap mcUnregionalized renamed `shouldBe` Right ["Freshwater ecotoxicity"]
+                (renamed >>= (`applyMethodOp` RenameCategory (uuid 100) "Freshwater ecotoxicity" "Ecotoxicity, freshwater")) `shouldBe` Right named
+
+    it "stops a rename whose category no longer has the recorded name" $
+        refusal (applyMethodOp collection (RenameCategory (uuid 100) "Ecotoxicity" "Other")) `shouldContain` "as recorded"
+
+    it "refuses to rename a category whose name another one shares" $
+        let twins = collection{mcMethods = [ecotox, landUse{methodName = "Ecotoxicity, freshwater"}]}
+         in refusal (applyMethodOp twins (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Other")) `shouldContain` "several impact categories"
+
+    it "changes a category's unit only from the one recorded" $ do
+        fmap (map methodUnit . mcMethods) (applyMethodOp collection (SetCategoryUnit (uuid 100) "CTUe" "PAF.m3.day"))
+            `shouldBe` Right ["PAF.m3.day"]
+        refusal (applyMethodOp collection (SetCategoryUnit (uuid 100) "kg" "PAF.m3.day")) `shouldContain` "as recorded"
+
+    it "removes a category with its place among the unregionalized ones, and puts it back there" $
+        let two = MethodCollection [ecotox, landUse] [] ["Land use", "Ecotoxicity, freshwater"]
+            removed = applyMethodOp two (RemoveCategory 0 ecotox (UnregionalizedAt 1))
+         in do
+                fmap (\c -> (map methodName (mcMethods c), mcUnregionalized c)) removed `shouldBe` Right (["Land use"], ["Land use"])
+                (removed >>= \c -> applyMethodOp c (AddCategory (Just 0) ecotox (UnregionalizedAt 1))) `shouldBe` Right two
+
+    it "refuses to remove a category a scoring set weighs, naming the set" $
+        refusal (applyMethodOp collection{mcScoringSets = [weighing "Ecotoxicity, freshwater"]} (RemoveCategory 0 ecotox Regionalized))
+            `shouldContain` "Single"
+
+    it "stops a removal whose category is not the one recorded at its position" $ do
+        refusal (applyMethodOp collection (RemoveCategory 0 ecotox{methodUnit = "kg"} Regionalized)) `shouldContain` "as recorded"
+        refusal (applyMethodOp collection{mcUnregionalized = ["Ecotoxicity, freshwater"]} (RemoveCategory 0 ecotox Regionalized))
+            `shouldContain` "did not record"
+
     it "writes every verb and every kind of line in words it reads back" $
         let set = ScoringSet "Single" "Pt" (M.fromList [("a", "Ecotoxicity, freshwater")]) M.empty M.empty M.empty (M.fromList [("a", 1)]) (M.fromList [("Single score", "a")]) Nothing M.empty CreatedInJournal
             ops =
@@ -136,6 +192,11 @@ spec = describe "a method collection's journal" $ do
                 , AddFactor (uuid 100) (Just 0) ammonia
                 , CreateScoringSet set
                 , RemoveScoringSet set{ssDisplayMultiplier = Just 1000}
+                , AddCategory Nothing landUse{methodFactors = []} Regionalized
+                , AddCategory (Just 1) ecotox{methodDescription = Just "why", methodMethodology = Just "EF"} (UnregionalizedAt 0)
+                , RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Freshwater ecotoxicity"
+                , SetCategoryUnit (uuid 100) "CTUe" "PAF.m3.day"
+                , RemoveCategory 0 ecotox (UnregionalizedAt 2)
                 ]
             kinds = cycle [Change, Undoing 1, TakenFromConfiguration]
             entries = zipWith (\op kind -> Entry "t" (MethodLine op kind)) ops kinds

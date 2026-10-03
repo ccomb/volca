@@ -124,3 +124,32 @@ def test_an_older_engine_is_refused(mocked_client):
     with pytest.raises(VoLCAError, match="wire revision >= 42"):
         client.set_method_factor("copy", "m", "f", 27.0)
     session.post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        (lambda c: c.add_method_category("copy", "Water use", "m3"), {"op": "add", "name": "Water use", "unit": "m3"}),
+        (
+            lambda c: c.add_method_category("copy", "Water use", "m3", impact_category="Water", methodology="AWARE"),
+            {"op": "add", "name": "Water use", "unit": "m3", "impactCategory": "Water", "methodology": "AWARE"},
+        ),
+        (lambda c: c.rename_method_category("copy", "m", "x"), {"op": "rename", "methodId": "m", "name": "x"}),
+        (lambda c: c.set_method_category_unit("copy", "m", "x"), {"op": "set-unit", "methodId": "m", "unit": "x"}),
+        (lambda c: c.remove_method_category("copy", "m"), {"op": "remove", "methodId": "m"}),
+    ],
+)
+def test_category_changes(mocked_client, call, expected):
+    client, session = mocked_client
+    _engine(session, wire=43)
+    call(client)
+    url, body, _ = _posted(session)
+    assert url == f"{BASE}/copy/categories"
+    assert body == expected
+
+
+def test_category_changes_need_wire_43(mocked_client):
+    client, session = mocked_client
+    _engine(session, wire=42)
+    with pytest.raises(VoLCAError, match="wire revision >= 43"):
+        client.add_method_category("copy", "Water use", "m3")

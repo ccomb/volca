@@ -37,7 +37,7 @@ import Database.Author (
     FlowRef (..),
  )
 import GHC.Generics
-import Method.EditPlan (FactorEdit (..), FactorTarget (..))
+import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), FactorEdit (..), FactorTarget (..))
 import Method.Types (FlowDirection, MethodCF (..))
 import qualified Method.Types as MT
 import Servant.API.ContentTypes (MimeRender (..), MimeUnrender (..), OctetStream)
@@ -2641,12 +2641,75 @@ data CompartmentAPI = CompartmentAPI
 instance FromJSON CompartmentAPI where
     parseJSON = parseClosed
 
--- | What a change did: the journal line recording it, how many factors it touched, and the one factor's value before and after.
+-- | What one request does to a collection's categories. Read from the four words below; any other is refused naming them.
+data CategoryEditOp = AddCategoryOp | RenameCategoryOp | SetCategoryUnitOp | RemoveCategoryOp
+    deriving (Eq, Show, Enum, Bounded)
+
+categoryEditOpName :: CategoryEditOp -> Text
+categoryEditOpName = \case
+    AddCategoryOp -> "add"
+    RenameCategoryOp -> "rename"
+    SetCategoryUnitOp -> "set-unit"
+    RemoveCategoryOp -> "remove"
+
+instance FromJSON CategoryEditOp where
+    parseJSON = withText "op" $ \t ->
+        maybe
+            (fail ("op " <> show t <> " is none of " <> T.unpack (T.intercalate ", " (map categoryEditOpName [minBound .. maxBound]))))
+            pure
+            (lookup t [(categoryEditOpName o, o) | o <- [minBound .. maxBound]])
+
+instance ToJSON CategoryEditOp where
+    toJSON = toJSON . categoryEditOpName
+
+instance ToSchema CategoryEditOp where
+    declareNamedSchema _ =
+        pure $
+            NamedSchema (Just "CategoryEditOp") $
+                mempty
+                    & type_
+                        ?~ OpenApiString
+                    & enum_
+                        ?~ map (toJSON . categoryEditOpName) [minBound .. maxBound]
+
+{- | One change asked of a collection's categories. An addition names the
+name and the unit (the impact category and methodology are optional); a
+rename, a change of unit and a removal name the category by 'methodId'.
+-}
+data CategoryEditRequest = CategoryEditRequest
+    { cerOp :: CategoryEditOp
+    , cerMethodId :: Maybe UUID
+    , cerName :: Maybe Text
+    , cerUnit :: Maybe Text
+    , cerImpactCategory :: Maybe Text
+    , cerMethodology :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped CategoryEditRequest)
+
+instance FromJSON CategoryEditRequest where
+    parseJSON = parseClosed
+
+-- | What a change asks of a collection's categories, or the field it lacks.
+toCategoryEdit :: CategoryEditRequest -> Either Text CategoryEdit
+toCategoryEdit req = case cerOp req of
+    AddCategoryOp ->
+        maybe (Left "an add names name and unit") Right $
+            (\name unit -> NewCategory (CategoryDraft name unit (cerImpactCategory req) (cerMethodology req))) <$> cerName req <*> cerUnit req
+    RenameCategoryOp -> maybe (Left "a rename names methodId and name") Right (Rename <$> cerMethodId req <*> cerName req)
+    SetCategoryUnitOp -> maybe (Left "a set-unit names methodId and unit") Right (ChangeUnit <$> cerMethodId req <*> cerUnit req)
+    RemoveCategoryOp -> maybe (Left "a remove names methodId") (Right . Delete) (cerMethodId req)
+
+{- | What a change did: the journal line recording it, how many factors it
+touched, the one factor's value before and after, and the one category its
+line names (for an addition, the category it made).
+-}
 data MethodEditResponse = MethodEditResponse
     { merLine :: Int
     , merTouched :: Int
     , merBefore :: Maybe Double
     , merAfter :: Maybe Double
+    , merMethodId :: Maybe UUID
     }
     deriving (Eq, Show, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped MethodEditResponse)
@@ -2698,6 +2761,10 @@ data MethodChangeAPI
     | UnregionalizedSet {unrBefore :: [Text], unrAfter :: [Text]}
     | ScoringSetCreated {sscrName :: Text}
     | ScoringSetRemoved {ssrmName :: Text}
+    | CategoryAdded {cadName :: Text, cadFactors :: Int}
+    | CategoryRenamed {crnBefore :: Text, crnAfter :: Text}
+    | CategoryUnitSet {cusCategory :: Text, cusBefore :: Text, cusAfter :: Text}
+    | CategoryRemoved {crmName :: Text, crmFactors :: Int}
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped MethodChangeAPI)
 

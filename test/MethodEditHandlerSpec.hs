@@ -6,9 +6,11 @@ the journal read back in the words of the collection.
 -}
 module MethodEditHandlerSpec (spec) where
 
+import Control.Monad ((>=>))
 import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.List (isInfixOf, nub, sort)
+import Data.Maybe (isJust)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
@@ -16,7 +18,7 @@ import Servant (ServerError, errBody, errHTTPCode, runHandler)
 import Test.Hspec
 
 import API.MethodEditHandlers
-import API.Types (FactorEditRequest, FactorSide (..), MethodChangeAPI (..), MethodCollectionStatusAPI (..), MethodEditResponse (..), MethodFlowAPI (..), MethodHistoryEntry (..))
+import API.Types (CategoryEditRequest, FactorEditRequest, FactorSide (..), MethodChangeAPI (..), MethodCollectionStatusAPI (..), MethodEditResponse (..), MethodFlowAPI (..), MethodHistoryEntry (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Database.Manager (CachePolicy (..), getMethodCollection, initDatabaseManager)
@@ -42,6 +44,9 @@ call e h = runHandler (runApp e h)
 -- | A request as a client sends it: bytes, read by the instance the route uses.
 request :: String -> IO FactorEditRequest
 request body = either (\err -> fail ("the request did not decode: " <> err)) pure (eitherDecode (BSL.pack body))
+
+categoryRequest :: String -> IO CategoryEditRequest
+categoryRequest body = either (\err -> fail ("the request did not decode: " <> err)) pure (eitherDecode (BSL.pack body))
 
 -- | A copy of the built-in collection, and its « Methane » category with its « Methane, fossil » flow.
 copied :: IO (AppEnv, UUID, UUID)
@@ -84,7 +89,7 @@ spec = describe "changing a method collection over HTTP" $ do
             (e, category, flow) <- copied
             body <- request (setBody category flow ",\"newValue\":27")
             answer <- call e (editMethodFactorsHandler "copy" body)
-            either (Left . errHTTPCode) Right answer `shouldBe` Right (MethodEditResponse 1 1 (Just 1.0) (Just 27.0))
+            either (Left . errHTTPCode) Right answer `shouldBe` Right (MethodEditResponse 1 1 (Just 1.0) (Just 27.0) (Just category))
 
     it "refuses the same change on the built-in collection, and says to copy it" $
         withScratchDataDir $ do
@@ -144,3 +149,38 @@ spec = describe "changing a method collection over HTTP" $ do
             names `shouldSatisfy` elem "Methane, fossil"
             names `shouldBe` sort names
             flows `shouldBe` nub flows
+
+    it "adds a category over HTTP and answers with its identifier" $
+        withScratchDataDir $ do
+            (e, _, _) <- copied
+            body <- categoryRequest "{\"op\":\"add\",\"name\":\"A category of my own\",\"unit\":\"kg\"}"
+            answer <- call e (editMethodCategoriesHandler "copy" body)
+            either (Left . errHTTPCode) (Right . isJust . merMethodId) answer `shouldBe` Right True
+
+    it "refuses a rename that names no category, naming the field" $
+        withScratchDataDir $ do
+            (e, _, _) <- copied
+            body <- categoryRequest "{\"op\":\"rename\",\"name\":\"Other\"}"
+            answer <- call e (editMethodCategoriesHandler "copy" body)
+            fmap fst (failure answer) `shouldBe` Just 400
+            maybe "" snd (failure answer) `shouldSatisfy` ("methodId" `isInfixOf`)
+
+    it "reads a category's rename back in the history, by name" $
+        withScratchDataDir $ do
+            (e, category, _) <- copied
+            body <- categoryRequest ("{\"op\":\"rename\",\"methodId\":\"" <> UUID.toString category <> "\",\"name\":\"Methane, all\"}")
+            _ <- call e (editMethodCategoriesHandler "copy" body)
+            history <- call e (methodHistoryHandler "copy")
+            case map mheChange <$> history of
+                Right [CategoryRenamed{crnBefore = b, crnAfter = a}] -> (b, a) `shouldBe` ("Methane", "Methane, all")
+                _ -> expectationFailure "expected one line renaming the category"
+
+    it "names a category removed since by the name it last had" $
+        withScratchDataDir $ do
+            (e, category, _) <- copied
+            let edit op = categoryRequest ("{\"op\":\"" <> op <> "\",\"methodId\":\"" <> UUID.toString category <> "\",\"unit\":\"t\"}")
+            mapM_ (edit >=> call e . editMethodCategoriesHandler "copy") ["set-unit", "remove"]
+            history <- call e (methodHistoryHandler "copy")
+            case map mheChange <$> history of
+                Right [CategoryUnitSet{cusCategory = c}, CategoryRemoved{}] -> c `shouldBe` "Methane"
+                _ -> expectationFailure "expected a change of unit, then a removal"

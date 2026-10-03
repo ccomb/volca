@@ -4,6 +4,7 @@
 module MethodEditPlanSpec (spec) where
 
 import Config (MethodPatch (..), MethodPatchMatch (..))
+import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -48,6 +49,13 @@ ecotox =
 
 collection :: MethodCollection
 collection = MethodCollection [ecotox] [] []
+
+-- | A set weighing one category under the variable « eco ».
+weighing :: T.Text -> ScoringSet
+weighing category = ScoringSet "Single" "Pt" (M.fromList [("eco", category)]) M.empty M.empty M.empty (M.fromList [("eco", 1)]) (M.fromList [("Single score", "eco")]) Nothing M.empty CreatedInJournal
+
+landUse :: Method
+landUse = ecotox{methodId = uuid 200, methodName = "Land use", methodUnit = "Pt", methodCategory = "Land use", methodFactors = [ammonia]}
 
 ammoniaPatch :: MethodPatch
 ammoniaPatch = MethodPatch Nothing (MethodPatchMatch Nothing (Just "Ammonia") Nothing Nothing Nothing) (ScaleBy 2)
@@ -170,3 +178,72 @@ spec = describe "planning a change to a method collection" $ do
     it "seeds a copy's journal with what the configuration adds, in the order it applies" $
         seedLines [] [ammoniaPatch] ["Ecotoxicity, freshwater"] collection
             `shouldBe` [PatchFactors ammoniaPatch 1, SetGlobalMethods [] ["Ecotoxicity, freshwater"]]
+
+    it "plans a new category, with no factor, named by the identifier it is given" $
+        fmap fst (planCategoryEdit (uuid 200) collection (NewCategory (CategoryDraft " Land use " "Pt" Nothing Nothing)))
+            `shouldBe` Right (AddCategory Nothing ecotox{methodId = uuid 200, methodName = "Land use", methodUnit = "Pt", methodCategory = "Land use", methodFactors = []} Regionalized)
+
+    it "refuses a new category with no name, no unit, or a name already there once its edges are trimmed" $ do
+        let draft name unit = NewCategory (CategoryDraft name unit Nothing Nothing)
+        refusal (planCategoryEdit (uuid 200) collection (draft "  " "Pt")) `shouldContain` "name"
+        refusal (planCategoryEdit (uuid 200) collection (draft "Land use" "")) `shouldContain` "unit"
+        refusal (planCategoryEdit (uuid 200) collection (draft "Ecotoxicity, freshwater " "Pt") >>= applyMethodOp collection . fst) `shouldContain` "already named"
+
+    it "takes a blank impact category for none, and so the name" $
+        fmap fst (planCategoryEdit (uuid 200) collection (NewCategory (CategoryDraft "Land use" "Pt" (Just "  ") Nothing)))
+            `shouldBe` Right (AddCategory Nothing ecotox{methodId = uuid 200, methodName = "Land use", methodUnit = "Pt", methodCategory = "Land use", methodFactors = []} Regionalized)
+
+    it "plans a rename with the name it replaces, and refuses one that changes nothing, a name in use, or one a second category shares" $ do
+        fmap fst (planCategoryEdit (uuid 1) collection (Rename (uuid 100) "Freshwater ecotoxicity"))
+            `shouldBe` Right (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Freshwater ecotoxicity")
+        refusal (planCategoryEdit (uuid 1) collection (Rename (uuid 100) "Ecotoxicity, freshwater")) `shouldContain` "already named"
+        let dangling = collection{mcUnregionalized = ["Land use"]}
+        refusal (planCategoryEdit (uuid 1) dangling (Rename (uuid 100) "Land use") >>= applyMethodOp dangling . fst) `shouldContain` "no impact category has"
+        let twins = collection{mcMethods = [ecotox, landUse{methodName = "Ecotoxicity, freshwater"}]}
+        refusal (planCategoryEdit (uuid 1) twins (Rename (uuid 100) "Other") >>= applyMethodOp twins . fst) `shouldContain` "several impact categories"
+
+    it "plans a change of unit with the unit it replaces" $
+        fmap fst (planCategoryEdit (uuid 1) collection (ChangeUnit (uuid 100) "PAF.m3.day"))
+            `shouldBe` Right (SetCategoryUnit (uuid 100) "CTUe" "PAF.m3.day")
+
+    it "plans a removal with the category's position, its factors and its rank among the unregionalized ones" $
+        let two = MethodCollection [landUse, ecotox] [] ["Ecotoxicity, freshwater"]
+         in fmap fst (planCategoryEdit (uuid 1) two (Delete (uuid 100))) `shouldBe` Right (RemoveCategory 1 ecotox (UnregionalizedAt 0))
+
+    it "undoes every change it plans to a category back to where it started" $
+        let two = MethodCollection [landUse, ecotox] [weighing "Land use"] ["Ecotoxicity, freshwater"]
+            back edit = do
+                (op, _) <- planCategoryEdit (uuid 300) two edit
+                changed <- applyMethodOp two op
+                inverseOf changed op >>= \case
+                    UndoWith inverse -> applyMethodOp changed inverse
+                    UndoSelector _ -> Left "a category's change is never undone by a selector"
+         in mapM_
+                (\edit -> back edit `shouldBe` Right two)
+                [ NewCategory (CategoryDraft "Water use" "m3" (Just "Water") (Just "AWARE"))
+                , Rename (uuid 200) "Land occupation"
+                , ChangeUnit (uuid 100) "PAF.m3.day"
+                , Delete (uuid 100)
+                ]
+
+    it "names the later line that added a factor to a category whose addition is undone" $ do
+        let added = landUse{methodFactors = []}
+            lines' = [MethodLine (AddCategory Nothing added Regionalized) Change, MethodLine (AddFactor (uuid 200) Nothing ammonia) Change]
+            now = collection{mcMethods = [ecotox, added{methodFactors = [ammonia]}]}
+        T.unpack (blockedUndo now lines' 1 "replay failed") `shouldContain` "undo line 2 first"
+
+    it "names the later line that removed the category of a factor change being undone" $ do
+        let lines' = [MethodLine (SetFactor (uuid 100) ammonia 4) Change, MethodLine (RemoveCategory 0 ecotox Regionalized) Change]
+        T.unpack (blockedUndo (MethodCollection [] [] []) lines' 1 "replay failed") `shouldContain` "undo line 2 first"
+
+    it "does not blame a later change of unit for a rename it did not block" $ do
+        let lines' = [MethodLine (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Other") Change, MethodLine (SetCategoryUnit (uuid 100) "CTUe" "PAF") Change]
+        blockedUndo collection lines' 1 "replay failed" `shouldBe` "replay failed"
+
+    it "names the later rename that blocks undoing a rename" $ do
+        let lines' = [MethodLine (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Other") Change, MethodLine (RenameCategory (uuid 100) "Other" "Third") Change]
+        T.unpack (blockedUndo collection lines' 1 "replay failed") `shouldContain` "undo line 2 first"
+
+    it "does not blame a later rename for a factor change it did not block" $ do
+        let lines' = [MethodLine (SetFactor (uuid 100) ammonia 4) Change, MethodLine (RenameCategory (uuid 100) "Ecotoxicity, freshwater" "Other") Change]
+        blockedUndo collection lines' 1 "replay failed" `shouldBe` "replay failed"
