@@ -42,28 +42,26 @@ import SharedSolver (
     solveWithSharedSolver,
  )
 import System.FilePath ((</>))
-import TestHelpers (withScratchDataDir)
+import TestHelpers (membersOnly, withScratchDataDir)
 import Types (
     Activity (..),
     AllocationKey (..),
     BuildInputs (..),
     Database (..),
-    Downloads (..),
     Exchange (..),
     GeographyPolicy (..),
+    Licence (..),
     LocationSource (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
-    Terms (..),
     UUID,
     Unit (..),
     noDates,
     noDocumentation,
     noProperties,
-    openTerms,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -94,16 +92,16 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
 
     -- What a restart reads back once the source is gone: the terms in force
     -- when the copy was made, not the ones the source was loaded with.
-    it "records the terms its source is served under now" $ do
+    it "records the licence its source is served under now" $ do
         manager <- initDatabaseManager defaultConfig NoCache
         srcDb <- buildOrFail (supplierDB 100 ["p1"])
         installLoaded manager "source" srcDb
-        let refused = Terms{termsLicence = Just "Members only", termsDownloads = DownloadsRefused}
-        atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust (\c -> c{dcTerms = refused}) "source")
+        let refused = membersOnly
+        atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust (\c -> c{dcLicence = refused}) "source")
 
         _ <- copyDatabase manager "source" "mycopy"
         home <- (</> "mycopy") <$> UploadedDB.getDatabaseUploadsDir
-        fmap UploadedDB.umTerms <$> UploadedDB.readUploadMeta home `shouldReturn` Just refused
+        fmap UploadedDB.umLicence <$> UploadedDB.readUploadMeta home `shouldReturn` Just refused
 
     it "is a deep, independent value: dropping the copy does not touch the source" $ do
         manager <- initDatabaseManager defaultConfig NoCache
@@ -241,7 +239,7 @@ mkConfig name =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 buildOrFail :: SimpleParts -> IO Database

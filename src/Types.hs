@@ -17,7 +17,8 @@ module Types (
 import API.JsonOptions (Stripped (..))
 import Control.DeepSeq (NFData)
 import Control.Monad ((<=<), (>=>))
-import Data.Aeson (FromJSON (..), ToJSON (..), withText)
+import Data.Aeson (FromJSON (..), ToJSON (..), withObject, withText, (.!=), (.:), (.:?))
+import Data.Aeson.Types (Parser)
 import Data.Int (Int32)
 import qualified Data.IntSet as IS
 import qualified Data.Map as M
@@ -2141,45 +2142,296 @@ data GeographyPolicy
     | GeoGlobal
     deriving (Show, Eq, Generic, NFData, Store)
 
-{- | Whether a database may leave the engine as a file: its export in any
-format, and the files its literature ships. Reading and scoring it are not
-concerned, which is the line licences usually draw: results may be shown
-where the data itself may not be copied.
+{- | One thing a licence allows or refuses. Attribution is not one of them:
+it is what a licence requires, see 'Attribution'.
 -}
-data Downloads = DownloadsAllowed | DownloadsRefused
+data Permission
+    = -- | Reading the inventory: exchanges, flows, supply chain
+      ReadInventory
+    | -- | Seeing scores broken down, beyond the single score
+      SeeDetailedScores
+    | -- | Taking the data out as a file: an export in any format, the files its literature ships
+      Download
+    | -- | Publishing results computed from the data
+      PublishResults
+    | -- | Reselling the data itself
+      Resell
+    | -- | Using the data in an application that is paid for
+      PaidApplications
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+
+permissionCode :: Permission -> Text
+permissionCode ReadInventory = "inventory"
+permissionCode SeeDetailedScores = "scores"
+permissionCode Download = "download"
+permissionCode PublishResults = "results"
+permissionCode Resell = "resell"
+permissionCode PaidApplications = "paid-applications"
+
+parsePermission :: Text -> Either Text Permission
+parsePermission = parseCode "permission" permissionCode
+
+instance ToJSON Permission where
+    toJSON = toJSON . permissionCode
+
+instance FromJSON Permission where
+    parseJSON = withText "Permission" (either (fail . T.unpack) pure . parsePermission)
+
+instance ToSchema Permission where
+    declareNamedSchema _ = pure (codeSchema "Permission" permissionCode)
+
+{- | Whether the engine itself refuses a permission a licence does not grant,
+or can only show it to the reader as their undertaking. Download is the one
+it observes: everything else happens outside it, or is not yet held back.
+-}
+data Enforcement = Enforced | Commitment
+    deriving (Show, Eq)
+
+enforcement :: Permission -> Enforcement
+enforcement Download = Enforced
+enforcement ReadInventory = Commitment
+enforcement SeeDetailedScores = Commitment
+enforcement PublishResults = Commitment
+enforcement Resell = Commitment
+enforcement PaidApplications = Commitment
+
+-- | Whether results built on the data must name its publisher.
+data Attribution = AttributionRequired | AttributionNotRequired
+    deriving (Show, Eq, Generic)
+
+attributionRequired :: Attribution -> Bool
+attributionRequired AttributionRequired = True
+attributionRequired AttributionNotRequired = False
+
+attributionFrom :: Bool -> Attribution
+attributionFrom True = AttributionRequired
+attributionFrom False = AttributionNotRequired
+
+{- | A common licence, named by its SPDX identifier. Its permissions follow
+from its text ('standardTerms'), and nobody adjusts them: CC BY-NC that also
+refused downloads would no longer be CC BY-NC, and showing that name over it
+would misstate it. Restricting anything a standard licence grants is writing
+an 'OwnLicence'.
+-}
+data StandardLicence = CC0 | CCBY | CCBYSA | CCBYNC | ODbL | Etalab
     deriving (Show, Eq, Enum, Bounded, Generic)
 
-downloadsCode :: Downloads -> Text
-downloadsCode DownloadsAllowed = "allowed"
-downloadsCode DownloadsRefused = "refused"
+spdxId :: StandardLicence -> Text
+spdxId CC0 = "CC0-1.0"
+spdxId CCBY = "CC-BY-4.0"
+spdxId CCBYSA = "CC-BY-SA-4.0"
+spdxId CCBYNC = "CC-BY-NC-4.0"
+spdxId ODbL = "ODbL-1.0"
+spdxId Etalab = "etalab-2.0"
 
-parseDownloads :: Text -> Either Text Downloads
-parseDownloads "allowed" = Right DownloadsAllowed
-parseDownloads "refused" = Right DownloadsRefused
-parseDownloads other = Left ("downloads: expected \"allowed\" or \"refused\", got \"" <> other <> "\"")
+parseSpdx :: Text -> Either Text StandardLicence
+parseSpdx = parseCode "licence" spdxId
 
-instance ToJSON Downloads where
-    toJSON = toJSON . downloadsCode
+-- | What a standard licence says, read from its text.
+data StandardTerms = StandardTerms
+    { stName :: !Text
+    , stUrl :: !Text
+    , stRefused :: !(S.Set Permission)
+    , stAttribution :: !Attribution
+    , stConditions :: ![Text]
+    -- ^ What the six permissions cannot say, such as sharing an adaptation under the same licence
+    }
 
-instance FromJSON Downloads where
-    parseJSON = withText "Downloads" (either (fail . T.unpack) pure . parseDownloads)
+standardTerms :: StandardLicence -> StandardTerms
+standardTerms CC0 = StandardTerms "CC0 1.0 Universal" "https://creativecommons.org/publicdomain/zero/1.0/" S.empty AttributionNotRequired []
+standardTerms CCBY = StandardTerms "Creative Commons Attribution 4.0" "https://creativecommons.org/licenses/by/4.0/" S.empty AttributionRequired []
+standardTerms CCBYSA =
+    StandardTerms "Creative Commons Attribution-ShareAlike 4.0" "https://creativecommons.org/licenses/by-sa/4.0/" S.empty AttributionRequired [shareAlike]
+standardTerms CCBYNC =
+    StandardTerms
+        "Creative Commons Attribution-NonCommercial 4.0"
+        "https://creativecommons.org/licenses/by-nc/4.0/"
+        (S.fromList [Resell, PaidApplications])
+        AttributionRequired
+        ["No use primarily intended for commercial advantage, not only reselling the data or a paid application."]
+standardTerms ODbL =
+    StandardTerms "Open Data Commons Open Database License 1.0" "https://opendatacommons.org/licenses/odbl/1-0/" S.empty AttributionRequired [shareAlike]
+standardTerms Etalab =
+    StandardTerms "Licence Ouverte 2.0 (Etalab)" "https://www.etalab.gouv.fr/wp-content/uploads/2017/04/ETALAB-Licence-Ouverte-v2.0.pdf" S.empty AttributionRequired []
 
-instance ToSchema Downloads where
-    declareNamedSchema _ = pure (codeSchema "Downloads" downloadsCode)
+shareAlike :: Text
+shareAlike = "A copy or an adaptation is shared under this same licence."
 
-{- | What the publisher of a database allows, as the engine is told it: the
-licence it is published under, in words, and whether it may be downloaded.
--}
-data Terms = Terms
-    { termsLicence :: !(Maybe Text)
-    , termsDownloads :: !Downloads
+-- | A licence its publisher writes: their text, what it refuses, and whether it requires attribution.
+data OwnLicence = OwnLicence
+    { ownText :: !Text
+    , ownRefused :: !(S.Set Permission)
+    , ownAttribution :: !Attribution
     }
     deriving (Show, Eq, Generic)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped Terms)
 
--- | What a database that says nothing allows: everything, as before it could say.
-openTerms :: Terms
-openTerms = Terms{termsLicence = Nothing, termsDownloads = DownloadsAllowed}
+-- | An own licence has a text: one with none would claim terms nobody can read.
+ownLicence :: Text -> S.Set Permission -> Attribution -> Either Text OwnLicence
+ownLicence text refused attribution
+    | T.null (T.strip text) = Left "an own licence needs its text, and this one is empty"
+    | otherwise = Right (OwnLicence text refused attribution)
+
+{- | What the publisher of a database allows. Unstated is not CC0: nothing is
+refused, and nothing is claimed either.
+-}
+data Licence = LicenceUnstated | LicenceStandard !StandardLicence | LicenceOwn !OwnLicence
+    deriving (Show, Eq, Generic)
+
+refusedBy :: Licence -> S.Set Permission
+refusedBy LicenceUnstated = S.empty
+refusedBy (LicenceStandard l) = stRefused (standardTerms l)
+refusedBy (LicenceOwn own) = ownRefused own
+
+granted :: Licence -> Permission -> Bool
+granted licence = (`S.notMember` refusedBy licence)
+
+{- | The keys a database states its licence with, in the engine's config and in
+an upload's metadata alike: @licence@ names a standard one, @licence_text@,
+@refuses@ and @attribution@ write an own one.
+-}
+data LicenceKeys = LicenceKeys
+    { lkId :: !(Maybe Text)
+    , lkText :: !(Maybe Text)
+    , lkRefuses :: !(Maybe [Text])
+    , lkAttribution :: !(Maybe Bool)
+    }
+
+{- | Read the keys as exactly one licence, or refuse: a permission nobody can
+read, or both forms at once, has more than one reading, and reading it as
+granted would hand out what its publisher refused. An own licence that says
+nothing of attribution requires it, the cautious reading.
+-}
+licenceFromKeys :: LicenceKeys -> Either Text Licence
+licenceFromKeys (LicenceKeys Nothing Nothing Nothing Nothing) = Right LicenceUnstated
+licenceFromKeys (LicenceKeys (Just spdx) Nothing Nothing Nothing) = LicenceStandard <$> parseSpdx spdx
+licenceFromKeys (LicenceKeys Nothing (Just text) refuses attribution) = do
+    refused <- traverse parsePermission (concat refuses)
+    LicenceOwn <$> ownLicence text (S.fromList refused) (maybe AttributionRequired attributionFrom attribution)
+licenceFromKeys (LicenceKeys (Just _) _ _ _) =
+    Left "licence names a standard licence, which is not adjusted: drop licence_text, refuses and attribution, or drop licence to write an own one"
+licenceFromKeys (LicenceKeys Nothing Nothing _ _) = Left "refuses and attribution belong to an own licence: write its licence_text too"
+
+-- | The keys a licence is written back with, the inverse of 'licenceFromKeys'.
+licenceKeys :: Licence -> LicenceKeys
+licenceKeys LicenceUnstated = LicenceKeys Nothing Nothing Nothing Nothing
+licenceKeys (LicenceStandard l) = LicenceKeys (Just (spdxId l)) Nothing Nothing Nothing
+licenceKeys (LicenceOwn own) =
+    LicenceKeys Nothing (Just (ownText own)) (Just (map permissionCode (S.toList (ownRefused own)))) (Just (attributionRequired (ownAttribution own)))
+
+data LicenceKind = KindUnstated | KindStandard | KindOwn
+    deriving (Show, Eq, Enum, Bounded)
+
+licenceKindCode :: LicenceKind -> Text
+licenceKindCode KindUnstated = "unstated"
+licenceKindCode KindStandard = "standard"
+licenceKindCode KindOwn = "own"
+
+instance ToJSON LicenceKind where
+    toJSON = toJSON . licenceKindCode
+
+instance ToSchema LicenceKind where
+    declareNamedSchema _ = pure (codeSchema "LicenceKind" licenceKindCode)
+
+-- | One permission as a licence settles it, and whether the engine holds it back.
+data PermissionState = PermissionState
+    { psPermission :: !Permission
+    , psGranted :: !Bool
+    , psEnforced :: !Bool
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped PermissionState)
+
+{- | A licence on the wire. A request names one with @kind@ and the fields
+that kind takes (@id@; or @text@, @refused@ and @attribution@); the answer is
+the same object completed with what the engine derives from it, so a client
+has one shape to read and write.
+-}
+data LicenceView = LicenceView
+    { lvKind :: !LicenceKind
+    , lvId :: !(Maybe Text)
+    , lvName :: !(Maybe Text)
+    , lvUrl :: !(Maybe Text)
+    , lvText :: !(Maybe Text)
+    , lvRefused :: ![Permission]
+    , lvAttribution :: !Bool
+    , lvConditions :: ![Text]
+    , lvPermissions :: ![PermissionState]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped LicenceView)
+
+licenceView :: Licence -> LicenceView
+licenceView licence = case licence of
+    LicenceUnstated -> base KindUnstated
+    LicenceStandard l ->
+        let terms = standardTerms l
+         in (base KindStandard)
+                { lvId = Just (spdxId l)
+                , lvName = Just (stName terms)
+                , lvUrl = Just (stUrl terms)
+                , lvAttribution = attributionRequired (stAttribution terms)
+                , lvConditions = stConditions terms
+                }
+    LicenceOwn own -> (base KindOwn){lvText = Just (ownText own), lvAttribution = attributionRequired (ownAttribution own)}
+  where
+    base :: LicenceKind -> LicenceView
+    base kind =
+        LicenceView
+            { lvKind = kind
+            , lvId = Nothing
+            , lvName = Nothing
+            , lvUrl = Nothing
+            , lvText = Nothing
+            , lvRefused = S.toList (refusedBy licence)
+            , lvAttribution = False
+            , lvConditions = []
+            , lvPermissions = [PermissionState p (granted licence p) (enforcement p == Enforced) | p <- [minBound .. maxBound]]
+            }
+
+instance ToJSON Licence where
+    toJSON = toJSON . licenceView
+
+-- | Reads only what a request names; the derived fields an answer carries are ignored, so an answer can be sent back as it came.
+instance FromJSON Licence where
+    parseJSON = withObject "Licence" $ \o ->
+        o .: "kind" >>= \case
+            "unstated" -> pure LicenceUnstated
+            "standard" -> do
+                licence <- o .: "id" >>= either (fail . T.unpack) (pure . LicenceStandard) . parseSpdx
+                -- An answer sent back carries what its licence derives; anything else would adjust it.
+                refused <- o .:? "refused"
+                attribution <- o .:? "attribution"
+                text <- o .:? "text" :: Parser (Maybe Text)
+                let view = licenceView licence
+                    adjusted =
+                        maybe False ((/= S.fromList (lvRefused view)) . S.fromList) refused
+                            || maybe False (/= lvAttribution view) attribution
+                            || isJust text
+                if adjusted
+                    then fail "a standard licence is not adjusted: send an own licence to say more than its text does"
+                    else pure licence
+            "own" -> do
+                text <- o .: "text"
+                refused <- o .:? "refused" .!= []
+                attribution <- o .: "attribution"
+                either (fail . T.unpack) (pure . LicenceOwn) (ownLicence text (S.fromList refused) (attributionFrom attribution))
+            other -> fail ("kind: expected unstated, standard or own, got " <> T.unpack other)
+
+instance ToSchema Licence where
+    declareNamedSchema _ = (\(NamedSchema _ schema) -> NamedSchema (Just "Licence") schema) <$> declareNamedSchema (Proxy :: Proxy LicenceView)
+
+-- | Every standard licence, as the engine describes it.
+standardLicences :: [Licence]
+standardLicences = map LicenceStandard [minBound .. maxBound]
+
+-- | Read a code back through the function that writes it, naming every admitted one when it is not.
+parseCode :: (Enum a, Bounded a) => Text -> (a -> Text) -> Text -> Either Text a
+parseCode what code raw =
+    -- Case does not tell two codes apart, so a code in another case has one reading.
+    maybe (Left refusal) Right (lookup (T.toCaseFold raw) [(T.toCaseFold (code a), a) | a <- [minBound .. maxBound]])
+  where
+    refusal :: Text
+    refusal = what <> ": expected one of " <> T.intercalate ", " (map code [minBound .. maxBound]) <> ", got \"" <> raw <> "\""
 
 {- | Classification of how a candidate's location relates to the requested one.
 Produced by 'Database.CrossLinking.acceptableLocation' and surfaced alongside

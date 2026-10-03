@@ -11,7 +11,8 @@ import Test.Hspec
 import API.DatabaseHandlers (convertDbStatus)
 import API.Types (DatabaseStatusAPI (..))
 import Database.Manager (DatabaseLoadStatus (..), DatabaseStatus (..))
-import Types (AllocationKey (..), AllocationProperty (..), Downloads (..), Terms (..), openTerms)
+import TestHelpers (membersOnly)
+import Types (AllocationKey (..), AllocationProperty (..), Licence (..))
 
 mkStatus :: [A.Value -> A.Value] -> DatabaseStatus
 mkStatus _ =
@@ -28,7 +29,7 @@ mkStatus _ =
         , dsDependsOn = ["ecoinvent-3-9-1-adapted", "wfldb"]
         , dsAllocation = ByProperty WetMass
         , dsSource = Just "agribalyse-3-2-declared"
-        , dsTerms = Terms{termsLicence = Just "Members only", termsDownloads = DownloadsRefused}
+        , dsLicence = membersOnly
         }
 
 spec :: Spec
@@ -85,10 +86,10 @@ spec = do
             dsaAllocation api `shouldBe` "wet mass"
             dsaSource api `shouldBe` Just "agribalyse-3-2-declared"
 
-        it "says the terms it is served under" $
-            termsDownloads (dsaTerms (convertDbStatus (mkStatus []))) `shouldBe` DownloadsRefused
+        it "says the licence it is served under" $
+            dsaLicence (convertDbStatus (mkStatus [])) `shouldBe` membersOnly
 
-        it "reads a status written before terms were on the wire as downloadable" $
+        it "reads a status written before the licence was on the wire as having none" $
             case A.toJSON (mkStatus []) of
-                A.Object o -> (dsTerms <$> A.decode (encode (KM.delete "dsTerms" o))) `shouldBe` Just openTerms
+                A.Object o -> (dsLicence <$> A.decode (encode (KM.delete "dsLicence" o))) `shouldBe` Just LicenceUnstated
                 other -> expectationFailure ("expected object, got: " <> show other)

@@ -153,11 +153,19 @@ allocation = "declared"        # how a multi-output block is divided:
                                # both, configure the same path twice, or ask
                                # for the second one at runtime with
                                # POST /db/{name}/derive/{newName}?allocation=
-licence = "CC BY 4.0"          # the licence it is published under, shown on its setup
-downloads = "allowed"          # allowed | refused: may its export and the files of
-                               # its literature leave the engine. A copy is served
-                               # under its source's terms; an upload's owner sets
-                               # its own with PUT /db/{name}/terms
+licence = "CC-BY-4.0"          # the licence it is published under, by SPDX identifier:
+                               # CC0-1.0 | CC-BY-4.0 | CC-BY-SA-4.0 | CC-BY-NC-4.0 |
+                               # ODbL-1.0 | etalab-2.0. Its permissions follow from
+                               # its text. To refuse more, write an own licence
+                               # instead of `licence`:
+# licence_text = "..."         #   its text, shown on its setup
+# refuses = ["download"]       #   inventory | scores | download | results | resell |
+                               #   paid-applications. The engine enforces download
+                               #   (export, literature files); the rest is shown as
+                               #   the reader's commitment
+# attribution = true           #   results must name the publisher (the default)
+                               # A copy is served under its source's licence; an
+                               # upload's owner sets its own with PUT /db/{name}/licence
 # locationAliases = { "FR" = "France" }   # per-database location renames
 
 # Optional patches adjust the amounts a database states, at load time.

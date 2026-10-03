@@ -626,7 +626,7 @@ The bytes of a file a database ships with a literature entry.
 setup ``documentation`` lists, such as ``external_docs/report.pdf``;
 only an ILCD package ships any. Raises VoLCAError on an HTTP error,
 a 404 when the documentation lists no such file or the package does
-not hold it, a 403 when the database's ``terms`` refuse downloads.
+not hold it, a 403 when the database's ``licence`` refuses downloads.
 
 ##### `Client.download_flow_synonyms(name: str) -> bytes`
 
@@ -701,7 +701,7 @@ The engine streams the payload as raw bytes. Best-effort approximation
 warnings arrive in the ``X-Volca-Export-Warnings`` response header
 (percent-encoded, newline-joined) and are surfaced through
 `warnings`. Raises VoLCAError on an HTTP error, a 403 when the
-database's ``terms`` refuse downloads.
+database's ``licence`` refuses downloads.
 
 ##### `Client.export_method_collection(name: str, fmt: str = 'simapro') -> bytes`
 
@@ -960,10 +960,9 @@ holds, both with a ``name``, ``category``, ``sections`` and ``files``
 export says all of it; an EcoSpold 1 database lists under
 ``literature`` the sources its datasets cite, and an ILCD package the
 sources it holds; another format leaves
-``export`` null and both lists empty. ``terms`` is what the database is
-served under (wire revision 41): its ``licence`` in words, or null, and
-``downloads``, ``allowed`` or ``refused``, which `set_terms`
-changes.
+``export`` null and both lists empty. ``licence`` is what the database is
+served under (wire revision 41), the shape `set_licence` takes
+and returns.
 
 ##### `Client.get_stats()`
 
@@ -1019,6 +1018,15 @@ Return server build metadata: version, git hash/tag, build target.
 
 Uses a direct HTTP call: ``/api/v1/version`` has no operationId
 since it predates the Resources ADT.
+
+##### `Client.licences()`
+
+The standard licences a database can be published under.
+
+Each carries its ``id`` (SPDX), ``name``, ``url``, the ``conditions``
+its permissions cannot say, and ``permissions``: one entry per
+permission, ``granted`` or not, and ``enforced`` when the engine
+itself holds it back.
 
 ##### `Client.list_classifications()`
 
@@ -1300,6 +1308,22 @@ Choose which data file a staged multi-file archive should use.
 `get_setup`, relative to the upload directory. Returns the
 updated ``DatabaseSetupInfo`` dict.
 
+##### `Client.set_licence(licence: dict, db_name: str | None = None) -> dict`
+
+Set the licence an uploaded database is published under.
+
+``licence`` names one by its ``kind``: ``{"kind": "standard", "id":
+"CC-BY-4.0"}`` for a standard licence (`licences` lists them),
+``{"kind": "own", "text": ..., "refused": ["download", ...],
+"attribution": True}`` for an own one, or ``{"kind": "unstated"}``. A
+licence this returns can be sent back as it came. A database whose
+licence refuses ``download`` answers `export_database` and
+`document_file` with a 403, and so does every copy of it.
+Returns the licence now in force, with the permissions it settles.
+Raises VoLCAError on an HTTP error: a 409 for a database whose licence
+is written elsewhere, in the configuration file or on the source a
+copy reads.
+
 ##### `Client.set_method_factor(collection: str, method_id: str, flow_id: str, new_value: float, *, location: str | None = None, value: float | None = None) -> dict`
 
 Change the value of one characterization factor of a collection of your own.
@@ -1318,18 +1342,6 @@ recording the change, and the factor's value before and after.
 ##### `Client.set_method_factors(collection: str, match: FactorMatch, value: float) -> dict`
 
 Set to ``value`` every factor ``match`` reaches, refused as `scale_method_factors` is.
-
-##### `Client.set_terms(downloads: str, licence: str | None = None, db_name: str | None = None) -> dict`
-
-Set the licence of an uploaded database and whether it may be downloaded.
-
-``downloads`` is ``allowed`` or ``refused``; a refused database answers
-`export_database` and `document_file` with a 403, and so
-does every copy of it. ``licence`` is the licence it is published
-under, in words, or None. Returns the terms now in force. Raises
-VoLCAError on an HTTP error: a 409 for a database whose terms are
-written elsewhere, in the configuration file or on the source a copy
-reads.
 
 ##### `Client.undo_method_edit(collection: str, *, line: int | None = None) -> dict`
 
@@ -2106,10 +2118,9 @@ it a column of shares cannot say which of the two it is showing.
 for one read straight from its files. Both are ``None`` against an engine
 older than wire revision 20.
 
-``terms`` is what it is served under, its source's for a copy: a
-``licence`` in words or ``None``, and ``downloads``, ``"allowed"`` or
-``"refused"``, the same shape `Client.set_terms` returns. ``None``
-against an engine older than wire revision 41, which refused no download.
+``licence`` is what it is served under, its source's for a copy, the
+shape `Client.set_licence` returns. ``None`` against an engine older
+than wire revision 41, which refused no download.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -2125,7 +2136,7 @@ against an engine older than wire revision 41, which refused no download.
 | `depends_on` | `list[str]` | list() |
 | `allocation` | `str \| None` | None |
 | `source` | `str \| None` | None |
-| `terms` | `dict \| None` | None |
+| `licence` | `dict \| None` | None |
 
 ### `ExchangeChange`
 

@@ -57,6 +57,7 @@ import Types (
     Database (..),
     Exchange (..),
     GeographyPolicy (..),
+    Licence (..),
     LocationSource (..),
     ProcessId,
     SimpleDatabase (..),
@@ -70,7 +71,6 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
-    openTerms,
     processIdToText,
  )
 import UnitConversion (defaultUnitConfig)
@@ -439,7 +439,7 @@ mkConfig name =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 buildOrFail :: SimpleParts -> IO Database

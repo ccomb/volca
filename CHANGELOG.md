@@ -20,16 +20,24 @@
   changed at once. A listed collection names the one it is a copy of, and a
   copy answers with the collection it made, under the name it is known by.
   Wire revision 42.
-- A database states the terms it is served under: the licence it is
-  published under, in words, and whether it may be downloaded, as `licence`
-  and `downloads = "allowed" | "refused"` on its configuration entry. An
-  uploaded database's owner sets them with `PUT /api/v1/db/{name}/terms`
-  (`set_terms` in pyvolca), and they are kept in its `meta.toml` (version 5).
-  A refused database answers its export and the files of its literature with
-  a 403 naming its licence, and so does every copy of it or database derived
-  from it, which are served under their source's terms. The setup of a
-  database and its status in the list carry them as `terms`. A database that
-  says nothing allows downloads, as before. Wire revision 41.
+- A database states the licence it is published under, one of three things:
+  a standard licence named by its SPDX identifier (`licence = "CC-BY-4.0"`;
+  CC0, CC BY, CC BY-SA, CC BY-NC, ODbL and the Licence Ouverte), whose
+  permissions follow from its text and are not adjusted; an own licence, its
+  text with the permissions it refuses and whether it requires attribution
+  (`licence_text`, `refuses = ["download", ...]`, `attribution`); or none.
+  A licence settles six permissions (`inventory`, `scores`, `download`,
+  `results`, `resell`, `paid-applications`), and the engine says for each
+  whether it enforces it: downloading, for now, which a refusing database
+  answers on its export and the files of its literature with a 403, and so
+  does every copy of it or database derived from it, served under their
+  source's licence. The others are shown as the reader's commitment. An
+  uploaded database's owner sets its licence with
+  `PUT /api/v1/db/{name}/licence` (`set_licence` in pyvolca), and it is kept
+  in its `meta.toml` (version 5). `GET /api/v1/licences` lists the standard
+  ones (`licences()` in pyvolca). The setup of a database and its status in
+  the list carry it as `licence`. A database that says nothing has no
+  licence and refuses nothing, as before. Wire revision 41.
 - The activity search, over HTTP and as the `search_activities` tool, takes
   the processes a caller already chose, as `process` (given once per process
   over HTTP, a list for the tool): it answers their rows in the order given,

@@ -70,6 +70,7 @@ import Types (
     Database (..),
     Exchange (..),
     GeographyPolicy (..),
+    Licence (..),
     LocationSource (..),
     Medium (..),
     SimpleDatabase (..),
@@ -82,7 +83,6 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
-    openTerms,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -342,7 +342,7 @@ baseConfig name =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 uploadedConfig :: Text -> FilePath -> DatabaseConfig

@@ -6,8 +6,9 @@ import qualified Data.Text as T
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
+import qualified Data.Set as S
 import Database.UploadedDatabase
-import Types (AllocationKey (..), Downloads (..), Terms (..), openTerms)
+import Types (AllocationKey (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..), StandardLicence (..))
 
 -- | Minimal UploadMeta without description
 baseMeta :: UploadMeta
@@ -22,7 +23,7 @@ baseMeta =
         , umSource = Nothing
         , umAllocation = Declared
         , umBuiltIn = Nothing
-        , umTerms = openTerms
+        , umLicence = LicenceUnstated
         }
 
 spec :: Spec
@@ -100,7 +101,7 @@ spec = do
                         , umSource = Nothing
                         , umAllocation = Declared
                         , umBuiltIn = Nothing
-                        , umTerms = openTerms
+                        , umLicence = LicenceUnstated
                         }
 
         it "parses meta with description" $ do
@@ -156,17 +157,32 @@ spec = do
             let meta = baseMeta{umDepends = ["agribalyse", "ecoinvent"]}
             fmap umDepends (parseMetaToml (formatMetaToml meta)) `shouldBe` Just ["agribalyse", "ecoinvent"]
 
-        it "round-trips the licence and a refused download" $ do
-            let terms = Terms{termsLicence = Just "Licensed to \"members\" only", termsDownloads = DownloadsRefused}
-            fmap umTerms (parseMetaToml (formatMetaToml baseMeta{umTerms = terms})) `shouldBe` Just terms
+        it "round-trips an own licence, quotes and all" $ do
+            let licence = LicenceOwn OwnLicence{ownText = "Licensed to \"members\" only", ownRefused = S.fromList [Download, Resell], ownAttribution = AttributionNotRequired}
+            fmap umLicence (parseMetaToml (formatMetaToml baseMeta{umLicence = licence})) `shouldBe` Just licence
 
-        it "reads a file written before the terms existed as allowing everything" $ do
+        it "round-trips an own licence ending in a quote" $ do
+            let licence = LicenceOwn OwnLicence{ownText = "Licensed to \"members\"", ownRefused = S.empty, ownAttribution = AttributionRequired}
+            fmap umLicence (parseMetaToml (formatMetaToml baseMeta{umLicence = licence})) `shouldBe` Just licence
+
+        it "round-trips a standard licence" $
+            fmap umLicence (parseMetaToml (formatMetaToml baseMeta{umLicence = LicenceStandard ODbL})) `shouldBe` Just (LicenceStandard ODbL)
+
+        it "reads a file written before the licence existed as having none" $ do
             let toml = "version = 4\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\n"
-            fmap umTerms (parseMetaToml toml) `shouldBe` Just openTerms
+            fmap umLicence (parseMetaToml toml) `shouldBe` Just LicenceUnstated
 
-        -- A refusal misread as allowed would hand out the copies it refused.
-        it "refuses a file whose downloads it cannot read" $ do
-            let toml = "version = 5\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\ndownloads = \"never\"\n"
+        -- Ignored, the switch these keys replaced would read a refusal as no licence at all.
+        it "refuses a file still carrying the downloads switch" $ do
+            let toml = "version = 5\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\nlicence = \"Members only\"\ndownloads = \"refused\"\n"
+            parseMetaToml toml `shouldBe` Nothing
+
+        it "refuses a file with a refusal it cannot read, rather than skip it" $ do
+            let toml = "version = 6\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\nlicence_text = \"Ours\"\nrefuses = [\"download\", resell]\n"
+            parseMetaToml toml `shouldBe` Nothing
+
+        it "refuses a file whose attribution is neither true nor false" $ do
+            let toml = "version = 6\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\nlicence_text = \"Ours\"\nattribution = yes\n"
             parseMetaToml toml `shouldBe` Nothing
 
         it "reads a file written before the dependency pin existed as pinning nothing" $ do

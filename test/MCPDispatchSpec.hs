@@ -26,7 +26,7 @@ import qualified Data.UUID as UUID
 import Database.Manager (CachePolicy (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..))
 import TestHelpers (withScratchDataDir)
-import Types (AllocationKey (..), GeographyPolicy (..), openTerms)
+import Types (AllocationKey (..), GeographyPolicy (..), Licence (..))
 
 -- | The tool definition advertised under a given MCP name.
 toolByName :: Text -> Maybe Value
@@ -123,7 +123,7 @@ sampleConfig =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 -- | Call a tool against that fixture, freshly loaded.

@@ -184,9 +184,9 @@ type LCAAPI =
                 -- A file a database ships with a literature entry, by the path
                 -- the entry lists it under
                 :<|> "db" :> Capture "dbName" Text :> "files" :> CaptureAll "path" Text :> Get '[OctetStream] (Headers '[Header "Content-Disposition" Text] BinaryContent)
-                -- The licence an uploaded database is published under and whether
-                -- it may be downloaded; the export and the files above obey it
-                :<|> "db" :> Capture "dbName" Text :> "terms" :> ReqBody '[JSON] Terms :> Put '[JSON] Terms
+                -- The licence an uploaded database is published under; the export
+                -- and the files above obey its refusal to be downloaded
+                :<|> "db" :> Capture "dbName" Text :> "licence" :> ReqBody '[JSON] Licence :> Put '[JSON] Licence
                 -- Upload endpoint (streamed octet-stream body; metadata in query params)
                 :<|> "db" :> "upload" :> QueryParam "name" Text :> QueryParam "description" Text :> StreamBody NoFraming OctetStream (SourceIO UploadChunk) :> Post '[JSON] UploadResponse
                 -- Database setup endpoints (for cross-DB linking configuration)
@@ -243,6 +243,8 @@ type LCAAPI =
                 :<|> "stats" :> Get '[JSON] Value
                 -- Classification presets (from TOML config)
                 :<|> "classification-presets" :> Get '[JSON] [ClassificationPresetInfo]
+                -- The standard licences a database can be published under, as the engine reads them
+                :<|> "licences" :> Get '[JSON] [Licence]
                 -- OpenAPI spec, enriched with operationId/description from API.Resources.
                 -- pyvolca's runtime dispatcher reads this to route operation_id → HTTP.
                 :<|> "openapi.json" :> Get '[JSON] Value
@@ -1478,9 +1480,10 @@ cannot tell "this engine is too old" from "you asked for the wrong thing"
 factors, undoing a change and reading its history, the flows a collection
 characterizes; the @flowRef@ of a compared factor and the @methodId@ of a
 compared category; the @source@ of a listed collection;
-revision 41: the @terms@ of a database's setup and of its status in the
-list, its licence and whether it may be downloaded, and the route setting
-them, @db/{name}/terms@;
+revision 41: the @licence@ of a database's setup and of its status in the
+list, standard, own or unstated, with the permissions it settles; the route
+setting it, @db/{name}/licence@, and the one listing the standard licences,
+@licences@;
 revision 40: the @files@ a literature entry lists and the route serving
 them, @db/{name}/files/{path}@;
 revision 39: @process@ on the activity search, the rows of the processes a
@@ -2707,7 +2710,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.editExchangesHandler
             :<|> DBHandlers.exportDatabaseHandler
             :<|> DBHandlers.documentFileHandler
-            :<|> DBHandlers.setTermsHandler
+            :<|> DBHandlers.setLicenceHandler
             :<|> DBHandlers.uploadDatabaseHandler
             :<|> DBHandlers.getDatabaseSetupHandler
             :<|> DBHandlers.addDependencyHandler
@@ -2750,6 +2753,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getHosting
             :<|> getStats
             :<|> getClassificationPresets
+            :<|> pure standardLicences
             :<|> getOpenApiSpec
 
 {- | Build the scoring input map (impact method name → raw score) from LCIA

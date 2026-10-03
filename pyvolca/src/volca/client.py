@@ -1336,7 +1336,7 @@ class Client:
         warnings arrive in the ``X-Volca-Export-Warnings`` response header
         (percent-encoded, newline-joined) and are surfaced through
         :mod:`warnings`. Raises VoLCAError on an HTTP error, a 403 when the
-        database's ``terms`` refuse downloads.
+        database's ``licence`` refuses downloads.
         """
         fmt_norm = fmt.strip().lower()
         if fmt_norm not in _EXPORT_FORMATS:
@@ -1368,7 +1368,7 @@ class Client:
         setup ``documentation`` lists, such as ``external_docs/report.pdf``;
         only an ILCD package ships any. Raises VoLCAError on an HTTP error,
         a 404 when the documentation lists no such file or the package does
-        not hold it, a 403 when the database's ``terms`` refuse downloads.
+        not hold it, a 403 when the database's ``licence`` refuses downloads.
         """
         self._require_wire(40, "document_file", engine_hint="0.15.0")
         target = self._db(db_name)
@@ -1382,28 +1382,38 @@ class Client:
             )
         return resp.content
 
-    def set_terms(
-        self, downloads: str, licence: str | None = None, db_name: str | None = None
-    ) -> dict:
-        """Set the licence of an uploaded database and whether it may be downloaded.
+    def set_licence(self, licence: dict, db_name: str | None = None) -> dict:
+        """Set the licence an uploaded database is published under.
 
-        ``downloads`` is ``allowed`` or ``refused``; a refused database answers
-        :meth:`export_database` and :meth:`document_file` with a 403, and so
-        does every copy of it. ``licence`` is the licence it is published
-        under, in words, or None. Returns the terms now in force. Raises
-        VoLCAError on an HTTP error: a 409 for a database whose terms are
-        written elsewhere, in the configuration file or on the source a copy
-        reads.
+        ``licence`` names one by its ``kind``: ``{"kind": "standard", "id":
+        "CC-BY-4.0"}`` for a standard licence (:meth:`licences` lists them),
+        ``{"kind": "own", "text": ..., "refused": ["download", ...],
+        "attribution": True}`` for an own one, or ``{"kind": "unstated"}``. A
+        licence this returns can be sent back as it came. A database whose
+        licence refuses ``download`` answers :meth:`export_database` and
+        :meth:`document_file` with a 403, and so does every copy of it.
+        Returns the licence now in force, with the permissions it settles.
+        Raises VoLCAError on an HTTP error: a 409 for a database whose licence
+        is written elsewhere, in the configuration file or on the source a
+        copy reads.
         """
-        self._require_wire(41, "set_terms", engine_hint="0.15.0")
+        self._require_wire(41, "set_licence", engine_hint="0.15.0")
         target = self._db(db_name)
-        resp = self._session.put(
-            f"{self.base_url}/api/v1/db/{target}/terms",
-            json={"licence": licence, "downloads": downloads},
-        )
+        resp = self._session.put(f"{self.base_url}/api/v1/db/{target}/licence", json=licence)
         if resp.status_code >= 400:
-            raise VoLCAError(f"set_terms failed (HTTP {resp.status_code}): {resp.text[:500]}")
+            raise VoLCAError(f"set_licence failed (HTTP {resp.status_code}): {resp.text[:500]}")
         return resp.json()
+
+    def licences(self) -> list[dict]:
+        """The standard licences a database can be published under.
+
+        Each carries its ``id`` (SPDX), ``name``, ``url``, the ``conditions``
+        its permissions cannot say, and ``permissions``: one entry per
+        permission, ``granted`` or not, and ``enforced`` when the engine
+        itself holds it back.
+        """
+        self._require_wire(41, "licences", engine_hint="0.15.0")
+        return self._json(self._session.get(f"{self.base_url}/api/v1/licences"))
 
     def export_to_file(
         self, fmt: str, out_path: str, db_name: str | None = None
@@ -1561,10 +1571,9 @@ class Client:
         export says all of it; an EcoSpold 1 database lists under
         ``literature`` the sources its datasets cite, and an ILCD package the
         sources it holds; another format leaves
-        ``export`` null and both lists empty. ``terms`` is what the database is
-        served under (wire revision 41): its ``licence`` in words, or null, and
-        ``downloads``, ``allowed`` or ``refused``, which :meth:`set_terms`
-        changes.
+        ``export`` null and both lists empty. ``licence`` is what the database is
+        served under (wire revision 41), the shape :meth:`set_licence` takes
+        and returns.
         """
         target = self._db(db_name)
         return self._json(self._session.get(f"{self.base_url}/api/v1/db/{target}/setup"))

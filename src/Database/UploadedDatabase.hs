@@ -29,7 +29,7 @@ module Database.UploadedDatabase (
 
 import Control.Exception (SomeException, try)
 import Control.Monad (filterM, forM)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -42,7 +42,7 @@ import Text.Read (readMaybe)
 -- Re-export DatabaseFormat from Database.Upload (single definition)
 import Database.Upload (DatabaseFormat (..))
 import Progress (ProgressLevel (..), reportProgress)
-import Types (AllocationKey, Terms (..), allocationKeyText, downloadsCode, parseAllocationKey, parseDownloads)
+import Types (AllocationKey, Licence, LicenceKeys (..), allocationKeyText, licenceFromKeys, licenceKeys, parseAllocationKey)
 
 -- | Metadata for an uploaded database
 data UploadMeta = UploadMeta
@@ -77,10 +77,10 @@ data UploadMeta = UploadMeta
     source declares. A file written before this field existed reads back as
     'Declared', which is what it meant.
     -}
-    , umTerms :: !Terms
-    {- ^ The licence and whether it may be downloaded, as its owner set them; a
-    copy records its source's when it is made. A file written before this field
-    existed allows everything, which is what it did.
+    , umLicence :: !Licence
+    {- ^ The licence as its owner set it; a copy records its source's when it
+    is made. A file written before this field existed has none, which is what
+    it meant.
     -}
     }
     deriving (Show, Eq, Generic)
@@ -88,7 +88,9 @@ data UploadMeta = UploadMeta
 {- | The @meta.toml@ shape this engine writes, stamped by every writer.
 Version 3 added @source@, which is what tells a copy from an upload; version 4
 added @allocation@, without which a re-keyed database came back declared after
-a restart; version 5 added @licence@ and @downloads@; version 6 added
+a restart; version 5 added the licence (@licence@ for a standard one; @licence_text@,
+@refuses@ and @attribution@ for an own one; a @downloads@ key, the switch
+they replaced before any release, stops the file); version 6 added
 @builtin@, the built-in collection a method copy reads. The parser reads every
 version, taking absent fields to mean what their absence meant when they did
 not exist.
@@ -168,7 +170,13 @@ parseMetaToml content = do
             , let v = T.strip $ T.drop 1 rest
             ]
         getValue key = lookup key kvPairs
-        unquote = unescapeToml . T.dropAround (== '"')
+        -- One quote off each end: a value of its own may end in an escaped one.
+        unquote = unescapeToml . unwrap '"'
+        -- A list or a flag nobody can read stops the file, as a bad key does.
+        licenceKeysOf =
+            LicenceKeys (unquote <$> getValue "licence") (unquote <$> getValue "licence_text")
+                <$> traverse parseStrictStringList (getValue "refuses")
+                <*> traverse parseBool (getValue "attribution")
 
     version <- getValue "version" >>= readMaybe . T.unpack
     displayName <- unquote <$> getValue "displayName"
@@ -185,10 +193,12 @@ parseMetaToml content = do
         either (const Nothing) Just $
             parseAllocationKey (maybe "declared" unquote (getValue "allocation"))
 
-    -- Same rule: a refusal nobody can read must not come back as allowed.
-    downloads <-
-        either (const Nothing) Just $
-            parseDownloads (maybe "allowed" unquote (getValue "downloads"))
+    -- Same rule: a refusal nobody can read must not come back as granted.
+    -- The downloads switch these keys replaced was never released, and stops
+    -- the file rather than be read as no licence at all.
+    licence <- case getValue "downloads" of
+        Just _ -> Nothing
+        Nothing -> either (const Nothing) Just . licenceFromKeys =<< licenceKeysOf
 
     return
         UploadMeta
@@ -201,8 +211,12 @@ parseMetaToml content = do
             , umSource = unquote <$> getValue "source"
             , umBuiltIn = unquote <$> getValue "builtin"
             , umAllocation = allocation
-            , umTerms = Terms{termsLicence = unquote <$> getValue "licence", termsDownloads = downloads}
+            , umLicence = licence
             }
+
+-- | The value between one delimiter at each end, or the value itself when it has none.
+unwrap :: Char -> Text -> Text
+unwrap c t = fromMaybe t (T.stripPrefix (T.singleton c) t >>= T.stripSuffix (T.singleton c))
 
 {- | Undo the escaping 'formatMetaToml' writes, so a value survives the round
 trip it is written for.
@@ -235,6 +249,22 @@ parseStringList raw =
     , T.isPrefixOf "\"" item
     ]
 
+-- | 'parseStringList' for a key where a dropped entry would change the meaning: any entry that is not a quoted string refuses the whole list.
+parseStrictStringList :: Text -> Maybe [Text]
+parseStrictStringList raw = case T.strip raw of
+    inner | T.isPrefixOf "[" inner && T.isSuffixOf "]" inner -> traverse entry (filter (not . T.null) (map T.strip (T.splitOn "," (T.drop 1 (T.dropEnd 1 inner)))))
+    _ -> Nothing
+  where
+    entry :: Text -> Maybe Text
+    entry item
+        | T.length item >= 2 && T.isPrefixOf "\"" item && T.isSuffixOf "\"" item = Just (T.drop 1 (T.dropEnd 1 item))
+        | otherwise = Nothing
+
+parseBool :: Text -> Maybe Bool
+parseBool "true" = Just True
+parseBool "false" = Just False
+parseBool _ = Nothing
+
 {- | Parse a format string to a DatabaseFormat.
 Inverse of 'formatMetaToml''s writer below – every slug it can write is read back
 here. An unrecognized slug reads as 'UnknownFormat' rather than dropping the whole
@@ -264,10 +294,16 @@ formatMetaToml UploadMeta{..} =
                ]
             ++ maybe [] (\s -> ["source = " <> quote s]) umSource
             ++ maybe [] (\b -> ["builtin = " <> quote b]) umBuiltIn
-            ++ maybe [] (\l -> ["licence = " <> quote l]) (termsLicence umTerms)
-            ++ ["downloads = " <> quote (downloadsCode (termsDownloads umTerms))]
+            ++ licenceLines (licenceKeys umLicence)
   where
     quote t = "\"" <> escapeToml t <> "\""
+
+    licenceLines :: LicenceKeys -> [Text]
+    licenceLines LicenceKeys{..} =
+        maybe [] (\l -> ["licence = " <> quote l]) lkId
+            ++ maybe [] (\t -> ["licence_text = " <> quote t]) lkText
+            ++ maybe [] (\ps -> ["refuses = [" <> T.intercalate ", " (map quote ps) <> "]"]) lkRefuses
+            ++ maybe [] (\a -> ["attribution = " <> if a then "true" else "false"]) lkAttribution
 
     escapeToml = T.concatMap escape
       where

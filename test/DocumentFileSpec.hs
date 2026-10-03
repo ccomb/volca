@@ -14,7 +14,7 @@ import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), DatabaseManager, addDatabase, initDatabaseManager, loadDatabase, readDocumentFile)
-import Types (AllocationKey (..), GeographyPolicy (..), openTerms)
+import Types (AllocationKey (..), GeographyPolicy (..), Licence (..))
 
 ilcdConfig :: DatabaseConfig
 ilcdConfig =
@@ -34,7 +34,7 @@ ilcdConfig =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 loadedManager :: IO DatabaseManager

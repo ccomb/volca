@@ -36,7 +36,7 @@ KNOWN_WIRE = 42
 """The newest wire revision this pyvolca understands (revision 42 added
 copying a method collection, changing the factors of a copy, undoing a change
 and reading its history, and the flows a collection characterizes; revision 41 added
-the ``terms`` of a database's setup and of its entry in the list, which ``set_terms`` changes; revision 40 added
+the ``licence`` of a database's setup and of its entry in the list, which ``set_licence`` changes, and ``licences``; revision 40 added
 the ``files`` a literature entry ships, read by ``document_file``; revision 39 added
 ``process`` on the activity search, the rows of the processes named, in the
 order named; revision 38 added the
