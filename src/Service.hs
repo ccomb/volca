@@ -1214,7 +1214,9 @@ convertActivityForAPI db processId activity =
 
 {- | An activity as its database's licence lets it be read. Under a licence that
 keeps the amounts of its exchanges, the exchanges are named without them, which
-says what the process is made of without handing out the recipe.
+says what the process is made of without handing out the recipe. The reference
+line is left out: the product names it already, and read as an input it would
+count a treatment's waste among what the process consumes.
 
 Applied by each surface after its own filters, which read the full exchanges.
 -}
@@ -1226,7 +1228,7 @@ withholdExchangeAmounts dbName licence info
             { piActivity =
                 activity
                     { pfaExchanges = []
-                    , pfaWithheld = Just (WithheldExchanges (withheldSentence dbName ReadInventory) (map exchangeNameOf (pfaExchanges activity)))
+                    , pfaWithheld = Just (WithheldExchanges (withheldSentence dbName ReadInventory) (map exchangeNameOf (filter (not . exchangeIsReference . ewuExchange) (pfaExchanges activity))))
                     }
             }
   where

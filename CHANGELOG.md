@@ -45,7 +45,8 @@
   path to a supplier, the aggregation, comparing processes or databases) with
   a 403, or a tool error
   over MCP; an activity still names its exchanges, without their amounts, as
-  `withheld`, and a batch of scores leaves out its unlinked waste. Refusing
+  `withheld` (all but the reference line, which its product names), and a
+  batch of scores leaves out its unlinked waste. Refusing
   `scores` refuses what weighs in a score (contributing flows and processes,
   sensitivity, comparing impacts), and a score keeps its total and its
   categories, its contributors left out with a sentence in `withheld`. Each
