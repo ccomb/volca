@@ -12,6 +12,7 @@ import Method.Mapping (
     MappingStats (msByProxy),
     MatchStrategy (..),
     ProxyTargets (..),
+    Resolution (..),
     buildMethodTables,
     cfValue,
     computeMappingStats,
@@ -65,8 +66,8 @@ proxyEdge :: SR.SubstanceKey -> SR.SubstanceKey -> Double -> SR.SubstanceEdge
 proxyEdge a b f = SR.SubstanceEdge a b (SR.ProxyFor (SR.ConversionFactor f))
 
 -- | Only the proxy-tagged rows, as (scaled value, target flow name).
-proxyEntries :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [(Double, Text)]
-proxyEntries xs = [(mcfValue cf, bfName f) | (cf, Just (f, ByProxy)) <- xs]
+proxyEntries :: [(MethodCF, Maybe Resolution)] -> [(Double, Text)]
+proxyEntries xs = [(mcfValue cf, bfName f) | (cf, Just (Resolution f ByProxy)) <- xs]
 
 noTargets :: ProxyTargets
 noTargets = ProxyTargets M.empty M.empty M.empty

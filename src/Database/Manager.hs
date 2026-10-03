@@ -200,7 +200,6 @@ import Method.Mapping (
     CF (..),
     CFUnit (..),
     ContestedFactor (..),
-    MatchStrategy,
     MethodIndex,
     MethodSetTables,
     MethodTables,
@@ -209,6 +208,7 @@ import Method.Mapping (
     ProxyTargets (..),
     RefusalReason,
     RegionalActivityWeights (..),
+    Resolution,
     buildMethodIndex,
     buildMethodSetTables,
     buildMethodTables,
@@ -644,7 +644,7 @@ data DatabaseManager = DatabaseManager
     linking paths read it, derived once beside it. Sourced from the configured
     geographies file, empty when none is configured or it fails to parse.
     -}
-    , dmMethodMappingCache :: !(TVar (Map (Text, CollectionName, UUID) [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]))
+    , dmMethodMappingCache :: !(TVar (Map (Text, CollectionName, UUID) [(MethodCF, Maybe Resolution)]))
     {- ^ Cached flow mappings: (dbName, collection, methodId) → mappings.
     The collection is part of the key because a method UUID is a UUIDv5 of the
     method name alone, so the same name in two collections collides on UUID
@@ -783,7 +783,7 @@ newtype CollectionName = CollectionName {unCollectionName :: Text}
 {- | Cached flow mapping: avoids re-matching method CFs to database flows on every LCIA call.
 The mapping depends only on (database, method), not on the process being evaluated.
 -}
-mapMethodToFlowsCached :: DatabaseManager -> Text -> CollectionName -> Database -> Method -> IO [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+mapMethodToFlowsCached :: DatabaseManager -> Text -> CollectionName -> Database -> Method -> IO [(MethodCF, Maybe Resolution)]
 mapMethodToFlowsCached manager dbName collection db method = do
     let key = (dbName, collection, methodId method)
     cache <- readTVarIO (dmMethodMappingCache manager)
@@ -826,7 +826,7 @@ The method's exclusions are re-applied last: the expansions travel by flow
 name and would otherwise hand an excepted flow the factor of a sibling it
 shares a synonym group with (see 'dropExcludedMappings').
 -}
-effectiveMethodMappings :: DatabaseManager -> Text -> CollectionName -> Database -> Method -> IO [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))]
+effectiveMethodMappings :: DatabaseManager -> Text -> CollectionName -> Database -> Method -> IO [(MethodCF, Maybe Resolution)]
 effectiveMethodMappings manager dbName collection db method = do
     mappings <- mapMethodToFlowsCached manager dbName collection db method
     closure <- getFlowClosure manager dbName db

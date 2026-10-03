@@ -28,6 +28,7 @@ import Method.Mapping (
     MatchStrategy (..),
     MethodTables,
     RefusalReason (..),
+    Resolution (..),
     RungId (..),
     UnitBridge (..),
     buildMethodTables,
@@ -105,7 +106,7 @@ explainOf :: UnitConfig -> MethodTables -> BiosphereFlow -> CFExplanation
 explainOf cfg tables flow = explainFlowCF cfg unitDB tables (bfId flow) flow
 
 -- | Tables plus the broadcast fill, the shape the read path actually serves.
-tablesFor :: EnergyDensityMap -> [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [BiosphereFlow] -> MethodTables
+tablesFor :: EnergyDensityMap -> [(MethodCF, Maybe Resolution)] -> [BiosphereFlow] -> MethodTables
 tablesFor densities mappings flows =
     fillBroadcastVector defaultUnitConfig unitDB (flowDBOf flows) $
         buildMethodTables mempty mempty densities mappings
@@ -241,7 +242,7 @@ spec = do
     describe "explainFlowCF (replaying the cascade)" $ do
         it "reports the rung that answered and stops there" $ do
             let flow = flowIn 1 "Methane, fossil" Air Nothing
-                tables = tablesFor M.empty [(cfLine "Methane, fossil" "" "kg" 29.8, Just (flow, ByUUID))] [flow]
+                tables = tablesFor M.empty [(cfLine "Methane, fossil" "" "kg" 29.8, Just (Resolution flow ByUUID))] [flow]
                 explained = explainOf defaultUnitConfig tables flow
             case ceResolution explained of
                 Characterized m _ -> cmRung m `shouldBe` RungUuid
@@ -254,7 +255,7 @@ spec = do
             -- compartment-level table, so the trail must show the rungs above
             -- it being tried and missing.
             let flow = flowIn 11 "Methane, fossil" Air Nothing
-                tables = tablesFor M.empty [(cfLine "Methane, fossil" "" "kg" 29.8, Just (flow, ByName))] [flow]
+                tables = tablesFor M.empty [(cfLine "Methane, fossil" "" "kg" 29.8, Just (Resolution flow ByName))] [flow]
                 explained = explainOf defaultUnitConfig tables flow
                 results = resultsFor explained
             case ceResolution explained of
@@ -275,7 +276,7 @@ spec = do
                 cmap = mempty{cmIfAbsent = M.singleton (Soil, Subcompartment "forestry") (Subcompartment "non-agricultural")}
                 tables =
                     fillBroadcastVector defaultUnitConfig unitDB (flowDBOf [forest]) $
-                        buildMethodTables cmap (methodVocabulary cmap lines') M.empty [(l, Just (forest, ByName)) | l <- lines']
+                        buildMethodTables cmap (methodVocabulary cmap lines') M.empty [(l, Just (Resolution forest ByName)) | l <- lines']
                 explained = explainOf defaultUnitConfig tables forest
             case ceResolution explained of
                 Characterized m _ -> do
@@ -295,7 +296,7 @@ spec = do
                 cmap = mempty{cmIfAbsent = M.singleton (Soil, Subcompartment "forestry") (Subcompartment "non-agricultural")}
                 tables =
                     fillBroadcastVector defaultUnitConfig unitDB (flowDBOf [forest]) $
-                        buildMethodTables cmap (methodVocabulary cmap lines') M.empty [(l, Just (forest, ByName)) | l <- lines']
+                        buildMethodTables cmap (methodVocabulary cmap lines') M.empty [(l, Just (Resolution forest ByName)) | l <- lines']
             case ceResolution (explainOf defaultUnitConfig tables forest) of
                 Characterized m _ -> cmRung m `shouldBe` RungMediumDefault
                 other -> expectationFailure ("expected the line for the whole medium, got " <> show other)
@@ -303,7 +304,7 @@ spec = do
         it "reads the line written for the whole medium at the sea, like at any subcompartment it has no line for" $ do
             let ocean = flowIn 12 "Water" Water (Just "ocean")
                 fresh = flowIn 13 "Water" Water Nothing
-                tables = tablesFor M.empty [(waterLine "Water" "" 1.0, Just (fresh, ByName))] [ocean, fresh]
+                tables = tablesFor M.empty [(waterLine "Water" "" 1.0, Just (Resolution fresh ByName))] [ocean, fresh]
                 explained = explainOf defaultUnitConfig tables ocean
             case ceResolution explained of
                 Characterized m _ -> cmRung m `shouldBe` RungMediumDefault
@@ -330,8 +331,8 @@ spec = do
                 tables =
                     tablesFor
                         densities
-                        [ (resourceLine "Coal, hard" "MJ" 1.0, Just (hard, ByName))
-                        , (resourceLine "Coal, brown" "MJ" 2.0, Just (brown, ByName))
+                        [ (resourceLine "Coal, hard" "MJ" 1.0, Just (Resolution hard ByName))
+                        , (resourceLine "Coal, brown" "MJ" 2.0, Just (Resolution brown ByName))
                         ]
                         [coal, hard, brown]
                 explained = explainOf defaultUnitConfig tables coal
@@ -345,7 +346,7 @@ spec = do
                 tables =
                     tablesFor
                         (M.insert (normalizeName "Coal, hard") (EnergyDensity 18.0 "MJ" "kg") densities)
-                        [(resourceLine "Coal, hard" "MJ" 0.5, Just (hard, ByName))]
+                        [(resourceLine "Coal, hard" "MJ" 0.5, Just (Resolution hard ByName))]
                         [coal, hard]
                 explained = explainOf massEnergyConfig tables coal
             case ceResolution explained of
@@ -359,7 +360,7 @@ spec = do
             -- the flow looks characterized and scores nothing, and the
             -- explanation is what says so.
             let flow = flowIn 10 "Water" NaturalResource Nothing
-                tables = tablesFor M.empty [(resourceLine "Water" "m3" 42.95, Just (flow, ByName))] [flow]
+                tables = tablesFor M.empty [(resourceLine "Water" "m3" 42.95, Just (Resolution flow ByName))] [flow]
                 explained = explainOf volumeMassConfig tables flow
             case ceResolution explained of
                 ConversionRefused _ (DimensionalMismatch "kg" "m3") -> pure ()
@@ -385,7 +386,7 @@ spec = do
 
         it "agrees for a direct hit" $ do
             let flow = flowIn 20 "Methane, fossil" Air Nothing
-            agreesFor defaultUnitConfig M.empty [(cfLine "Methane, fossil" "" "kg" 29.8, Just (flow, ByUUID))] [flow]
+            agreesFor defaultUnitConfig M.empty [(cfLine "Methane, fossil" "" "kg" 29.8, Just (Resolution flow ByUUID))] [flow]
 
         it "agrees under the sea-water veto, factor served and factor withheld" $ do
             let ocean = flowIn 21 "Water" Water (Just "ocean")
@@ -393,7 +394,7 @@ spec = do
             agreesFor
                 defaultUnitConfig
                 M.empty
-                [ (waterLine "Water" "" 1.0, Just (fresh, ByName))
+                [ (waterLine "Water" "" 1.0, Just (Resolution fresh ByName))
                 , (waterLine "Sea water" "ocean" 0.0, Nothing)
                 ]
                 [ocean, fresh]
@@ -410,8 +411,8 @@ spec = do
             agreesFor
                 defaultUnitConfig
                 densities
-                [ (resourceLine "Coal, hard" "MJ" 1.0, Just (hard, ByName))
-                , (resourceLine "Coal, brown" "MJ" 2.0, Just (brown, ByName))
+                [ (resourceLine "Coal, hard" "MJ" 1.0, Just (Resolution hard ByName))
+                , (resourceLine "Coal, brown" "MJ" 2.0, Just (Resolution brown ByName))
                 ]
                 [coal, hard, brown]
 
@@ -419,7 +420,7 @@ spec = do
             -- The refused flow must still annotate: it scores 0, but its
             -- match kind is the rung that found the factor, not "none".
             let flow = flowIn 26 "Water" NaturalResource Nothing
-            agreesFor volumeMassConfig M.empty [(resourceLine "Water" "m3" 42.95, Just (flow, ByName))] [flow]
+            agreesFor volumeMassConfig M.empty [(resourceLine "Water" "m3" 42.95, Just (Resolution flow ByName))] [flow]
   where
     -- kg and m3 known but dimensionally apart, so the pair is a mismatch.
     volumeMassConfig =

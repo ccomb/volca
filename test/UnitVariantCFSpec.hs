@@ -18,7 +18,7 @@ import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Method.Mapping (MatchStrategy (..), MethodTables, buildMethodTables, cfValue, lookupCFForFlow)
+import Method.Mapping (MatchStrategy (..), MethodTables, Resolution (..), buildMethodTables, cfValue, lookupCFForFlow)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import Types (
     BiosphereFlow (..),
@@ -78,8 +78,8 @@ perUnitTables =
         mempty
         mempty
         M.empty
-        [ (mkCF 1 "Gas, natural/kg" "kg" 43.1, Just (kgFlow, ByUUID))
-        , (mkCF 20 "Gas, natural/m3" "m3" 34.5, Just (m3Flow, ByName))
+        [ (mkCF 1 "Gas, natural/kg" "kg" 43.1, Just (Resolution kgFlow ByUUID))
+        , (mkCF 20 "Gas, natural/m3" "m3" 34.5, Just (Resolution m3Flow ByName))
         ]
 
 spec :: Spec
@@ -102,7 +102,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
                     mempty
                     mempty
                     M.empty
-                    [(mkCF 1 "Gas, natural" "m3" 40.0, Just (mkFlow 1 "Gas, natural", ByUUID))]
+                    [(mkCF 1 "Gas, natural" "m3" 40.0, Just (Resolution (mkFlow 1 "Gas, natural") ByUUID))]
         lookupFor baseOnly (mkFlow 4 "Gas, natural/Sm3") `shouldBe` Just 40.0
 
     it "refuses a variant name whose own rows disagree (true duplicate, never guesses)" $ do
@@ -111,7 +111,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
                     mempty
                     mempty
                     M.empty
-                    [ (mkCF 1 "Gas, natural/kg" "kg" 10.0, Just (kgFlow, ByUUID))
+                    [ (mkCF 1 "Gas, natural/kg" "kg" 10.0, Just (Resolution kgFlow ByUUID))
                     , (mkCF 2 "Gas, natural/kg" "kg" 20.0, Nothing)
                     ]
         -- The variant rung refuses; the collapsed key still answers with its

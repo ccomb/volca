@@ -8,7 +8,7 @@ import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Method.Mapping (MatchStrategy (..), projectRegionalResourceFlows)
+import Method.Mapping (MatchStrategy (..), Resolution (..), projectRegionalResourceFlows)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import SynonymDB (BridgeDirection (..), SynEdge (..), buildFromEdges, buildFromPairs)
 import Types (
@@ -50,15 +50,15 @@ mkResourceFlow i name =
 -- re-targets it onto the region-tagged flow's own name. Since the result is
 -- @mappings ++ projected@, a projected entry shows up as a @(flow name, Nothing,
 -- value)@ triple carried by the region-tagged flow.
-projected :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> [(Text, Maybe Text, Double)]
-projected xs = [(bfName f, mcfConsumerLocation cf, mcfValue cf) | (cf, Just (f, BySynonym)) <- xs]
+projected :: [(MethodCF, Maybe Resolution)] -> [(Text, Maybe Text, Double)]
+projected xs = [(bfName f, mcfConsumerLocation cf, mcfValue cf) | (cf, Just (Resolution f BySynonym)) <- xs]
 
 spec :: Spec
 spec = describe "projectRegionalResourceFlows" $ do
     let synDB = buildFromPairs [("river water", "Water, river")]
         baseFlow = mkResourceFlow 10 "Water, river"
         cfFR = mkLocatedCF "river water" 6.98 (Just "FR")
-        baseMappings = [(cfFR, Just (baseFlow, BySynonym))]
+        baseMappings = [(cfFR, Just (Resolution baseFlow BySynonym))]
         runWith flows =
             projected (projectRegionalResourceFlows synDB (M.fromList [(bfId f, f) | f <- flows]) baseMappings)
         frProjection = ("Water, river, FR", Nothing, 6.98)
@@ -75,14 +75,14 @@ spec = describe "projectRegionalResourceFlows" $ do
         let cfCN = mkLocatedCF "river water" 42.4 (Just "CN")
             cnSC = mkResourceFlow 15 "Water, river, CN-SC"
             flows = M.fromList [(bfId f, f) | f <- [baseFlow, cnSC]]
-        projected (projectRegionalResourceFlows synDB flows [(cfFR, Just (baseFlow, BySynonym)), (cfCN, Just (baseFlow, BySynonym))])
+        projected (projectRegionalResourceFlows synDB flows [(cfFR, Just (Resolution baseFlow BySynonym)), (cfCN, Just (Resolution baseFlow BySynonym))])
             `shouldContain` [("Water, river, CN-SC", Nothing, 42.4)]
 
     it "falls an untabulated region back to the method's location-less CF through the synonym bridge" $ do
         let cfGeneric = mkLocatedCF "river water" 42.95 Nothing
             rowFlow = mkResourceFlow 16 "Water, river, RoW"
             flows = M.fromList [(bfId f, f) | f <- [baseFlow, rowFlow]]
-        projected (projectRegionalResourceFlows synDB flows [(cfFR, Just (baseFlow, BySynonym)), (cfGeneric, Just (baseFlow, BySynonym))])
+        projected (projectRegionalResourceFlows synDB flows [(cfFR, Just (Resolution baseFlow BySynonym)), (cfGeneric, Just (Resolution baseFlow BySynonym))])
             `shouldContain` [("Water, river, RoW", Nothing, 42.95)]
 
     it "prefers the exact located region over the parent and generic fallbacks" $ do
@@ -91,7 +91,7 @@ spec = describe "projectRegionalResourceFlows" $ do
             cfGeneric = mkLocatedCF "river water" 42.95 Nothing
             cnSC = mkResourceFlow 17 "Water, river, CN-SC"
             flows = M.fromList [(bfId f, f) | f <- [baseFlow, cnSC]]
-            ms = [(cf, Just (baseFlow, BySynonym)) | cf <- [cfSC, cfCN, cfGeneric]]
+            ms = [(cf, Just (Resolution baseFlow BySynonym)) | cf <- [cfSC, cfCN, cfGeneric]]
         projected (projectRegionalResourceFlows synDB flows ms)
             `shouldContain` [("Water, river, CN-SC", Nothing, 39.9)]
 
@@ -103,7 +103,7 @@ spec = describe "projectRegionalResourceFlows" $ do
                     { bfCompartment = Just (VT.Compartment Water Nothing)
                     }
             flows = M.fromList [(bfId f, f) | f <- [baseFlow, rowRelease]]
-        projected (projectRegionalResourceFlows inSynDB flows [(cfFR, Just (baseFlow, BySynonym)), (cfGeneric, Just (baseFlow, BySynonym))])
+        projected (projectRegionalResourceFlows inSynDB flows [(cfFR, Just (Resolution baseFlow BySynonym)), (cfGeneric, Just (Resolution baseFlow BySynonym))])
             `shouldNotContain` [("Water, river, RoW", Nothing, 42.95)]
 
     it "does not let a located CF in another medium open the water fallback" $ do
@@ -114,7 +114,7 @@ spec = describe "projectRegionalResourceFlows" $ do
             cfGeneric = mkLocatedCF "river water" 42.95 Nothing
             rowFlow = mkResourceFlow 24 "Water, river, RoW"
             flows = M.fromList [(bfId f, f) | f <- [baseFlow, rowFlow]]
-        projected (projectRegionalResourceFlows synDB flows [(airCF, Nothing), (cfGeneric, Just (baseFlow, BySynonym))])
+        projected (projectRegionalResourceFlows synDB flows [(airCF, Nothing), (cfGeneric, Just (Resolution baseFlow BySynonym))])
             `shouldNotContain` [("Water, river, RoW", Nothing, 42.95)]
 
     it "projects a resource flow that names a subcompartment as well as its medium" $ do
@@ -130,8 +130,8 @@ spec = describe "projectRegionalResourceFlows" $ do
             frFlow = mkResourceFlow 14 "Water, river, FR"
             flows = M.fromList [(bfId f, f) | f <- [baseFlow, frFlow]]
             run ms = projected (projectRegionalResourceFlows synDB flows ms)
-            mLo = [(cfLo, Just (baseFlow, BySynonym)), (cfHi, Just (baseFlow, BySynonym))]
-            mHi = [(cfHi, Just (baseFlow, BySynonym)), (cfLo, Just (baseFlow, BySynonym))]
+            mLo = [(cfLo, Just (Resolution baseFlow BySynonym)), (cfHi, Just (Resolution baseFlow BySynonym))]
+            mHi = [(cfHi, Just (Resolution baseFlow BySynonym)), (cfLo, Just (Resolution baseFlow BySynonym))]
         run mLo `shouldContain` [("Water, river, FR", Nothing, 9.99)]
         run mHi `shouldContain` [("Water, river, FR", Nothing, 9.99)]
         run mLo `shouldNotContain` [("Water, river, FR", Nothing, 6.98)]
@@ -140,7 +140,7 @@ spec = describe "projectRegionalResourceFlows" $ do
         let cfGlobal = mkLocatedCF "river water" 6.98 Nothing
             frFlow = mkResourceFlow 11 "Water, river, FR"
         projected
-            (projectRegionalResourceFlows synDB (M.fromList [(bfId frFlow, frFlow)]) [(cfGlobal, Just (baseFlow, BySynonym))])
+            (projectRegionalResourceFlows synDB (M.fromList [(bfId frFlow, frFlow)]) [(cfGlobal, Just (Resolution baseFlow BySynonym))])
             `shouldNotContain` [frProjection]
 
     it "projects a resource withdrawal through an INPUT-only bridge (resource medium picks the input view)" $ do
@@ -172,7 +172,7 @@ spec = describe "projectRegionalResourceFlows" $ do
             ( projectRegionalResourceFlows
                 synDB
                 (M.fromList [(bfId waterFR, waterFR), (bfId bareWater, bareWater)])
-                [(releaseCF, Just (bareWater, ByName))]
+                [(releaseCF, Just (Resolution bareWater ByName))]
             )
             `shouldContain` [("Water, FR", Nothing, -42.0)]
 
@@ -193,6 +193,6 @@ spec = describe "projectRegionalResourceFlows" $ do
             ( projectRegionalResourceFlows
                 synDB
                 (M.fromList [(bfId so2FR, so2FR), (bfId bareSo2, bareSo2)])
-                [(airCF, Just (bareSo2, ByName))]
+                [(airCF, Just (Resolution bareSo2 ByName))]
             )
             `shouldNotContain` [("Sulfur dioxide, FR", Nothing, 1.5)]

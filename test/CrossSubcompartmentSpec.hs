@@ -8,7 +8,7 @@ import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Method.Mapping (MatchStrategy (..), buildMethodTables, cfValue, lookupCFForFlow)
+import Method.Mapping (MatchStrategy (..), Resolution (..), buildMethodTables, cfValue, lookupCFForFlow)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import Types (
     BiosphereFlow (..),
@@ -45,7 +45,7 @@ mkFlow i name sub =
         , bfCompartment = Just (VT.Compartment NaturalResource sub)
         }
 
-score :: [(MethodCF, Maybe (BiosphereFlow, MatchStrategy))] -> BiosphereFlow -> Maybe Double
+score :: [(MethodCF, Maybe Resolution)] -> BiosphereFlow -> Maybe Double
 score mappings flow =
     fmap cfValue (lookupCFForFlow (buildMethodTables mempty mempty M.empty mappings) (bfId flow) (Just flow))
 
@@ -54,18 +54,18 @@ spec = describe "no factor borrowed across subcompartments" $ do
     it "leaves a flow uncharacterized where its substance has a line only at another subcompartment" $ do
         -- "Cadmium, in ground" = 0.157, and nothing for the whole medium. A
         -- single line says nothing about the other subcompartments.
-        let mappings = [(mkCF 1 "Cadmium" "in ground" 0.157, Just (mkFlow 1 "Cadmium" (Just "in ground"), ByName))]
+        let mappings = [(mkCF 1 "Cadmium" "in ground" 0.157, Just (Resolution (mkFlow 1 "Cadmium" (Just "in ground")) ByName))]
         score mappings (mkFlow 99 "Cadmium" Nothing) `shouldBe` Nothing
 
     it "still resolves the sub-specific flow itself" $ do
-        let mappings = [(mkCF 1 "Cadmium" "in ground" 0.157, Just (mkFlow 1 "Cadmium" (Just "in ground"), ByName))]
+        let mappings = [(mkCF 1 "Cadmium" "in ground" 0.157, Just (Resolution (mkFlow 1 "Cadmium" (Just "in ground")) ByName))]
         score mappings (mkFlow 1 "Cadmium" (Just "in ground")) `shouldBe` Just 0.157
 
     it "nor when several lines disagree" $ do
         -- Mercury differs by sub: in ground 1.0, in water 2.0 – no safe default.
         let mappings =
-                [ (mkCF 1 "Mercury" "in ground" 1.0, Just (mkFlow 1 "Mercury" (Just "in ground"), ByName))
-                , (mkCF 2 "Mercury" "in water" 2.0, Just (mkFlow 2 "Mercury" (Just "in water"), ByName))
+                [ (mkCF 1 "Mercury" "in ground" 1.0, Just (Resolution (mkFlow 1 "Mercury" (Just "in ground")) ByName))
+                , (mkCF 2 "Mercury" "in water" 2.0, Just (Resolution (mkFlow 2 "Mercury" (Just "in water")) ByName))
                 ]
         score mappings (mkFlow 99 "Mercury" Nothing) `shouldBe` Nothing
 
@@ -75,7 +75,7 @@ spec = describe "no factor borrowed across subcompartments" $ do
         -- ground") that carry no CAS and match no CF of their own. Their
         -- reference amount is the mass of the element, so they take its CF.
         let copperCF = mkCF 1 "Copper" "in ground" 1.37e-6
-            copperMapping = [(copperCF, Just (mkFlow 1 "Copper" (Just "in ground"), ByName))]
+            copperMapping = [(copperCF, Just (Resolution (mkFlow 1 "Copper" (Just "in ground")) ByName))]
 
         it "characterizes an ore-grade variant with the base element's CF" $
             score copperMapping (mkFlow 99 "Copper, 0.99% in sulfide, Cu 0.36% and Mo 8.2E-3% in crude ore" (Just "in ground"))
@@ -93,6 +93,6 @@ spec = describe "no factor borrowed across subcompartments" $ do
             -- The "%" pins the fallback to ore-grade variants: an ordinary
             -- comma-qualified resource must not borrow the base CF (a
             -- salt-water withdrawal is not freshwater scarcity).
-            let waterMapping = [(mkCF 1 "Water" "in water" 42.0, Just (mkFlow 1 "Water" (Just "in water"), ByName))]
+            let waterMapping = [(mkCF 1 "Water" "in water" 42.0, Just (Resolution (mkFlow 1 "Water" (Just "in water")) ByName))]
             score waterMapping (mkFlow 99 "Water, salt, ocean" (Just "in water"))
                 `shouldBe` Nothing

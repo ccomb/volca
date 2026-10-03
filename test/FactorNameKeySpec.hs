@@ -12,7 +12,7 @@ import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Method.Mapping (MatchStrategy (..), MethodTables (..), buildMethodTables)
+import Method.Mapping (MatchStrategy (..), MethodTables (..), Resolution (..), buildMethodTables)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import qualified SubstanceRegistry as SR
 import Types (BiosphereFlow (..), Medium (..))
@@ -52,7 +52,7 @@ keyedUnder :: Maybe MatchStrategy -> [Text]
 keyedUnder strategy =
     [ n
     | (SR.NormName n, _, _) <-
-        M.keys (mtExactCF (buildMethodTables mempty mempty M.empty [(methodLine, fmap (\s -> (databaseFlow, s)) strategy)]))
+        M.keys (mtExactCF (buildMethodTables mempty mempty M.empty [(methodLine, fmap (Resolution databaseFlow) strategy)]))
     ]
 
 spec :: Spec
