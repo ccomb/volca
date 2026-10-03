@@ -35,7 +35,7 @@ module API.DatabaseHandlers (
     editExchangesHandler,
     exportDatabaseHandler,
     documentFileHandler,
-    setTermsHandler,
+    setLicenceHandler,
     downloadRefusal,
     exportMethodHandler,
     encodeExportWarnings,
@@ -146,7 +146,7 @@ import API.Types (
     toExchangeEdits,
  )
 import App.Env (AppEnv (..), AppM)
-import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, messageOr, readOnlyRefusalFor, termsOf)
+import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, licenceOf, messageOr, readOnlyRefusalFor)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.Reader (asks)
 import Data.Aeson (Value)
@@ -178,12 +178,12 @@ import Database.Manager (
     DatabaseSetupInfo (..),
     DatabaseStatus (..),
     DependencyEdit (..),
+    LicenceRefusal (..),
     LoadedDatabase (..),
     RefDataStatus (..),
     RelativeDataPath (..),
     RelinkResult (..),
     SetupError (..),
-    TermsRefusal (..),
     addCompartmentMappings,
     addDatabase,
     addDependencyToStaged,
@@ -192,8 +192,8 @@ import Database.Manager (
     addUnitDefs,
     databaseCoverageReport,
     databaseGapReport,
+    databaseLicence,
     databaseQualityReport,
-    databaseTerms,
     finalizeDatabase,
     getDatabase,
     getDatabaseSetupInfo,
@@ -218,7 +218,7 @@ import Database.Manager (
     removeMethodCollection,
     removeUnitDefs,
     setDataPath,
-    setUploadTerms,
+    setUploadLicence,
     setupErrorMessage,
     unloadCompartmentMappings,
     unloadDatabase,
@@ -249,15 +249,15 @@ import Types (
     ClassificationFilter (..),
     ClassificationMatch (..),
     Database (..),
-    Downloads (..),
     GeographyPolicy (..),
+    Licence (..),
+    Permission (Download),
     ProcessRef (..),
-    Terms (..),
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
     getUnitNameForBioFlow,
-    openTerms,
+    granted,
     parseAllocationKey,
     processRefText,
     unresolvedCount,
@@ -743,35 +743,36 @@ documentFileHandler dbName segments = do
     attachment name =
         "attachment; filename=\"" <> T.filter (\c -> c /= '"' && c >= ' ' && c < '\DEL') name <> "\"; filename*=UTF-8''" <> T.decodeUtf8 (urlEncode False (T.encodeUtf8 name))
 
-{- | 403 when the terms of a database refuse its download. A name the engine
+{- | 403 when the licence of a database refuses its download. A name the engine
 does not know passes, so the handler answers it with its own 404.
 -}
 refuseUnlessDownloadable :: Text -> AppM ()
 refuseUnlessDownloadable dbName = do
     dbManager <- asks aeDbManager
-    liftIO (databaseTerms dbManager dbName) >>= mapM_ (mapM_ (exportErr err403) . downloadRefusal dbName)
+    liftIO (databaseLicence dbManager dbName) >>= mapM_ (mapM_ (exportErr err403) . downloadRefusal dbName)
 
--- | Why a database may not be downloaded, in a sentence naming its licence when it has one.
-downloadRefusal :: Text -> Terms -> Maybe Text
-downloadRefusal dbName terms = case termsDownloads terms of
-    DownloadsAllowed -> Nothing
-    DownloadsRefused -> Just ("The terms of " <> dbName <> maybe "" (\l -> " (" <> l <> ")") (termsLicence terms) <> " do not allow downloading it.")
+-- | Why a database may not be downloaded, when its licence refuses it.
+downloadRefusal :: Text -> Licence -> Maybe Text
+downloadRefusal dbName licence
+    | granted licence Download = Nothing
+    -- Only an own licence refuses it, and its text is too long to quote here.
+    | otherwise = Just ("The licence of " <> dbName <> " does not allow downloading it.")
 
-{- | Replace the terms of an uploaded database. 404 for a name the engine does
-not know, 409 for a database whose terms are written elsewhere: in the
+{- | Replace the licence of an uploaded database. 404 for a name the engine does
+not know, 409 for a database whose licence is written elsewhere: in the
 configuration file, or on the source a copy reads, 500 for an upload whose
 meta.toml cannot be read.
 -}
-setTermsHandler :: Text -> Terms -> AppM Terms
-setTermsHandler dbName terms = do
+setLicenceHandler :: Text -> Licence -> AppM Licence
+setLicenceHandler dbName licence = do
     guardMutation
     dbManager <- asks aeDbManager
-    liftIO (setUploadTerms dbManager dbName terms) >>= either refused pure
+    liftIO (setUploadLicence dbManager dbName licence) >>= either refused pure
   where
-    refused :: TermsRefusal -> AppM Terms
-    refused (TermsUnknown msg) = exportErr err404 msg
-    refused (TermsHeldElsewhere msg) = exportErr err409 msg
-    refused (TermsUnrecordable msg) = exportErr err500 msg
+    refused :: LicenceRefusal -> AppM Licence
+    refused (LicenceUnknown msg) = exportErr err404 msg
+    refused (LicenceHeldElsewhere msg) = exportErr err409 msg
+    refused (LicenceUnrecordable msg) = exportErr err500 msg
 
 {- | Export a loaded method collection over the same transport as the database
 export: raw octet-stream body, projection warnings percent-encoded in the
@@ -1084,7 +1085,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umSource = Nothing
                             , UploadedDB.umAllocation = Declared
                             , UploadedDB.umBuiltIn = Nothing
-                            , UploadedDB.umTerms = openTerms
+                            , UploadedDB.umLicence = LicenceUnstated
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1106,7 +1107,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , dcAllocation = Declared
                             , dcPatches = []
                             , dcSource = Nothing
-                            , dcTerms = openTerms
+                            , dcLicence = LicenceUnstated
                             }
 
                 -- Add to manager
@@ -1135,7 +1136,7 @@ convertDbStatus ds =
         , dsaDependsOn = dsDependsOn ds
         , dsaAllocation = allocationKeyText (dsAllocation ds)
         , dsaSource = dsSource ds
-        , dsaTerms = dsTerms ds
+        , dsaLicence = dsLicence ds
         }
   where
     statusToText Unloaded = "unloaded"
@@ -1171,7 +1172,7 @@ makeStatusFromLoadedDb configs loaded =
             , dsaDependsOn = dcDepends config
             , dsaAllocation = allocationKeyText (dcAllocation config)
             , dsaSource = dcSource config
-            , dsaTerms = termsOf configs config
+            , dsaLicence = licenceOf configs config
             }
 
 -- uploadFormatToMeta removed - types are now unified (UploadedDB re-exports from Upload)
@@ -1302,7 +1303,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umSource = Nothing
                             , UploadedDB.umAllocation = Declared
                             , UploadedDB.umBuiltIn = Nothing
-                            , UploadedDB.umTerms = openTerms
+                            , UploadedDB.umLicence = LicenceUnstated
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 

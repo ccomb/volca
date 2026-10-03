@@ -27,13 +27,13 @@ import Config (
     documentKeyPaths,
     expandClassificationPreset,
     keyPaths,
+    licenceOf,
     listenOn,
     loadConfigOrDefault,
     readDataVersion,
     redirectIntoDataDir,
     refDataDecoder,
     resolveConfigPaths,
-    termsOf,
     unknownKeys,
     validateConfig,
     withBuiltins,
@@ -50,7 +50,8 @@ import System.FilePath (normalise)
 import TOML (getArrayOf, getFieldWith)
 import qualified TOML
 import Test.Hspec
-import Types (ClassificationFilter (..), ClassificationMatch (..), Downloads (..), PatchOp (..), Terms (..), openTerms)
+import TestHelpers (membersOnly)
+import Types (ClassificationFilter (..), ClassificationMatch (..), Licence (..), PatchOp (..), Permission (Download), StandardLicence (..), granted)
 
 serverOn :: Text -> ServerConfig
 serverOn host =
@@ -386,50 +387,55 @@ spec = do
                     map dcPatches (withSourcePatches [source, derived, copy, upload])
                         `shouldBe` [dcPatches source, dcPatches source, dcPatches source, []]
 
-    describe "DatabaseConfig terms" $ do
+    describe "DatabaseConfig licence" $ do
         let decodeDatabase t = TOML.decode t :: Either TOML.TOMLError DatabaseConfig
             entry extra = T.unlines (["name = \"src\"", "path = \"src.csv\""] ++ extra)
-            refused = Terms{termsLicence = Just "Members only", termsDownloads = DownloadsRefused}
+            refused = membersOnly
+            accepted = either (const False) (const True)
 
-        it "allows downloads when the entry says nothing" $
-            fmap dcTerms (decodeDatabase (entry [])) `shouldBe` Right openTerms
+        it "reads no licence when the entry says nothing" $
+            fmap dcLicence (decodeDatabase (entry [])) `shouldBe` Right LicenceUnstated
 
-        it "reads the licence and a refusal" $
-            fmap dcTerms (decodeDatabase (entry ["licence = \"Members only\"", "downloads = \"refused\""]))
+        it "reads a standard licence by its identifier" $
+            fmap dcLicence (decodeDatabase (entry ["licence = \"CC-BY-NC-4.0\""])) `shouldBe` Right (LicenceStandard CCBYNC)
+
+        it "reads an own licence and what it refuses" $
+            fmap dcLicence (decodeDatabase (entry ["licence_text = \"Members only\"", "refuses = [\"download\"]", "attribution = true"]))
                 `shouldBe` Right refused
 
-        -- A refusal misread as allowed would hand out the copies it refused.
-        it "rejects a downloads value it cannot read" $
-            case decodeDatabase (entry ["downloads = \"no\""]) of
-                Left _ -> pure ()
-                Right _ -> expectationFailure "expected a decode error for an unknown downloads value"
+        -- Ignored, the switch these keys replaced would read a refusal as no licence at all.
+        it "stops on the downloads key it no longer reads" $
+            decodeDatabase (entry ["downloads = \"refused\""]) `shouldNotSatisfy` accepted
 
-        it "serves a copy, and a copy of it, under the terms of the database whose files they read" $
-            case decodeDatabase (entry ["downloads = \"refused\""]) of
+        it "stops on a permission it cannot read" $
+            decodeDatabase (entry ["licence_text = \"Ours\"", "refuses = [\"downloads\"]"]) `shouldNotSatisfy` accepted
+
+        it "serves a copy, and a copy of it, under the licence of the database whose files they read" $
+            case decodeDatabase (entry ["licence_text = \"Members only\"", "refuses = [\"download\"]"]) of
                 Left e -> expectationFailure (show e)
                 Right source -> do
-                    let copy = source{dcName = "copy", dcIsUploaded = True, dcSource = Just "src", dcTerms = openTerms}
+                    let copy = source{dcName = "copy", dcIsUploaded = True, dcSource = Just "src", dcLicence = LicenceUnstated}
                         copyOfCopy = copy{dcName = "copy2", dcSource = Just "copy"}
                         configs = M.fromList [(dcName c, c) | c <- [source, copy, copyOfCopy]]
-                    map (termsDownloads . termsOf configs) [copy, copyOfCopy] `shouldBe` [DownloadsRefused, DownloadsRefused]
+                    map (`granted` Download) [licenceOf configs copy, licenceOf configs copyOfCopy] `shouldBe` [False, False]
 
-        it "reads terms changed since a loaded database took its copy of the config" $
+        it "reads a licence changed since a loaded database took its copy of the config" $
             case decodeDatabase (entry []) of
                 Left e -> expectationFailure (show e)
                 Right held ->
-                    termsOf (M.singleton "src" held{dcTerms = refused}) held `shouldBe` refused
+                    licenceOf (M.singleton "src" held{dcLicence = refused}) held `shouldBe` refused
 
-        it "keeps a copy's own terms when its source is gone, and stops on a loop" $
+        it "keeps a copy's own licence when its source is gone, and stops on a loop" $
             case decodeDatabase (entry []) of
                 Left e -> expectationFailure (show e)
                 Right base -> do
-                    let orphan = base{dcName = "orphan", dcSource = Just "gone", dcTerms = refused}
-                        a = base{dcName = "a", dcSource = Just "b", dcTerms = refused}
+                    let orphan = base{dcName = "orphan", dcSource = Just "gone", dcLicence = refused}
+                        a = base{dcName = "a", dcSource = Just "b", dcLicence = refused}
                         b = base{dcName = "b", dcSource = Just "a"}
                         configs = M.fromList [(dcName c, c) | c <- [orphan, a, b]]
-                    termsOf configs orphan `shouldBe` refused
+                    licenceOf configs orphan `shouldBe` refused
                     -- A loop ends at the last database before one repeats.
-                    termsOf configs a `shouldBe` dcTerms b
+                    licenceOf configs a `shouldBe` dcLicence b
 
     let registry path uploaded = RefDataConfig{rdName = "flows", rdSource = FromFile path, rdActive = True, rdIsUploaded = uploaded, rdIsAuto = False, rdDescription = Nothing}
         reading path = defaultConfig{cfgFlowSynonyms = [registry path False]}

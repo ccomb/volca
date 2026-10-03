@@ -208,5 +208,5 @@ stubConfig =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }

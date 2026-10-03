@@ -100,9 +100,9 @@ module Database.Manager (
     -- * Staged Database Operations
     getStagedDatabase,
     readDocumentFile,
-    databaseTerms,
-    setUploadTerms,
-    TermsRefusal (..),
+    databaseLicence,
+    setUploadLicence,
+    LicenceRefusal (..),
     getDatabaseSetupInfo,
     buildLoadedSetupInfo,
     databaseGapReport,
@@ -268,6 +268,7 @@ import Types (
     FlowClosure (..),
     GeographyPolicy (..),
     LibraryDocument (..),
+    Licence (..),
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
@@ -275,7 +276,6 @@ import Types (
     SparseTriple (..),
     SupplierAmbiguity (..),
     SupplierRequest (..),
-    Terms (..),
     UUID,
     Unit (..),
     UnitDB,
@@ -294,7 +294,6 @@ import Types (
     enrichBioFlowCAS,
     flowClosure,
     initializeRuntimeFields,
-    openTerms,
     parseAllocationKey,
     reasonsOf,
     sharedFlowSynonyms,
@@ -480,7 +479,7 @@ data DatabaseSetupInfo = DatabaseSetupInfo
     -- ^ True if database is already loaded (read-only info)
     , dsiDocumentation :: !DatabaseDocumentation
     -- ^ What the database says about itself: the export it is, the system descriptions its datasets name
-    , dsiTerms :: !Terms
+    , dsiLicence :: !Licence
     -- ^ The licence it is published under and whether it may be downloaded
     }
     deriving (Show, Eq, Generic)
@@ -529,7 +528,7 @@ data DatabaseStatus = DatabaseStatus
     , dsDependsOn :: ![Text] -- Names of databases this one depends on (for cross-DB linking)
     , dsAllocation :: !AllocationKey -- The key its multi-output blocks were divided under
     , dsSource :: !(Maybe Text) -- The database whose files it reads, when it owns none
-    , dsTerms :: !Terms -- What it is served under, its source's for a copy
+    , dsLicence :: !Licence -- What it is served under, its source's for a copy
     }
     deriving (Show, Eq, Generic)
 
@@ -548,7 +547,7 @@ instance ToJSON DatabaseStatus where
             , "dsDependsOn" .= dsDependsOn
             , "dsAllocation" .= allocationKeyText dsAllocation
             , "dsSource" .= dsSource
-            , "dsTerms" .= dsTerms
+            , "dsLicence" .= dsLicence
             ]
 
 instance FromJSON DatabaseStatus where
@@ -572,7 +571,7 @@ instance FromJSON DatabaseStatus where
             <*> (v .:? "dsAllocation" A..!= "declared" >>= either (fail . T.unpack) pure . parseAllocationKey)
             <*> v .:? "dsSource"
             -- Before terms were on the wire every database could be downloaded.
-            <*> v .:? "dsTerms" A..!= openTerms
+            <*> v .:? "dsLicence" A..!= LicenceUnstated
 
 -- | Status of a method collection (e.g., EF-3.1) for API responses
 data MethodCollectionStatus = MethodCollectionStatus
@@ -1759,7 +1758,7 @@ uploadMetaToConfig slug dirPath meta =
         , -- A copy's or a derived database's come from its source, in 'withSourcePatches'.
           dcPatches = []
         , dcSource = UploadedDB.umSource meta
-        , dcTerms = UploadedDB.umTerms meta
+        , dcLicence = UploadedDB.umLicence meta
         }
 
 {- | Record an uploaded database's dependency pin where a restart can find it.
@@ -1798,42 +1797,42 @@ persistUploadDepends manager dbName deps = do
                     modifyTVar' (dmAvailableDbs manager) (M.adjust (\c -> c{dcDepends = deps}) dbName)
 
 -- | The terms a database is served under, Nothing for a name the engine does not know.
-databaseTerms :: DatabaseManager -> Text -> IO (Maybe Terms)
-databaseTerms manager dbName = do
+databaseLicence :: DatabaseManager -> Text -> IO (Maybe Licence)
+databaseLicence manager dbName = do
     configs <- readTVarIO (dmAvailableDbs manager)
-    pure (termsOf configs <$> M.lookup dbName configs)
+    pure (licenceOf configs <$> M.lookup dbName configs)
 
--- | Why the terms of a database cannot be set through the engine.
-data TermsRefusal
-    = TermsUnknown Text
-    | -- | Its terms are written somewhere else: the configuration file, or its source.
-      TermsHeldElsewhere Text
+-- | Why the licence of a database cannot be set through the engine.
+data LicenceRefusal
+    = LicenceUnknown Text
+    | -- | Its licence is written somewhere else: the configuration file, or its source.
+      LicenceHeldElsewhere Text
     | -- | An upload whose meta.toml cannot be read, so nothing would survive a restart.
-      TermsUnrecordable Text
+      LicenceUnrecordable Text
     deriving (Show, Eq)
 
-{- | Set the terms of an uploaded database. Its meta.toml is written first, as
+{- | Set the licence of an uploaded database. Its meta.toml is written first, as
 the record a restart reads back, then the config the engine serves from.
 
-A configured database takes its terms from the configuration file, which is
-the operator's to write, and a copy is served under its source's ('termsOf'):
+A configured database takes its licence from the configuration file, which is
+the operator's to write, and a copy is served under its source's ('licenceOf'):
 setting either here would last until the next restart, or not at all.
 -}
-setUploadTerms :: DatabaseManager -> Text -> Terms -> IO (Either TermsRefusal Terms)
-setUploadTerms manager dbName terms = runExceptT $ do
-    config <- ExceptT (maybe (Left (TermsUnknown ("Database not found: " <> dbName))) Right . M.lookup dbName <$> readTVarIO (dmAvailableDbs manager))
+setUploadLicence :: DatabaseManager -> Text -> Licence -> IO (Either LicenceRefusal Licence)
+setUploadLicence manager dbName terms = runExceptT $ do
+    config <- ExceptT (maybe (Left (LicenceUnknown ("Database not found: " <> dbName))) Right . M.lookup dbName <$> readTVarIO (dmAvailableDbs manager))
     except (heldElsewhere config)
     uploadRoot <- liftIO ((</> T.unpack dbName) <$> UploadedDB.getDatabaseUploadsDir)
-    meta <- liftIO (UploadedDB.readUploadMeta uploadRoot) >>= maybe (throwE (TermsUnrecordable ("No readable meta.toml under " <> T.pack uploadRoot <> ": the terms of " <> dbName <> " would be lost at the next restart"))) pure
+    meta <- liftIO (UploadedDB.readUploadMeta uploadRoot) >>= maybe (throwE (LicenceUnrecordable ("No readable meta.toml under " <> T.pack uploadRoot <> ": the licence of " <> dbName <> " would be lost at the next restart"))) pure
     liftIO $ do
-        UploadedDB.writeUploadMeta uploadRoot meta{UploadedDB.umTerms = terms}
-        atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust (\c -> c{dcTerms = terms}) dbName)
+        UploadedDB.writeUploadMeta uploadRoot meta{UploadedDB.umLicence = terms}
+        atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust (\c -> c{dcLicence = terms}) dbName)
     pure terms
   where
-    heldElsewhere :: DatabaseConfig -> Either TermsRefusal ()
+    heldElsewhere :: DatabaseConfig -> Either LicenceRefusal ()
     heldElsewhere config
-        | not (dcIsUploaded config) = Left (TermsHeldElsewhere (dbName <> " is set in the configuration file, which is where its terms are written"))
-        | Just source <- dcSource config = Left (TermsHeldElsewhere (dbName <> " reads the files of " <> source <> " and is served under its terms"))
+        | not (dcIsUploaded config) = Left (LicenceHeldElsewhere (dbName <> " is set in the configuration file, which is where its licence is written"))
+        | Just source <- dcSource config = Left (LicenceHeldElsewhere (dbName <> " reads the files of " <> source <> " and is served under its licence"))
         | otherwise = Right ()
 
 {- | Discover uploaded methods from uploads/methods/ directory
@@ -1997,7 +1996,7 @@ listDatabases manager = do
                 , dsDependsOn = dcDepends config
                 , dsAllocation = dcAllocation config
                 , dsSource = dcSource config
-                , dsTerms = termsOf availableDbs config
+                , dsLicence = licenceOf availableDbs config
                 }
 
 -- | File extensions 'resolveDataPath' knows how to extract as archives.
@@ -3612,7 +3611,7 @@ data SetupSource = SetupSource
     , ssDependencies :: ![DependencyChoice]
     , ssOrigin :: !SetupOrigin
     , ssDocumentation :: !DatabaseDocumentation
-    , ssTerms :: !Terms
+    , ssLicence :: !Licence
     }
 
 setupInfoFrom :: SetupSource -> DatabaseSetupInfo
@@ -3643,7 +3642,7 @@ setupInfoFrom SetupSource{..} =
             FromStaged -> False
             FromLoaded -> True
         , dsiDocumentation = ssDocumentation
-        , dsiTerms = ssTerms
+        , dsiLicence = ssLicence
         }
 
 {- | The four fields a relink writes back onto a staged database. One place,
@@ -3678,7 +3677,7 @@ buildStagedSetupInfo staged configs indexedDbs =
                         indexedDbs
                 , ssOrigin = FromStaged
                 , ssDocumentation = sdbDocumentation (sdSimpleDB staged)
-                , ssTerms = termsOf configs (sdConfig staged)
+                , ssLicence = licenceOf configs (sdConfig staged)
                 }
 
 {- | Build setup info from a loaded database (already finalized). Counts come
@@ -3700,7 +3699,7 @@ buildLoadedSetupInfo config db configs indexedDbs =
             , ssDependencies = buildDependencyChoices (dcName config) (dbDependsOn db) [] configs indexedDbs
             , ssOrigin = FromLoaded
             , ssDocumentation = dbDocumentation db
-            , ssTerms = termsOf configs config
+            , ssLicence = licenceOf configs config
             }
 
 {- | Discover candidate data paths within an uploaded database's root directory.

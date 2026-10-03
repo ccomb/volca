@@ -132,7 +132,7 @@ stubConfig =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 buildDb :: [((UUID.UUID, UUID.UUID), Activity)] -> [(UUID.UUID, Text)] -> IO Database

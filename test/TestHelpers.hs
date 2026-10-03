@@ -12,6 +12,7 @@ module TestHelpers (
     linkDatabases,
     mkSolverFromDb,
     shippedGeographies,
+    membersOnly,
 ) where
 
 import Builtin (builtinGeographies)
@@ -21,6 +22,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Either (fromRight)
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -165,3 +167,7 @@ shippedGeographies =
     readGeographies $
         either (const mempty) hierarchyFromGeographies $
             parseGeographies "the built-in geographies" (BL.toStrict builtinGeographies)
+
+-- | An own licence that refuses downloads, the case the engine holds back.
+membersOnly :: Licence
+membersOnly = LicenceOwn OwnLicence{ownText = "Members only", ownRefused = S.singleton Download, ownAttribution = AttributionRequired}

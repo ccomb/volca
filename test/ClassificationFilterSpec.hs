@@ -53,6 +53,7 @@ import Types (
     Database (..),
     Exchange (..),
     GeographyPolicy (..),
+    Licence (..),
     LocationSource (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -65,7 +66,6 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
-    openTerms,
     processIdToText,
  )
 import UnitConversion (defaultUnitConfig)
@@ -317,7 +317,7 @@ fixtureConfig =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 mkUUID :: Int -> UUID

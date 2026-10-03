@@ -55,7 +55,7 @@ import Method.EditPlan (EditEffect, FactorEdit, Undo (..), blockedUndo, inEffect
 import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMethodOp, replayMethodJournal)
 import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
-import Types (AllocationKey (..), openTerms)
+import Types (AllocationKey (..), Licence (..))
 
 -- | Why a change to a method collection was not made.
 data MethodEditRefusal
@@ -144,7 +144,7 @@ recordMethodCopy home slug source seed = do
                     , UploadedDB.umSource = Just (mcName source)
                     , UploadedDB.umAllocation = Declared
                     , UploadedDB.umBuiltIn = builtinOf (mcOrigin source)
-                    , UploadedDB.umTerms = openTerms
+                    , UploadedDB.umLicence = LicenceUnstated
                     }
     pure $ case written of
         Right result -> first (\err -> "could not record the copy " <> slug <> ": " <> err) result

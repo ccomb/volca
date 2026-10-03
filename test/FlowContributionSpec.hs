@@ -43,7 +43,7 @@ import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), addDatabase, initDatabaseManager, loadDatabase)
 import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
-import Types (AllocationKey (..), GeographyPolicy (..), openTerms)
+import Types (AllocationKey (..), GeographyPolicy (..), Licence (..))
 
 -- | The factor and the contribution, in that order, as every surface reports them.
 type FactorAndContribution = (Double, Double)
@@ -125,7 +125,7 @@ sampleConfig =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 -- | A manager holding the sample database and the one-method collection.

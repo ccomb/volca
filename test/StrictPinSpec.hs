@@ -50,6 +50,7 @@ import Types (
     Database (..),
     Exchange (..),
     GeographyPolicy (..),
+    Licence (..),
     LocationSource (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -61,7 +62,6 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
-    openTerms,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -206,7 +206,7 @@ consumerConfig path =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 -- ---------------------------------------------------------------------------

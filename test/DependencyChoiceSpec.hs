@@ -14,7 +14,7 @@ import Database.Manager (
     DependencyStatus (..),
     buildDependencyChoices,
  )
-import Types (AllocationKey (..), GeographyPolicy (..), openTerms)
+import Types (AllocationKey (..), GeographyPolicy (..), Licence (..))
 
 cfg :: Text -> Text -> DatabaseConfig
 cfg name display =
@@ -34,7 +34,7 @@ cfg name display =
         , dcAllocation = Declared
         , dcPatches = []
         , dcSource = Nothing
-        , dcTerms = openTerms
+        , dcLicence = LicenceUnstated
         }
 
 -- IndexedDatabase whose idbByProductName has 'n' distinct dummy keys, so
