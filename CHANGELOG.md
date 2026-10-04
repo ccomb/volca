@@ -338,6 +338,10 @@
 
 ### Fixed
 
+- Deleting an uploaded database whose data sits in a subdirectory of its
+  upload no longer leaves that upload's directory behind, empty, which kept
+  a database from being uploaded again under the same name.
+
 - A database refusing `inventory` also refuses its gap report and its quality
   report (as CSV too), whose gaps and findings quote exchange amounts,
   and a comparison naming it as the other side, of two processes or two
