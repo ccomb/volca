@@ -337,6 +337,7 @@ recordDerived slug srcConfig key = do
                 , dcDeletable = True
                 , dcAllocation = key
                 , dcSource = Just (dcName srcConfig)
+                , dcRelease = Nothing
                 }
     pure $ case written of
         Right config -> Right config
@@ -444,6 +445,7 @@ renameConfig newName cfg =
         , dcIsUploaded = True
         , dcDeletable = True
         , dcSource = Just (dcName cfg)
+        , dcRelease = Nothing
         }
 
 -- ---------------------------------------------------------------------------

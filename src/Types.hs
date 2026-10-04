@@ -43,6 +43,7 @@ import GHC.Generics (Generic)
 
 import Control.Lens ((&), (?~))
 import Data.Containers.ListUtils (nubOrdOn)
+import Data.Foldable (toList)
 import Data.List (find, nub, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -2317,11 +2318,6 @@ refusedBy (LicenceOwn own) = ownRefused own
 granted :: Licence -> Permission -> Bool
 granted licence = (`S.notMember` refusedBy licence)
 
-{- | What a reader is told in place of what the licence of a database holds
-back. Said of the database rather than quoted from the licence: an own
-licence's text is the publisher's, of any length.
--}
-
 {- | Which published database a database is: the name its publisher gives it,
 the version, and the system model when the publisher ships several. Two
 engines that each hold a database of the same release hold the same data, so
@@ -2339,18 +2335,6 @@ data Release = Release
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Release)
 
-{- | Whether two releases are the same, read the way people write them: case
-and the run of spaces between words aside, but "3.12" is not "3.12.1".
--}
-sameRelease :: Release -> Release -> Bool
-sameRelease a b = key a == key b
-  where
-    key :: Release -> (Text, Text, Maybe Text)
-    key (Release n v m) = (fold n, fold v, fold <$> m)
-
-    fold :: Text -> Text
-    fold = T.toCaseFold . T.unwords . T.words
-
 {- | The label an EcoSpold 2 activity's documentation files its system model
 under, written by the parser and read by 'systemModelsRead'.
 -}
@@ -2366,13 +2350,17 @@ systemModelsRead activities =
     S.toList
         ( S.fromList
             [ docText section
-            | activity <- foldr (:) [] activities
+            | activity <- toList activities
             , section <- activityDocumentation activity
             , docLabel section == systemModelLabel
             , not (T.null (docText section))
             ]
         )
 
+{- | What a reader is told in place of what the licence of a database holds
+back. Said of the database rather than quoted from the licence: an own
+licence's text is the publisher's, of any length.
+-}
 withheldSentence :: Text -> Permission -> Text
 withheldSentence dbName p = "The licence of " <> dbName <> " " <> withheld p <> "."
   where

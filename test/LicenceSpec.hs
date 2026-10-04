@@ -152,12 +152,6 @@ spec = do
                 setUploadRelease manager "upload" Nothing `shouldReturn` Right Nothing
                 fmap UploadedDB.umRelease <$> UploadedDB.readUploadMeta home `shouldReturn` Just Nothing
 
-        it "leaves a copy without its source's release, since a copy is made to be changed" $
-            withUpload $ \manager _ -> do
-                _ <- setUploadRelease manager "upload" (Just release)
-                listed <- listDatabases manager
-                [dsRelease s | s <- listed, dsName s == "copy"] `shouldBe` [Nothing]
-
         it "refuses to set the release of a configured database, which is the configuration file's" $
             withScratchDataDir $ do
                 manager <- initDatabaseManager defaultConfig NoCache

@@ -209,7 +209,7 @@ parseMetaToml content = do
     -- it would match whichever database shares the half that is there.
     release <- case (getValue "release_name", getValue "release_version") of
         (Nothing, Nothing) -> Just Nothing
-        (Just name, Just ver) -> Just (Just (Release (unquote name) (unquote ver) (unquote <$> getValue "release_system_model")))
+        (Just name, Just ver) -> Just (Just Release{releaseName = unquote name, releaseVersion = unquote ver, releaseSystemModel = unquote <$> getValue "release_system_model"})
         _ -> Nothing
 
     return

@@ -693,7 +693,7 @@ releaseDecoder = do
     name <- getFieldOpt "name"
     version <- getFieldOpt "version"
     systemModel <- getFieldOpt "system_model"
-    maybe (fail "release: write both its name and its version") pure (Release <$> name <*> version <*> pure systemModel)
+    maybe (fail "release: write both its name and its version") pure ((\n v -> Release{releaseName = n, releaseVersion = v, releaseSystemModel = systemModel}) <$> name <*> version)
 
 {- | The licence keys on a database entry, read by 'licenceFromKeys'. A
 @downloads@ key, the single switch these keys replaced, stops the load rather

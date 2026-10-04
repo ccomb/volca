@@ -1842,7 +1842,7 @@ data UploadSetting = UploadSetting
     { usNoun :: !Text
     -- ^ What it is called in a sentence: "licence", "release"
     , usHeldElsewhere :: !(DatabaseConfig -> Maybe Text)
-    -- ^ Why this database's setting is not the engine's to write, if it is not
+    -- ^ Why an upload's setting is not the engine's to write, when another rule than the configuration file decides it
     , usMeta :: !(UploadedDB.UploadMeta -> UploadedDB.UploadMeta)
     , usConfig :: !(DatabaseConfig -> DatabaseConfig)
     }
@@ -1856,18 +1856,17 @@ the operator's to write: set here, they would last until the next restart.
 writeUploadSetting :: DatabaseManager -> Text -> UploadSetting -> IO (Either SettingRefusal ())
 writeUploadSetting manager dbName UploadSetting{..} = runExceptT $ do
     config <- ExceptT (maybe (Left (SettingUnknown ("Database not found: " <> dbName))) Right . M.lookup dbName <$> readTVarIO (dmAvailableDbs manager))
-    maybe (pure ()) (throwE . SettingHeldElsewhere) (usHeldElsewhere config)
+    maybe (pure ()) (throwE . SettingHeldElsewhere) (inConfigurationFile config <|> usHeldElsewhere config)
     uploadRoot <- liftIO ((</> T.unpack dbName) <$> UploadedDB.getDatabaseUploadsDir)
     meta <- liftIO (UploadedDB.readUploadMeta uploadRoot) >>= maybe (throwE (SettingUnrecordable ("No readable meta.toml under " <> T.pack uploadRoot <> ": the " <> usNoun <> " of " <> dbName <> " would be lost at the next restart"))) pure
     liftIO $ do
         UploadedDB.writeUploadMeta uploadRoot (usMeta meta)
         atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust usConfig dbName)
-
--- | Why the configuration file, not the engine, writes a configured database's setting.
-inConfigurationFile :: Text -> Text -> DatabaseConfig -> Maybe Text
-inConfigurationFile noun dbName config
-    | dcIsUploaded config = Nothing
-    | otherwise = Just (dbName <> " is set in the configuration file, which is where its " <> noun <> " is written")
+  where
+    inConfigurationFile :: DatabaseConfig -> Maybe Text
+    inConfigurationFile config
+        | dcIsUploaded config = Nothing
+        | otherwise = Just (dbName <> " is set in the configuration file, which is where its " <> usNoun <> " is written")
 
 {- | Set the licence of an uploaded database. A copy is served under its
 source's ('licenceOf'), so setting its own would change nothing it serves.
@@ -1880,7 +1879,7 @@ setUploadLicence manager dbName terms =
             dbName
             UploadSetting
                 { usNoun = "licence"
-                , usHeldElsewhere = \config -> inConfigurationFile "licence" dbName config <|> readsSource config
+                , usHeldElsewhere = readsSource
                 , usMeta = \meta -> meta{UploadedDB.umLicence = terms}
                 , usConfig = \c -> c{dcLicence = terms}
                 }
@@ -1900,7 +1899,7 @@ setUploadRelease manager dbName release =
             dbName
             UploadSetting
                 { usNoun = "release"
-                , usHeldElsewhere = inConfigurationFile "release" dbName
+                , usHeldElsewhere = const Nothing
                 , usMeta = \meta -> meta{UploadedDB.umRelease = release}
                 , usConfig = \c -> c{dcRelease = release}
                 }
