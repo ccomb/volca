@@ -338,6 +338,11 @@
 
 ### Fixed
 
+- The MCP tool `list_methods` names the collection each method belongs to.
+  A method loaded in several collections showed several times under the same
+  id with nothing to tell the lines apart, and `get_impacts` then refused it
+  as ambiguous, asking for a collection the list never showed.
+
 - Deleting an uploaded database whose data sits in a subdirectory of its
   upload no longer leaves that upload's directory behind, empty, which kept
   a database from being uploaded again under the same name.

@@ -1795,9 +1795,10 @@ callListMethods dbManager rid = do
     loadedMethods <- DM.getLoadedMethods dbManager
     let summaries =
             map
-                ( \(_, m) ->
+                ( \(collName, m) ->
                     object
                         [ "id" .= UUID.toText (methodId m)
+                        , "collection" .= collName
                         , "name" .= methodName m
                         , "category" .= methodCategory m
                         , "unit" .= methodUnit m
