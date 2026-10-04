@@ -11,6 +11,7 @@ unless its reader says so.
 -}
 module Database.Requirements (
     admits,
+    admission,
     requiredDatabases,
     Satisfaction (..),
     RequiredRelease (..),
@@ -40,6 +41,12 @@ meets configs name req = case reqSubstitute req of
 -- | Whether a database may link to the one named.
 admits :: M.Map Text DatabaseConfig -> DatabaseConfig -> Text -> Bool
 admits configs config name = null (dcRequires config) || any (meets configs name) (dcRequires config)
+
+-- | 'admits', or the sentence a link it refuses reads.
+admission :: M.Map Text DatabaseConfig -> DatabaseConfig -> Text -> Either Text ()
+admission configs config name
+    | admits configs config name = Right ()
+    | otherwise = Left (dcName config <> " links only to the releases it requires, and " <> name <> " is none of them: accept it in place of one first")
 
 -- | The databases its requirements name, loaded before it so its links can reach them.
 requiredDatabases :: M.Map Text DatabaseConfig -> DatabaseConfig -> [Text]
@@ -82,9 +89,10 @@ requiredReleases configs config = [standing req | req <- dcRequires config]
   where
     standing :: Requirement -> RequiredRelease
     standing req = case (reqSubstitute req, filter (\n -> meets configs n req) others) of
-        (Just substitute, _) -> RequiredRelease (reqRelease req) Substituted [substitute]
-        (Nothing, []) -> RequiredRelease (reqRelease req) Missing (sameName req)
-        (Nothing, held) -> RequiredRelease (reqRelease req) Satisfied held
+        (Just substitute, _) | M.member substitute configs -> RequiredRelease (reqRelease req) Substituted [substitute]
+        -- A substitute since deleted stands for nothing: the release is missing again.
+        (_, []) -> RequiredRelease (reqRelease req) Missing (sameName req)
+        (_, held) -> RequiredRelease (reqRelease req) Satisfied held
 
     others :: [Text]
     others = filter (/= dcName config) (M.keys configs)

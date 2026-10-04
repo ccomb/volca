@@ -846,6 +846,8 @@ acceptSubstitutionHandler dbName substitution = do
     guardMutation
     dbManager <- asks aeDbManager
     liftIO (acceptSubstitution dbManager dbName substitution) >>= either settingRefused pure
+    -- Staged again apart: a failure there is the setup's, answered as the setup route answers it.
+    getDatabaseSetupHandler dbName
 
 -- | The status a refused setting answers with.
 settingRefused :: SettingRefusal -> AppM a

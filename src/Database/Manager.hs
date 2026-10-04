@@ -319,7 +319,7 @@ import Database.Author (AuthorContext (..))
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
 import qualified Database.Journal as Journal
-import Database.Requirements (RequiredRelease, Substitution (..), acceptSubstitute, admits, requiredDatabases, requiredReleases)
+import Database.Requirements (RequiredRelease, Substitution (..), acceptSubstitute, admission, admits, requiredDatabases, requiredReleases)
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
 import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
@@ -1636,7 +1636,6 @@ data LoadLevel = LoadLevel
 loadOneDatabase :: DatabaseManager -> LoadLevel -> DatabaseConfig -> IO ()
 loadOneDatabase manager LoadLevel{..} dbConfig = withLogScope (dcName dbConfig) $ do
     dbStart <- getCurrentTime
-    configs <- readTVarIO (dmAvailableDbs manager)
     reportProgress Info $ "[STARTING] Loading database: " <> T.unpack (dcDisplayName dbConfig)
     result <-
         loadDatabaseFromConfigWithCrossDB
@@ -1644,7 +1643,7 @@ loadOneDatabase manager LoadLevel{..} dbConfig = withLogScope (dcName dbConfig) 
             llSynonyms
             llUnitConfig
             (dmCachePolicy manager)
-            (filter (admits configs dbConfig . idbName) llOtherIndexes)
+            llOtherIndexes
             (dmLocationHierarchy manager)
     case result of
         Right (loaded0, _source) -> do
@@ -1915,11 +1914,12 @@ setUploadRelease manager dbName release = do
     pure (release <$ written)
 
 {- | Accept a database in place of a release an uploaded database requires.
-Recorded like any setting, then the database is staged again, so its links
-follow what its requirements now admit. A loaded one is refused: its links
-are those it was loaded with, and closing it is what lets them change.
+Recorded like any setting; its staged links and its matrix cache are dropped,
+so the next setup stages it again within what its requirements now admit.
+A loaded one is refused: its links are those it was loaded with, and closing
+it is what lets them change.
 -}
-acceptSubstitution :: DatabaseManager -> Text -> Substitution -> IO (Either SettingRefusal DatabaseSetupInfo)
+acceptSubstitution :: DatabaseManager -> Text -> Substitution -> IO (Either SettingRefusal ())
 acceptSubstitution manager dbName Substitution{..} = runExceptT $ do
     configs <- liftIO (readTVarIO (dmAvailableDbs manager))
     loaded <- liftIO (M.member dbName <$> readTVarIO (dmLoadedDbs manager))
@@ -1937,8 +1937,10 @@ acceptSubstitution manager dbName Substitution{..} = runExceptT $ do
                 , usMeta = \meta -> meta{UploadedDB.umRequires = requires}
                 , usConfig = \c -> c{dcRequires = requires}
                 }
+    -- Its staged links and its matrix cache were made against the release it no
+    -- longer takes, and the cache would bring them back: both go.
     liftIO $ atomically $ modifyTVar' (dmStagedDbs manager) (M.delete dbName)
-    ExceptT (first (SettingUnknown . setupErrorMessage) <$> getDatabaseSetupInfo manager dbName)
+    liftIO $ deleteMatrixCache dbName (dcPath config)
 
 {- | Discover uploaded methods from uploads/methods/ directory
 Reads meta.toml from each subdirectory and converts to MethodConfig
@@ -2838,11 +2840,13 @@ relinkDatabaseWithMapping ::
     IO (Either Text RelinkResult)
 relinkDatabaseWithMapping manager dbName depDb aliases = withLogScope dbName $ do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
     case M.lookup dbName loadedDbs of
         Nothing -> relinkStaged manager dbName (Just depDb) aliases
         Just loaded
             | not (M.member depDb loadedDbs) ->
                 return $ Left $ "Dependency database not loaded: " <> depDb <> " (load it first)"
+            | Left refusal <- admission configs (ldConfig loaded) depDb -> return (Left refusal)
             | otherwise -> do
                 -- Declare the dependency in-memory if it isn't already pinned, so an
                 -- in-memory pipeline (copy → delete → relink) composes in one pass
@@ -2876,9 +2880,11 @@ relinkStaged manager dbName maybeDepDb aliases = withLogScope dbName $ runExcept
     stagedDbs <- liftIO $ readTVarIO (dmStagedDbs manager)
     staged <- except $ maybe (Left ("Database not loaded: " <> dbName)) Right (M.lookup dbName stagedDbs)
     indexedDbs <- liftIO $ readTVarIO (dmIndexedDbs manager)
-    forM_ maybeDepDb $ \dep ->
+    configs <- liftIO $ readTVarIO (dmAvailableDbs manager)
+    forM_ maybeDepDb $ \dep -> do
         unless (M.member dep indexedDbs) $
             throwE ("Dependency database not loaded: " <> dep <> " (load it first)")
+        except (admission configs (sdConfig staged) dep)
     synonymDB <- liftIO $ getMergedSynonymDB manager
     unitConfig <- liftIO $ getMergedUnitConfig manager
     let pinnedDeps = withChosenDep (sdSelectedDeps staged)
@@ -3291,20 +3297,21 @@ removeDatabase manager dbName = do
                     Left (e :: SomeException) -> return $ Left $ "Failed to delete: " <> T.pack (show e)
                     Right () -> do
                         reportProgress Info $ "Deleted: " <> uploadDir
-                        deleteCacheFile dbName (dcPath dbConfig)
+                        deleteMatrixCache dbName (dcPath dbConfig)
                         removeFromMemory manager dbName
             else do
                 -- Directory already missing, just remove from memory
                 reportProgress Info $ "Directory already missing: " <> uploadDir
                 removeFromMemory manager dbName
-    deleteCacheFile :: Text -> FilePath -> IO ()
-    deleteCacheFile name sourcePath = do
-        cacheFile <- Loader.generateMatrixCacheFilename name sourcePath
-        let zstdFile = cacheFile ++ ".zst"
-        cacheExists <- doesFileExist zstdFile
-        when cacheExists $ do
-            removeFile zstdFile
-            reportProgress Info $ "Deleted cache: " ++ zstdFile
+
+deleteMatrixCache :: Text -> FilePath -> IO ()
+deleteMatrixCache name sourcePath = do
+    cacheFile <- Loader.generateMatrixCacheFilename name sourcePath
+    let zstdFile = cacheFile ++ ".zst"
+    cacheExists <- doesFileExist zstdFile
+    when cacheExists $ do
+        removeFile zstdFile
+        reportProgress Info $ "Deleted cache: " ++ zstdFile
 
 {- | The solver for a database, over the technosphere triples it holds.
 Factorization is lazy, so this costs nothing until the first query.
@@ -4013,8 +4020,8 @@ addDependencyToStaged manager DependencyEdit{deDatabase = dbName, deDependency =
         Right staged
             | not (M.member depName indexedDbs) ->
                 return $ Left $ "Dependency database not loaded: " <> depName
-            | not (admits configs (sdConfig staged) depName) ->
-                return $ Left $ dbName <> " links only to the releases it requires, and " <> depName <> " is none of them: accept it in place of one first"
+            | Left refusal <- admission configs (sdConfig staged) depName ->
+                return (Left refusal)
             | otherwise ->
                 applyStagedDeps
                     manager

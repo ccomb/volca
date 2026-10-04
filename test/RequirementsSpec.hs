@@ -77,6 +77,10 @@ spec = do
             requiredReleases (engine (bread (Just "ei-311") : held)) (bread (Just "ei-311"))
                 `shouldBe` [RequiredRelease (ei "3.12") Substituted ["ei-311"]]
 
+        it "reads a substitute since deleted as the release missing again" $
+            requiredReleases (engine (bread (Just "ei-310") : drop 2 held)) (bread (Just "ei-310"))
+                `shouldBe` [RequiredRelease (ei "3.12") Missing ["ei-311"]]
+
     describe "acceptSubstitute" $ do
         it "records the database accepted in place of the release" $
             acceptSubstitute (ei "3.12") "ei-311" (bread Nothing) `shouldBe` Right [Requirement (ei "3.12") (Just "ei-311")]
