@@ -306,6 +306,12 @@
 
 ### Fixed
 
+- A database refusing `inventory` also refuses its gap report and its quality
+  report (as CSV too), whose gaps and findings quote exchange amounts,
+  and a comparison naming it as the other side, of two processes or two
+  databases. Only the first database a comparison named was asked. The
+  computed quality report stays open: it quotes each process's category
+  scores, which a score shows anyway.
 - A what-if substitution that sends a process to a supplier in a linked
   database divides its amount by the process's reference amount, as every
   other link to a linked database is. A process that had no link of its own to
