@@ -521,9 +521,13 @@ case "$OPT_LEVEL" in
     1) LEVEL_TREE="" ;;
     *) LEVEL_TREE="opt/" ;;
 esac
+# Each registration is judged against its own version's tree, since the ones
+# of past versions stay behind; Windows writes the path with backslashes.
 for conf in dist-newstyle/packagedb/ghc-*/volca-*-inplace.conf; do
-    if [[ -f "$conf" ]] && ! grep -q "/volca-[^/]*/${LEVEL_TREE}build\$" "$conf"; then
-        rm -f dist-newstyle/build/*/ghc-*/volca-*/"${LEVEL_TREE}"cache/registration
+    pkg=${conf##*/}
+    pkg=${pkg%-inplace.conf}
+    if [[ -f "$conf" ]] && ! tr '\\' / <"$conf" | grep -q "/${pkg}/${LEVEL_TREE}build\$"; then
+        rm -f dist-newstyle/build/*/ghc-*/"${pkg}"/"${LEVEL_TREE}"cache/registration
     fi
 done
 
