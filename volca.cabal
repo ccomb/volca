@@ -388,6 +388,7 @@ test-suite lca-tests
                      , JournalSpec
                      , MethodCopySpec
                      , MethodEditHandlerSpec
+                     , FailureStatusSpec
                      , MethodEditPlanSpec
                      , MethodEditSpec
                      , MethodJournalCheckpointsSpec
