@@ -13,16 +13,19 @@ module CrossDBEdgesSpec (spec) where
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
 import API.Routes (batchedScoresFor, getActivitySupplyChain)
-import API.Types (SupplyChainEdge (..), SupplyChainResponse (..), WithheldInput (..))
+import API.Types (SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), WithheldInput (..))
 import qualified Database.Manager as DM
 import Method.Types (Method (..))
 import qualified SharedSolver as SS
 import Types
 
-import DependencyLicenceSpec (climate, collection, dependency, inventoryKept, managerOn, root, rootPid, runIn)
+import CrossDBRegionalLCIAFixture (mkDB)
+import DependencyLicenceSpec (climate, collection, dependency, inventoryKept, managerOn, referenceOf, root, rootPid, runIn)
 
 depPid :: Text
 depPid = "dep::" <> processIdToText dependency 0
@@ -32,10 +35,26 @@ relinked :: ([CrossDBLink] -> [CrossDBLink]) -> Database
 relinked relink = root{dbCrossDBLinks = relink (dbCrossDBLinks root)}
 
 edgesOn :: Database -> Licence -> IO SupplyChainResponse
-edgesOn rootDb licence = do
-    manager <- managerOn rootDb licence
+edgesOn rootDb = chainOn rootDb dependency
+
+chainOn :: Database -> Database -> Licence -> IO SupplyChainResponse
+chainOn rootDb depDb licence = do
+    manager <- managerOn rootDb depDb licence
     either (fail . ("supply chain answered " <>) . show) pure
         =<< runIn manager (getActivitySupplyChain "root" rootPid Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing [] [] [] Nothing Nothing (Just True))
+
+{- | A dependency whose first process, the one the root buys, buys half a unit
+of a second one, which the root never buys itself.
+-}
+twoDeep :: Database
+twoDeep =
+    base
+        { dbActivities = V.imap (\i act -> act{exchanges = [referenceOf (1 + i)]}) (dbActivities base)
+        , dbTechnosphereTriples = U.singleton (SparseTriple 1 0 0.5)
+        }
+  where
+    base :: Database
+    base = mkDB 1 ["FR", "FR"] [(0, 2.0)]
 
 crossEdges :: SupplyChainResponse -> [(Text, Text, Text, Text, Double)]
 crossEdges chain =
@@ -63,7 +82,7 @@ spec = do
         map wiConsumer (scrWithheldInputs chain) `shouldBe` []
 
     it "leaves the root its own part once the supplier's score is taken away" $ do
-        manager <- managerOn root LicenceUnstated
+        manager <- managerOn root dependency LicenceUnstated
         rootScore <- scoreOf manager "root" root 0
         depScore <- scoreOf manager "dep" dependency 0
         chain <- edgesOn root LicenceUnstated
@@ -88,3 +107,8 @@ spec = do
         chain <- edgesOn root inventoryKept
         crossEdges chain `shouldBe` []
         [(wiConsumer w, wiDatabase w) | w <- scrWithheldInputs chain] `shouldBe` [(rootPid, "dep")]
+
+    it "counts a dependency's depth from where the root buys it" $ do
+        chain <- chainOn root twoDeep LicenceUnstated
+        [(sceProcessId e, sceDepth e) | e <- scrSupplyChain chain]
+            `shouldMatchList` [("dep::" <> processIdToText twoDeep 0, 1), ("dep::" <> processIdToText twoDeep 1, 2)]

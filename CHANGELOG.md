@@ -306,6 +306,12 @@
 
 ### Fixed
 
+- A process of a linked database takes its depth in a supply chain from where
+  the chain buys it: one more than the process buying it, and one more again
+  for each step inside that database. Every process of a linked database came
+  out at the same depth, so a graph drawn by depth put a supplier's own
+  suppliers beside it, and `max_depth` cut a linked database by its own steps
+  only.
 - A supply chain asked with its edges draws the ones that cross from one
   database to another: a process buying from a linked database is joined to
   the supplier it buys from, with the amount per unit converted to that

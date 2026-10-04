@@ -16,6 +16,7 @@ module DependencyLicenceSpec (
     dependency,
     inventoryKept,
     managerOn,
+    referenceOf,
     root,
     rootPid,
     runIn,
@@ -87,28 +88,28 @@ collection = "dependency-test"
 
 -- | A fixture database whose one process makes one unit of its own product.
 producing :: Int -> [(Int, Double)] -> Database
-producing offset emissions =
-    db{dbActivities = V.map (\act -> act{exchanges = [reference]}) (dbActivities db)}
+producing offset emissions = db{dbActivities = V.map (\act -> act{exchanges = [referenceOf offset]}) (dbActivities db)}
   where
     db :: Database
     db = mkDB offset ["FR"] emissions
 
-    reference :: Exchange
-    reference =
-        TechnosphereExchange
-            { techFlowId = prodUUID offset
-            , techAmount = 1
-            , techUnitId = unitId kgUnit
-            , techRole = ReferenceProduct
-            , techActivityLinkId = Just (actUUID offset)
-            , techSupplierClaim = ClaimByProduct
-            , techLocation = ""
-            , techComment = Nothing
-            , techPedigree = Nothing
-            , techShare = Nothing
-            , techClassification = M.empty
-            , techProperties = noProperties
-            }
+-- | The reference exchange of the fixture process numbered @offset@: one unit of its own product.
+referenceOf :: Int -> Exchange
+referenceOf offset =
+    TechnosphereExchange
+        { techFlowId = prodUUID offset
+        , techAmount = 1
+        , techUnitId = unitId kgUnit
+        , techRole = ReferenceProduct
+        , techActivityLinkId = Just (actUUID offset)
+        , techSupplierClaim = ClaimByProduct
+        , techLocation = ""
+        , techComment = Nothing
+        , techPedigree = Nothing
+        , techShare = Nothing
+        , techClassification = M.empty
+        , techProperties = noProperties
+        }
 
 dependency :: Database
 dependency =
@@ -153,15 +154,15 @@ inventoryKept = own [ReadInventory, Download]
 
 -- | Both databases loaded, the dependency under the licence given.
 managerWith :: Licence -> IO DM.DatabaseManager
-managerWith = managerOn root
+managerWith = managerOn root dependency
 
--- | The dependency and the root given, loaded, the dependency under the licence given.
-managerOn :: Database -> Licence -> IO DM.DatabaseManager
-managerOn rootDb licence = do
+-- | The root and the dependency given, loaded, the dependency under the licence given.
+managerOn :: Database -> Database -> Licence -> IO DM.DatabaseManager
+managerOn rootDb depDb licence = do
     manager <- DM.initDatabaseManager defaultConfig DM.NoCache
     DM.addDatabase manager (configFor "root" LicenceUnstated)
     DM.addDatabase manager (configFor "dep" licence)
-    install manager "dep" dependency
+    install manager "dep" depDb
     install manager "root" rootDb
     atomically $ modifyTVar' (DM.dmLoadedMethods manager) (M.insert collection (MethodCollection [climate] [] []))
     pure manager

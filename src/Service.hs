@@ -1916,7 +1916,13 @@ only ever built these two.
 -}
 data WalkLevel
     = RootLevel {rlRoot :: !ProcessId}
-    | DepLevel {dlDepthOffset :: !Int}
+    | -- | The matrix columns the dependency is bought at, each one deeper than the process buying it.
+      DepLevel {dlEntered :: !(IM.IntMap Int)}
+
+-- | Every process's depth in the chain, from where a level is entered.
+levelDepths :: IM.IntMap [Int] -> WalkLevel -> IM.IntMap Int
+levelDepths adjacency RootLevel{rlRoot = r} = bfsDepth (fromIntegral r) adjacency
+levelDepths adjacency DepLevel{dlEntered = entered} = bfsDepthFrom entered adjacency
 
 -- | How a supply chain names a process: bare in the requested database, qualified in a dependency.
 nameAt :: WalkLevel -> Text -> Database -> ProcessId -> Text
@@ -1946,7 +1952,29 @@ data DepCall = DepCall
     { dcName :: !Text
     , dcDemands :: !SupplierDemands
     , dcLinks :: ![ConsumerLink]
+    , dcEntered :: !(M.Map (UUID, UUID) Int)
+    -- ^ Each supplier bought, at one more than the depth of the shallowest process buying it
     }
+
+{- | The depth each dependency is entered at, by dependency and supplier: one
+more than the shallowest process of the level that buys it.
+-}
+enteredDepths :: Consumer -> [CrossDBLink] -> M.Map Text (M.Map (UUID, UUID) Int)
+enteredDepths consumer extras =
+    M.fromListWith
+        (M.unionWith min)
+        [ (cdlSourceDatabase link, M.singleton (cdlSupplierActUUID link, cdlSupplierProdUUID link) (depth + 1))
+        | link <- dbCrossDBLinks db ++ extras
+        , Just (pid, _) <- [linkConsumer db M.empty link]
+        , processScaling db (coScaling consumer) pid /= 0
+        , Just depth <- [IM.lookup (fromIntegral (dbActivityIndex db V.! fromIntegral pid)) depths]
+        ]
+  where
+    db :: Database
+    db = coDb consumer
+
+    depths :: IM.IntMap Int
+    depths = levelDepths (buildAdjacencyFromTriples (dbTechnosphereTriples db)) (coLevel consumer)
 
 {- | The links of a level, by dependency, from the processes the chain keeps:
 the requested process itself, and any whose scaling clears the minimum
@@ -2071,9 +2099,6 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
         quantityMult = case level of
             RootLevel{rlRoot = r} -> referenceMagnitude (dbActivities db V.! fromIntegral r)
             DepLevel{} -> 1.0
-        depthOffset = case level of
-            RootLevel{} -> 0
-            DepLevel{dlDepthOffset = d} -> d
         n = U.length supplyVec
 
         allEntries =
@@ -2099,10 +2124,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                             else counts
                  in (adj', counts')
 
-        -- BFS from root (or from every entry at dep level when mRootPid = Nothing).
-        depthMap = case mRootPid of
-            Just rp -> bfsDepth (fromIntegral rp) adjacency
-            Nothing -> bfsDepthMulti [fromIntegral pid | (pid, _) <- allEntries] adjacency
+        depthMap = levelDepths adjacency level
 
         textMatches = Normalize.caseInsensitiveInfixOf
 
@@ -2126,8 +2148,8 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                 locOk = maybe True (\pat -> locationAnswers geographies pat (activityLocation activity)) (afcLocation core)
                 productOk = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afcProduct core)
                 classOk = matchClassifications activity (afcClassifications core)
-                localDepth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
-                depthOk = maybe True (localDepth <=) (scfMaxDepth scf)
+                depth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
+                depthOk = maybe True (depth <=) (scfMaxDepth scf)
              in nameOk && locOk && productOk && classOk && depthOk
 
         qualify = nameAt level dbName db
@@ -2143,7 +2165,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                     , sceUnit = activityUnit activity
                     , sceScalingFactor = scalingFactor
                     , sceClassifications = activityClassification activity
-                    , sceDepth = depthOffset + IM.findWithDefault (-1) (fromIntegral pid) depthMap
+                    , sceDepth = IM.findWithDefault (-1) (fromIntegral pid) depthMap
                     , sceUpstreamCount = IM.findWithDefault 0 (fromIntegral pid) consumerCounts
                     }
 
@@ -2360,7 +2382,7 @@ walkDepLevels ::
     -- | extra virtual links visible at this level
     [CrossDBLink] ->
     SupplyChainFilter ->
-    -- | current depth
+    -- | levels of dependency crossed, bounding the recursion
     Int ->
     -- | visited DB names (cycle guard)
     S.Set Text ->
@@ -2372,8 +2394,15 @@ walkDepLevels unitCfg geographies depLookup consumer extras scf depth visited
         let links = case scfEdges scf of
                 EntriesOnly -> M.empty
                 WithEdges -> consumerLinks (fromMaybe 0 (scfMinQuantity scf)) consumer extras
+            entered = enteredDepths consumer extras
             calls =
-                [ DepCall{dcName = name, dcDemands = demands, dcLinks = M.findWithDefault [] name links}
+                [ DepCall
+                    { dcName = name
+                    , dcDemands = demands
+                    , dcLinks = M.findWithDefault [] name links
+                    , -- A substitution's cancelling link nets a supplier's demand to zero: not bought, not an entry.
+                      dcEntered = M.restrictKeys (M.findWithDefault M.empty name entered) (M.keysSet (M.filter ((/= 0) . fst) demands))
+                    }
                 | (name, demands) <- M.toList (accumulateDepDemandsWith (coDb consumer) extras (coScaling consumer))
                 ]
         results <- mapM (resolveOneDep unitCfg geographies depLookup scf depth visited) calls
@@ -2390,7 +2419,7 @@ resolveOneDep ::
     Geographies ->
     SharedSolver.DepSolverLookup ->
     SupplyChainFilter ->
-    -- | current depth (the one we're entering)
+    -- | levels of dependency crossed, bounding the recursion
     Int ->
     -- | visited
     S.Set Text ->
@@ -2405,16 +2434,17 @@ resolveOneDep unitCfg geographies depLookup scf depth visited call
             Just (depDb, depSolver) -> case depDemandsToVector unitCfg depDbName depDb (dcDemands call) of
                 Left err -> pure (Left (MatrixError err))
                 Right demandVec -> do
+                    let level = DepLevel (enteredAt depDb)
                     depScaling <- solveWithSharedSolver depSolver demandVec
                     let local =
                             collectSupplyChainEntries
                                 geographies
                                 depDb
                                 depDbName
-                                (DepLevel depth)
+                                level
                                 depScaling
                                 scf
-                    let supplier = Consumer depDbName depDb (DepLevel depth) depScaling
+                    let supplier = Consumer depDbName depDb level depScaling
                     eDeeper <-
                         walkDepLevels
                             unitCfg
@@ -2432,6 +2462,15 @@ resolveOneDep unitCfg geographies depLookup scf depth visited call
     depDbName :: Text
     depDbName = dcName call
 
+    enteredAt :: Database -> IM.IntMap Int
+    enteredAt depDb =
+        IM.fromListWith
+            min
+            [ (fromIntegral (dbActivityIndex depDb V.! fromIntegral pid), d)
+            | (supplier, d) <- M.toList (dcEntered call)
+            , Just pid <- [M.lookup supplier (dbProcessIdLookup depDb)]
+            ]
+
 {- | Build reverse adjacency (consumer -> [supplier]) from a vector of
 technosphere sparse triplets. Each triplet @(row=supplier, col=consumer)@
 contributes one edge into @col@'s neighbour list. Supplies BFS callers
@@ -2446,34 +2485,37 @@ buildAdjacencyFromTriples =
         )
         IM.empty
 
-{- | BFS from a set of starting nodes (all at depth 0), returning node ->
-shortest distance. Used at dep levels where every entry activity that
-received direct cross-DB demand is a potential starting point.
--}
-bfsDepthMulti :: [Int] -> IM.IntMap [Int] -> IM.IntMap Int
-bfsDepthMulti roots adj =
-    go (foldr (flip (|>)) Empty roots) (IM.fromList [(r, 0) | r <- roots])
-  where
-    go Empty visited = visited
-    go (node :<| queue) visited =
-        let depth = visited IM.! node
-            neighbors = IM.findWithDefault [] node adj
-            (queue', visited') =
-                L.foldl'
-                    ( \(q, v) n ->
-                        if IM.member n v
-                            then (q, v)
-                            else (q |> n, IM.insert n (depth + 1) v)
-                    )
-                    (queue, visited)
-                    neighbors
-         in go queue' visited'
-
-{- | BFS from a single root on adjacency list, returns IntMap of node ->
-shortest depth. Specialization of 'bfsDepthMulti'.
+{- | Every node's shortest distance from one start, by a plain breadth-first
+search: the root level has a single start, and the general search below pays
+a log factor it does not need.
 -}
 bfsDepth :: Int -> IM.IntMap [Int] -> IM.IntMap Int
-bfsDepth root = bfsDepthMulti [root]
+bfsDepth root adj = go (Empty |> root) (IM.singleton root 0)
+  where
+    go :: Seq Int -> IM.IntMap Int -> IM.IntMap Int
+    go Empty depths = depths
+    go (node :<| queue) depths =
+        let d = IM.findWithDefault 0 node depths
+            fresh = [n | n <- IM.findWithDefault [] node adj, not (IM.member n depths)]
+         in go (L.foldl' (|>) queue fresh) (L.foldl' (\m n -> IM.insert n (d + 1) m) depths fresh)
+
+{- | Every node's shortest distance from a set of starting nodes, each
+starting at its own depth: a dependency is entered at several suppliers, each
+one deeper than the process buying it.
+-}
+bfsDepthFrom :: IM.IntMap Int -> IM.IntMap [Int] -> IM.IntMap Int
+bfsDepthFrom starts adj = go (S.fromList [(d, node) | (node, d) <- IM.toList starts]) starts
+  where
+    go :: S.Set (Int, Int) -> IM.IntMap Int -> IM.IntMap Int
+    go frontier depths = case S.minView frontier of
+        Nothing -> depths
+        Just ((d, node), rest)
+            | IM.findWithDefault maxBound node depths < d -> go rest depths
+            | otherwise ->
+                let closer = [n | n <- IM.findWithDefault [] node adj, maybe True (> d + 1) (IM.lookup n depths)]
+                 in go
+                        (foldr (\n -> S.insert (d + 1, n)) rest closer)
+                        (foldr (\n -> IM.insert n (d + 1)) depths closer)
 
 {- | BFS from root; stop at the first node (other than root) satisfying a predicate.
 Returns the path from root to that node (inclusive), or Nothing.
