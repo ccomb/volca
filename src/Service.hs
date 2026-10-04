@@ -1921,7 +1921,7 @@ data WalkLevel
 
 -- | Every process's depth in the chain, from where a level is entered.
 levelDepths :: IM.IntMap [Int] -> WalkLevel -> IM.IntMap Int
-levelDepths adjacency RootLevel{rlRoot = r} = bfsDepthFrom (IM.singleton (fromIntegral r) 0) adjacency
+levelDepths adjacency RootLevel{rlRoot = r} = bfsDepth (fromIntegral r) adjacency
 levelDepths adjacency DepLevel{dlEntered = entered} = bfsDepthFrom entered adjacency
 
 -- | How a supply chain names a process: bare in the requested database, qualified in a dependency.
@@ -2382,7 +2382,7 @@ walkDepLevels ::
     -- | extra virtual links visible at this level
     [CrossDBLink] ->
     SupplyChainFilter ->
-    -- | current depth
+    -- | levels of dependency crossed, bounding the recursion
     Int ->
     -- | visited DB names (cycle guard)
     S.Set Text ->
@@ -2400,7 +2400,8 @@ walkDepLevels unitCfg geographies depLookup consumer extras scf depth visited
                     { dcName = name
                     , dcDemands = demands
                     , dcLinks = M.findWithDefault [] name links
-                    , dcEntered = M.findWithDefault M.empty name entered
+                    , -- A substitution's cancelling link nets a supplier's demand to zero: not bought, not an entry.
+                      dcEntered = M.restrictKeys (M.findWithDefault M.empty name entered) (M.keysSet (M.filter ((/= 0) . fst) demands))
                     }
                 | (name, demands) <- M.toList (accumulateDepDemandsWith (coDb consumer) extras (coScaling consumer))
                 ]
@@ -2418,7 +2419,7 @@ resolveOneDep ::
     Geographies ->
     SharedSolver.DepSolverLookup ->
     SupplyChainFilter ->
-    -- | current depth (the one we're entering)
+    -- | levels of dependency crossed, bounding the recursion
     Int ->
     -- | visited
     S.Set Text ->
@@ -2483,6 +2484,20 @@ buildAdjacencyFromTriples =
             IM.insertWith (++) (fromIntegral col) [fromIntegral row] acc
         )
         IM.empty
+
+{- | Every node's shortest distance from one start, by a plain breadth-first
+search: the root level has a single start, and the general search below pays
+a log factor it does not need.
+-}
+bfsDepth :: Int -> IM.IntMap [Int] -> IM.IntMap Int
+bfsDepth root adj = go (Empty |> root) (IM.singleton root 0)
+  where
+    go :: Seq Int -> IM.IntMap Int -> IM.IntMap Int
+    go Empty depths = depths
+    go (node :<| queue) depths =
+        let d = IM.findWithDefault 0 node depths
+            fresh = [n | n <- IM.findWithDefault [] node adj, not (IM.member n depths)]
+         in go (L.foldl' (|>) queue fresh) (L.foldl' (\m n -> IM.insert n (d + 1) m) depths fresh)
 
 {- | Every node's shortest distance from a set of starting nodes, each
 starting at its own depth: a dependency is entered at several suppliers, each
