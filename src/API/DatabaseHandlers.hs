@@ -78,6 +78,7 @@ module API.DatabaseHandlers (
     uploadSizeCap,
     uploadBodyCeiling,
     streamToTempFile,
+    UploadRejection (..),
 ) where
 
 import Control.Applicative ((<|>))
@@ -95,7 +96,7 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 import Data.Word (Word64)
 import Network.HTTP.Types.URI (urlEncode)
-import Servant (Header, Headers, ServerError, SourceIO, addHeader, err400, err403, err404, err409, err500, errBody, throwError)
+import Servant (Header, Headers, ServerError, SourceIO, addHeader, err400, err403, err404, err409, err413, err500, errBody, throwError)
 import qualified Servant.Types.SourceT as S
 import qualified System.Directory
 import System.FilePath ((</>))
@@ -1055,42 +1056,56 @@ withStreamedUpload mName mDesc src k = do
     guardMutation
     name <- maybe (failWith err400 "Missing upload name. Pass it as the ?name= query parameter.") pure (mfilter (not . T.null) (T.strip <$> mName))
     mCap <- asks aeHostingConfig >>= either (failWith err403) pure . uploadSizeCap
-    tmpPath <- ioEither400 (streamToTempFile mCap src)
+    tmpPath <- liftIO (streamToTempFile mCap src) >>= either (uncurry failWith . rejectionAnswer) pure
     -- The read is lazy, so an uncapped (local/desktop) upload is never
     -- buffered whole; 'finally' guarantees the temp file is deleted even
     -- if the extract/detect continuation throws.
     (liftIO (BSL.readFile tmpPath) >>= k name mDesc)
         `finally` liftIO (removeQuietly tmpPath)
 
+-- | Why a streamed upload body was not kept.
+data UploadRejection
+    = -- | The body passed the plan's cap, in bytes.
+      TooLarge Int
+    | StreamFailed Text
+    deriving (Eq, Show)
+
+-- | The status and sentence a rejected upload answers with.
+rejectionAnswer :: UploadRejection -> (ServerError, Text)
+rejectionAnswer = \case
+    TooLarge cap ->
+        ( err413
+        , "File too large. The upload limit on this plan is "
+            <> T.pack (show (cap `div` (1024 * 1024)))
+            <> " MB."
+        )
+    StreamFailed reason -> (err400, "Upload stream error: " <> reason)
+
 {- | Fold a streamed octet-stream body into a fresh temp file, aborting with a
-'Left' rejection if the running byte count exceeds the cap. Returns the temp
-file path on success (the caller deletes it). Bytes are written chunk-by-chunk
-and never held whole in memory.
+rejection if the running byte count exceeds the cap. Returns the temp file
+path on success (the caller deletes it). Bytes are written chunk-by-chunk and
+never held whole in memory.
 -}
-streamToTempFile :: Maybe Int -> SourceIO UploadChunk -> IO (Either Text FilePath)
+streamToTempFile :: Maybe Int -> SourceIO UploadChunk -> IO (Either UploadRejection FilePath)
 streamToTempFile mCap src = do
     tmpDir <- System.Directory.getTemporaryDirectory
     (tmpPath, h) <- openBinaryTempFile tmpDir "volca-upload-.bin"
-    result <- try (S.unSourceT src (go h 0)) :: IO (Either SomeException (Either Text ()))
+    result <- try (S.unSourceT src (go h 0)) :: IO (Either SomeException (Either UploadRejection ()))
     hClose h
     case result of
-        Left e -> removeQuietly tmpPath >> return (Left ("Upload stream error: " <> T.pack (show e)))
-        Right (Left msg) -> removeQuietly tmpPath >> return (Left msg)
+        Left e -> removeQuietly tmpPath >> return (Left (StreamFailed (T.pack (show e))))
+        Right (Left rejection) -> removeQuietly tmpPath >> return (Left rejection)
         Right (Right ()) -> return (Right tmpPath)
   where
-    tooLarge cap =
-        "File too large. The upload limit on this plan is "
-            <> T.pack (show (cap `div` (1024 * 1024)))
-            <> " MB."
     go h !n step = case step of
         S.Stop -> return (Right ())
-        S.Error e -> return (Left ("Upload stream error: " <> T.pack e))
+        S.Error e -> return (Left (StreamFailed (T.pack e)))
         S.Skip s -> go h n s
         S.Effect ms -> ms >>= go h n
         S.Yield chunk s ->
             let !n' = n + BS.length (unUploadChunk chunk)
              in case mCap of
-                    Just cap | n' > cap -> return (Left (tooLarge cap))
+                    Just cap | n' > cap -> return (Left (TooLarge cap))
                     _ -> BS.hPut h (unUploadChunk chunk) >> go h n' s
 
 -- | Delete a file, swallowing any error: best-effort temp-file cleanup.

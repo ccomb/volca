@@ -333,7 +333,8 @@
   uploads a database, a method collection or reference data answers its
   failure with an HTTP error, the sentence as the body: 400 when it cannot be
   done (a name that exists nowhere, a file that does not read), 403 when the
-  hosting quota refuses it, 500 when the server failed. It answered 200 with
+  hosting quota refuses it, 413 when an upload is larger than the plan
+  allows, 500 when the server failed. It answered 200 with
   `"success": false` or `"tag": "LoadFailed"` in the body, which a client
   reading the status alone took for a success. Wire revision 51.
 

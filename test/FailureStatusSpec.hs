@@ -10,6 +10,8 @@ below is given a name that exists nowhere, on a writable instance.
 -}
 module FailureStatusSpec (spec) where
 
+import API.Types (UploadChunk (..))
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Test.Hspec
 import TestHelpers (withScratchDataDir)
@@ -109,3 +111,9 @@ spec = describe "A failed request" $ do
             env <- envWith (Just noUploadsLeft)
             fmap fst <$> failure env (uploadDatabaseHandler (Just "nope") Nothing (source [])) `shouldReturn` Just 403
             fmap fst <$> failure env (copyDatabaseHandler "nope" "nope-copy") `shouldReturn` Just 403
+
+    it "answers 413 when the upload is larger than the plan allows" $
+        withScratchDataDir $ do
+            env <- envWith (Just noUploadsLeft{hcMaxUploads = -1, hcMaxUploadMb = 1})
+            let twoMegabytes = source [UploadChunk (BS.replicate (2 * 1024 * 1024) 0)]
+            fmap fst <$> failure env (uploadDatabaseHandler (Just "big") Nothing twoMegabytes) `shouldReturn` Just 413
