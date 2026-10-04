@@ -126,6 +126,7 @@ dbConfigFor name =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 -- | Install a database in the manager's loaded set, solver and config included.

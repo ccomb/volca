@@ -144,6 +144,7 @@ configFor name licence =
         , dcSource = Nothing
         , dcLicence = licence
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 own :: [Permission] -> Licence

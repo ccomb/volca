@@ -8,7 +8,7 @@ import Test.Hspec
 
 import qualified Data.Set as S
 import Database.UploadedDatabase
-import Types (AllocationKey (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..), Release (..), StandardLicence (..))
+import Types (AllocationKey (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..), Release (..), Requirement (..), StandardLicence (..))
 
 -- | Minimal UploadMeta without description
 baseMeta :: UploadMeta
@@ -25,6 +25,7 @@ baseMeta =
         , umBuiltIn = Nothing
         , umLicence = LicenceUnstated
         , umRelease = Nothing
+        , umRequires = []
         }
 
 spec :: Spec
@@ -104,6 +105,7 @@ spec = do
                         , umBuiltIn = Nothing
                         , umLicence = LicenceUnstated
                         , umRelease = Nothing
+                        , umRequires = []
                         }
 
         it "parses meta with description" $ do
@@ -184,6 +186,24 @@ spec = do
         it "refuses a release missing its version rather than read half of one" $ do
             -- Read as a release, a name alone would match every version of it.
             let toml = "version = 7\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\nrelease_name = \"ecoinvent\"\n"
+            parseMetaToml toml `shouldBe` Nothing
+
+        it "round-trips the releases a package requires, after every other key" $ do
+            -- The blocks come last: a key written after a header belongs to it,
+            -- so the database's own release must still read back as its own.
+            let requires =
+                    [ Requirement (Release "ecoinvent" "3.12" (Just "Allocation, cut-off by classification")) Nothing
+                    , Requirement (Release "Agribalyse" "3.2" Nothing) (Just "agb-31")
+                    ]
+                meta = baseMeta{umRelease = Just (Release "Bread" "1" Nothing), umRequires = requires}
+            parseMetaToml (formatMetaToml meta) `shouldBe` Just meta
+
+        it "reads a file written before requirements existed as requiring none" $ do
+            let toml = "version = 7\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\n"
+            fmap umRequires (parseMetaToml toml) `shouldBe` Just []
+
+        it "refuses a requirement missing its version rather than accept every version" $ do
+            let toml = "version = 8\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\n\n[[requires]]\nname = \"ecoinvent\"\n"
             parseMetaToml toml `shouldBe` Nothing
 
         it "reads a file written before the licence existed as having none" $ do

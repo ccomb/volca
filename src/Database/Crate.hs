@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 {- | A database exported as a package: the export itself, unchanged, beside an
 RO-Crate description of it (<https://w3id.org/ro/crate/1.2>). The description
@@ -17,14 +18,22 @@ module Database.Crate (
     payloadOf,
     crateMetadata,
     packageExport,
+    Package (..),
+    openPackage,
 ) where
 
+import Codec.Archive.Zip (findEntryByPath, fromEntry, toArchiveOrFail)
+import Control.Monad ((<=<))
 import Crypto.Hash (Digest, SHA256, hashlazy)
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (FromJSON, Object, Value, object, (.:), (.:?), (.=))
 import qualified Data.Aeson as A
 import Data.Aeson.Encode.Pretty (encodePretty)
+import qualified Data.Aeson.KeyMap as KM
+import Data.Aeson.Types (Parser, parseEither)
+import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (partitionEithers)
+import Data.List (find)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
@@ -35,7 +44,7 @@ import Data.Time.Format.ISO8601 (iso8601Show)
 
 import Config (DatabaseConfig (..))
 import Database.Upload (DatabaseFormat (..), formatDisplayText)
-import Types (Attribution (..), Licence (..), OwnLicence (..), Release (..), StandardLicence, StandardTerms (..), permissionCode, spdxId, standardTerms)
+import Types (Attribution (..), Licence (..), LicenceKeys (..), OwnLicence (..), Release (..), StandardLicence, StandardTerms (..), licenceFromKeys, permissionCode, spdxId, standardTerms)
 import Zip (zipFiles)
 
 -- | How an export is handed over: the bytes alone, or packaged with their description.
@@ -80,6 +89,9 @@ data CrateInput = CrateInput
     , ciFormat :: !DatabaseFormat
     }
 
+metadataFile :: FilePath
+metadataFile = "ro-crate-metadata.json"
+
 -- | Where the export sits in the package, and what kind of file it is.
 data Payload = Payload
     { payloadFile :: !FilePath
@@ -107,7 +119,7 @@ payloadOf name format = Payload{payloadFile = "payload/" <> T.unpack name <> ext
 packageExport :: Text -> CrateInput -> BL.ByteString -> BL.ByteString
 packageExport name input payload =
     zipFiles
-        [ ("ro-crate-metadata.json", BL.toStrict (encodePretty (crateMetadata name input payload)))
+        [ (metadataFile, BL.toStrict (encodePretty (crateMetadata name input payload)))
         , (path, BL.toStrict payload)
         ]
   where
@@ -158,7 +170,7 @@ crateMetadata name input payload =
             , "description" .= ("The " <> formatDisplayText (ciFormat input) <> " export of " <> ciName input <> ", unchanged." :: Text)
             , "encodingFormat" .= mediaType
             , "contentSize" .= show (BL.length payload)
-            , "sha256" .= show (hashlazy payload :: Digest SHA256)
+            , "sha256" .= digestOf payload
             ]
 
 ref :: Text -> Value
@@ -198,7 +210,7 @@ licenceId (LicenceStandard l) = Just (spdxUrl l)
 licenceId (LicenceOwn _) = Just ownLicenceId
 
 spdxUrl :: StandardLicence -> Text
-spdxUrl l = "https://spdx.org/licenses/" <> spdxId l
+spdxUrl l = spdxPrefix <> spdxId l
 
 ownLicenceId :: Text
 ownLicenceId = "#licence"
@@ -232,3 +244,89 @@ licenceEntities name (LicenceOwn own) =
     refusesId, attributionId :: Text
     refusesId = ownLicenceId <> "-refuses"
     attributionId = ownLicenceId <> "-attribution"
+
+digestOf :: BL.ByteString -> Text
+digestOf payload = T.pack (show (hashlazy payload :: Digest SHA256))
+
+-- | What a package says, read back where it is uploaded.
+data Package = Package
+    { pkPayload :: !BL.ByteString
+    -- ^ The export it carries, checked against its digest
+    , pkLicence :: !Licence
+    , pkRequires :: ![Release]
+    }
+
+{- | Read an upload as a package. 'Nothing' when it is not one: not a zip, or a
+zip with no description at its root, which is any export uploaded as it is. A
+package whose description cannot be read, or whose export does not match its
+digest, is refused: loaded anyway, it would be served under terms it may not
+carry, or be other data than its description says.
+-}
+openPackage :: BL.ByteString -> Either Text (Maybe Package)
+openPackage bytes = either (const (Right Nothing)) opened (toArchiveOrFail bytes)
+  where
+    opened archive = traverse (readPackage archive . fromEntry) (findEntryByPath metadataFile archive)
+
+    readPackage archive metadata = do
+        Described{..} <- first (("The package description cannot be read: " <>) . T.pack) (parseEither described =<< A.eitherDecode metadata)
+        payload <- maybe (Left ("The package holds no " <> T.pack dPath <> ", which its description names.")) (Right . fromEntry) (findEntryByPath dPath archive)
+        licence <- first ("The package licence cannot be read: " <>) (licenceFromKeys dLicence)
+        if T.toLower dDigest == digestOf payload
+            then Right Package{pkPayload = payload, pkLicence = licence, pkRequires = dRequires}
+            else Left ("The package's " <> T.pack dPath <> " does not match the digest its description gives: it was changed after it was packaged.")
+
+-- | The description of a package, as far as loading it needs.
+data Described = Described
+    { dPath :: !FilePath
+    , dDigest :: !Text
+    , dLicence :: !LicenceKeys
+    , dRequires :: ![Release]
+    }
+
+-- | Read back what 'crateMetadata' writes, following the graph's references.
+described :: Value -> Parser Described
+described = A.withObject "RO-Crate description" $ \o -> do
+    graph <- o .: "@graph"
+    let entity :: Text -> Parser Object
+        entity target = case filter ((== Just (A.String target)) . KM.lookup "@id") graph of
+            [e] -> pure e
+            [] -> fail ("no entity " <> T.unpack target)
+            _ -> fail ("several entities " <> T.unpack target)
+        properties :: Object -> Parser [Object]
+        properties e = traverse entity =<< maybe (pure []) refsOf =<< e .:? "additionalProperty"
+        licenceOf :: Text -> Parser LicenceKeys
+        licenceOf target = case T.stripPrefix spdxPrefix target of
+            Just spdx -> pure (LicenceKeys (Just spdx) Nothing Nothing Nothing)
+            Nothing -> do
+                own <- entity target
+                props <- properties own
+                LicenceKeys Nothing <$> (Just <$> own .: "description") <*> propertyValue "refuses" props <*> propertyValue "attribution" props
+        releaseOf :: Text -> Parser Release
+        releaseOf target = do
+            dataset <- entity target
+            Release <$> dataset .: "name" <*> dataset .: "version" <*> (propertyValue "system model" =<< properties dataset)
+    root <- entity "./"
+    parts <- refsOf =<< root .: "hasPart"
+    path <- case parts of
+        [one] -> pure one
+        several -> fail ("expected one file in hasPart, found " <> show (length several))
+    file <- entity path
+    Described (T.unpack path)
+        <$> file .: "sha256"
+        <*> (maybe (pure (LicenceKeys Nothing Nothing Nothing Nothing)) (licenceOf <=< refOf) =<< root .:? "license")
+        <*> (maybe (pure []) (traverse releaseOf <=< refsOf) =<< root .:? "isBasedOn")
+
+-- | The value of the property of that name, when there is one.
+propertyValue :: (FromJSON a) => Text -> [Object] -> Parser (Maybe a)
+propertyValue name = traverse (.: "value") . find ((== Just (A.String name)) . KM.lookup "name")
+
+refOf :: Value -> Parser Text
+refOf = A.withObject "reference" (.: "@id")
+
+-- | One reference or a list of them, the two shapes 'refs' writes.
+refsOf :: Value -> Parser [Text]
+refsOf v@(A.Object _) = pure <$> refOf v
+refsOf v = traverse refOf =<< A.parseJSON v
+
+spdxPrefix :: Text
+spdxPrefix = "https://spdx.org/licenses/"

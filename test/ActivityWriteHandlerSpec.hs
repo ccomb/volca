@@ -412,6 +412,7 @@ uploadedConfig name dataDir =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 -- ---------------------------------------------------------------------------

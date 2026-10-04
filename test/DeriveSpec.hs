@@ -154,6 +154,7 @@ sourceConfig csvPath =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 {- | One block of two products, declared 51 / 49, whose masses say 25 / 75:

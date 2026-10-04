@@ -135,6 +135,7 @@ library
                      , ILCD.Parser
                      , ILCD.Writer
                      , Database.Crate
+                     , Database.Requirements
                      , Database.Export
                      , Search.Normalize
                      , Search.BM25
@@ -406,6 +407,7 @@ test-suite lca-tests
                      , ExportSpec
                      , ExportHandlerSpec
                      , CrateSpec
+                     , RequirementsSpec
                      , ZipSpec
                      , PropertiesSpec
                      , NativeActivityTypeSpec

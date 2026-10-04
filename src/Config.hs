@@ -93,7 +93,7 @@ import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
 import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldOpt, getFieldOptWith, getFieldWith)
-import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Release (..), licenceFromKeys, parseAllocationKey)
+import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Release (..), Requirement, licenceFromKeys, parseAllocationKey)
 
 -- | A single classification filter entry (system + value)
 data ClassificationEntry = ClassificationEntry
@@ -290,6 +290,12 @@ data DatabaseConfig = DatabaseConfig
     database derived under another allocation key starts with none: a copy is
     made to be changed, and a re-keyed one holds other amounts, so neither is
     the publisher's release until its owner says so.
+    -}
+    , dcRequires :: ![Requirement]
+    {- ^ The releases its exchanges were linked against where it was made, read
+    from the package it arrived in. They narrow the databases it may link to:
+    only one of that release, or the one its reader accepted in its place. A
+    copy keeps its source's, since it links the same way.
     -}
     }
     deriving (Show, Eq, Generic)
@@ -680,6 +686,8 @@ instance DecodeTOML DatabaseConfig where
         let dcSource = Nothing -- A configured database owns the files it names
         dcLicence <- licenceDecoder
         dcRelease <- getFieldOptWith releaseDecoder "release"
+        -- A configured database names the databases it links to itself, in @depends@.
+        let dcRequires = []
         pure DatabaseConfig{..}
 
 {- | @release = { name = "...", version = "...", system_model = "..." }@ on a

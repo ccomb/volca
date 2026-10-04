@@ -105,6 +105,7 @@ module Database.Manager (
     setUploadLicence,
     SettingRefusal (..),
     setUploadRelease,
+    acceptSubstitution,
     getDatabaseSetupInfo,
     buildLoadedSetupInfo,
     databaseGapReport,
@@ -318,6 +319,7 @@ import Database.Author (AuthorContext (..))
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
 import qualified Database.Journal as Journal
+import Database.Requirements (RequiredRelease, Substitution (..), acceptSubstitute, admits, requiredDatabases, requiredReleases)
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
 import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
@@ -493,6 +495,8 @@ data DatabaseSetupInfo = DatabaseSetupInfo
     {- ^ The system models its activities state, each once: one is the proposal
     for its release, several are all shown rather than one picked.
     -}
+    , dsiRequiredReleases :: ![RequiredRelease]
+    -- ^ The releases the package it arrived in was built on, and how this engine stands with each
     }
     deriving (Show, Eq, Generic)
     deriving (ToJSON) via (Stripped DatabaseSetupInfo)
@@ -1632,6 +1636,7 @@ data LoadLevel = LoadLevel
 loadOneDatabase :: DatabaseManager -> LoadLevel -> DatabaseConfig -> IO ()
 loadOneDatabase manager LoadLevel{..} dbConfig = withLogScope (dcName dbConfig) $ do
     dbStart <- getCurrentTime
+    configs <- readTVarIO (dmAvailableDbs manager)
     reportProgress Info $ "[STARTING] Loading database: " <> T.unpack (dcDisplayName dbConfig)
     result <-
         loadDatabaseFromConfigWithCrossDB
@@ -1639,7 +1644,7 @@ loadOneDatabase manager LoadLevel{..} dbConfig = withLogScope (dcName dbConfig) 
             llSynonyms
             llUnitConfig
             (dmCachePolicy manager)
-            llOtherIndexes
+            (filter (admits configs dbConfig . idbName) llOtherIndexes)
             (dmLocationHierarchy manager)
     case result of
         Right (loaded0, _source) -> do
@@ -1776,6 +1781,7 @@ uploadMetaToConfig slug dirPath meta =
         , dcSource = UploadedDB.umSource meta
         , dcLicence = UploadedDB.umLicence meta
         , dcRelease = UploadedDB.umRelease meta
+        , dcRequires = UploadedDB.umRequires meta
         }
 
 {- | Record an uploaded database's dependency pin where a restart can find it.
@@ -1903,6 +1909,32 @@ setUploadRelease manager dbName release =
                 , usMeta = \meta -> meta{UploadedDB.umRelease = release}
                 , usConfig = \c -> c{dcRelease = release}
                 }
+
+{- | Accept a database in place of a release an uploaded database requires.
+Recorded like any setting, then the database is staged again, so its links
+follow what its requirements now admit. A loaded one is refused: its links
+are those it was loaded with, and closing it is what lets them change.
+-}
+acceptSubstitution :: DatabaseManager -> Text -> Substitution -> IO (Either SettingRefusal DatabaseSetupInfo)
+acceptSubstitution manager dbName Substitution{..} = runExceptT $ do
+    configs <- liftIO (readTVarIO (dmAvailableDbs manager))
+    loaded <- liftIO (M.member dbName <$> readTVarIO (dmLoadedDbs manager))
+    config <- maybe (throwE (SettingUnknown ("Database not found: " <> dbName))) pure (M.lookup dbName configs)
+    unless (M.member subDatabase configs) $ throwE (SettingUnknown ("Database not found: " <> subDatabase))
+    when loaded $ throwE (SettingHeldElsewhere (dbName <> " is loaded with the links it has: close it to accept another database in place of a release it requires"))
+    requires <- either (throwE . SettingUnknown) pure (acceptSubstitute subRelease subDatabase config)
+    ExceptT $
+        writeUploadSetting
+            manager
+            dbName
+            UploadSetting
+                { usNoun = "accepted substitution"
+                , usHeldElsewhere = const Nothing
+                , usMeta = \meta -> meta{UploadedDB.umRequires = requires}
+                , usConfig = \c -> c{dcRequires = requires}
+                }
+    liftIO $ atomically $ modifyTVar' (dmStagedDbs manager) (M.delete dbName)
+    ExceptT (first (SettingUnknown . setupErrorMessage) <$> getDatabaseSetupInfo manager dbName)
 
 {- | Discover uploaded methods from uploads/methods/ directory
 Reads meta.toml from each subdirectory and converts to MethodConfig
@@ -2522,6 +2554,7 @@ loadDatabaseSingleFromConfig manager dbName = do
     parseOrReplay :: DatabaseConfig -> SynonymDB -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
     parseOrReplay dbConfig synonymDB = do
         currentIndexedDbs <- liftIO $ readTVarIO (dmIndexedDbs manager)
+        configs <- liftIO $ readTVarIO (dmAvailableDbs manager)
         unitConfig <- liftIO $ getMergedUnitConfig manager
         journalAhead <- liftIO $ journalAheadOfCache dbConfig
         eitherResult <-
@@ -2532,7 +2565,7 @@ loadDatabaseSingleFromConfig manager dbName = do
                         synonymDB
                         unitConfig
                         (if journalAhead then NoCache else dmCachePolicy manager)
-                        (M.elems currentIndexedDbs)
+                        (filter (admits configs dbConfig . idbName) (M.elems currentIndexedDbs))
                         (dmLocationHierarchy manager)
         ExceptT $ case eitherResult of
             Left (ex :: SomeException) -> pure $ Left $ "Exception loading database: " <> T.pack (show ex)
@@ -3016,7 +3049,7 @@ loadDatabase manager dbName = fmap flattenLoad (try (withLogScope dbName go))
     go = do
         -- Pre-load declared dependencies so they're available for cross-DB linking
         availableDbs <- readTVarIO (dmAvailableDbs manager)
-        let configDeps = maybe [] dcDepends (M.lookup dbName availableDbs)
+        let configDeps = maybe [] (\c -> dcDepends c <> requiredDatabases availableDbs c) (M.lookup dbName availableDbs)
         depResults1 <- autoLoadDeps manager configDeps
 
         result <- loadDatabaseSingle manager dbName
@@ -3038,9 +3071,11 @@ stageUploadedDatabase :: DatabaseManager -> DatabaseConfig -> IO (Either Text ()
 stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
     liftIO $ reportProgress Info $ "[STARTING] Staging: " <> T.unpack (dcDisplayName dbConfig)
     -- Try cache first: if valid, reconstruct StagedDatabase without re-parsing
+    configs <- liftIO $ readTVarIO (dmAvailableDbs manager)
+    _ <- liftIO $ autoLoadDeps manager (requiredDatabases configs dbConfig)
     inputs <- liftIO $ currentBuildInputs manager dbConfig
     mCachedDb <- liftIO $ Loader.loadCachedDatabaseWithMatrices dbName (dcPath dbConfig) inputs
-    maybe (parseAndLink inputs) fromCache mCachedDb
+    maybe (parseAndLink configs inputs) fromCache mCachedDb
   where
     dbName :: Text
     dbName = dcName dbConfig
@@ -3061,11 +3096,12 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                 , sdCachedDB = Just cachedDb
                 }
 
-    parseAndLink :: BuildInputs -> ExceptT Text IO ()
-    parseAndLink inputs = do
+    -- Linked within the databases its requirements admit, every one when it has none.
+    parseAndLink :: Map Text DatabaseConfig -> BuildInputs -> ExceptT Text IO ()
+    parseAndLink configs inputs = do
         -- Resolve nested directory structure (e.g. ZIP extracts with multiple subdirs)
         path <- liftIO $ Upload.findDataDirectory (dcPath dbConfig)
-        indexedDbs <- liftIO $ readTVarIO (dmIndexedDbs manager)
+        indexedDbs <- liftIO $ M.filterWithKey (\name _ -> admits configs dbConfig name) <$> readTVarIO (dmIndexedDbs manager)
         {- A CSV export or a workbook names one file; the loader is handed that
         rather than the directory holding it. Either way the loader gets a
         path: a source that holds no file of its own format is left to produce
@@ -3683,6 +3719,7 @@ data SetupSource = SetupSource
     , ssDocumentation :: !DatabaseDocumentation
     , ssLicence :: !Licence
     , ssSystemModels :: ![Text]
+    , ssConfigs :: !(Map Text DatabaseConfig)
     }
 
 setupInfoFrom :: SetupSource -> DatabaseSetupInfo
@@ -3716,6 +3753,7 @@ setupInfoFrom SetupSource{..} =
         , dsiLicence = ssLicence
         , dsiRelease = dcRelease ssConfig
         , dsiSystemModels = ssSystemModels
+        , dsiRequiredReleases = requiredReleases ssConfigs ssConfig
         }
 
 {- | The four fields a relink writes back onto a staged database. One place,
@@ -3752,6 +3790,7 @@ buildStagedSetupInfo staged configs indexedDbs =
                 , ssDocumentation = sdbDocumentation (sdSimpleDB staged)
                 , ssLicence = licenceOf configs (sdConfig staged)
                 , ssSystemModels = systemModelsRead (sdbActivities (sdSimpleDB staged))
+                , ssConfigs = configs
                 }
 
 {- | Build setup info from a loaded database (already finalized). Counts come
@@ -3775,6 +3814,7 @@ buildLoadedSetupInfo config db configs indexedDbs =
             , ssDocumentation = dbDocumentation db
             , ssLicence = licenceOf configs config
             , ssSystemModels = systemModelsRead (dbActivities db)
+            , ssConfigs = configs
             }
 
 {- | Discover candidate data paths within an uploaded database's root directory.
@@ -3961,11 +4001,14 @@ addDependencyToStaged manager DependencyEdit{deDatabase = dbName, deDependency =
     here, and a snapshot taken before it judges whether the dependency is
     loaded on state that may be older than the answer. -}
     indexedDbs <- readTVarIO (dmIndexedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
     case stagedResult of
         Left err -> return $ Left err
         Right staged
             | not (M.member depName indexedDbs) ->
                 return $ Left $ "Dependency database not loaded: " <> depName
+            | not (admits configs (sdConfig staged) depName) ->
+                return $ Left $ dbName <> " links only to the releases it requires, and " <> depName <> " is none of them: accept it in place of one first"
             | otherwise ->
                 applyStagedDeps
                     manager

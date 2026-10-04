@@ -134,6 +134,7 @@ stubConfig =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 buildDb :: [((UUID.UUID, UUID.UUID), Activity)] -> [(UUID.UUID, Text)] -> IO Database

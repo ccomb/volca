@@ -4,7 +4,7 @@ module CrateSpec (spec) where
 
 import Codec.Archive.Zip (filesInArchive, findEntryByPath, fromEntry, toArchive)
 import Crypto.Hash (Digest, SHA256, hashlazy)
-import Data.Aeson (Value (..), decode, toJSON)
+import Data.Aeson (Value (..), decode, encode, toJSON)
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
@@ -19,6 +19,7 @@ import Config (DatabaseConfig (..))
 import Database.Crate
 import Database.Upload (DatabaseFormat (..))
 import Types (AllocationKey (..), Attribution (..), GeographyPolicy (..), Licence (..), OwnLicence (..), Permission (..), Release (..), StandardLicence (..))
+import Zip (zipFiles)
 
 ecoinvent :: Release
 ecoinvent = Release{releaseName = "ecoinvent", releaseVersion = "3.12", releaseSystemModel = Just "Allocation, cut-off by classification"}
@@ -73,6 +74,7 @@ config name release =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = release
+        , dcRequires = []
         }
 
 spec :: Spec
@@ -122,6 +124,26 @@ spec = do
             filesInArchive archive `shouldMatchList` ["ro-crate-metadata.json", "payload/bread.zip"]
             fromEntry <$> findEntryByPath "payload/bread.zip" archive `shouldBe` Just payload
             (decode . fromEntry =<< findEntryByPath "ro-crate-metadata.json" archive) `shouldBe` Just (crate LicenceUnstated)
+
+    describe "openPackage" $ do
+        let packaged licence = packageExport "bread" (input licence) payload
+            opened = fmap (\p -> (pkPayload p, pkLicence p, pkRequires p)) <$> openPackage (packaged own)
+            own = LicenceOwn OwnLicence{ownText = "Members only", ownRefused = S.fromList [Resell], ownAttribution = AttributionNotRequired}
+        it "reads back the export, its licence and the releases it requires" $
+            opened `shouldBe` Right (Just (payload, own, [ecoinvent]))
+
+        it "reads a standard licence back from its SPDX page" $
+            fmap pkLicence <$> openPackage (packaged (LicenceStandard CCBY)) `shouldBe` Right (Just (LicenceStandard CCBY))
+
+        it "refuses an export changed after it was packaged" $ do
+            let tampered = zipFiles [("ro-crate-metadata.json", BL.toStrict (encode (crate LicenceUnstated))), ("payload/bread.zip", "another export")]
+            fmap pkPayload <$> openPackage tampered `shouldBe` Left "The package's payload/bread.zip does not match the digest its description gives: it was changed after it was packaged."
+
+        it "reads a zip without a description as no package" $
+            fmap pkPayload <$> openPackage (zipFiles [("data.csv", "a,b")]) `shouldBe` Right Nothing
+
+        it "reads bytes that are no zip as no package" $
+            fmap pkPayload <$> openPackage "<?xml version=\"1.0\"?>" `shouldBe` Right Nothing
 
     describe "parsePackaging" $ do
         it "reads an absent package as the export alone" $ parsePackaging Nothing `shouldBe` Right Plain

@@ -2335,6 +2335,34 @@ data Release = Release
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Release)
 
+{- | Whether two releases are the same, read the way people write them: case
+and the run of spaces between words aside, but "3.12" is not "3.12.1".
+-}
+sameRelease :: Release -> Release -> Bool
+sameRelease a b = key a == key b
+  where
+    key :: Release -> (Text, Text, Maybe Text)
+    key r = (releaseSpelling (releaseName r), releaseSpelling (releaseVersion r), releaseSpelling <$> releaseSystemModel r)
+
+-- | Whether two releases are of the same published database, whatever their version.
+sameReleaseName :: Release -> Release -> Bool
+sameReleaseName a b = releaseSpelling (releaseName a) == releaseSpelling (releaseName b)
+
+-- | A release's field as it is compared: case and the run of spaces between words aside.
+releaseSpelling :: Text -> Text
+releaseSpelling = T.toCaseFold . T.unwords . T.words
+
+{- | A release a packaged database was built on, and the database its reader
+accepted in its place, if they did. Without one, its inputs link only to a
+database of that release: a model is not computed on other data than its
+author's unless its reader says so.
+-}
+data Requirement = Requirement
+    { reqRelease :: !Release
+    , reqSubstitute :: !(Maybe Text)
+    }
+    deriving (Show, Eq)
+
 {- | The label an EcoSpold 2 activity's documentation files its system model
 under, written by the parser and read by 'systemModelsRead'.
 -}

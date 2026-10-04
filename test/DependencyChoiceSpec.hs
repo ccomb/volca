@@ -36,6 +36,7 @@ cfg name display =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 -- IndexedDatabase whose idbByProductName has 'n' distinct dummy keys, so

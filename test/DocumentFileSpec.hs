@@ -36,6 +36,7 @@ ilcdConfig =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 loadedManager :: IO DatabaseManager

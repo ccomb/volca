@@ -42,7 +42,7 @@ import Text.Read (readMaybe)
 -- Re-export DatabaseFormat from Database.Upload (single definition)
 import Database.Upload (DatabaseFormat (..))
 import Progress (ProgressLevel (..), reportProgress)
-import Types (AllocationKey, Licence, LicenceKeys (..), Release (..), allocationKeyText, licenceFromKeys, licenceKeys, parseAllocationKey)
+import Types (AllocationKey, Licence, LicenceKeys (..), Release (..), Requirement (..), allocationKeyText, licenceFromKeys, licenceKeys, parseAllocationKey)
 
 -- | Metadata for an uploaded database
 data UploadMeta = UploadMeta
@@ -86,6 +86,11 @@ data UploadMeta = UploadMeta
     {- ^ Which published database this is, as its owner declared. A file
     written before this field existed declares none, which is what it meant.
     -}
+    , umRequires :: ![Requirement]
+    {- ^ The releases a package said this database was built on, each with the
+    database its reader accepted in its place, if any. A file written before
+    this field existed requires none, which is what it meant.
+    -}
     }
     deriving (Show, Eq, Generic)
 
@@ -96,12 +101,15 @@ a restart; version 5 added the licence (@licence@ for a standard one; @licence_t
 @refuses@ and @attribution@ for an own one; a @downloads@ key, the switch
 they replaced before any release, stops the file); version 6 added
 @builtin@, the built-in collection a method copy reads; version 7 added the
-release (@release_name@, @release_version@, @release_system_model@). The parser reads every
+release (@release_name@, @release_version@, @release_system_model@); version 8
+added one @[[requires]]@ block per required release (@name@, @version@,
+@system_model@, @substitute@), written after every other key since TOML puts
+the keys that follow a header inside it. The parser reads every
 version, taking absent fields to mean what their absence meant when they did
 not exist.
 -}
 metaVersion :: Int
-metaVersion = 7
+metaVersion = 8
 
 -- | Name of the metadata file in each upload directory
 metaFileName :: FilePath
@@ -164,19 +172,8 @@ Simple key=value parser (not a full TOML parser)
 -}
 parseMetaToml :: Text -> Maybe UploadMeta
 parseMetaToml content = do
-    let lines' = map T.strip $ T.lines content
-        kvPairs =
-            [ (T.strip k, v)
-            | line <- lines'
-            , not (T.null line)
-            , not (T.isPrefixOf "#" line)
-            , let (k, rest) = T.breakOn "=" line
-            , not (T.null rest)
-            , let v = T.strip $ T.drop 1 rest
-            ]
-        getValue key = lookup key kvPairs
-        -- One quote off each end: a value of its own may end in an escaped one.
-        unquote = unescapeToml . unwrap '"'
+    let (top, blocks) = requiresBlocks content
+        getValue key = lookup key top
         -- A list or a flag nobody can read stops the file, as a bad key does.
         licenceKeysOf =
             LicenceKeys (unquote <$> getValue "licence") (unquote <$> getValue "licence_text")
@@ -212,6 +209,10 @@ parseMetaToml content = do
         (Just name, Just ver) -> Just (Just Release{releaseName = unquote name, releaseVersion = unquote ver, releaseSystemModel = unquote <$> getValue "release_system_model"})
         _ -> Nothing
 
+    -- Same rule again: a requirement read without its version would accept
+    -- every release of that name.
+    requires <- traverse requirementOf blocks
+
     return
         UploadMeta
             { umVersion = version
@@ -225,7 +226,45 @@ parseMetaToml content = do
             , umAllocation = allocation
             , umLicence = licence
             , umRelease = release
+            , umRequires = requires
             }
+
+{- | The key-value pairs before the first @[[requires]]@ header, and those of
+each block after one. A line-based reading, enough for the file the writer
+below produces.
+-}
+requiresBlocks :: Text -> ([(Text, Text)], [[(Text, Text)]])
+requiresBlocks content = (keyValues top, blocks rest)
+  where
+    (top, rest) = break (== requiresHeader) (filter meaningful (map T.strip (T.lines content)))
+
+    blocks :: [Text] -> [[(Text, Text)]]
+    blocks [] = []
+    blocks (_ : ls) = let (block, more) = break (== requiresHeader) ls in keyValues block : blocks more
+
+    meaningful :: Text -> Bool
+    meaningful line = not (T.null line || T.isPrefixOf "#" line)
+
+    keyValues :: [Text] -> [(Text, Text)]
+    keyValues ls = [(T.strip k, T.strip (T.drop 1 v)) | (k, v) <- map (T.breakOn "=") ls, not (T.null v)]
+
+requiresHeader :: Text
+requiresHeader = "[[requires]]"
+
+-- | A requirement needs its release's name and version; one missing either is no requirement.
+requirementOf :: [(Text, Text)] -> Maybe Requirement
+requirementOf keys = do
+    name <- unquote <$> lookup "name" keys
+    version <- unquote <$> lookup "version" keys
+    pure
+        Requirement
+            { reqRelease = Release{releaseName = name, releaseVersion = version, releaseSystemModel = unquote <$> lookup "system_model" keys}
+            , reqSubstitute = unquote <$> lookup "substitute" keys
+            }
+
+-- | One quote off each end: a value of its own may end in an escaped one.
+unquote :: Text -> Text
+unquote = unescapeToml . unwrap '"'
 
 -- | The value between one delimiter at each end, or the value itself when it has none.
 unwrap :: Char -> Text -> Text
@@ -309,7 +348,14 @@ formatMetaToml UploadMeta{..} =
             ++ maybe [] (\b -> ["builtin = " <> quote b]) umBuiltIn
             ++ licenceLines (licenceKeys umLicence)
             ++ maybe [] releaseLines umRelease
+            ++ concatMap requirementLines umRequires
   where
+    requirementLines :: Requirement -> [Text]
+    requirementLines Requirement{reqRelease = Release{..}, ..} =
+        ["", requiresHeader, "name = " <> quote releaseName, "version = " <> quote releaseVersion]
+            ++ maybe [] (\m -> ["system_model = " <> quote m]) releaseSystemModel
+            ++ maybe [] (\d -> ["substitute = " <> quote d]) reqSubstitute
+
     releaseLines :: Release -> [Text]
     releaseLines Release{..} =
         ["release_name = " <> quote releaseName, "release_version = " <> quote releaseVersion]

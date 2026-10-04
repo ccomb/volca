@@ -64,6 +64,7 @@ uploadedEntry name =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 spec :: Spec
