@@ -160,13 +160,16 @@ spec = do
 
     describe "resourceNeeds" $ do
         it "asks the inventory of an operation answering with exchange amounts" $
-            map resourceNeeds [GetInventory, GetSupplyChain, GetConsumers, CompareActivities, GetPathTo] `shouldBe` replicate 5 (Just ReadInventory)
+            map resourceNeeds [GetInventory, GetSupplyChain, GetConsumers, CompareActivities, GetPathTo, GetGapReport, GetQualityReport] `shouldBe` replicate 7 (Just ReadInventory)
 
         it "asks the detailed scores of an operation answering with what weighs in a score" $
             map resourceNeeds [GetContributingFlows, GetScoreContributingActivities, CompareImpacts, ComputeSensitivity] `shouldBe` replicate 4 (Just SeeDetailedScores)
 
         it "asks nothing of an operation that trims its answer instead" $
             map resourceNeeds [GetActivity, GetImpacts, ScoreActivity, ScoreActivities] `shouldBe` replicate 4 Nothing
+
+        it "asks nothing of the computed quality report, which quotes scores alone" $
+            resourceNeeds GetComputedQualityReport `shouldBe` Nothing
 
     describe "the wire" $ do
         it "reads back every kind of licence it writes" $

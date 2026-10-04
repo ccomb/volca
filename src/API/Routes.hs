@@ -33,7 +33,7 @@ import Data.Foldable (asum)
 import Data.List (intercalate, nub, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.OpenApi (OpenApi, ToSchema)
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -2163,7 +2163,7 @@ getActivityPathTo dbName processIdText targetParam = do
 -- | One activity against another, in this database or in another loaded one.
 getActivityComparison :: Text -> Text -> Maybe Text -> Maybe Text -> AppM ActivityComparison
 getActivityComparison dbName processIdText otherProcessParam otherDbParam = do
-    DBHandlers.refuseUnlessGranted ReadInventory dbName
+    mapM_ (DBHandlers.refuseUnlessGranted ReadInventory) (dbName : maybeToList otherDbParam)
     otherProcessId <-
         maybe
             (throwError err400{errBody = "Missing required 'other_process_id' query parameter"})
@@ -2178,7 +2178,7 @@ getActivityComparison dbName processIdText otherProcessParam otherDbParam = do
 
 getDatabaseComparison :: Text -> Maybe Text -> Maybe Int -> AppM DatabaseComparison
 getDatabaseComparison dbName otherDbParam limitParam = do
-    DBHandlers.refuseUnlessGranted ReadInventory dbName
+    mapM_ (DBHandlers.refuseUnlessGranted ReadInventory) (dbName : maybeToList otherDbParam)
     otherName <-
         maybe
             (throwError err400{errBody = "Missing required 'other_database' query parameter"})

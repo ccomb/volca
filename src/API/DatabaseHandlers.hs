@@ -347,6 +347,7 @@ follow-up read after a relink: POST relink, then GET gap-report.
 -}
 gapReportHandler :: Text -> Maybe Int -> AppM GapReportAPI
 gapReportHandler dbName mLimit = do
+    refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     res <- liftIO $ databaseGapReport dbManager dbName
     case res of
@@ -407,6 +408,7 @@ what is malformed in it.
 -}
 qualityReportHandler :: Text -> Maybe Int -> AppM QualityReportAPI
 qualityReportHandler dbName mLimit = do
+    refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     res <- liftIO $ databaseQualityReport dbManager dbName
     case res of

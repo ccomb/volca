@@ -21,8 +21,9 @@ import qualified Data.Text as T
 import Servant (errHTTPCode, runHandler)
 import Test.Hspec
 
+import API.DatabaseHandlers (gapReportHandler, qualityReportHandler)
 import API.MCP (callTool, noRequestId)
-import API.Routes (getActivityInventory, getActivityTree)
+import API.Routes (getActivityComparison, getActivityInventory, getActivityTree, getDatabaseComparison)
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..))
 import Database.Manager (DatabaseManager, addDatabase)
@@ -109,6 +110,12 @@ spec = do
             reply <- callOn manager "compare_impacts" [("database_a", String "sample"), ("database_b", String "kept")]
             errorText reply `shouldBe` Just "The licence of kept keeps to itself what weighs in its scores."
 
+        it "refuses an activity comparison whose other database keeps its inventory" $ do
+            manager <- managerUnder LicenceUnstated
+            addDatabase manager sampleConfig{dcName = "kept", dcLicence = inventoryKept}
+            reply <- callOn manager "compare_activities" [("other_process_id", String productD), ("other_database", String "kept")]
+            errorText reply `shouldBe` Just "The licence of kept keeps the amounts of its exchanges to itself."
+
     describe "MCP, under a licence keeping its inventory" $ do
         it "refuses the supply chain" $ do
             manager <- managerUnder inventoryKept
@@ -145,6 +152,17 @@ spec = do
             manager <- managerUnder inventoryKept
             addDatabase manager sampleConfig{dcName = "copy", dcSource = Just "sample"}
             statusOf manager (getActivityTree "copy" productD) `shouldReturn` Just 403
+
+        it "refuses the gap and quality reports, which quote amounts" $ do
+            manager <- managerUnder inventoryKept
+            statusOf manager (gapReportHandler "sample" Nothing) `shouldReturn` Just 403
+            statusOf manager (qualityReportHandler "sample" Nothing) `shouldReturn` Just 403
+
+        it "refuses a comparison whose other database keeps its inventory" $ do
+            manager <- managerUnder LicenceUnstated
+            addDatabase manager sampleConfig{dcName = "kept", dcLicence = inventoryKept}
+            statusOf manager (getActivityComparison "sample" productD (Just productD) (Just "kept")) `shouldReturn` Just 403
+            statusOf manager (getDatabaseComparison "sample" (Just "kept") Nothing) `shouldReturn` Just 403
 
         it "answers them under a licence that keeps nothing" $ do
             manager <- managerUnder LicenceUnstated

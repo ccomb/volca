@@ -223,6 +223,9 @@ resourceNeeds r = case r of
     GetConsumers -> Just ReadInventory
     CompareActivities -> Just ReadInventory
     CompareDatabases -> Just ReadInventory
+    -- Their gaps and offenders quote amounts.
+    GetGapReport -> Just ReadInventory
+    GetQualityReport -> Just ReadInventory
     -- Each step carries its cumulative quantity and the exchange ratio
     -- between it and the next.
     GetPathTo -> Just ReadInventory
@@ -238,9 +241,7 @@ resourceNeeds r = case r of
     GetImpacts -> Nothing
     ScoreActivity -> Nothing
     ScoreActivities -> Nothing
-    -- Not yet trimmed: their offenders and gaps can quote amounts.
-    GetGapReport -> Nothing
-    GetQualityReport -> Nothing
+    -- Category scores of each process, which a score shows anyway.
     GetComputedQualityReport -> Nothing
     ListDatabases -> Nothing
     LoadDatabase -> Nothing

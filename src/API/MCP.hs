@@ -521,11 +521,12 @@ data NamedLicence = NamedLicence
 
 {- | The licence of each database a call names, read once for the call. A name
 the engine does not know is left out, so its tool answers its own "not
-loaded". compare_impacts is the one tool that names its two sides otherwise.
+loaded". A tool reading two databases names the second as @other_database@,
+or both sides as @database_a@ and @database_b@.
 -}
 requestedLicences :: DatabaseManager -> KeyMap Value -> IO [NamedLicence]
 requestedLicences dbManager args =
-    fmap catMaybes . forM ["database", "database_a", "database_b"] $ \key ->
+    fmap catMaybes . forM ["database", "database_a", "database_b", "other_database"] $ \key ->
         case KM.lookup (fromText key) args of
             Just (String dbName) -> fmap (NamedLicence key dbName) <$> DM.databaseLicence dbManager dbName
             _ -> pure Nothing
