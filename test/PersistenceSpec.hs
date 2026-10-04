@@ -29,7 +29,7 @@ import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import System.Directory (createDirectoryIfMissing, listDirectory, removeFile)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, listDirectory, removeFile)
 import System.Environment (setEnv, unsetEnv)
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -166,6 +166,15 @@ spec = describe "persisting an edit" $ do
                 removed <- removeDatabase manager "bafu-like"
                 removed `shouldSatisfy` failsWith "copied from it"
                 listDirectory (uploads </> "bafu-like") >>= (`shouldSatisfy` elem "data")
+
+    describe "deleting an uploaded database" $
+        it "leaves no directory behind when its data sits in a subdirectory" $
+            -- Its cache sits beside the data, inside the upload: deleting the
+            -- cache after the upload must not make the directory again.
+            withEcoSpold1Database $ \manager home -> do
+                unloadDatabase manager "bafu-like" `shouldReturn` Right ()
+                removeDatabase manager "bafu-like" `shouldReturn` Right ()
+                doesDirectoryExist home `shouldReturn` False
 
     describe "a database the engine only reads" $ do
         it "says the edit is not saved, and is given no home" $
