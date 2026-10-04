@@ -1516,7 +1516,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 50: a package uploaded as one, its licence and the releases it
+(revision 51: the @collection@ and @factorCount@ each method of the
+@list_methods@ tool carries;
+revision 50: a package uploaded as one, its licence and the releases it
 requires read from its description, the @requiredReleases@ a setup carries,
 and the route that accepts a database in place of one;
 revision 49: the @package@ a database export accepts, @ro-crate@ to receive
@@ -1631,7 +1633,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 50
+currentWireVersion = 51
 
 getVersion :: AppM Value
 getVersion = do
@@ -2453,20 +2455,20 @@ getFlowActivities dbName flowIdText mRole = do
     unknownRole = "unknown role: use producer, consumer or any"
 
 getMethods :: AppM [MethodSummary]
-getMethods = do
-    dbManager <- asks aeDbManager
-    loadedMethods <- liftIO $ DM.getLoadedMethods dbManager
-    return
-        [ MethodSummary
-            { msmId = methodId m
-            , msmName = methodName m
-            , msmCategory = methodCategory m
-            , msmUnit = methodUnit m
-            , msmFactorCount = length (methodFactors m)
-            , msmCollection = collName
-            }
-        | (collName, m) <- loadedMethods
-        ]
+getMethods = map methodSummary <$> (liftIO . DM.getLoadedMethods =<< asks aeDbManager)
+
+-- | One loaded method as both surfaces list it, named with its collection:
+-- the same method loaded twice is two lines a reader has to tell apart.
+methodSummary :: (Text, Method) -> MethodSummary
+methodSummary (collName, m) =
+    MethodSummary
+        { msmId = methodId m
+        , msmName = methodName m
+        , msmCategory = methodCategory m
+        , msmUnit = methodUnit m
+        , msmFactorCount = length (methodFactors m)
+        , msmCollection = collName
+        }
 
 getMethodDetail :: Text -> Maybe Text -> AppM MethodDetail
 getMethodDetail methodIdText mCollection = do
