@@ -1898,9 +1898,9 @@ copy declares its own: it is made to be changed, so it is the publisher's
 release only when its owner says so.
 -}
 setUploadRelease :: DatabaseManager -> Text -> Maybe Release -> IO (Either SettingRefusal (Maybe Release))
-setUploadRelease manager dbName release =
-    (release <$)
-        <$> writeUploadSetting
+setUploadRelease manager dbName release = do
+    written <-
+        writeUploadSetting
             manager
             dbName
             UploadSetting
@@ -1909,6 +1909,10 @@ setUploadRelease manager dbName release =
                 , usMeta = \meta -> meta{UploadedDB.umRelease = release}
                 , usConfig = \c -> c{dcRelease = release}
                 }
+    -- What a staged package may link to follows the releases declared, so the
+    -- ones staged before this declaration are staged again when next asked.
+    atomically $ modifyTVar' (dmStagedDbs manager) (M.filter (null . dcRequires . sdConfig))
+    pure (release <$ written)
 
 {- | Accept a database in place of a release an uploaded database requires.
 Recorded like any setting, then the database is staged again, so its links
@@ -3943,6 +3947,8 @@ buildDependencyChoices currentName selected redundant configs indexedDbs =
             [ mkChoice (name, idx)
             | (name, idx) <- M.toList indexedDbs
             , name /= currentName
+            , -- One its requirements do not admit would only be refused when picked.
+            all (\current -> admits configs current name) (M.lookup currentName configs)
             ]
 
 {- | Re-stage a loaded database for dependency editing
