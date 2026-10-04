@@ -41,7 +41,7 @@ module Database.Loader (
     -- * Cache Operations
     loadCachedDatabaseWithMatrices,
     saveCachedDatabaseWithMatrices,
-    generateMatrixCacheFilename,
+    matrixCacheFile,
 
     -- * Cross-Database Linking
     fixActivityLinksWithCrossDB,
@@ -1784,7 +1784,9 @@ loadSingleEcoSpold1File opts filepath = do
          in (actUUID, getReferenceProductUUID activity)
 
 {- |
-Generate filename for matrix cache.
+Where the matrix cache of a database sits. Naming it creates nothing: the
+directory is made when the cache is saved, so asking where the cache of a
+database just deleted was does not bring its directory back.
 
 Matrix caches store pre-computed sparse matrices (technosphere A,
 biosphere B) enabling direct LCA solving without matrix construction.
@@ -1798,12 +1800,8 @@ long as the source location does.
 Cache invalidation is handled by a schema signature stored inside
 the cache file, not by the filename.
 -}
-generateMatrixCacheFilename :: T.Text -> FilePath -> IO FilePath
-generateMatrixCacheFilename dbName sourcePath = do
-    let cacheFilename = "volca.cache." ++ T.unpack dbName ++ ".bin"
-        cacheDir = takeDirectory sourcePath
-    createDirectoryIfMissing True cacheDir
-    return $ cacheDir </> cacheFilename
+matrixCacheFile :: T.Text -> FilePath -> FilePath
+matrixCacheFile dbName sourcePath = takeDirectory sourcePath </> ("volca.cache." ++ T.unpack dbName ++ ".bin.zst")
 
 {- |
 Load Database with pre-computed matrices from cache (second-tier).
@@ -1821,8 +1819,7 @@ read produces.
 -}
 loadCachedDatabaseWithMatrices :: T.Text -> FilePath -> BuildInputs -> IO (Maybe Database)
 loadCachedDatabaseWithMatrices dbName dataDir inputs = do
-    cacheFile <- generateMatrixCacheFilename dbName dataDir
-    let zstdFile = cacheFile ++ ".zst"
+    let zstdFile = matrixCacheFile dbName dataDir
     zstdExists <- doesFileExist zstdFile
     if not zstdExists
         then do
@@ -1926,8 +1923,8 @@ Should be called after matrix construction is complete.
 -}
 saveCachedDatabaseWithMatrices :: T.Text -> FilePath -> Database -> IO ()
 saveCachedDatabaseWithMatrices dbName dataDir db = do
-    cacheFile <- generateMatrixCacheFilename dbName dataDir
-    let zstdFile = cacheFile ++ ".zst"
+    let zstdFile = matrixCacheFile dbName dataDir
+    createDirectoryIfMissing True (takeDirectory zstdFile)
     reportCacheOperation $ "Saving Database with matrices to compressed cache: " ++ zstdFile
     withProgressTiming Cache "Matrix cache save with zstd compression" $ do
         -- Serialize to ByteString (store returns strict ByteString)

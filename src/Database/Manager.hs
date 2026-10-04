@@ -2386,7 +2386,7 @@ cacheVerdict otherIndexes (Just db)
 
 {- | Load raw database from a configured source path, with cross-database linking.
 
-The cache lives next to @sourcePath@ (see 'Loader.generateMatrixCacheFilename').
+The cache lives next to @sourcePath@ (see 'Loader.matrixCacheFile').
 We probe it first using the unresolved @sourcePath@, so a deployment that ships
 only the cache (no source archive on disk) still loads, as long as the cache
 was built under the unit table and location aliases in force: one that was not
@@ -3306,8 +3306,7 @@ removeDatabase manager dbName = do
 
 deleteMatrixCache :: Text -> FilePath -> IO ()
 deleteMatrixCache name sourcePath = do
-    cacheFile <- Loader.generateMatrixCacheFilename name sourcePath
-    let zstdFile = cacheFile ++ ".zst"
+    let zstdFile = Loader.matrixCacheFile name sourcePath
     cacheExists <- doesFileExist zstdFile
     when cacheExists $ do
         removeFile zstdFile
