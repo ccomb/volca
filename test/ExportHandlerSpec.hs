@@ -16,6 +16,8 @@ import API.DatabaseHandlers (encodeExportWarnings, exportDatabaseHandler)
 import API.Types (BinaryContent, DatabaseExportRequest (..))
 import App.Env (AppEnv (..), runApp)
 import Config (defaultConfig)
+import qualified Data.Aeson as A
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Manager (CachePolicy (..), initDatabaseManager)
@@ -54,6 +56,13 @@ spec = do
             case res of
                 Left e -> errHTTPCode e `shouldBe` 400
                 Right _ -> expectationFailure "expected a 400, got a successful export"
+
+    describe "DatabaseExportRequest" $ do
+        it "refuses a misspelt package rather than export without it" $
+            isNothing (A.decode "{\"format\":\"ecospold2\",\"packge\":\"ro-crate\"}" :: Maybe DatabaseExportRequest) `shouldBe` True
+
+        it "reads a request that names no package" $
+            (derPackage <$> A.decode "{\"format\":\"ecospold2\"}") `shouldBe` Just Nothing
 
     describe "encodeExportWarnings" $ do
         it "carries a short list whole" $ do

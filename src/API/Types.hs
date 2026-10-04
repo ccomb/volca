@@ -1511,7 +1511,11 @@ data DatabaseExportRequest = DatabaseExportRequest
     , derPackage :: Maybe Text
     }
     deriving (Generic)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseExportRequest)
+    deriving (ToJSON, ToSchema) via (Stripped DatabaseExportRequest)
+
+-- Closed: a misspelt @package@ would be read as absent, and the export sent without its description.
+instance FromJSON DatabaseExportRequest where
+    parseJSON = parseClosed
 
 -- | Response for database upload
 data UploadResponse = UploadResponse

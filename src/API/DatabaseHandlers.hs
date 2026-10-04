@@ -718,8 +718,11 @@ archive (a base64 JSON envelope costs +33% and four full copies before the
 first byte leaves). EcoSpold 2 / ILCD multi-file trees are zipped; single-file
 formats carry their bytes directly. Best-effort approximation warnings ride the
 @X-Volca-Export-Warnings@ header, percent-encoded because activity names are
-arbitrary Unicode and joined with newlines. Failures surface as HTTP errors:
-400 for an unknown format or data the target format cannot represent, 404 for a
+arbitrary Unicode and joined with newlines. With @package@ (@ro-crate@), the
+body is a zip holding that export beside its RO-Crate description. Failures
+surface as HTTP errors: 400 for an unknown format or package, data the target
+format cannot represent, or a package whose dependency declares no release
+(refused before the export is built), 404 for a
 database that is not loaded, never a 200 with a failure flag.
 -}
 exportDatabaseHandler :: Text -> DatabaseExportRequest -> AppM (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
@@ -730,13 +733,11 @@ exportDatabaseHandler dbName req = do
     packaging <- either (exportErr err400) pure (parsePackaging (derPackage req))
     mLoaded <- liftIO (getDatabase dbManager dbName)
     ld <- maybe (exportErr err404 ("Database not loaded: " <> dbName)) pure mLoaded
+    package <- case packaging of
+        Plain -> pure id
+        RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (exportErr err400) pure)
     (bytes, warnings) <- either (exportErr err400) pure (serializeDatabase fmt (ldDatabase ld))
-    body <- case packaging of
-        Plain -> pure bytes
-        RoCrate -> do
-            input <- liftIO (crateInput dbManager ld fmt) >>= either (exportErr err400) pure
-            pure (packageExport dbName input bytes)
-    pure (addHeader (encodeExportWarnings warnings) (BinaryContent body))
+    pure (addHeader (encodeExportWarnings warnings) (BinaryContent (package bytes)))
 
 {- | What the package of a loaded database says of it: the licence it is served
 under, and the releases of the databases it links to.

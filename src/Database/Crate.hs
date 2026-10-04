@@ -13,7 +13,8 @@ module Database.Crate (
     Packaging (..),
     parsePackaging,
     requiredReleases,
-    payloadPath,
+    Payload (..),
+    payloadOf,
     crateMetadata,
     packageExport,
 ) where
@@ -79,12 +80,20 @@ data CrateInput = CrateInput
     , ciFormat :: !DatabaseFormat
     }
 
-{- | Where the export sits in the package, named after the database, with the
+-- | Where the export sits in the package, and what kind of file it is.
+data Payload = Payload
+    { payloadFile :: !FilePath
+    , payloadMediaType :: !Text
+    }
+
+{- | The export's place in the package, named after the database, with the
 extension and media type of what the format writes.
 -}
-payloadPath :: Text -> DatabaseFormat -> (FilePath, Text)
-payloadPath name format = ("payload/" <> T.unpack name <> extension, mediaType)
+payloadOf :: Text -> DatabaseFormat -> Payload
+payloadOf name format = Payload{payloadFile = "payload/" <> T.unpack name <> extension, payloadMediaType = mediaType}
   where
+    extension :: FilePath
+    mediaType :: Text
     (extension, mediaType) = case format of
         EcoSpold2 -> (".zip", "application/zip")
         ILCDProcess -> (".zip", "application/zip")
@@ -103,7 +112,7 @@ packageExport name input payload =
         ]
   where
     path :: FilePath
-    path = fst (payloadPath name (ciFormat input))
+    path = payloadFile (payloadOf name (ciFormat input))
 
 {- | The @ro-crate-metadata.json@ describing a packaged export. The graph is
 flat, as RO-Crate requires: every property value that is an object is an
@@ -116,7 +125,7 @@ crateMetadata name input payload =
         , "@graph" .= (descriptor : root : file : licenceEntities (ciName input) (ciLicence input) <> concat (zipWith releaseEntities [0 ..] (ciRequires input)))
         ]
   where
-    (path, mediaType) = payloadPath name (ciFormat input)
+    Payload{payloadFile = path, payloadMediaType = mediaType} = payloadOf name (ciFormat input)
 
     descriptor :: Value
     descriptor =
