@@ -116,6 +116,8 @@ data DbExportArgs = DbExportArgs
     -- ^ Target format keyword (@--format@): simapro|ecospold1|ecospold2|ilcd|brightway
     , deaOut :: FilePath
     -- ^ Output file path (@--out@)
+    , deaPackage :: Maybe Text
+    -- ^ @--package ro-crate@: the export packaged with its description
     }
     deriving (Eq, Show, Generic)
 

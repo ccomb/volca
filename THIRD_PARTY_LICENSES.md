@@ -64,6 +64,7 @@ build when this table and `volca.cabal` disagree.
 | bytestring | BSD-3-Clause | bundled with GHC |
 | cassava | BSD-3-Clause | <https://hackage.haskell.org/package/cassava> |
 | containers | BSD-3-Clause | bundled with GHC |
+| crypton | BSD-3-Clause | <https://hackage.haskell.org/package/crypton> |
 | deepseq | BSD-3-Clause | bundled with GHC |
 | directory | BSD-3-Clause | bundled with GHC |
 | exceptions | BSD-3-Clause | bundled with GHC |

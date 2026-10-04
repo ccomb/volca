@@ -4,6 +4,14 @@
 
 ### Added
 
+- A database can be exported as a package: `"package": "ro-crate"` on
+  `POST /api/v1/db/{name}/export` (`--package ro-crate` on `database export`)
+  returns a zip holding the export, unchanged, under `payload/`, beside an
+  RO-Crate 1.2 `ro-crate-metadata.json`. It describes the licence the database
+  is served under, the SHA-256 of the export, and the release of every
+  database it links to, so a reader's engine can tell whether it holds the
+  same data. A dependency with no release declared refuses the package with a
+  400 that names it. Wire revision 49.
 - A database can say which published database it is: its name, its version
   and, when the publisher ships several, its system model
   (`release = { name = "ecoinvent", version = "3.12", system_model = "..." }`

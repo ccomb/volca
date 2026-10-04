@@ -13,7 +13,7 @@ empty 'Database.Manager.DatabaseManager' (no databases loaded), exactly as
 module ExportHandlerSpec (spec) where
 
 import API.DatabaseHandlers (encodeExportWarnings, exportDatabaseHandler)
-import API.Types (BinaryContent, ExportRequest (..))
+import API.Types (BinaryContent, DatabaseExportRequest (..))
 import App.Env (AppEnv (..), runApp)
 import Config (defaultConfig)
 import Data.Text (Text)
@@ -38,7 +38,7 @@ runExport dbName fmt = do
                 , aeClassificationPresets = []
                 , aeDataVersion = Nothing
                 }
-    runHandler (runApp env (exportDatabaseHandler dbName (ExportRequest fmt)))
+    runHandler (runApp env (exportDatabaseHandler dbName (DatabaseExportRequest fmt Nothing)))
 
 spec :: Spec
 spec = do
