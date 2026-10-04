@@ -529,7 +529,7 @@ Copy a loaded database in memory under a new name.
 ``new_name`` is a path segment; the source defaults to ``self.db``.
 Returns the engine's ``ActivateResponse`` dict
 (``{"success", "message", "database"?}``). Raises VoLCAError if the
-engine reports ``success=false``.
+engine refuses the copy.
 
 ##### `Client.copy_method_collection(collection: str, new_name: str) -> dict`
 
@@ -620,8 +620,8 @@ Returns the ``DeleteSelectionResponse`` dict
 
 Delete a database entirely: unload it and remove its uploaded files.
 
-Returns the ``ActivateResponse`` dict; raises VoLCAError on
-``success=false``.
+Returns the ``ActivateResponse`` dict; raises VoLCAError if the
+engine refuses it.
 
 ##### `Client.delete_method_collection(name: str) -> dict`
 
@@ -755,8 +755,8 @@ Export a database (see `export_database`) and write it to a file.
 Build matrices for a staged database and load it (``ActivateResponse``).
 
 Call after dependencies resolve (`get_setup` reports
-``isReady``). Raises VoLCAError if the engine reports ``success=false``
-(e.g. unresolved suppliers).
+``isReady``). Raises VoLCAError if the engine refuses it (e.g.
+unresolved suppliers).
 
 ##### `Client.get_activity(process_id: str) -> ActivityDetail`
 
@@ -1479,8 +1479,7 @@ dependencies with `add_dependency`, and call
 `finalize_database` to build matrices and load it.
 
 Raises VoLCAError on any rejection (uploads disabled on the plan, size
-cap exceeded, unreadable archive); the engine reports these in-band
-with HTTP 200 and ``success=false``.
+cap exceeded, unreadable archive).
 
 ##### `Client.upload_method_collection(source: str | Path | bytes, name: str, *, description: str | None = None) -> dict`
 

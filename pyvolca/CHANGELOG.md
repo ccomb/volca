@@ -52,7 +52,7 @@ Then paste the rendered block at the top of this file and tighten wording.
 
 ### Fixed
 
-- `load_database` and `unload_database` raise on a failure, where they
+- `load_database`, `unload_database` and `derive_database` raise on a failure, where they
   returned it as a result when the engine reported it with HTTP 200 (engines
   before wire revision 51; later ones answer an HTTP error).
 
