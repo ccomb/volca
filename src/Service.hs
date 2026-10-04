@@ -1993,13 +1993,13 @@ them, one per pair: a substitution's cancelling link and the static one it
 cancels sum to their net, and a pair netting to zero is no edge. Both ends
 clear the same bar as an edge inside a database.
 -}
-crossEdges :: UnitConfig -> Double -> DepCall -> Database -> U.Vector Double -> Either Text [SupplyChainEdge]
-crossEdges unitCfg minQ call depDb depScaling = do
+crossEdges :: UnitConfig -> Double -> DepCall -> Consumer -> Either Text [SupplyChainEdge]
+crossEdges unitCfg minQ call Consumer{coName = depDbName, coDb = depDb, coScaling = depScaling} = do
     resolved <- traverse inUnit (dcLinks call)
     pure
         [ SupplyChainEdge
-            { sceEdgeFrom = qualifyRef (dcName call) (processIdToText depDb pid)
-            , sceEdgeFromDb = dcName call
+            { sceEdgeFrom = qualifyRef depDbName (processIdToText depDb pid)
+            , sceEdgeFromDb = depDbName
             , sceEdgeTo = consumer
             , sceEdgeToDb = consumerDb
             , sceEdgeAmount = amount
@@ -2012,7 +2012,7 @@ crossEdges unitCfg minQ call depDb depScaling = do
     inUnit :: ConsumerLink -> Either Text (Maybe (EdgeEnds, Double))
     inUnit l =
         fmap (first (EdgeEnds (clConsumer l) (clConsumerDb l)))
-            <$> inSupplierUnit unitCfg (dcName call) depDb (clSupplier l) (clPerUnit l)
+            <$> inSupplierUnit unitCfg depDbName depDb (clSupplier l) (clPerUnit l)
 
 -- | The two ends of an edge between databases, which its amounts are summed by.
 data EdgeEnds = EdgeEnds
@@ -2368,7 +2368,10 @@ walkDepLevels ::
 walkDepLevels unitCfg geographies depLookup consumer extras scf depth visited
     | depth >= SharedSolver.maxDepsDepth = pure (Right mempty)
     | otherwise = do
-        let links = consumerLinks (fromMaybe 0 (scfMinQuantity scf)) consumer extras
+        -- Edges are only drawn when asked for, like those inside a database.
+        let links = case scfEdges scf of
+                EntriesOnly -> M.empty
+                WithEdges -> consumerLinks (fromMaybe 0 (scfMinQuantity scf)) consumer extras
             calls =
                 [ DepCall{dcName = name, dcDemands = demands, dcLinks = M.findWithDefault [] name links}
                 | (name, demands) <- M.toList (accumulateDepDemandsWith (coDb consumer) extras (coScaling consumer))
@@ -2411,28 +2414,23 @@ resolveOneDep unitCfg geographies depLookup scf depth visited call
                                 (DepLevel depth)
                                 depScaling
                                 scf
+                    let supplier = Consumer depDbName depDb (DepLevel depth) depScaling
                     eDeeper <-
                         walkDepLevels
                             unitCfg
                             geographies
                             depLookup
-                            (Consumer depDbName depDb (DepLevel depth) depScaling)
+                            supplier
                             []
                             scf
                             (depth + 1)
                             (S.insert depDbName visited)
-                    pure $ case linking depDb depScaling of
+                    pure $ case crossEdges unitCfg (fromMaybe 0 (scfMinQuantity scf)) call supplier of
                         Left err -> Left (MatrixError err)
                         Right edges -> ((local <> Collected 0 [] edges) <>) <$> eDeeper
   where
     depDbName :: Text
     depDbName = dcName call
-
-    -- Edges are only drawn when asked for, like those inside a database.
-    linking :: Database -> U.Vector Double -> Either Text [SupplyChainEdge]
-    linking depDb depScaling = case scfEdges scf of
-        EntriesOnly -> Right []
-        WithEdges -> crossEdges unitCfg (fromMaybe 0 (scfMinQuantity scf)) call depDb depScaling
 
 {- | Build reverse adjacency (consumer -> [supplier]) from a vector of
 technosphere sparse triplets. Each triplet @(row=supplier, col=consumer)@
