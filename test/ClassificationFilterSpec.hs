@@ -318,6 +318,7 @@ fixtureConfig =
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
+        , dcRelease = Nothing
         }
 
 mkUUID :: Int -> UUID

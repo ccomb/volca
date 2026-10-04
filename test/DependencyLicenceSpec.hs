@@ -143,6 +143,7 @@ configFor name licence =
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = licence
+        , dcRelease = Nothing
         }
 
 own :: [Permission] -> Licence

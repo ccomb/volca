@@ -411,6 +411,7 @@ uploadedConfig name dataDir =
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
+        , dcRelease = Nothing
         }
 
 -- ---------------------------------------------------------------------------

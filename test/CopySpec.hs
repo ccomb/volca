@@ -52,6 +52,7 @@ import Types (
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
+    Release (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -102,6 +103,23 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
         _ <- copyDatabase manager "source" "mycopy"
         home <- (</> "mycopy") <$> UploadedDB.getDatabaseUploadsDir
         fmap UploadedDB.umLicence <$> UploadedDB.readUploadMeta home `shouldReturn` Just refused
+
+    -- A copy is made to be changed, so it is the publisher's release only once
+    -- its owner says so: the engine serves it without one, as the restart will.
+    it "leaves the copy without its source's release, before a restart as after" $ do
+        manager <- initDatabaseManager defaultConfig NoCache
+        srcDb <- buildOrFail (supplierDB 100 ["p1"])
+        installLoaded manager "source" srcDb
+        let declared c = c{dcRelease = Just Release{releaseName = "ecoinvent", releaseVersion = "3.12", releaseSystemModel = Nothing}}
+        atomically $ do
+            modifyTVar' (dmLoadedDbs manager) (M.adjust (\l -> l{ldConfig = declared (ldConfig l)}) "source")
+            modifyTVar' (dmAvailableDbs manager) (M.adjust declared "source")
+
+        _ <- copyDatabase manager "source" "mycopy"
+        served <- M.lookup "mycopy" <$> readTVarIO (dmAvailableDbs manager)
+        dcRelease <$> served `shouldBe` Just Nothing
+        home <- (</> "mycopy") <$> UploadedDB.getDatabaseUploadsDir
+        fmap UploadedDB.umRelease <$> UploadedDB.readUploadMeta home `shouldReturn` Just Nothing
 
     it "is a deep, independent value: dropping the copy does not touch the source" $ do
         manager <- initDatabaseManager defaultConfig NoCache
@@ -240,6 +258,7 @@ mkConfig name =
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
+        , dcRelease = Nothing
         }
 
 buildOrFail :: SimpleParts -> IO Database

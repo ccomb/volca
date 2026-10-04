@@ -42,6 +42,7 @@ geography_policy = "parent"
 allocation = "wet mass"
 licence = "CC-BY-4.0"
 downloads = "refused"
+release = { name = "Db", version = "1.0", system_model = "cut-off" }
 
 [databases.locationAliases]
 "FR " = "FR"

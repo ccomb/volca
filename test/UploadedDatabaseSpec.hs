@@ -8,7 +8,7 @@ import Test.Hspec
 
 import qualified Data.Set as S
 import Database.UploadedDatabase
-import Types (AllocationKey (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..), StandardLicence (..))
+import Types (AllocationKey (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..), Release (..), StandardLicence (..))
 
 -- | Minimal UploadMeta without description
 baseMeta :: UploadMeta
@@ -24,6 +24,7 @@ baseMeta =
         , umAllocation = Declared
         , umBuiltIn = Nothing
         , umLicence = LicenceUnstated
+        , umRelease = Nothing
         }
 
 spec :: Spec
@@ -102,6 +103,7 @@ spec = do
                         , umAllocation = Declared
                         , umBuiltIn = Nothing
                         , umLicence = LicenceUnstated
+                        , umRelease = Nothing
                         }
 
         it "parses meta with description" $ do
@@ -167,6 +169,22 @@ spec = do
 
         it "round-trips a standard licence" $
             fmap umLicence (parseMetaToml (formatMetaToml baseMeta{umLicence = LicenceStandard ODbL})) `shouldBe` Just (LicenceStandard ODbL)
+
+        it "round-trips a release, system model and all" $ do
+            let release = Release "ecoinvent" "3.12" (Just "Allocation, cut-off by classification")
+            fmap umRelease (parseMetaToml (formatMetaToml baseMeta{umRelease = Just release})) `shouldBe` Just (Just release)
+
+        it "round-trips a release without a system model" $
+            fmap umRelease (parseMetaToml (formatMetaToml baseMeta{umRelease = Just (Release "Agribalyse" "3.2" Nothing)})) `shouldBe` Just (Just (Release "Agribalyse" "3.2" Nothing))
+
+        it "reads a file written before the release existed as declaring none" $ do
+            let toml = "version = 6\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\n"
+            fmap umRelease (parseMetaToml toml) `shouldBe` Just Nothing
+
+        it "refuses a release missing its version rather than read half of one" $ do
+            -- Read as a release, a name alone would match every version of it.
+            let toml = "version = 7\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\nrelease_name = \"ecoinvent\"\n"
+            parseMetaToml toml `shouldBe` Nothing
 
         it "reads a file written before the licence existed as having none" $ do
             let toml = "version = 4\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"data\"\n"

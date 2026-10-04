@@ -36,6 +36,7 @@ module API.DatabaseHandlers (
     exportDatabaseHandler,
     documentFileHandler,
     setLicenceHandler,
+    setReleaseHandler,
     licenceRefusal,
     refuseUnlessGranted,
     servedLicence,
@@ -180,11 +181,11 @@ import Database.Manager (
     DatabaseSetupInfo (..),
     DatabaseStatus (..),
     DependencyEdit (..),
-    LicenceRefusal (..),
     LoadedDatabase (..),
     RefDataStatus (..),
     RelativeDataPath (..),
     RelinkResult (..),
+    SettingRefusal (..),
     SetupError (..),
     addCompartmentMappings,
     addDatabase,
@@ -221,6 +222,7 @@ import Database.Manager (
     removeUnitDefs,
     setDataPath,
     setUploadLicence,
+    setUploadRelease,
     setupErrorMessage,
     unloadCompartmentMappings,
     unloadDatabase,
@@ -255,6 +257,7 @@ import Types (
     Licence (..),
     Permission (..),
     ProcessRef (..),
+    Release (..),
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
@@ -781,12 +784,23 @@ setLicenceHandler :: Text -> Licence -> AppM Licence
 setLicenceHandler dbName licence = do
     guardMutation
     dbManager <- asks aeDbManager
-    liftIO (setUploadLicence dbManager dbName licence) >>= either refused pure
-  where
-    refused :: LicenceRefusal -> AppM Licence
-    refused (LicenceUnknown msg) = exportErr err404 msg
-    refused (LicenceHeldElsewhere msg) = exportErr err409 msg
-    refused (LicenceUnrecordable msg) = exportErr err500 msg
+    liftIO (setUploadLicence dbManager dbName licence) >>= either settingRefused pure
+
+{- | Declare, or clear with @null@, which published database an uploaded
+database is. 404 for a name the engine does not know, 409 for a database the
+configuration file declares, 500 for an upload whose meta.toml cannot be read.
+-}
+setReleaseHandler :: Text -> Maybe Release -> AppM (Maybe Release)
+setReleaseHandler dbName release = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    liftIO (setUploadRelease dbManager dbName release) >>= either settingRefused pure
+
+-- | The status a refused setting answers with.
+settingRefused :: SettingRefusal -> AppM a
+settingRefused (SettingUnknown msg) = exportErr err404 msg
+settingRefused (SettingHeldElsewhere msg) = exportErr err409 msg
+settingRefused (SettingUnrecordable msg) = exportErr err500 msg
 
 {- | Export a loaded method collection over the same transport as the database
 export: raw octet-stream body, projection warnings percent-encoded in the
@@ -1100,6 +1114,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umAllocation = Declared
                             , UploadedDB.umBuiltIn = Nothing
                             , UploadedDB.umLicence = LicenceUnstated
+                            , UploadedDB.umRelease = Nothing
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1122,6 +1137,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , dcPatches = []
                             , dcSource = Nothing
                             , dcLicence = LicenceUnstated
+                            , dcRelease = Nothing
                             }
 
                 -- Add to manager
@@ -1151,6 +1167,7 @@ convertDbStatus ds =
         , dsaAllocation = allocationKeyText (dsAllocation ds)
         , dsaSource = dsSource ds
         , dsaLicence = dsLicence ds
+        , dsaRelease = dsRelease ds
         }
   where
     statusToText Unloaded = "unloaded"
@@ -1187,6 +1204,7 @@ makeStatusFromLoadedDb configs loaded =
             , dsaAllocation = allocationKeyText (dcAllocation config)
             , dsaSource = dcSource config
             , dsaLicence = licenceOf configs config
+            , dsaRelease = dcRelease config
             }
 
 -- uploadFormatToMeta removed - types are now unified (UploadedDB re-exports from Upload)
@@ -1318,6 +1336,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umAllocation = Declared
                             , UploadedDB.umBuiltIn = Nothing
                             , UploadedDB.umLicence = LicenceUnstated
+                            , UploadedDB.umRelease = Nothing
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 

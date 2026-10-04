@@ -188,6 +188,8 @@ type LCAAPI =
                 -- The licence an uploaded database is published under; the export
                 -- and the files above obey its refusal to be downloaded
                 :<|> "db" :> Capture "dbName" Text :> "licence" :> ReqBody '[JSON] Licence :> Put '[JSON] Licence
+                -- Which published database an uploaded database is, or null for none
+                :<|> "db" :> Capture "dbName" Text :> "release" :> ReqBody '[JSON] (Maybe Release) :> Put '[JSON] (Maybe Release)
                 -- Upload endpoint (streamed octet-stream body; metadata in query params)
                 :<|> "db" :> "upload" :> QueryParam "name" Text :> QueryParam "description" Text :> StreamBody NoFraming OctetStream (SourceIO UploadChunk) :> Post '[JSON] UploadResponse
                 -- Database setup endpoints (for cross-DB linking configuration)
@@ -1511,7 +1513,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 47: the edges a supply chain draws from one database to another,
+(revision 48: the @release@ a database's status and setup carry, the
+@systemModels@ its setup lists, and the route that declares it;
+revision 47: the edges a supply chain draws from one database to another,
 and the @withheldInputs@ that say which listed process buys from a database
 whose licence keeps those edges;
 revision 46: the @withheldDatabases@ a dependency's licence groups its part in;
@@ -1619,7 +1623,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 47
+currentWireVersion = 48
 
 getVersion :: AppM Value
 getVersion = do
@@ -2792,6 +2796,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.exportDatabaseHandler
             :<|> DBHandlers.documentFileHandler
             :<|> DBHandlers.setLicenceHandler
+            :<|> DBHandlers.setReleaseHandler
             :<|> DBHandlers.uploadDatabaseHandler
             :<|> DBHandlers.getDatabaseSetupHandler
             :<|> DBHandlers.addDependencyHandler

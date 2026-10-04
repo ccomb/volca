@@ -103,7 +103,8 @@ module Database.Manager (
     databaseLicence,
     refusingDatabases,
     setUploadLicence,
-    LicenceRefusal (..),
+    SettingRefusal (..),
+    setUploadRelease,
     getDatabaseSetupInfo,
     buildLoadedSetupInfo,
     databaseGapReport,
@@ -274,6 +275,7 @@ import Types (
     LocationFallback (..),
     LocationUnresolved (..),
     Permission (..),
+    Release (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierAmbiguity (..),
@@ -301,6 +303,7 @@ import Types (
     reasonsOf,
     sharedFlowSynonyms,
     statedCode,
+    systemModelsRead,
     toSimpleDatabase,
     unresolvedCount,
     upDemands,
@@ -484,6 +487,12 @@ data DatabaseSetupInfo = DatabaseSetupInfo
     -- ^ What the database says about itself: the export it is, the system descriptions its datasets name
     , dsiLicence :: !Licence
     -- ^ The licence it is published under and whether it may be downloaded
+    , dsiRelease :: !(Maybe Release)
+    -- ^ Which published database it is, as its owner declared
+    , dsiSystemModels :: ![Text]
+    {- ^ The system models its activities state, each once: one is the proposal
+    for its release, several are all shown rather than one picked.
+    -}
     }
     deriving (Show, Eq, Generic)
     deriving (ToJSON) via (Stripped DatabaseSetupInfo)
@@ -532,6 +541,7 @@ data DatabaseStatus = DatabaseStatus
     , dsAllocation :: !AllocationKey -- The key its multi-output blocks were divided under
     , dsSource :: !(Maybe Text) -- The database whose files it reads, when it owns none
     , dsLicence :: !Licence -- What it is served under, its source's for a copy
+    , dsRelease :: !(Maybe Release) -- Which published database it is, as its owner declared
     }
     deriving (Show, Eq, Generic)
 
@@ -551,6 +561,7 @@ instance ToJSON DatabaseStatus where
             , "dsAllocation" .= allocationKeyText dsAllocation
             , "dsSource" .= dsSource
             , "dsLicence" .= dsLicence
+            , "dsRelease" .= dsRelease
             ]
 
 instance FromJSON DatabaseStatus where
@@ -575,6 +586,8 @@ instance FromJSON DatabaseStatus where
             <*> v .:? "dsSource"
             -- Before terms were on the wire every database could be downloaded.
             <*> v .:? "dsLicence" A..!= LicenceUnstated
+            -- Before releases were on the wire no database declared one.
+            <*> v .:? "dsRelease"
 
 -- | Status of a method collection (e.g., EF-3.1) for API responses
 data MethodCollectionStatus = MethodCollectionStatus
@@ -1762,6 +1775,7 @@ uploadMetaToConfig slug dirPath meta =
           dcPatches = []
         , dcSource = UploadedDB.umSource meta
         , dcLicence = UploadedDB.umLicence meta
+        , dcRelease = UploadedDB.umRelease meta
         }
 
 {- | Record an uploaded database's dependency pin where a restart can find it.
@@ -1814,38 +1828,81 @@ refusingDatabases manager permission = do
     configs <- readTVarIO (dmAvailableDbs manager)
     pure (M.keysSet (M.filter (\config -> not (granted (licenceOf configs config) permission)) configs))
 
--- | Why the licence of a database cannot be set through the engine.
-data LicenceRefusal
-    = LicenceUnknown Text
-    | -- | Its licence is written somewhere else: the configuration file, or its source.
-      LicenceHeldElsewhere Text
+-- | Why a setting of a database cannot be written through the engine.
+data SettingRefusal
+    = SettingUnknown Text
+    | -- | It is written somewhere else: the configuration file, or the source a copy reads.
+      SettingHeldElsewhere Text
     | -- | An upload whose meta.toml cannot be read, so nothing would survive a restart.
-      LicenceUnrecordable Text
+      SettingUnrecordable Text
     deriving (Show, Eq)
 
-{- | Set the licence of an uploaded database. Its meta.toml is written first, as
-the record a restart reads back, then the config the engine serves from.
+-- | One setting of an uploaded database, and where it is written.
+data UploadSetting = UploadSetting
+    { usNoun :: !Text
+    -- ^ What it is called in a sentence: "licence", "release"
+    , usHeldElsewhere :: !(DatabaseConfig -> Maybe Text)
+    -- ^ Why an upload's setting is not the engine's to write, when another rule than the configuration file decides it
+    , usMeta :: !(UploadedDB.UploadMeta -> UploadedDB.UploadMeta)
+    , usConfig :: !(DatabaseConfig -> DatabaseConfig)
+    }
 
-A configured database takes its licence from the configuration file, which is
-the operator's to write, and a copy is served under its source's ('licenceOf'):
-setting either here would last until the next restart, or not at all.
+{- | Write a setting of an uploaded database: its meta.toml first, as the
+record a restart reads back, then the config the engine serves from.
+
+A configured database takes its settings from the configuration file, which is
+the operator's to write: set here, they would last until the next restart.
 -}
-setUploadLicence :: DatabaseManager -> Text -> Licence -> IO (Either LicenceRefusal Licence)
-setUploadLicence manager dbName terms = runExceptT $ do
-    config <- ExceptT (maybe (Left (LicenceUnknown ("Database not found: " <> dbName))) Right . M.lookup dbName <$> readTVarIO (dmAvailableDbs manager))
-    except (heldElsewhere config)
+writeUploadSetting :: DatabaseManager -> Text -> UploadSetting -> IO (Either SettingRefusal ())
+writeUploadSetting manager dbName UploadSetting{..} = runExceptT $ do
+    config <- ExceptT (maybe (Left (SettingUnknown ("Database not found: " <> dbName))) Right . M.lookup dbName <$> readTVarIO (dmAvailableDbs manager))
+    maybe (pure ()) (throwE . SettingHeldElsewhere) (inConfigurationFile config <|> usHeldElsewhere config)
     uploadRoot <- liftIO ((</> T.unpack dbName) <$> UploadedDB.getDatabaseUploadsDir)
-    meta <- liftIO (UploadedDB.readUploadMeta uploadRoot) >>= maybe (throwE (LicenceUnrecordable ("No readable meta.toml under " <> T.pack uploadRoot <> ": the licence of " <> dbName <> " would be lost at the next restart"))) pure
+    meta <- liftIO (UploadedDB.readUploadMeta uploadRoot) >>= maybe (throwE (SettingUnrecordable ("No readable meta.toml under " <> T.pack uploadRoot <> ": the " <> usNoun <> " of " <> dbName <> " would be lost at the next restart"))) pure
     liftIO $ do
-        UploadedDB.writeUploadMeta uploadRoot meta{UploadedDB.umLicence = terms}
-        atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust (\c -> c{dcLicence = terms}) dbName)
-    pure terms
+        UploadedDB.writeUploadMeta uploadRoot (usMeta meta)
+        atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust usConfig dbName)
   where
-    heldElsewhere :: DatabaseConfig -> Either LicenceRefusal ()
-    heldElsewhere config
-        | not (dcIsUploaded config) = Left (LicenceHeldElsewhere (dbName <> " is set in the configuration file, which is where its licence is written"))
-        | Just source <- dcSource config = Left (LicenceHeldElsewhere (dbName <> " reads the files of " <> source <> " and is served under its licence"))
-        | otherwise = Right ()
+    inConfigurationFile :: DatabaseConfig -> Maybe Text
+    inConfigurationFile config
+        | dcIsUploaded config = Nothing
+        | otherwise = Just (dbName <> " is set in the configuration file, which is where its " <> usNoun <> " is written")
+
+{- | Set the licence of an uploaded database. A copy is served under its
+source's ('licenceOf'), so setting its own would change nothing it serves.
+-}
+setUploadLicence :: DatabaseManager -> Text -> Licence -> IO (Either SettingRefusal Licence)
+setUploadLicence manager dbName terms =
+    (terms <$)
+        <$> writeUploadSetting
+            manager
+            dbName
+            UploadSetting
+                { usNoun = "licence"
+                , usHeldElsewhere = readsSource
+                , usMeta = \meta -> meta{UploadedDB.umLicence = terms}
+                , usConfig = \c -> c{dcLicence = terms}
+                }
+  where
+    readsSource :: DatabaseConfig -> Maybe Text
+    readsSource config = (\source -> dbName <> " reads the files of " <> source <> " and is served under its licence") <$> dcSource config
+
+{- | Declare, or clear, which published database an uploaded database is. A
+copy declares its own: it is made to be changed, so it is the publisher's
+release only when its owner says so.
+-}
+setUploadRelease :: DatabaseManager -> Text -> Maybe Release -> IO (Either SettingRefusal (Maybe Release))
+setUploadRelease manager dbName release =
+    (release <$)
+        <$> writeUploadSetting
+            manager
+            dbName
+            UploadSetting
+                { usNoun = "release"
+                , usHeldElsewhere = const Nothing
+                , usMeta = \meta -> meta{UploadedDB.umRelease = release}
+                , usConfig = \c -> c{dcRelease = release}
+                }
 
 {- | Discover uploaded methods from uploads/methods/ directory
 Reads meta.toml from each subdirectory and converts to MethodConfig
@@ -2009,6 +2066,7 @@ listDatabases manager = do
                 , dsAllocation = dcAllocation config
                 , dsSource = dcSource config
                 , dsLicence = licenceOf availableDbs config
+                , dsRelease = dcRelease config
                 }
 
 -- | File extensions 'resolveDataPath' knows how to extract as archives.
@@ -3624,6 +3682,7 @@ data SetupSource = SetupSource
     , ssOrigin :: !SetupOrigin
     , ssDocumentation :: !DatabaseDocumentation
     , ssLicence :: !Licence
+    , ssSystemModels :: ![Text]
     }
 
 setupInfoFrom :: SetupSource -> DatabaseSetupInfo
@@ -3655,6 +3714,8 @@ setupInfoFrom SetupSource{..} =
             FromLoaded -> True
         , dsiDocumentation = ssDocumentation
         , dsiLicence = ssLicence
+        , dsiRelease = dcRelease ssConfig
+        , dsiSystemModels = ssSystemModels
         }
 
 {- | The four fields a relink writes back onto a staged database. One place,
@@ -3690,6 +3751,7 @@ buildStagedSetupInfo staged configs indexedDbs =
                 , ssOrigin = FromStaged
                 , ssDocumentation = sdbDocumentation (sdSimpleDB staged)
                 , ssLicence = licenceOf configs (sdConfig staged)
+                , ssSystemModels = systemModelsRead (sdbActivities (sdSimpleDB staged))
                 }
 
 {- | Build setup info from a loaded database (already finalized). Counts come
@@ -3712,6 +3774,7 @@ buildLoadedSetupInfo config db configs indexedDbs =
             , ssOrigin = FromLoaded
             , ssDocumentation = dbDocumentation db
             , ssLicence = licenceOf configs config
+            , ssSystemModels = systemModelsRead (dbActivities db)
             }
 
 {- | Discover candidate data paths within an uploaded database's root directory.

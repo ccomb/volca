@@ -207,6 +207,7 @@ consumerConfig path =
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
+        , dcRelease = Nothing
         }
 
 -- ---------------------------------------------------------------------------

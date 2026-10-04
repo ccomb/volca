@@ -324,6 +324,7 @@ recordDerived slug srcConfig key = do
                 , UploadedDB.umAllocation = key
                 , UploadedDB.umBuiltIn = Nothing
                 , UploadedDB.umLicence = dcLicence srcConfig
+                , UploadedDB.umRelease = Nothing
                 }
         pure
             srcConfig
@@ -336,6 +337,7 @@ recordDerived slug srcConfig key = do
                 , dcDeletable = True
                 , dcAllocation = key
                 , dcSource = Just (dcName srcConfig)
+                , dcRelease = Nothing
                 }
     pure $ case written of
         Right config -> Right config
@@ -421,6 +423,7 @@ recordCopy slug src = do
                   UploadedDB.umAllocation = dcAllocation config
                 , UploadedDB.umBuiltIn = Nothing
                 , UploadedDB.umLicence = dcLicence config
+                , UploadedDB.umRelease = Nothing
                 }
     pure $ case written of
         Right () -> Right ()
@@ -442,6 +445,7 @@ renameConfig newName cfg =
         , dcIsUploaded = True
         , dcDeletable = True
         , dcSource = Just (dcName cfg)
+        , dcRelease = Nothing
         }
 
 -- ---------------------------------------------------------------------------

@@ -51,7 +51,7 @@ import TOML (getArrayOf, getFieldWith)
 import qualified TOML
 import Test.Hspec
 import TestHelpers (membersOnly)
-import Types (ClassificationFilter (..), ClassificationMatch (..), Licence (..), PatchOp (..), Permission (Download), StandardLicence (..), granted)
+import Types (ClassificationFilter (..), ClassificationMatch (..), Licence (..), PatchOp (..), Permission (Download), Release (..), StandardLicence (..), granted)
 
 serverOn :: Text -> ServerConfig
 serverOn host =
@@ -439,6 +439,20 @@ spec = do
 
     let registry path uploaded = RefDataConfig{rdName = "flows", rdSource = FromFile path, rdActive = True, rdIsUploaded = uploaded, rdIsAuto = False, rdDescription = Nothing}
         reading path = defaultConfig{cfgFlowSynonyms = [registry path False]}
+
+    describe "DatabaseConfig release" $ do
+        let decodeDatabase t = TOML.decode t :: Either TOML.TOMLError DatabaseConfig
+            entry extra = T.unlines (["name = \"src\"", "path = \"src.csv\""] ++ extra)
+
+        it "reads no release when the entry declares none" $
+            fmap dcRelease (decodeDatabase (entry [])) `shouldBe` Right Nothing
+
+        it "reads a release with its system model" $
+            fmap dcRelease (decodeDatabase (entry ["release = { name = \"ecoinvent\", version = \"3.12\", system_model = \"cut-off\" }"]))
+                `shouldBe` Right (Just (Release "ecoinvent" "3.12" (Just "cut-off")))
+
+        it "refuses a release without its version" $
+            either (const True) (const False) (decodeDatabase (entry ["release = { name = \"ecoinvent\" }"])) `shouldBe` True
 
     describe "dataBundleDir" $ do
         it "is the directory of the flow registry the engine reads" $

@@ -63,6 +63,7 @@ uploadedEntry name =
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
+        , dcRelease = Nothing
         }
 
 spec :: Spec
