@@ -1502,6 +1502,21 @@ newtype ExportRequest = ExportRequest
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExportRequest)
 
+{- | Request for a database export: the format, and @package@ (@ro-crate@) to
+receive it packaged with the description of its licence and of the releases it
+links to. A method collection has no package, so it keeps 'ExportRequest'.
+-}
+data DatabaseExportRequest = DatabaseExportRequest
+    { derFormat :: Text
+    , derPackage :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped DatabaseExportRequest)
+
+-- Closed: a misspelt @package@ would be read as absent, and the export sent without its description.
+instance FromJSON DatabaseExportRequest where
+    parseJSON = parseClosed
+
 -- | Response for database upload
 data UploadResponse = UploadResponse
     { uprSuccess :: Bool

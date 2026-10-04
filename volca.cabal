@@ -134,6 +134,7 @@ library
                      , ILCD.Common
                      , ILCD.Parser
                      , ILCD.Writer
+                     , Database.Crate
                      , Database.Export
                      , Search.Normalize
                      , Search.BM25
@@ -186,6 +187,7 @@ library
                      , megaparsec
                      , unicode-transforms
                      , transformers
+                     , crypton
 
   default-language:    Haskell2010
 
@@ -403,6 +405,7 @@ test-suite lca-tests
                      , LicenceSpec
                      , ExportSpec
                      , ExportHandlerSpec
+                     , CrateSpec
                      , ZipSpec
                      , PropertiesSpec
                      , NativeActivityTypeSpec
@@ -420,6 +423,7 @@ test-suite lca-tests
                      , mumps-hs
                      , bytestring
                      , zip-archive
+                     , crypton
                      , temporary
                      , aeson
                      , stm

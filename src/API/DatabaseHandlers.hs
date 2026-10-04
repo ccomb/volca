@@ -119,6 +119,7 @@ import API.Types (
     CollectionBridgesAPI (..),
     ComputedQualityReportAPI (..),
     CoverageReportAPI (..),
+    DatabaseExportRequest (..),
     DatabaseListResponse (..),
     DatabaseStatusAPI (..),
     DeleteClassFilter (..),
@@ -157,8 +158,10 @@ import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
+import Data.Time.Clock (getCurrentTime, utctDay)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
+import Database.Crate (CrateInput (..), Packaging (..), packageExport, parsePackaging, requiredReleases)
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
@@ -715,19 +718,52 @@ archive (a base64 JSON envelope costs +33% and four full copies before the
 first byte leaves). EcoSpold 2 / ILCD multi-file trees are zipped; single-file
 formats carry their bytes directly. Best-effort approximation warnings ride the
 @X-Volca-Export-Warnings@ header, percent-encoded because activity names are
-arbitrary Unicode and joined with newlines. Failures surface as HTTP errors:
-400 for an unknown format or data the target format cannot represent, 404 for a
+arbitrary Unicode and joined with newlines. With @package@ (@ro-crate@), the
+body is a zip holding that export beside its RO-Crate description. Failures
+surface as HTTP errors: 400 for an unknown format or package, data the target
+format cannot represent, or a package whose dependency declares no release
+(refused before the export is built), 404 for a
 database that is not loaded, never a 200 with a failure flag.
 -}
-exportDatabaseHandler :: Text -> ExportRequest -> AppM (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
+exportDatabaseHandler :: Text -> DatabaseExportRequest -> AppM (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
 exportDatabaseHandler dbName req = do
     refuseUnlessGranted Download dbName
     dbManager <- asks aeDbManager
-    fmt <- either (exportErr err400) pure (parseExportFormat (exrFormat req))
+    fmt <- either (exportErr err400) pure (parseExportFormat (derFormat req))
+    packaging <- either (exportErr err400) pure (parsePackaging (derPackage req))
     mLoaded <- liftIO (getDatabase dbManager dbName)
     ld <- maybe (exportErr err404 ("Database not loaded: " <> dbName)) pure mLoaded
+    package <- case packaging of
+        Plain -> pure id
+        RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (exportErr err400) pure)
     (bytes, warnings) <- either (exportErr err400) pure (serializeDatabase fmt (ldDatabase ld))
-    pure (addHeader (encodeExportWarnings warnings) (BinaryContent bytes))
+    pure (addHeader (encodeExportWarnings warnings) (BinaryContent (package bytes)))
+
+{- | What the package of a loaded database says of it: the licence it is served
+under, and the releases of the databases it links to.
+-}
+crateInput :: DatabaseManager -> LoadedDatabase -> DatabaseFormat -> IO (Either Text CrateInput)
+crateInput manager ld fmt = do
+    configs <- readTVarIO (dmAvailableDbs manager)
+    licence <- fromMaybe LicenceUnstated <$> databaseLicence manager name
+    today <- utctDay <$> getCurrentTime
+    pure $ do
+        requires <- requiredReleases name configs (dbDependsOn (ldDatabase ld))
+        Right
+            CrateInput
+                { ciName = dcDisplayName config
+                , ciDescription = dcDescription config
+                , ciPublished = today
+                , ciLicence = licence
+                , ciRequires = requires
+                , ciFormat = fmt
+                }
+  where
+    config :: DatabaseConfig
+    config = ldConfig ld
+
+    name :: Text
+    name = dcName config
 
 {- | A file a database ships with one of its literature entries, as an
 attachment named after it. 404 for a database not loaded, a path its

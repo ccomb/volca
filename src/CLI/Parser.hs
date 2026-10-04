@@ -175,6 +175,7 @@ exportArgsParser =
         <$> textArg "DB" "Name of the loaded database to export"
         <*> textOpt "format" Nothing "FMT" "Target format: simapro|ecospold1|ecospold2|ilcd|brightway"
         <*> strOpt "out" Nothing "FILE" "Output file path"
+        <*> optTextOpt "package" Nothing "PACKAGE" "ro-crate: package the export with its licence and the releases it links to"
 
 {- | Authoring parser: positional DB plus @--from@, the JSON file holding the
 activities. The file is the same document the HTTP endpoint accepts

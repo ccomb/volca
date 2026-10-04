@@ -778,6 +778,9 @@ volca database delete-activities my-db --name "electricity"  # delete filtered s
 volca database delete-activities my-db --id UUID_UUID --id UUID_UUID  # delete exactly these
 volca database export my-db --format simapro --out out.csv
 #   formats: simapro | ecospold1 | ecospold2 | ilcd | brightway
+volca database export my-db --format ecospold2 --package ro-crate --out my-db.zip
+#   the export, unchanged, beside an RO-Crate ro-crate-metadata.json naming its
+#   licence and the release of every database it links to (each must declare one)
 
 # List, upload, export, delete method collections
 volca method                                    # list (default)
@@ -832,7 +835,7 @@ volca method delete ef-31                        # delete
 | Copy database | `POST /db/{name}/copy/{newName}` | `database copy SRC NEW_NAME` |
 | Re-key database | `POST /db/{name}/derive/{newName}?allocation=` | – |
 | Delete activities (by filter or ids) | `POST /db/{name}/delete` | `database delete-activities DB [filters\|--id …]` |
-| Export database | `POST /db/{name}/export` | `database export DB --format FMT --out FILE` |
+| Export database | `POST /db/{name}/export` (`{"format": FMT, "package": "ro-crate"}`, package optional) | `database export DB --format FMT [--package ro-crate] --out FILE` |
 | Delete database | `DELETE /db/{name}` | `database delete NAME` |
 | **Method Management** | | |
 | List methods | `GET /methods` | `methods` |

@@ -465,7 +465,7 @@ rather than writing a partial/empty file.
 -}
 executeRemoteExport :: Manager -> RemoteConfig -> OutputFormat -> Maybe Text -> DbExportArgs -> IO ()
 executeRemoteExport mgr rc fmt jp args = do
-    resp <- apiPostRaw mgr rc ("/api/v1/db/" ++ T.unpack (deaDb args) ++ "/export") (object ["format" .= deaFormat args])
+    resp <- apiPostRaw mgr rc ("/api/v1/db/" ++ T.unpack (deaDb args) ++ "/export") (object ["format" .= deaFormat args, "package" .= deaPackage args])
     case resp of
         -- A failed export (bad format, db not loaded, unexportable data) arrives
         -- as a non-2xx HTTP status, surfaced here as 'Left'.
