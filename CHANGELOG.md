@@ -306,6 +306,12 @@
 
 ### Fixed
 
+- A what-if substitution that sends a process to a supplier in a linked
+  database divides its amount by the process's reference amount, as every
+  other link to a linked database is. A process that had no link of its own to
+  a linked database was divided by 1, so one whose reference amount is 1000 kg
+  asked its new supplier for a thousand times too much, in its score as in its
+  supply chain.
 - A process of a linked database takes its depth in a supply chain from where
   the chain buys it: one more than the process buying it, and one more again
   for each step inside that database. Every process of a linked database came

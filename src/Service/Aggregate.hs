@@ -43,7 +43,7 @@ import API.Types (
     apiFlowName,
  )
 import Database (Geographies)
-import Matrix (activityNormalizationFactor)
+import Matrix (linkConsumer)
 import Service (
     ActivityFilterCore (..),
     Edges (..),
@@ -393,7 +393,7 @@ rowsFromConsumption rootRefMagnitude ((rootDbName, rootDb, rootScaling) :| deps)
         mapMaybe bridgeRow (dbCrossDBLinks db')
       where
         bridgeRow link = do
-            consumerPid <- M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) (dbProcessIdLookup db')
+            (consumerPid, normFactor) <- linkConsumer db' link
             let consumerIdx = fromIntegral (dbActivityIndex db' V.! fromIntegral consumerPid)
                 sj = s VU.! consumerIdx
                 consumer = dbActivities db' V.! fromIntegral consumerPid
@@ -405,7 +405,7 @@ rowsFromConsumption rootRefMagnitude ((rootDbName, rootDb, rootScaling) :| deps)
                             { rowName = cdlFlowName link
                             , rowFlowId = supplierRefText link
                             , rowUnit = cdlExchangeUnit link
-                            , rowQuantity = cdlCoefficient link * sj / activityNormalizationFactor db' consumerPid * mult
+                            , rowQuantity = cdlCoefficient link * sj / normFactor * mult
                             , rowIsInput = Nothing
                             , rowIsReference = Nothing
                             , rowTargetName = Nothing

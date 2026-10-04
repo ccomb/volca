@@ -34,7 +34,7 @@ import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, appl
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Impact (PartScore (..))
-import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix, consumerNormFactors, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, toList)
+import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, toList)
 import qualified Matrix.Export as MatrixExport
 import Method.Mapping (LongTermMode (..))
 import qualified Progress
@@ -1965,7 +1965,7 @@ enteredDepths consumer extras =
         (M.unionWith min)
         [ (cdlSourceDatabase link, M.singleton (cdlSupplierActUUID link, cdlSupplierProdUUID link) (depth + 1))
         | link <- dbCrossDBLinks db ++ extras
-        , Just (pid, _) <- [linkConsumer db M.empty link]
+        , Just (pid, _) <- [linkConsumer db link]
         , processScaling db (coScaling consumer) pid /= 0
         , Just depth <- [IM.lookup (fromIntegral (dbActivityIndex db V.! fromIntegral pid)) depths]
         ]
@@ -1986,7 +1986,7 @@ consumerLinks minQ consumer extras =
         (++)
         [ (cdlSourceDatabase link, [linkOf pid normFactor link])
         | link <- dbCrossDBLinks db ++ extras
-        , Just (pid, normFactor) <- [linkConsumer db normFactors link]
+        , Just (pid, normFactor) <- [linkConsumer db link]
         , kept pid
         ]
   where
@@ -2001,9 +2001,6 @@ consumerLinks minQ consumer extras =
 
     db :: Database
     db = coDb consumer
-
-    normFactors :: M.Map ProcessId Double
-    normFactors = consumerNormFactors db
 
     kept :: ProcessId -> Bool
     kept pid = isRoot (coLevel consumer) || abs (processScaling db (coScaling consumer) pid) > minQ

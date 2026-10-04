@@ -46,7 +46,6 @@ module Matrix (
     depDemandsToVector,
     inSupplierUnit,
     linkConsumer,
-    consumerNormFactors,
     computeProcessLCIAContributions,
     perturbA,
     perturbABatch,
@@ -852,9 +851,8 @@ accumulateDepDemandsWith db extraLinks scalingVec =
     foldr step M.empty (dbCrossDBLinks db ++ extraLinks)
   where
     actIdx = dbActivityIndex db
-    normFactors = consumerNormFactors db
     step link acc =
-        case linkConsumer db normFactors link of
+        case linkConsumer db link of
             Nothing -> acc
             Just (consumerPid, normFactor) ->
                 let consumerIdx = fromIntegral $ actIdx V.! fromIntegral consumerPid
@@ -880,26 +878,14 @@ accumulateDepDemandsWith db extraLinks scalingVec =
 {- | A link's consumer in its own database, and the factor its matrix column
 is normalized by: what one unit of the consumer takes from the supplier is the
 link's coefficient over that factor. Shared by the demand a dependency solves
-and the edge a supply chain draws, so the two cannot drift apart.
+and the edge a supply chain draws, so the two cannot drift apart. Read from
+the consumer itself, so a substitution's virtual link, whose consumer may have
+no link of its own in the database, is normalized like any other.
 -}
-linkConsumer :: Database -> M.Map ProcessId Double -> CrossDBLink -> Maybe (ProcessId, Double)
-linkConsumer db normFactors link =
-    (\pid -> (pid, M.findWithDefault 1.0 pid normFactors))
+linkConsumer :: Database -> CrossDBLink -> Maybe (ProcessId, Double)
+linkConsumer db link =
+    (\pid -> (pid, activityNormalizationFactor db pid))
         <$> M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) (dbProcessIdLookup db)
-
-{- | Normalization factor (ref-product amount) for each consumer activity that
-appears in 'dbCrossDBLinks'. Mirrors the factor used in 'buildActivityTriplets'.
--}
-consumerNormFactors :: Database -> M.Map ProcessId Double
-consumerNormFactors db =
-    M.fromList [(pid, activityNormalizationFactor db pid) | pid <- consumers]
-  where
-    procLookup = dbProcessIdLookup db
-    consumers =
-        [ pid
-        | link <- dbCrossDBLinks db
-        , Just pid <- [M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) procLookup]
-        ]
 
 {- | Activity's reference-product amount used to normalize its matrix column.
 Thin wrapper around 'activityNormFactor' that resolves the activity and
