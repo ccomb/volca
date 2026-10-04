@@ -850,14 +850,21 @@ class Client:
         Declared dependencies are loaded first; has no effect if the
         database is already loaded.
         """
-        return self._call("load_database", db_name=db_name)
+        payload = self._call("load_database", db_name=db_name)
+        # An engine older than wire revision 51 answers a failed load with
+        # 200 and this body rather than an HTTP error.
+        if payload.get("tag") == "LoadFailed":
+            raise VoLCAError(f"load_database failed: {payload.get('error', 'no message')}")
+        return payload
 
     def unload_database(self, db_name: str) -> dict:
         """Unload a database from memory to free RAM. The disk copy is kept.
 
         Refused if another loaded database still depends on it.
         """
-        return self._call("unload_database", db_name=db_name)
+        return self._require_success(
+            self._call("unload_database", db_name=db_name), "unload_database"
+        )
 
     def derive_database(
         self,
