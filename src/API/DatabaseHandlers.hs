@@ -733,14 +733,14 @@ exportDatabaseHandler :: Text -> DatabaseExportRequest -> AppM (Headers '[Header
 exportDatabaseHandler dbName req = do
     refuseUnlessGranted Download dbName
     dbManager <- asks aeDbManager
-    fmt <- either (exportErr err400) pure (parseExportFormat (derFormat req))
-    packaging <- either (exportErr err400) pure (parsePackaging (derPackage req))
+    fmt <- either (failWith err400) pure (parseExportFormat (derFormat req))
+    packaging <- either (failWith err400) pure (parsePackaging (derPackage req))
     mLoaded <- liftIO (getDatabase dbManager dbName)
-    ld <- maybe (exportErr err404 ("Database not loaded: " <> dbName)) pure mLoaded
+    ld <- maybe (failWith err404 ("Database not loaded: " <> dbName)) pure mLoaded
     package <- case packaging of
         Plain -> pure id
-        RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (exportErr err400) pure)
-    (bytes, warnings) <- either (exportErr err400) pure (serializeDatabase fmt (ldDatabase ld))
+        RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (failWith err400) pure)
+    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase fmt (ldDatabase ld))
     pure (addHeader (encodeExportWarnings warnings) (BinaryContent (package bytes)))
 
 {- | What the package of a loaded database says of it: the licence it is served
@@ -777,7 +777,7 @@ documentFileHandler :: Text -> [Text] -> AppM (Headers '[Header "Content-Disposi
 documentFileHandler dbName segments = do
     refuseUnlessGranted Download dbName
     dbManager <- asks aeDbManager
-    bytes <- liftIO (readDocumentFile dbManager dbName path) >>= either (exportErr err404) pure
+    bytes <- liftIO (readDocumentFile dbManager dbName path) >>= either (failWith err404) pure
     pure (addHeader (attachment (last' segments)) (BinaryContent (BSL.fromStrict bytes)))
   where
     path :: Text
@@ -798,7 +798,7 @@ its own 404.
 refuseUnlessGranted :: Permission -> Text -> AppM ()
 refuseUnlessGranted p dbName = do
     dbManager <- asks aeDbManager
-    liftIO (databaseLicence dbManager dbName) >>= mapM_ (mapM_ (exportErr err403) . licenceRefusal p dbName)
+    liftIO (databaseLicence dbManager dbName) >>= mapM_ (mapM_ (failWith err403) . licenceRefusal p dbName)
 
 {- | The licence a database is served under, for the handlers that trim their
 answer to it. Read after the handler has resolved the database, so a name the
@@ -851,9 +851,9 @@ acceptSubstitutionHandler dbName substitution = do
 
 -- | The status a refused setting answers with.
 settingRefused :: SettingRefusal -> AppM a
-settingRefused (SettingUnknown msg) = exportErr err404 msg
-settingRefused (SettingHeldElsewhere msg) = exportErr err409 msg
-settingRefused (SettingUnrecordable msg) = exportErr err500 msg
+settingRefused (SettingUnknown msg) = failWith err404 msg
+settingRefused (SettingHeldElsewhere msg) = failWith err409 msg
+settingRefused (SettingUnrecordable msg) = failWith err500 msg
 
 {- | Export a loaded method collection over the same transport as the database
 export: raw octet-stream body, projection warnings percent-encoded in the
@@ -863,10 +863,10 @@ export: raw octet-stream body, projection warnings percent-encoded in the
 exportMethodHandler :: Text -> ExportRequest -> AppM (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
 exportMethodHandler name req = do
     dbManager <- asks aeDbManager
-    fmt <- either (exportErr err400) pure (parseMethodExportFormat (exrFormat req))
+    fmt <- either (failWith err400) pure (parseMethodExportFormat (exrFormat req))
     mColl <- liftIO (getMethodCollection dbManager name)
-    coll <- maybe (exportErr err404 ("Method collection not loaded: " <> name)) pure mColl
-    (bytes, warnings) <- either (exportErr err400) pure (serializeMethodCollection fmt name coll)
+    coll <- maybe (failWith err404 ("Method collection not loaded: " <> name)) pure mColl
+    (bytes, warnings) <- either (failWith err400) pure (serializeMethodCollection fmt name coll)
     pure (addHeader (encodeExportWarnings warnings) (BinaryContent bytes))
 
 {- | Join export warnings for the response header, percent-encoded because
@@ -918,8 +918,9 @@ client will read.
 warningHeaderBudget :: Int
 warningHeaderBudget = 3000
 
-exportErr :: ServerError -> Text -> AppM a
-exportErr status msg = throwError status{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
+-- | Fail with this status, the sentence as the body a client shows.
+failWith :: ServerError -> Text -> AppM a
+failWith status msg = throwError status{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
 
 {- | The message to refuse with when a hosting quota is already met, or
 'Nothing' when the operation is within budget.
