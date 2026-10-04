@@ -1292,8 +1292,8 @@ getDatabaseSetupHandler dbName = do
         Left (ex :: SomeException) ->
             throwError $ err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ "Setup failed: " <> T.pack (show ex)}
         Right (Left (SetupNotFound msg)) -> throwError $ err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        -- Same 404 + "Database not loaded: " body as every other not-loaded
-        -- arm, so typed-error recovery on the client keeps working.
+        -- Same 404 + "Database not loaded: " body as a read route asked about an
+        -- unloaded database, so typed-error recovery on the client keeps working.
         Right (Left e@(SetupNotLoaded _)) -> throwError $ err404{errBody = BSL.fromStrict $ T.encodeUtf8 (setupErrorMessage e)}
         Right (Left (SetupFailed msg)) -> throwError $ err500{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
         Right (Right setupInfo) -> return setupInfo
