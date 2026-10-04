@@ -151,6 +151,7 @@ recordMethodCopy home slug source seed = do
                     , UploadedDB.umBuiltIn = builtinOf (mcOrigin source)
                     , UploadedDB.umLicence = LicenceUnstated
                     , UploadedDB.umRelease = Nothing
+                    , UploadedDB.umRequires = []
                     }
     pure $ case written of
         Right result -> first (\err -> "could not record the copy " <> slug <> ": " <> err) result

@@ -316,6 +316,22 @@ The `depends` field ensures dependency databases load first and their flows are 
 
 A database's dependency set is **pinned**: it is seeded automatically when the database is first staged (the minimal set of supplier databases needed to resolve its links), and from then on it is authoritative. A plain `relink` re-resolves links *within* the pinned set only – it never silently adds another loaded database. Edit the pin explicitly with `add-dependency` / `remove-dependency`, then `finalize`; the new set is written to the matrix cache and reused on every later open. This is how you restrict a consumer (e.g. an inventory built against a single Agribalyse version) to exactly the supplier databases it should depend on, even while other versions stay loaded for other consumers. (The one exception is a *mapping* relink – `relink` with a `depDb` and an alias CSV – which pins that chosen dependency in-memory if it isn't already, so a `copy → delete → relink` pipeline composes in one pass; links to the other pinned dependencies are preserved, not dropped.)
 
+A database uploaded as a **package** (the zip `export --package ro-crate`
+writes) arrives with what its description says: the licence it is published
+under, and the releases of the databases it was built on, kept in its
+`meta.toml` as `[[requires]]` blocks. The upload is refused when the export it
+carries does not match the digest the description gives. Such a database links
+only to a database whose declared release is one it requires, and the
+databases that are get loaded before it is staged; with ecoinvent 3.11 and
+3.12 both loaded, a model built on 3.12 links to 3.12 alone. Its setup lists
+each required release as `satisfied` (with the databases of that release),
+`missing` (with the databases of the same name at another version, which may
+stand in for it) or `substituted`. A reader who accepts another database in
+place of a missing release says so with
+`POST /db/{name}/accept-substitution` (`{"release": {...}, "database": "ei-311"}`):
+the choice is written to its `meta.toml`, the setup links again within it, and
+scores computed on it are no longer the author's.
+
 ### How a flow meets a factor's subcompartment
 
 A method writes a factor per substance, medium and subcompartment; a database
@@ -529,6 +545,7 @@ DELETE /api/v1/db/{dbName}                                               Delete 
 GET    /api/v1/db/{dbName}/setup                                         Setup info (path, dependencies)
 POST   /api/v1/db/{dbName}/add-dependency/{depName}                      Add a dep
 POST   /api/v1/db/{dbName}/remove-dependency/{depName}                   Remove a dep
+POST   /api/v1/db/{dbName}/accept-substitution                           Accept a database in place of a required release
 POST   /api/v1/db/{dbName}/set-data-path                                 Repoint the source path
 
 # Methods and method collections
@@ -831,7 +848,7 @@ volca method delete ef-31                        # delete
 | Upload database | `POST /db/upload` | `database upload FILE --name NAME` |
 | Load / unload | `POST /db/{name}/(load\|unload)` | – (use config `load = true`) |
 | Relink / finalize | `POST /db/{name}/(relink\|finalize)` | `database relink DB --to DEP --mapping CSV` |
-| Setup / dependencies | `GET /db/{name}/setup`, `POST .../{add,remove}-dependency/{dep}`, `POST .../set-data-path` | – |
+| Setup / dependencies | `GET /db/{name}/setup`, `POST .../{add,remove}-dependency/{dep}`, `POST .../set-data-path`, `POST .../accept-substitution` | – |
 | Copy database | `POST /db/{name}/copy/{newName}` | `database copy SRC NEW_NAME` |
 | Re-key database | `POST /db/{name}/derive/{newName}?allocation=` | – |
 | Delete activities (by filter or ids) | `POST /db/{name}/delete` | `database delete-activities DB [filters\|--id …]` |

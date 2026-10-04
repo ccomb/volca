@@ -47,6 +47,7 @@ import Database
 import qualified Database.ComputedQuality as CQ
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
+import Database.Requirements (Substitution)
 import EcoSpold.Common (distributeFiles)
 import qualified Expr
 import GHC.Generics
@@ -190,6 +191,8 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "licence" :> ReqBody '[JSON] Licence :> Put '[JSON] Licence
                 -- Which published database an uploaded database is, or null for none
                 :<|> "db" :> Capture "dbName" Text :> "release" :> ReqBody '[JSON] (Maybe Release) :> Put '[JSON] (Maybe Release)
+                -- A database accepted in place of a release a packaged database requires
+                :<|> "db" :> Capture "dbName" Text :> "accept-substitution" :> ReqBody '[JSON] Substitution :> Post '[JSON] DatabaseSetupInfo
                 -- Upload endpoint (streamed octet-stream body; metadata in query params)
                 :<|> "db" :> "upload" :> QueryParam "name" Text :> QueryParam "description" Text :> StreamBody NoFraming OctetStream (SourceIO UploadChunk) :> Post '[JSON] UploadResponse
                 -- Database setup endpoints (for cross-DB linking configuration)
@@ -1513,7 +1516,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 49: the @package@ a database export accepts, @ro-crate@ to receive
+(revision 50: a package uploaded as one, its licence and the releases it
+requires read from its description, the @requiredReleases@ a setup carries,
+and the route that accepts a database in place of one;
+revision 49: the @package@ a database export accepts, @ro-crate@ to receive
 it with the description of its licence and of the releases it links to;
 revision 48: the @release@ a database's status and setup carry, the
 @systemModels@ its setup lists, and the route that declares it;
@@ -1625,7 +1631,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 49
+currentWireVersion = 50
 
 getVersion :: AppM Value
 getVersion = do
@@ -2799,6 +2805,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.documentFileHandler
             :<|> DBHandlers.setLicenceHandler
             :<|> DBHandlers.setReleaseHandler
+            :<|> DBHandlers.acceptSubstitutionHandler
             :<|> DBHandlers.uploadDatabaseHandler
             :<|> DBHandlers.getDatabaseSetupHandler
             :<|> DBHandlers.addDependencyHandler

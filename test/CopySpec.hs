@@ -259,6 +259,7 @@ mkConfig name =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 buildOrFail :: SimpleParts -> IO Database

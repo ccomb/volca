@@ -325,6 +325,7 @@ recordDerived slug srcConfig key = do
                 , UploadedDB.umBuiltIn = Nothing
                 , UploadedDB.umLicence = dcLicence srcConfig
                 , UploadedDB.umRelease = Nothing
+                , UploadedDB.umRequires = dcRequires srcConfig
                 }
         pure
             srcConfig
@@ -424,6 +425,7 @@ recordCopy slug src = do
                 , UploadedDB.umBuiltIn = Nothing
                 , UploadedDB.umLicence = dcLicence config
                 , UploadedDB.umRelease = Nothing
+                , UploadedDB.umRequires = dcRequires config
                 }
     pure $ case written of
         Right () -> Right ()

@@ -344,6 +344,7 @@ baseConfig name =
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
+        , dcRequires = []
         }
 
 uploadedConfig :: Text -> FilePath -> DatabaseConfig

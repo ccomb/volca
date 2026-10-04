@@ -4,6 +4,18 @@
 
 ### Added
 
+- A package can be uploaded as it is: the engine reads its description,
+  checks the export it carries against the digest given there (a mismatch
+  refuses the upload), and loads that export with the licence the description
+  states. The releases it was built on become the database's required
+  releases, kept in its `meta.toml` (version 8, one `[[requires]]` block
+  each). A database that requires releases links only to databases declared
+  as one of them, loaded before it is staged, and its setup reports each one
+  in `requiredReleases` as satisfied, missing (naming the databases of the
+  same name at another version) or substituted. A reader accepts another
+  database in place of a missing release with
+  `POST /api/v1/db/{name}/accept-substitution`; adding a dependency its
+  requirements do not admit is refused. Wire revision 50.
 - A database can be exported as a package: `"package": "ro-crate"` on
   `POST /api/v1/db/{name}/export` (`--package ro-crate` on `database export`)
   returns a zip holding the export, unchanged, under `payload/`, beside an

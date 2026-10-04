@@ -37,6 +37,7 @@ module API.DatabaseHandlers (
     documentFileHandler,
     setLicenceHandler,
     setReleaseHandler,
+    acceptSubstitutionHandler,
     licenceRefusal,
     refuseUnlessGranted,
     servedLicence,
@@ -161,7 +162,7 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime, utctDay)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
-import Database.Crate (CrateInput (..), Packaging (..), packageExport, parsePackaging, requiredReleases)
+import Database.Crate (CrateInput (..), Package (..), Packaging (..), openPackage, packageExport, parsePackaging, requiredReleases)
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
@@ -190,6 +191,7 @@ import Database.Manager (
     RelinkResult (..),
     SettingRefusal (..),
     SetupError (..),
+    acceptSubstitution,
     addCompartmentMappings,
     addDatabase,
     addDependencyToStaged,
@@ -234,6 +236,7 @@ import Database.Manager (
  )
 import qualified Database.Quality as Quality
 import Database.RelinkMapping (buildAliasMap, parseAliasCSV, rejectEmpty)
+import Database.Requirements (Substitution)
 import Database.Upload (
     DatabaseFormat (..),
     UploadData (..),
@@ -261,6 +264,7 @@ import Types (
     Permission (..),
     ProcessRef (..),
     Release (..),
+    Requirement (..),
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
@@ -832,6 +836,19 @@ setReleaseHandler dbName release = do
     dbManager <- asks aeDbManager
     liftIO (setUploadRelease dbManager dbName release) >>= either settingRefused pure
 
+{- | Accept a database in place of a release an uploaded database requires,
+and answer with its setup as it now links. 404 for a name the engine does not
+know or a release it does not require, 409 for a database loaded with the
+links it has, 500 for an upload whose meta.toml cannot be read.
+-}
+acceptSubstitutionHandler :: Text -> Substitution -> AppM DatabaseSetupInfo
+acceptSubstitutionHandler dbName substitution = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    liftIO (acceptSubstitution dbManager dbName substitution) >>= either settingRefused pure
+    -- Staged again apart: a failure there is the setup's, answered as the setup route answers it.
+    getDatabaseSetupHandler dbName
+
 -- | The status a refused setting answers with.
 settingRefused :: SettingRefusal -> AppM a
 settingRefused (SettingUnknown msg) = exportErr err404 msg
@@ -1119,14 +1136,22 @@ uploadDatabaseHandler mName mDesc src = do
         Just msg -> pure (UploadResponse False msg Nothing Nothing)
         Nothing -> uploadAccepted
   where
-    uploadAccepted = withStreamedUpload mName mDesc src $ \name mDescription zipBytes -> do
+    uploadAccepted = withStreamedUpload mName mDesc src $ \name mDescription zipBytes ->
+        either (\err -> pure (UploadResponse False err Nothing Nothing)) (uploadUnpacked name mDescription zipBytes) (openPackage zipBytes)
+
+    -- A package brings its export, the licence it was published under and
+    -- the releases it was built on; anything else is the export itself.
+    uploadUnpacked :: Text -> Maybe Text -> BSL.ByteString -> Maybe Package -> AppM UploadResponse
+    uploadUnpacked name mDescription zipBytes package = do
         dbManager <- asks aeDbManager
         let uploadData =
                 UploadData
                     { udName = name
                     , udDescription = mDescription
-                    , udZipData = zipBytes
+                    , udZipData = maybe zipBytes pkPayload package
                     }
+            licence = maybe LicenceUnstated pkLicence package
+            requires = maybe [] (map (`Requirement` Nothing) . pkRequires) package
         -- Handle the upload (extract, detect format)
         uploadsDir <- liftIO UploadedDB.getDatabaseUploadsDir
         result <- liftIO $ handleUpload uploadsDir uploadData (\_ -> return ())
@@ -1149,8 +1174,9 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umSource = Nothing
                             , UploadedDB.umAllocation = Declared
                             , UploadedDB.umBuiltIn = Nothing
-                            , UploadedDB.umLicence = LicenceUnstated
+                            , UploadedDB.umLicence = licence
                             , UploadedDB.umRelease = Nothing
+                            , UploadedDB.umRequires = requires
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1172,8 +1198,9 @@ uploadDatabaseHandler mName mDesc src = do
                             , dcAllocation = Declared
                             , dcPatches = []
                             , dcSource = Nothing
-                            , dcLicence = LicenceUnstated
+                            , dcLicence = licence
                             , dcRelease = Nothing
+                            , dcRequires = requires
                             }
 
                 -- Add to manager
@@ -1373,6 +1400,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umBuiltIn = Nothing
                             , UploadedDB.umLicence = LicenceUnstated
                             , UploadedDB.umRelease = Nothing
+                            , UploadedDB.umRequires = []
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
