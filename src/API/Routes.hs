@@ -1511,7 +1511,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 45: reading a collection's scoring sets as rows and changing
+(revision 47: the edges a supply chain draws from one database to another,
+and the @withheldInputs@ that say which listed process buys from a database
+whose licence keeps those edges;
+revision 46: the @withheldDatabases@ a dependency's licence groups its part in;
+revision 45: reading a collection's scoring sets as rows and changing
 them, and the @scoringRows@ an activity's score carries;
 revision 44: the @withheld@ of an activity, a score and a batch of scores,
 and the inventory and contributions a database's licence refuses answered
@@ -1615,7 +1619,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 46
+currentWireVersion = 47
 
 getVersion :: AppM Value
 getVersion = do

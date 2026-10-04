@@ -330,6 +330,21 @@ class WithheldShare:
 
 
 @dataclass
+class WithheldInput:
+    """A listed process of a supply chain that buys from a database whose
+    licence keeps the amounts of its exchanges: its edges to that database
+    are not listed, so part of its weight comes from there and not from the
+    process itself (wire revision 47)."""
+
+    consumer: str
+    database: str
+
+    @classmethod
+    def from_json(cls, d: dict) -> "WithheldInput":
+        return cls(consumer=d["consumer"], database=d["database"])
+
+
+@dataclass
 class WithheldProcesses:
     """A dependency whose licence keeps the amounts of its exchanges, in one
     line of a supply chain or an aggregation: how many of its processes are
@@ -838,6 +853,9 @@ class SupplyChain:
     withheld_databases: list[WithheldProcesses] = field(default_factory=list)
     """Dependencies whose processes are counted rather than listed, out of
     ``entries`` and ``filtered_activities``."""
+    withheld_inputs: list[WithheldInput] = field(default_factory=list)
+    """Listed processes buying from such a dependency, named with it, since
+    the edges between them are not listed."""
 
     @property
     def has_more(self) -> bool:
@@ -858,6 +876,7 @@ class SupplyChain:
             entries=[SupplyChainEntry.from_json(e) for e in d["supplyChain"]],
             edges=[SupplyChainEdge.from_json(e) for e in d.get("edges", [])],
             withheld_databases=[WithheldProcesses.from_json(w) for w in d.get("withheldDatabases", [])],
+            withheld_inputs=[WithheldInput.from_json(w) for w in d.get("withheldInputs", [])],
         )
 
 

@@ -306,6 +306,14 @@
 
 ### Fixed
 
+- A supply chain asked with its edges draws the ones that cross from one
+  database to another: a process buying from a linked database is joined to
+  the supplier it buys from, with the amount per unit converted to that
+  supplier's unit, where it was drawn with no input from there at all. A
+  contribution tree read from those edges put the whole share of a linked
+  supplier in the buyer's own emissions. Where the supplier's database keeps
+  the amounts of its exchanges, the edge stays out and the buyer is named
+  under `withheldInputs`, with the database it buys from. Wire revision 47.
 - `list_scoring_sets` writes the normalization of a variable a SimaPro file
   divides by 0 as `"Infinity"`, the divisor that counts it as zero, where it
   wrote `null`, which reads as no normalization at all.

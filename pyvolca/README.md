@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 46** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 47** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1804,6 +1804,18 @@ The exchanges of an activity whose licence keeps their amounts, and why.
 | `reason` | `str` | _required_ |
 | `lines` | `list[ExchangeName]` | _required_ |
 
+### `WithheldInput`
+
+A listed process of a supply chain that buys from a database whose
+licence keeps the amounts of its exchanges: its edges to that database
+are not listed, so part of its weight comes from there and not from the
+process itself (wire revision 47).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `consumer` | `str` | _required_ |
+| `database` | `str` | _required_ |
+
 ### `WithheldProcesses`
 
 A dependency whose licence keeps the amounts of its exchanges, in one
@@ -3109,6 +3121,7 @@ lengths by hand.
 | `entries` | `list[SupplyChainEntry]` | list() |
 | `edges` | `list[SupplyChainEdge]` | list() |
 | `withheld_databases` | `list[WithheldProcesses]` | list() |
+| `withheld_inputs` | `list[WithheldInput]` | list() |
 
 #### Properties
 
