@@ -4,6 +4,18 @@
 
 ### Added
 
+- A database can say which published database it is: its name, its version
+  and, when the publisher ships several, its system model
+  (`release = { name = "ecoinvent", version = "3.12", system_model = "..." }`
+  on a configured database). An uploaded database's owner declares it with
+  `PUT /api/v1/db/{name}/release`, or clears it with `null`, and it is kept in
+  its `meta.toml` (version 7). A copy, or a database derived under another
+  allocation key, starts with none. The status of a database in the list and
+  its setup carry it as `release`, and the setup lists the system models its
+  activities state, each once, for the owner to confirm. Only the system
+  model is read from the files: an EcoSpold 2 file's `majorRelease` and
+  `minorRelease` name the release of the format, the same on every version
+  of a database. Wire revision 48.
 - A method collection can be changed: copy it under a new name, then set,
   remove or add a factor of the copy, or scale or set every factor a selector
   reaches, the selector a configuration patch writes. Each change is a line of

@@ -440,6 +440,7 @@ mkConfig name =
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
+        , dcRelease = Nothing
         }
 
 buildOrFail :: SimpleParts -> IO Database

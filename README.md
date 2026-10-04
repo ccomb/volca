@@ -181,6 +181,12 @@ licence = "CC-BY-4.0"          # the licence it is published under, by SPDX iden
 # attribution = true           #   results must name the publisher (the default)
                                # A copy is served under its source's licence; an
                                # upload's owner sets its own with PUT /db/{name}/licence
+# release = { name = "ecoinvent", version = "3.12", system_model = "Allocation, cut-off by classification" }
+                               # which published database this is; name and version
+                               # both required. An upload's owner declares it with
+                               # PUT /db/{name}/release (null clears it), and its
+                               # setup shows the system models its activities state.
+                               # A copy declares its own: it is made to be changed
 # locationAliases = { "FR" = "France" }   # per-database location renames
 
 # Optional patches adjust the amounts a database states, at load time.

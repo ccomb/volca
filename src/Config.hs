@@ -93,7 +93,7 @@ import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
 import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldOpt, getFieldOptWith, getFieldWith)
-import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), licenceFromKeys, parseAllocationKey)
+import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Release (..), licenceFromKeys, parseAllocationKey)
 
 -- | A single classification filter entry (system + value)
 data ClassificationEntry = ClassificationEntry
@@ -285,6 +285,12 @@ data DatabaseConfig = DatabaseConfig
     -}
     , dcLicence :: !Licence
     -- ^ The licence it is published under; a copy is served under its source's, see 'licenceOf'
+    , dcRelease :: !(Maybe Release)
+    {- ^ Which published database it is, as its owner declares. A copy or a
+    database derived under another allocation key starts with none: a copy is
+    made to be changed, and a re-keyed one holds other amounts, so neither is
+    the publisher's release until its owner says so.
+    -}
     }
     deriving (Show, Eq, Generic)
 
@@ -673,7 +679,21 @@ instance DecodeTOML DatabaseConfig where
         dcPatches <- fromMaybe [] <$> getFieldOptWith (getArrayOf exchangePatchDecoder) "patches"
         let dcSource = Nothing -- A configured database owns the files it names
         dcLicence <- licenceDecoder
+        dcRelease <- getFieldOptWith releaseDecoder "release"
         pure DatabaseConfig{..}
+
+{- | @release = { name = "...", version = "...", system_model = "..." }@ on a
+database entry. A release missing its name or its version stops the load:
+read as one, it would match every database sharing the half that is there.
+The check is written out because a missing field inside an optional table
+reads as no table at all.
+-}
+releaseDecoder :: Decoder Release
+releaseDecoder = do
+    name <- getFieldOpt "name"
+    version <- getFieldOpt "version"
+    systemModel <- getFieldOpt "system_model"
+    maybe (fail "release: write both its name and its version") pure (Release <$> name <*> version <*> pure systemModel)
 
 {- | The licence keys on a database entry, read by 'licenceFromKeys'. A
 @downloads@ key, the single switch these keys replaced, stops the load rather
@@ -962,7 +982,10 @@ configKeys =
             ( "databases"
             , keys $
                 map plain ["name", "displayName", "path", "description", "load", "default", "depends", "deletable", "geography_policy", "allocation", "licence", "licence_text", "refuses", "attribution", "downloads"]
-                    <> [("locationAliases", AcceptsAnything), ("patches", exchangePatch)]
+                    <> [ ("locationAliases", AcceptsAnything)
+                       , ("patches", exchangePatch)
+                       , ("release", keys (map plain ["name", "version", "system_model"]))
+                       ]
             )
         ,
             ( "methods"

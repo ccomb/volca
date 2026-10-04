@@ -30,7 +30,22 @@ withFixture k = do
         Right res -> k res
 
 spec :: Spec
-spec = describe "per-exchange comments" $ do
+spec = do
+    describe "systemModelsRead" $ do
+        let parsed path = streamParseActivityAndFlowsFromFile path >>= either (\err -> expectationFailure err >> pure []) (pure . pure . pdActivity)
+            cutOff = "test-data/SAMPLE.min3/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_productX-uuid.spold"
+        it "reads the one system model a database states, once" $ do
+            a <- parsed cutOff
+            b <- parsed "test-data/SAMPLE.min3/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb_productY-uuid.spold"
+            systemModelsRead (a <> b) `shouldBe` ["Allocation, cut-off by classification"]
+        it "names every system model when the activities disagree" $ do
+            a <- parsed cutOff
+            other <- parsed "test-data/electricity-production.spold"
+            systemModelsRead (a <> other) `shouldBe` ["Allocation, cut-off by classification", "Test system model"]
+    perExchangeComments
+
+perExchangeComments :: Spec
+perExchangeComments = describe "per-exchange comments" $ do
     it "captures English <comment> on intermediateExchange and elementaryExchange" $
         withFixture $ \ParsedDataset{pdActivity = act} ->
             map exchangeComment (exchanges act)

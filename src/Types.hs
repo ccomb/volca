@@ -2321,6 +2321,58 @@ granted licence = (`S.notMember` refusedBy licence)
 back. Said of the database rather than quoted from the licence: an own
 licence's text is the publisher's, of any length.
 -}
+
+{- | Which published database a database is: the name its publisher gives it,
+the version, and the system model when the publisher ships several. Two
+engines that each hold a database of the same release hold the same data, so
+a model built on one can be computed on the other.
+
+Its owner declares it. The files say only the system model: an EcoSpold 2
+file's @majorRelease@ and @minorRelease@ name the release of the format, the
+same "3.0" on every 3.x database.
+-}
+data Release = Release
+    { releaseName :: !Text
+    , releaseVersion :: !Text
+    , releaseSystemModel :: !(Maybe Text)
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped Release)
+
+{- | Whether two releases are the same, read the way people write them: case
+and the run of spaces between words aside, but "3.12" is not "3.12.1".
+-}
+sameRelease :: Release -> Release -> Bool
+sameRelease a b = key a == key b
+  where
+    key :: Release -> (Text, Text, Maybe Text)
+    key (Release n v m) = (fold n, fold v, fold <$> m)
+
+    fold :: Text -> Text
+    fold = T.toCaseFold . T.unwords . T.words
+
+{- | The label an EcoSpold 2 activity's documentation files its system model
+under, written by the parser and read by 'systemModelsRead'.
+-}
+systemModelLabel :: Text
+systemModelLabel = "System model"
+
+{- | The system models the activities of a database state, each once. One is
+the proposal its owner confirms; several, the owner is shown them all rather
+than one picked for them.
+-}
+systemModelsRead :: (Foldable f) => f Activity -> [Text]
+systemModelsRead activities =
+    S.toList
+        ( S.fromList
+            [ docText section
+            | activity <- foldr (:) [] activities
+            , section <- activityDocumentation activity
+            , docLabel section == systemModelLabel
+            , not (T.null (docText section))
+            ]
+        )
+
 withheldSentence :: Text -> Permission -> Text
 withheldSentence dbName p = "The licence of " <> dbName <> " " <> withheld p <> "."
   where

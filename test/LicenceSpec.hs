@@ -14,7 +14,7 @@ import Test.Hspec
 import API.DatabaseHandlers (licenceRefusal)
 import API.Resources (Resource (..), resourceNeeds)
 import Config (DatabaseConfig (..), defaultConfig)
-import Database.Manager (CachePolicy (..), DatabaseManager, DatabaseStatus (..), LicenceRefusal (..), addDatabase, databaseLicence, initDatabaseManager, listDatabases, setUploadLicence)
+import Database.Manager (CachePolicy (..), DatabaseManager, DatabaseStatus (..), SettingRefusal (..), addDatabase, databaseLicence, initDatabaseManager, listDatabases, setUploadLicence, setUploadRelease)
 import qualified Database.UploadedDatabase as UploadedDB
 import TestHelpers (membersOnly, withScratchDataDir)
 import Types (
@@ -25,6 +25,7 @@ import Types (
     LicenceKeys (..),
     OwnLicence (..),
     Permission (..),
+    Release (..),
     StandardLicence (..),
     granted,
     licenceFromKeys,
@@ -56,6 +57,7 @@ configured =
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
+        , dcRelease = Nothing
         }
 
 refused :: Licence
@@ -82,6 +84,7 @@ withUpload k = withScratchDataDir $ do
             , UploadedDB.umAllocation = Declared
             , UploadedDB.umBuiltIn = Nothing
             , UploadedDB.umLicence = LicenceUnstated
+            , UploadedDB.umRelease = Nothing
             }
     manager <- initDatabaseManager defaultConfig NoCache
     let upload = configured{dcName = "upload", dcIsUploaded = True}
@@ -112,26 +115,55 @@ spec = do
         it "refuses to set the licence of a copy, which is its source's" $
             withUpload $ \manager _ ->
                 setUploadLicence manager "copy" refused
-                    `shouldReturn` Left (LicenceHeldElsewhere "copy reads the files of upload and is served under its licence")
+                    `shouldReturn` Left (SettingHeldElsewhere "copy reads the files of upload and is served under its licence")
 
         it "refuses to set the licence of a configured database, which is the configuration file's" $
             withScratchDataDir $ do
                 manager <- initDatabaseManager defaultConfig NoCache
                 addDatabase manager configured
                 setUploadLicence manager "configured" refused
-                    `shouldReturn` Left (LicenceHeldElsewhere "configured is set in the configuration file, which is where its licence is written")
+                    `shouldReturn` Left (SettingHeldElsewhere "configured is set in the configuration file, which is where its licence is written")
 
         it "refuses an upload whose meta.toml it cannot read, rather than set a licence a restart would lose" $
             withUpload $ \manager home -> do
                 writeFile (home </> "meta.toml") "not a meta file"
                 setUploadLicence manager "upload" refused
-                    `shouldReturn` Left (LicenceUnrecordable ("No readable meta.toml under " <> T.pack home <> ": the licence of upload would be lost at the next restart"))
+                    `shouldReturn` Left (SettingUnrecordable ("No readable meta.toml under " <> T.pack home <> ": the licence of upload would be lost at the next restart"))
                 databaseLicence manager "upload" `shouldReturn` Just LicenceUnstated
 
         it "refuses a name the engine does not know" $
             withScratchDataDir $ do
                 manager <- initDatabaseManager defaultConfig NoCache
-                setUploadLicence manager "nothing" refused `shouldReturn` Left (LicenceUnknown "Database not found: nothing")
+                setUploadLicence manager "nothing" refused `shouldReturn` Left (SettingUnknown "Database not found: nothing")
+
+    describe "setUploadRelease" $ do
+        let release = Release "ecoinvent" "3.12" (Just "Allocation, cut-off by classification")
+
+        it "records the release of an upload where a restart reads it, and lists it" $
+            withUpload $ \manager home -> do
+                setUploadRelease manager "upload" (Just release) `shouldReturn` Right (Just release)
+                fmap UploadedDB.umRelease <$> UploadedDB.readUploadMeta home `shouldReturn` Just (Just release)
+                listed <- listDatabases manager
+                [dsRelease s | s <- listed, dsName s == "upload"] `shouldBe` [Just release]
+
+        it "clears a release" $
+            withUpload $ \manager home -> do
+                _ <- setUploadRelease manager "upload" (Just release)
+                setUploadRelease manager "upload" Nothing `shouldReturn` Right Nothing
+                fmap UploadedDB.umRelease <$> UploadedDB.readUploadMeta home `shouldReturn` Just Nothing
+
+        it "leaves a copy without its source's release, since a copy is made to be changed" $
+            withUpload $ \manager _ -> do
+                _ <- setUploadRelease manager "upload" (Just release)
+                listed <- listDatabases manager
+                [dsRelease s | s <- listed, dsName s == "copy"] `shouldBe` [Nothing]
+
+        it "refuses to set the release of a configured database, which is the configuration file's" $
+            withScratchDataDir $ do
+                manager <- initDatabaseManager defaultConfig NoCache
+                addDatabase manager configured
+                setUploadRelease manager "configured" (Just release)
+                    `shouldReturn` Left (SettingHeldElsewhere "configured is set in the configuration file, which is where its release is written")
 
     describe "licenceRefusal" $ do
         it "lets a database with no licence be downloaded" $

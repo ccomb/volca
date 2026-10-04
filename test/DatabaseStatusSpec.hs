@@ -12,7 +12,7 @@ import API.DatabaseHandlers (convertDbStatus)
 import API.Types (DatabaseStatusAPI (..))
 import Database.Manager (DatabaseLoadStatus (..), DatabaseStatus (..))
 import TestHelpers (membersOnly)
-import Types (AllocationKey (..), AllocationProperty (..), Licence (..))
+import Types (AllocationKey (..), AllocationProperty (..), Licence (..), Release (..))
 
 mkStatus :: [A.Value -> A.Value] -> DatabaseStatus
 mkStatus _ =
@@ -30,6 +30,7 @@ mkStatus _ =
         , dsAllocation = ByProperty WetMass
         , dsSource = Just "agribalyse-3-2-declared"
         , dsLicence = membersOnly
+        , dsRelease = Just (Release "Agribalyse" "3.2" Nothing)
         }
 
 spec :: Spec
@@ -56,6 +57,7 @@ spec = do
             case decoded of
                 A.Success ds -> do
                     dsDependsOn ds `shouldBe` []
+                    dsRelease ds `shouldBe` Nothing
                     -- Written before a database could be re-keyed, so it was
                     -- divided the way its source declares.
                     dsAllocation ds `shouldBe` Declared

@@ -572,7 +572,7 @@ documentationSections d =
         , docSection "Geography" (ddGeography d)
         , docSection "Technology" (ddTechnology d)
         , docSection "Time period" (joinParts " " [period, ddTimePeriod d])
-        , docSection "System model" (ddSystemModel d)
+        , docSection systemModelLabel (ddSystemModel d)
         , docSection "Sampling procedure" (ddSampling d)
         , docSection "Extrapolations" (ddExtrapolations d)
         , docSection "Published in" (joinParts ", " [publishedBy, ddPublishedPages d])

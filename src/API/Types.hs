@@ -59,6 +59,7 @@ import Types (
     NativeProcessId (..),
     PatchOp (..),
     Pedigree,
+    Release (..),
     Severity,
     TechRole,
     TechnosphereFlow (..),
@@ -989,6 +990,7 @@ data DatabaseStatusAPI = DatabaseStatusAPI
     -}
     , dsaSource :: Maybe Text -- The database whose files it reads, when it owns none (a copy, or a re-keyed load)
     , dsaLicence :: Licence -- What it is served under, its source's for a copy
+    , dsaRelease :: Maybe Release -- Which published database it is, as its owner declared
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseStatusAPI)

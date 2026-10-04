@@ -343,6 +343,7 @@ baseConfig name =
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
+        , dcRelease = Nothing
         }
 
 uploadedConfig :: Text -> FilePath -> DatabaseConfig

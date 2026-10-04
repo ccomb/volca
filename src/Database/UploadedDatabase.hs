@@ -42,7 +42,7 @@ import Text.Read (readMaybe)
 -- Re-export DatabaseFormat from Database.Upload (single definition)
 import Database.Upload (DatabaseFormat (..))
 import Progress (ProgressLevel (..), reportProgress)
-import Types (AllocationKey, Licence, LicenceKeys (..), allocationKeyText, licenceFromKeys, licenceKeys, parseAllocationKey)
+import Types (AllocationKey, Licence, LicenceKeys (..), Release (..), allocationKeyText, licenceFromKeys, licenceKeys, parseAllocationKey)
 
 -- | Metadata for an uploaded database
 data UploadMeta = UploadMeta
@@ -82,6 +82,10 @@ data UploadMeta = UploadMeta
     is made. A file written before this field existed has none, which is what
     it meant.
     -}
+    , umRelease :: !(Maybe Release)
+    {- ^ Which published database this is, as its owner declared. A file
+    written before this field existed declares none, which is what it meant.
+    -}
     }
     deriving (Show, Eq, Generic)
 
@@ -91,12 +95,13 @@ added @allocation@, without which a re-keyed database came back declared after
 a restart; version 5 added the licence (@licence@ for a standard one; @licence_text@,
 @refuses@ and @attribution@ for an own one; a @downloads@ key, the switch
 they replaced before any release, stops the file); version 6 added
-@builtin@, the built-in collection a method copy reads. The parser reads every
+@builtin@, the built-in collection a method copy reads; version 7 added the
+release (@release_name@, @release_version@, @release_system_model@). The parser reads every
 version, taking absent fields to mean what their absence meant when they did
 not exist.
 -}
 metaVersion :: Int
-metaVersion = 6
+metaVersion = 7
 
 -- | Name of the metadata file in each upload directory
 metaFileName :: FilePath
@@ -200,6 +205,13 @@ parseMetaToml content = do
         Just _ -> Nothing
         Nothing -> either (const Nothing) Just . licenceFromKeys =<< licenceKeysOf
 
+    -- A release missing its name or its version is no release: read as one,
+    -- it would match whichever database shares the half that is there.
+    release <- case (getValue "release_name", getValue "release_version") of
+        (Nothing, Nothing) -> Just Nothing
+        (Just name, Just ver) -> Just (Just (Release (unquote name) (unquote ver) (unquote <$> getValue "release_system_model")))
+        _ -> Nothing
+
     return
         UploadMeta
             { umVersion = version
@@ -212,6 +224,7 @@ parseMetaToml content = do
             , umBuiltIn = unquote <$> getValue "builtin"
             , umAllocation = allocation
             , umLicence = licence
+            , umRelease = release
             }
 
 -- | The value between one delimiter at each end, or the value itself when it has none.
@@ -295,7 +308,13 @@ formatMetaToml UploadMeta{..} =
             ++ maybe [] (\s -> ["source = " <> quote s]) umSource
             ++ maybe [] (\b -> ["builtin = " <> quote b]) umBuiltIn
             ++ licenceLines (licenceKeys umLicence)
+            ++ maybe [] releaseLines umRelease
   where
+    releaseLines :: Release -> [Text]
+    releaseLines Release{..} =
+        ["release_name = " <> quote releaseName, "release_version = " <> quote releaseVersion]
+            ++ maybe [] (\m -> ["release_system_model = " <> quote m]) releaseSystemModel
+
     quote t = "\"" <> escapeToml t <> "\""
 
     licenceLines :: LicenceKeys -> [Text]
