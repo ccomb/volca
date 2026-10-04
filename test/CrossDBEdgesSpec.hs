@@ -20,6 +20,7 @@ import Test.Hspec
 import API.Routes (batchedScoresFor, getActivitySupplyChain)
 import API.Types (SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), WithheldInput (..))
 import qualified Database.Manager as DM
+import Matrix (accumulateDepDemandsWith)
 import Method.Types (Method (..))
 import qualified SharedSolver as SS
 import Types
@@ -112,3 +113,13 @@ spec = do
         chain <- chainOn root twoDeep LicenceUnstated
         [(sceProcessId e, sceDepth e) | e <- scrSupplyChain chain]
             `shouldMatchList` [("dep::" <> processIdToText twoDeep 0, 1), ("dep::" <> processIdToText twoDeep 1, 2)]
+
+    it "divides a substitution's link by the reference amount of a consumer with no link of its own" $ do
+        let link = head (dbCrossDBLinks root)
+            twoKg =
+                root
+                    { dbActivities = V.map (\act -> act{exchanges = [(referenceOf 100){techAmount = 2}]}) (dbActivities root)
+                    , dbCrossDBLinks = []
+                    }
+        accumulateDepDemandsWith twoKg [link] (U.singleton 1)
+            `shouldBe` M.singleton "dep" (M.singleton (cdlSupplierActUUID link, cdlSupplierProdUUID link) (0.5, "kg"))
