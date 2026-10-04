@@ -309,6 +309,7 @@ test-suite lca-tests
                      , MethodCollectionCacheSpec
                      , DependencyFlowClosureSpec
                      , DependencyLicenceSpec
+                     , CrossDBEdgesSpec
                      , MethodResolveSpec
                      , ChemSynonymsSpec
                      , SubstanceRegistrySpec

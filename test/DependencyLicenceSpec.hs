@@ -10,7 +10,17 @@ dependency comes back as one line of 20; under one keeping its amounts, its
 contributions stay readable and every answer reading its exchanges is
 grouped or refused.
 -}
-module DependencyLicenceSpec (spec) where
+module DependencyLicenceSpec (
+    climate,
+    collection,
+    dependency,
+    inventoryKept,
+    managerOn,
+    root,
+    rootPid,
+    runIn,
+    spec,
+) where
 
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Monad (void)
@@ -143,12 +153,16 @@ inventoryKept = own [ReadInventory, Download]
 
 -- | Both databases loaded, the dependency under the licence given.
 managerWith :: Licence -> IO DM.DatabaseManager
-managerWith licence = do
+managerWith = managerOn root
+
+-- | The dependency and the root given, loaded, the dependency under the licence given.
+managerOn :: Database -> Licence -> IO DM.DatabaseManager
+managerOn rootDb licence = do
     manager <- DM.initDatabaseManager defaultConfig DM.NoCache
     DM.addDatabase manager (configFor "root" LicenceUnstated)
     DM.addDatabase manager (configFor "dep" licence)
     install manager "dep" dependency
-    install manager "root" root
+    install manager "root" rootDb
     atomically $ modifyTVar' (DM.dmLoadedMethods manager) (M.insert collection (MethodCollection [climate] [] []))
     pure manager
 

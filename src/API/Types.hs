@@ -1518,9 +1518,22 @@ data SupplyChainResponse = SupplyChainResponse
     , scrSupplyChain :: [SupplyChainEntry]
     , scrEdges :: [SupplyChainEdge]
     , scrWithheldDatabases :: [WithheldProcesses] -- Not in the chain above nor in its counts but the total
+    , scrWithheldInputs :: [WithheldInput]
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped SupplyChainResponse)
+
+{- | A listed process that takes inputs from a database whose licence keeps the
+amounts of its exchanges. Its edges to that database are not listed, so this
+is what tells a reader drawing the chain that part of the process's weight
+comes from there, and not from the process itself. Listed with the edges only.
+-}
+data WithheldInput = WithheldInput
+    { wiConsumer :: Text -- processId, as an edge names it
+    , wiDatabase :: Text
+    }
+    deriving (Eq, Ord, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped WithheldInput)
 
 {- | A single entry in the supply chain. @sceProcessId@ is bare for entries
 from the root DB and qualified (@"dbName::pid"@) for entries reached via

@@ -44,6 +44,9 @@ module Matrix (
     accumulateDepDemandsWith,
     activityNormalizationFactor,
     depDemandsToVector,
+    inSupplierUnit,
+    linkConsumer,
+    consumerNormFactors,
     computeProcessLCIAContributions,
     perturbA,
     perturbABatch,
@@ -849,15 +852,13 @@ accumulateDepDemandsWith db extraLinks scalingVec =
     foldr step M.empty (dbCrossDBLinks db ++ extraLinks)
   where
     actIdx = dbActivityIndex db
-    procLookup = dbProcessIdLookup db
     normFactors = consumerNormFactors db
     step link acc =
-        case M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) procLookup of
+        case linkConsumer db normFactors link of
             Nothing -> acc
-            Just consumerPid ->
+            Just (consumerPid, normFactor) ->
                 let consumerIdx = fromIntegral $ actIdx V.! fromIntegral consumerPid
                     consumerScale = scalingVec U.! consumerIdx
-                    normFactor = M.findWithDefault 1.0 consumerPid normFactors
                     demand = cdlCoefficient link * consumerScale / normFactor
                     supplierKey = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
                     entry = (demand, cdlExchangeUnit link)
@@ -875,6 +876,16 @@ accumulateDepDemandsWith db extraLinks scalingVec =
     -- inconsistency because depDemandsToVector converts exchangeUnit →
     -- supplierRefUnit per entry.
     mergeEntry (a, u) (b, _) = (a + b, u)
+
+{- | A link's consumer in its own database, and the factor its matrix column
+is normalized by: what one unit of the consumer takes from the supplier is the
+link's coefficient over that factor. Shared by the demand a dependency solves
+and the edge a supply chain draws, so the two cannot drift apart.
+-}
+linkConsumer :: Database -> M.Map ProcessId Double -> CrossDBLink -> Maybe (ProcessId, Double)
+linkConsumer db normFactors link =
+    (\pid -> (pid, M.findWithDefault 1.0 pid normFactors))
+        <$> M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) (dbProcessIdLookup db)
 
 {- | Normalization factor (ref-product amount) for each consumer activity that
 appears in 'dbCrossDBLinks'. Mirrors the factor used in 'buildActivityTriplets'.
@@ -928,39 +939,53 @@ depDemandsToVector unitConfig depDbName depDb demands = do
     Right $ Demand $ U.accum (+) (U.replicate n 0.0) entries
   where
     actIdx = dbActivityIndex depDb
-    procLookup = dbProcessIdLookup depDb
-    activities = dbActivities depDb
-    unitsDB = dbUnits depDb
-    convertEntry ((actUUID, prodUUID), (amt, exchangeUnit)) =
-        case M.lookup (actUUID, prodUUID) procLookup of
-            Nothing -> Right Nothing -- supplier absent in dep DB; drop
-            Just pid ->
-                let act = activities V.! fromIntegral pid
-                    refExs = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
-                    supplierUnit = case refExs of
-                        (ex : _) -> getUnitNameForExchange unitsDB ex
-                        [] -> ""
-                    needsConversion =
-                        UnitConversion.unitKey unitConfig exchangeUnit /= UnitConversion.unitKey unitConfig supplierUnit
-                            && not (T.null exchangeUnit)
-                            && not (T.null supplierUnit)
-                    idx = fromIntegral (actIdx V.! fromIntegral pid) :: Int
-                 in if not needsConversion
-                        then Right (Just (idx, amt))
-                        else case UnitConversion.convertUnit unitConfig exchangeUnit supplierUnit amt of
-                            Just v -> Right (Just (idx, v))
-                            Nothing ->
-                                Left $
-                                    "Unknown unit conversion: \""
-                                        <> exchangeUnit
-                                        <> "\" \8594 \""
-                                        <> supplierUnit
-                                        <> "\" for supplier "
-                                        <> activityName act
-                                        <> " in database "
-                                        <> depDbName
-                                        <> " \8212 "
-                                        <> UnitConversion.missingConversion unitConfig exchangeUnit supplierUnit
+    convertEntry (supplierKey, amount) =
+        fmap
+            (fmap (\(pid, v) -> (fromIntegral (actIdx V.! fromIntegral pid), v)))
+            (inSupplierUnit unitConfig depDbName depDb supplierKey amount)
+
+{- | An amount of a dependency's supplier, stated in the unit of the exchange
+that asks for it, in the unit of the supplier's reference product. 'Nothing'
+when the dependency has no such supplier. Fails on a unit pair it cannot
+convert: the raw value is never used in its place.
+-}
+inSupplierUnit ::
+    UnitConversion.UnitConfig ->
+    -- | dep DB name, for error messages
+    Text ->
+    Database ->
+    (UUID, UUID) ->
+    (Double, Text) ->
+    Either Text (Maybe (ProcessId, Double))
+inSupplierUnit unitConfig depDbName depDb supplierKey (amt, exchangeUnit) =
+    case M.lookup supplierKey (dbProcessIdLookup depDb) of
+        Nothing -> Right Nothing -- supplier absent in dep DB; drop
+        Just pid ->
+            let act = dbActivities depDb V.! fromIntegral pid
+                refExs = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
+                supplierUnit = case refExs of
+                    (ex : _) -> getUnitNameForExchange (dbUnits depDb) ex
+                    [] -> ""
+                needsConversion =
+                    UnitConversion.unitKey unitConfig exchangeUnit /= UnitConversion.unitKey unitConfig supplierUnit
+                        && not (T.null exchangeUnit)
+                        && not (T.null supplierUnit)
+             in if not needsConversion
+                    then Right (Just (pid, amt))
+                    else case UnitConversion.convertUnit unitConfig exchangeUnit supplierUnit amt of
+                        Just v -> Right (Just (pid, v))
+                        Nothing ->
+                            Left $
+                                "Unknown unit conversion: \""
+                                    <> exchangeUnit
+                                    <> "\" \8594 \""
+                                    <> supplierUnit
+                                    <> "\" for supplier "
+                                    <> activityName act
+                                    <> " in database "
+                                    <> depDbName
+                                    <> " \8212 "
+                                    <> UnitConversion.missingConversion unitConfig exchangeUnit supplierUnit
 
 {- | The direction one unit of an activity runs in, read from its reference
 product.
