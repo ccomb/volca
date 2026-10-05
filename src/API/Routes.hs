@@ -2457,8 +2457,9 @@ getFlowActivities dbName flowIdText mRole = do
 getMethods :: AppM [MethodSummary]
 getMethods = map methodSummary <$> (liftIO . DM.getLoadedMethods =<< asks aeDbManager)
 
--- | One loaded method as both surfaces list it, named with its collection:
--- the same method loaded twice is two lines a reader has to tell apart.
+{- | One loaded method as both surfaces list it, named with its collection:
+the same method loaded twice is two lines a reader has to tell apart.
+-}
 methodSummary :: (Text, Method) -> MethodSummary
 methodSummary (collName, m) =
     MethodSummary
