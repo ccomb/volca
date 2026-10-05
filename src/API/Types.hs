@@ -9,7 +9,7 @@
 
 module API.Types where
 
-import API.JsonOptions (Stripped (..), parseClosed)
+import API.JsonOptions (Stripped (..), parseClosed, stripLowerPrefix)
 import Config (MethodPatch (..), MethodPatchMatch (..))
 import Control.DeepSeq (NFData)
 import Control.Lens ((&), (.~), (?~))
@@ -995,7 +995,10 @@ data DatabaseStatusAPI = DatabaseStatusAPI
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseStatusAPI)
 
--- | Response for database activation
+{- | Response for database activation. A failure is an HTTP error, so
+@arSuccess@ is always true: it stays on the wire for clients that still read
+it, until 0.16.0.
+-}
 data ActivateResponse = ActivateResponse
     { arSuccess :: Bool
     , arMessage :: Text
@@ -1256,12 +1259,19 @@ data DepLoadResult
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DepLoadResult)
 
--- | Response for the load database endpoint
-data LoadDatabaseResponse
-    = LoadFailed {ldrError :: Text}
-    | LoadSucceeded {ldrDatabase :: DatabaseStatusAPI, ldrDeps :: [DepLoadResult]}
+{- | Response for the load database endpoint. A failure is an HTTP error. The
+@"tag": "LoadSucceeded"@ the answer carried when it could also be a failure
+stays on the wire for clients that still read it, until 0.16.0.
+-}
+data LoadDatabaseResponse = LoadSucceeded {ldrDatabase :: DatabaseStatusAPI, ldrDeps :: [DepLoadResult]}
     deriving (Generic)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped LoadDatabaseResponse)
+    deriving (ToSchema) via (Stripped LoadDatabaseResponse)
+
+instance ToJSON LoadDatabaseResponse where
+    toJSON = genericToJSON stripLowerPrefix{tagSingleConstructors = True}
+
+instance FromJSON LoadDatabaseResponse where
+    parseJSON = genericParseJSON stripLowerPrefix{tagSingleConstructors = True}
 
 {- | One classification filter in a delete request: the @system@ to match, the
 @value@ to look for, and whether the match is exact (else token-contains).
@@ -1517,7 +1527,10 @@ data DatabaseExportRequest = DatabaseExportRequest
 instance FromJSON DatabaseExportRequest where
     parseJSON = parseClosed
 
--- | Response for database upload
+{- | Response for database upload. A failure is an HTTP error, so
+@uprSuccess@ is always true: it stays on the wire for clients that still read
+it, until 0.16.0.
+-}
 data UploadResponse = UploadResponse
     { uprSuccess :: Bool
     , uprMessage :: Text

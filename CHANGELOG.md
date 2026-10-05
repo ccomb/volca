@@ -329,7 +329,21 @@
   of one name read from the method files stop the load. `list_scoring_sets`
   gives the `units` of each variable. Wire revision 37.
 
+- A request that loads, unloads, deletes, copies, derives, finalizes or
+  uploads a database, a method collection or reference data answers its
+  failure with an HTTP error, the sentence as the body: 400 when it cannot be
+  done (a name that exists nowhere, a file that does not read), 403 when the
+  hosting quota refuses it, 413 when an upload is larger than the plan
+  allows, 500 when the server failed. It answered 200 with
+  `"success": false` or `"tag": "LoadFailed"` in the body, which a client
+  reading the status alone took for a success. Wire revision 51.
+
 ### Deprecated
+
+- `success` on the answer to a load, unload, delete, copy, finalize or
+  upload, and `"tag": "LoadSucceeded"` on the answer to a database load or
+  derive, are always a success now that a failure is an HTTP error, and will
+  be removed in 0.16.0.
 
 - `damageCategory`, `normalizedScore` and `weightedScore` on a result, and
   `normWeightSetName`, `availableNWsets`, `singleScore` and `singleScoreUnit`

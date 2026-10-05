@@ -50,6 +50,12 @@ Then paste the rendered block at the top of this file and tighten wording.
   and `available_nw_sets`: a SimaPro method's single score now arrives in
   `scoring_results`. They go with engine 0.16.0.
 
+### Fixed
+
+- `load_database`, `unload_database` and `derive_database` raise on a failure, where they
+  returned it as a result when the engine reported it with HTTP 200 (engines
+  before wire revision 51; later ones answer an HTTP error).
+
 ## [0.12.1] - 2026-09-20
 
 ### Changed

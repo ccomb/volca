@@ -850,14 +850,18 @@ class Client:
         Declared dependencies are loaded first; has no effect if the
         database is already loaded.
         """
-        return self._call("load_database", db_name=db_name)
+        return self._require_success(
+            self._call("load_database", db_name=db_name), "load_database"
+        )
 
     def unload_database(self, db_name: str) -> dict:
         """Unload a database from memory to free RAM. The disk copy is kept.
 
         Refused if another loaded database still depends on it.
         """
-        return self._call("unload_database", db_name=db_name)
+        return self._require_success(
+            self._call("unload_database", db_name=db_name), "unload_database"
+        )
 
     def derive_database(
         self,
@@ -880,11 +884,14 @@ class Client:
         source under a second name.
         """
         self._require_wire(20, "derive_database", engine_hint="0.13.0")
-        return self._call(
+        return self._require_success(
+            self._call(
+                "derive_database",
+                db_name=self._db(db_name),
+                new_name=new_name,
+                allocation=allocation,
+            ),
             "derive_database",
-            db_name=self._db(db_name),
-            new_name=new_name,
-            allocation=allocation,
         )
 
     # -- Database write operations --
@@ -895,9 +902,9 @@ class Client:
     # dispatcher. Each method therefore builds its URL directly, exactly like
     # load_database / unload_database above.
     #
-    # The engine reports failures in-band as ``{"success": false, ...}`` (HTTP
-    # 200) for some of these handlers, so _require_success surfaces those as
-    # VoLCAError rather than letting a failed call look like a success.
+    # An engine older than wire revision 51 reports failures in-band with
+    # HTTP 200, so _require_success surfaces those as VoLCAError rather than
+    # letting a failed call look like a success.
 
     def _db(self, db_name: str | None) -> str:
         """Resolve the target database, falling back to ``self.db``.
@@ -917,14 +924,17 @@ class Client:
     def _require_success(payload: dict, action: str) -> dict:
         """Raise VoLCAError if the engine reported an in-band failure.
 
-        Handlers that return ``{"success": false, "message": ...}`` with HTTP
-        200 would otherwise look like a success. Surface the engine's own
-        message instead of silently returning the failure envelope.
+        An engine older than wire revision 51 answers a failure with HTTP 200
+        and ``{"success": false, "message": ...}``, or ``{"tag": "LoadFailed",
+        "error": ...}`` for a load, which would otherwise look like a success.
+        Newer engines answer an HTTP error, which ``_json`` already raises on.
         """
         if payload.get("success") is False:
             raise VoLCAError(
                 f"{action} failed: {payload.get('message', 'no message')}"
             )
+        if payload.get("tag") == "LoadFailed":
+            raise VoLCAError(f"{action} failed: {payload.get('error', 'no message')}")
         return payload
 
     def _upload(
@@ -943,10 +953,9 @@ class Client:
         data family), since they all take the same query-param + streamed
         body shape.
 
-        The engine reports rejections in-band (HTTP 200 with
-        ``success=false``: missing name, plan cap reached, file too large,
-        extraction failure), so failures surface through _require_success
-        rather than an HTTP error.
+        A rejection (missing name, plan cap reached, file too large,
+        extraction failure) raises VoLCAError, whether the engine answers it
+        with an HTTP error or, before wire revision 51, in-band.
         """
         params: dict = {"name": name}
         if description:
@@ -970,7 +979,7 @@ class Client:
         ``new_name`` is a path segment; the source defaults to ``self.db``.
         Returns the engine's ``ActivateResponse`` dict
         (``{"success", "message", "database"?}``). Raises VoLCAError if the
-        engine reports ``success=false``.
+        engine refuses the copy.
         """
         src = self._db(db_name)
         payload = self._json(
@@ -1610,8 +1619,7 @@ class Client:
         :meth:`finalize_database` to build matrices and load it.
 
         Raises VoLCAError on any rejection (uploads disabled on the plan, size
-        cap exceeded, unreadable archive); the engine reports these in-band
-        with HTTP 200 and ``success=false``.
+        cap exceeded, unreadable archive).
         """
         return self._upload(
             "/api/v1/db/upload", source, name, description, "upload_database"
@@ -1731,8 +1739,8 @@ class Client:
         """Build matrices for a staged database and load it (``ActivateResponse``).
 
         Call after dependencies resolve (:meth:`get_setup` reports
-        ``isReady``). Raises VoLCAError if the engine reports ``success=false``
-        (e.g. unresolved suppliers).
+        ``isReady``). Raises VoLCAError if the engine refuses it (e.g.
+        unresolved suppliers).
         """
         target = self._db(db_name)
         payload = self._json(
@@ -1743,8 +1751,8 @@ class Client:
     def delete_database(self, db_name: str | None = None) -> dict:
         """Delete a database entirely: unload it and remove its uploaded files.
 
-        Returns the ``ActivateResponse`` dict; raises VoLCAError on
-        ``success=false``.
+        Returns the ``ActivateResponse`` dict; raises VoLCAError if the
+        engine refuses it.
         """
         target = self._db(db_name)
         payload = self._json(self._session.delete(f"{self.base_url}/api/v1/db/{target}"))

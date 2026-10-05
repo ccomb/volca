@@ -2,11 +2,10 @@
 
 module UploadSizeSpec (spec) where
 
-import API.DatabaseHandlers (streamToTempFile, uploadBodyCeiling, uploadSizeCap)
+import API.DatabaseHandlers (UploadRejection (..), streamToTempFile, uploadBodyCeiling, uploadSizeCap)
 import API.Types (UploadChunk (..))
 import Config (HostingConfig (..))
 import qualified Data.ByteString as BS
-import Data.Either (isLeft)
 import Data.Word (Word64)
 import qualified Servant.Types.SourceT as S
 import System.Directory (removeFile)
@@ -97,4 +96,4 @@ spec = do
 
         it "rejects and cleans up when the running size exceeds the cap" $ do
             result <- streamToTempFile (Just 4) source -- 9 bytes > 4
-            result `shouldSatisfy` isLeft
+            result `shouldBe` Left (TooLarge 4)

@@ -1631,7 +1631,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 50
+currentWireVersion = 51
 
 getVersion :: AppM Value
 getVersion = do

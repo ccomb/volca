@@ -78,6 +78,7 @@ module API.DatabaseHandlers (
     uploadSizeCap,
     uploadBodyCeiling,
     streamToTempFile,
+    UploadRejection (..),
 ) where
 
 import Control.Applicative ((<|>))
@@ -95,7 +96,7 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 import Data.Word (Word64)
 import Network.HTTP.Types.URI (urlEncode)
-import Servant (Header, Headers, ServerError, SourceIO, addHeader, err400, err403, err404, err409, err500, errBody, throwError)
+import Servant (Header, Headers, ServerError, SourceIO, addHeader, err400, err403, err404, err409, err413, err500, errBody, throwError)
 import qualified Servant.Types.SourceT as S
 import qualified System.Directory
 import System.FilePath ((</>))
@@ -290,16 +291,10 @@ loadDatabaseHandler dbName = do
     guardMutation
     dbManager <- asks aeDbManager
     hostingConfig <- asks aeHostingConfig
-    refusal <- liftIO (loadQuotaRefusal dbManager hostingConfig dbName)
-    case refusal of
-        Just msg -> return $ LoadFailed msg
-        Nothing -> do
-            result <- liftIO $ loadDatabase dbManager dbName
-            case result of
-                Left err -> return $ LoadFailed err
-                Right (loadedDb, depResults) -> do
-                    status <- liftIO (loadedStatus dbManager loadedDb)
-                    return $ LoadSucceeded status depResults
+    liftIO (loadQuotaRefusal dbManager hostingConfig dbName) >>= mapM_ (failWith err403)
+    (loadedDb, depResults) <- ioEither400 (loadDatabase dbManager dbName)
+    status <- liftIO (loadedStatus dbManager loadedDb)
+    pure (LoadSucceeded status depResults)
 
 -- | Unload a database from memory
 unloadDatabaseHandler :: Text -> AppM ActivateResponse
@@ -548,10 +543,8 @@ copyDatabaseHandler dbName newName = do
     refusal <- liftIO $ do
         (uploaded, loadedUploads) <- quotaCounts dbManager
         pure (copyRefusal uploaded loadedUploads hostingConfig)
-    case refusal of
-        Just msg -> pure (ActivateResponse False msg Nothing)
-        Nothing ->
-            simpleAction (copyDatabase dbManager dbName newName) ("Copied database: " <> dbName <> " -> " <> newName)
+    mapM_ (failWith err403) refusal
+    simpleAction (copyDatabase dbManager dbName newName) ("Copied database: " <> dbName <> " -> " <> newName)
 
 {- | Read a loaded or configured database's own files again under another
 allocation key, and register the result under @newName@.
@@ -562,8 +555,7 @@ is the one that already waits on that answer and shows the progress lines
 underneath it.
 
 An unreadable key is a 400 naming the keys there are. A key that divided
-nothing is a refusal from the engine, carried in the same @LoadFailed@ as
-every other reason a load produced no database.
+nothing is a 400 too, like every other reason a load produced no database.
 -}
 deriveDatabaseHandler :: Text -> Text -> Maybe Text -> AppM LoadDatabaseResponse
 deriveDatabaseHandler dbName newName mAllocation = do
@@ -576,14 +568,10 @@ deriveDatabaseHandler dbName newName mAllocation = do
     refusal <- liftIO $ do
         (uploaded, loadedUploads) <- quotaCounts dbManager
         pure (copyRefusal uploaded loadedUploads hostingConfig)
-    case refusal of
-        Just msg -> pure (LoadFailed msg)
-        Nothing ->
-            liftIO (deriveDatabase dbManager dbName newName key) >>= \case
-                Left err -> pure (LoadFailed err)
-                Right (loadedDb, depResults) -> do
-                    status <- liftIO (loadedStatus dbManager loadedDb)
-                    pure (LoadSucceeded status depResults)
+    mapM_ (failWith err403) refusal
+    (loadedDb, depResults) <- ioEither400 (deriveDatabase dbManager dbName newName key)
+    status <- liftIO (loadedStatus dbManager loadedDb)
+    pure (LoadSucceeded status depResults)
   where
     badKey :: Text -> AppM a
     badKey err = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 ("allocation: " <> err))}
@@ -733,14 +721,14 @@ exportDatabaseHandler :: Text -> DatabaseExportRequest -> AppM (Headers '[Header
 exportDatabaseHandler dbName req = do
     refuseUnlessGranted Download dbName
     dbManager <- asks aeDbManager
-    fmt <- either (exportErr err400) pure (parseExportFormat (derFormat req))
-    packaging <- either (exportErr err400) pure (parsePackaging (derPackage req))
+    fmt <- either (failWith err400) pure (parseExportFormat (derFormat req))
+    packaging <- either (failWith err400) pure (parsePackaging (derPackage req))
     mLoaded <- liftIO (getDatabase dbManager dbName)
-    ld <- maybe (exportErr err404 ("Database not loaded: " <> dbName)) pure mLoaded
+    ld <- maybe (failWith err404 ("Database not loaded: " <> dbName)) pure mLoaded
     package <- case packaging of
         Plain -> pure id
-        RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (exportErr err400) pure)
-    (bytes, warnings) <- either (exportErr err400) pure (serializeDatabase fmt (ldDatabase ld))
+        RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (failWith err400) pure)
+    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase fmt (ldDatabase ld))
     pure (addHeader (encodeExportWarnings warnings) (BinaryContent (package bytes)))
 
 {- | What the package of a loaded database says of it: the licence it is served
@@ -777,7 +765,7 @@ documentFileHandler :: Text -> [Text] -> AppM (Headers '[Header "Content-Disposi
 documentFileHandler dbName segments = do
     refuseUnlessGranted Download dbName
     dbManager <- asks aeDbManager
-    bytes <- liftIO (readDocumentFile dbManager dbName path) >>= either (exportErr err404) pure
+    bytes <- liftIO (readDocumentFile dbManager dbName path) >>= either (failWith err404) pure
     pure (addHeader (attachment (last' segments)) (BinaryContent (BSL.fromStrict bytes)))
   where
     path :: Text
@@ -798,7 +786,7 @@ its own 404.
 refuseUnlessGranted :: Permission -> Text -> AppM ()
 refuseUnlessGranted p dbName = do
     dbManager <- asks aeDbManager
-    liftIO (databaseLicence dbManager dbName) >>= mapM_ (mapM_ (exportErr err403) . licenceRefusal p dbName)
+    liftIO (databaseLicence dbManager dbName) >>= mapM_ (mapM_ (failWith err403) . licenceRefusal p dbName)
 
 {- | The licence a database is served under, for the handlers that trim their
 answer to it. Read after the handler has resolved the database, so a name the
@@ -851,9 +839,9 @@ acceptSubstitutionHandler dbName substitution = do
 
 -- | The status a refused setting answers with.
 settingRefused :: SettingRefusal -> AppM a
-settingRefused (SettingUnknown msg) = exportErr err404 msg
-settingRefused (SettingHeldElsewhere msg) = exportErr err409 msg
-settingRefused (SettingUnrecordable msg) = exportErr err500 msg
+settingRefused (SettingUnknown msg) = failWith err404 msg
+settingRefused (SettingHeldElsewhere msg) = failWith err409 msg
+settingRefused (SettingUnrecordable msg) = failWith err500 msg
 
 {- | Export a loaded method collection over the same transport as the database
 export: raw octet-stream body, projection warnings percent-encoded in the
@@ -863,10 +851,10 @@ export: raw octet-stream body, projection warnings percent-encoded in the
 exportMethodHandler :: Text -> ExportRequest -> AppM (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
 exportMethodHandler name req = do
     dbManager <- asks aeDbManager
-    fmt <- either (exportErr err400) pure (parseMethodExportFormat (exrFormat req))
+    fmt <- either (failWith err400) pure (parseMethodExportFormat (exrFormat req))
     mColl <- liftIO (getMethodCollection dbManager name)
-    coll <- maybe (exportErr err404 ("Method collection not loaded: " <> name)) pure mColl
-    (bytes, warnings) <- either (exportErr err400) pure (serializeMethodCollection fmt name coll)
+    coll <- maybe (failWith err404 ("Method collection not loaded: " <> name)) pure mColl
+    (bytes, warnings) <- either (failWith err400) pure (serializeMethodCollection fmt name coll)
     pure (addHeader (encodeExportWarnings warnings) (BinaryContent bytes))
 
 {- | Join export warnings for the response header, percent-encoded because
@@ -918,8 +906,9 @@ client will read.
 warningHeaderBudget :: Int
 warningHeaderBudget = 3000
 
-exportErr :: ServerError -> Text -> AppM a
-exportErr status msg = throwError status{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
+-- | Fail with this status, the sentence as the body a client shows.
+failWith :: ServerError -> Text -> AppM a
+failWith status msg = throwError status{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
 
 {- | The message to refuse with when a hosting quota is already met, or
 'Nothing' when the operation is within budget.
@@ -1065,54 +1054,58 @@ withStreamedUpload ::
     AppM UploadResponse
 withStreamedUpload mName mDesc src k = do
     guardMutation
-    case mfilter (not . T.null) (T.strip <$> mName) of
-        Nothing -> return (rejectUpload "Missing upload name. Pass it as the ?name= query parameter.")
-        Just name -> do
-            hostingConfig <- asks aeHostingConfig
-            case uploadSizeCap hostingConfig of
-                Left rejection -> return (rejectUpload rejection)
-                Right mCap -> do
-                    streamed <- liftIO (streamToTempFile mCap src)
-                    case streamed of
-                        Left rejection -> return (rejectUpload rejection)
-                        Right tmpPath ->
-                            -- The read is lazy, so an uncapped (local/desktop) upload is never
-                            -- buffered whole; 'finally' guarantees the temp file is deleted even
-                            -- if the extract/detect continuation throws.
-                            (liftIO (BSL.readFile tmpPath) >>= k name mDesc)
-                                `finally` liftIO (removeQuietly tmpPath)
-  where
-    rejectUpload msg = UploadResponse False msg Nothing Nothing
+    name <- maybe (failWith err400 "Missing upload name. Pass it as the ?name= query parameter.") pure (mfilter (not . T.null) (T.strip <$> mName))
+    mCap <- asks aeHostingConfig >>= either (failWith err403) pure . uploadSizeCap
+    tmpPath <- liftIO (streamToTempFile mCap src) >>= either (uncurry failWith . rejectionAnswer) pure
+    -- The read is lazy, so an uncapped (local/desktop) upload is never
+    -- buffered whole; 'finally' guarantees the temp file is deleted even
+    -- if the extract/detect continuation throws.
+    (liftIO (BSL.readFile tmpPath) >>= k name mDesc)
+        `finally` liftIO (removeQuietly tmpPath)
+
+-- | Why a streamed upload body was not kept.
+data UploadRejection
+    = -- | The body passed the plan's cap, in bytes.
+      TooLarge Int
+    | StreamFailed Text
+    deriving (Eq, Show)
+
+-- | The status and sentence a rejected upload answers with.
+rejectionAnswer :: UploadRejection -> (ServerError, Text)
+rejectionAnswer = \case
+    TooLarge cap ->
+        ( err413
+        , "File too large. The upload limit on this plan is "
+            <> T.pack (show (cap `div` (1024 * 1024)))
+            <> " MB."
+        )
+    StreamFailed reason -> (err400, "Upload stream error: " <> reason)
 
 {- | Fold a streamed octet-stream body into a fresh temp file, aborting with a
-'Left' rejection if the running byte count exceeds the cap. Returns the temp
-file path on success (the caller deletes it). Bytes are written chunk-by-chunk
-and never held whole in memory.
+rejection if the running byte count exceeds the cap. Returns the temp file
+path on success (the caller deletes it). Bytes are written chunk-by-chunk and
+never held whole in memory.
 -}
-streamToTempFile :: Maybe Int -> SourceIO UploadChunk -> IO (Either Text FilePath)
+streamToTempFile :: Maybe Int -> SourceIO UploadChunk -> IO (Either UploadRejection FilePath)
 streamToTempFile mCap src = do
     tmpDir <- System.Directory.getTemporaryDirectory
     (tmpPath, h) <- openBinaryTempFile tmpDir "volca-upload-.bin"
-    result <- try (S.unSourceT src (go h 0)) :: IO (Either SomeException (Either Text ()))
+    result <- try (S.unSourceT src (go h 0)) :: IO (Either SomeException (Either UploadRejection ()))
     hClose h
     case result of
-        Left e -> removeQuietly tmpPath >> return (Left ("Upload stream error: " <> T.pack (show e)))
-        Right (Left msg) -> removeQuietly tmpPath >> return (Left msg)
+        Left e -> removeQuietly tmpPath >> return (Left (StreamFailed (T.pack (show e))))
+        Right (Left rejection) -> removeQuietly tmpPath >> return (Left rejection)
         Right (Right ()) -> return (Right tmpPath)
   where
-    tooLarge cap =
-        "File too large. The upload limit on this plan is "
-            <> T.pack (show (cap `div` (1024 * 1024)))
-            <> " MB."
     go h !n step = case step of
         S.Stop -> return (Right ())
-        S.Error e -> return (Left ("Upload stream error: " <> T.pack e))
+        S.Error e -> return (Left (StreamFailed (T.pack e)))
         S.Skip s -> go h n s
         S.Effect ms -> ms >>= go h n
         S.Yield chunk s ->
             let !n' = n + BS.length (unUploadChunk chunk)
              in case mCap of
-                    Just cap | n' > cap -> return (Left (tooLarge cap))
+                    Just cap | n' > cap -> return (Left (TooLarge cap))
                     _ -> BS.hPut h (unUploadChunk chunk) >> go h n' s
 
 -- | Delete a file, swallowing any error: best-effort temp-file cleanup.
@@ -1132,13 +1125,10 @@ uploadDatabaseHandler mName mDesc src = do
     refusal <- liftIO $ do
         (uploaded, _) <- quotaCounts dbManager0
         pure (uploadRefusal uploaded hostingConfig)
-    case refusal of
-        Just msg -> pure (UploadResponse False msg Nothing Nothing)
-        Nothing -> uploadAccepted
+    mapM_ (failWith err403) refusal
+    withStreamedUpload mName mDesc src $ \name mDescription zipBytes ->
+        either (failWith err400) (uploadUnpacked name mDescription zipBytes) (openPackage zipBytes)
   where
-    uploadAccepted = withStreamedUpload mName mDesc src $ \name mDescription zipBytes ->
-        either (\err -> pure (UploadResponse False err Nothing Nothing)) (uploadUnpacked name mDescription zipBytes) (openPackage zipBytes)
-
     -- A package brings its export, the licence it was published under and
     -- the releases it was built on; anything else is the export itself.
     uploadUnpacked :: Text -> Maybe Text -> BSL.ByteString -> Maybe Package -> AppM UploadResponse
@@ -1157,8 +1147,7 @@ uploadDatabaseHandler mName mDesc src = do
         result <- liftIO $ handleUpload uploadsDir uploadData (\_ -> return ())
 
         case result of
-            Left err ->
-                return $ UploadResponse False err Nothing Nothing
+            Left err -> failWith err400 err
             Right uploadResult -> do
                 let uploadDir = uploadsDir </> T.unpack (urSlug uploadResult)
 
@@ -1303,8 +1292,8 @@ getDatabaseSetupHandler dbName = do
         Left (ex :: SomeException) ->
             throwError $ err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ "Setup failed: " <> T.pack (show ex)}
         Right (Left (SetupNotFound msg)) -> throwError $ err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        -- Same 404 + "Database not loaded: " body as every other not-loaded
-        -- arm, so typed-error recovery on the client keeps working.
+        -- Same 404 + "Database not loaded: " body as a read route asked about an
+        -- unloaded database, so typed-error recovery on the client keeps working.
         Right (Left e@(SetupNotLoaded _)) -> throwError $ err404{errBody = BSL.fromStrict $ T.encodeUtf8 (setupErrorMessage e)}
         Right (Left (SetupFailed msg)) -> throwError $ err500{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
         Right (Right setupInfo) -> return setupInfo
@@ -1349,14 +1338,12 @@ finalizeDatabaseHandler :: Text -> AppM ActivateResponse
 finalizeDatabaseHandler dbName = do
     guardMutation
     dbManager <- asks aeDbManager
-    eitherResult <- liftIO $ try $ finalizeDatabase dbManager dbName
-    case eitherResult of
-        Left (ex :: SomeException) ->
-            return $ ActivateResponse False ("Server exception: " <> T.pack (show ex)) Nothing
-        Right (Left err) -> return $ ActivateResponse False err Nothing
-        Right (Right loaded) -> do
-            status <- liftIO (loadedStatus dbManager loaded)
-            return $ ActivateResponse True ("Finalized database: " <> dcDisplayName (ldConfig loaded)) (Just status)
+    loaded <-
+        liftIO (try (finalizeDatabase dbManager dbName)) >>= \case
+            Left (ex :: SomeException) -> failWith err500 ("Server exception: " <> T.pack (show ex))
+            Right result -> either (failWith err400) pure result
+    status <- liftIO (loadedStatus dbManager loaded)
+    pure (ActivateResponse True ("Finalized database: " <> dcDisplayName (ldConfig loaded)) (Just status))
 
 {- | Upload a new method collection
 Same flow as database upload but creates MethodConfig entry
@@ -1374,8 +1361,7 @@ uploadMethodHandler mName mDesc src =
         uploadsDir <- liftIO UploadedDB.getMethodUploadsDir
         result <- liftIO $ handleUpload uploadsDir uploadData (\_ -> return ())
         case result of
-            Left err ->
-                return $ UploadResponse False err Nothing Nothing
+            Left err -> failWith err400 err
             Right uploadResult -> do
                 let uploadDir = uploadsDir </> T.unpack (urSlug uploadResult)
 
@@ -1445,7 +1431,8 @@ guardMutation = do
     when (isReadOnly (hostingReadOnly hosting)) $
         throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 (readOnlyRefusalFor hosting))}
 
-{- | Common pattern: run an IO action that returns Either Text (), map to ActivateResponse.
+{- | Common pattern: run an IO action that returns Either Text (), a failure
+answered as a 400 with its sentence.
 
 Every caller performs a state change, so the read-only guard lives here rather
 than being repeated at each of them.
@@ -1453,10 +1440,8 @@ than being repeated at each of them.
 simpleAction :: IO (Either Text ()) -> Text -> AppM ActivateResponse
 simpleAction action successMsg = do
     guardMutation
-    result <- liftIO action
-    return $ case result of
-        Left err -> ActivateResponse False err Nothing
-        Right () -> ActivateResponse True successMsg Nothing
+    ioEither400 action
+    pure (ActivateResponse True successMsg Nothing)
 
 {- | @ioEither400 m@ runs an IO action that returns @Either Text a@; on
 @Left@ throws a 400 with the message body, on @Right@ propagates. Used

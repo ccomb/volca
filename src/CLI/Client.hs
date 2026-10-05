@@ -573,8 +573,8 @@ fileRequestBody fp = do
         withBinaryFile fp ReadMode $ \h -> needsPopper (BS.hGetSome h 65536)
 
 {- | Output a response whose body carries an in-band @{"success",..,"message"}@
-status (the handlers return HTTP 200 even on failure, so a bare 'output' would
-exit 0 on a failed copy/delete). Inspect the @success@ field and fail loudly
+status (an engine older than wire revision 51 answers a failure with HTTP 200,
+so a bare 'output' would exit 0 on a failed copy/delete against it). Inspect the @success@ field and fail loudly
 when it is false; otherwise render normally. Covers both 'ActivateResponse' and
 'DeleteSelectionResponse', which share these keys after the @Stripped@ transform.
 -}
@@ -588,9 +588,9 @@ outputStatus fmt jp action (Right val) = case parseMaybe parseStatus val of
     parseStatus :: Value -> Parser (Bool, Text)
     parseStatus = withObject "StatusResponse" $ \o -> (,) <$> o .: "success" <*> o .: "message"
 
-{- | @database load@ returns HTTP 200 even on failure, with a bare
-@{"error": …}@ body ('LoadDatabaseResponse'\'s @LoadFailed@) and no @success@
-field for 'outputStatus' to check. Mirror 'outputStatus': fail loudly when that
+{- | An engine older than wire revision 51 answers a failed @database load@
+with HTTP 200 and a bare @{"error": …}@ body, with no @success@ field for
+'outputStatus' to check. Mirror 'outputStatus': fail loudly when that
 key is present, so a failed remote load exits non-zero instead of printing the
 error and returning success.
 -}
