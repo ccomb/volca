@@ -216,6 +216,14 @@ spec = describe "MCP database load/unload tools" $ do
                         resultText after `shouldBe` resultText history
                     found -> expectationFailure ("expected one Methane, fossil factor, found " <> show (length found))
 
+        it "list a method held by two collections once in each, named with its collection" $
+            withScratchDataDir $ do
+                manager <- initDatabaseManager defaultConfig NoCache
+                let tool name = callTool manager [] Nothing Nothing noRequestId name . KM.fromList
+                _ <- tool "copy_method_collection" [("collection", String "plain-indicators"), ("new_name", String "copy")]
+                listed <- tool "list_methods" []
+                resultText listed `shouldSatisfy` maybe False (\t -> all (`T.isInfixOf` t) ["\"collection\":\"copy\"", "\"collection\":\"plain-indicators\""])
+
         it "add a category to a copy, answering with its identifier, and refuse an argument they do not know" $
             withScratchDataDir $ do
                 manager <- initDatabaseManager defaultConfig NoCache

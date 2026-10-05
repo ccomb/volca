@@ -50,7 +50,7 @@ import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, 
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, runMethodComparison, runMethodProfile, selectMethod)
+import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, selectMethod)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
 import Control.Monad (forM, mfilter)
 import Data.List (find)
@@ -1793,18 +1793,7 @@ subArgs suffix args = do
 callListMethods :: DatabaseManager -> RequestId -> IO Value
 callListMethods dbManager rid = do
     loadedMethods <- DM.getLoadedMethods dbManager
-    let summaries =
-            map
-                ( \(_, m) ->
-                    object
-                        [ "id" .= UUID.toText (methodId m)
-                        , "name" .= methodName m
-                        , "category" .= methodCategory m
-                        , "unit" .= methodUnit m
-                        ]
-                )
-                loadedMethods
-    return $ toolSuccessJson rid $ object ["methods" .= summaries]
+    return $ toolSuccessJson rid $ object ["methods" .= map methodSummary loadedMethods]
 
 {- | Supplier-gap report: what is still unsupplied after cross-DB linking.
 Same wire shape as the REST endpoint ('gapReportToAPI'), so both surfaces

@@ -4,6 +4,12 @@
 
 ### Added
 
+- The MCP tool `list_methods` names the collection each method belongs to,
+  and its number of factors, as the `/api/v1/methods` route does. A method
+  loaded in several collections showed several times under the same id with
+  nothing to tell the lines apart, and `get_impacts` then refused it as
+  ambiguous, asking for a collection the list never showed. Wire revision 51.
+
 - A package can be uploaded as it is: the engine reads its description,
   checks the export it carries against the digest given there (a mismatch
   refuses the upload), and loads that export with the licence the description
