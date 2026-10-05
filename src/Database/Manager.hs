@@ -170,7 +170,7 @@ import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
 import Data.Indexing (uniqueIndex)
 import qualified Data.Indexing as Indexing
-import Data.List (find, intercalate, isPrefixOf, sort, sortOn)
+import Data.List (find, intercalate, isPrefixOf, nub, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
@@ -771,14 +771,26 @@ dependencyNames loaded root = go (S.singleton root) (depsOf root)
         | otherwise = go (S.insert name seen) rest
 
 {- | The releases a computation on a database reads: its own, then those of the
-databases it depends on, transitively. One without a declared release says
+databases it depends on, transitively, each with the database whose files it
+reads when it is a copy or a re-keyed one: a copy starts without a release, but
+its amounts are still its source's. One without a declared release says
 nothing about whose data it is, and is left out.
 -}
 releasesRead :: DatabaseManager -> Text -> IO [Release]
 releasesRead manager dbName = do
     loaded <- readTVarIO (dmLoadedDbs manager)
     configs <- readTVarIO (dmAvailableDbs manager)
-    pure (mapMaybe (dcRelease <=< (`M.lookup` configs)) (dbName : dependencyNames loaded dbName))
+    let read' = concatMap (sourceChain configs) (dbName : dependencyNames loaded dbName)
+    pure (nub (mapMaybe (dcRelease <=< (`M.lookup` configs)) read'))
+
+-- | A database, then the one whose files it reads, and so on; a loop stops at the first name seen again.
+sourceChain :: Map Text DatabaseConfig -> Text -> [Text]
+sourceChain configs = go S.empty
+  where
+    go :: S.Set Text -> Text -> [Text]
+    go seen name
+        | S.member name seen = []
+        | otherwise = name : maybe [] (go (S.insert name seen)) (dcSource =<< M.lookup name configs)
 
 {- | The flows a database's characterization has to reach, memoized per root.
 

@@ -20,6 +20,7 @@ module Usage (
     UsageKind (..),
     usageKindCode,
     BootId (..),
+    ProcessKey (..),
     Use (..),
     UsageLine (..),
     UsagePage (..),
@@ -97,11 +98,18 @@ newtype BootId = BootId Text
     deriving (Show, Eq, Generic)
     deriving newtype (ToJSON, FromJSON, ToSchema, FromHttpApiData, ToHttpApiData, ToParamSchema)
 
+{- | A process as the request named it, kept apart from the database name it
+always travels beside so that the two cannot be swapped.
+-}
+newtype ProcessKey = ProcessKey Text
+    deriving (Show, Eq, Generic)
+    deriving newtype (ToJSON, FromJSON, ToSchema)
+
 -- | A computation as the surface that ran it describes it, before its releases are looked up.
 data Use = Use
     { useKind :: !UsageKind
     , useDatabase :: !Text
-    , useProcess :: !Text
+    , useProcess :: !ProcessKey
     }
     deriving (Show, Eq)
 
@@ -111,7 +119,7 @@ data UsageLine = UsageLine
     , ulAt :: !UTCTime
     , ulKind :: !UsageKind
     , ulDatabase :: !Text
-    , ulProcess :: !Text
+    , ulProcess :: !ProcessKey
     , ulReader :: !(Maybe Text)
     -- ^ Whoever the request said it was made for, as the server in front of the engine named them
     , ulReads :: !(NonEmpty Release)

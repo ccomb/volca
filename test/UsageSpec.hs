@@ -28,12 +28,12 @@ import Test.Hspec
 
 import API.MCP (mcpApp)
 import qualified API.Resources as R
-import API.Routes (getActivityInventory)
+import API.Routes (getActivityComparison, getActivityInventory)
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..))
 import qualified Database.Manager as DM
 import DependencyLicenceSpec (dependency, managerOn, root, rootPid)
-import Types (Licence (..), Release (..))
+import Types (Licence (..), Release (..), processIdToText)
 import Usage
 
 ecoinvent :: Release
@@ -41,7 +41,7 @@ ecoinvent = Release{releaseName = "ecoinvent", releaseVersion = "3.12", releaseS
 
 -- | A line numbered @n@, the rest of no interest to the bookkeeping.
 lineNo :: Int -> UsageLine
-lineNo n = UsageLine n (UTCTime (fromGregorian 2026 10 5) 0) Scoring "db" "p" Nothing (NE.singleton ecoinvent)
+lineNo n = UsageLine n (UTCTime (fromGregorian 2026 10 5) 0) Scoring "db" (ProcessKey "p") Nothing (NE.singleton ecoinvent)
 
 -- | A log that has kept @n@ lines.
 logOf :: Int -> LogState
@@ -126,13 +126,28 @@ spec = do
             UsagePage{upBoot = boot, upLines = ls} <- readUsage lg 0
             boot `shouldBe` usageBoot lg
             map (\l -> (ulKind l, ulDatabase l, ulProcess l, ulReader l, NE.toList (ulReads l))) ls
-                `shouldBe` [(Inventorying, "root", rootPid, Just "account-7", [ecoinvent])]
+                `shouldBe` [(Inventorying, "root", ProcessKey rootPid, Just "account-7", [ecoinvent])]
 
         it "leaves nothing when no database it reads declares a release" $ do
             manager <- managerDeclaring Nothing
             lg <- newUsageLog
             _ <- runLogged manager lg Nothing (getActivityInventory "root" rootPid)
             upLines <$> readUsage lg 0 `shouldReturn` []
+
+        it "counts both sides of a comparison, each with what it reads" $ do
+            manager <- managerDeclaring (Just ecoinvent)
+            lg <- newUsageLog
+            _ <- runLogged manager lg Nothing (getActivityComparison "root" rootPid (Just (processIdToText dependency 0)) (Just "dep"))
+            map (\l -> (ulKind l, ulDatabase l)) . upLines <$> readUsage lg 0
+                `shouldReturn` [(Comparing, "dep"), (Comparing, "root")]
+
+        it "reads a copy's amounts as its source's release" $ do
+            manager <- managerDeclaring Nothing
+            atomically $
+                modifyTVar' (DM.dmAvailableDbs manager) $
+                    M.adjust (\c -> c{dcRelease = Just ecoinvent}) "dep"
+                        . M.adjust (\c -> c{dcSource = Just "dep"}) "root"
+            DM.releasesRead manager "root" `shouldReturn` [ecoinvent]
 
         it "leaves nothing for a process the database does not hold" $ do
             manager <- managerDeclaring (Just ecoinvent)
@@ -146,7 +161,7 @@ spec = do
             lg <- newUsageLog
             callMcp manager lg (Just "account-7") "get_inventory" [("database", "root"), ("process_id", rootPid)]
             map (\l -> (ulKind l, ulProcess l, ulReader l)) . upLines <$> readUsage lg 0
-                `shouldReturn` [(Inventorying, rootPid, Just "account-7")]
+                `shouldReturn` [(Inventorying, ProcessKey rootPid, Just "account-7")]
 
         it "leaves nothing for a tool that reads no process" $ do
             manager <- managerDeclaring (Just ecoinvent)

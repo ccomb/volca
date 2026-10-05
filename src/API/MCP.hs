@@ -72,7 +72,7 @@ import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount, withheldSentence)
-import Usage (UsageLog, Use (..), readerOf, recordUse)
+import Usage (ProcessKey (..), UsageKind (..), UsageLog, Use (..), readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
 -- JSON-RPC 2.0 types
@@ -498,8 +498,18 @@ noteToolCall dbManager note rpcReq resp
         held <- maybe False (heldIn use . ldDatabase) <$> getDatabase dbManager (useDatabase use)
         when held (note use)
   where
+    -- A score is only computed for a process the allocation gate lets through,
+    -- the way the REST batch counts only what it scored.
     heldIn :: Use -> Database -> Bool
-    heldIn use db = either (const False) (const True) (Service.resolveActivityByProcessId db (useProcess use))
+    heldIn Use{useKind = kind, useProcess = ProcessKey pid} db = case kind of
+        Scoring -> either (const False) (const True) (Service.resolveScorable db pid)
+        Reading -> resolves
+        Inventorying -> resolves
+        Contributing -> resolves
+        Comparing -> resolves
+      where
+        resolves :: Bool
+        resolves = either (const False) (const True) (Service.resolveActivityByProcessId db pid)
 
 -- | Whether a tool call's reply is an answer rather than a refusal or an error.
 toolAnswered :: Value -> Bool
@@ -525,7 +535,7 @@ toolUses name args = do
         Just (String p) -> [p]
         Just (Array ps) -> [p | String p <- V.toList ps]
         _ -> []
-    pure (Use kind dbName pid)
+    pure (Use kind dbName (ProcessKey pid))
 
 parseCallParams :: Value -> Maybe (Text, KeyMap Value)
 parseCallParams (Object o) = do

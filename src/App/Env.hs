@@ -21,7 +21,7 @@ import Data.Foldable (for_)
 import Data.Text (Text)
 import Database.Manager (DatabaseManager, releasesRead)
 import Servant (Handler, ServerError)
-import Usage (UsageKind, UsageLog, Use (..), recordUse)
+import Usage (ProcessKey, UsageKind, UsageLog, Use (..), recordUse)
 
 -- | Read-only application environment threaded through every request.
 data AppEnv = AppEnv
@@ -46,11 +46,11 @@ runApp env (AppM m) = runReaderT m env
 {- | Run a computation on a process, and note it in the usage log once it has
 answered: a refused or failed one read nothing.
 -}
-counted :: UsageKind -> Text -> Text -> AppM a -> AppM a
+counted :: UsageKind -> Text -> ProcessKey -> AppM a -> AppM a
 counted kind dbName processId = countedEach kind dbName (const [processId])
 
 -- | 'counted' for a computation on several processes, read from its answer: only those it answered for.
-countedEach :: UsageKind -> Text -> (a -> [Text]) -> AppM a -> AppM a
+countedEach :: UsageKind -> Text -> (a -> [ProcessKey]) -> AppM a -> AppM a
 countedEach kind dbName answered action = do
     result <- action
     env <- asks id
