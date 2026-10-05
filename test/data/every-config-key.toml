@@ -67,6 +67,7 @@ attribution = false
 name = "EF"
 path = "ef.zip"
 active = true
+default = true
 description = "a method collection"
 global-methods = ["Land use"]
 

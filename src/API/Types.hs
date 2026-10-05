@@ -529,8 +529,10 @@ data MethodSummary = MethodSummary
     deriving (ToJSON, ToSchema) via (Stripped MethodSummary)
 
 -- | Method collection list response
-newtype MethodCollectionListResponse = MethodCollectionListResponse
+data MethodCollectionListResponse = MethodCollectionListResponse
     { mclMethods :: [MethodCollectionStatusAPI]
+    , mclDefault :: Maybe Text
+    -- ^ The collection the configuration offers a reader first, by name.
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped MethodCollectionListResponse)

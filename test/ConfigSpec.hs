@@ -274,6 +274,23 @@ spec = do
                         err `shouldSatisfy` T.isInfixOf "Duplicate method collection"
                         err `shouldSatisfy` T.isInfixOf "EF"
 
+        -- A reader is offered one collection first; two would leave the
+        -- interface to pick between them, which is the guess this key removes.
+        it "refuses two method collections marked as default" $
+            case (decodeMethod "name = \"EF\"\npath = \"x.zip\"\ndefault = true\n", decodeMethod "name = \"IPCC\"\npath = \"y.zip\"\ndefault = true\n") of
+                (Right ef, Right ipcc) -> case validateConfig defaultConfig{cfgMethods = [ef, ipcc]} of
+                    Right _ -> expectationFailure "expected a refusal"
+                    Left err -> do
+                        err `shouldSatisfy` T.isInfixOf "default"
+                        err `shouldSatisfy` T.isInfixOf "EF"
+                        err `shouldSatisfy` T.isInfixOf "IPCC"
+                failed -> expectationFailure (show failed)
+
+        it "reads default on a method collection, false when absent" $
+            case (decodeMethod "name = \"EF\"\npath = \"x.zip\"\ndefault = true\n", decodeMethod "name = \"EF\"\npath = \"x.zip\"\n") of
+                (Right marked, Right plain) -> (mcDefault marked, mcDefault plain) `shouldBe` (True, False)
+                failed -> expectationFailure (show failed)
+
         it "accepts distinct names" $
             case decodeMethod "name = \"EF\"\npath = \"x.zip\"\n" of
                 Left e -> expectationFailure (show e)

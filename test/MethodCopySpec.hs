@@ -14,7 +14,7 @@ import Test.Hspec
 
 import Config (Config (..), MethodConfig (..), MethodOrigin (..), MethodPatch (..), MethodPatchMatch (..), ScoringSetConfig (..), defaultConfig)
 import Data.JournalFile (Entry (..), readEntries)
-import Database.Manager (CachePolicy (..), getMethodCollection, initDatabaseManager, loadMethodCollection, removeMethodCollection, unloadMethodCollection)
+import Database.Manager (CachePolicy (..), defaultMethodCollection, getMethodCollection, initDatabaseManager, loadMethodCollection, removeMethodCollection, unloadMethodCollection)
 import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, undoMethodEdit)
 import Method.EditPlan (CategoryEdit (..))
@@ -51,6 +51,7 @@ configured dir =
         { mcName = "ecotox"
         , mcOrigin = MethodFromFile (dir </> "ecotox.csv")
         , mcActive = True
+        , mcDefault = False
         , mcHome = Nothing
         , mcSource = Nothing
         , mcDescription = Nothing
@@ -76,6 +77,15 @@ spec = describe "copying a method collection" $ do
             source <- getMethodCollection manager "plain-indicators"
             copy <- getMethodCollection manager "my-indicators"
             copy `shouldBe` source
+
+    it "leaves the default with its source, a copy is not offered first" $
+        withScratchDataDir $
+            withSystemTempDirectory "method" $ \dir -> do
+                TIO.writeFile (dir </> "ecotox.csv") methodCsv
+                manager <- initDatabaseManager defaultConfig{cfgMethods = [(configured dir){mcDefault = True}]} NoCache
+                -- "copy" sorts before "ecotox": a copy keeping the mark would be the one named.
+                copyMethodCollection manager "ecotox" "copy" `shouldReturn` Right "copy"
+                defaultMethodCollection manager `shouldReturn` Just "ecotox"
 
     it "starts a copy of a configured collection from what its configuration adds" $
         withScratchDataDir $

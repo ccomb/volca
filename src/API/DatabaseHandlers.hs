@@ -1396,6 +1396,7 @@ uploadMethodHandler mName mDesc src =
                             { mcName = name
                             , mcOrigin = MethodFromFile methodDir
                             , mcActive = False
+                            , mcDefault = False
                             , mcHome = Just uploadDir
                             , mcSource = Nothing
                             , mcDescription = mDescription

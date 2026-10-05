@@ -234,6 +234,7 @@ methodConfig path =
         { mcName = "reload"
         , mcOrigin = MethodFromFile path
         , mcActive = True
+        , mcDefault = False
         , mcHome = Nothing
         , mcSource = Nothing
         , mcDescription = Nothing

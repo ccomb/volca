@@ -168,6 +168,7 @@ copyConfig slug home source =
     source
         { mcName = slug
         , mcActive = False
+        , mcDefault = False
         , mcHome = Just home
         , mcSource = Just (mcName source)
         , mcScoringSets = []

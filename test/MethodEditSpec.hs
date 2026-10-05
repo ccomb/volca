@@ -65,6 +65,7 @@ simaProFrom file = do
                 { Config.mcName = "sp"
                 , Config.mcOrigin = MethodFromFile file
                 , Config.mcActive = True
+                , Config.mcDefault = False
                 , Config.mcHome = Nothing
                 , Config.mcSource = Nothing
                 , Config.mcDescription = Nothing
