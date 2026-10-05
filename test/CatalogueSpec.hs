@@ -129,6 +129,8 @@ runRest manager = runHandler . runApp env
             , aeHostingConfig = Nothing
             , aeClassificationPresets = []
             , aeDataVersion = Nothing
+            , aeUsageLog = Nothing
+            , aeReader = Nothing
             }
 
 sampleConfig :: DatabaseConfig

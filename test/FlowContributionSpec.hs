@@ -165,6 +165,8 @@ runOk handler = do
                 , aeHostingConfig = Nothing
                 , aeClassificationPresets = []
                 , aeDataVersion = Nothing
+                , aeUsageLog = Nothing
+                , aeReader = Nothing
                 }
     runHandler (runApp env handler)
         >>= either (\e -> fail (show (errHTTPCode e) <> ": " <> BSL.unpack (errBody e))) pure

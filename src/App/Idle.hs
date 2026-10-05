@@ -74,6 +74,9 @@ bearingOf :: ByteString -> Bearing
 bearingOf path = case path of
     "/mcp" -> Ignored
     "/api/v1/logs/stream" -> Stamped
+    -- The collector of the usage log comes on its own schedule; counting it
+    -- would keep a server nobody uses awake for as long as it is collected.
+    "/api/v1/usage" -> Ignored
     _ -> Counted
 
 {- | Count the server as in use for as long as an action runs.

@@ -33,6 +33,7 @@ module API.Resources (
     optionalParams,
     resourceMutates,
     resourceNeeds,
+    resourceUsage,
     apiPath,
     apiPathText,
 ) where
@@ -41,6 +42,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Network.HTTP.Types.Method (StdMethod (..))
 import Types (Permission (..))
+import Usage (UsageKind (..))
 
 {- | Every operation VoLCA exposes through its user-facing surfaces.
 
@@ -260,6 +262,61 @@ resourceNeeds r = case r of
     ExplainCF -> Nothing
     GetCoverageReport -> Nothing
     -- Its reply echoes the lines the caller wrote.
+    EditExchanges -> Nothing
+    CompareMethodCollections -> Nothing
+    ProfileMethodCollection -> Nothing
+    CopyMethodCollection -> Nothing
+    EditMethodFactors -> Nothing
+    EditMethodCategories -> Nothing
+    EditMethodScoringSets -> Nothing
+    UndoMethodEdit -> Nothing
+    GetMethodHistory -> Nothing
+    SearchMethodFlows -> Nothing
+
+{- | What an operation does with the process it is asked about, for the usage
+log; 'Nothing' for the ones that ask about no process, or only list, search
+and describe. Exhaustive like 'resourceNeeds', so a new operation is classed
+when it is added.
+-}
+resourceUsage :: Resource -> Maybe UsageKind
+resourceUsage r = case r of
+    GetActivity -> Just Reading
+    GetSupplyChain -> Just Reading
+    GetPathTo -> Just Reading
+    GetConsumers -> Just Reading
+    GetInventory -> Just Inventorying
+    Aggregate -> Just Inventorying
+    GetImpacts -> Just Scoring
+    ScoreActivity -> Just Scoring
+    ScoreActivities -> Just Scoring
+    ComputeSensitivity -> Just Scoring
+    GetContributingFlows -> Just Contributing
+    GetContributingActivities -> Just Contributing
+    GetScoreContributingFlows -> Just Contributing
+    GetScoreContributingActivities -> Just Contributing
+    CompareImpacts -> Just Comparing
+    CompareActivities -> Just Comparing
+    -- A whole database against another, no process asked about.
+    CompareDatabases -> Nothing
+    GetGapReport -> Nothing
+    GetQualityReport -> Nothing
+    GetComputedQualityReport -> Nothing
+    GetCoverageReport -> Nothing
+    ListDatabases -> Nothing
+    LoadDatabase -> Nothing
+    UnloadDatabase -> Nothing
+    DeriveDatabase -> Nothing
+    ListPresets -> Nothing
+    SearchActivities -> Nothing
+    SearchFlows -> Nothing
+    CountSearchMatches -> Nothing
+    ListClassifications -> Nothing
+    ListGeographies -> Nothing
+    ListMethods -> Nothing
+    ListScoringSets -> Nothing
+    GetFlowMapping -> Nothing
+    GetCharacterization -> Nothing
+    ExplainCF -> Nothing
     EditExchanges -> Nothing
     CompareMethodCollections -> Nothing
     ProfileMethodCollection -> Nothing

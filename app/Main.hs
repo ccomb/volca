@@ -60,6 +60,7 @@ import Network.Wai.Handler.Warp (defaultSettings, openFreePort, runSettings, run
 import Network.Wai.Middleware.Gzip (GzipSettings (..), defaultCheckMime, defaultGzipSettings, gzip)
 import Network.Wai.Middleware.RequestSizeLimit (defaultRequestSizeLimitSettings, requestSizeLimitMiddleware, setMaxLengthForRequest)
 import Servant (serve)
+import Usage (newUsageLog, readerOf)
 import WaiAppStatic.Types (MaxAge (..), ssMaxAge, unsafeToPiece)
 
 -- _exit(0) bypasses Haskell RTS teardown, necessary on statically-linked
@@ -276,6 +277,7 @@ runServerWithConfig cliConfig serverOpts mCfgFile = do
     password <- resolvePassword (globalOptions cliConfig) (cfgServer config)
     idle <- setupIdleTimeout serverOpts
     dataVersion <- readDataVersion config
+    usageLog <- if scUsageLog (cfgServer config) then Just <$> newUsageLog else pure Nothing
     let env =
             AppEnv
                 { aeDbManager = dbManager
@@ -284,6 +286,8 @@ runServerWithConfig cliConfig serverOpts mCfgFile = do
                 , aeHostingConfig = cfgHosting config
                 , aeClassificationPresets = cfgClassificationPresets config
                 , aeDataVersion = dataVersion
+                , aeUsageLog = usageLog
+                , aeReader = Nothing
                 }
     baseApp <-
         createServerApp
@@ -416,8 +420,11 @@ createServerApp env staticDir desktopMode serverName whileCalling = do
     hasFrontend <- doesFileExist (staticDir </> "index.html")
     unless (desktopMode || hasFrontend) $
         reportProgress Info "Frontend not bundled. MCP responses will omit 'web_url'"
-    mcp <- mcpApp (aeDbManager env) (aeClassificationPresets env) hasFrontend (aeHostingConfig env) serverName whileCalling
-    let apiApp = serve lcaAPI (lcaServer env)
+    mcp <- mcpApp (aeDbManager env) (aeClassificationPresets env) hasFrontend (aeHostingConfig env) serverName whileCalling (aeUsageLog env)
+    let apiApp = case aeUsageLog env of
+            Nothing -> serve lcaAPI (lcaServer env)
+            -- The reader rides on each request, so the environment does too.
+            Just _ -> \req -> serve lcaAPI (lcaServer env{aeReader = readerOf (requestHeaders req)}) req
     pure $ \req respond -> do
         unless desktopMode (logRequest req)
         dispatchRequest staticDir mcp apiApp req respond

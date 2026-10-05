@@ -37,6 +37,7 @@ library
   import:              warnings
   hs-source-dirs:      src
   exposed-modules:     Types
+                     , Usage
                      , App.Env
                      , App.Idle
                      , Data.Indexing
@@ -237,6 +238,7 @@ test-suite lca-tests
   hs-source-dirs:      test
   main-is:             Spec.hs
   other-modules:       TestHelpers
+                     , UsageSpec
                      , GoldenData
                      , DetectFormatSpec
                      , AmountSpec

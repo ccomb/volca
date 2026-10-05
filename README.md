@@ -129,6 +129,7 @@ host = "127.0.0.1"             # interface to listen on; "0.0.0.0" answers the
                                # network over IPv4, "::" over IPv6
 password = "mysecret"          # optional – omit to disable auth
 name = "lab-archive"           # optional – how this server introduces itself over MCP
+usage_log = true               # optional – keep a line per computation, see "Usage log"
 
 [[databases]]
 name = "agribalyse-3.2"
@@ -582,8 +583,16 @@ GET    /api/v1/version                                                   Server 
 GET    /api/v1/stats                                                     Runtime stats (memory)
 GET    /api/v1/hosting                                                   Hosting config (managed instances)
 GET    /api/v1/logs?since=                                               Server logs
+GET    /api/v1/usage?after=                                              Usage log after a cursor (usage_log = true)
+DELETE /api/v1/usage?boot=&through=                                      Forget the usage lines a collector kept
 POST   /api/v1/auth                                                      Login (returns session cookie)
 ```
+
+### Usage log
+
+With `usage_log = true` under `[server]`, the engine keeps one line for each computation on a process: reading it (its exchanges, supply chain, path, consumers), its inventory, its scores, what weighs in a score, or a comparison. A line names the kind, the database and process, the time, the releases read (the database's own and those of every database it depends on, transitively) and the reader, copied from the request's `Volca-Reader` header when one is sent. Only computations that answered are kept, from REST and MCP alike, and only on databases where one release at least is declared: without a release nothing says whose data was read. A batch keeps one line per process it scored.
+
+The lines live in memory. `GET /api/v1/usage?after=N` returns those numbered after `N` (a page at a time, `more` saying whether others wait) with the `boot` they belong to; each start of the engine draws a new one and numbers from 1 again. `DELETE /api/v1/usage?boot=B&through=N` forgets the lines a collector kept, and is refused with 409 for a `boot` from another start. A read-only engine answers both, since the log is not its data, and neither keeps the engine from going idle. When nobody collects, the oldest lines go past 100,000 and the engine says how many. The engine trusts the header as sent: the server in front of it decides who a reader is, and is the one to strip the header from what callers send.
 
 The routes under `method/{methodId}` take an optional `?collection=`. A method's UUID derives from its name, so two collections can carry the same one; without `collection`, such a UUID is refused with a 409 naming the collections to choose from.
 

@@ -52,7 +52,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, fi
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, selectMethod)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
-import Control.Monad (forM, mfilter)
+import Control.Monad (forM, forM_, mfilter, when)
 import Data.List (find)
 import qualified Data.List as L
 import qualified Data.Set as Set
@@ -72,6 +72,7 @@ import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount, withheldSentence)
+import Usage (UsageLog, Use (..), readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
 -- JSON-RPC 2.0 types
@@ -204,8 +205,8 @@ type WhileWorking = IO (Maybe Value) -> IO (Maybe Value)
 how a server that shuts itself down when idle tells a working client from a
 merely connected one.
 -}
-mcpApp :: DatabaseManager -> [ClassificationPreset] -> Bool -> Maybe HostingConfig -> Maybe ServerName -> WhileWorking -> IO Application
-mcpApp dbManager presets hasFrontend mHosting mName whileWorking = do
+mcpApp :: DatabaseManager -> [ClassificationPreset] -> Bool -> Maybe HostingConfig -> Maybe ServerName -> WhileWorking -> Maybe UsageLog -> IO Application
+mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
     (a, b) <- (,) <$> (randomIO :: IO Int) <*> (randomIO :: IO Int)
     let sessionId = T.pack $ show (abs a) ++ "-" ++ show (abs b)
     stateRef <- newIORef McpState{mcpSessionId = sessionId}
@@ -225,6 +226,8 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking = do
                     Right rpcReq -> do
                         let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
                         resp <- runCall (handleRpc dbManager presets mHosting mBaseUrl mName st rpcReq)
+                        forM_ mUsage $ \lg ->
+                            noteToolCall dbManager (recordUse lg (DM.releasesRead dbManager) (readerOf hdrs)) rpcReq resp
                         case resp of
                             Nothing ->
                                 respond $
@@ -482,6 +485,47 @@ handleToolsCall dbManager presets mHosting mBaseUrl req = do
     case rpcParams req >>= parseCallParams of
         Nothing -> return $ rpcError rid (-32602) "Invalid params: expected {name, arguments}"
         Just (toolName, args) -> callTool dbManager presets mHosting mBaseUrl rid toolName args
+
+{- | Note in the usage log a tool call that answered, once for each process it
+was asked about in a database that holds it. Read from the call rather than
+inside each tool, so a new tool is counted by classing its resource
+('R.resourceUsage') and nothing else.
+-}
+noteToolCall :: DatabaseManager -> (Use -> IO ()) -> RpcRequest -> Maybe Value -> IO ()
+noteToolCall dbManager note rpcReq resp
+    | rpcMethod rpcReq /= "tools/call" || not (maybe False toolAnswered resp) = pure ()
+    | otherwise = forM_ (maybe [] (uncurry toolUses) (rpcParams rpcReq >>= parseCallParams)) $ \use -> do
+        held <- maybe False (heldIn use . ldDatabase) <$> getDatabase dbManager (useDatabase use)
+        when held (note use)
+  where
+    heldIn :: Use -> Database -> Bool
+    heldIn use db = either (const False) (const True) (Service.resolveActivityByProcessId db (useProcess use))
+
+-- | Whether a tool call's reply is an answer rather than a refusal or an error.
+toolAnswered :: Value -> Bool
+toolAnswered (Object o) | Just (Object r) <- KM.lookup "result" o = KM.lookup "isError" r /= Just (Bool True)
+toolAnswered _ = False
+
+{- | The processes a tool call asks about, each with its database: the
+arguments every process-reading tool names them by.
+-}
+toolUses :: Text -> KeyMap Value -> [Use]
+toolUses name args = do
+    resource <- maybe [] pure (find ((== name) . R.mcpName) R.allResources)
+    kind <- maybe [] pure (R.resourceUsage resource)
+    (dbKey, pidKey) <-
+        [ ("database", "process_id")
+        , ("database", "process_ids")
+        , ("database_a", "process_id_a")
+        , ("database_b", "process_id_b")
+        , (if KM.member "other_database" args then "other_database" else "database", "other_process_id")
+        ]
+    String dbName <- maybe [] pure (KM.lookup dbKey args)
+    pid <- case KM.lookup pidKey args of
+        Just (String p) -> [p]
+        Just (Array ps) -> [p | String p <- V.toList ps]
+        _ -> []
+    pure (Use kind dbName pid)
 
 parseCallParams :: Value -> Maybe (Text, KeyMap Value)
 parseCallParams (Object o) = do

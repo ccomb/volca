@@ -14,6 +14,7 @@ port = 8080
 host = "127.0.0.1"
 password = "secret"
 name = "every-key"
+usage_log = true
 
 [hosting]
 max_uploads = 2

@@ -81,6 +81,8 @@ statusOf manager handler =
             , aeHostingConfig = Nothing
             , aeClassificationPresets = []
             , aeDataVersion = Nothing
+            , aeUsageLog = Nothing
+            , aeReader = Nothing
             }
 
 spec :: Spec

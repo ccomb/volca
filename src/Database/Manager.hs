@@ -102,6 +102,7 @@ module Database.Manager (
     getStagedDatabase,
     readDocumentFile,
     databaseLicence,
+    releasesRead,
     refusingDatabases,
     setUploadLicence,
     SettingRefusal (..),
@@ -157,7 +158,7 @@ import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import qualified Control.Exception
 import Control.Lens ((&), (?~))
-import Control.Monad (filterM, forM, forM_, unless, void, when)
+import Control.Monad (filterM, forM, forM_, unless, void, when, (<=<))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE, withExceptT)
 import Data.Aeson (FromJSON (..), ToJSON (..), (.:), (.:?), (.=))
@@ -753,18 +754,31 @@ root itself is excluded, and a name already seen is not walked again, so a
 dependency cycle terminates instead of looping.
 -}
 dependencyClosure :: Map Text LoadedDatabase -> Text -> [Database]
-dependencyClosure loaded root = go (S.singleton root) (depsOf root)
+dependencyClosure loaded root = mapMaybe (fmap ldDatabase . (`M.lookup` loaded)) (dependencyNames loaded root)
+
+-- | The names 'dependencyClosure' walks, loaded ones only.
+dependencyNames :: Map Text LoadedDatabase -> Text -> [Text]
+dependencyNames loaded root = go (S.singleton root) (depsOf root)
   where
     depsOf :: Text -> [Text]
     depsOf name = maybe [] (dbDependsOn . ldDatabase) (M.lookup name loaded)
 
-    go :: S.Set Text -> [Text] -> [Database]
+    go :: S.Set Text -> [Text] -> [Text]
     go _ [] = []
     go seen (name : rest)
         | S.member name seen = go seen rest
-        | otherwise = case M.lookup name loaded of
-            Nothing -> go (S.insert name seen) rest
-            Just ld -> ldDatabase ld : go (S.insert name seen) (rest ++ depsOf name)
+        | M.member name loaded = name : go (S.insert name seen) (rest ++ depsOf name)
+        | otherwise = go (S.insert name seen) rest
+
+{- | The releases a computation on a database reads: its own, then those of the
+databases it depends on, transitively. One without a declared release says
+nothing about whose data it is, and is left out.
+-}
+releasesRead :: DatabaseManager -> Text -> IO [Release]
+releasesRead manager dbName = do
+    loaded <- readTVarIO (dmLoadedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
+    pure (mapMaybe (dcRelease <=< (`M.lookup` configs)) (dbName : dependencyNames loaded dbName))
 
 {- | The flows a database's characterization has to reach, memoized per root.
 

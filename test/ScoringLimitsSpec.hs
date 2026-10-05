@@ -99,6 +99,8 @@ spec = do
                         , aeHostingConfig = Just (limits (Just 2) Nothing)
                         , aeClassificationPresets = []
                         , aeDataVersion = Nothing
+                        , aeUsageLog = Nothing
+                        , aeReader = Nothing
                         }
             res <-
                 runHandler . runApp env $

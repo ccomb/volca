@@ -60,6 +60,7 @@ serverOn host =
         , scHost = host
         , scPassword = Nothing
         , scName = Nothing
+        , scUsageLog = False
         }
 
 mkRef :: FilePath -> RefDataConfig
