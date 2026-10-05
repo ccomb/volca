@@ -25,6 +25,7 @@ config sets =
         { Config.mcName = "test"
         , Config.mcOrigin = MethodFromFile "unused.csv"
         , Config.mcActive = True
+        , Config.mcDefault = False
         , Config.mcHome = Nothing
         , Config.mcSource = Nothing
         , Config.mcDescription = Nothing

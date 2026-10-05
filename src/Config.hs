@@ -351,6 +351,8 @@ data MethodConfig = MethodConfig
     { mcName :: !Text
     , mcOrigin :: !MethodOrigin
     , mcActive :: !Bool
+    , mcDefault :: !Bool
+    -- ^ The collection a reader is offered first; at most one carries it.
     , mcHome :: !(Maybe FilePath)
     {- ^ The directory under @uploads/methods/@ a collection lives in, holding
     its @meta.toml@ and its journal. A collection there is changed through its
@@ -583,6 +585,7 @@ builtinMethodEntry m =
         { mcName = builtinMethodName m
         , mcOrigin = MethodBuiltIn m
         , mcActive = True
+        , mcDefault = False
         , mcHome = Nothing
         , mcSource = Nothing
         , mcDescription = originDescription (MethodBuiltIn m)
@@ -754,6 +757,7 @@ instance DecodeTOML MethodConfig where
                         <> T.unpack mcName
                         <> "\""
         mcActive <- fromMaybe True <$> getFieldOpt "active"
+        mcDefault <- fromMaybe False <$> getFieldOpt "default"
         let mcHome = Nothing -- A collection the configuration declares changes by copying it
             mcSource = Nothing
         mcDescription <- maybe (originDescription mcOrigin) Just <$> getFieldOpt "description"
@@ -998,7 +1002,7 @@ configKeys =
         ,
             ( "methods"
             , keys $
-                map plain ["name", "path", "active", "description", "global-methods"]
+                map plain ["name", "path", "active", "default", "description", "global-methods"]
                     <> [("scoring", scoringSet), ("patches", patch)]
             )
         , ("flow-synonyms", refData)
@@ -1250,6 +1254,14 @@ validateConfig cfg = do
     when (length defaultDbs > 1) $
         Left $
             "Multiple databases marked as default: " <> T.intercalate ", " (map dcName defaultDbs)
+
+    let defaultMethods = filter mcDefault (cfgMethods cfg)
+    when (length defaultMethods > 1) $
+        Left $
+            "Multiple method collections marked as default: " <> T.intercalate ", " (map mcName defaultMethods)
+    forM_ (filter (not . mcActive) defaultMethods) $ \mc ->
+        Left $
+            "Method collection \"" <> mcName mc <> "\" is marked as default but switched off (active = false): a reader would be offered a collection that is not loaded."
 
     -- Validate dependency references exist
     let nameSet = S.fromList dbNames

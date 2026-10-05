@@ -8,7 +8,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Manager (CachePolicy (..), DatabaseLoadStatus (..), DatabaseManager (..), MethodCollectionStatus (..), initDatabaseManager, listMethodCollections, removeMethodCollection)
+import Database.Manager (CachePolicy (..), DatabaseLoadStatus (..), DatabaseManager (..), MethodCollectionStatus (..), defaultMethodCollection, initDatabaseManager, listMethodCollections, removeMethodCollection)
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.Types (Method (..), MethodCollection (..))
 import TOML (getArrayOf, getFieldWith)
@@ -51,6 +51,15 @@ spec = describe "initDatabaseManager with the built-in defaults" $ do
                 listed <- filter ((== "plain-indicators") . mcsName) <$> listMethodCollections manager
                 map (\m -> (mcsStatus m, mcsPath m, mcsFormat m, mcsDescription m)) listed
                     `shouldBe` [(Unloaded, "built-in", "Columnar CSV", Just "Raw physical quantities counted through the supply chain (CF=1.0)")]
+
+    it "names the method collection the configuration marks as default, and none when none is" $ do
+        case decodeMethods "[[methods]]\nname = \"plain-indicators\"\ndefault = true\n" of
+            Left err -> expectationFailure (show err)
+            Right methods -> do
+                marked <- initDatabaseManager defaultConfig{cfgMethods = methods} NoCache
+                unmarked <- initDatabaseManager defaultConfig NoCache
+                (,) <$> defaultMethodCollection marked <*> defaultMethodCollection unmarked
+                    `shouldReturn` (Just "plain-indicators", Nothing)
 
     it "refuses to delete the built-in method, and says how to switch it off" $ do
         manager <- initDatabaseManager defaultConfig NoCache

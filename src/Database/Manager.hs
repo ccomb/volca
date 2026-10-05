@@ -54,6 +54,7 @@ module Database.Manager (
 
     -- * Method Operations
     listMethodCollections,
+    defaultMethodCollection,
     loadMethodCollection,
     loadMethodCollectionLocked,
     loadMethodCollectionFromConfig,
@@ -2030,6 +2031,7 @@ discoverUploadedMethodConfigs = do
                         { mcName = UploadedDB.umDisplayName meta
                         , mcOrigin = origin
                         , mcActive = False -- Never auto-load uploaded methods
+                        , mcDefault = False
                         , mcHome = Just dirPath
                         , mcSource = UploadedDB.umSource meta
                         , mcDescription = UploadedDB.umDescription meta
@@ -4468,6 +4470,14 @@ listMethodCollections manager = do
         | T.isInfixOf ".csv" (T.toLower (T.pack p)) = "SimaPro CSV"
         | T.isInfixOf ".json" (T.toLower (T.pack p)) = "Regionalized LCIA JSON"
         | otherwise = "ILCD"
+
+{- | The collection the configuration offers a reader first, if it marks one.
+'validateConfig' lets one entry carry the mark, and a copy or an upload never
+does.
+-}
+defaultMethodCollection :: DatabaseManager -> IO (Maybe Text)
+defaultMethodCollection manager =
+    fmap fst . find (mcDefault . snd) . M.toList <$> readTVarIO (dmAvailableMethods manager)
 
 {- | Load a method collection on demand. It takes the edit lock, as unloading
 and deleting do: a collection loaded while a change was being written would

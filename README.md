@@ -207,6 +207,7 @@ licence = "CC-BY-4.0"          # the licence it is published under, by SPDX iden
 [[methods]]
 name = "EF-3.1"
 path = "DBs/EF-v3.1.zip"      # ILCD method package (ZIP or directory)
+default = true                 # the collection a reader is offered first (at most one)
 
 # SimaPro method CSV exports and tabular CSV are also accepted:
 # path = "DBs/EF3.1_methods.csv"

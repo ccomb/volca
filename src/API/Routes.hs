@@ -1516,8 +1516,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 51: the @collection@ and @factorCount@ each method of the
-@list_methods@ tool carries;
+(revision 52: the @default@ a method collection list names;
+revision 51: the @collection@ and @factorCount@ each method of the
+@list_methods@ tool carries, and a failed load, copy or upload answered with
+an HTTP error;
 revision 50: a package uploaded as one, its licence and the releases it
 requires read from its description, the @requiredReleases@ a setup carries,
 and the route that accepts a database in place of one;
@@ -1633,7 +1635,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 51
+currentWireVersion = 52
 
 getVersion :: AppM Value
 getVersion = do
@@ -2638,8 +2640,10 @@ getCharacterization dbName methodIdText flowFilter limitParam mCollection = do
 getMethodCollections :: AppM MethodCollectionListResponse
 getMethodCollections = do
     dbManager <- asks aeDbManager
-    statuses <- liftIO $ DM.listMethodCollections dbManager
-    return (MethodCollectionListResponse (map MethodEdit.methodCollectionStatusAPI statuses))
+    liftIO $
+        MethodCollectionListResponse . map MethodEdit.methodCollectionStatusAPI
+            <$> DM.listMethodCollections dbManager
+            <*> DM.defaultMethodCollection dbManager
 
 loadMethodCollectionHandler :: Text -> AppM ActivateResponse
 loadMethodCollectionHandler name = do
