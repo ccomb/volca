@@ -1259,6 +1259,9 @@ validateConfig cfg = do
     when (length defaultMethods > 1) $
         Left $
             "Multiple method collections marked as default: " <> T.intercalate ", " (map mcName defaultMethods)
+    forM_ (filter (not . mcActive) defaultMethods) $ \mc ->
+        Left $
+            "Method collection \"" <> mcName mc <> "\" is marked as default but switched off (active = false): a reader would be offered a collection that is not loaded."
 
     -- Validate dependency references exist
     let nameSet = S.fromList dbNames

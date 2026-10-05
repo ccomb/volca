@@ -286,6 +286,15 @@ spec = do
                         err `shouldSatisfy` T.isInfixOf "IPCC"
                 failed -> expectationFailure (show failed)
 
+        it "refuses a default method collection that is switched off" $
+            case decodeMethod "name = \"EF\"\npath = \"x.zip\"\nactive = false\ndefault = true\n" of
+                Left e -> expectationFailure (show e)
+                Right mc -> case validateConfig defaultConfig{cfgMethods = [mc]} of
+                    Right _ -> expectationFailure "expected a refusal"
+                    Left err -> do
+                        err `shouldSatisfy` T.isInfixOf "active = false"
+                        err `shouldSatisfy` T.isInfixOf "EF"
+
         it "reads default on a method collection, false when absent" $
             case (decodeMethod "name = \"EF\"\npath = \"x.zip\"\ndefault = true\n", decodeMethod "name = \"EF\"\npath = \"x.zip\"\n") of
                 (Right marked, Right plain) -> (mcDefault marked, mcDefault plain) `shouldBe` (True, False)
