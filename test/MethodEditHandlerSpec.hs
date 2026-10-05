@@ -37,6 +37,8 @@ env = do
             , aeHostingConfig = Nothing
             , aeClassificationPresets = []
             , aeDataVersion = Nothing
+            , aeUsageLog = Nothing
+            , aeReader = Nothing
             }
 
 call :: AppEnv -> AppM a -> IO (Either ServerError a)

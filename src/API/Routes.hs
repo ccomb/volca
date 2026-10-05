@@ -13,7 +13,7 @@ import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
 import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
-import App.Env (AppEnv (..), AppM, runApp)
+import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
@@ -78,6 +78,7 @@ import SharedSolver (SharedSolver)
 import qualified SharedSolver
 import Tree (buildLoopAwareTree)
 import Types
+import Usage (BootId, ProcessKey (..), UsageKind (..), UsageLog, UsagePage, forgetUsage, readUsage)
 import qualified Version
 
 -- | API type definition - RESTful design with focused endpoints
@@ -242,6 +243,9 @@ type LCAAPI =
                 :<|> "units" :> "upload" :> QueryParam "name" Text :> QueryParam "description" Text :> StreamBody NoFraming OctetStream (SourceIO UploadChunk) :> Post '[JSON] UploadResponse
                 -- Log endpoint
                 :<|> "logs" :> QueryParam "since" Int :> Get '[JSON] Value
+                -- Usage log: what was computed, for the operator to collect
+                :<|> "usage" :> QueryParam "after" Int :> Get '[JSON] UsagePage
+                :<|> "usage" :> QueryParam' '[Required, Strict] "boot" BootId :> QueryParam' '[Required, Strict] "through" Int :> Delete '[JSON] NoContent
                 -- Auth endpoint (login)
                 :<|> "auth" :> ReqBody '[JSON] LoginRequest :> Post '[JSON] (Headers '[Header "Set-Cookie" String] Value)
                 -- Version endpoint
@@ -1635,7 +1639,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 52
+currentWireVersion = 53
 
 getVersion :: AppM Value
 getVersion = do
@@ -1732,6 +1736,28 @@ getLogsHandler sinceMaybe = do
             , "nextIndex" .= nextIndex
             ]
 
+{- | The usage log after a collector's cursor. 404 on an engine that keeps
+none, so a collector can tell "nothing yet" from "never".
+-}
+getUsageHandler :: Maybe Int -> AppM UsagePage
+getUsageHandler after = do
+    lg <- requireUsageLog
+    liftIO (readUsage lg (fromMaybe 0 after))
+
+{- | Forget the lines a collector kept. Not a change to the engine's data, so
+a read-only engine answers it too; 409 when the cursor is from another start.
+-}
+forgetUsageHandler :: BootId -> Int -> AppM NoContent
+forgetUsageHandler boot through = do
+    lg <- requireUsageLog
+    liftIO (forgetUsage lg boot through)
+        >>= either (\msg -> throwError err409{errBody = BSL.fromStrict (T.encodeUtf8 msg)}) (const (pure NoContent))
+
+requireUsageLog :: AppM UsageLog
+requireUsageLog =
+    asks aeUsageLog
+        >>= maybe (throwError err404{errBody = "This engine keeps no usage log: usage_log is off in its [server] configuration"}) pure
+
 postAuth :: LoginRequest -> AppM (Headers '[Header "Set-Cookie" String] Value)
 postAuth loginReq = do
     password <- asks aePassword
@@ -1747,7 +1773,7 @@ postAuth loginReq = do
                     throwError err401{errBody = "{\"error\":\"invalid code\"}"}
 
 getActivityInfo :: Text -> Text -> AppM ActivityInfo
-getActivityInfo dbName processId = do
+getActivityInfo dbName processId = counted Reading dbName (ProcessKey processId) $ do
     (db, _) <- requireDatabaseByName dbName
     licence <- DBHandlers.servedLicence dbName
     result <- either throwServiceError pure (Service.getActivityInfo db processId)
@@ -1756,20 +1782,20 @@ getActivityInfo dbName processId = do
         Error err -> throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack err}
 
 getActivityFlows :: Text -> Text -> AppM [FlowSummary]
-getActivityFlows dbName processId = do
+getActivityFlows dbName processId = counted Reading dbName (ProcessKey processId) $ do
     (db, _) <- requireDatabaseByName dbName
     withValidatedActivity db processId $ \activity ->
         return $ Service.getActivityFlowSummaries db activity
 
 getActivityInputs :: Text -> Text -> AppM [ExchangeDetail]
-getActivityInputs dbName processId = do
+getActivityInputs dbName processId = counted Reading dbName (ProcessKey processId) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, _) <- requireDatabaseByName dbName
     withValidatedActivity db processId $ \activity ->
         return $ Service.getActivityInputDetails db activity
 
 getActivityOutputs :: Text -> Text -> AppM [ExchangeDetail]
-getActivityOutputs dbName processId = do
+getActivityOutputs dbName processId = counted Reading dbName (ProcessKey processId) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, _) <- requireDatabaseByName dbName
     withValidatedActivity db processId $ \activity ->
@@ -1784,7 +1810,7 @@ getActivityReferenceProduct dbName processId = do
             Just refProduct -> return refProduct
 
 getActivityTree :: Text -> Text -> AppM TreeExport
-getActivityTree dbName processId = do
+getActivityTree dbName processId = counted Reading dbName (ProcessKey processId) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     maxTreeDepth <- asks aeMaxTreeDepth
@@ -1808,10 +1834,10 @@ activityInventoryCore dbName processIdText mSub = do
     pure $ Service.convertToInventoryExport db mFlows mUnits processId activity (SharedSolver.csInventory sol)
 
 getActivityInventory :: Text -> Text -> AppM InventoryExport
-getActivityInventory dbName processIdText = activityInventoryCore dbName processIdText Nothing
+getActivityInventory dbName processIdText = counted Inventorying dbName (ProcessKey processIdText) $ activityInventoryCore dbName processIdText Nothing
 
 getActivityGraph :: Text -> Text -> Maybe Double -> AppM GraphExport
-getActivityGraph dbName processId maybeCutoff = do
+getActivityGraph dbName processId maybeCutoff = counted Reading dbName (ProcessKey processId) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, sharedSolver) <- requireDatabaseByName dbName
     let cutoffPercent = fromMaybe 1.0 maybeCutoff
@@ -1920,7 +1946,8 @@ getActivitySupplyChain ::
     Maybe Bool ->
     AppM SupplyChainResponse
 getActivitySupplyChain dbName processIdText nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam includeEdgesParam =
-    activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam includeEdgesParam Nothing
+    counted Reading dbName (ProcessKey processIdText) $
+        activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam includeEdgesParam Nothing
 
 {- | Aggregate endpoint with accumulating field-level validation (a single
 request can report invalid `scope` and invalid `aggregate` together).
@@ -1944,7 +1971,7 @@ getActivityAggregate ::
     Maybe Text ->
     Maybe Text ->
     AppM Aggregation
-getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam fnameParam fnameNotParam funitParam presetParam fclassParams ftargetParam fconsumerParam fconsumerNotParam fexchangeTypeParam freferenceParam groupByParam aggregateParam = do
+getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam fnameParam fnameNotParam funitParam presetParam fclassParams ftargetParam fconsumerParam fconsumerNotParam fexchangeTypeParam freferenceParam groupByParam aggregateParam = counted Inventorying dbName (ProcessKey processId) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     presets <- asks aeClassificationPresets
@@ -2018,17 +2045,19 @@ activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam 
 
 getActivityLCIA :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> AppM LCIAResult
 getActivityLCIA dbName processIdText collectionName methodIdText topFlowsParam =
-    activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam Nothing
+    counted Scoring dbName (ProcessKey processIdText) $
+        activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam Nothing
 
 postActivityLCIA :: Text -> Text -> DM.CollectionName -> Text -> SubstitutionRequest -> AppM LCIAResult
 postActivityLCIA dbName processIdText collectionName methodIdText subReq =
-    activityLCIACore dbName processIdText collectionName methodIdText Nothing (Just subReq)
+    counted Scoring dbName (ProcessKey processIdText) $
+        activityLCIACore dbName processIdText collectionName methodIdText Nothing (Just subReq)
 
 {- | Sensitivity sweep: rank-1 perturbations on the root scaling, scored
 through the cross-DB graph (regional CFs on dep DBs still apply).
 -}
 postActivitySensitivity :: Text -> Text -> DM.CollectionName -> Text -> SensitivityRequest -> AppM SensitivityResponse
-postActivitySensitivity dbName processIdText collectionName methodIdText senReq = do
+postActivitySensitivity dbName processIdText collectionName methodIdText senReq = counted Scoring dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     dbManager <- asks aeDbManager
     (db, sharedSolver) <- requireDatabaseByName dbName
@@ -2083,14 +2112,16 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
 
 getActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> AppM LCIABatchResult
 getActivityLCIABatch dbName processIdText collectionName mExcludeLT =
-    activityLCIABatchH dbName processIdText collectionName Nothing (longTermModeFromExclude (fromMaybe False mExcludeLT))
+    counted Scoring dbName (ProcessKey processIdText) $
+        activityLCIABatchH dbName processIdText collectionName Nothing (longTermModeFromExclude (fromMaybe False mExcludeLT))
 
 postActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> SubstitutionRequest -> AppM LCIABatchResult
 postActivityLCIABatch dbName processIdText collectionName mExcludeLT subReq =
-    activityLCIABatchH dbName processIdText collectionName (Just subReq) (longTermModeFromExclude (fromMaybe False mExcludeLT))
+    counted Scoring dbName (ProcessKey processIdText) $
+        activityLCIABatchH dbName processIdText collectionName (Just subReq) (longTermModeFromExclude (fromMaybe False mExcludeLT))
 
 postActivityInventory :: Text -> Text -> SubstitutionRequest -> AppM InventoryExport
-postActivityInventory dbName processIdText subReq = activityInventoryCore dbName processIdText (Just subReq)
+postActivityInventory dbName processIdText subReq = counted Inventorying dbName (ProcessKey processIdText) $ activityInventoryCore dbName processIdText (Just subReq)
 
 postActivitySupplyChain ::
     Text ->
@@ -2112,7 +2143,8 @@ postActivitySupplyChain ::
     SubstitutionRequest ->
     AppM SupplyChainResponse
 postActivitySupplyChain dbName processIdText nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam includeEdgesParam subReq =
-    activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam includeEdgesParam (Just subReq)
+    counted Reading dbName (ProcessKey processIdText) $
+        activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam includeEdgesParam (Just subReq)
 
 getActivityConsumers ::
     Text ->
@@ -2131,7 +2163,7 @@ getActivityConsumers ::
     Maybe Text ->
     Maybe Bool ->
     AppM ConsumersResponse
-getActivityConsumers dbName processIdText nameFilter locationFilter productFilter presetParam classSystems classValues classModes limitParam offsetParam maxDepthParam sortParam orderParam includeEdgesParam = do
+getActivityConsumers dbName processIdText nameFilter locationFilter productFilter presetParam classSystems classValues classModes limitParam offsetParam maxDepthParam sortParam orderParam includeEdgesParam = counted Reading dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     presets <- asks aeClassificationPresets
     dbManager <- asks aeDbManager
@@ -2156,7 +2188,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
     either throwServiceError pure (Service.getConsumers (DM.managerGeographies dbManager) db dbName processIdText cnf)
 
 getActivityPathTo :: Text -> Text -> Maybe Text -> AppM Value
-getActivityPathTo dbName processIdText targetParam = do
+getActivityPathTo dbName processIdText targetParam = counted Reading dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, solver) <- requireDatabaseByName dbName
     target <-
@@ -2178,19 +2210,22 @@ getActivityPathTo dbName processIdText targetParam = do
 
 -- | One activity against another, in this database or in another loaded one.
 getActivityComparison :: Text -> Text -> Maybe Text -> Maybe Text -> AppM ActivityComparison
-getActivityComparison dbName processIdText otherProcessParam otherDbParam = do
-    mapM_ (DBHandlers.refuseUnlessGranted ReadInventory) (dbName : maybeToList otherDbParam)
-    otherProcessId <-
-        maybe
-            (throwError err400{errBody = "Missing required 'other_process_id' query parameter"})
-            pure
-            otherProcessParam
-    (db, _) <- requireDatabaseByName dbName
-    (otherDb, _) <- requireDatabaseByName (fromMaybe dbName otherDbParam)
-    either throwServiceError (pure . Compare.compareActivities) $
-        Compare.Sides
-            <$> Compare.resolveProcess db processIdText
-            <*> Compare.resolveProcess otherDb otherProcessId
+getActivityComparison dbName processIdText otherProcessParam otherDbParam =
+    counted Comparing dbName (ProcessKey processIdText)
+        . maybe id (counted Comparing (fromMaybe dbName otherDbParam) . ProcessKey) otherProcessParam
+        $ do
+            mapM_ (DBHandlers.refuseUnlessGranted ReadInventory) (dbName : maybeToList otherDbParam)
+            otherProcessId <-
+                maybe
+                    (throwError err400{errBody = "Missing required 'other_process_id' query parameter"})
+                    pure
+                    otherProcessParam
+            (db, _) <- requireDatabaseByName dbName
+            (otherDb, _) <- requireDatabaseByName (fromMaybe dbName otherDbParam)
+            either throwServiceError (pure . Compare.compareActivities) $
+                Compare.Sides
+                    <$> Compare.resolveProcess db processIdText
+                    <*> Compare.resolveProcess otherDb otherProcessId
 
 getDatabaseComparison :: Text -> Maybe Text -> Maybe Int -> AppM DatabaseComparison
 getDatabaseComparison dbName otherDbParam limitParam = do
@@ -2272,7 +2307,7 @@ getMethodCollectionComparison collection otherParam forcedPairs categoryParam li
     failed (PairsRefused r) = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 (CompareMethods.refusalMessage r))}
 
 getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
-getContributingFlows dbName processIdText collectionName methodIdText limitParam mExcludeLT = do
+getContributingFlows dbName processIdText collectionName methodIdText limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
         dbManager <- asks aeDbManager
@@ -2297,7 +2332,7 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
                 }
 
 getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
-getContributingActivities dbName processIdText collectionName methodIdText limitParam mExcludeLT = do
+getContributingActivities dbName processIdText collectionName methodIdText limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
         dbManager <- asks aeDbManager
@@ -2393,7 +2428,7 @@ scoreHeading :: Score.ResolvedScore -> Heading
 scoreHeading rs = Heading{hdName = Score.scoreTitle rs, hdUnit = Score.scoreUnit rs}
 
 getScoreContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
-getScoreContributingActivities dbName processIdText collectionName setName scoreName limitParam mExcludeLT = do
+getScoreContributingActivities dbName processIdText collectionName setName scoreName limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     dbManager <- asks aeDbManager
     (rs, parts) <-
@@ -2412,7 +2447,7 @@ getScoreContributingActivities dbName processIdText collectionName setName score
     liftIO $ activitiesResult dbManager dbName (scoreHeading rs) (fromMaybe 10 limitParam) parts
 
 getScoreContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
-getScoreContributingFlows dbName processIdText collectionName setName scoreName limitParam mExcludeLT = do
+getScoreContributingFlows dbName processIdText collectionName setName scoreName limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     (rs, Score.ScoreFlows{Score.sfTotal = total, Score.sfRows = rows, Score.sfWithheld = withheld}) <-
         withActivityAndScore
@@ -2739,7 +2774,8 @@ catalogueOf dbName = do
 
 postImpactsBatch :: Text -> DM.CollectionName -> Maybe Int -> Maybe Bool -> BatchImpactsRequest -> AppM BatchImpactsResponse
 postImpactsBatch dbName collectionName topFlowsParam mExcludeLT =
-    batchImpactsH dbName collectionName topFlowsParam (longTermModeFromExclude (fromMaybe False mExcludeLT))
+    countedEach Scoring dbName (map (ProcessKey . bieProcessId) . birResults)
+        . batchImpactsH dbName collectionName topFlowsParam (longTermModeFromExclude (fromMaybe False mExcludeLT))
 
 -- ---------------------------------------------------------------------------
 -- Servant server
@@ -2853,6 +2889,8 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.deleteRefData DBHandlers.UnitDefs
             :<|> DBHandlers.uploadRefData DBHandlers.UnitDefs
             :<|> getLogsHandler
+            :<|> getUsageHandler
+            :<|> forgetUsageHandler
             :<|> postAuth
             :<|> getVersion
             :<|> getHosting

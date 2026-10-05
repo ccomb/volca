@@ -258,6 +258,10 @@ data ServerConfig = ServerConfig
     , scHost :: !Text
     , scPassword :: !(Maybe Text) -- Optional password for HTTP Basic Auth
     , scName :: !(Maybe ServerName)
+    , scUsageLog :: !Bool
+    {- ^ Keep a line for each computation, for whoever runs the engine to
+    collect from @/api/v1/usage@; off unless asked for.
+    -}
     }
     deriving (Show, Eq, Generic)
 
@@ -470,6 +474,7 @@ defaultServerConfig =
         , scHost = "127.0.0.1"
         , scPassword = Nothing
         , scName = Nothing
+        , scUsageLog = False
         }
 
 {- | The address the server listens on.
@@ -668,6 +673,7 @@ instance DecodeTOML ServerConfig where
         scHost <- fromMaybe "127.0.0.1" <$> getFieldOpt "host"
         scPassword <- getFieldOpt "password"
         scName <- fmap ServerName <$> getFieldOpt "name"
+        scUsageLog <- fromMaybe False <$> getFieldOpt "usage_log"
         pure ServerConfig{..}
 
 instance DecodeTOML DatabaseConfig where
@@ -988,7 +994,7 @@ configKeys =
         [ ("geographies", value)
         , ("chem-synonyms", value)
         , ("substance-edges", value)
-        , ("server", keys (map plain ["port", "host", "password", "name"]))
+        , ("server", keys (map plain ["port", "host", "password", "name", "usage_log"]))
         , ("hosting", keys (map plain hostingKeys))
         ,
             ( "databases"

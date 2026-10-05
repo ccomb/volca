@@ -388,6 +388,8 @@ withDb mkConfig act =
                     , aeHostingConfig = Nothing
                     , aeClassificationPresets = []
                     , aeDataVersion = Nothing
+                    , aeUsageLog = Nothing
+                    , aeReader = Nothing
                     }
   where
     triplesOf db = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]

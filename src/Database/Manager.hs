@@ -102,6 +102,7 @@ module Database.Manager (
     getStagedDatabase,
     readDocumentFile,
     databaseLicence,
+    releasesRead,
     refusingDatabases,
     setUploadLicence,
     SettingRefusal (..),
@@ -157,7 +158,7 @@ import Control.Concurrent.STM
 import Control.Exception (SomeException, try)
 import qualified Control.Exception
 import Control.Lens ((&), (?~))
-import Control.Monad (filterM, forM, forM_, unless, void, when)
+import Control.Monad (filterM, forM, forM_, unless, void, when, (<=<))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE, withExceptT)
 import Data.Aeson (FromJSON (..), ToJSON (..), (.:), (.:?), (.=))
@@ -169,7 +170,7 @@ import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
 import Data.Indexing (uniqueIndex)
 import qualified Data.Indexing as Indexing
-import Data.List (find, intercalate, isPrefixOf, sort, sortOn)
+import Data.List (find, intercalate, isPrefixOf, nub, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
@@ -753,18 +754,43 @@ root itself is excluded, and a name already seen is not walked again, so a
 dependency cycle terminates instead of looping.
 -}
 dependencyClosure :: Map Text LoadedDatabase -> Text -> [Database]
-dependencyClosure loaded root = go (S.singleton root) (depsOf root)
+dependencyClosure loaded root = mapMaybe (fmap ldDatabase . (`M.lookup` loaded)) (dependencyNames loaded root)
+
+-- | The names 'dependencyClosure' walks, loaded ones only.
+dependencyNames :: Map Text LoadedDatabase -> Text -> [Text]
+dependencyNames loaded root = go (S.singleton root) (depsOf root)
   where
     depsOf :: Text -> [Text]
     depsOf name = maybe [] (dbDependsOn . ldDatabase) (M.lookup name loaded)
 
-    go :: S.Set Text -> [Text] -> [Database]
+    go :: S.Set Text -> [Text] -> [Text]
     go _ [] = []
     go seen (name : rest)
         | S.member name seen = go seen rest
-        | otherwise = case M.lookup name loaded of
-            Nothing -> go (S.insert name seen) rest
-            Just ld -> ldDatabase ld : go (S.insert name seen) (rest ++ depsOf name)
+        | M.member name loaded = name : go (S.insert name seen) (rest ++ depsOf name)
+        | otherwise = go (S.insert name seen) rest
+
+{- | The releases a computation on a database reads: its own, then those of the
+databases it depends on, transitively, each with the database whose files it
+reads when it is a copy or a re-keyed one: a copy starts without a release, but
+its amounts are still its source's. One without a declared release says
+nothing about whose data it is, and is left out.
+-}
+releasesRead :: DatabaseManager -> Text -> IO [Release]
+releasesRead manager dbName = do
+    loaded <- readTVarIO (dmLoadedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
+    let read' = concatMap (sourceChain configs) (dbName : dependencyNames loaded dbName)
+    pure (nub (mapMaybe (dcRelease <=< (`M.lookup` configs)) read'))
+
+-- | A database, then the one whose files it reads, and so on; a loop stops at the first name seen again.
+sourceChain :: Map Text DatabaseConfig -> Text -> [Text]
+sourceChain configs = go S.empty
+  where
+    go :: S.Set Text -> Text -> [Text]
+    go seen name
+        | S.member name seen = []
+        | otherwise = name : maybe [] (go (S.insert name seen)) (dcSource =<< M.lookup name configs)
 
 {- | The flows a database's characterization has to reach, memoized per root.
 

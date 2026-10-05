@@ -29,7 +29,7 @@ report its status and the methods it says are allowed.
 answer :: Method -> IO (Int, Maybe ByteString)
 answer m = do
     manager <- initDatabaseManager defaultConfig NoCache
-    app <- mcpApp manager [] False Nothing Nothing id
+    app <- mcpApp manager [] False Nothing Nothing id Nothing
     ref <- newIORef Nothing
     _ <- app defaultRequest{requestMethod = m} $ \resp -> do
         writeIORef ref (Just resp)

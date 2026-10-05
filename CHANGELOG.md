@@ -4,6 +4,14 @@
 
 ### Added
 
+- A usage log, for whoever runs an engine to know what it was used for:
+  with `usage_log = true` under `[server]`, each computation on a process
+  (reading it, its inventory, its scores, its contributions, a comparison)
+  keeps a line naming the releases it read and the reader its request named
+  in a `Volca-Reader` header. Only databases with a declared release leave
+  lines. A collector reads them with `GET /api/v1/usage?after=` and forgets
+  what it kept with `DELETE /api/v1/usage`. Wire revision 53.
+
 - The MCP tool `list_methods` names the collection each method belongs to,
   and its number of factors, as the `/api/v1/methods` route does. A method
   loaded in several collections showed several times under the same id with

@@ -224,6 +224,8 @@ runIn manager handler = either (Left . errHTTPCode) Right <$> runHandler (runApp
             , aeHostingConfig = Nothing
             , aeClassificationPresets = []
             , aeDataVersion = Nothing
+            , aeUsageLog = Nothing
+            , aeReader = Nothing
             }
 
 supplyChain :: DM.DatabaseManager -> IO (Either Int SupplyChainResponse)

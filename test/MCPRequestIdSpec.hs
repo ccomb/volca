@@ -28,7 +28,7 @@ import Database.Manager (CachePolicy (..), initDatabaseManager)
 answerBody :: Method -> BL.ByteString -> IO BL.ByteString
 answerBody m body = do
     manager <- initDatabaseManager defaultConfig NoCache
-    app <- mcpApp manager [] False Nothing Nothing id
+    app <- mcpApp manager [] False Nothing Nothing id Nothing
     chunks <- newIORef (BL.toChunks body)
     let next = atomicModifyIORef' chunks $ \case
             [] -> ([], mempty)

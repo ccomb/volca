@@ -49,6 +49,8 @@ envWith hc = do
             , aeHostingConfig = hc
             , aeClassificationPresets = []
             , aeDataVersion = Nothing
+            , aeUsageLog = Nothing
+            , aeReader = Nothing
             }
 
 -- | The status and body a handler failed with, or 'Nothing' when it answered 200.

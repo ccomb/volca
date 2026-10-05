@@ -196,6 +196,8 @@ runRest manager = runHandler . runApp env
             , aeHostingConfig = Nothing
             , aeClassificationPresets = []
             , aeDataVersion = Nothing
+            , aeUsageLog = Nothing
+            , aeReader = Nothing
             }
 
 searchREST :: [Text] -> [Text] -> [Text] -> AppM (SearchResults ActivitySummary)
