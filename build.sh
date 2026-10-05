@@ -509,6 +509,28 @@ OPT_LEVEL="${VOLCA_OPT_LEVEL:-$DEFAULT_OPT_LEVEL}"
 # find it slow with nothing on screen to say why.
 log_info "Optimization level: -O$OPT_LEVEL"
 
+# The two trees share one registration of the library, which names the tree of
+# whichever level registered last, while cabal remembers per tree that it has
+# registered. Back on a level, cabal believes its library is still the
+# registered one and links the tests and the engine against the other level's,
+# as it stood when that level was last built: a test then runs code that is no
+# longer in the source. Forgetting this level's registration when the shared
+# one names another tree makes cabal register it again.
+case "$OPT_LEVEL" in
+    0) LEVEL_TREE="noopt/" ;;
+    1) LEVEL_TREE="" ;;
+    *) LEVEL_TREE="opt/" ;;
+esac
+# Each registration is judged against its own version's tree, since the ones
+# of past versions stay behind; Windows writes the path with backslashes.
+for conf in dist-newstyle/packagedb/ghc-*/volca-*-inplace.conf; do
+    pkg=${conf##*/}
+    pkg=${pkg%-inplace.conf}
+    if [[ -f "$conf" ]] && ! tr '\\' / <"$conf" | grep -q "/${pkg}/${LEVEL_TREE}build\$"; then
+        rm -f dist-newstyle/build/*/ghc-*/"${pkg}"/"${LEVEL_TREE}"cache/registration
+    fi
+done
+
 MUMPS_LIB_DIR="$MUMPS_LIB_DIR" \
 MUMPS_INCLUDE_DIR="$MUMPS_INCLUDE_DIR" \
 LINK_MODE="$LINK_MODE" \
