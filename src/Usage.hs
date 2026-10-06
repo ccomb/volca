@@ -6,8 +6,8 @@
 {- | What the engine was used for, kept for whoever runs it to collect.
 
 Each computation on a process of a database that declares its release leaves
-one line: which kind of computation, which process, which releases it read,
-and the reader the request named, if any. A database without a declared
+one line: which kind of computation, which process and what the database
+calls it, which releases it read, and the reader the request named, if any. A database without a declared
 release leaves nothing, since nothing would say whose data was read.
 
 The lines are held in memory, not in a file: a collector reads them as they
@@ -107,7 +107,7 @@ newtype ProcessKey = ProcessKey Text
     deriving (Show, Eq, Generic)
     deriving newtype (ToJSON, FromJSON, ToSchema)
 
--- | A computation as the surface that ran it describes it, before its releases are looked up.
+-- | A computation as the surface that ran it describes it, before its releases and what the database calls the process are looked up.
 data Use = Use
     { useKind :: !UsageKind
     , useDatabase :: !Text
@@ -122,7 +122,7 @@ its own; whoever shows one composes it from these.
 data ProcessNaming = ProcessNaming
     { pnActivityName :: !Text
     , pnProductName :: !(Maybe Text)
-    -- ^ None when the reference exchange names a flow the database does not hold
+    -- ^ None when the activity has no reference exchange, or one naming a flow the database does not hold
     , pnLocation :: !Text
     }
     deriving (Show, Eq, Generic)
