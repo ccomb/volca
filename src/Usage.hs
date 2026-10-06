@@ -21,6 +21,7 @@ module Usage (
     usageKindCode,
     BootId (..),
     ProcessKey (..),
+    ProcessNaming (..),
     Use (..),
     Lookup (..),
     UsageLine (..),
@@ -114,6 +115,19 @@ data Use = Use
     }
     deriving (Show, Eq)
 
+{- | What a database calls a process: its activity, its product and its
+location, kept apart as everywhere else on the wire. A process has no name of
+its own; whoever shows one composes it from these.
+-}
+data ProcessNaming = ProcessNaming
+    { pnActivityName :: !Text
+    , pnProductName :: !(Maybe Text)
+    -- ^ None when the reference exchange names a flow the database does not hold
+    , pnLocation :: !Text
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ProcessNaming)
+
 -- | One computation, as a collector reads it.
 data UsageLine = UsageLine
     { ulSeq :: !Int
@@ -121,8 +135,8 @@ data UsageLine = UsageLine
     , ulKind :: !UsageKind
     , ulDatabase :: !Text
     , ulProcess :: !ProcessKey
-    , ulProcessName :: !(Maybe Text)
-    -- ^ The process as its database names it, with its location; none when the database no longer holds it
+    , ulHeldAs :: !(Maybe ProcessNaming)
+    -- ^ What the database calls the process; none when the database no longer holds it
     , ulReader :: !(Maybe Text)
     -- ^ Whoever the request said it was made for, as the server in front of the engine named them
     , ulReads :: !(NonEmpty Release)
@@ -206,7 +220,7 @@ readerOf = fmap TE.decodeUtf8Lenient . lookup readerHeader
 data Lookup = Lookup
     { releasesOf :: Text -> IO [Release]
     -- ^ The releases a database reads: its own, then those of the databases it depends on
-    , processNameOf :: Text -> ProcessKey -> IO (Maybe Text)
+    , namingOf :: Text -> ProcessKey -> IO (Maybe ProcessNaming)
     }
 
 {- | Keep a line for a computation, when the database it ran on, or one it
@@ -216,9 +230,9 @@ recordUse :: UsageLog -> Lookup -> Maybe Text -> Use -> IO ()
 recordUse lg known reader use = do
     releases <- releasesOf known (useDatabase use)
     forM_ (nonEmpty releases) $ \readReleases -> do
-        name <- processNameOf known (useDatabase use) (useProcess use)
+        naming <- namingOf known (useDatabase use) (useProcess use)
         now <- getCurrentTime
-        recordLine lg (\n -> UsageLine n now (useKind use) (useDatabase use) (useProcess use) name reader readReleases)
+        recordLine lg (\n -> UsageLine n now (useKind use) (useDatabase use) (useProcess use) naming reader readReleases)
 
 recordLine :: UsageLog -> (Int -> UsageLine) -> IO ()
 recordLine lg mkLine = do

@@ -1520,8 +1520,8 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 54: the @processName@ a usage line carries, the process as its
-database names it, with its location;
+(revision 54: the @heldAs@ a usage line carries, the activity name, product
+name and location of the process in its database;
 revision 53: the usage log, read with @usage?after=@ and forgotten with
 @DELETE usage@;
 revision 52: the @default@ a method collection list names;

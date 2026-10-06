@@ -1,6 +1,5 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 {- | 'AppM' is @'ReaderT' 'AppEnv' 'Handler'@; 'runApp' is the @AppM ~> Handler@
 mapping passed to Servant's 'hoistServer'.
@@ -24,8 +23,8 @@ import Data.Text (Text)
 import Database.Manager (DatabaseManager, LoadedDatabase (..), getDatabase, releasesRead)
 import Servant (Handler, ServerError)
 import qualified Service
-import Types (Activity (..), Database)
-import Usage (Lookup (..), ProcessKey (..), UsageKind, UsageLog, Use (..), recordUse)
+import Types (Activity (..), Database (..))
+import Usage (Lookup (..), ProcessKey (..), ProcessNaming (..), UsageKind, UsageLog, Use (..), recordUse)
 
 -- | Read-only application environment threaded through every request.
 data AppEnv = AppEnv
@@ -49,13 +48,16 @@ runApp env (AppM m) = runReaderT m env
 
 -- | What a usage line is told of the database and the process it counts.
 usageLookup :: DatabaseManager -> Lookup
-usageLookup manager = Lookup{releasesOf = releasesRead manager, processNameOf = processNamed}
+usageLookup manager = Lookup{releasesOf = releasesRead manager, namingOf = naming}
   where
-    processNamed :: Text -> ProcessKey -> IO (Maybe Text)
-    processNamed dbName (ProcessKey pid) = (>>= named . ldDatabase) <$> getDatabase manager dbName
+    naming :: Text -> ProcessKey -> IO (Maybe ProcessNaming)
+    naming dbName (ProcessKey pid) = (>>= namedIn . ldDatabase) <$> getDatabase manager dbName
       where
-        named :: Database -> Maybe Text
-        named db = either (const Nothing) (\a -> Just (activityName a <> " (" <> activityLocation a <> ")")) (Service.resolveActivityByProcessId db pid)
+        namedIn :: Database -> Maybe ProcessNaming
+        namedIn db = either (const Nothing) (Just . describe) (Service.resolveActivityByProcessId db pid)
+          where
+            describe :: Activity -> ProcessNaming
+            describe a = ProcessNaming (activityName a) (Service.getReferenceProductName (dbTechFlows db) a) (activityLocation a)
 
 {- | Run a computation on a process, and note it in the usage log once it has
 answered: a refused or failed one read nothing.
