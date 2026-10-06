@@ -32,6 +32,7 @@ import qualified Version
 
 import API.Resources (Param (..), ParamKind (..), Resource)
 import qualified API.Resources as R
+import App.Env (usageLookup)
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), HostingConfig, ReadOnly (..), ServerName, expandClassificationPreset, hostingReadOnly, readOnlyRefusalFor, unServerName)
 import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
@@ -227,7 +228,7 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
                         let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
                         resp <- runCall (handleRpc dbManager presets mHosting mBaseUrl mName st rpcReq)
                         forM_ mUsage $ \lg ->
-                            noteToolCall dbManager (recordUse lg (DM.releasesRead dbManager) (readerOf hdrs)) rpcReq resp
+                            noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
                         case resp of
                             Nothing ->
                                 respond $

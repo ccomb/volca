@@ -12,6 +12,12 @@
   lines. A collector reads them with `GET /api/v1/usage?after=` and forgets
   what it kept with `DELETE /api/v1/usage`. Wire revision 53.
 
+- Each usage line says what its database calls the process, beside the
+  identifier: `heldAs` carries its `activityName`, `productName` and
+  `location`, so whoever reads the counts can tell the processes apart without
+  the database at hand. It is null when the database no longer holds the
+  process. Wire revision 54.
+
 - The MCP tool `list_methods` names the collection each method belongs to,
   and its number of factors, as the `/api/v1/methods` route does. A method
   loaded in several collections showed several times under the same id with
