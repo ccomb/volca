@@ -1520,7 +1520,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 52: the @default@ a method collection list names;
+(revision 54: the @processName@ a usage line carries, the process as its
+database names it, with its location;
+revision 53: the usage log, read with @usage?after=@ and forgotten with
+@DELETE usage@;
+revision 52: the @default@ a method collection list names;
 revision 51: the @collection@ and @factorCount@ each method of the
 @list_methods@ tool carries, and a failed load, copy or upload answered with
 an HTTP error;
@@ -1639,7 +1643,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 53
+currentWireVersion = 54
 
 getVersion :: AppM Value
 getVersion = do

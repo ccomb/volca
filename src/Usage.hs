@@ -22,6 +22,7 @@ module Usage (
     BootId (..),
     ProcessKey (..),
     Use (..),
+    Lookup (..),
     UsageLine (..),
     UsagePage (..),
     UsageLog,
@@ -120,6 +121,8 @@ data UsageLine = UsageLine
     , ulKind :: !UsageKind
     , ulDatabase :: !Text
     , ulProcess :: !ProcessKey
+    , ulProcessName :: !(Maybe Text)
+    -- ^ The process as its database names it, with its location; none when the database no longer holds it
     , ulReader :: !(Maybe Text)
     -- ^ Whoever the request said it was made for, as the server in front of the engine named them
     , ulReads :: !(NonEmpty Release)
@@ -199,15 +202,23 @@ readerHeader = "Volca-Reader"
 readerOf :: RequestHeaders -> Maybe Text
 readerOf = fmap TE.decodeUtf8Lenient . lookup readerHeader
 
+-- | What the engine knows of the database and the process a computation ran on.
+data Lookup = Lookup
+    { releasesOf :: Text -> IO [Release]
+    -- ^ The releases a database reads: its own, then those of the databases it depends on
+    , processNameOf :: Text -> ProcessKey -> IO (Maybe Text)
+    }
+
 {- | Keep a line for a computation, when the database it ran on, or one it
 depends on, declares a release.
 -}
-recordUse :: UsageLog -> (Text -> IO [Release]) -> Maybe Text -> Use -> IO ()
-recordUse lg releasesOf reader use = do
-    releases <- releasesOf (useDatabase use)
+recordUse :: UsageLog -> Lookup -> Maybe Text -> Use -> IO ()
+recordUse lg known reader use = do
+    releases <- releasesOf known (useDatabase use)
     forM_ (nonEmpty releases) $ \readReleases -> do
+        name <- processNameOf known (useDatabase use) (useProcess use)
         now <- getCurrentTime
-        recordLine lg (\n -> UsageLine n now (useKind use) (useDatabase use) (useProcess use) reader readReleases)
+        recordLine lg (\n -> UsageLine n now (useKind use) (useDatabase use) (useProcess use) name reader readReleases)
 
 recordLine :: UsageLog -> (Int -> UsageLine) -> IO ()
 recordLine lg mkLine = do

@@ -41,7 +41,7 @@ ecoinvent = Release{releaseName = "ecoinvent", releaseVersion = "3.12", releaseS
 
 -- | A line numbered @n@, the rest of no interest to the bookkeeping.
 lineNo :: Int -> UsageLine
-lineNo n = UsageLine n (UTCTime (fromGregorian 2026 10 5) 0) Scoring "db" (ProcessKey "p") Nothing (NE.singleton ecoinvent)
+lineNo n = UsageLine n (UTCTime (fromGregorian 2026 10 5) 0) Scoring "db" (ProcessKey "p") Nothing Nothing (NE.singleton ecoinvent)
 
 -- | A log that has kept @n@ lines.
 logOf :: Int -> LogState
@@ -119,14 +119,14 @@ spec = do
             forgetUsage lg (BootId "an earlier start") 10 >>= (`shouldSatisfy` either (const True) (const False))
 
     describe "a computation through the REST surface" $ do
-        it "leaves one line naming the kind, the process, the reader and the releases read" $ do
+        it "leaves one line naming the kind, the process and its name, the reader and the releases read" $ do
             manager <- managerDeclaring (Just ecoinvent)
             lg <- newUsageLog
             _ <- runLogged manager lg (Just "account-7") (getActivityInventory "root" rootPid)
             UsagePage{upBoot = boot, upLines = ls} <- readUsage lg 0
             boot `shouldBe` usageBoot lg
-            map (\l -> (ulKind l, ulDatabase l, ulProcess l, ulReader l, NE.toList (ulReads l))) ls
-                `shouldBe` [(Inventorying, "root", ProcessKey rootPid, Just "account-7", [ecoinvent])]
+            map (\l -> (ulKind l, ulDatabase l, ulProcess l, ulProcessName l, ulReader l, NE.toList (ulReads l))) ls
+                `shouldBe` [(Inventorying, "root", ProcessKey rootPid, Just "act-FR (FR)", Just "account-7", [ecoinvent])]
 
         it "leaves nothing when no database it reads declares a release" $ do
             manager <- managerDeclaring Nothing
@@ -160,8 +160,8 @@ spec = do
             manager <- managerDeclaring (Just ecoinvent)
             lg <- newUsageLog
             callMcp manager lg (Just "account-7") "get_inventory" [("database", "root"), ("process_id", rootPid)]
-            map (\l -> (ulKind l, ulProcess l, ulReader l)) . upLines <$> readUsage lg 0
-                `shouldReturn` [(Inventorying, ProcessKey rootPid, Just "account-7")]
+            map (\l -> (ulKind l, ulProcess l, ulProcessName l, ulReader l)) . upLines <$> readUsage lg 0
+                `shouldReturn` [(Inventorying, ProcessKey rootPid, Just "act-FR (FR)", Just "account-7")]
 
         it "leaves nothing for a tool that reads no process" $ do
             manager <- managerDeclaring (Just ecoinvent)
