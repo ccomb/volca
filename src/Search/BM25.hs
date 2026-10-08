@@ -184,9 +184,10 @@ holds, summed over the words. The rarity is the word's own, or, for a word
 the vocabulary lacks, that of its most common term: which variant a name
 holds says how close it comes to the word, not how much the word matters.
 So "glasswort" holds less of "glass" than "glass" does, and "elec" ranks
-its completions by score rather than by how rare each one is. Only names holding as much of the query come in score order, since
-the score favours short names: score alone let a short name holding only a
-variant ("Glasswort, consumption mix") beat every long name holding "glass".
+its completions by score rather than by how rare each one is. The score
+only orders names holding as much of the query as each other, since it
+favours short names: score alone let a short name holding only a variant
+("Glasswort, consumption mix") beat every long name holding "glass".
 Rarity keeps a rare word ahead of common ones: "bread production" holds
 more of "market for bread" than any "market for coffee".
 -}
@@ -199,20 +200,21 @@ ranked idx query =
     held :: IM.IntMap Double
     held = IM.unionsWith (+) (map heldOf query)
     heldOf :: (Text, [(Text, Double)]) -> IM.IntMap Double
-    heldOf (typed, terms) =
+    heldOf (_, []) = IM.empty
+    heldOf (typed, terms@((t0, _) : rest)) =
         IM.fromListWith max [(d, w * rarity) | (t, w) <- terms, d <- docsOf t]
       where
         rarity :: Double
         rarity
             | M.member typed (bm25Postings idx) = idf idx typed
-            | otherwise = minimum (map (idf idx . fst) terms)
+            | otherwise = foldr (min . idf idx . fst) (idf idx t0) rest
     docsOf :: Text -> [Int]
     docsOf t = maybe [] (map fst . VU.toList) (M.lookup t (bm25Postings idx))
     key :: (Int, Double) -> (Down Double, Down Double)
     key (d, s) = (Down (IM.findWithDefault 0 d held), Down s)
 
 {- | How much a term tells documents apart: high for a rare term, near zero
-for one in almost every document, zero for one in none.
+for one in almost every document.
 -}
 idf :: BM25Index -> Text -> Double
 idf idx t = log ((nDocs - df + 0.5) / (df + 0.5) + 1)
