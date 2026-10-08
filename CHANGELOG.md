@@ -334,6 +334,11 @@
 
 ### Changed
 
+- The MCP tool `search_activities` now tells an assistant to search in the
+  words of the database's names, usually English, and to translate the user's
+  words first: its description used to list French words (« yaourt », « verre »)
+  that an assistant then searched as typed and found nothing.
+
 - The server compresses its JSON and text answers for a client that accepts
   gzip. A comparison of two method collections, one of the largest answers,
   shrinks about twelvefold. Event streams are sent as they are.
