@@ -45,6 +45,7 @@ module Method.Explain (
     rungName,
     regionalName,
     outcomeName,
+    reachesFlow,
     stepName,
     bridgeName,
     refusalName,
@@ -228,6 +229,14 @@ outcomeName :: CFResolution -> Text
 outcomeName (Characterized _ _) = "characterized"
 outcomeName (ConversionRefused _ _) = "conversion_refused"
 outcomeName Uncharacterized = "no_factor"
+
+{- | Whether a factor of the method reaches the flow at all, applied or refused:
+a refused one is worth reading, since the flow looks characterized and is not.
+-}
+reachesFlow :: CFResolution -> Bool
+reachesFlow (Characterized _ _) = True
+reachesFlow (ConversionRefused _ _) = True
+reachesFlow Uncharacterized = False
 
 -- | Stable name for what one rung made of the flow.
 stepName :: StepResult -> Text

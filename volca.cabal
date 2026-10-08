@@ -340,6 +340,7 @@ test-suite lca-tests
                      , BatchImpactsSpec
                      , AcrossCapabilitiesSpec
                      , FlowContributionSpec
+                     , FlowFactorsSpec
                      , MCPEnrichSpec
                      , MCPColumnarSpec
                      , NormalizeSpec

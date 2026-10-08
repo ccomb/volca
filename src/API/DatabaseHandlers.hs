@@ -26,6 +26,7 @@ module API.DatabaseHandlers (
     coverageReportHandler,
     coverageReportToAPI,
     explainCFToAPI,
+    explainedFlowAPI,
     copyDatabaseHandler,
     deriveDatabaseHandler,
     deleteDatabaseHandler,
@@ -1579,6 +1580,18 @@ downloadRefDataHandler kind name = do
                     let disposition = "attachment; filename=\"" <> name <> ".csv\""
                     return $ addHeader disposition (BinaryContent content)
 
+-- | The flow an explanation is about, as the cascade sees it.
+explainedFlowAPI :: Database -> BiosphereFlow -> ExplainedFlowAPI
+explainedFlowAPI db flow =
+    ExplainedFlowAPI
+        { eflId = UUID.toText (bfId flow)
+        , eflName = bfName flow
+        , eflUnit = getUnitNameForBioFlow (dbUnits db) flow
+        , eflCategory = bfCompartmentName flow
+        , eflCompartment = bfCompartmentSub flow
+        , eflCas = bfCAS flow
+        }
+
 {- | Project an explanation onto the wire. One encoder for both surfaces: the
 sentences come from the engine, the structured fields carry the same decision
 in a form a client can compare or link on.
@@ -1586,17 +1599,10 @@ in a form a client can compare or link on.
 explainCFToAPI :: Database -> Method -> BiosphereFlow -> Explain.CFExplanation -> ExplainCFResult
 explainCFToAPI db method flow explanation =
     ExplainCFResult
-        { ecrMethod = methodName method
+        { ecrMethodId = methodId method
+        , ecrMethod = methodName method
         , ecrMethodUnit = methodUnit method
-        , ecrFlow =
-            ExplainedFlowAPI
-                { eflId = UUID.toText (bfId flow)
-                , eflName = bfName flow
-                , eflUnit = getUnitNameForBioFlow (dbUnits db) flow
-                , eflCategory = bfCompartmentName flow
-                , eflCompartment = bfCompartmentSub flow
-                , eflCas = bfCAS flow
-                }
+        , ecrFlow = explainedFlowAPI db flow
         , ecrOutcome = Explain.outcomeName resolution
         , ecrExplanation = Explain.renderResolution resolution
         , ecrMatch = matchAPI resolution

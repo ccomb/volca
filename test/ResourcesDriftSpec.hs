@@ -146,6 +146,8 @@ knownDivergences =
     , ("get_contributing_flows", "include_diagnostics")
     , ("get_contributing_flows", "method_id")
     , ("get_contributing_flows", "process_id")
+    , ("get_flow_factors", "database")
+    , ("get_flow_factors", "flow_id")
     , ("get_flow_mapping", "database")
     , ("get_flow_mapping", "max_unmatched")
     , ("get_flow_mapping", "method_id")
