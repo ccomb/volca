@@ -13,13 +13,17 @@ module Search.BM25 (
     indexActivities,
     addBM25Index,
     score,
+    ranked,
 ) where
 
 import Control.Monad (forM_)
 import Control.Monad.ST (runST)
 import Data.Int (Int32)
+import qualified Data.IntSet as IS
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -171,3 +175,23 @@ score idx weightedTerms = runST $ do
                         contrib = idf * tfd * (k1 + 1) / denom
                     VUM.modify acc (+ contrib) docId
     VU.freeze acc
+
+{- | The documents matching a query, best first, with their scores. The query
+is one entry per word typed: the word, and the weighted terms it expands to
+(itself among them when the vocabulary has it).
+
+Documents come in tiers before scores: first by how many words they contain
+as typed, then by how many words they match at all. Score alone let a short
+name holding only a variant ("Glasswort, consumption mix" for "glass") beat
+every long name holding the word itself.
+-}
+ranked :: BM25Index -> [(Text, [(Text, Double)])] -> [(Int, Double)]
+ranked idx query =
+    sortOn key [(d, s) | (d, s) <- zip [0 ..] (VU.toList scores), s > 0]
+  where
+    scores = score idx (concatMap snd query)
+    docsOf terms = IS.unions [IS.fromList (map fst (VU.toList p)) | t <- terms, Just p <- [M.lookup t (bm25Postings idx)]]
+    asTyped = [docsOf [w] | (w, _) <- query]
+    atAll = [docsOf (map fst terms) | (_, terms) <- query]
+    holding sets d = length (filter (IS.member d) sets)
+    key (d, s) = (Down (holding asTyped d), Down (holding atAll d), Down s)

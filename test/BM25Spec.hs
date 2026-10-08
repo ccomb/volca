@@ -11,7 +11,8 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Test.Hspec
 
-import Search.BM25 (indexActivities, score)
+import Search.BM25 (indexActivities, ranked, score)
+import Search.Fuzzy (expandTokensGrouped)
 import Search.Normalize (tokenize)
 import Types
 
@@ -165,3 +166,26 @@ spec = describe "Search.BM25" $ do
             idx = indexActivities acts M.empty
             scores = score idx (weighted "FR")
         ranking scores `shouldBe` []
+
+    it "ranks every name holding the word typed above a short name holding only a variant" $ do
+        -- "glasswort" is a prefix variant of "glass"; its name is short and
+        -- scored above long names that hold "glass" itself.
+        let acts =
+                V.fromList
+                    [ mkActivity "Glasswort, consumption mix" "FR" []
+                    , mkActivity "Jam, processed in FR, ambient, long shelf life, glass jar with capsule, at supermarket" "FR" []
+                    , mkActivity "Electricity, grid" "FR" []
+                    ]
+            idx = indexActivities acts M.empty
+            query = zip ["glass"] (expandTokensGrouped idx ["glass"])
+        map fst (ranked idx query) `shouldBe` [1, 0]
+
+    it "ranks a name holding more of the words typed first" $ do
+        let acts =
+                V.fromList
+                    [ mkActivity "Common components" "FR" []
+                    , mkActivity "Wheat grain, common wheat, at farm gate, conventional, organic farming practices" "FR" []
+                    ]
+            idx = indexActivities acts M.empty
+            query = zip ["common", "wheat"] (expandTokensGrouped idx ["common", "wheat"])
+        map fst (ranked idx query) `shouldBe` [1, 0]
