@@ -851,8 +851,8 @@ searchFlows db ff@FlowFilter{ffQuery = query, ffLimit = limitParam, ffOffset = o
     let searchTimeMs = realToFrac (diffUTCTime endTime startTime) * 1000 :: Double
     return $ Right $ toJSON $ SearchResults (take limit taken) total offset limit hasMore searchTimeMs
 
-{- | Retrieve activities by BM25 score. Returns pairs already ordered by score
-descending; only documents with score > 0 are included.
+{- | Retrieve activities by BM25 score. Returns pairs already ordered best
+first (see 'BM25.ranked'); only documents with score > 0 are included.
 Returns Nothing when the query tokenizes to nothing (e.g. pure punctuation),
 signalling the caller to fall back to the non-BM25 path.
 -}
@@ -860,19 +860,10 @@ bm25Retrieve :: Database -> Text -> Maybe [(ProcessId, Activity)]
 bm25Retrieve db queryText = do
     idx <- dbBM25Index db
     let tokens = Normalize.tokenize queryText
-        weighted = Fuzzy.expandTokens idx tokens
-    case weighted of
-        [] -> Nothing
-        _ ->
-            let actVec = dbActivities db
-                scores = BM25.score idx weighted
-                scored =
-                    [ (fromIntegral i, scores U.! i, actVec V.! i)
-                    | i <- [0 .. V.length actVec - 1]
-                    , scores U.! i > 0
-                    ]
-                sorted = L.sortOn (\(_, s, _) -> negate s) scored
-             in Just [(pid, a) | (pid, _, a) <- sorted]
+        query = zip tokens (Fuzzy.expandTokensGrouped idx tokens)
+    if all (null . snd) query
+        then Nothing
+        else Just [(fromIntegral i, dbActivities db V.! i) | (i, _) <- BM25.ranked idx query]
 
 {- | Set of ProcessIds whose name fuzzy-matches the query, using the same
 semantics as @/activities@ BM25 search. @Nothing@ means the retrieval could

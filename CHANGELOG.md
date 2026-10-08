@@ -334,6 +334,14 @@
 
 ### Changed
 
+- A name search ranks first the processes whose names hold the most of the
+  query, a rare word counting for more than a common one and a word as typed
+  for more than a near spelling of it, and only then by score. A short name
+  holding only a near spelling of a word no longer comes before every name
+  holding the word itself: "glass" used to list "Glasswort" before any glass
+  packaging, "bread" "Breadfruit" before any bread, and "electricity
+  production, wind" "filament winding".
+
 - The MCP tool `search_activities` now tells an assistant to search in the
   words of the database's names, usually English, and to translate the user's
   words first: its description used to list French words (« yaourt », « verre »)
