@@ -19,7 +19,7 @@ module Search.BM25 (
 import Control.Monad (forM_)
 import Control.Monad.ST (runST)
 import Data.Int (Int32)
-import qualified Data.IntSet as IS
+import qualified Data.IntMap.Strict as IM
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -159,20 +159,18 @@ score :: BM25Index -> [(Text, Double)] -> VU.Vector Double
 score idx weightedTerms = runST $ do
     acc <- VUM.replicate (bm25DocCount idx) 0.0
     let termWeights = M.fromListWith max weightedTerms
-        nDocs = fromIntegral (bm25DocCount idx) :: Double
         avgdl = bm25AvgDL idx
         dlFor i = fromIntegral (bm25DocLengths idx VU.! i) :: Double
     forM_ (M.toList termWeights) $ \(t, w) ->
         case M.lookup t (bm25Postings idx) of
             Nothing -> pure ()
             Just postings -> do
-                let df = fromIntegral (VU.length postings) :: Double
-                    idf = w * log ((nDocs - df + 0.5) / (df + 0.5) + 1)
+                let weight = w * idf idx t
                 VU.forM_ postings $ \(docId, tf) -> do
                     let tfd = fromIntegral tf :: Double
                         dl = dlFor docId
                         denom = tfd + k1 * (1 - b + b * dl / avgdl)
-                        contrib = idf * tfd * (k1 + 1) / denom
+                        contrib = weight * tfd * (k1 + 1) / denom
                     VUM.modify acc (+ contrib) docId
     VU.freeze acc
 
@@ -180,18 +178,46 @@ score idx weightedTerms = runST $ do
 is one entry per word typed: the word, and the weighted terms it expands to
 (itself among them when the vocabulary has it).
 
-Documents come in tiers before scores: first by how many words they contain
-as typed, then by how many words they match at all. Score alone let a short
-name holding only a variant ("Glasswort, consumption mix" for "glass") beat
-every long name holding the word itself.
+Documents are ordered first by how much of the query their names hold: for
+each word typed, its rarity times the weight of the best of its terms a name
+holds, summed over the words. The rarity is the word's own, or, for a word
+the vocabulary lacks, that of its most common term: which variant a name
+holds says how close it comes to the word, not how much the word matters.
+So "glasswort" holds less of "glass" than "glass" does, and "elec" ranks
+its completions by score rather than by how rare each one is. Only names holding as much of the query come in score order, since
+the score favours short names: score alone let a short name holding only a
+variant ("Glasswort, consumption mix") beat every long name holding "glass".
+Rarity keeps a rare word ahead of common ones: "bread production" holds
+more of "market for bread" than any "market for coffee".
 -}
 ranked :: BM25Index -> [(Text, [(Text, Double)])] -> [(Int, Double)]
 ranked idx query =
     sortOn key [(d, s) | (d, s) <- zip [0 ..] (VU.toList scores), s > 0]
   where
+    scores :: VU.Vector Double
     scores = score idx (concatMap snd query)
-    docsOf terms = IS.unions [IS.fromList (map fst (VU.toList p)) | t <- terms, Just p <- [M.lookup t (bm25Postings idx)]]
-    asTyped = [docsOf [w] | (w, _) <- query]
-    atAll = [docsOf (map fst terms) | (_, terms) <- query]
-    holding sets d = length (filter (IS.member d) sets)
-    key (d, s) = (Down (holding asTyped d), Down (holding atAll d), Down s)
+    held :: IM.IntMap Double
+    held = IM.unionsWith (+) (map heldOf query)
+    heldOf :: (Text, [(Text, Double)]) -> IM.IntMap Double
+    heldOf (typed, terms) =
+        IM.fromListWith max [(d, w * rarity) | (t, w) <- terms, d <- docsOf t]
+      where
+        rarity :: Double
+        rarity
+            | M.member typed (bm25Postings idx) = idf idx typed
+            | otherwise = minimum (map (idf idx . fst) terms)
+    docsOf :: Text -> [Int]
+    docsOf t = maybe [] (map fst . VU.toList) (M.lookup t (bm25Postings idx))
+    key :: (Int, Double) -> (Down Double, Down Double)
+    key (d, s) = (Down (IM.findWithDefault 0 d held), Down s)
+
+{- | How much a term tells documents apart: high for a rare term, near zero
+for one in almost every document, zero for one in none.
+-}
+idf :: BM25Index -> Text -> Double
+idf idx t = log ((nDocs - df + 0.5) / (df + 0.5) + 1)
+  where
+    nDocs :: Double
+    nDocs = fromIntegral (bm25DocCount idx)
+    df :: Double
+    df = maybe 0 (fromIntegral . VU.length) (M.lookup t (bm25Postings idx))

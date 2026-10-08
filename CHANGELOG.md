@@ -334,12 +334,13 @@
 
 ### Changed
 
-- A name search ranks first the processes whose names hold the words as
-  typed, then those holding more of the words, and only then by score. A
-  short name holding only a near spelling of a word no longer comes before
-  every name holding the word itself: "glass" used to list "Glasswort" before
-  any glass packaging, "bread" "Breadfruit" before any bread, and "market for
-  electricity, high voltage" an upmarket hotel first.
+- A name search ranks first the processes whose names hold the most of the
+  query, a rare word counting for more than a common one and a word as typed
+  for more than a near spelling of it, and only then by score. A short name
+  holding only a near spelling of a word no longer comes before every name
+  holding the word itself: "glass" used to list "Glasswort" before any glass
+  packaging, "bread" "Breadfruit" before any bread, and "electricity
+  production, wind" "filament winding".
 
 - The server compresses its JSON and text answers for a client that accepts
   gzip. A comparison of two method collections, one of the largest answers,

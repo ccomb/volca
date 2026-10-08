@@ -71,7 +71,9 @@ expandTokens idx = concat . expandTokensGrouped idx
 
 {- | Like 'expandTokens' but preserves the mapping back to original query
 tokens: one list per input token, possibly empty. Used when the caller
-needs AND semantics across query tokens (each group = one AND conjunct).
+needs to know which word typed a term stands for: an AND across words
+(each group one conjunct), or a ranking by how much of each word a name
+holds.
 -}
 expandTokensGrouped :: BM25Index -> [Text] -> [[(Text, Double)]]
 expandTokensGrouped idx = map expand

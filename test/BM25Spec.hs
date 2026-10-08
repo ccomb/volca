@@ -189,3 +189,15 @@ spec = describe "Search.BM25" $ do
             idx = indexActivities acts M.empty
             query = zip ["common", "wheat"] (expandTokensGrouped idx ["common", "wheat"])
         map fst (ranked idx query) `shouldBe` [1, 0]
+
+    it "ranks a name holding the rare word typed above names holding only common ones" $ do
+        -- No name says "market for bread": the bread name holds the word
+        -- that tells the query apart, the markets only the common ones.
+        let acts =
+                V.fromList
+                    ( mkActivity "Bread production" "FR" []
+                        : [mkActivity ("market for " <> p) "FR" [] | p <- ["coffee", "tea", "salt", "sugar", "rice", "milk"]]
+                    )
+            idx = indexActivities acts M.empty
+            query = zip ["market", "for", "bread"] (expandTokensGrouped idx ["market", "for", "bread"])
+        take 1 (map fst (ranked idx query)) `shouldBe` [0]
