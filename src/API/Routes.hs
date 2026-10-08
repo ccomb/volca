@@ -8,11 +8,11 @@
 module API.Routes where
 
 import API.Csv (CSV)
-import API.DatabaseHandlers (explainCFToAPI, simpleAction)
+import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
@@ -30,7 +30,7 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isAscii, isControl)
 import Data.Foldable (asum)
-import Data.List (intercalate, nub, sortOn)
+import Data.List (intercalate, nub, partition, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
@@ -131,6 +131,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "activities" :> QueryParam "role" Text :> Get '[JSON] [ActivitySummary]
+                :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> "factors" :> QueryParam "collection" Text :> Get '[JSON] FlowFactorsResult
                 :<|> "methods" :> Get '[JSON] [MethodSummary]
                 :<|> "method" :> Capture "methodId" Text :> QueryParam "collection" Text :> Get '[JSON] MethodDetail
                 :<|> "method" :> Capture "methodId" Text :> "factors" :> QueryParam "collection" Text :> Get '[JSON] [MethodFactorAPI]
@@ -1520,7 +1521,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 54: the @heldAs@ a usage line carries, the activity name, product
+(revision 55: the @flow/{flowId}/factors@ route and its @get_flow_factors@
+tool, every factor the loaded collections give one flow, and the @methodId@
+an explain-cf answer carries;
+revision 54: the @heldAs@ a usage line carries, the activity name, product
 name and location of the process in its database;
 revision 53: the usage log, read with @usage?after=@ and forgotten with
 @DELETE usage@;
@@ -1643,7 +1647,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 54
+currentWireVersion = 55
 
 getVersion :: AppM Value
 getVersion = do
@@ -2637,6 +2641,42 @@ explainCFHandler dbName methodIdText flowIdText mCollection = do
         Right (flow, explanation) ->
             pure (explainCFToAPI db method flow explanation)
 
+{- | Every factor the loaded collections, or the one named, give one flow.
+
+The same replay as 'explainCFHandler', for each method in turn, so a reader
+asking whether a flow counts anywhere does not have to know which method to
+ask, nor make one request per method.
+-}
+flowFactorsHandler :: Text -> Text -> Maybe Text -> AppM FlowFactorsResult
+flowFactorsHandler dbName flowIdText mCollection = do
+    dbManager <- asks aeDbManager
+    (db, _) <- requireDatabaseByName dbName
+    fid <- case UUID.fromText (T.strip flowIdText) of
+        Nothing -> throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 ("Malformed flow id: " <> flowIdText))}
+        Just u -> pure u
+    either (\err -> throwError err404{errBody = BSL.fromStrict (T.encodeUtf8 err)}) (pure . flowFactorsToAPI db)
+        =<< liftIO (DM.flowFactors dbManager dbName db mCollection fid)
+
+{- | Project every collection's verdict on one flow onto the wire. Shared with
+the MCP tool, so the two surfaces list the same methods on the same side.
+-}
+flowFactorsToAPI :: Database -> DM.FlowFactors -> FlowFactorsResult
+flowFactorsToAPI db (DM.FlowFactors flow collections) =
+    FlowFactorsResult
+        { ffrFlow = explainedFlowAPI db flow
+        , ffrCollections = map collectionFactors collections
+        }
+  where
+    collectionFactors :: DM.CollectionExplanation -> CollectionFactors
+    collectionFactors (DM.CollectionExplanation collection methods) =
+        CollectionFactors
+            { cfcCollection = DM.unCollectionName collection
+            , cfcFactors = [explainCFToAPI db m flow x | DM.MethodExplanation m x <- reached]
+            , cfcNoFactor = [methodSummary (DM.unCollectionName collection, m) | DM.MethodExplanation m _ <- missed]
+            }
+      where
+        (reached, missed) = partition (Explain.reachesFlow . DM.mxExplanation) methods
+
 getCharacterization :: Text -> Text -> Maybe Text -> Maybe Int -> Maybe Text -> AppM CharacterizationResult
 getCharacterization dbName methodIdText flowFilter limitParam mCollection = do
     dbManager <- asks aeDbManager
@@ -2815,6 +2855,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getScoreContributingActivities
             :<|> getFlowDetail
             :<|> getFlowActivities
+            :<|> flowFactorsHandler
             :<|> getMethods
             :<|> getMethodDetail
             :<|> getMethodFactors

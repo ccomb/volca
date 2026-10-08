@@ -81,6 +81,7 @@ data Resource
     | GetFlowMapping
     | GetCharacterization
     | ExplainCF
+    | GetFlowFactors
     | GetContributingFlows
     | GetContributingActivities
     | GetScoreContributingFlows
@@ -176,6 +177,7 @@ resourceMutates r = case r of
     GetFlowMapping -> False
     GetCharacterization -> False
     ExplainCF -> False
+    GetFlowFactors -> False
     GetContributingFlows -> False
     GetContributingActivities -> False
     GetScoreContributingFlows -> False
@@ -261,6 +263,7 @@ resourceNeeds r = case r of
     GetCharacterization -> Nothing
     ExplainCF -> Nothing
     GetCoverageReport -> Nothing
+    GetFlowFactors -> Nothing
     -- Its reply echoes the lines the caller wrote.
     EditExchanges -> Nothing
     CompareMethodCollections -> Nothing
@@ -318,6 +321,7 @@ resourceUsage r = case r of
     GetCharacterization -> Nothing
     ExplainCF -> Nothing
     EditExchanges -> Nothing
+    GetFlowFactors -> Nothing
     CompareMethodCollections -> Nothing
     ProfileMethodCollection -> Nothing
     CopyMethodCollection -> Nothing
@@ -368,6 +372,7 @@ apiPath r = case r of
     GetFlowMapping -> Just (GET, ["db", "{dbName}", "method", "{methodId}", "flow-mapping"])
     GetCharacterization -> Just (GET, ["db", "{dbName}", "method", "{methodId}", "characterization"])
     ExplainCF -> Just (GET, ["db", "{dbName}", "method", "{methodId}", "explain-cf", "{flowId}"])
+    GetFlowFactors -> Just (GET, ["db", "{dbName}", "flow", "{flowId}", "factors"])
     GetContributingFlows -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-flows", "{collection}", "{methodId}"])
     GetContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "{methodId}"])
     GetScoreContributingFlows -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-flows", "{collection}", "score", "{scoringSet}", "{score}"])
@@ -431,6 +436,7 @@ mcpName r = case r of
     GetFlowMapping -> "get_flow_mapping"
     GetCharacterization -> "get_characterization"
     ExplainCF -> "explain_cf"
+    GetFlowFactors -> "get_flow_factors"
     GetContributingFlows -> "get_contributing_flows"
     GetContributingActivities -> "get_contributing_activities"
     GetScoreContributingFlows -> "get_score_contributing_flows"
@@ -648,6 +654,22 @@ description r = case r of
         \energy density). 'match.refusal' names why no bridge could: \
         \'different_dimensions', 'no_base_unit', 'energy_bridge_failed'."
             <> webUrlTip "characterization"
+    GetFlowFactors ->
+        "LCA / ACV: which impact categories count one elementary flow, and with \
+        \what factor, across every loaded method collection (or the one named). \
+        \Answers 'does this emission count anywhere?' in one call, where \
+        \explain_cf answers for one method at a time. Each collection lists \
+        \under 'factors' the methods that have something to say about the flow, \
+        \each in the shape explain_cf returns (relay its 'explanation' sentences \
+        \as they are). Their 'outcome' is 'characterized', 'conversion_refused' \
+        \(a factor was found but cannot apply, so the flow scores nothing), or \
+        \'no_factor' with a 'regionalFactorCount' above zero: the method charges \
+        \the flow according to the location of the activity that emits it, so it \
+        \counts in a score although no single factor answers here. 'noFactor' \
+        \names the methods that give the flow no factor at all, for no location. \
+        \A flow with every collection's 'factors' empty adds nothing to any \
+        \score, however large its amount."
+            <> webUrlTip "flow search"
     GetContributingFlows ->
         "LCA / ACV: identify which elementary flows (emissions/resources) \
         \contribute most to a specific impact category. Answers 'which emissions \
@@ -1247,6 +1269,11 @@ params r = case r of
         , pMethodId
         , pCollection
         , Param "flow_id" "string" Required "Database flow UUID, as returned by search_flows or in the flow_id field of get_contributing_flows"
+        ]
+    GetFlowFactors ->
+        [ pDatabase
+        , Param "flow_id" "string" Required "Database flow UUID, as returned by search_flows or in the flow_id field of get_contributing_flows"
+        , Param "collection" "string" Optional "Method collection name (from list_methods) to ask alone; every loaded collection when omitted"
         ]
     GetContributingFlows ->
         [ pDatabase

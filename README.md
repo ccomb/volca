@@ -850,6 +850,7 @@ volca method delete ef-31                        # delete
 | Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` or `--uncharacterized`, `--collection NAME` when several carry it |
 | Characterization for flow | `GET /db/{db}/method/{id}/characterization?flow=` | – |
 | Why a flow has, or lacks, a factor | `GET /db/{db}/method/{id}/explain-cf/{flowId}` | `explain-cf FLOW_ID --method METHOD [--collection NAME]` |
+| Every factor a flow gets, in every collection | `GET /db/{db}/flow/{flowId}/factors[?collection=]` | – |
 | **Quality** | | |
 | Dataset soundness | `GET /db/{db}/quality-report[.csv]` | `quality-report [--limit N]` |
 | Computed checks | `GET /db/{db}/computed-quality-report[.csv]` | `computed-quality-report [--collection NAME]` |

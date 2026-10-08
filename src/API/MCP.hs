@@ -51,7 +51,7 @@ import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, 
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, selectMethod)
+import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, selectMethod)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
 import Control.Monad (forM, forM_, mfilter, when)
 import Data.List (find)
@@ -621,6 +621,7 @@ dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case na
     "get_flow_mapping" -> callGetFlowMapping dbManager rid args
     "get_characterization" -> callGetCharacterization dbManager rid args
     "explain_cf" -> callExplainCF dbManager mBaseUrl rid args
+    "get_flow_factors" -> callGetFlowFactors dbManager mBaseUrl rid args
     "get_contributing_flows" -> callGetContributingFlows dbManager mBaseUrl licence rid args
     "get_contributing_activities" -> callGetContributingActivities dbManager mBaseUrl rid args
     "get_score_contributing_flows" -> callGetScoreContributingFlows dbManager mBaseUrl rid args
@@ -2138,6 +2139,20 @@ callExplainCF dbManager mBaseUrl rid args = runTool rid $ do
                 <> "?flow="
                 <> encodeSegment (bfName flow)
     pure $ toolSuccessJson rid (addWebUrlMaybe deepLink (toJSON (explainCFToAPI db method flow explanation)))
+
+{- | Every factor the loaded collections give one flow. Serves what the REST
+route serves, through the same projection; the link opens the flow search on
+the flow's name, where its panel lists the same verdicts.
+-}
+callGetFlowFactors :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
+callGetFlowFactors dbManager mBaseUrl rid args = runTool rid $ do
+    (dbName, flowIdText, mCol) <- except $ (,,) <$> requireText "database" args <*> requireText "flow_id" args <*> optionalText "collection" args
+    ld <- requireDatabase dbManager dbName
+    fid <- except $ maybe (Left ("Malformed flow id: " <> flowIdText)) Right (UUID.fromText (T.strip flowIdText))
+    let db = ldDatabase ld
+    factors <- ExceptT (DM.flowFactors dbManager dbName db mCol fid)
+    let deepLink = (<> ("/db/" <> encodeSegment dbName <> "/flows?q=" <> encodeSegment (bfName (DM.ffFlow factors)))) <$> mBaseUrl
+    pure $ toolSuccessJson rid (addWebUrlMaybe deepLink (toJSON (flowFactorsToAPI db factors)))
 
 callGetCharacterization :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetCharacterization dbManager rid args = runTool rid $ do

@@ -45,6 +45,7 @@ module Method.Explain (
     rungName,
     regionalName,
     outcomeName,
+    reachesFlow,
     stepName,
     bridgeName,
     refusalName,
@@ -228,6 +229,21 @@ outcomeName :: CFResolution -> Text
 outcomeName (Characterized _ _) = "characterized"
 outcomeName (ConversionRefused _ _) = "conversion_refused"
 outcomeName Uncharacterized = "no_factor"
+
+{- | Whether the method has anything to say about the flow: a factor the cascade
+reaches, applied or refused (a refused one is worth reading, since the flow
+looks characterized and is not), or factors written for the consuming
+activity's location, which a score uses although no question about the flow
+alone resolves them. Saying nothing of the last would claim, as
+'flowMatchKind' puts it, that no factor reached a flow a score counted.
+-}
+reachesFlow :: CFExplanation -> Bool
+reachesFlow explanation = ceRegionalCFCount explanation > 0 || cascadeReaches (ceResolution explanation)
+  where
+    cascadeReaches :: CFResolution -> Bool
+    cascadeReaches (Characterized _ _) = True
+    cascadeReaches (ConversionRefused _ _) = True
+    cascadeReaches Uncharacterized = False
 
 -- | Stable name for what one rung made of the flow.
 stepName :: StepResult -> Text

@@ -306,6 +306,14 @@ spec = describe "MCP database load/unload tools" $ do
             isError resp `shouldBe` True
             resultText resp `shouldSatisfy` maybe False ("Database not loaded:" `T.isInfixOf`)
 
+    describe "flow-factors tool" $ do
+        it "is advertised with the database and the flow (collection is optional)" $
+            fmap requiredOf (toolByName "get_flow_factors") `shouldBe` Just ["database", "flow_id"]
+
+        it "is routed by callTool (no 'Unknown tool' gap)" $ do
+            resp <- call "get_flow_factors"
+            resultText resp `shouldSatisfy` maybe False (not . T.isPrefixOf "Unknown tool:")
+
     describe "characterization-coverage tool" $ do
         it "is advertised with a required 'database' parameter (collection is optional)" $
             fmap requiredOf (toolByName "get_characterization_coverage") `shouldBe` Just ["database"]

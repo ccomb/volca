@@ -917,7 +917,8 @@ wants to compare, filter or link, not for one that wants to restate the
 sentences in its own words.
 -}
 data ExplainCFResult = ExplainCFResult
-    { ecrMethod :: Text
+    { ecrMethodId :: UUID -- What explain-cf and get-characterization take to ask about this method again
+    , ecrMethod :: Text
     , ecrMethodUnit :: Text
     , ecrFlow :: ExplainedFlowAPI
     , ecrOutcome :: Text -- "characterized" | "conversion_refused" | "no_factor"
@@ -928,6 +929,29 @@ data ExplainCFResult = ExplainCFResult
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ExplainCFResult)
+
+{- | What every loaded collection, or the one asked for, makes of one flow.
+
+A method whose factors reach the flow, applied or refused, or that writes
+factors for it by the consuming activity's location, is explained in full under
+'cfcFactors'. The others are only named under 'cfcNoFactor': the reason is the
+same for each of them, and spelling it out a hundred times would bury the few
+lines a reader came for.
+-}
+data FlowFactorsResult = FlowFactorsResult
+    { ffrFlow :: ExplainedFlowAPI
+    , ffrCollections :: [CollectionFactors]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped FlowFactorsResult)
+
+data CollectionFactors = CollectionFactors
+    { cfcCollection :: Text
+    , cfcFactors :: [ExplainCFResult]
+    , cfcNoFactor :: [MethodSummary]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped CollectionFactors)
 
 -- | The flow being explained, as the cascade sees it after normalization.
 data ExplainedFlowAPI = ExplainedFlowAPI

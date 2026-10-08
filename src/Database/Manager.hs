@@ -114,6 +114,10 @@ module Database.Manager (
     databaseQualityReport,
     databaseCoverageReport,
     explainFlowFactor,
+    flowFactors,
+    FlowFactors (..),
+    CollectionExplanation (..),
+    MethodExplanation (..),
     addDependencyToStaged,
     DependencyEdit (..),
     removeDependencyFromStaged,
@@ -3471,6 +3475,55 @@ explainFlowFactor manager dbName collection db method fid = do
         Nothing -> Left ("No such flow in " <> dbName <> ": " <> T.pack (show fid))
         Just flow -> Right (flow, Explain.explainFlowCF unitCfg mUnits tables fid flow)
 
+-- | What every collection asked about makes of one flow of a database.
+data FlowFactors = FlowFactors
+    { ffFlow :: !BiosphereFlow
+    , ffCollections :: ![CollectionExplanation]
+    }
+
+-- | One collection's methods, each with what its factor lookup made of the flow.
+data CollectionExplanation = CollectionExplanation
+    { cxCollection :: !CollectionName
+    , cxMethods :: ![MethodExplanation]
+    }
+
+data MethodExplanation = MethodExplanation
+    { mxMethod :: !Method
+    , mxExplanation :: !Explain.CFExplanation
+    }
+
+{- | 'explainFlowFactor' for every method of every loaded collection, or of the
+one named: the answer to "does this flow count anywhere?" without first knowing
+which method to ask. The tables are the cached ones scoring reads, built one
+method at a time when a collection arrives after the database, as the warm-up
+builds them.
+-}
+flowFactors :: DatabaseManager -> Text -> Database -> Maybe Text -> UUID -> IO (Either Text FlowFactors)
+flowFactors manager dbName db mCollection fid = do
+    loadedMethods <- readTVarIO (dmLoadedMethods manager)
+    (mFlows, mUnits) <- getMergedFlowMetadata manager
+    unitCfg <- getMergedUnitConfig manager
+    let explainIn :: BiosphereFlow -> (Text, MethodCollection) -> IO CollectionExplanation
+        explainIn flow (collName, mc) =
+            CollectionExplanation (CollectionName collName)
+                <$> mapM (explainOne flow (CollectionName collName)) (mcMethods mc)
+        explainOne :: BiosphereFlow -> CollectionName -> Method -> IO MethodExplanation
+        explainOne flow collection method =
+            MethodExplanation method . (\tables -> Explain.explainFlowCF unitCfg mUnits tables fid flow)
+                <$> mapMethodToTablesCached manager dbName collection db method
+    traverse
+        (\(flow, cols) -> FlowFactors flow <$> mapM (explainIn flow) cols)
+        ((,) <$> knownFlow mFlows <*> loadedCollectionsNamed mCollection loadedMethods)
+  where
+    knownFlow :: BioFlowDB -> Either Text BiosphereFlow
+    knownFlow = maybe (Left ("No such flow in " <> dbName <> ": " <> T.pack (show fid))) Right . M.lookup fid
+
+-- | The named collection, which must be loaded, or every loaded one, by name.
+loadedCollectionsNamed :: Maybe Text -> Map Text MethodCollection -> Either Text [(Text, MethodCollection)]
+loadedCollectionsNamed sel loaded = case sel of
+    Just name -> maybe (Left ("Method collection not loaded: " <> name)) (\mc -> Right [(name, mc)]) (M.lookup name loaded)
+    Nothing -> Right (M.toList loaded)
+
 databaseCoverageReport :: DatabaseManager -> Text -> Maybe Text -> IO (Either Text Coverage.CoverageReport)
 databaseCoverageReport manager dbName mCollection = do
     mLoaded <- getDatabase manager dbName
@@ -3479,19 +3532,12 @@ databaseCoverageReport manager dbName mCollection = do
         Nothing -> pure (Left ("Database not loaded: " <> dbName))
         Just loaded -> do
             let db = ldDatabase loaded
-            case collectionsToReport mCollection loadedMethods of
+            case loadedCollectionsNamed mCollection loadedMethods of
                 Left err -> pure (Left err)
                 Right cols -> do
                     bridges <- mapM (collectionBridgesFor db) cols
                     pure (Right (Coverage.CoverageReport dbName bridges))
   where
-    -- The named collection (must be loaded) or every loaded one, by name.
-    collectionsToReport :: Maybe Text -> Map Text MethodCollection -> Either Text [(Text, MethodCollection)]
-    collectionsToReport sel loaded = case sel of
-        Just name -> case M.lookup name loaded of
-            Just mc -> Right [(name, mc)]
-            Nothing -> Left ("Method collection not loaded: " <> name)
-        Nothing -> Right (M.toList loaded)
     collectionBridgesFor :: Database -> (Text, MethodCollection) -> IO Coverage.CollectionBridges
     collectionBridgesFor db (collName, mc) = do
         let methods = mcMethods mc
