@@ -523,11 +523,16 @@ description r = case r of
         "LCA / ACV: search for activities (processes) by name, geography, product, \
         \classification, or preset. Returns a paginated list of matching activities \
         \with their process IDs. Entry point for any LCA/ACV question about a \
-        \specific product or process: food (yaourt, steak, pain, lait, fromage), \
-        \packaging (PET, verre, carton), matériaux, énergie, transport. Accepts \
-        \non-technical synonyms: empreinte carbone, empreinte environnementale, \
-        \impact environnemental, occupation des sols, surface agricole, prairie, \
-        \pâturage, intrants, filière, chaîne amont."
+        \specific product or process, in whatever language the user asks: food \
+        \(yaourt, steak, pain, lait, fromage), packaging (PET, verre, carton), \
+        \matériaux, énergie, transport, and non-technical wording such as \
+        \empreinte carbone, empreinte environnementale, impact environnemental, \
+        \occupation des sols, surface agricole, prairie, pâturage, intrants, \
+        \filière, chaîne amont. The search itself matches the words \
+        \of the database's own names, which most databases write in English: \
+        \translate the user's words into the language of those names before \
+        \searching (pomme de terre: potato, acier: steel). When nothing \
+        \fits, try the wording the database itself uses, or a broader word."
     SearchFlows ->
         "LCA / ACV: search flows by name. Three kinds of flow answer, and each \
         \result says which it is in its 'kind' field: a biosphere flow, meaning a \
@@ -1158,7 +1163,7 @@ params r = case r of
     ListPresets -> []
     SearchActivities ->
         [ pDatabase
-        , Param "name" "string" Required "Name substring to search for (or exact name if exact=true). The identifier a source file gave a dataset (a SimaPro 'Process identifier'), whole or the four or more characters that tell it apart, brings that dataset's products to the top of the results."
+        , Param "name" "string" Required "Words to search for, in the language of the database's names (usually English), or the exact name if exact=true. The identifier a source file gave a dataset (a SimaPro 'Process identifier'), whole or the four or more characters that tell it apart, brings that dataset's products to the top of the results."
         , Param "geo" "string" Optional "Geography/location filter (e.g. 'FR', 'DE', 'GLO'). Matches that location, plus every location inside it ('US' also matches 'US-WECC', 'RER' matches 'FR'). Which place sits inside which comes from the engine's location table, never from how a code is spelled, so 'GL' does not match 'GLO'."
         , Param "product" "string" Optional "Product name filter"
         , Param "exact" "boolean" Optional "If true, the name must match exactly (case-insensitive equality) rather than as a substring, and the geography must be the location itself rather than that location plus every location inside it"
