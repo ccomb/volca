@@ -59,7 +59,7 @@ carbonDioxideIn unit value =
         , mcfConsumerLocation = Nothing
         }
 
-climate, energy, water :: Method
+climate, energy, water, scarcity :: Method
 climate = methodNamed 1 "Climate change" "kg CO2 eq" [carbonDioxideIn "kg" 27]
 -- Charged per MJ: a mass cannot be carried onto it without an energy content.
 energy = methodNamed 2 "Energy" "MJ eq" [carbonDioxideIn "MJ" 3]
@@ -69,6 +69,8 @@ water =
         "Water use"
         "m3 world eq"
         [(carbonDioxideIn "m3" 1){mcfFlowRef = UUID.fromWords 0x464c4f57 0 2 0, mcfFlowName = "Water, river", mcfCompartment = Just (Compartment "natural resource" "in water" "")}]
+-- Charged only where the emitting activity is: no factor answers for the flow alone.
+scarcity = methodNamed 4 "Scarcity" "m3 eq" [(carbonDioxideIn "kg" 5){mcfConsumerLocation = Just "CH"}]
 
 loadedManager :: IO DatabaseManager
 loadedManager = do
@@ -77,7 +79,7 @@ loadedManager = do
     loadDatabase manager "sample" >>= either (fail . T.unpack) (const (pure ()))
     atomically $
         modifyTVar' (dmLoadedMethods manager) $
-            M.insert "broad" (MethodCollection [climate, energy, water] [] [])
+            M.insert "broad" (MethodCollection [climate, energy, water, scarcity] [] [])
                 . M.insert "water-only" (MethodCollection [water] [] [])
     pure manager
 
@@ -126,9 +128,9 @@ sides result =
 
 spec :: Spec
 spec = describe "the factors of one flow" $ do
-    it "list, in every loaded collection, the methods that reach it and name those that do not" $
+    it "list, in every loaded collection, the methods that reach it, by location too, and name those that do not" $
         fmap sides (factorsOfCarbonDioxide Nothing)
-            `shouldReturn` [ ("broad", [("Climate change", "characterized"), ("Energy", "conversion_refused")], ["Water use"])
+            `shouldReturn` [ ("broad", [("Climate change", "characterized"), ("Energy", "conversion_refused"), ("Scarcity", "no_factor")], ["Water use"])
                            , ("water-only", [], ["Water use"])
                            ]
 

@@ -659,12 +659,16 @@ description r = case r of
         \what factor, across every loaded method collection (or the one named). \
         \Answers 'does this emission count anywhere?' in one call, where \
         \explain_cf answers for one method at a time. Each collection lists \
-        \under 'factors' the methods whose factors reach the flow, each in the \
-        \shape explain_cf returns (relay its 'explanation' sentences as they \
-        \are; 'outcome' is 'characterized' or 'conversion_refused', the latter \
-        \scoring nothing), and under 'noFactor' the methods that give the flow \
-        \no factor at all, named only. A flow with every collection's 'factors' \
-        \empty adds nothing to any score, however large its amount."
+        \under 'factors' the methods that have something to say about the flow, \
+        \each in the shape explain_cf returns (relay its 'explanation' sentences \
+        \as they are). Their 'outcome' is 'characterized', 'conversion_refused' \
+        \(a factor was found but cannot apply, so the flow scores nothing), or \
+        \'no_factor' with a 'regionalFactorCount' above zero: the method charges \
+        \the flow according to the location of the activity that emits it, so it \
+        \counts in a score although no single factor answers here. 'noFactor' \
+        \names the methods that give the flow no factor at all, for no location. \
+        \A flow with every collection's 'factors' empty adds nothing to any \
+        \score, however large its amount."
             <> webUrlTip "flow search"
     GetContributingFlows ->
         "LCA / ACV: identify which elementary flows (emissions/resources) \

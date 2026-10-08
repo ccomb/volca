@@ -2151,7 +2151,7 @@ callGetFlowFactors dbManager mBaseUrl rid args = runTool rid $ do
     fid <- except $ maybe (Left ("Malformed flow id: " <> flowIdText)) Right (UUID.fromText (T.strip flowIdText))
     let db = ldDatabase ld
     factors <- ExceptT (DM.flowFactors dbManager dbName db mCol fid)
-    let deepLink = (<> ("/db/" <> dbName <> "/flows?q=" <> encodeSegment (bfName (DM.ffFlow factors)))) <$> mBaseUrl
+    let deepLink = (<> ("/db/" <> encodeSegment dbName <> "/flows?q=" <> encodeSegment (bfName (DM.ffFlow factors)))) <$> mBaseUrl
     pure $ toolSuccessJson rid (addWebUrlMaybe deepLink (toJSON (flowFactorsToAPI db factors)))
 
 callGetCharacterization :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value

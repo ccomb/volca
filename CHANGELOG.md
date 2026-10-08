@@ -8,7 +8,8 @@
   loaded method collection in one request:
   `GET /api/v1/db/{db}/flow/{flowId}/factors` (and the MCP tool
   `get_flow_factors`). Each collection lists the methods whose factors reach
-  the flow, explained as `explain-cf` explains them, and names the methods
+  the flow, explained as `explain-cf` explains them (those that charge it by
+  the location of the emitting activity included), and names the methods
   that give it no factor at all. A large emission no method characterizes
   adds nothing to any score; this is where that shows. `?collection=` asks
   one collection alone. An `explain-cf` answer now carries the `methodId` it

@@ -932,10 +932,11 @@ data ExplainCFResult = ExplainCFResult
 
 {- | What every loaded collection, or the one asked for, makes of one flow.
 
-A method whose factors reach the flow, applied or refused, is explained in full
-under 'cfcFactors'. The others are only named under 'cfcNoFactor': the reason
-is the same for each of them, and spelling it out a hundred times would bury
-the few lines a reader came for.
+A method whose factors reach the flow, applied or refused, or that writes
+factors for it by the consuming activity's location, is explained in full under
+'cfcFactors'. The others are only named under 'cfcNoFactor': the reason is the
+same for each of them, and spelling it out a hundred times would bury the few
+lines a reader came for.
 -}
 data FlowFactorsResult = FlowFactorsResult
     { ffrFlow :: ExplainedFlowAPI

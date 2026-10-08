@@ -2675,7 +2675,7 @@ flowFactorsToAPI db (DM.FlowFactors flow collections) =
             , cfcNoFactor = [methodSummary (DM.unCollectionName collection, m) | DM.MethodExplanation m _ <- missed]
             }
       where
-        (reached, missed) = partition (Explain.reachesFlow . Explain.ceResolution . DM.mxExplanation) methods
+        (reached, missed) = partition (Explain.reachesFlow . DM.mxExplanation) methods
 
 getCharacterization :: Text -> Text -> Maybe Text -> Maybe Int -> Maybe Text -> AppM CharacterizationResult
 getCharacterization dbName methodIdText flowFilter limitParam mCollection = do
