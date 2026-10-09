@@ -29,11 +29,3 @@ constraints: insert-ordered-containers < 0.3
 -- so a macOS Intel build that resolves afresh fails. Hold the 1.x series until
 -- an upstream release assembles there.
 constraints: crypton < 2
-
--- On Windows, MSYS2's pkg-config finds zlib, so the zlib package links the
--- shared zlib1.dll, which a user's machine does not have: volca.exe then fails
--- to start. Compile zlib's C sources into the binary instead, as upstream
--- advises (haskell/zlib#65).
-if os(windows)
-  package zlib
-    flags: +bundled-c-zlib

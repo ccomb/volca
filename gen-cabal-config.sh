@@ -293,6 +293,13 @@ package volca
   optimization: $VOLCA_OPT_LEVEL
 $VOLCA_SPLIT_SECTIONS
   ghc-options: -optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt
+
+-- MSYS2's pkg-config finds zlib, so the zlib package would link the shared
+-- zlib1.dll, which a user's machine does not have: volca.exe then fails to
+-- start. Compile zlib's C sources in instead, as upstream advises
+-- (haskell/zlib#65).
+package zlib
+  flags: +bundled-c-zlib
 EOF
         ;;
 
