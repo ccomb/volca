@@ -334,6 +334,13 @@
 
 ### Changed
 
+- The third-party licences now live in one file, `THIRD_PARTY_LICENSES.md`,
+  which every download carries in place of `THIRD-PARTY-LICENSES.md`. The
+  downloads thereby gain the licences of the Haskell libraries built into the
+  program. `NOTICE` and `/api/v1/licenses` name OpenBLAS and the GCC runtime,
+  which the program carries, instead of BLAS and LAPACK from the system,
+  which it stopped relying on when its downloads became self-contained.
+
 - A name search ranks first the processes whose names hold the most of the
   query, a rare word counting for more than a common one and a word as typed
   for more than a near spelling of it, and only then by score. A short name

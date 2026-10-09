@@ -1029,8 +1029,8 @@ VoLCA is licensed under the **Apache License 2.0** – see [LICENSE](LICENSE).
 Third-party components bundled with or linked into VoLCA are inventoried in
 [NOTICE](NOTICE) and [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). The
 notable ones are MUMPS (CeCILL-C, version pinned in `versions.env`),
-BLAS/LAPACK (BSD-3), and a number of
-Haskell libraries (predominantly BSD-3 and MIT).
+OpenBLAS (BSD-3), the GCC runtime (GPLv3 with the Runtime Library Exception),
+and a number of Haskell libraries (predominantly BSD-3 and MIT).
 
 A running engine also exposes the same inventory as JSON at
 `/api/v1/licenses` so any client can render it.
