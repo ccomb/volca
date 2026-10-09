@@ -4,6 +4,22 @@
 
 ### Added
 
+- A comparison of two activities, or of two databases, reports a description
+  that changed (`DescriptionChanged`, one string per paragraph) and an input
+  drawn from another supplier (`SupplierChanged`, each supplier named by its
+  activity name and location). A supplier is compared when each side holds a
+  single line of the flow; a flow drawn from several suppliers still compares
+  its total only.
+
+- `POST /api/v1/db/{db}/activity/{pid}/changes-present` says whether an
+  activity already holds each change it is given, the changes written as a
+  comparison writes them: `present` (it says what the change made it say, or
+  no longer holds a removed line), `absent` (it still says what the change
+  replaced), `different`, or `line-gone` (the line is not there to judge, or
+  several answer to its name). It is how a change made against one version is
+  looked for in a later one, and it is not counted in the usage log. Wire
+  revision 57.
+
 - An imported activity's name, location and description can be corrected in
   place: an exchange edit (`POST /api/v1/db/{db}/activity/{pid}/exchanges`,
   the MCP tool `edit_exchanges`, `database edit-exchanges`) accepts

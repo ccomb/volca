@@ -758,12 +758,15 @@ description r = case r of
         \name (case and a trailing ' {GEO}' aside), compartment and role, and a \
         \changed line says which in 'match' ('SameFlow' or 'SameFlowName'). The \
         \role is part of a line: a flow moving from input to coproduct is one line \
-        \removed and one added. The lines of one flow in one unit are summed, so a \
-        \supplier swapped at an equal total does not show; one flow written in \
+        \removed and one added. The lines of one flow in one unit are summed; when \
+        \each side holds one line of the flow, a supplier swapped between them is \
+        \reported as 'SupplierChanged', naming each supplier by activity name and \
+        \location, while a flow drawn from several suppliers compares its total \
+        \only. One flow written in \
         \several units on a side is listed under 'uncompared' rather than summed. \
         \Amounts are equal within a relative 1e-9, and units compare by name. \
         \'summary' lists the activity name, location, product name, \
-        \allocation share and the dates the two datasets state where they \
+        \allocation share, description and the dates the two datasets state where they \
         \differ; the product's amount is reported by its reference line. Nothing \
         \listed means the two say the same thing."
     CompareDatabases ->

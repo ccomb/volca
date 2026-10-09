@@ -2315,8 +2315,11 @@ what the line does within it: a `TechRole` value, a
 role is part of a line, so a flow moving from input to coproduct is one
 line removed and one added.
 
-``change`` is ``"added"``, ``"removed"`` or ``"changed"``. ``before`` is
-None on an added line and ``after`` on a removed one. ``matched_on`` says
+``change`` is ``"added"``, ``"removed"``, ``"changed"`` or
+``"supplier"``. ``before`` is None on an added line and ``after`` on a
+removed one. On ``"supplier"`` they are None, and ``supplier_before`` and
+``supplier_after`` name the activity the one line of the flow comes from
+on each side. A flow drawn from several suppliers compares its total only. ``matched_on`` says
 how a changed line was found in the other activity: ``"SameFlow"`` (the
 same flow id) or ``"SameFlowName"`` (the same name, compartment and role
 under another id). The flow is named as the base activity has it, or as
@@ -2333,6 +2336,8 @@ the other activity has it when the line was added.
 | `before` | `Quantity \| None` | _required_ |
 | `after` | `Quantity \| None` | _required_ |
 | `matched_on` | `str \| None` | None |
+| `supplier_before` | `Supplier \| None` | None |
+| `supplier_after` | `Supplier \| None` | None |
 
 ### `ExchangeSelector`
 
@@ -2899,6 +2904,15 @@ The lines of one flow in one unit, as one side writes them, summed.
 | `amount` | `float` | _required_ |
 | `unit` | `str` | _required_ |
 
+### `Supplier`
+
+The activity an input comes from, or a waste goes to, by name and location.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `activity_name` | `str` | _required_ |
+| `location` | `str` | _required_ |
+
 ### `ScoredActivity`
 
 One process's batch impacts inside a `BatchScores`.
@@ -3080,15 +3094,16 @@ Serialise to the wire shape consumed by SubstitutionRequest.
 A field of two activities that differs.
 
 ``field`` is ``"activity_name"``, ``"location"``, ``"product_name"``,
-``"allocation_percent"`` or ``"dates"``, whose ``before`` and ``after``
-are `DatasetDates`. The product's amount and unit are not among
+``"allocation_percent"``, ``"dates"``, whose ``before`` and ``after``
+are `DatasetDates`, or ``"description"``, whose ``before`` and
+``after`` are lists of paragraphs. The product's amount and unit are not among
 them: the reference line reports those, among the exchanges.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `field` | `str` | _required_ |
-| `before` | `str \| float \| DatasetDates \| None` | _required_ |
-| `after` | `str \| float \| DatasetDates \| None` | _required_ |
+| `before` | `str \| float \| DatasetDates \| list[str] \| None` | _required_ |
+| `after` | `str \| float \| DatasetDates \| list[str] \| None` | _required_ |
 
 ### `SupplierClaim`
 

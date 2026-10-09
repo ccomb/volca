@@ -19,7 +19,10 @@ import API.Types (
     ActivityComparison (..),
     ActivityMatch (..),
     AmbiguousActivities (..),
+    ChangePresence (..),
     ChangedActivity (..),
+    ChangesPresence (..),
+    ChangesQuery (..),
     DatabaseComparison (..),
     ExchangeChange (..),
     LineChange (..),
@@ -27,11 +30,12 @@ import API.Types (
     LineRole (..),
     Quantity (..),
     SummaryChange (..),
+    Supplier (..),
     UncomparedLine (..),
     UncomparedReason (..),
  )
 import Database (buildDatabaseWithMatrices)
-import Service.Compare (Sides (..), compareActivities, compareDatabases, limitComparison, resolveProcess)
+import Service.Compare (Sides (..), changesPresent, compareActivities, compareDatabases, limitComparison, resolveProcess)
 import Types (
     Activity (..),
     AllocationKey (..),
@@ -140,6 +144,43 @@ spec = describe "Service.Compare" $ do
             let comparison = compareActivities sides
             acmpSummary comparison `shouldBe` [ActivityNameChanged "wheat production" "wheat production, adapted"]
             map ecChange (acmpExchanges comparison) `shouldBe` [LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg")]
+
+    describe "texts and suppliers" $ do
+        it "reports a description that changed, paragraph by paragraph" $ do
+            c <- compareVersions [row 1 wheat "wheat production" []] [(row 1 wheat "wheat production" []){rowDescription = ["From the 2024 survey."]}]
+            comparison <- onlyChange c
+            acmpSummary comparison `shouldBe` [DescriptionChanged [] ["From the 2024 survey."]]
+
+        it "reports an input drawn from another supplier, named by activity and location" $ do
+            let suppliers = [row 2 barley "barley production" [], row 3 barley "barley production, organic" []]
+            c <- compareVersions (row 1 wheat "wheat production" [buys 2 barley 1] : suppliers) (row 1 wheat "wheat production" [buys 3 barley 1] : suppliers)
+            comparison <- onlyChange c
+            map ecChange (acmpExchanges comparison)
+                `shouldBe` [SupplierChanged (Supplier "barley production" "FR") (Supplier "barley production, organic" "FR")]
+
+        it "compares only the total of a flow drawn from several suppliers" $ do
+            let suppliers = [row 2 barley "barley production" [], row 3 barley "barley production, organic" []]
+            c <- compareVersions (row 1 wheat "wheat production" [buys 2 barley 0.5, buys 3 barley 0.5] : suppliers) (row 1 wheat "wheat production" [buys 2 barley 1] : suppliers)
+            dbcChangedCount c `shouldBe` 0
+
+    describe "changes looked for in an activity" $ do
+        let raised = ExchangeChange (bfId co2) "Carbon dioxide, fossil" Nothing (BioLine Emission) (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))
+            renamed = ActivityNameChanged "wheat production" "wheat production, corrected"
+            presence name lines' = do
+                db <- database [row 1 wheat name lines']
+                p <- either (fail . show) pure (resolveProcess db (pid 1 wheat))
+                let answer = changesPresent p (ChangesQuery [renamed] [raised])
+                pure (cpSummary answer, cpExchanges answer)
+        it "finds a change a later version made" $
+            presence "wheat production, corrected" [emits co2 kg 2] `shouldReturn` ([ChangePresent], [ChangePresent])
+        it "says a version still holds what the change replaced" $
+            presence "wheat production" [emits co2 kg 1] `shouldReturn` ([ChangeAbsent], [ChangeAbsent])
+        it "tells a third value apart from both" $
+            presence "wheat" [emits co2 kg 3] `shouldReturn` ([ChangeDifferent], [ChangeDifferent])
+        it "says when the line a change is about is gone" $
+            presence "wheat production" [] `shouldReturn` ([ChangeAbsent], [ChangeLineGone])
+        it "finds a renumbered flow by its name" $
+            presence "wheat production" [emits co2Renumbered kg 2] `shouldReturn` ([ChangeAbsent], [ChangePresent])
 
     describe "pairing activities" $ do
         it "pairs regenerated identifiers by name, case and geography aside" $ do
@@ -279,6 +320,24 @@ emits, takes :: BiosphereFlow -> Unit -> Double -> Exchange
 emits = bioLine Emission
 takes = bioLine Resource
 
+-- | An input of one kilogram-unit product, linked to the activity that supplies it.
+buys :: Int -> TechnosphereFlow -> Double -> Exchange
+buys supplier flow amount =
+    TechnosphereExchange
+        { techFlowId = tfId flow
+        , techAmount = amount
+        , techUnitId = unitId kg
+        , techRole = Input
+        , techActivityLinkId = Just (uuid supplier)
+        , techSupplierClaim = ClaimByProduct
+        , techLocation = ""
+        , techComment = Nothing
+        , techPedigree = Nothing
+        , techShare = Nothing
+        , techClassification = M.empty
+        , techProperties = noProperties
+        }
+
 bioLine :: BioDirection -> BiosphereFlow -> Unit -> Double -> Exchange
 bioLine direction flow unit amount =
     BiosphereExchange
@@ -300,10 +359,11 @@ data Row = Row
     , rowType :: Maybe NativeActivityType
     , rowLines :: [Exchange]
     , rowDates :: DatasetDates
+    , rowDescription :: [Text]
     }
 
 row :: Int -> TechnosphereFlow -> Text -> [Exchange] -> Row
-row n flow name lines' = Row{rowActivity = n, rowProduct = flow, rowName = name, rowAmount = 1, rowType = Nothing, rowLines = lines', rowDates = noDates}
+row n flow name lines' = Row{rowActivity = n, rowProduct = flow, rowName = name, rowAmount = 1, rowType = Nothing, rowLines = lines', rowDates = noDates, rowDescription = []}
 
 database :: [Row] -> IO Database
 database rows = do
@@ -325,7 +385,7 @@ entry r =
     ( (uuid (rowActivity r), tfId (rowProduct r))
     , Activity
         { activityName = rowName r
-        , activityDescription = []
+        , activityDescription = rowDescription r
         , activityDocumentation = []
         , activitySynonyms = M.empty
         , activityClassification = M.empty

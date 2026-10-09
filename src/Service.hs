@@ -1411,15 +1411,24 @@ UUIDs are unique across flow kinds, so a tech and a waste link on the same
 activity cannot collide here.
 -}
 buildCrossDBLinkMap :: Database -> ProcessId -> M.Map UUID CrossDBLink
-buildCrossDBLinkMap db pid = case prActivity <$> processIdToRef db pid of
-    Just actUUID ->
-        M.fromList
-            [ (cdlConsumerFlowId link, link)
-            | link <- dbCrossDBLinks db
-            , cdlConsumerActUUID link == actUUID
-            , cdlConsumerFlowId link /= UUID.nil
-            ]
-    Nothing -> M.empty
+buildCrossDBLinkMap db = crossDBLinksOf db (crossDBLinkIndex db)
+
+{- | Every activity's cross-DB links, keyed by consumer activity UUID, then by
+consumer flow UUID. Built once by a caller that reads many activities, where
+'buildCrossDBLinkMap' would walk every link for each of them.
+-}
+crossDBLinkIndex :: Database -> M.Map UUID (M.Map UUID CrossDBLink)
+crossDBLinkIndex db =
+    M.fromListWith
+        M.union
+        [ (cdlConsumerActUUID link, M.singleton (cdlConsumerFlowId link) link)
+        | link <- dbCrossDBLinks db
+        , cdlConsumerFlowId link /= UUID.nil
+        ]
+
+-- | One activity's links, read from 'crossDBLinkIndex'.
+crossDBLinksOf :: Database -> M.Map UUID (M.Map UUID CrossDBLink) -> ProcessId -> M.Map UUID CrossDBLink
+crossDBLinksOf db index pid = fromMaybe M.empty (processIdToRef db pid >>= \ref -> M.lookup (prActivity ref) index)
 
 toExchangeWithUnit ::
     Database ->

@@ -22,6 +22,11 @@ Then paste the rendered block at the top of this file and tighten wording.
 
 ### Added
 
+- A comparison reads a changed description (`field` is `"description"`) and
+  an input drawn from another supplier (`change` is `"supplier"`, with
+  `supplier_before` and `supplier_after`, two `Supplier`). An engine before
+  wire revision 57 reports neither.
+
 - `edit_exchanges` corrects an activity's texts: `name`, `location` and
   `description` (one string per paragraph) restate them under the process id
   the activity already has. They need wire revision 56 (engine 0.15.0).

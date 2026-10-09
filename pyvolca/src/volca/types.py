@@ -2722,13 +2722,14 @@ class ScoringRow:
 # -- Comparing two activities, or two versions of a database --
 
 _LINE_KINDS = {"TechLine": "technosphere", "BioLine": "biosphere", "WasteLine": "waste"}
-_LINE_CHANGES = {"LineAdded": "added", "LineRemoved": "removed", "LineChanged": "changed"}
+_LINE_CHANGES = {"LineAdded": "added", "LineRemoved": "removed", "LineChanged": "changed", "SupplierChanged": "supplier"}
 _SUMMARY_FIELDS = {
     "ActivityNameChanged": "activity_name",
     "LocationChanged": "location",
     "ProductNameChanged": "product_name",
     "AllocationChanged": "allocation_percent",
     "DatesChanged": "dates",
+    "DescriptionChanged": "description",
 }
 _UNCOMPARED_REASONS = {"MixedUnits": "mixed_units", "SeveralFlows": "several_flows"}
 
@@ -2747,8 +2748,19 @@ class Quantity(FromJson):
     unit: str
 
 
-def _quantity(d: dict | None) -> "Quantity | None":
-    return None if d is None else Quantity.from_json(d)
+@dataclass
+class Supplier(FromJson):
+    """The activity an input comes from, or a waste goes to, by name and location."""
+
+    activity_name: str
+    location: str
+
+
+def _side(change: dict, key: str, cls: type) -> Any:
+    """``before`` or ``after`` read as ``cls``, when the change is of that kind."""
+    d = change.get(key)
+    is_supplier = change["tag"] == "SupplierChanged"
+    return cls.from_json(d) if d is not None and is_supplier == (cls is Supplier) else None
 
 
 @dataclass
@@ -2761,8 +2773,11 @@ class ExchangeChange:
     role is part of a line, so a flow moving from input to coproduct is one
     line removed and one added.
 
-    ``change`` is ``"added"``, ``"removed"`` or ``"changed"``. ``before`` is
-    None on an added line and ``after`` on a removed one. ``matched_on`` says
+    ``change`` is ``"added"``, ``"removed"``, ``"changed"`` or
+    ``"supplier"``. ``before`` is None on an added line and ``after`` on a
+    removed one. On ``"supplier"`` they are None, and ``supplier_before`` and
+    ``supplier_after`` name the activity the one line of the flow comes from
+    on each side. A flow drawn from several suppliers compares its total only. ``matched_on`` says
     how a changed line was found in the other activity: ``"SameFlow"`` (the
     same flow id) or ``"SameFlowName"`` (the same name, compartment and role
     under another id). The flow is named as the base activity has it, or as
@@ -2778,6 +2793,8 @@ class ExchangeChange:
     before: Quantity | None
     after: Quantity | None
     matched_on: str | None = None
+    supplier_before: Supplier | None = None
+    supplier_after: Supplier | None = None
 
     @classmethod
     def from_json(cls, d: dict) -> "ExchangeChange":
@@ -2790,9 +2807,11 @@ class ExchangeChange:
             kind=kind,
             role=role,
             change=_LINE_CHANGES[change["tag"]],
-            before=_quantity(change.get("before")),
-            after=_quantity(change.get("after")),
+            before=_side(change, "before", Quantity),
+            after=_side(change, "after", Quantity),
             matched_on=change.get("match"),
+            supplier_before=_side(change, "before", Supplier),
+            supplier_after=_side(change, "after", Supplier),
         )
 
 
@@ -2839,14 +2858,15 @@ class SummaryChange:
     """A field of two activities that differs.
 
     ``field`` is ``"activity_name"``, ``"location"``, ``"product_name"``,
-    ``"allocation_percent"`` or ``"dates"``, whose ``before`` and ``after``
-    are :class:`DatasetDates`. The product's amount and unit are not among
+    ``"allocation_percent"``, ``"dates"``, whose ``before`` and ``after``
+    are :class:`DatasetDates`, or ``"description"``, whose ``before`` and
+    ``after`` are lists of paragraphs. The product's amount and unit are not among
     them: the reference line reports those, among the exchanges.
     """
 
     field: str
-    before: str | float | DatasetDates | None
-    after: str | float | DatasetDates | None
+    before: str | float | DatasetDates | list[str] | None
+    after: str | float | DatasetDates | list[str] | None
 
     @classmethod
     def from_json(cls, d: dict) -> "SummaryChange":
