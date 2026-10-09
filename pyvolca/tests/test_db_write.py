@@ -518,6 +518,24 @@ class TestEditExchanges:
             {"select": {"kind": "input", "provider": "c_d"}, "amount": 4.0}
         ]
 
+    def test_texts_travel_only_when_stated(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=56)
+        _ok(session, {"removed": [], "amountsSet": [], "added": 0, "transient": False, "warnings": []})
+        client.edit_exchanges("a_b", name="milk, corrected", description=[])
+        body = session.post.call_args[1]["json"]
+        assert body["setName"] == "milk, corrected"
+        # An empty description clears it, so it is sent, not dropped.
+        assert body["setDescription"] == []
+        assert "setLocation" not in body
+
+    def test_texts_never_sent_to_an_engine_that_cannot_restate_them(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=55)
+        with pytest.raises(VoLCAError, match="wire revision >= 56"):
+            client.edit_exchanges("a_b", location="CH")
+        session.post.assert_not_called()
+
     def test_never_sent_to_an_engine_that_has_no_such_route(self, mocked_client):
         client, session = mocked_client
         _version_ok(session, wire=6)

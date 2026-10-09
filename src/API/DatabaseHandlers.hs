@@ -688,6 +688,7 @@ editReportToAPI report =
         { eepRemoved = erRemoved report
         , eepAmountsSet = erAmountsSet report
         , eepAdded = erAdded report
+        , eepTextsSet = erTextsSet report
         , eepTransient = not (erPersisted report)
         , eepWarnings = erWarnings report
         }

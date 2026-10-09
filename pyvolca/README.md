@@ -663,9 +663,9 @@ Download a flow-synonyms set as its raw CSV bytes.
 
 Raises VoLCAError on an HTTP error (e.g. the set does not exist).
 
-##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), db_name: str | None = None) -> dict`
+##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, db_name: str | None = None) -> dict`
 
-Change what one activity consumes and emits, keeping the activity.
+Change what one activity consumes and emits, or its texts, keeping the activity.
 
 This reaches what `replace_activity` cannot: an activity that came
 in from a database file. Its identity was minted by whichever parser
@@ -682,12 +682,19 @@ A selector that names nothing is refused rather than treated as done.
 One that names several lines applies to all of them, and the counts come
 back per selector, in the order you stated them::
 
-    {"removed": [2], "amountsSet": [], "added": 1,
+    {"removed": [2], "amountsSet": [], "added": 1, "textsSet": [],
      "transient": False, "warnings": [...]}
+
+``name``, ``location`` and ``description`` (one string per paragraph,
+an empty list clears it) restate the activity's texts under the process
+id it already has. An activity written with `create_activities`
+is refused a new name or location, which make its identity: rewrite it
+with `replace_activity` instead. ``textsSet`` names the texts
+rewritten.
 
 Only a database of your own accepts edits: copy a configured one first.
 
-Needs an engine speaking wire revision 7.
+Needs an engine speaking wire revision 7, and 56 for the texts.
 
 ##### `Client.ensure_database(source: str | Path | bytes, name: str | None = None) -> str`
 

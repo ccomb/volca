@@ -150,6 +150,9 @@ mutatingHandlers =
             , eerAddInputs = []
             , eerAddBiosphere = []
             , eerAddWasteOutputs = []
+            , eerSetName = Nothing
+            , eerSetLocation = Nothing
+            , eerSetDescription = Nothing
             }
     nothingInParticular =
         ActivityInput

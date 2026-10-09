@@ -931,10 +931,11 @@ description r = case r of
         \collection. Answers 'which of this database's flow names would an \
         \exact-name tool fail to characterize?'"
     EditExchanges ->
-        "LCA / ACV: change what one activity consumes and emits, keeping the \
-        \activity itself. The tool that writes a database's data. Use it to adjust an \
+        "LCA / ACV: change what one activity consumes and emits, or its name, \
+        \location and description, keeping the activity itself. The tool that writes a database's data. Use it to adjust an \
         \imported dataset to the study at hand: drop a substance the scope \
-        \excludes, correct an amount, add a supplier the dataset is missing. \
+        \excludes, correct an amount, add a supplier the dataset is missing, \
+        \correct a name or a location. \
         \Everything the edit does not name stays as it is (classification, \
         \synonyms, parameters, pedigree, coproducts), which is why this exists \
         \rather than rewriting the activity. Only the inventory side is \
@@ -1422,6 +1423,9 @@ params r = case r of
         , Param "add_inputs" "array" Optional "Technosphere inputs to add. Each is {provider, amount} plus optional unit and comment. The flow follows from the provider."
         , Param "add_biosphere" "array" Optional "Biosphere lines to add. Each is {direction, amount} plus either flow (an existing flow id) or name + compartment + unit, which reach the flow the database declares under them and introduce one only when nothing does."
         , Param "add_waste_outputs" "array" Optional "Waste outputs to add. Each is {provider, amount} plus optional unit and comment, where the provider is the treatment process."
+        , Param "set_name" "string" Optional "The activity's new name."
+        , Param "set_location" "string" Optional "The activity's new location code (e.g. FR)."
+        , Param "set_description" "array" Optional "The activity's new description, one string per paragraph; an empty array clears it."
         ]
     CopyMethodCollection ->
         [ Param "collection" "string" Required "Method collection to copy"

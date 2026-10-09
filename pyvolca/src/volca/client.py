@@ -1123,9 +1123,12 @@ class Client:
         add_inputs: Sequence[TechInput] = (),
         add_biosphere: Sequence[BioExchange] = (),
         add_waste_outputs: Sequence[WasteOutput] = (),
+        name: str | None = None,
+        location: str | None = None,
+        description: list[str] | None = None,
         db_name: str | None = None,
     ) -> dict:
-        """Change what one activity consumes and emits, keeping the activity.
+        """Change what one activity consumes and emits, or its texts, keeping the activity.
 
         This reaches what :meth:`replace_activity` cannot: an activity that came
         in from a database file. Its identity was minted by whichever parser
@@ -1142,14 +1145,28 @@ class Client:
         One that names several lines applies to all of them, and the counts come
         back per selector, in the order you stated them::
 
-            {"removed": [2], "amountsSet": [], "added": 1,
+            {"removed": [2], "amountsSet": [], "added": 1, "textsSet": [],
              "transient": False, "warnings": [...]}
+
+        ``name``, ``location`` and ``description`` (one string per paragraph,
+        an empty list clears it) restate the activity's texts under the process
+        id it already has. An activity written with :meth:`create_activities`
+        is refused a new name or location, which make its identity: rewrite it
+        with :meth:`replace_activity` instead. ``textsSet`` names the texts
+        rewritten.
 
         Only a database of your own accepts edits: copy a configured one first.
 
-        Needs an engine speaking wire revision 7.
+        Needs an engine speaking wire revision 7, and 56 for the texts.
         """
         self._require_wire(7, "edit_exchanges", engine_hint="0.9.5")
+        texts = {
+            key: value
+            for key, value in (("setName", name), ("setLocation", location), ("setDescription", description))
+            if value is not None
+        }
+        if texts:
+            self._require_wire(56, "edit_exchanges(name=, location=, description=)", engine_hint="0.15.0")
         target = self._db(db_name)
         return self._json(
             self._session.post(
@@ -1160,6 +1177,7 @@ class Client:
                     "addInputs": [i.to_wire() for i in add_inputs],
                     "addBiosphere": [b.to_wire() for b in add_biosphere],
                     "addWasteOutputs": [w.to_wire() for w in add_waste_outputs],
+                    **texts,
                 },
             )
         )

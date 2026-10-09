@@ -79,6 +79,8 @@ import Data.Aeson.Types (Pair, Parser)
 import Data.Bifunctor (bimap, first)
 import Data.Bits (xor)
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -90,6 +92,7 @@ import System.FilePath ((</>))
 import Data.JournalFile (Entry (..), JournalVocabulary (..), appendEntry, journalPath, readEntries)
 
 import Database.Author (
+    ActivityText (..),
     AuthorContext (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
@@ -110,7 +113,7 @@ import Database.Rebuild (
     resolveProcess,
  )
 import Progress (ProgressLevel (..), reportProgress)
-import Types (BioDirection (..), Compartment (..), Database, getActivity)
+import Types (BioDirection (..), Compartment (..), Database (..), getActivity)
 
 -- ---------------------------------------------------------------------------
 -- What a journal records
@@ -270,21 +273,37 @@ applyOp ctx = \case
         key <- processKey (acDb ctx) pid
         act <- maybe (Left ("Unknown process id: " <> target)) Right (getActivity (acDb ctx) pid)
         edited <- first (T.intercalate "; ") (applyExchangeEdits ctx (map fst edits) act)
+        let texts = [SetText t | (SetText t, _) <- edits]
+        siblings <- if null texts then pure [] else traverse (retext texts) (siblingsOf pid (fst key))
         if eaMatched edited == map snd edits
             then
                 replaceActivities
                     (acUnitConfig ctx)
-                    [ ResolvedInsert
+                    ( ResolvedInsert
                         { riKey = key
                         , riActivity = eaActivity edited
                         , riNewTechFlows = eaNewTechFlows edited
                         , riNewBioFlows = eaNewBioFlows edited
                         }
-                    ]
+                        : siblings
+                    )
                     (acDb ctx)
             else Left (matchDrift (map snd edits) (eaMatched edited))
   where
     resolve = bimap (T.intercalate "; ") fst . validateAuthored ctx
+    -- The texts belong to the activity, not to one of its products: a block
+    -- read with two products is two rows under one activity UUID, and renaming
+    -- one alone would leave the same activity under two names.
+    siblingsOf pid activityUUID =
+        [ other
+        | other <- maybe [] NE.toList (M.lookup activityUUID (dbActivityUUIDIndex (acDb ctx)))
+        , other /= pid
+        ]
+    retext texts other = do
+        key <- processKey (acDb ctx) other
+        act <- maybe (Left ("ProcessId out of range: " <> T.pack (show other))) Right (getActivity (acDb ctx) other)
+        edited <- first (T.intercalate "; ") (applyExchangeEdits ctx texts act)
+        pure ResolvedInsert{riKey = key, riActivity = eaActivity edited, riNewTechFlows = [], riNewBioFlows = []}
 
 {- | The one failure a journal exists to make impossible to miss: the same
 description no longer minting the identity it was recorded under. Everything
@@ -383,6 +402,12 @@ editJSON (edit, matched) = object (("matched" .= matched) : fields edit)
             ["edit" .= ("set" :: Text), "select" .= selectorJSON selector, "amount" .= amount]
         AddExchange authored ->
             ["edit" .= ("add" :: Text), "exchange" .= exchangeJSON authored]
+        SetText (ActivityName name) ->
+            ["edit" .= ("name" :: Text), "value" .= name]
+        SetText (ActivityLocation location) ->
+            ["edit" .= ("location" :: Text), "value" .= location]
+        SetText (ActivityDescription paragraphs) ->
+            ["edit" .= ("description" :: Text), "value" .= paragraphs]
 
 parseEdit :: Value -> Parser (ExchangeEdit, Int)
 parseEdit = withObject "exchange edit" $ \o -> do
@@ -392,6 +417,9 @@ parseEdit = withObject "exchange edit" $ \o -> do
             ("remove" :: Text) -> RemoveExchange <$> (o .: "select" >>= parseSelector)
             "set" -> SetAmount <$> (o .: "select" >>= parseSelector) <*> o .: "amount"
             "add" -> AddExchange <$> (o .: "exchange" >>= parseExchange)
+            "name" -> SetText . ActivityName <$> o .: "value"
+            "location" -> SetText . ActivityLocation <$> o .: "value"
+            "description" -> SetText . ActivityDescription <$> o .: "value"
             other -> fail ("unknown exchange edit: " <> T.unpack other)
     pure (edit, matched)
 
