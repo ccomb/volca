@@ -1502,6 +1502,8 @@ data ExchangeEditResponse = ExchangeEditResponse
     { eepRemoved :: [Int]
     , eepAmountsSet :: [Int]
     , eepAdded :: Int
+    , eepTextsSet :: [Text]
+    -- ^ The texts rewritten: @name@, @location@, @description@.
     , eepTransient :: Bool
     -- ^ True when the edit lives in memory only and an unload would undo it.
     , eepWarnings :: [Text]

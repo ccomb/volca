@@ -145,7 +145,7 @@ databaseParser =
                     <> cmd "export" (DbExport <$> exportArgsParser) "Export a loaded database to a file"
                     <> cmd "create-activities" (DbCreateActivities <$> writeArgsParser) "Write new activities into a database from a JSON file"
                     <> cmd "replace-activity" (DbReplaceActivity <$> replaceArgsParser) "Rewrite one activity of a database from a JSON file"
-                    <> cmd "edit-exchanges" (DbEditExchanges <$> editArgsParser) "Change one activity's inventory from a JSON file, keeping the rest of the activity"
+                    <> cmd "edit-exchanges" (DbEditExchanges <$> editArgsParser) "Change one activity's inventory or texts from a JSON file, keeping its identity"
                 )
             )
 

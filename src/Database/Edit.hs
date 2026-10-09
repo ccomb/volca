@@ -65,6 +65,7 @@ import System.FilePath ((</>))
 import Config (DatabaseConfig (..), licenceOf)
 import Database (Geographies)
 import Database.Author (
+    ActivityText (..),
     AuthorContext (..),
     AuthoredActivity,
     EditedActivity (..),
@@ -556,6 +557,8 @@ data EditReport = EditReport
     { erRemoved :: [Int]
     , erAmountsSet :: [Int]
     , erAdded :: Int
+    , erTextsSet :: [Text]
+    -- ^ The texts rewritten, spelt as a request names them: @name@, @location@, @description@.
     , erPersisted :: Bool
     , erWarnings :: [Text]
     }
@@ -615,9 +618,16 @@ editExchanges manager dbName target edits =
                         { erRemoved = [n | (RemoveExchange _, n) <- zip edits matched]
                         , erAmountsSet = [n | (SetAmount _ _, n) <- zip edits matched]
                         , erAdded = length [() | AddExchange _ <- edits]
+                        , erTextsSet = [textField text | SetText text <- edits]
                         , erPersisted = moPersisted done
                         , erWarnings = warnings <> moWarnings done
                         }
+
+textField :: ActivityText -> Text
+textField = \case
+    ActivityName _ -> "name"
+    ActivityLocation _ -> "location"
+    ActivityDescription _ -> "description"
 
 {- | The two refusals only a verb can name: creating over a process that is
 already there, and rewriting one that is not. Checked before the mutation so

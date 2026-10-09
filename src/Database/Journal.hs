@@ -79,6 +79,8 @@ import Data.Aeson.Types (Pair, Parser)
 import Data.Bifunctor (bimap, first)
 import Data.Bits (xor)
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -111,7 +113,7 @@ import Database.Rebuild (
     resolveProcess,
  )
 import Progress (ProgressLevel (..), reportProgress)
-import Types (BioDirection (..), Compartment (..), Database, getActivity)
+import Types (BioDirection (..), Compartment (..), Database (..), getActivity)
 
 -- ---------------------------------------------------------------------------
 -- What a journal records
@@ -271,21 +273,37 @@ applyOp ctx = \case
         key <- processKey (acDb ctx) pid
         act <- maybe (Left ("Unknown process id: " <> target)) Right (getActivity (acDb ctx) pid)
         edited <- first (T.intercalate "; ") (applyExchangeEdits ctx (map fst edits) act)
+        let texts = [SetText t | (SetText t, _) <- edits]
+        siblings <- if null texts then pure [] else traverse (retext texts) (siblingsOf pid (fst key))
         if eaMatched edited == map snd edits
             then
                 replaceActivities
                     (acUnitConfig ctx)
-                    [ ResolvedInsert
+                    ( ResolvedInsert
                         { riKey = key
                         , riActivity = eaActivity edited
                         , riNewTechFlows = eaNewTechFlows edited
                         , riNewBioFlows = eaNewBioFlows edited
                         }
-                    ]
+                        : siblings
+                    )
                     (acDb ctx)
             else Left (matchDrift (map snd edits) (eaMatched edited))
   where
     resolve = bimap (T.intercalate "; ") fst . validateAuthored ctx
+    -- The texts belong to the activity, not to one of its products: a block
+    -- read with two products is two rows under one activity UUID, and renaming
+    -- one alone would leave the same activity under two names.
+    siblingsOf pid activityUUID =
+        [ other
+        | other <- maybe [] NE.toList (M.lookup activityUUID (dbActivityUUIDIndex (acDb ctx)))
+        , other /= pid
+        ]
+    retext texts other = do
+        key <- processKey (acDb ctx) other
+        act <- maybe (Left ("ProcessId out of range: " <> T.pack (show other))) Right (getActivity (acDb ctx) other)
+        edited <- first (T.intercalate "; ") (applyExchangeEdits ctx texts act)
+        pure ResolvedInsert{riKey = key, riActivity = eaActivity edited, riNewTechFlows = [], riNewBioFlows = []}
 
 {- | The one failure a journal exists to make impossible to miss: the same
 description no longer minting the identity it was recorded under. Everything

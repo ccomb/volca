@@ -165,7 +165,7 @@ writingSpec = describe "writing activities over HTTP" $ do
     it "refuses to author into a database the engine only reads" $
         -- Configured databases are background data the whole installation
         -- shares; authoring belongs in a database of one's own.
-        withDb (\name dataDir -> (uploadedConfig name dataDir){dcIsUploaded = False}) $ \env -> do
+        withDb buildFixture (\name dataDir -> (uploadedConfig name dataDir){dcIsUploaded = False}) $ \env -> do
             res <- create env "authored" [cheese]
             case res of
                 Right _ -> expectationFailure "expected authoring into a configured database to be refused"
@@ -306,7 +306,7 @@ editingSpec = describe "editing an activity's exchanges over HTTP" $ do
             void res `shouldSatisfy` refusedWith "names its provider"
 
     it "refuses to edit a database the engine only reads" $
-        withDb (\name dataDir -> (uploadedConfig name dataDir){dcIsUploaded = False}) $ \env -> do
+        withDb buildFixture (\name dataDir -> (uploadedConfig name dataDir){dcIsUploaded = False}) $ \env -> do
             res <- edit env "authored" supplierPid noEdits{eerRemove = [bioSelector co2Id]}
             case res of
                 Right _ -> expectationFailure "expected editing a configured database to be refused"
@@ -325,11 +325,18 @@ editingSpec = describe "editing an activity's exchanges over HTTP" $ do
                         , eerSetLocation = Just "CH"
                         , eerSetDescription = Just ["From the 2024 farm survey."]
                         }
-            either (expectationFailure . ("expected the edit to land: " <>) . showErr) (const (pure ())) res
+            either (expectationFailure . ("expected the edit to land: " <>) . showErr) (\r -> eepTextsSet r `shouldBe` ["name", "location", "description"]) res
             texts <- fmap textsOf . find (\a -> activityName a == "milk production, corrected") <$> activitiesOf env "authored"
             texts `shouldBe` Just ("CH", LocationDeclared, ["From the 2024 farm survey."])
             stillThere <- edit env "authored" supplierPid noEdits{eerSetDescription = Just []}
             either (expectationFailure . ("expected the same process id to answer: " <>) . showErr) (const (pure ())) stillThere
+
+    it "restates the texts on every product of the activity, not on the one row addressed" $
+        withDb buildTwoProducts uploadedConfig $ \env -> do
+            res <- edit env "authored" supplierPid noEdits{eerSetName = Just "dairy, corrected", eerSetLocation = Just "CH"}
+            either (expectationFailure . ("expected the edit to land: " <>) . showErr) (const (pure ())) res
+            rows <- activitiesOf env "authored"
+            map (\a -> (activityName a, activityLocation a)) rows `shouldBe` replicate 2 ("dairy, corrected", "CH")
 
     it "refuses a blank name rather than leave an activity nothing to be found by" $
         withWritableDb $ \env -> do
@@ -410,16 +417,16 @@ showErr err = show (errHTTPCode err) <> " " <> bodyOf err
 
 -- | An environment holding one writable EcoSpold 2 database called @authored@.
 withWritableDb :: (AppEnv -> IO ()) -> IO ()
-withWritableDb = withDb uploadedConfig
+withWritableDb = withDb buildFixture uploadedConfig
 
-withDb :: (Text -> FilePath -> DatabaseConfig) -> (AppEnv -> IO ()) -> IO ()
-withDb mkConfig act =
+withDb :: IO Database -> (Text -> FilePath -> DatabaseConfig) -> (AppEnv -> IO ()) -> IO ()
+withDb build mkConfig act =
     withSystemTempDirectory "volca-write" $ \root ->
         bracket_ (setEnv "VOLCA_DATA_DIR" root) (unsetEnv "VOLCA_DATA_DIR") $ do
             let dataDir = root </> "uploads" </> "databases" </> "authored" </> "data"
             createDirectoryIfMissing True dataDir
             dbm <- initDatabaseManager defaultConfig NoCache
-            db <- buildFixture
+            db <- build
             solver <- createSharedSolver "authored" (triplesOf db) (fromIntegral (dbActivityCount db))
             let config = mkConfig "authored" dataDir
                 loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = config}
@@ -509,13 +516,29 @@ keyOf ai =
 -- ---------------------------------------------------------------------------
 
 buildFixture :: IO Database
-buildFixture = do
+buildFixture = buildFrom (M.singleton (supplierActId, supplierProdId) milkActivity) (M.singleton supplierProdId milkFlow)
+
+{- | The milk activity read with a second product, as a block with two outputs
+is: two rows under one activity UUID.
+-}
+buildTwoProducts :: IO Database
+buildTwoProducts =
+    buildFrom
+        (M.fromList [((supplierActId, supplierProdId), milkActivity), ((supplierActId, creamProdId), creamRow)])
+        (M.fromList [(supplierProdId, milkFlow), (creamProdId, milkFlow{tfId = creamProdId, tfName = "cream"})])
+  where
+    creamRow = milkActivity{exchanges = map toCream (exchanges milkActivity)}
+    toCream ex@TechnosphereExchange{techRole = ReferenceProduct} = ex{techFlowId = creamProdId}
+    toCream ex = ex
+
+buildFrom :: M.Map (UUID, UUID) Activity -> M.Map UUID TechnosphereFlow -> IO Database
+buildFrom activities techFlows = do
     r <-
         buildDatabaseWithMatrices
             (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
-                { sdbActivities = M.singleton (supplierActId, supplierProdId) milkActivity
-                , sdbTechFlows = M.singleton supplierProdId milkFlow
+                { sdbActivities = activities
+                , sdbTechFlows = techFlows
                 , sdbBioFlows = M.singleton co2Id co2Flow
                 , sdbWasteFlows = M.empty
                 , sdbUnits = unitTable
@@ -526,10 +549,11 @@ buildFixture = do
 mkUUID :: Int -> UUID
 mkUUID n = UUID.fromWords64 (fromIntegral n) 0
 
-supplierActId, supplierProdId, co2Id, kgUnitId :: UUID
+supplierActId, supplierProdId, co2Id, creamProdId, kgUnitId :: UUID
 supplierActId = mkUUID 1
 supplierProdId = mkUUID 2
 co2Id = mkUUID 3
+creamProdId = mkUUID 4
 kgUnitId = mkUUID 10
 
 supplierPid :: Text
