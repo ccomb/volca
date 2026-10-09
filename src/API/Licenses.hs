@@ -80,18 +80,18 @@ componentList =
         Nothing
         Nothing
     , component
-        "BLAS"
+        "OpenBLAS (BLAS and LAPACK)"
         Nothing
         "BSD-3-Clause"
-        Nothing
-        (Just "https://www.netlib.org/blas/")
+        (Just "Copyright (c) 2011-2014, The OpenBLAS Project")
+        (Just "https://github.com/OpenMathLib/OpenBLAS")
         Nothing
     , component
-        "LAPACK"
+        "GCC runtime (libgfortran, libquadmath, libgcc)"
         Nothing
-        "BSD-3-Clause"
+        "GPL-3.0-or-later WITH GCC-exception-3.1"
         Nothing
-        (Just "https://www.netlib.org/lapack/")
+        (Just "https://gcc.gnu.org/onlinedocs/gcc/Copying.html")
         Nothing
     ]
 

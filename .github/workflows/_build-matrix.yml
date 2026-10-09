@@ -640,7 +640,7 @@ jobs:
           # copyright notice to travel with the artifact – true on every platform,
           # statically linked or not. On Windows the file also covers the GCC
           # runtime DLLs copied below.
-          cp THIRD-PARTY-LICENSES.md staging/
+          cp THIRD_PARTY_LICENSES.md staging/
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # volca.exe links the MSYS2 ucrt64 runtime dynamically (gen-cabal-config.sh's
             # windows mode). Those DLLs sit on the build machine's PATH but nowhere on a

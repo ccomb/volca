@@ -20,7 +20,10 @@ The notable third-party components are:
   * AMD ordering routines and *_TRUNCATED_RRQR variants (bundled with MUMPS)
     – BSD 3-Clause
 
-  * BLAS, LAPACK (linked at runtime) – BSD 3-Clause
+  * OpenBLAS (BLAS and LAPACK, built into the binary) – BSD 3-Clause
+
+  * GCC runtime (libgfortran, libquadmath, libgcc) – GPLv3 with the GCC
+    Runtime Library Exception
 
   * Numerous Haskell libraries – predominantly BSD 3-Clause and MIT
     (full table in THIRD_PARTY_LICENSES.md)
