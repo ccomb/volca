@@ -1881,9 +1881,19 @@ callEditExchanges dbManager rid args = runTool rid $ do
                 <*> parseArrayArg "add_inputs" Nothing args
                 <*> parseArrayArg "add_biosphere" Nothing args
                 <*> parseArrayArg "add_waste_outputs" Nothing args
+                <*> optionalText "set_name" args
+                <*> optionalText "set_location" args
+                <*> optionalDescription
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
     report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName processId edits)
     return $ toolSuccessJson rid (toJSON (editReportToAPI report))
+  where
+    -- Absent leaves the description as it is; an empty list clears it.
+    optionalDescription :: Either Text (Maybe [Text])
+    optionalDescription = case KM.lookup "set_description" args of
+        Nothing -> Right Nothing
+        Just Null -> Right Nothing
+        Just _ -> Just <$> parseArrayArg "set_description" Nothing args
 
 callCopyMethodCollection :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callCopyMethodCollection dbManager rid args = runTool rid $ do

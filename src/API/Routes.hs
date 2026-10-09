@@ -1521,7 +1521,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 55: the @flow/{flowId}/factors@ route and its @get_flow_factors@
+(revision 56: the @setName@, @setLocation@ and @setDescription@ an exchange
+edit accepts, restating the texts of an activity under the identity it has;
+revision 55: the @flow/{flowId}/factors@ route and its @get_flow_factors@
 tool, every factor the loaded collections give one flow, and the @methodId@
 an explain-cf answer carries;
 revision 54: the @heldAs@ a usage line carries, the activity name, product
@@ -1647,7 +1649,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 55
+currentWireVersion = 56
 
 getVersion :: AppM Value
 getVersion = do

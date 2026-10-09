@@ -22,6 +22,10 @@ Then paste the rendered block at the top of this file and tighten wording.
 
 ### Added
 
+- `edit_exchanges` corrects an activity's texts: `name`, `location` and
+  `description` (one string per paragraph) restate them under the process id
+  the activity already has. They need wire revision 56 (engine 0.15.0).
+
 - Change a method collection of your own: `copy_method_collection` copies a
   collection under a new name, `set_method_factor`, `remove_method_factor` and
   `add_method_factor` change one factor of the copy, `scale_method_factors` and

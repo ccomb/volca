@@ -38,7 +38,9 @@ minted by whichever parser read it, so re-describing it addresses a different
 row. And even if it could be addressed, a description cannot carry back what
 it never expressed – classification, synonyms, parameters, pedigree,
 coproducts. So adjusting an imported inventory names the lines to change and
-leaves everything else exactly as it was.
+leaves everything else exactly as it was. Its name, location and description
+can be restated the same way: an imported row's identity is the one its parser
+minted, which none of them enters.
 -}
 module Database.Author (
     -- * What an author writes
@@ -54,8 +56,10 @@ module Database.Author (
     -- * Editing an inventory in place
     ExchangeSelector (..),
     ExchangeEdit (..),
+    ActivityText (..),
     EditedActivity (..),
     applyExchangeEdits,
+    retextsAuthoredIdentity,
     describeSelector,
 
     -- * Deterministic identity
@@ -402,15 +406,45 @@ data ExchangeSelector
       SelectWaste Text
     deriving (Eq, Show)
 
-{- | One change to an activity's inventory. Edits apply in the order given, so
-removing a line and then setting its amount is refused – by then it matches
-nothing – rather than quietly reordered into something that works.
+{- | One change to an activity: a line of its inventory, or one of its texts.
+Edits apply in the order given, so removing a line and then setting its amount
+is refused – by then it matches nothing – rather than quietly reordered into
+something that works.
 -}
 data ExchangeEdit
     = RemoveExchange ExchangeSelector
     | SetAmount ExchangeSelector Double
     | AddExchange AuthoredExchange
+    | SetText ActivityText
     deriving (Eq, Show)
+
+-- | A text of an activity, as an edit restates it.
+data ActivityText
+    = ActivityName Text
+    | ActivityLocation Text
+    | -- | By paragraphs; none at all clears it.
+      ActivityDescription [Text]
+    deriving (Eq, Show)
+
+{- | Why an edit cannot restate this activity's texts, when it cannot. An
+authored activity's identity is minted from its name and location
+('authoredActivityUUID'), so restating either would leave it under a key its
+own description no longer mints, and the next rewrite of it would be refused
+as addressing another activity. Such an activity is rewritten instead, which
+moves it to the identity its new name mints.
+-}
+retextsAuthoredIdentity :: (UUID, UUID) -> Activity -> [ExchangeEdit] -> Maybe Text
+retextsAuthoredIdentity (activityKey, _) act edits
+    | activityKey == authoredActivityUUID (activityName act) (activityLocation act)
+    , any entersIdentity edits =
+        Just "This activity was written here and its name and location make its identity: rewrite it to rename or relocate it."
+    | otherwise = Nothing
+  where
+    entersIdentity :: ExchangeEdit -> Bool
+    entersIdentity = \case
+        SetText (ActivityName _) -> True
+        SetText (ActivityLocation _) -> True
+        _ -> False
 
 {- | An edited activity, and what it took to get there.
 
@@ -431,7 +465,7 @@ data EditedActivity = EditedActivity
 {- | Apply edits to one activity's inventory, or report everything wrong with
 them.
 
-Only 'exchanges' changes. Classification, synonyms, parameters, allocation,
+Only 'exchanges' and the texts an edit names change. Classification, synonyms, parameters, allocation,
 native type, pedigree on the lines left alone – all carried through as they
 were, which is the whole point: an imported activity can be adjusted without
 being re-described as something a description can express.
@@ -445,7 +479,7 @@ applyExchangeEdits ctx edits act = case accErrors final of
     [] ->
         Right
             EditedActivity
-                { eaActivity = act{exchanges = accExchanges final}
+                { eaActivity = (accRetext final act){exchanges = accExchanges final}
                 , eaMatched = accMatched final
                 , eaNewBioFlows = accNewFlows final
                 , eaNewTechFlows = accNewTechFlows final
@@ -457,6 +491,7 @@ applyExchangeEdits ctx edits act = case accErrors final of
     initial =
         EditAcc
             { accExchanges = exchanges act
+            , accRetext = id
             , accMatched = []
             , accNewFlows = []
             , accNewTechFlows = []
@@ -467,6 +502,7 @@ applyExchangeEdits ctx edits act = case accErrors final of
 -- | The inventory as edited so far, and what there is to report about it.
 data EditAcc = EditAcc
     { accExchanges :: [Exchange]
+    , accRetext :: Activity -> Activity
     , accMatched :: [Int]
     , accNewFlows :: [BiosphereFlow]
     , accNewTechFlows :: [TechnosphereFlow]
@@ -484,6 +520,7 @@ applyStep ctx acc edit = case applyOneEdit ctx (accExchanges acc) edit of
     Right step ->
         acc
             { accExchanges = esExchanges step
+            , accRetext = esRetext step . accRetext acc
             , accMatched = accMatched acc <> [esMatched step]
             , accNewFlows = accNewFlows acc <> esNewFlows step
             , accNewTechFlows = accNewTechFlows acc <> esNewTechFlows step
@@ -493,6 +530,7 @@ applyStep ctx acc edit = case applyOneEdit ctx (accExchanges acc) edit of
 -- | What one applied edit leaves behind.
 data EditStep = EditStep
     { esExchanges :: [Exchange]
+    , esRetext :: Activity -> Activity
     , esMatched :: Int
     , esNewFlows :: [BiosphereFlow]
     , esNewTechFlows :: [TechnosphereFlow]
@@ -517,21 +555,40 @@ applyOneEdit ctx current edit = case edit of
             Right
                 EditStep
                     { esExchanges = current <> [reExchange resolved]
+                    , esRetext = id
                     , esMatched = 1
                     , esNewFlows = maybeToList (reNewBioFlow resolved)
                     , esNewTechFlows = maybeToList (reNewTechFlow resolved)
                     , esWarnings = reWarnings resolved
                     }
+    SetText text -> case textCheck text of
+        [] -> Right (changed current 1){esRetext = restateText text}
+        errs -> Left errs
   where
     changed exchangeList matched =
         EditStep
             { esExchanges = exchangeList
+            , esRetext = id
             , esMatched = matched
             , esNewFlows = []
             , esNewTechFlows = []
             , esWarnings = []
             }
     restate isSelected amount ex = if isSelected ex then withAmount amount ex else ex
+
+-- | A name or a location left blank names nothing to find the activity by.
+textCheck :: ActivityText -> [Text]
+textCheck = \case
+    ActivityName name -> ["an activity's name cannot be blank" | T.null (T.strip name)]
+    ActivityLocation location -> ["an activity's location cannot be blank" | T.null (T.strip location)]
+    ActivityDescription _ -> []
+
+restateText :: ActivityText -> Activity -> Activity
+restateText = \case
+    ActivityName name -> \act -> act{activityName = T.strip name}
+    ActivityLocation location ->
+        \act -> act{activityLocation = T.strip location, activityLocationSource = declaredLocationSource location}
+    ActivityDescription paragraphs -> \act -> act{activityDescription = paragraphs}
 
 {- | The lines a selector names, and how many there are. Zero is a refusal: an
 edit that matched nothing did not do what it was asked, and reporting success

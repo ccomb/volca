@@ -282,15 +282,17 @@ spec = describe "MCP database load/unload tools" $ do
             isError resp `shouldBe` True
             resultText resp `shouldSatisfy` maybe False ("Database not loaded:" `T.isInfixOf`)
 
-        it "describes each of its lists as holding objects" $
-            -- A list left declaring string items would tell the assistant to
-            -- send five arrays of text, every one of which is refused.
+        it "describes each of its lists as holding what it holds" $
+            -- A list of lines left declaring string items would tell the
+            -- assistant to send arrays of text, every one of which is refused;
+            -- the description alone is paragraphs of text.
             itemTypesOf "edit_exchanges"
                 `shouldBe` [ ("add_biosphere", "object")
                            , ("add_inputs", "object")
                            , ("add_waste_outputs", "object")
                            , ("remove", "object")
                            , ("set_amounts", "object")
+                           , ("set_description", "string")
                            ]
 
     describe "quality-report tool" $ do

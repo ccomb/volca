@@ -25,6 +25,7 @@ import Test.Hspec
 
 import Database (buildDatabaseWithMatrices)
 import Database.Author (
+    ActivityText (..),
     AuthorContext (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
@@ -171,6 +172,15 @@ spec = do
                 Right db -> do
                     processKeys db `shouldBe` processKeys fixture
                     emissionsOf db `shouldBe` [3]
+
+        it "restates an activity's texts in place, leaving its identity alone" $
+            case replayJournal ctx [event retexted] of
+                Left err -> expectationFailure ("replay: " <> show err)
+                Right db -> do
+                    processKeys db `shouldBe` processKeys fixture
+                    let texts a = (activityName a, activityLocation a, activityDescription a)
+                    map texts (V.toList (dbActivities db))
+                        `shouldSatisfy` elem ("milk production, corrected", "CH", ["From the 2024 farm survey.", "Second paragraph."])
 
         it "brings along the flow an added line introduces" $
             case replayJournal ctx [event (Edited supplierPid [(AddExchange methane, 1)])] of
@@ -335,7 +345,18 @@ richEvents =
     , event (Deleted ["a_b", "c_d"])
     , event (Created [cheese{aaExchanges = [usedOilOut]}] ["a_b"])
     , event editedInventory
+    , event retexted
     ]
+
+-- | One edit of each text, so none of the three can be lost in the codec.
+retexted :: JournalOp
+retexted =
+    Edited
+        supplierPid
+        [ (SetText (ActivityName "milk production, corrected"), 1)
+        , (SetText (ActivityLocation "CH"), 1)
+        , (SetText (ActivityDescription ["From the 2024 farm survey.", "Second paragraph."]), 1)
+        ]
 
 expectedCreateJSON :: BS.ByteString
 expectedCreateJSON =

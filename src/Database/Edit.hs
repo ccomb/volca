@@ -71,6 +71,7 @@ import Database.Author (
     ExchangeEdit (..),
     ResolvedInsert (..),
     applyExchangeEdits,
+    retextsAuthoredIdentity,
     validateAuthored,
  )
 import Database.CrossLinking (buildIndexedDatabaseFromDB)
@@ -580,7 +581,7 @@ editExchanges ::
 editExchanges _ _ _ [] =
     -- Committing re-serializes the database and rebuilds its solver; an empty
     -- edit would pay all of that to change nothing.
-    pure (Left (Malformed ["There is nothing to change: the edit names no exchange."]))
+    pure (Left (Malformed ["There is nothing to change: the edit names no exchange and no text."]))
 editExchanges manager dbName target edits =
     getDatabase manager dbName >>= \case
         Nothing -> pure (Left (NotLoaded dbName))
@@ -588,11 +589,13 @@ editExchanges manager dbName target edits =
             | not (dcIsUploaded (ldConfig loaded)) -> pure (Left (NotWritable dbName))
             | otherwise -> case addressed (ldDatabase loaded) of
                 Nothing -> pure (Left (NotPresent [target]))
-                Just (key, activity) -> do
-                    ctx <- authorContext manager (ldDatabase loaded)
-                    case applyExchangeEdits ctx edits activity of
-                        Left errs -> pure (Left (Malformed errs))
-                        Right edited -> commit key (eaMatched edited) (eaWarnings edited)
+                Just (key, activity)
+                    | Just refusal <- retextsAuthoredIdentity key activity edits -> pure (Left (Malformed [refusal]))
+                    | otherwise -> do
+                        ctx <- authorContext manager (ldDatabase loaded)
+                        case applyExchangeEdits ctx edits activity of
+                            Left errs -> pure (Left (Malformed errs))
+                            Right edited -> commit (renderKey key) (eaMatched edited) (eaWarnings edited)
   where
     -- The identity is recorded canonically even when the caller addressed the
     -- activity by its bare UUID, so the journal keeps naming the same process
@@ -601,7 +604,7 @@ editExchanges manager dbName target edits =
         pid <- either (const Nothing) Just (resolveProcess db target)
         key <- either (const Nothing) Just (processKey db pid)
         activity <- getActivity db pid
-        pure (renderKey key, activity)
+        pure (key, activity)
     commit key matched warnings = do
         outcome <- mutateUploadedDatabase manager dbName (Edited key (zip edits matched))
         pure $ case outcome of

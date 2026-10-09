@@ -22,7 +22,7 @@ import Data.Either (partitionEithers)
 import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
-import Data.Maybe (isNothing)
+import Data.Maybe (isNothing, maybeToList)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), binarySchema, declareSchemaRef, enum_, format, nullable, properties, required, type_)
 import qualified Data.OpenApi.Lens as OA
 import Data.Proxy (Proxy (..))
@@ -31,6 +31,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import Database.Author (
+    ActivityText (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
     ExchangeEdit (..),
@@ -1450,13 +1451,15 @@ data SetAmountAPI = SetAmountAPI
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetAmountAPI)
 
-{- | Changes to one activity's inventory: lines to drop, lines to restate,
-lines to add.
+{- | Changes to one activity: lines to drop, lines to restate, lines to add,
+and the texts to restate.
 
 Five lists rather than one tagged list, for the reason 'ActivityInput' has
 three: what makes sense on an addition cannot be sent on a removal and back
 again. They apply in the order they are listed here, so an edit that drops one
 supplier and adds another is never ambiguous about which happened first.
+
+A text left unstated stays as it is. A description of no paragraphs clears it.
 
 Added lines are resolved exactly as written ones are – same provider lookup,
 same unit rules – because an inventory should not be able to tell how a line
@@ -1468,6 +1471,9 @@ data ExchangeEditRequest = ExchangeEditRequest
     , eerAddInputs :: [TechInputAPI]
     , eerAddBiosphere :: [BioExchangeAPI]
     , eerAddWasteOutputs :: [WasteOutputAPI]
+    , eerSetName :: Maybe Text
+    , eerSetLocation :: Maybe Text
+    , eerSetDescription :: Maybe [Text]
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ExchangeEditRequest)
@@ -1484,6 +1490,9 @@ instance FromJSON ExchangeEditRequest where
             <*> o .:? "addInputs" .!= []
             <*> o .:? "addBiosphere" .!= []
             <*> o .:? "addWasteOutputs" .!= []
+            <*> o .:? "setName"
+            <*> o .:? "setLocation"
+            <*> o .:? "setDescription"
 
 {- | What an inventory edit produced: one count per selector, in the order the
 selectors were stated. A caller that meant to drop one line and reads three
@@ -2625,6 +2634,13 @@ toExchangeEdits req = case partitionEithers stated of
             <> map (Right . AddExchange . toTechInput) (eerAddInputs req)
             <> map (fmap AddExchange . toBio) (eerAddBiosphere req)
             <> map (Right . AddExchange . toWasteOutput) (eerAddWasteOutputs req)
+            <> map (Right . SetText) texts
+    texts =
+        concat
+            [ ActivityName <$> maybeToList (eerSetName req)
+            , ActivityLocation <$> maybeToList (eerSetLocation req)
+            , ActivityDescription <$> maybeToList (eerSetDescription req)
+            ]
     toSetAmount sa = flip SetAmount (saAmount sa) <$> toSelector (saSelect sa)
 
 {- | A selector names a provider or a flow, according to its kind. Sending the

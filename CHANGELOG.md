@@ -4,6 +4,15 @@
 
 ### Added
 
+- An imported activity's name, location and description can be corrected in
+  place: an exchange edit (`POST /api/v1/db/{db}/activity/{pid}/exchanges`,
+  the MCP tool `edit_exchanges`, `database edit-exchanges`) accepts
+  `setName`, `setLocation` and `setDescription` (one string per paragraph, an
+  empty list clears it). The activity keeps the process id its source gave it,
+  so a corrected copy still pairs with its source in a comparison. An activity
+  written on the engine is refused a new name or location, which make its
+  identity: rewrite it instead. Wire revision 56.
+
 - Which impact categories count a flow, and with what factor, across every
   loaded method collection in one request:
   `GET /api/v1/db/{db}/flow/{flowId}/factors` (and the MCP tool

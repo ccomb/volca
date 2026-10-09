@@ -90,6 +90,7 @@ import System.FilePath ((</>))
 import Data.JournalFile (Entry (..), JournalVocabulary (..), appendEntry, journalPath, readEntries)
 
 import Database.Author (
+    ActivityText (..),
     AuthorContext (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
@@ -383,6 +384,12 @@ editJSON (edit, matched) = object (("matched" .= matched) : fields edit)
             ["edit" .= ("set" :: Text), "select" .= selectorJSON selector, "amount" .= amount]
         AddExchange authored ->
             ["edit" .= ("add" :: Text), "exchange" .= exchangeJSON authored]
+        SetText (ActivityName name) ->
+            ["edit" .= ("name" :: Text), "value" .= name]
+        SetText (ActivityLocation location) ->
+            ["edit" .= ("location" :: Text), "value" .= location]
+        SetText (ActivityDescription paragraphs) ->
+            ["edit" .= ("description" :: Text), "value" .= paragraphs]
 
 parseEdit :: Value -> Parser (ExchangeEdit, Int)
 parseEdit = withObject "exchange edit" $ \o -> do
@@ -392,6 +399,9 @@ parseEdit = withObject "exchange edit" $ \o -> do
             ("remove" :: Text) -> RemoveExchange <$> (o .: "select" >>= parseSelector)
             "set" -> SetAmount <$> (o .: "select" >>= parseSelector) <*> o .: "amount"
             "add" -> AddExchange <$> (o .: "exchange" >>= parseExchange)
+            "name" -> SetText . ActivityName <$> o .: "value"
+            "location" -> SetText . ActivityLocation <$> o .: "value"
+            "description" -> SetText . ActivityDescription <$> o .: "value"
             other -> fail ("unknown exchange edit: " <> T.unpack other)
     pure (edit, matched)
 

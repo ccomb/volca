@@ -18,10 +18,11 @@ import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Monad (void)
 import Data.Aeson (decode)
 import qualified Data.ByteString.Lazy.Char8 as BSL
-import Data.List (isInfixOf)
+import Data.List (find, isInfixOf)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.UUID as UUID
+import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Servant (ServerError, errBody, errHTTPCode, runHandler)
 import System.Directory (createDirectoryIfMissing)
@@ -48,7 +49,7 @@ import App.Env (AppEnv (..), runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Control.Exception (bracket_)
 import Database (buildDatabaseWithMatrices)
-import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), initDatabaseManager)
+import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), getDatabase, initDatabaseManager)
 import Database.Upload (DatabaseFormat (..))
 import SharedSolver (createSharedSolver)
 import Types (
@@ -313,6 +314,42 @@ editingSpec = describe "editing an activity's exchanges over HTTP" $ do
                     errHTTPCode err `shouldBe` 400
                     bodyOf err `shouldSatisfy` isInfixOf "reads from its configuration"
 
+    it "restates the texts of an imported activity, under the process id it had" $
+        -- What a reader correcting a copy needs: the identity its parser
+        -- minted stays, so the copy still pairs with its source.
+        withWritableDb $ \env -> do
+            res <-
+                edit env "authored" supplierPid $
+                    noEdits
+                        { eerSetName = Just "  milk production, corrected "
+                        , eerSetLocation = Just "CH"
+                        , eerSetDescription = Just ["From the 2024 farm survey."]
+                        }
+            either (expectationFailure . ("expected the edit to land: " <>) . showErr) (const (pure ())) res
+            texts <- fmap textsOf . find (\a -> activityName a == "milk production, corrected") <$> activitiesOf env "authored"
+            texts `shouldBe` Just ("CH", LocationDeclared, ["From the 2024 farm survey."])
+            stillThere <- edit env "authored" supplierPid noEdits{eerSetDescription = Just []}
+            either (expectationFailure . ("expected the same process id to answer: " <>) . showErr) (const (pure ())) stillThere
+
+    it "refuses a blank name rather than leave an activity nothing to be found by" $
+        withWritableDb $ \env -> do
+            res <- edit env "authored" supplierPid noEdits{eerSetName = Just "  "}
+            case res of
+                Right _ -> expectationFailure "expected the blank name to be refused"
+                Left err -> bodyOf err `shouldSatisfy` isInfixOf "name cannot be blank"
+
+    it "refuses to rename an activity written here, whose name makes its identity" $
+        withWritableDb $ \env -> do
+            _ <- create env "authored" [cheese]
+            res <- edit env "authored" (keyOf cheese) noEdits{eerSetName = Just "butter, at dairy"}
+            case res of
+                Right _ -> expectationFailure "expected the rename to be refused"
+                Left err -> do
+                    errHTTPCode err `shouldBe` 400
+                    bodyOf err `shouldSatisfy` isInfixOf "rewrite it"
+            described <- edit env "authored" (keyOf cheese) noEdits{eerSetDescription = Just ["A note."]}
+            either (expectationFailure . ("expected its description to change: " <>) . showErr) (const (pure ())) described
+
     it "refuses an edit that names nothing instead of rebuilding for nothing" $
         withWritableDb $ \env -> do
             res <- edit env "authored" supplierPid noEdits
@@ -325,6 +362,12 @@ editingSpec = describe "editing an activity's exchanges over HTTP" $ do
 -- ---------------------------------------------------------------------------
 -- Driving the handlers
 -- ---------------------------------------------------------------------------
+
+activitiesOf :: AppEnv -> Text -> IO [Activity]
+activitiesOf env dbName = maybe [] (V.toList . dbActivities . ldDatabase) <$> getDatabase (aeDbManager env) dbName
+
+textsOf :: Activity -> (Text, LocationSource, [Text])
+textsOf a = (activityLocation a, activityLocationSource a, activityDescription a)
 
 create :: AppEnv -> Text -> [ActivityInput] -> IO (Either ServerError ActivityWriteResponse)
 create env dbName activities =
@@ -347,6 +390,9 @@ noEdits =
         , eerAddInputs = []
         , eerAddBiosphere = []
         , eerAddWasteOutputs = []
+        , eerSetName = Nothing
+        , eerSetLocation = Nothing
+        , eerSetDescription = Nothing
         }
 
 bioSelector :: UUID -> ExchangeSelectorAPI
