@@ -36,18 +36,20 @@ declared in the source headers.
 ## OpenBLAS – BSD 3-Clause
 
 OpenBLAS supplies BLAS and LAPACK. It is built from upstream sources and linked
-statically into the binary on Linux and macOS; on Windows it ships as a DLL
-beside the binary (see below).
+statically into the binary on Linux and macOS arm64; on Windows it ships as a
+DLL beside the binary (see below). The macOS Intel binary loads Homebrew's
+OpenBLAS at run time and does not redistribute it.
 
 - **License**: BSD 3-Clause, full text at the end of this document.
 - **Upstream**: <https://github.com/OpenMathLib/OpenBLAS>
 
 ## GCC runtime – GPLv3 with the GCC Runtime Library Exception
 
-libgfortran, libquadmath and libgcc. The Exception covers this binary: its
-Fortran parts are compiled by GCC, and the rest is compiled by GHC and clang,
-which are not works based on GCC - either branch of the Exception's definition
-of an Eligible Compilation Process. Nothing further is owed.
+libgfortran, libquadmath and libgcc, carried as OpenBLAS is: in the binary,
+beside it on Windows, from Homebrew on macOS Intel. The Exception covers this
+binary: its Fortran parts are compiled by GCC, and the rest is compiled by GHC
+and clang, which are not works based on GCC - either branch of the Exception's
+definition of an Eligible Compilation Process. Nothing further is owed.
 Texts: <https://gcc.gnu.org/onlinedocs/gcc/Copying.html> and
 <https://www.gnu.org/licenses/gcc-exception-3.1.html>.
 
