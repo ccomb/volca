@@ -400,6 +400,9 @@
 
 ### Fixed
 
+- The Windows engine starts on a machine without MSYS2: it carries zlib
+  inside it instead of asking for a `zlib1.dll` the zip did not ship.
+
 - Deleting an uploaded database whose data sits in a subdirectory of its
   upload no longer leaves that upload's directory behind, empty, which kept
   a database from being uploaded again under the same name.
