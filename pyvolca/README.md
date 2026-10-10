@@ -1847,6 +1847,32 @@ rows and these lines add up to the score (wire revision 46).
 | `share_pct` | `float` | _required_ |
 | `reason` | `str` | _required_ |
 
+### `CutoffInput`
+
+A product input no loaded database supplies, which the result counted
+as zero: how much of it the chain asks per unit of the activity computed,
+and by how many of its processes (wire revision 58).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `database` | `str` | _required_ |
+| `product` | `str` | _required_ |
+| `location` | `str` | _required_ |
+| `unit` | `str` | _required_ |
+| `amount` | `float` | _required_ |
+| `consumers` | `int` | _required_ |
+| `reasons` | `list[dict]` | _required_ |
+
+### `WithheldCutoffs`
+
+How many unsupplied inputs a result met inside a dependency whose
+licence keeps its detail, counted without naming them (wire revision 58).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `database` | `str` | _required_ |
+| `count` | `int` | _required_ |
+
 ### `DatasetDates`
 
 The days a dataset says it was written on, each under its format's meaning.
@@ -1945,6 +1971,8 @@ was set; empty otherwise.
 | `filtered_count` | `int` | _required_ |
 | `groups` | `list[AggregateGroup]` | list() |
 | `withheld_databases` | `list[WithheldProcesses]` | list() |
+| `cutoff_inputs` | `list[CutoffInput]` | list() |
+| `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
 ### `AmbiguousActivities`
 
@@ -2229,6 +2257,8 @@ reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
 | `total_score` | `float` | _required_ |
 | `activities` | `list[ActivityContribution]` | list() |
 | `withheld_databases` | `list[WithheldShare]` | list() |
+| `cutoff_inputs` | `list[CutoffInput]` | list() |
+| `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
 ### `ContributingFlows`
 
@@ -2246,6 +2276,8 @@ flows were truncated. If you need exhaustive coverage, pass a generous
 | `total_score` | `float` | _required_ |
 | `top_flows` | `list[FlowContribution]` | list() |
 | `withheld_databases` | `list[WithheldShare]` | list() |
+| `cutoff_inputs` | `list[CutoffInput]` | list() |
+| `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
 ### `DatabaseComparison`
 
@@ -2606,6 +2638,8 @@ most-populated categories.
 | `resource_flows` | `int` | _required_ |
 | `flows` | `list[InventoryFlow]` | _required_ |
 | `statistics` | `InventoryStatistics` | _required_ |
+| `cutoff_inputs` | `list[CutoffInput]` | list() |
+| `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
 ### `InventoryStatistics`
 
@@ -2650,6 +2684,8 @@ it, a row no score reads among them, its ``category`` the row's label.
 | `scoring_indicators` | `dict[str, dict[str, ScoringIndicator]]` | dict() |
 | `scoring_rows` | `dict[str, dict[str, ScoringIndicator]]` | dict() |
 | `withheld` | `list[str]` | list() |
+| `cutoff_inputs` | `list[CutoffInput]` | list() |
+| `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
 ### `LCIAResult`
 
@@ -2677,6 +2713,8 @@ much of it the source says the process produces.
 | `top_contributors` | `list[FlowContribution]` | list() |
 | `withheld` | `str \| None` | None |
 | `withheld_databases` | `list[WithheldShare]` | list() |
+| `cutoff_inputs` | `list[CutoffInput]` | list() |
+| `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
 ### `MappingStatus`
 
@@ -3033,6 +3071,8 @@ the order of the requested perturbations.
 |-------|------|---------|
 | `baseline` | `LCIAResult` | _required_ |
 | `perturbed` | `list[PerturbedResult]` | _required_ |
+| `cutoff_inputs` | `list[CutoffInput]` | list() |
+| `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
 ### `ServerVersion`
 
@@ -3143,6 +3183,8 @@ lengths by hand.
 | `edges` | `list[SupplyChainEdge]` | list() |
 | `withheld_databases` | `list[WithheldProcesses]` | list() |
 | `withheld_inputs` | `list[WithheldInput]` | list() |
+| `cutoff_inputs` | `list[CutoffInput]` | list() |
+| `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
 #### Properties
 

@@ -360,6 +360,46 @@ class WithheldProcesses:
 
 
 @dataclass
+class CutoffInput:
+    """A product input no loaded database supplies, which the result counted
+    as zero: how much of it the chain asks per unit of the activity computed,
+    and by how many of its processes (wire revision 58)."""
+
+    database: str
+    product: str
+    location: str  # empty when the input names none
+    unit: str
+    amount: float
+    consumers: int
+    reasons: list[dict]  # each {"reason": code, "detail": text or None}, why no supplier was found
+
+    @classmethod
+    def from_json(cls, d: dict) -> "CutoffInput":
+        return cls(
+            database=d["database"],
+            product=d["product"],
+            location=d["location"],
+            unit=d["unit"],
+            amount=d["amount"],
+            consumers=d["consumers"],
+            reasons=d["reasons"],
+        )
+
+
+@dataclass
+class WithheldCutoffs:
+    """How many unsupplied inputs a result met inside a dependency whose
+    licence keeps its detail, counted without naming them (wire revision 58)."""
+
+    database: str
+    count: int
+
+    @classmethod
+    def from_json(cls, d: dict) -> "WithheldCutoffs":
+        return cls(database=d["database"], count=d["count"])
+
+
+@dataclass
 class LCIAResult:
     """LCIA score for one impact category on one activity.
 
@@ -386,6 +426,12 @@ class LCIAResult:
     """Why ``top_contributors`` is empty, when the database's licence keeps
     what weighs in its scores to itself (wire revision 44)."""
     withheld_databases: list[WithheldShare] = field(default_factory=list)
+    cutoff_inputs: list[CutoffInput] = field(default_factory=list)
+    """Inputs no loaded database supplies, counted as zero in this result
+    (wire revision 58)."""
+    withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
+    """How many such inputs sit inside each dependency whose licence keeps
+    its detail."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIAResult":
@@ -403,6 +449,8 @@ class LCIAResult:
             top_contributors=[FlowContribution.from_json(c) for c in d.get("topContributors", [])],
             withheld=d.get("withheld"),
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
+            cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
+            withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
 
 
@@ -435,6 +483,12 @@ class LCIABatchResult:
     withheld: list[str] = field(default_factory=list)
     """What the database's licence keeps out of these scores, one sentence
     each (wire revision 44)."""
+    cutoff_inputs: list[CutoffInput] = field(default_factory=list)
+    """Inputs no loaded database supplies, counted as zero in this result
+    (wire revision 58)."""
+    withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
+    """How many such inputs sit inside each dependency whose licence keeps
+    its detail."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIABatchResult":
@@ -454,6 +508,8 @@ class LCIABatchResult:
             },
             scoring_rows={set_name: {var: ScoringIndicator.from_json(si) for var, si in per_set.items()} for set_name, per_set in raw_rows.items()},
             withheld=d.get("withheld", []),
+            cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
+            withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
 
 
@@ -494,12 +550,20 @@ class SensitivityResult:
 
     baseline: LCIAResult
     perturbed: list[PerturbedResult]
+    cutoff_inputs: list[CutoffInput] = field(default_factory=list)
+    """Inputs no loaded database supplies, counted as zero in the baseline
+    (wire revision 58)."""
+    withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
+    """How many such inputs sit inside each dependency whose licence keeps
+    its detail."""
 
     @classmethod
     def from_json(cls, d: dict) -> "SensitivityResult":
         return cls(
             baseline=LCIAResult.from_json(d["baseline"]),
             perturbed=[PerturbedResult.from_json(p) for p in d["perturbed"]],
+            cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
+            withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
 
 
@@ -856,6 +920,12 @@ class SupplyChain:
     withheld_inputs: list[WithheldInput] = field(default_factory=list)
     """Listed processes buying from such a dependency, named with it, since
     the edges between them are not listed."""
+    cutoff_inputs: list[CutoffInput] = field(default_factory=list)
+    """Inputs no loaded database supplies, counted as zero in this result
+    (wire revision 58)."""
+    withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
+    """How many such inputs sit inside each dependency whose licence keeps
+    its detail."""
 
     @property
     def has_more(self) -> bool:
@@ -877,6 +947,8 @@ class SupplyChain:
             edges=[SupplyChainEdge.from_json(e) for e in d.get("edges", [])],
             withheld_databases=[WithheldProcesses.from_json(w) for w in d.get("withheldDatabases", [])],
             withheld_inputs=[WithheldInput.from_json(w) for w in d.get("withheldInputs", [])],
+            cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
+            withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
 
 
@@ -1573,6 +1645,12 @@ class AggregateResult:
     withheld_databases: list[WithheldProcesses] = field(default_factory=list)
     """Dependencies counted rather than summed, out of the total, the count
     and the groups."""
+    cutoff_inputs: list[CutoffInput] = field(default_factory=list)
+    """Inputs no loaded database supplies, counted as zero in this result; empty for the direct scope, which solves nothing
+    (wire revision 58)."""
+    withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
+    """How many such inputs sit inside each dependency whose licence keeps
+    its detail."""
 
     @classmethod
     def from_json(cls, d: dict) -> "AggregateResult":
@@ -1583,6 +1661,8 @@ class AggregateResult:
             filtered_count=d["filteredCount"],
             groups=[AggregateGroup.from_json(g) for g in d.get("groups", [])],
             withheld_databases=[WithheldProcesses.from_json(w) for w in d.get("withheldDatabases", [])],
+            cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
+            withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
 
 
@@ -1957,6 +2037,12 @@ class ContributingFlows:
     total_score: float
     top_flows: list[FlowContribution] = field(default_factory=list)
     withheld_databases: list[WithheldShare] = field(default_factory=list)
+    cutoff_inputs: list[CutoffInput] = field(default_factory=list)
+    """Inputs no loaded database supplies, counted as zero in this result
+    (wire revision 58)."""
+    withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
+    """How many such inputs sit inside each dependency whose licence keeps
+    its detail."""
 
     @classmethod
     def from_json(cls, d: dict) -> "ContributingFlows":
@@ -1966,6 +2052,8 @@ class ContributingFlows:
             total_score=d["totalScore"],
             top_flows=[FlowContribution.from_json(f) for f in d.get("topFlows", [])],
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
+            cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
+            withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
 
 
@@ -1983,6 +2071,12 @@ class ContributingActivities:
     total_score: float
     activities: list[ActivityContribution] = field(default_factory=list)
     withheld_databases: list[WithheldShare] = field(default_factory=list)
+    cutoff_inputs: list[CutoffInput] = field(default_factory=list)
+    """Inputs no loaded database supplies, counted as zero in this result
+    (wire revision 58)."""
+    withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
+    """How many such inputs sit inside each dependency whose licence keeps
+    its detail."""
 
     @classmethod
     def from_json(cls, d: dict) -> "ContributingActivities":
@@ -1992,6 +2086,8 @@ class ContributingActivities:
             total_score=d["totalScore"],
             activities=[ActivityContribution.from_json(a) for a in d.get("activities", [])],
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
+            cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
+            withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
 
 
@@ -2085,6 +2181,12 @@ class InventoryResult:
     resource_flows: int
     flows: list[InventoryFlow]
     statistics: InventoryStatistics
+    cutoff_inputs: list[CutoffInput] = field(default_factory=list)
+    """Inputs no loaded database supplies, counted as zero in this result
+    (wire revision 58)."""
+    withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
+    """How many such inputs sit inside each dependency whose licence keeps
+    its detail."""
 
     @classmethod
     def from_json(cls, d: dict) -> "InventoryResult":
@@ -2096,6 +2198,8 @@ class InventoryResult:
             resource_flows=meta["resourceFlows"],
             flows=[InventoryFlow.from_json(f) for f in d.get("flows", [])],
             statistics=InventoryStatistics.from_json(d["statistics"]),
+            cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
+            withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
 
 
