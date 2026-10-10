@@ -124,6 +124,12 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         -- Ore 1 taken, 0.25 returned; CO2 1 emitted, 0.4 captured; the unplaced service counts as an emission, so taking it is negative.
         inv `carriesOnly` [(oreF, 0.75), (co2F, 0.6), (serviceF, -0.3)]
 
+    it "says each kind of notice once, counted, its first ten named in the order met" $ \_ ->
+        describeNotices ([CutOff (T.pack (show i)) | i <- [1 .. 12 :: Int]] <> [Tied "x"])
+            `shouldBe` [ "1 inputs had several producers; the first by identifier was linked:\n  x"
+                       , "12 inputs have no producer in the package and stay cut off:" <> foldMap (\i -> "\n  " <> T.pack (show i)) [1 .. 10 :: Int]
+                       ]
+
     it "places elementary flows in their compartment, and counts those it cannot place" $ \(b, _) -> do
         let compartment fid = bfCompartment =<< M.lookup fid (sdbBioFlows (builtDatabase b))
         compartment co2F `shouldBe` Just (Compartment Air Nothing)

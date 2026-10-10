@@ -664,7 +664,7 @@ first ten named.
 describeNotices :: [Notice] -> [Text]
 describeNotices notices =
     [ T.pack (show (length details)) <> " " <> title <> foldMap ("\n  " <>) (take 10 (concat details))
-    | (title, details) <- M.toList (M.fromListWith (flip (<>)) [(t, [maybeToList d]) | (t, d) <- map headline notices])
+    | (title, details) <- M.toList (M.fromListWith (<>) [(t, [maybeToList d]) | (t, d) <- map headline (reverse notices)])
     ]
   where
     headline :: Notice -> (Text, Maybe Text)
