@@ -30,7 +30,6 @@ import Data.List (find)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, listToMaybe, maybeToList)
-import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -103,10 +102,10 @@ data Context = Context
 buildDatabase :: UnitConfig -> AllocationKey -> P.Package -> Either Text Built
 buildDatabase cfg key pkg =
     -- Each process is read through and its package lines let go: what reads a
-    -- process sees every table but no process, and the indices over all processes
-    -- are built first, so the lines and the database built from them never sit in
+    -- process sees every table but no process, and the index over all processes
+    -- is built first, so the lines and the database built from them never sit in
     -- memory together.
-    treated `seq` producers `seq` case partitionEithers (map (force . readProcess cx) (P.pkProcesses pkg)) of
+    producers `seq` case partitionEithers (map (force . readProcess cx) (P.pkProcesses pkg)) of
         ([], processes) -> do
             activities <- first describeRepeated (uniqueIndex (concatMap rpActivities processes))
             Right
@@ -127,9 +126,6 @@ buildDatabase cfg key pkg =
     shared :: P.Package
     shared = pkg{P.pkProcesses = []}
 
-    treated :: S.Set UUID
-    treated = S.fromList [P.rxFlow x | p <- P.pkProcesses pkg, x <- P.prExchanges p, P.rxSide x == P.Consumed]
-
     producers :: M.Map UUID (M.Map UUID P.ProcessType)
     producers = producerIndex pkg
 
@@ -140,7 +136,7 @@ buildDatabase cfg key pkg =
     flowUnits = M.mapMaybe (flowUnit shared) (P.pkFlows shared)
 
     tables :: FlowTables
-    tables = flowTables shared flowUnits treated
+    tables = flowTables shared flowUnits producers
 
     cx :: Context
     cx =
@@ -210,8 +206,8 @@ data FlowTables = FlowTables
 a product flow, as an EcoSpold 2 treatment's reference is: the treatment's
 column is keyed on it.
 -}
-flowTables :: P.Package -> M.Map UUID UUID -> S.Set UUID -> FlowTables
-flowTables pkg flowUnits treated =
+flowTables :: P.Package -> M.Map UUID UUID -> M.Map UUID (M.Map UUID P.ProcessType) -> FlowTables
+flowTables pkg flowUnits producers =
     FlowTables
         { ftTech = M.fromList [(P.flId f, TechnosphereFlow (P.flId f) (P.flName f) u M.empty (P.flCas f) Nothing) | (f, u) <- withUnits, isTech f]
         , ftBio = M.fromList [(P.flId f, BiosphereFlow (P.flId f) (P.flName f) u M.empty (P.flCas f) Nothing (compartmentOf (P.flCategory f))) | (f, u) <- elementary]
@@ -228,7 +224,7 @@ flowTables pkg flowUnits treated =
     isTech :: P.Flow -> Bool
     isTech f = case P.flType f of
         P.ProductFlow -> True
-        P.WasteFlow -> S.member (P.flId f) treated
+        P.WasteFlow -> M.member (P.flId f) producers
         P.ElementaryFlow -> False
 
 {- | The compartment a category path names. Three spellings exist: one level

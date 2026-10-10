@@ -189,7 +189,6 @@ data UnitDoc = UnitDoc
     , udEntry :: UnitEntry
     , udReference :: Bool
     }
-    deriving (Generic, NFData)
 
 instance FromJSON UnitDoc where
     parseJSON v = withObject "Unit" (\o -> UnitDoc <$> o .: "@id" <*> parseJSON v <*> o .:? "isRefUnit" .!= False) v
@@ -226,7 +225,6 @@ data FactorDoc = FactorDoc
     , fdFactor :: Double
     , fdReference :: Bool
     }
-    deriving (Generic, NFData)
 
 instance FromJSON FactorDoc where
     parseJSON = withObject "FlowPropertyFactor" $ \o ->
