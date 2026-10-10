@@ -1502,7 +1502,8 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 60: the @apply-changes@ route, which makes an activity say each
+(revision 61: the export format @openlca@, a database written as an openLCA
+package; revision 60: the @apply-changes@ route, which makes an activity say each
 change a comparison wrote that it does not say yet;
 revision 59: the database format @openLCA package@;
 revision 58: results carry @cutoffInputs@, the unsupplied inputs their
@@ -1640,7 +1641,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 60
+currentWireVersion = 61
 
 getVersion :: AppM Value
 getVersion = do

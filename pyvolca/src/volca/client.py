@@ -164,7 +164,7 @@ def _candidate_wire_names(py_name: str) -> list[str]:
 
 
 _EXPORT_FORMATS = frozenset(
-    {"simapro", "ecospold1", "ecospold2", "ilcd", "brightway"}
+    {"simapro", "ecospold1", "ecospold2", "ilcd", "brightway", "openlca"}
 )
 """Target keywords accepted by ``POST /api/v1/db/{dbName}/export``.
 
@@ -1493,10 +1493,11 @@ class Client:
     ) -> bytes:
         """Export a loaded database, returning the serialized bytes.
 
-        ``fmt`` is one of ``simapro|ecospold1|ecospold2|ilcd|brightway``,
+        ``fmt`` is one of ``simapro|ecospold1|ecospold2|ilcd|brightway|openlca``,
         validated client-side; an unknown value raises VoLCAError before any
-        request. Single-file formats carry their bytes directly; EcoSpold 2 /
-        ILCD multi-file trees come back zipped.
+        request. Single-file formats carry their bytes directly; EcoSpold 2,
+        ILCD and openLCA multi-file trees come back zipped. ``openlca`` needs
+        wire revision 61.
 
         ``package="ro-crate"`` returns instead a zip holding that export under
         ``payload/``, beside an RO-Crate ``ro-crate-metadata.json`` describing
@@ -1518,6 +1519,8 @@ class Client:
                 f"unknown export format: {fmt!r} "
                 f"(expected {'|'.join(sorted(_EXPORT_FORMATS))})"
             )
+        if fmt_norm == "openlca":
+            self._require_wire(61, "export_database('openlca')", engine_hint="0.15.0")
         body: dict = {"format": fmt_norm}
         if package is not None:
             self._require_wire(49, "export_database(package=...)", engine_hint="0.15.0")

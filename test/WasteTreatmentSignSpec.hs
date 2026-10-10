@@ -34,6 +34,7 @@ import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, d
 import Database.Cutoffs (gapIndexOf)
 import Database.Loader (findAllCrossDBLinks)
 import Matrix (computeInventoryMatrix, computeScalingVector)
+import OlcaPackageFixture (throughPackage)
 import Service (ActivityFilterCore (..), Edges (..), SupplyChainFilter (..), buildCrossDBLinkMap, buildSupplyChainFromScalingVector, toExchangeWithUnit)
 import qualified Service.Aggregate as Agg
 import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached)
@@ -171,18 +172,23 @@ techFlowDB =
         , (yY, TechnosphereFlow yY "product Y" kgU M.empty Nothing Nothing)
         ]
 
+simpleDB :: M.Map (UUID, UUID) Activity -> SimpleDatabase
+simpleDB acts =
+    SimpleDatabase
+        { sdbActivities = acts
+        , sdbTechFlows = techFlowDB
+        , sdbBioFlows = M.singleton co2 co2Flow
+        , sdbWasteFlows = wasteFlowDB
+        , sdbUnits = M.singleton kgU (Unit kgU "kg" "kg" "")
+        , sdbDocumentation = noDocumentation
+        }
+
 buildDB :: T.Text -> M.Map (UUID, UUID) Activity -> IO Database
-buildDB name acts =
-    buildDatabaseWithMatrices
-        (BuildInputs defaultUnitConfig mempty Declared [])
-        SimpleDatabase
-            { sdbActivities = acts
-            , sdbTechFlows = techFlowDB
-            , sdbBioFlows = M.singleton co2 co2Flow
-            , sdbWasteFlows = wasteFlowDB
-            , sdbUnits = M.singleton kgU (Unit kgU "kg" "kg" "")
-            , sdbDocumentation = noDocumentation
-            }
+buildDB name = buildSimple name . simpleDB
+
+buildSimple :: T.Text -> SimpleDatabase -> IO Database
+buildSimple name sdb =
+    buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) sdb
         >>= either (\e -> fail (T.unpack name <> ": " <> T.unpack e)) pure
 
 co2Of :: M.Map UUID Double -> Double
@@ -193,8 +199,11 @@ processIdOf db key = fromIntegral <$> elemIndex key (V.toList (dbProcessIdTable 
 
 -- | Intra-DB scoring of one activity's CO2, asked as the functional unit.
 scoreOf :: T.Text -> (UUID, UUID) -> M.Map (UUID, UUID) Activity -> IO Double
-scoreOf name key acts = do
-    db <- buildDB name acts
+scoreOf name key = scoreSimple name key . simpleDB
+
+scoreSimple :: T.Text -> (UUID, UUID) -> SimpleDatabase -> IO Double
+scoreSimple name key sdb = do
+    db <- buildSimple name sdb
     case processIdOf db key of
         Nothing -> fail (T.unpack name <> ": activity not interned")
         Just pid -> co2Of <$> (either (fail . show) pure =<< computeInventoryMatrix db (fromIntegral pid))
@@ -383,6 +392,19 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
                     , ((tA, wW), treatment ReferenceInput 1.0)
                     ]
                 )
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    -- An openLCA package knows one convention, a waste input as the
+    -- treatment's reference. Written into it and read back, both databases
+    -- must still charge the 3 kg treated.
+    it "intra-DB ecoinvent written as an openLCA package and read back scores +6" $ do
+        back <- throughPackage (simpleDB (M.fromList [((pA, yY), producer (wasteEx False (Just tA) 3.0)), ((tA, wW), treatment ReferenceProduct (-1.0))]))
+        score <- scoreSimple "package-eco" (pA, yY) back
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    it "intra-DB ILCD written as an openLCA package and read back scores +6" $ do
+        back <- throughPackage (simpleDB (M.fromList [((pA, yY), producer (wasteEx True (Just tA) 3.0)), ((tA, wW), treatment ReferenceInput 1.0)]))
+        score <- scoreSimple "package-ilcd" (pA, yY) back
         withinTolerance 1.0e-9 6.0 score `shouldBe` True
 
     it "cross-DB to an ILCD (positive ReferenceInput) treatment scores +6" $ do

@@ -209,6 +209,7 @@ import Database.Manager (
     getDatabase,
     getDatabaseSetupInfo,
     getFlowSynonymGroups,
+    getMergedUnitConfig,
     getMethodCollection,
     listCompartmentMappings,
     listDatabases,
@@ -730,7 +731,8 @@ exportDatabaseHandler dbName req = do
     package <- case packaging of
         Plain -> pure id
         RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (failWith err400) pure)
-    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase fmt (ldDatabase ld))
+    units <- liftIO (getMergedUnitConfig dbManager)
+    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt (ldDatabase ld))
     pure (addHeader (encodeExportWarnings warnings) (BinaryContent (package bytes)))
 
 {- | What the package of a loaded database says of it: the licence it is served

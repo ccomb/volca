@@ -7,10 +7,11 @@ Inverts the upload/parse path: given an in-memory 'Database', serialize it to
 bytes in one of the supported formats by delegating to the per-format writer.
 
 Single-file formats (SimaPro CSV, EcoSpold 1, Brightway Excel) serialize to one
-byte stream. Multi-file formats (EcoSpold 2, ILCD) are inherently directory
-trees, so they are packaged into a deterministic zip archive. 'OpenLcaImpactCategory'
-and 'OpenLcaPackage' have no writer and 'UnknownFormat' is not a real target, so all fail loudly
-('Left') rather than emit a silent empty file.
+byte stream. Multi-file formats (EcoSpold 2, ILCD, an openLCA package) are inherently
+directory trees, so they are packaged into a deterministic zip archive.
+'OpenLcaImpactCategory' has no database writer (methods have their own) and
+'UnknownFormat' is not a real target, so both fail loudly ('Left') rather than
+emit a silent empty file.
 -}
 module Database.Export (
     serializeDatabase,
@@ -40,8 +41,10 @@ import qualified Method.WriterCSV as MWC
 import qualified Method.WriterILCD as MWI
 import qualified Method.WriterOlcaSchema as MWO
 import qualified Method.WriterSimaPro as MW
+import qualified OlcaSchema.Writer as OLCA
 import qualified SimaPro.Writer as SP
 import Types (Database, toSimpleDatabase)
+import UnitConversion (UnitConfig)
 import Zip (zipFiles)
 
 {- | Serialize a database to a single byte stream in the requested format, paired
@@ -49,15 +52,16 @@ with any best-effort approximation warnings. Pure: the multi-file formats are
 zipped in-memory. Fails loudly for formats without a writer.
 
 The warning list is empty for a faithful export and non-empty when a writer had
-to approximate. Two writers approximate today: Brightway has no waste type, so
+to approximate. Three writers approximate today (an openLCA package as ILCD does,
+plus what 'OlcaSchema.Writer.serializeOlcaPackage' lists): Brightway has no waste type, so
 it rewrites /orphan/ waste exchanges as technosphere flows (inventory-neutral,
 but the waste tag is lost on re-import); ILCD keys one process per dataset UUID,
 so a multi-output activity's products export as separate, unlinked datasets
 ('ILCD.Writer.splitWarnings'). Returning bytes and warnings together shares the
 one 'toSimpleDatabase' conversion and keeps them from drifting apart.
 -}
-serializeDatabase :: DatabaseFormat -> Database -> Either Text (BL.ByteString, [Text])
-serializeDatabase fmt db = case fmt of
+serializeDatabase :: UnitConfig -> DatabaseFormat -> Database -> Either Text (BL.ByteString, [Text])
+serializeDatabase units fmt db = case fmt of
     -- Each writer runs its own check*Exportable and returns 'Left' on a database
     -- the format cannot represent faithfully, so the guard is unskippable.
     SimaProCSV -> noWarn (BL.fromStrict <$> SP.serializeSimaProCSV SP.defaultWriterConfig sdb)
@@ -69,8 +73,7 @@ serializeDatabase fmt db = case fmt of
     BrightwayExcel -> (,BE.wasteManifest sdb) <$> BE.renderWorkbook BE.defaultWriterConfig sdb
     OpenLcaImpactCategory ->
         Left "openLCA JSON-LD export is not supported"
-    OpenLcaPackage ->
-        Left "openLCA package export is not supported"
+    OpenLcaPackage -> first zipFiles <$> OLCA.serializeOlcaPackage units sdb
     UnknownFormat ->
         Left "cannot export to an unknown format"
   where
@@ -140,14 +143,15 @@ parseExportFormat raw = case T.toLower (T.strip raw) of
     "ecospold2" -> Right EcoSpold2
     "ilcd" -> Right ILCDProcess
     "brightway" -> Right BrightwayExcel
-    other -> Left ("unknown export format: " <> other <> " (expected simapro|ecospold1|ecospold2|ilcd|brightway)")
+    "openlca" -> Right OpenLcaPackage
+    other -> Left ("unknown export format: " <> other <> " (expected simapro|ecospold1|ecospold2|ilcd|brightway|openlca)")
 
 {- | Serialize a database and write it to @path@, returning the approximation
 warnings so the caller can report them – a local export approximates exactly as
 much as a remote one.
 -}
-exportDatabase :: DatabaseFormat -> Database -> FilePath -> IO (Either Text [Text])
-exportDatabase fmt db path = writeExport path (serializeDatabase fmt db)
+exportDatabase :: UnitConfig -> DatabaseFormat -> Database -> FilePath -> IO (Either Text [Text])
+exportDatabase units fmt db path = writeExport path (serializeDatabase units fmt db)
 
 -- | File variant of 'serializeMethodCollection', for the CLI.
 exportMethodCollection :: MethodExportFormat -> Text -> MethodCollection -> FilePath -> IO (Either Text [Text])

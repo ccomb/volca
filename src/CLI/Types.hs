@@ -113,7 +113,7 @@ data DbExportArgs = DbExportArgs
     { deaDb :: Text
     -- ^ Database to export
     , deaFormat :: Text
-    -- ^ Target format keyword (@--format@): simapro|ecospold1|ecospold2|ilcd|brightway
+    -- ^ Target format keyword (@--format@): simapro|ecospold1|ecospold2|ilcd|brightway|openlca
     , deaOut :: FilePath
     -- ^ Output file path (@--out@)
     , deaPackage :: Maybe Text
