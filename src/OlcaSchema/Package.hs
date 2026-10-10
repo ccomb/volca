@@ -39,9 +39,9 @@ import qualified Data.Aeson as A
 import qualified Data.Aeson.Types as A (Parser)
 import Data.Bifunctor (first)
 import Data.List (sort)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust)
-import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)

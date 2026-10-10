@@ -176,9 +176,11 @@ otherProperty property factor = object ["flowProperty" .= ref property, "convers
 
 -- | An input parameter (a value) or a calculated one (a formula, with the value openLCA stored).
 parameterDoc :: Text -> Either Double (Text, Double) -> Value
-parameterDoc name value = object $ ["name" .= name, "parameterScope" .= ("GLOBAL_SCOPE" :: Text)] <> case value of
-    Left given -> ["isInputParameter" .= True, "value" .= given]
-    Right (formula, stored) -> ["isInputParameter" .= False, "formula" .= formula, "value" .= stored]
+parameterDoc name value =
+    object $
+        ["name" .= name, "parameterScope" .= ("GLOBAL_SCOPE" :: Text)] <> case value of
+            Left given -> ["isInputParameter" .= True, "value" .= given]
+            Right (formula, stored) -> ["isInputParameter" .= False, "formula" .= formula, "value" .= stored]
 
 -- | One exchange line, as a record so the fixture reads as a table.
 data Line = Line
@@ -195,7 +197,12 @@ data Line = Line
     }
 
 -- | The internal ids a cogeneration process gives its heat, power, gas and CO2 lines.
-data Numbering = Numbering Int Int Int Int
+data Numbering = Numbering
+    { nuHeat :: Int
+    , nuPower :: Int
+    , nuGas :: Int
+    , nuCo2 :: Int
+    }
 
 output, input :: Int -> UUID -> Double -> UUID -> UUID -> Line
 output i flow amount u property = Line i flow amount Nothing u property False False False Nothing
@@ -282,7 +289,7 @@ processes =
         slagD
         "slag treatment"
         [reference (input 1 slagF 1 kgU massP), output 2 zincF 0.001 kgU massP, input 3 electricityF 0.1 mjU energyP]
-    , (cogeneration cogenF "cogeneration, physical" (Numbering 1 2 3 4))
+    , (cogeneration cogenF "cogeneration, physical" Numbering{nuHeat = 1, nuPower = 2, nuGas = 3, nuCo2 = 4})
         { pcAllocation = Just "PHYSICAL_ALLOCATION"
         , pcFactors =
             [ factor "PHYSICAL_ALLOCATION" heatF Nothing 0.6
@@ -291,7 +298,7 @@ processes =
             , factor "ECONOMIC_ALLOCATION" powerF Nothing 0.7
             ]
         }
-    , (cogeneration cogenG "cogeneration, causal" (Numbering 10 3 7 1))
+    , (cogeneration cogenG "cogeneration, causal" Numbering{nuHeat = 10, nuPower = 3, nuGas = 7, nuCo2 = 1})
         { pcAllocation = Just "CAUSAL_ALLOCATION"
         , pcFactors =
             [ factor "CAUSAL_ALLOCATION" heatF (Just 1) 0.9
@@ -327,14 +334,14 @@ processes =
   where
     -- The same four lines in both cogeneration processes, numbered as given.
     cogeneration :: UUID -> Text -> Numbering -> Proc
-    cogeneration i name (Numbering heat power gas co2) =
+    cogeneration i name numbering =
         unitProcess
             i
             name
-            [ reference (output heat heatF 2 mjU energyP)
-            , output power powerF 1 mjU energyP
-            , from gasP (input gas gasF 0.1 kgU massP)
-            , output co2 co2F 1 kgU massP
+            [ reference (output (nuHeat numbering) heatF 2 mjU energyP)
+            , output (nuPower numbering) powerF 1 mjU energyP
+            , from gasP (input (nuGas numbering) gasF 0.1 kgU massP)
+            , output (nuCo2 numbering) co2F 1 kgU massP
             ]
 
     formulaLines :: [Line]

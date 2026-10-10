@@ -27,6 +27,11 @@ processNamed pkg name = case filter ((== name) . prName) (pkProcesses pkg) of
     [p] -> Just p
     _ -> Nothing
 
+isInput :: ParameterValue -> Bool
+isInput = \case
+    InputValue _ -> True
+    Calculated _ _ -> False
+
 spec :: Spec
 spec = describe "readPackage" $ do
     it "knows a package by its openlca.json" $
@@ -48,6 +53,12 @@ spec = describe "readPackage" $ do
         pkg <- readFixture
         fmap ueFactor (M.lookup kwhU . ugUnits =<< M.lookup energyG (pkUnitGroups pkg)) `shouldBe` Just 3.6
         (M.lookup energyP . flFactors =<< M.lookup gasF (pkFlows pkg)) `shouldBe` Just 50
+
+    it "reads a parameter with no isInputParameter as an input parameter" $
+        withPackage $ \dir -> do
+            writeFile (dir </> "parameters" </> "bare.json") "{\"name\": \"bare\", \"value\": 4}"
+            r <- readPackage dir
+            fmap (map (isInput . paValue) . filter ((== "bare") . paName) . pkGlobals) r `shouldBe` Right [True]
 
     it "keeps causal factors on the internal id of the line they name" $ do
         pkg <- readFixture
