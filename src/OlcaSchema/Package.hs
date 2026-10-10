@@ -34,8 +34,6 @@ module OlcaSchema.Package (
     readPackage,
 ) where
 
-import Control.Concurrent (getNumCapabilities)
-import Control.Concurrent.Async (mapConcurrently)
 import Control.DeepSeq (NFData, force)
 import Control.Exception (evaluate)
 import Control.Monad (unless)
@@ -56,7 +54,7 @@ import GHC.Generics (Generic)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 
 import Data.Indexing (uniqueIndex)
-import EcoSpold.Common (distributeFiles)
+import EcoSpold.Common (acrossCapabilities)
 import System.FilePath (takeExtension, (</>))
 
 -- | Every document the reader needs, by kind.
@@ -419,8 +417,7 @@ decodeFile :: (FromJSON a, NFData a) => FilePath -> IO (Either Text a)
 decodeFile path = evaluate . force . first (\why -> T.pack (path <> ": " <> why)) =<< A.eitherDecodeFileStrict' path
 
 {- | Every @.json@ document of a folder, in name order; a package ships other
-files beside them. The documents are read on every core, each taking its run
-of names.
+files beside them. The documents are read on every core.
 -}
 decodeFolder :: (FromJSON a, NFData a) => FilePath -> IO (Either Text [a])
 decodeFolder folder = do
@@ -428,6 +425,5 @@ decodeFolder folder = do
     if present
         then do
             names <- sort . filter ((== ".json") . takeExtension) <$> listDirectory folder
-            cores <- getNumCapabilities
-            sequence . concat <$> mapConcurrently (traverse (decodeFile . (folder </>))) (distributeFiles cores names)
+            sequence <$> acrossCapabilities (decodeFile . (folder </>)) names
         else pure (Right [])
