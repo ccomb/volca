@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 60
-"""The newest wire revision this pyvolca understands (revision 60 added
+KNOWN_WIRE = 61
+"""The newest wire revision this pyvolca understands (revision 61 added
+the ``openlca`` export format, a database written as an openLCA package;
+revision 60 added
 ``apply_changes``, which makes an activity say each change a comparison
 wrote that it does not say yet; revision 59 added
 the ``openlca-package`` database format, a format name pyvolca passes

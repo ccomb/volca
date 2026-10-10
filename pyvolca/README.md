@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 60** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 61** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -772,10 +772,11 @@ names the collection to read when several carry the method.
 
 Export a loaded database, returning the serialized bytes.
 
-``fmt`` is one of ``simapro|ecospold1|ecospold2|ilcd|brightway``,
+``fmt`` is one of ``simapro|ecospold1|ecospold2|ilcd|brightway|openlca``,
 validated client-side; an unknown value raises VoLCAError before any
-request. Single-file formats carry their bytes directly; EcoSpold 2 /
-ILCD multi-file trees come back zipped.
+request. Single-file formats carry their bytes directly; EcoSpold 2,
+ILCD and openLCA multi-file trees come back zipped. ``openlca`` needs
+wire revision 61.
 
 ``package="ro-crate"`` returns instead a zip holding that export under
 ``payload/``, beside an RO-Crate ``ro-crate-metadata.json`` describing

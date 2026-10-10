@@ -273,7 +273,7 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 | `Matrix.hs`                 | Matrix LCA computations via the MUMPS solver                        |
 | `SharedSolver.hs`           | Lazy thread-safe LU factorisation, caches, back-substitution        |
 | `mumps-hs/`                 | FFI bindings to the MUMPS direct sparse solver (Fortran)            |
-| `EcoSpold/`, `SimaPro/`, `ILCD/`, `BrightwayExcel/` | One namespace per database format, each with a `Parser` (read, wired into `Database/Loader.hs`) and a `Writer` (export, wired into `Database/Export.hs`) |
+| `EcoSpold/`, `SimaPro/`, `ILCD/`, `BrightwayExcel/`, `OlcaSchema/` | One namespace per database format, each with a `Parser` (read, wired into `Database/Loader.hs`) and a `Writer` (export, wired into `Database/Export.hs`) |
 | `Method/Parser*.hs`         | Method collection loading (ILCD, CSV, SimaPro, olca)                |
 | `Method/FlowResolver.hs`    | Parses ILCD flow XMLs to enrich MethodCFs (name, compartment, CAS)  |
 | `Database/Edit.hs`, `Database/Export.hs`, `Database/RelinkMapping.hs` | Database write toolkit: delete/copy, export to any format, relink via alias CSV |

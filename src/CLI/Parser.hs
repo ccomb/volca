@@ -173,7 +173,7 @@ exportArgsParser :: Parser DbExportArgs
 exportArgsParser =
     DbExportArgs
         <$> textArg "DB" "Name of the loaded database to export"
-        <*> textOpt "format" Nothing "FMT" "Target format: simapro|ecospold1|ecospold2|ilcd|brightway"
+        <*> textOpt "format" Nothing "FMT" "Target format: simapro|ecospold1|ecospold2|ilcd|brightway|openlca"
         <*> strOpt "out" Nothing "FILE" "Output file path"
         <*> optTextOpt "package" Nothing "PACKAGE" "ro-crate: package the export with its licence and the releases it links to"
 

@@ -9,6 +9,7 @@ boolean only when it is true.
 -}
 module OlcaPackageFixture (
     writePackage,
+    throughPackage,
     kgU,
     lbU,
     tU,
@@ -53,15 +54,25 @@ module OlcaPackageFixture (
     pairN,
 ) where
 
+import Control.Monad (forM_)
 import Data.Aeson (Value, object, (.=))
 import qualified Data.Aeson as A
 import qualified Data.Aeson.Key as Key
+import qualified Data.ByteString as BS
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import System.Directory (createDirectoryIfMissing)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
+import System.IO.Temp (withSystemTempDirectory)
+
+import OlcaSchema.Package (readPackage)
+import OlcaSchema.Parser (Built (..), buildDatabase)
+import OlcaSchema.Writer (serializeOlcaPackage)
+import Types (AllocationKey (..), SimpleDatabase)
+import UnitConversion (defaultUnitConfig)
 
 -- | Identifiers that read as what they are when a test prints one.
 uid :: Word -> UUID
@@ -116,6 +127,16 @@ tieK2 = uid 312
 tieL = uid 313
 sortingM = uid 314
 pairN = uid 315
+
+-- | A database written as a package, then read back as the reader reads one.
+throughPackage :: SimpleDatabase -> IO SimpleDatabase
+throughPackage sdb = withSystemTempDirectory "olca-written" $ \dir -> do
+    (files, _) <- either (fail . T.unpack) pure (serializeOlcaPackage defaultUnitConfig sdb)
+    forM_ files $ \(path, bytes) -> do
+        createDirectoryIfMissing True (takeDirectory (dir </> path))
+        BS.writeFile (dir </> path) bytes
+    pkg <- readPackage dir >>= either (fail . T.unpack) pure
+    builtDatabase <$> either (fail . T.unpack) pure (buildDatabase defaultUnitConfig Declared pkg)
 
 -- | Write the package into an existing directory.
 writePackage :: FilePath -> IO ()

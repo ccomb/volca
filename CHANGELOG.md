@@ -4,6 +4,24 @@
 
 ### Added
 
+- A database exports as an openLCA package (`--format openlca` on the
+  command line, `"format": "openlca"` on `POST /api/v1/db/{db}/export`,
+  `export_database("openlca")` in pyvolca): a zip that openLCA imports and
+  that VoLCA reads back into the same inventories. Each product becomes its
+  own process; a waste treatment is written as openLCA writes one, its waste
+  taken in, and the lines sent to it keep the amount treated. Locations get
+  the identifier openLCA gives the same code, so they merge with those of the
+  database the package is imported into; codes differing only by case become
+  one location, under the code used most. A line in another unit than its
+  flow is converted to the flow's unit. The export is refused, line by line,
+  where the package would carry a number wrong: a unit that does not convert
+  to its flow's, a waste sent to a treatment the database does not have. The
+  warnings say what the package says differently: products of one process
+  split apart, an unallocated coproduct, inputs with no supplier that openLCA
+  will link to a producer, formulas written as their values, elementary lines
+  written on the side of their compartment, and merged location codes. Wire
+  revision 61.
+
 - `POST /api/v1/db/{db}/activity/{pid}/apply-changes` makes an activity say
   each change it is given that it does not say yet, the changes written as a
   comparison writes them, and answers for each: `applied`, `present`,

@@ -50,6 +50,7 @@ module ILCD.Writer (
     writeILCDArchive,
     ilcdFiles,
     checkILCDExportable,
+    exportedFlows,
 
     -- * Pure helpers (exported for testing)
     escapeXml,
@@ -148,7 +149,7 @@ splitWarnings db =
         <> uuidText actUUID
         <> "): its "
         <> T.pack (show (length acts))
-        <> " products export as separate ILCD process datasets; their grouping is lost on re-import"
+        <> " products export as separate processes; their grouping is lost on re-import"
     | (actUUID, acts@(act : _ : _)) <- M.toAscList byActivity
     ]
   where

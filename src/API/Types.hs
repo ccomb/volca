@@ -1602,7 +1602,7 @@ data DeleteSelectionResponse = DeleteSelectionResponse
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeleteSelectionResponse)
 
 {- | Request for database export. @exrFormat@ is the target-format keyword
-(@simapro|ecospold1|ecospold2|ilcd|brightway@), matching the CLI.
+(@simapro|ecospold1|ecospold2|ilcd|brightway|openlca@), matching the CLI.
 -}
 newtype ExportRequest = ExportRequest
     { exrFormat :: Text
