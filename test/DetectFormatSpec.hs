@@ -95,4 +95,4 @@ spec = describe "detectDirectoryFormat" $ do
             withSystemTempDirectory "olca" $ \dir -> do
                 writePackage dir
                 loaded <- loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig) dir
-                fmap (M.size . sdbActivities) loaded `shouldBe` Right 16
+                fmap (M.size . sdbActivities) loaded `shouldBe` Right 17

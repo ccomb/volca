@@ -30,6 +30,7 @@ module OlcaPackageFixture (
     landF,
     tieF,
     thingF,
+    sortedF,
     co2F,
     oreF,
     zincF,
@@ -47,6 +48,7 @@ module OlcaPackageFixture (
     tieK1,
     tieK2,
     tieL,
+    sortingM,
 ) where
 
 import Data.Aeson (Value, object, (.=))
@@ -74,7 +76,7 @@ energyG = uid 7
 massP = uid 8
 energyP = uid 9
 
-steelF, electricityF, gasF, slagF, heatF, powerF, ashF, recycledF, widgetF, landF, tieF, thingF :: UUID
+steelF, electricityF, gasF, slagF, heatF, powerF, ashF, recycledF, widgetF, landF, tieF, thingF, sortedF :: UUID
 steelF = uid 101
 electricityF = uid 102
 gasF = uid 103
@@ -87,6 +89,7 @@ widgetF = uid 109
 landF = uid 110
 tieF = uid 111
 thingF = uid 112
+sortedF = uid 113
 
 co2F, oreF, zincF, serviceF :: UUID
 co2F = uid 201
@@ -94,7 +97,7 @@ oreF = uid 202
 zincF = uid 203
 serviceF = uid 204
 
-gasP, elecB, elecB2, steelA, slagD, cogenF, cogenG, boilerH, recyclingI, formulasJ, tieK1, tieK2, tieL :: UUID
+gasP, elecB, elecB2, steelA, slagD, cogenF, cogenG, boilerH, recyclingI, formulasJ, tieK1, tieK2, tieL, sortingM :: UUID
 gasP = uid 301
 elecB = uid 302
 elecB2 = uid 303
@@ -108,6 +111,7 @@ formulasJ = uid 310
 tieK1 = uid 311
 tieK2 = uid 312
 tieL = uid 313
+sortingM = uid 314
 
 -- | Write the package into an existing directory.
 writePackage :: FilePath -> IO ()
@@ -152,6 +156,7 @@ flows =
     , product landF "land occupation" massP
     , product tieF "tie" massP
     , product thingF "thing" massP
+    , product sortedF "sorted ore" massP
     , elementary co2F "carbon dioxide" "Elementary flows/emission/air"
     , elementary oreF "iron ore" "Elementary flows/resource/ground"
     , elementary zincF "zinc" "Elementary flows/emission/ground"
@@ -330,6 +335,17 @@ processes =
     , unitProcess tieK1 "tie, first" [reference (output 1 tieF 1 kgU massP), output 2 co2F 1 kgU massP]
     , unitProcess tieK2 "tie, second" [reference (output 1 tieF 1 kgU massP), output 2 co2F 2 kgU massP]
     , unitProcess tieL "thing making" [reference (output 1 thingF 1 kgU massP), input 2 tieF 1 kgU massP]
+    , -- Elementary flows on the side opposite to their kind: ore returned, CO2 captured, a service with no compartment taken.
+      unitProcess
+        sortingM
+        "ore sorting"
+        [ reference (output 1 sortedF 1 kgU massP)
+        , input 2 oreF 1 kgU massP
+        , output 3 oreF 0.25 kgU massP
+        , input 4 co2F 0.4 kgU massP
+        , output 5 co2F 1 kgU massP
+        , input 6 serviceF 0.3 kgU massP
+        ]
     ]
   where
     -- The same four lines in both cogeneration processes, numbered as given.

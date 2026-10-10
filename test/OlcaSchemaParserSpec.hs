@@ -116,6 +116,11 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         inv `carriesOnly` [(co2F, 1)]
         [what | Tied what <- builtNotices b] `shouldBe` ["thing making · tie"]
 
+    it "nets an elementary flow met on both sides, signed by its kind as openLCA nets it" $ \(_, db) -> do
+        inv <- inventoryOf db sortingM sortedF
+        -- Ore 1 taken, 0.25 returned; CO2 1 emitted, 0.4 captured; the unplaced service counts as an emission, so taking it is negative.
+        inv `carriesOnly` [(oreF, 0.75), (co2F, 0.6), (serviceF, -0.3)]
+
     it "places elementary flows in their compartment, and counts those it cannot place" $ \(b, _) -> do
         let compartment fid = bfCompartment =<< M.lookup fid (sdbBioFlows (builtDatabase b))
         compartment co2F `shouldBe` Just (Compartment Air Nothing)

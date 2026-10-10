@@ -40,8 +40,8 @@ spec = describe "readPackage" $ do
     it "reads every document of the fixture" $ do
         pkg <- readFixture
         M.size (pkUnitGroups pkg) `shouldBe` 2
-        M.size (pkFlows pkg) `shouldBe` 16
-        length (pkProcesses pkg) `shouldBe` 13
+        M.size (pkFlows pkg) `shouldBe` 17
+        length (pkProcesses pkg) `shouldBe` 14
         map paName (pkGlobals pkg) `shouldBe` ["leak_method"]
 
     it "reads a line with no isInput as an output, and one with no isAvoidedProduct as not avoided" $ do
@@ -74,7 +74,7 @@ spec = describe "readPackage" $ do
     it "reads a version 2 package, whose documents read as version 3's" $
         withPackage $ \dir -> do
             writeFile (dir </> "openlca.json") "{\"schemaVersion\": 2}"
-            fmap (fmap (length . pkProcesses)) (readPackage dir) `shouldReturn` Right 13
+            fmap (fmap (length . pkProcesses)) (readPackage dir) `shouldReturn` Right 14
 
     it "refuses a schema version it does not know" $
         withPackage $ \dir -> do

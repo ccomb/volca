@@ -548,10 +548,8 @@ formulaCheck lines'
 -- | The engine exchange a line becomes, and what linking it noticed.
 engineExchange :: Context -> P.Process -> M.Map Int Double -> Line -> (Exchange, [Notice])
 engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
-    (P.ElementaryFlow, P.Produced) -> (biosphere Emission, [])
-    (P.ElementaryFlow, P.Consumed) -> (biosphere Resource, [])
     -- openLCA offers "avoided" on product and waste lines; an elementary one is read as the input it is stored as.
-    (P.ElementaryFlow, P.Avoided) -> (biosphere Resource, [])
+    (P.ElementaryFlow, side) -> (biosphere (side /= P.Produced), [])
     (P.ProductFlow, P.Produced) -> (made amount, [])
     (P.ProductFlow, P.Consumed) -> linked Input
     (P.ProductFlow, P.Avoided) -> linked AvoidedProduct
@@ -568,16 +566,25 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
     amount :: Double
     amount = lnAmount ln
 
+    isResource :: Bool
+    isResource = (compartmentName <$> compartmentOf (P.flCategory flow)) == Just NaturalResource
+
     location :: ExchangeLocation
     location = readExchangeLocation (maybe "" (\l -> M.findWithDefault "" l (P.pkLocations (cxPackage cx))) (P.rxLocation raw))
 
-    biosphere :: BioDirection -> Exchange
-    biosphere direction =
+    {- The engine signs an elementary amount by its flow's kind: a resource
+    taken, an emission made. openLCA signs it by the line's side and nets the
+    two, so a resource on an output (ore returned) or an emission on an input
+    (gas captured) is a negative amount of its kind. A flow with no known
+    compartment counts as an emission, as the engine reads it.
+    -}
+    biosphere :: Bool -> Exchange
+    biosphere isInput =
         BiosphereExchange
             { bioFlowId = P.flId flow
-            , bioAmount = amount
+            , bioAmount = if isInput == isResource then amount else negate amount
             , bioUnitId = lnUnit ln
-            , bioDirection = direction
+            , bioDirection = if isResource then Resource else Emission
             , bioLocation = location
             , bioComment = P.rxDescription raw
             , bioPedigree = Nothing
