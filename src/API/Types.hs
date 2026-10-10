@@ -841,6 +841,11 @@ product than links for it, the inputs taken as covered are the first ones read.
 data CutoffInput = CutoffInput
     { ciDatabase :: Text
     , ciProduct :: Text
+    , ciSupplier :: Maybe Text
+    {- ^ The supplier activity the input names, when it names one by name: the
+    same product named from two absent suppliers is two entries, as in the gap
+    report.
+    -}
     , ciLocation :: Text
     -- ^ The location the input asks for, empty when it names none
     , ciUnit :: Text

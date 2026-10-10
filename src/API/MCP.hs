@@ -17,6 +17,7 @@ import Data.Aeson.Types (Pair, parseEither)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Scientific (toBoundedInteger)
@@ -39,7 +40,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
-import Database.Cutoffs (Cutoffs (..), cutoffsReached, indexesOf)
+import Database.Cutoffs (Cutoffs (..))
 import Database.Edit (deriveDatabase, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
@@ -1610,11 +1611,12 @@ callComputeSensitivity dbManager mBaseUrl rid args =
             liftIO $
                 Service.computeSensitivities db (ldSharedSolver ld) (raPid ra) perts
         (baselineX, perResults) <- liftShow eRes
-        -- The scores below read the root's own scaling alone, so its cut-offs are the ones they met.
-        let reached = [(dbName, db, baselineX)]
-        indexOf <- liftIO (indexesOf (DM.getGapIndex dbManager) reached)
-        -- Counted, not named, under a licence keeping the amounts of its exchanges to itself (refusing ReadInventory), as 'Impact.licencedCutoffs' does.
-        amountsKept <- liftIO (DM.refusingDatabases dbManager ReadInventory)
+        -- The scores below read the root's own scaling alone, so its cut-offs are the
+        -- ones they met, read under the licences the way the REST sensitivity reads them.
+        cutoffs <-
+            liftIO $
+                Impact.solutionCutoffs dbManager SeeDetailedScores $
+                    SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (dbName, db, baselineX)) IncludeLongTerm
         -- This tool takes no long-term policy: it compares a baseline with
         -- perturbations of it, and both sides count the same flows.
         let scoreOf x = computeLCIAScoreAuto unitCfg mUnits mFlows IncludeLongTerm db x (applyBiosphereMatrix db x) hier tables
@@ -1653,7 +1655,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                     , "baseline_score" .= baselineScore
                     , "perturbed" .= map pertEntry perResults
                     ]
-                        ++ cutoffFields (cutoffsReached indexOf amountsKept reached)
+                        ++ cutoffFields cutoffs
                         ++ webUrlPair
 
 {- | Cross-database impact comparison for mapping audits.

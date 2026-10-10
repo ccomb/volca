@@ -8,7 +8,7 @@
   refused with HTTP 422. An input that no loaded database supplies counts as
   zero, and every result that solves an activity says which of these inputs
   its chain met: `cutoffInputs` lists each one with its database, product,
-  location, unit, the amount the chain asks per unit of the activity, how many
+  the supplier it names (when it names one by name), location, unit, the amount the chain asks per unit of the activity, how many
   processes ask for it, and why no supplier was found. `withheldCutoffs`
   counts the ones inside a database whose licence keeps its detail to itself,
   the one asked included, without naming them. This covers the inventory, the scores of one method and of a

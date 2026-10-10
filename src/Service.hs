@@ -32,7 +32,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
-import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsReached, gapIndexOf, indexesOf)
+import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Impact (PartScore (..))
 import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
@@ -2338,8 +2338,7 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
             let walked = rootCollected <> depCollected
                 refusing = S.delete rootDbName (scfWithheld scf)
                 (Collected total entries edges _, withheld, withheldInputs) = withholdEntries refusing walked
-            indexOf <- indexesOf indexFor (cReached walked)
-            let cutoffs = cutoffsReached indexOf refusing (cReached walked)
+            cutoffs <- cutoffsOf indexFor refusing (cReached walked)
             pure $
                 Right
                     SupplyChainResponse

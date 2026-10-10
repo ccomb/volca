@@ -18,6 +18,7 @@ import API.Types (CutoffInput (..), WithheldCutoffs (..))
 import Config (defaultConfig)
 import Database (buildDatabaseWithMatrices)
 import Database.Cutoffs (Cutoffs (..), GapIndex (..), cutoffsReached, gapIndexOf, noCutoffs)
+import Database.Loader (GapReport (..), gapReportForLoaded)
 import Database.Manager (CachePolicy (..), clearMethodMappingCacheForDb, getGapIndex, initDatabaseManager)
 import Impact (LicencedSolution (..), WithheldPart (..), partitionByLicence)
 import qualified SharedSolver as SS
@@ -105,6 +106,7 @@ cutoff db product amount consumers reasons =
     CutoffInput
         { ciDatabase = db
         , ciProduct = product
+        , ciSupplier = Nothing
         , ciLocation = "FR"
         , ciUnit = "kg"
         , ciAmount = amount
@@ -136,6 +138,15 @@ spec = do
             sol <- solve [] "main" db (actR, rFlow)
             metBy (indexIn [("main", db)]) (shown sol)
                 `shouldBe` Cutoffs [cutoff "main" "M" 6.5 2 noNameMatch] []
+
+        it "keeps apart one product named from two absent suppliers, as the gap report does" $ do
+            -- R asks 1 kg of M of mill A and 2 kg of M of mill B; neither mill is loaded.
+            let fromMill mill amount = (techInput mFlow amount){techSupplierClaim = ClaimByName mill}
+            db <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, fromMill "mill A" 1, fromMill "mill B" 2])])
+            sol <- solve [] "main" db (actR, rFlow)
+            map (\c -> (ciSupplier c, ciAmount c)) (cutoffShown (metBy (indexIn [("main", db)]) (shown sol)))
+                `shouldBe` [(Just "mill B", 2), (Just "mill A", 1)]
+            length (grGaps (gapReportForLoaded "main" db)) `shouldBe` 2
 
         it "leaves out a process the chain does not run" $ do
             -- Solving R scales Q by 0, so N is absent; solving Q gives x_Q = 1 and N at 1 × 1.

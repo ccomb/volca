@@ -43,7 +43,7 @@ import API.Types (
     apiFlowName,
  )
 import Database (Geographies)
-import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsReached, indexesOf, noCutoffs)
+import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, noCutoffs)
 import Matrix (linkConsumer)
 import Service (
     ActivityFilterCore (..),
@@ -224,7 +224,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                         Right sol
                             | dep : _ <- withheldOf (SharedSolver.csScalings sol) -> return (Left (Withheld (includedSentence dbName dep)))
                             | otherwise -> do
-                                cutoffs <- reachedBy S.empty (NE.toList (SharedSolver.csScalings sol))
+                                cutoffs <- cutoffsOf indexFor S.empty (NE.toList (SharedSolver.csScalings sol))
                                 let export = convertToInventoryExport db flowDB unitDB processId activity cutoffs (SharedSolver.csInventory sol)
                                 return $ Right $ reduce params cutoffs (rowsFromBiosphere export)
                 ScopeConsumption -> do
@@ -237,7 +237,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                         Right sol -> do
                             let (root :| deps) = SharedSolver.csScalings sol
                                 (hidden, shown) = L.partition (\(name, _, _) -> withholds name) deps
-                            cutoffs <- reachedBy (S.fromList [name | (name, _, _) <- hidden]) (root : deps)
+                            cutoffs <- cutoffsOf indexFor (S.fromList [name | (name, _, _) <- hidden]) (root : deps)
                             return $
                                 Right
                                     (reduce params cutoffs (rowsFromConsumption (referenceMagnitude activity) (root :| shown)))
@@ -246,9 +246,6 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
   where
     withholds :: Text -> Bool
     withholds name = name /= dbName && name `S.member` apWithheld params
-
-    reachedBy :: S.Set Text -> [(Text, Database, VU.Vector Double)] -> IO Cutoffs
-    reachedBy withheld scalings = (\indexOf -> cutoffsReached indexOf withheld scalings) <$> indexesOf indexFor scalings
 
     withheldOf :: NonEmpty (Text, Database, VU.Vector Double) -> [Text]
     withheldOf scalings = [name | (name, _, _) <- NE.toList scalings, withholds name]

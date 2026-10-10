@@ -367,6 +367,7 @@ class CutoffInput:
 
     database: str
     product: str
+    supplier: str | None  # the supplier activity the input names by name, if any
     location: str  # empty when the input names none
     unit: str
     amount: float
@@ -378,6 +379,7 @@ class CutoffInput:
         return cls(
             database=d["database"],
             product=d["product"],
+            supplier=d.get("supplier"),
             location=d["location"],
             unit=d["unit"],
             amount=d["amount"],

@@ -181,6 +181,7 @@ cutoff db product amount consumers reasons =
     CutoffInput
         { ciDatabase = db
         , ciProduct = product
+        , ciSupplier = Nothing
         , ciLocation = "FR"
         , ciUnit = "kg"
         , ciAmount = amount
@@ -309,6 +310,16 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         pid <- pidOf rootDb (actR, rFlow)
         result <- ok manager (getActivityLCIA "main" pid coll methodText Nothing)
         (lrCutoffInputs result, lrWithheldCutoffs result) `shouldBe` ([], [WithheldCutoffs "dep" 1])
+
+    it "names in neither sensitivity the cut-offs of a dependency refusing detailed scores but not its inventory" $ do
+        manager <- withheldDependency
+        rootDb <- rootOf manager
+        pid <- pidOf rootDb (actR, rFlow)
+        rest <- ok manager (postActivitySensitivity "main" pid coll methodText (SensitivityRequest []))
+        (srCutoffInputs rest, srWithheldCutoffs rest) `shouldBe` ([], [WithheldCutoffs "dep" 1])
+        payload <- mcp manager "compute_sensitivity" [("process_id", String pid), ("perturbations", Array V.empty)]
+        let namedIn = [d | Just (Array xs) <- [KM.lookup "cutoff_inputs" payload], Object o <- toList xs, Just d <- [KM.lookup "database" o]]
+        namedIn `shouldBe` []
 
     it "counts, without naming them, the root's own when its licence refuses to show its inventory" $ do
         db <- build mainSdb

@@ -11,7 +11,7 @@ module Database.Cutoffs (
     noCutoffs,
     cutoffInputsIn,
     cutoffsReached,
-    indexesOf,
+    cutoffsOf,
 ) where
 
 import API.Types (CutoffInput (..), WithheldCutoffs (..))
@@ -49,10 +49,13 @@ data Cutoffs = Cutoffs
 noCutoffs :: Cutoffs
 noCutoffs = Cutoffs{cutoffShown = [], cutoffWithheld = []}
 
--- | What one cut-off input is grouped by: the same product asked for the same way.
+{- | What one cut-off input is grouped by: the same product asked for the same
+way, of the same named supplier, as the gap report groups its entries.
+-}
 data CutoffKey = CutoffKey
     { ckDatabase :: Text
     , ckProduct :: Text
+    , ckSupplier :: Maybe Text
     , ckLocation :: Text
     , ckUnit :: Text
     }
@@ -103,13 +106,14 @@ cutoffInputsIn indexOf scalings =
             ]
 
     keyOf :: Text -> GapEdge -> CutoffKey
-    keyOf name e = CutoffKey name (gapFlowName e) (gapLocation e) (gapUnit e)
+    keyOf name e = CutoffKey name (gapFlowName e) (gapSupplierActivity e) (gapLocation e) (gapUnit e)
 
     input :: (CutoffKey, Met) -> CutoffInput
     input (k, m) =
         CutoffInput
             { ciDatabase = ckDatabase k
             , ciProduct = ckProduct k
+            , ciSupplier = ckSupplier k
             , ciLocation = ckLocation k
             , ciUnit = ckUnit k
             , ciAmount = metAmount m
@@ -136,13 +140,14 @@ cutoffsReached indexOf withheld scalings =
     hidden, shown :: [(Text, Database, Vector)]
     (hidden, shown) = partition (\(name, _, _) -> name `S.member` withheld) scalings
 
-{- | The index of every database a calculation ran, each taken from the very
-database the calculation carries, as 'cutoffInputsIn' requires.
+{- | 'cutoffsReached' with the index of every database the calculation ran,
+each taken from the very database the calculation carries, as
+'cutoffInputsIn' requires.
 
 The lookup answers only the names it was built from; any other is answered
-with no gap, and no caller asks one, every name coming from the same list.
+with no gap, and none is asked, every name coming from the same list.
 -}
-indexesOf :: (Text -> Database -> IO GapIndex) -> [(Text, Database, Vector)] -> IO (Text -> GapIndex)
-indexesOf indexFor scalings = do
+cutoffsOf :: (Text -> Database -> IO GapIndex) -> S.Set Text -> [(Text, Database, Vector)] -> IO Cutoffs
+cutoffsOf indexFor withheld scalings = do
     built <- M.fromList <$> traverse (\(name, db, _) -> (,) name <$> indexFor name db) scalings
-    pure (\name -> M.findWithDefault (GapIndex M.empty) name built)
+    pure (cutoffsReached (\name -> M.findWithDefault (GapIndex M.empty) name built) withheld scalings)

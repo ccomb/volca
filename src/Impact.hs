@@ -71,7 +71,7 @@ import qualified Data.Text as T
 import Data.UUID (UUID)
 
 import qualified Data.Vector.Unboxed as U
-import Database.Cutoffs (Cutoffs (..), cutoffsReached, indexesOf)
+import Database.Cutoffs (Cutoffs (..), cutoffsOf)
 import Database.Manager (CollectionName, DatabaseManager (..), getGapIndex, getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
 import Matrix (Inventory, Vector, applyBiosphereMatrix)
 import Method.Mapping (
@@ -142,8 +142,7 @@ unlinked waste a batch drops under that licence is.
 licencedCutoffs :: DatabaseManager -> LicencedSolution -> IO Cutoffs
 licencedCutoffs dbManager ls = do
     amountsKept <- refusingDatabases dbManager ReadInventory
-    indexOf <- indexesOf (getGapIndex dbManager) scalings
-    pure (cutoffsReached indexOf (S.fromList (map wpDatabase (lsWithheld ls)) <> amountsKept) scalings)
+    cutoffsOf (getGapIndex dbManager) (S.fromList (map wpDatabase (lsWithheld ls)) <> amountsKept) scalings
   where
     scalings :: [(Text, Database, Vector)]
     scalings = NE.toList (SharedSolver.csScalings (lsWhole ls))

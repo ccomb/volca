@@ -1857,6 +1857,7 @@ and by how many of its processes (wire revision 58).
 |-------|------|---------|
 | `database` | `str` | _required_ |
 | `product` | `str` | _required_ |
+| `supplier` | `str \| None` | _required_ |
 | `location` | `str` | _required_ |
 | `unit` | `str` | _required_ |
 | `amount` | `float` | _required_ |
