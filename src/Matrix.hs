@@ -43,6 +43,7 @@ module Matrix (
     accumulateDepDemands,
     accumulateDepDemandsWith,
     activityNormalizationFactor,
+    processScaling,
     depDemandsToVector,
     inSupplierUnit,
     linkConsumer,
@@ -886,6 +887,10 @@ linkConsumer :: Database -> CrossDBLink -> Maybe (ProcessId, Double)
 linkConsumer db link =
     (\pid -> (pid, activityNormalizationFactor db pid))
         <$> M.lookup (cdlConsumerActUUID link, cdlConsumerProdUUID link) (dbProcessIdLookup db)
+
+-- | A process's scaling in a database's scaling vector, which is indexed by matrix column.
+processScaling :: Database -> U.Vector Double -> ProcessId -> Double
+processScaling db scaling pid = scaling U.! fromIntegral (dbActivityIndex db V.! fromIntegral pid)
 
 {- | Activity's reference-product amount used to normalize its matrix column.
 Thin wrapper around 'activityNormFactor' that resolves the activity and

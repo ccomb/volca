@@ -19,10 +19,8 @@ import qualified Data.Map.Strict as M
 import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
-import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as U
 import Database.Loader (GapEdge (..), gapEdgesForLoaded, gapReasons)
-import Matrix (Vector, activityNormalizationFactor)
+import Matrix (activityNormalizationFactor, processScaling)
 import SharedSolver (CrossDBSolution (..))
 import Types (BlockerReason, Database (..), ProcessId)
 
@@ -34,8 +32,7 @@ newtype GapIndex = GapIndex (M.Map ProcessId [GapEdge])
 gapIndexOf :: Database -> GapIndex
 gapIndexOf db =
     GapIndex $
-        M.fromListWith
-            (flip (++))
+        M.map reverse . M.fromListWith (++) $
             [ (pid, [e])
             | e <- gapEdgesForLoaded db
             , Just pid <- [M.lookup (gapConsumerAct e, gapConsumerProd e) (dbProcessIdLookup db)]
@@ -81,6 +78,11 @@ A process's input of @a@ per its reference amount @r@ asks @x * a / r@ of the
 chain when the process runs at @x@: the matrix column holds @a / r@. A
 database listed twice in the solution (two links reaching it, or a cycle)
 adds its demands up.
+
+The index must be the one of the database each entry of the solution carries,
+and is read at that database's process identifiers without a bound check: an
+index taken from another version of the database stops the request rather
+than answering with the cut-offs of a chain that is not this one.
 -}
 cutoffInputsIn :: (Text -> GapIndex) -> CrossDBSolution -> [CutoffInput]
 cutoffInputsIn indexOf sol =
@@ -94,16 +96,13 @@ cutoffInputsIn indexOf sol =
             | (name, db, scaling) <- NE.toList (csScalings sol)
             , let GapIndex byConsumer = indexOf name
             , (pid, edges) <- M.toList byConsumer
-            , let x = scalingOf db scaling pid
+            , let x = processScaling db scaling pid
             , x /= 0
             , e <- edges
             ]
 
     keyOf :: Text -> GapEdge -> CutoffKey
     keyOf name e = CutoffKey name (gapFlowName e) (gapLocation e) (gapUnit e)
-
-    scalingOf :: Database -> Vector -> ProcessId -> Double
-    scalingOf db scaling pid = scaling U.! fromIntegral (dbActivityIndex db V.! fromIntegral pid)
 
     input :: (CutoffKey, Met) -> CutoffInput
     input (k, m) =

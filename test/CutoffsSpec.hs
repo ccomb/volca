@@ -177,6 +177,21 @@ spec = do
             sol <- solve [] "main" db (actW, wFlow)
             map ciAmount (cutoffShown (metBy (indexIn [("main", db)]) (shown sol))) `shouldBe` [0.5]
 
+        it "puts the largest demand first, whatever its sign" $ do
+            -- x_R = 1: K at -3, N at 2, M at 0.5, ranked by size.
+            db <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, techInput mFlow 0.5, techInput nFlow 2, techInput kFlow (-3)])])
+            sol <- solve [] "main" db (actR, rFlow)
+            map (\c -> (ciProduct c, ciAmount c)) (cutoffShown (metBy (indexIn [("main", db)]) (shown sol)))
+                `shouldBe` [("K", -3), ("N", 2), ("M", 0.5)]
+
+        it "adds up a database the solution lists twice, counting its processes once" $ do
+            -- The same entry twice: R and P each ask 6.5 in all, twice over, still two processes.
+            db <- mainDb
+            sol <- solve [] "main" db (actR, rFlow)
+            let twice = sol{SS.csScalings = NE.head (SS.csScalings sol) NE.:| NE.toList (SS.csScalings sol)}
+            metBy (indexIn [("main", db)]) (shown twice)
+                `shouldBe` Cutoffs [cutoff "main" "M" 13 2 noNameMatch] []
+
         it "says nothing when every input is supplied" $ do
             db <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, linkedTo actP pFlow 2]), ((actP, pFlow), mkActivity "P" [reference pFlow])])
             sol <- solve [] "main" db (actR, rFlow)

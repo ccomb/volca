@@ -34,7 +34,7 @@ import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, appl
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Impact (PartScore (..))
-import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, toList)
+import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
 import qualified Matrix.Export as MatrixExport
 import Method.Mapping (LongTermMode (..))
 import qualified Progress
@@ -2016,10 +2016,6 @@ consumerLinks minQ consumer extras =
         isRoot :: WalkLevel -> Bool
         isRoot RootLevel{rlRoot = r} = r == pid
         isRoot DepLevel{} = False
-
--- | A process's scaling in a database's scaling vector, which is indexed by matrix column.
-processScaling :: Database -> U.Vector Double -> ProcessId -> Double
-processScaling db scaling pid = scaling U.! fromIntegral (dbActivityIndex db V.! fromIntegral pid)
 
 {- | The edges from a dependency's suppliers to the processes that buy from
 them, one per pair: a substitution's cancelling link and the static one it
