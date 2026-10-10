@@ -17,9 +17,9 @@ import Test.Hspec
 import API.Types (CutoffInput (..), WithheldCutoffs (..))
 import Config (defaultConfig)
 import Database (buildDatabaseWithMatrices)
-import Database.Cutoffs (Cutoffs (..), GapIndex (..), gapIndexOf, noCutoffs)
+import Database.Cutoffs (Cutoffs (..), GapIndex (..), cutoffsReached, gapIndexOf, noCutoffs)
 import Database.Manager (CachePolicy (..), clearMethodMappingCacheForDb, getGapIndex, initDatabaseManager)
-import Impact (LicencedSolution (..), cutoffsOf, partitionByLicence)
+import Impact (LicencedSolution (..), WithheldPart (..), partitionByLicence)
 import qualified SharedSolver as SS
 import TestHelpers (linkDatabases, mkActivity, mkDepLookupFromMap, mkSolverFromDb, mkTechFlow, reference, techInput, units)
 import Types
@@ -118,17 +118,18 @@ linkM consumer supplier =
     let linked = linkDatabases consumer supplier "supplier" 0.5
      in linked{dbCrossDBLinks = map (\l -> l{cdlConsumerFlowId = mFlow, cdlExchangeUnit = "kg"}) (dbCrossDBLinks linked)}
 
-{- | 'cutoffsOf' with its amounts rounded to a billionth, so a sum the solver
-carries to the last bit compares with the one worked out by hand.
+{- | The cut-offs a solution reaches, each withheld dependency counted, with
+the amounts rounded to a billionth, so a sum the solver carries to the last
+bit compares with the one worked out by hand.
 -}
 metBy :: (Text -> GapIndex) -> LicencedSolution -> Cutoffs
 metBy indexOf sol =
-    let met = cutoffsOf indexOf sol
+    let met = cutoffsReached indexOf (S.fromList (map wpDatabase (lsWithheld sol))) (NE.toList (SS.csScalings (lsWhole sol)))
      in met{cutoffShown = map (\c -> c{ciAmount = fromIntegral (round (ciAmount c * 1e9) :: Integer) / 1e9}) (cutoffShown met)}
 
 spec :: Spec
 spec = do
-    describe "cutoffsOf" $ do
+    describe "cutoffsReached" $ do
         it "sums an unsupplied product over every process of the chain that asks for it" $ do
             -- x_R = 1, x_P = 2: R asks 1 × 0.5 of M, P asks 2 × 3, together 6.5 by two processes.
             db <- mainDb

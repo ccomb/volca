@@ -1613,7 +1613,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
         -- The scores below read the root's own scaling alone, so its cut-offs are the ones they met.
         let reached = [(dbName, db, baselineX)]
         indexOf <- liftIO (indexesOf (DM.getGapIndex dbManager) reached)
-        -- Counted, not named, under a licence keeping the amounts of its exchanges, as 'Impact.licencedCutoffs' does.
+        -- Counted, not named, under a licence keeping the amounts of its exchanges to itself (refusing ReadInventory), as 'Impact.licencedCutoffs' does.
         amountsKept <- liftIO (DM.refusingDatabases dbManager ReadInventory)
         -- This tool takes no long-term policy: it compares a baseline with
         -- perturbations of it, and both sides count the same flows.

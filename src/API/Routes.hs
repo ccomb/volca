@@ -312,11 +312,6 @@ requireDatabaseByName dbName = do
         Just loaded -> return (ldDatabase loaded, ldSharedSolver loaded)
         Nothing -> throwError err404{errBody = databaseNotLoadedBody dbName}
 
--- | Inventory with cross-DB back-substitution; maps unit-conversion errors to 422.
-inventoryWithDeps :: Text -> Database -> SharedSolver -> ProcessId -> AppM Inventory
-inventoryWithDeps dbName db solver pid =
-    SharedSolver.csInventory <$> solutionWithDeps dbName db solver pid
-
 {- | Cross-DB inventory + per-DB scaling vectors. The scalings are needed by
 the regionalized LCIA path (per-DB dot products summed across all DBs
 reached at request time); the inventory alone is enough for non-regional

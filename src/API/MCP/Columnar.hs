@@ -147,11 +147,11 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
             [ "cutoff_notice"
                 .= ( T.pack (show (length cutoffRows))
                         <> (if length cutoffRows == 1 then " activity counts" else " activities count")
-                        <> " inputs no loaded database supplies as zero (the cutoffs column, listed in cutoff_inputs); load the database that makes them, or see the gap report."
+                        <> " inputs no loaded database supplies as zero (the cutoffs column, listed in cutoff_inputs_by_process_id); each listed input says why no database supplies it, and the gap report has them all where the licence allows it."
                    )
-            , "cutoff_inputs" .= M.fromList [(bieProcessId e, lbrCutoffInputs (bieImpacts e)) | e <- cutoffRows, not (null (lbrCutoffInputs (bieImpacts e)))]
+            , "cutoff_inputs_by_process_id" .= M.fromList [(bieProcessId e, lbrCutoffInputs (bieImpacts e)) | e <- cutoffRows, not (null (lbrCutoffInputs (bieImpacts e)))]
             ]
-                ++ [ "withheld_cutoffs" .= M.fromList withheldRows
+                ++ [ "withheld_cutoffs_by_process_id" .= M.fromList withheldRows
                    | let withheldRows = [(bieProcessId e, lbrWithheldCutoffs (bieImpacts e)) | e <- cutoffRows, not (null (lbrWithheldCutoffs (bieImpacts e)))]
                    , not (null withheldRows)
                    ]

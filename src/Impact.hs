@@ -45,7 +45,6 @@ module Impact (
     PartScore (..),
     partitionByLicence,
     licencedSolution,
-    cutoffsOf,
     licencedCutoffs,
     solutionCutoffs,
     scoreParts,
@@ -72,7 +71,7 @@ import qualified Data.Text as T
 import Data.UUID (UUID)
 
 import qualified Data.Vector.Unboxed as U
-import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsReached, indexesOf)
+import Database.Cutoffs (Cutoffs (..), cutoffsReached, indexesOf)
 import Database.Manager (CollectionName, DatabaseManager (..), getGapIndex, getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
 import Matrix (Inventory, Vector, applyBiosphereMatrix)
 import Method.Mapping (
@@ -132,18 +131,13 @@ data WithheldPart = WithheldPart
     , wpSolution :: SharedSolver.CrossDBSolution
     }
 
-{- | The cut-off inputs a solution meets: named in the part the licences show,
-one count for each dependency that keeps its detail, since the products it
-misses are part of that detail.
--}
-cutoffsOf :: (Text -> GapIndex) -> LicencedSolution -> Cutoffs
-cutoffsOf indexOf ls =
-    cutoffsReached indexOf (S.fromList (map wpDatabase (lsWithheld ls))) (NE.toList (SharedSolver.csScalings (lsWhole ls)))
-
-{- | 'cutoffsOf' with the indexes the manager keeps. A database whose licence
-keeps the amounts of its exchanges, the root's own included, is counted rather
-than named too: an unsupplied input and what the chain asks of it are such
-amounts, as the unlinked waste a batch drops under that licence is.
+{- | The cut-off inputs a solution meets, with the indexes the manager keeps:
+named in the part the licences show, one count for each dependency that keeps
+its detail, since the products it misses are part of that detail. A database
+whose licence keeps the amounts of its exchanges to itself (it refuses
+ReadInventory), the root's own included, is counted rather than named too: an
+unsupplied input and what the chain asks of it are such amounts, as the
+unlinked waste a batch drops under that licence is.
 -}
 licencedCutoffs :: DatabaseManager -> LicencedSolution -> IO Cutoffs
 licencedCutoffs dbManager ls = do

@@ -388,8 +388,9 @@ class CutoffInput:
 
 @dataclass
 class WithheldCutoffs:
-    """How many unsupplied inputs a result met inside a dependency whose
-    licence keeps its detail, counted without naming them (wire revision 58)."""
+    """How many unsupplied inputs a result met inside a database whose
+    licence keeps its detail to itself, the one asked included, counted
+    without naming them (wire revision 58)."""
 
     database: str
     count: int
@@ -430,8 +431,8 @@ class LCIAResult:
     """Inputs no loaded database supplies, counted as zero in this result
     (wire revision 58)."""
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
-    """How many such inputs sit inside each dependency whose licence keeps
-    its detail."""
+    """How many such inputs sit inside each database whose licence keeps
+    its detail to itself, the one asked included."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIAResult":
@@ -487,8 +488,8 @@ class LCIABatchResult:
     """Inputs no loaded database supplies, counted as zero in this result
     (wire revision 58)."""
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
-    """How many such inputs sit inside each dependency whose licence keeps
-    its detail."""
+    """How many such inputs sit inside each database whose licence keeps
+    its detail to itself, the one asked included."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIABatchResult":
@@ -554,8 +555,8 @@ class SensitivityResult:
     """Inputs no loaded database supplies, counted as zero in the baseline
     (wire revision 58)."""
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
-    """How many such inputs sit inside each dependency whose licence keeps
-    its detail."""
+    """How many such inputs sit inside each database whose licence keeps
+    its detail to itself, the one asked included."""
 
     @classmethod
     def from_json(cls, d: dict) -> "SensitivityResult":
@@ -924,8 +925,8 @@ class SupplyChain:
     """Inputs no loaded database supplies, counted as zero in this result
     (wire revision 58)."""
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
-    """How many such inputs sit inside each dependency whose licence keeps
-    its detail."""
+    """How many such inputs sit inside each database whose licence keeps
+    its detail to itself, the one asked included."""
 
     @property
     def has_more(self) -> bool:
@@ -1649,8 +1650,8 @@ class AggregateResult:
     """Inputs no loaded database supplies, counted as zero in this result; empty for the direct scope, which solves nothing
     (wire revision 58)."""
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
-    """How many such inputs sit inside each dependency whose licence keeps
-    its detail."""
+    """How many such inputs sit inside each database whose licence keeps
+    its detail to itself, the one asked included."""
 
     @classmethod
     def from_json(cls, d: dict) -> "AggregateResult":
@@ -2041,8 +2042,8 @@ class ContributingFlows:
     """Inputs no loaded database supplies, counted as zero in this result
     (wire revision 58)."""
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
-    """How many such inputs sit inside each dependency whose licence keeps
-    its detail."""
+    """How many such inputs sit inside each database whose licence keeps
+    its detail to itself, the one asked included."""
 
     @classmethod
     def from_json(cls, d: dict) -> "ContributingFlows":
@@ -2075,8 +2076,8 @@ class ContributingActivities:
     """Inputs no loaded database supplies, counted as zero in this result
     (wire revision 58)."""
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
-    """How many such inputs sit inside each dependency whose licence keeps
-    its detail."""
+    """How many such inputs sit inside each database whose licence keeps
+    its detail to itself, the one asked included."""
 
     @classmethod
     def from_json(cls, d: dict) -> "ContributingActivities":
@@ -2185,8 +2186,8 @@ class InventoryResult:
     """Inputs no loaded database supplies, counted as zero in this result
     (wire revision 58)."""
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
-    """How many such inputs sit inside each dependency whose licence keeps
-    its detail."""
+    """How many such inputs sit inside each database whose licence keeps
+    its detail to itself, the one asked included."""
 
     @classmethod
     def from_json(cls, d: dict) -> "InventoryResult":

@@ -10,13 +10,15 @@
   its chain met: `cutoffInputs` lists each one with its database, product,
   location, unit, the amount the chain asks per unit of the activity, how many
   processes ask for it, and why no supplier was found. `withheldCutoffs`
-  counts the ones inside a dependency whose licence keeps its detail, without
-  naming them. This covers the inventory, the scores of one method and of a
+  counts the ones inside a database whose licence keeps its detail to itself,
+  the one asked included, without naming them. This covers the inventory, the scores of one method and of a
   whole collection, sensitivity (for the baseline), contributing flows and
   activities (by method and by score), the supply chain and the aggregation
   (empty for the `direct` scope, which solves nothing). An MCP tool whose
   answer met any opens with a `cutoff_notice` sentence naming the largest
   ones; `score_activities` adds a `cutoffs` column counting them per row,
+  with the lists under `cutoff_inputs_by_process_id` and
+  `withheld_cutoffs_by_process_id`,
   and `score_activity` gives the list once rather than per method. In
   pyvolca, `cutoff_inputs` and `withheld_cutoffs` on the result classes, and
   the `CutoffInput` and `WithheldCutoffs` types. Wire revision 58.

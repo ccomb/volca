@@ -346,7 +346,7 @@ data InventoryExport = InventoryExport
     , ieFlows :: [InventoryFlowDetail]
     , ieStatistics :: InventoryStatistics
     , ieCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
-    , ieWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each dependency whose licence keeps its detail, counted
+    , ieWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped InventoryExport)
@@ -644,7 +644,7 @@ data LCIAResult = LCIAResult
     , lrWithheld :: Maybe Text -- Set when the licence keeps what weighs in the score to itself: then the contributors are empty
     , lrWithheldDatabases :: [WithheldShare] -- The databases the score reads whose licence keeps their detail: their part in one line each, their flows left out of the contributors
     , lrCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
-    , lrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each dependency whose licence keeps its detail, counted
+    , lrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LCIAResult)
@@ -657,7 +657,7 @@ data ContributingFlowsResult = ContributingFlowsResult
     , cfrTopFlows :: [FlowContributionEntry]
     , cfrWithheldDatabases :: [WithheldShare] -- Dependencies whose licence keeps their detail: their flows are not among the top flows, their part is one line each
     , cfrCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
-    , cfrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each dependency whose licence keeps its detail, counted
+    , cfrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingFlowsResult)
@@ -709,7 +709,7 @@ data ContributingActivitiesResult = ContributingActivitiesResult
     , carActivities :: [ActivityContribution]
     , carWithheldDatabases :: [WithheldShare] -- Dependencies whose licence keeps their detail: their processes are not listed, their part is one line each
     , carCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
-    , carWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each dependency whose licence keeps its detail, counted
+    , carWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingActivitiesResult)
@@ -804,7 +804,7 @@ data LCIABatchResult = LCIABatchResult
     , lbrCutoffInputs :: [CutoffInput]
     -- ^ The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them; each of 'lbrResults' carries the same list
     , lbrWithheldCutoffs :: [WithheldCutoffs]
-    -- ^ The cut-off inputs inside each dependency whose licence keeps its detail, counted
+    -- ^ The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LCIABatchResult)
@@ -858,8 +858,8 @@ data CutoffInput = CutoffInput
 
 instance NFData CutoffInput
 
-{- | The cut-off inputs met inside a dependency whose licence keeps its detail:
-how many, not which.
+{- | The cut-off inputs met inside a database whose licence keeps its detail to
+itself, the one asked included: how many, not which.
 -}
 data WithheldCutoffs = WithheldCutoffs
     { wcDatabase :: Text
@@ -1643,7 +1643,7 @@ data SupplyChainResponse = SupplyChainResponse
     , scrWithheldDatabases :: [WithheldProcesses] -- Not in the chain above nor in its counts but the total
     , scrWithheldInputs :: [WithheldInput]
     , scrCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them, over the chain the walk reached
-    , scrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each dependency whose licence keeps its detail, counted
+    , scrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped SupplyChainResponse)
@@ -1830,7 +1830,7 @@ data SensitivityResponse = SensitivityResponse
     { srBaseline :: LCIAResult
     , srPerturbed :: [PerturbedEntry]
     , srCutoffInputs :: [CutoffInput] -- The baseline's cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
-    , srWithheldCutoffs :: [WithheldCutoffs] -- The baseline's cut-off inputs inside each dependency whose licence keeps its detail, counted
+    , srWithheldCutoffs :: [WithheldCutoffs] -- The baseline's cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped SensitivityResponse)
@@ -2041,7 +2041,7 @@ data Aggregation = Aggregation
     , aggGroups :: [AggregationGroup] -- one entry per group_by bucket (empty when group_by omitted)
     , aggWithheldDatabases :: [WithheldProcesses] -- Not in the total, the count nor the groups
     , aggCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them; empty for the direct scope, which solves nothing
-    , aggWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each dependency whose licence keeps its detail, counted
+    , aggWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped Aggregation)

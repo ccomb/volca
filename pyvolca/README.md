@@ -1865,8 +1865,9 @@ and by how many of its processes (wire revision 58).
 
 ### `WithheldCutoffs`
 
-How many unsupplied inputs a result met inside a dependency whose
-licence keeps its detail, counted without naming them (wire revision 58).
+How many unsupplied inputs a result met inside a database whose
+licence keeps its detail to itself, the one asked included, counted
+without naming them (wire revision 58).
 
 | Field | Type | Default |
 |-------|------|---------|

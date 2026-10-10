@@ -27,6 +27,7 @@ import qualified Data.Vector as V
 import Test.Hspec
 
 import API.MCP (callTool, noRequestId)
+import API.MCP.Enrich (cutoffNotice)
 import API.Routes (
     getActivityAggregate,
     getActivityInventory,
@@ -45,6 +46,7 @@ import Config (defaultConfig)
 import CrossDBRegionalLCIAFixture (testFlow)
 import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (emptyAliasMap)
+import Database.Cutoffs (Cutoffs (..))
 import Database.Loader (relinkSimpleDatabase)
 import qualified Database.Manager as DM
 import DependencyFlowClosureSpec (install)
@@ -308,7 +310,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         result <- ok manager (getActivityLCIA "main" pid coll methodText Nothing)
         (lrCutoffInputs result, lrWithheldCutoffs result) `shouldBe` ([], [WithheldCutoffs "dep" 1])
 
-    it "counts, without naming them, the root's own when its licence keeps its amounts" $ do
+    it "counts, without naming them, the root's own when its licence refuses to show its inventory" $ do
         db <- build mainSdb
         manager <- managerOf [("main", own [ReadInventory], db)]
         pid <- pidOf db (actR, rFlow)
@@ -322,9 +324,14 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         pid <- pidOf rootDb (actR, rFlow)
         payload <- mcp manager "get_impacts" [("process_id", String pid)]
         KM.lookup "cutoff_notice" payload
-            `shouldBe` Just (String "This result counts 1 input no loaded database supplies as zero: 1 inside dep, whose licence keeps the detail; load the database that makes them, or see the gap report.")
+            `shouldBe` Just (String "This result counts 1 input no loaded database supplies as zero: 1 inside dep, whose licence keeps the detail to itself.")
         KM.lookup "cutoff_inputs" payload `shouldBe` Just (Array V.empty)
         KM.lookup "withheld_cutoffs" payload `shouldBe` Just (Array (V.singleton (object ["database" .= ("dep" :: Text), "count" .= (1 :: Int)])))
+
+    it "names five inputs in the notice and puts one \"and\" before the last count" $ do
+        let shown = [cutoff "main" name 1 1 noNameMatch | name <- ["A", "B", "C", "D", "E", "F", "G"]]
+        cutoffNotice Cutoffs{cutoffShown = shown, cutoffWithheld = [WithheldCutoffs "dep" 1]}
+            `shouldBe` Just "This result counts 8 inputs no loaded database supplies as zero: A (1.000 kg), B (1.000 kg), C (1.000 kg), D (1.000 kg), E (1.000 kg), 2 more, and 1 inside dep, whose licence keeps the detail to itself; each listed input says why no database supplies it, and the gap report has them all."
 
     describe "the MCP tools" $ do
         (manager, db) <- runIO mainManager
@@ -334,7 +341,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         it "open get_inventory with a notice naming the input and its amount" $ do
             payload <- mcp manager "get_inventory" [("process_id", String pidR)]
             KM.lookup "cutoff_notice" payload
-                `shouldBe` Just (String "This result counts 1 input no loaded database supplies as zero: M (6.500 kg); load the database that makes them, or see the gap report.")
+                `shouldBe` Just (String "This result counts 1 input no loaded database supplies as zero: M (6.500 kg); each listed input says why no database supplies it, and the gap report has them all.")
 
         it "say nothing when the chain meets none" $ do
             payload <- mcp manager "get_inventory" [("process_id", String pidZ)]
@@ -352,7 +359,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
             cells `shouldBe` Just [Number 1, Number 0]
             KM.member "cutoff_notice" payload `shouldBe` True
             let perRow = do
-                    Object byPid <- KM.lookup "cutoff_inputs" payload
+                    Object byPid <- KM.lookup "cutoff_inputs_by_process_id" payload
                     pure (KM.toList byPid)
             fmap (map (fmap inputsOf)) perRow `shouldBe` Just [(fromText pidR, metByRInputs)]
 

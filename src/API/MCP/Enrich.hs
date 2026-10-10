@@ -324,8 +324,11 @@ attachMarketHintByName name
 
 {- | The sentence an answer that counted unsupplied inputs as zero opens with,
 so a reader cannot take its numbers for a complete chain: the five largest
-named, the rest counted, and each dependency whose licence keeps the detail
-counted on its own. 'Nothing' when the answer met none.
+named, the rest counted, and each database whose licence keeps the detail to
+itself counted on its own. It points at the reasons rather than at one remedy,
+since an input naming an absent activity is not fixed by loading a database,
+and only when some input is listed: a withheld database's gap report is
+refused too. 'Nothing' when the answer met none.
 -}
 cutoffNotice :: Cutoffs -> Maybe Text
 cutoffNotice Cutoffs{cutoffShown = shown, cutoffWithheld = withheld}
@@ -337,7 +340,7 @@ cutoffNotice Cutoffs{cutoffShown = shown, cutoffWithheld = withheld}
                 <> (if total == 1 then " input" else " inputs")
                 <> " no loaded database supplies as zero: "
                 <> T.intercalate ", " (andAfterFirst (map named (take 5 shown) ++ more ++ map inside withheld))
-                <> "; load the database that makes them, or see the gap report."
+                <> (if null shown then "." else "; each listed input says why no database supplies it, and the gap report has them all.")
   where
     total :: Int
     total = length shown + sum (map wcCount withheld)
@@ -349,13 +352,16 @@ cutoffNotice Cutoffs{cutoffShown = shown, cutoffWithheld = withheld}
     more = [T.pack (show (length shown - 5)) <> " more" | length shown > 5]
 
     inside :: WithheldCutoffs -> Text
-    inside w = T.pack (show (wcCount w)) <> " inside " <> wcDatabase w <> ", whose licence keeps the detail"
+    inside w = T.pack (show (wcCount w)) <> " inside " <> wcDatabase w <> ", whose licence keeps the detail to itself"
 
-    -- Only the counts take an "and", and only after something named before them.
+    -- One "and", before the last count, and only when something comes before it.
     andAfterFirst :: [Text] -> [Text]
     andAfterFirst phrases = case splitAt (min 5 (length shown)) phrases of
-        ([], first : rest) -> first : map ("and " <>) rest
-        (names, counts) -> names ++ map ("and " <>) counts
+        (names, counts) -> case reverse counts of
+            [] -> names
+            lastCount : earlier
+                | null names && null earlier -> [lastCount]
+                | otherwise -> names ++ reverse earlier ++ ["and " <> lastCount]
 
 {- | The fields an MCP answer carries when it met cut-off inputs: the notice
 and the lists it summarises. None when it met none.
