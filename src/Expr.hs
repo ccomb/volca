@@ -38,7 +38,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
-import Data.Semigroup (sconcat)
+import Data.Semigroup (Max (..), Min (..), sconcat)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -459,8 +459,8 @@ olcaFunctions =
     , ("pow", Binary (**))
     , ("power", Binary (**))
     , ("ipower", Binary (\x y -> x ^^ (truncate y :: Integer)))
-    , ("min", Many (maybe 0 minimum . NE.nonEmpty))
-    , ("max", Many (maybe 0 maximum . NE.nonEmpty))
+    , ("min", Many (maybe 0 (getMin . sconcat . fmap Min) . NE.nonEmpty))
+    , ("max", Many (maybe 0 (getMax . sconcat . fmap Max) . NE.nonEmpty))
     , ("sum", Many sum)
     , ("avg", Many mean)
     , ("mean", Many mean)

@@ -113,7 +113,8 @@ spec = do
             Expr.evaluate Arithmetic M.empty "-2^2" `shouldBe` Right (-4)
             Expr.evaluate Arithmetic M.empty "2^3^2" `shouldBe` Right 512
             near (log 1000) (Expr.evaluate Arithmetic M.empty "log(1000)")
-            Expr.evaluate SimaPro M.empty "1*10^-3*50 // a comment" `shouldBe` Right 5.0e-2
+            -- Windows' pow rounds 10^-3 differently in the last digit.
+            near 5.0e-2 (Expr.evaluate SimaPro M.empty "1*10^-3*50 // a comment")
 
     describe "settle" $ do
         it "evaluates calculated parameters in whatever order they refer to each other" $
