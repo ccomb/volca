@@ -1613,6 +1613,8 @@ callComputeSensitivity dbManager mBaseUrl rid args =
         -- The scores below read the root's own scaling alone, so its cut-offs are the ones they met.
         let reached = [(dbName, db, baselineX)]
         indexOf <- liftIO (indexesOf (DM.getGapIndex dbManager) reached)
+        -- Counted, not named, under a licence keeping the amounts of its exchanges, as 'Impact.licencedCutoffs' does.
+        amountsKept <- liftIO (DM.refusingDatabases dbManager ReadInventory)
         -- This tool takes no long-term policy: it compares a baseline with
         -- perturbations of it, and both sides count the same flows.
         let scoreOf x = computeLCIAScoreAuto unitCfg mUnits mFlows IncludeLongTerm db x (applyBiosphereMatrix db x) hier tables
@@ -1651,7 +1653,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                     , "baseline_score" .= baselineScore
                     , "perturbed" .= map pertEntry perResults
                     ]
-                        ++ cutoffFields (cutoffsReached indexOf Set.empty reached)
+                        ++ cutoffFields (cutoffsReached indexOf amountsKept reached)
                         ++ webUrlPair
 
 {- | Cross-database impact comparison for mapping audits.

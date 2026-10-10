@@ -140,9 +140,19 @@ cutoffsOf :: (Text -> GapIndex) -> LicencedSolution -> Cutoffs
 cutoffsOf indexOf ls =
     cutoffsReached indexOf (S.fromList (map wpDatabase (lsWithheld ls))) (NE.toList (SharedSolver.csScalings (lsWhole ls)))
 
--- | 'cutoffsOf' with the indexes the manager keeps.
+{- | 'cutoffsOf' with the indexes the manager keeps. A database whose licence
+keeps the amounts of its exchanges, the root's own included, is counted rather
+than named too: an unsupplied input and what the chain asks of it are such
+amounts, as the unlinked waste a batch drops under that licence is.
+-}
 licencedCutoffs :: DatabaseManager -> LicencedSolution -> IO Cutoffs
-licencedCutoffs dbManager ls = (`cutoffsOf` ls) <$> indexesOf (getGapIndex dbManager) (NE.toList (SharedSolver.csScalings (lsWhole ls)))
+licencedCutoffs dbManager ls = do
+    amountsKept <- refusingDatabases dbManager ReadInventory
+    indexOf <- indexesOf (getGapIndex dbManager) scalings
+    pure (cutoffsReached indexOf (S.fromList (map wpDatabase (lsWithheld ls)) <> amountsKept) scalings)
+  where
+    scalings :: [(Text, Database, Vector)]
+    scalings = NE.toList (SharedSolver.csScalings (lsWhole ls))
 
 -- | The cut-offs of a solution, read under the licences for one permission.
 solutionCutoffs :: DatabaseManager -> Permission -> SharedSolver.CrossDBSolution -> IO Cutoffs
