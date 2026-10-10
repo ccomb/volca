@@ -551,3 +551,32 @@ class TestEditExchanges:
             ExchangeSelector(kind="biosphere", provider="c_d")
         with pytest.raises(ValueError, match="unknown selector kind"):
             ExchangeSelector(kind="product", provider="c_d")
+
+
+# ---------------------------------------------------------------------------
+# set_release
+# ---------------------------------------------------------------------------
+
+
+class TestSetRelease:
+    @staticmethod
+    def _put(client, session, release):
+        from tests.conftest import _make_response
+
+        client._checked = True
+        client._server_wire = 48
+        session.put.return_value = _make_response(release)
+        client.set_release(release)
+        return session.put.call_args
+
+    def test_a_release_travels_as_its_json(self, mocked_client):
+        client, session = mocked_client
+        call = self._put(client, session, {"name": "base", "version": "1.0"})
+        assert call[0][0] == "http://test.local/api/v1/db/testdb/release"
+        assert call[1]["data"] == '{"name": "base", "version": "1.0"}'
+
+    def test_clearing_sends_a_literal_null(self, mocked_client):
+        client, session = mocked_client
+        call = self._put(client, session, None)
+        assert call[1]["data"] == "null"
+        assert call[1]["headers"] == {"Content-Type": "application/json"}

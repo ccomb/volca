@@ -39,6 +39,7 @@ variants in the Servant API.
 
 from __future__ import annotations
 
+import json
 import urllib.parse
 import uuid
 import warnings
@@ -1605,7 +1606,12 @@ class Client:
         """
         self._require_wire(48, "set_release", engine_hint="0.15.0")
         target = self._db(db_name)
-        resp = self._session.put(f"{self.base_url}/api/v1/db/{target}/release", json=release)
+        # json=None would send no body at all; clearing needs the literal null.
+        resp = self._session.put(
+            f"{self.base_url}/api/v1/db/{target}/release",
+            data=json.dumps(release),
+            headers={"Content-Type": "application/json"},
+        )
         if resp.status_code >= 400:
             raise VoLCAError(f"set_release failed (HTTP {resp.status_code}): {resp.text[:500]}")
         return resp.json()
