@@ -1421,6 +1421,23 @@ buildCrossDBLinkMap db pid = case prActivity <$> processIdToRef db pid of
             ]
     Nothing -> M.empty
 
+{- | Every activity's cross-DB links, keyed by consumer activity UUID, then by
+consumer flow UUID. Built once by a caller that reads many activities, where
+'buildCrossDBLinkMap' would walk every link for each of them.
+-}
+crossDBLinkIndex :: Database -> M.Map UUID (M.Map UUID CrossDBLink)
+crossDBLinkIndex db =
+    M.fromListWith
+        M.union
+        [ (cdlConsumerActUUID link, M.singleton (cdlConsumerFlowId link) link)
+        | link <- dbCrossDBLinks db
+        , cdlConsumerFlowId link /= UUID.nil
+        ]
+
+-- | One activity's links, read from 'crossDBLinkIndex'.
+crossDBLinksOf :: Database -> M.Map UUID (M.Map UUID CrossDBLink) -> ProcessId -> M.Map UUID CrossDBLink
+crossDBLinksOf db index pid = fromMaybe M.empty (processIdToRef db pid >>= \ref -> M.lookup (prActivity ref) index)
+
 toExchangeWithUnit ::
     Database ->
     M.Map UUID CrossDBLink ->

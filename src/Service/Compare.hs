@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -25,8 +26,12 @@ write for itself, and each client wrote them a little differently.
   flow name, case and geography aside, the compartment and the role. The role
   is part of a line, so a flow moving from input to coproduct is one line
   removed and one added.
-* The lines of one flow in one unit are summed, which also means a supplier
-  swapped at an equal total does not show. A flow written in several units
+* The lines of one flow in one unit are summed. When each side holds a single
+  line of the flow, its supplier is compared too: a different process with
+  another activity name or location (a supplier renamed in place is the same
+  supplier); a flow drawn from several suppliers (two electricity mixes)
+  compares its total only, so a supplier swapped among them does not show.
+  A flow written in several units
   compares unit by unit when both sides write it in the same ones; otherwise it
   is named and not compared, since no sum of kilograms and grams reads as
   either.
@@ -41,6 +46,7 @@ module Service.Compare (
     compareActivities,
     compareDatabases,
     limitComparison,
+    changesPresent,
 
     -- * The cascade, for other comparisons
     Cascade (..),
@@ -67,7 +73,10 @@ import API.Types (
     ActivityMatch (..),
     ActivitySummary (..),
     AmbiguousActivities (..),
+    ChangePresence (..),
     ChangedActivity (..),
+    ChangesPresence (..),
+    ChangesQuery (..),
     DatabaseComparison (..),
     ExchangeChange (..),
     LineChange (..),
@@ -75,15 +84,17 @@ import API.Types (
     LineRole (..),
     Quantity (..),
     SummaryChange (..),
+    Supplier (..),
     UncomparedLine (..),
     UncomparedReason (..),
     WasteSide (..),
     unresolvedFlowName,
  )
-import Service (ReferenceProductInfo (..), ServiceError, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId)
+import Service (ReferenceProductInfo (..), ServiceError, TargetRef (..), buildCrossDBLinkMap, crossDBLinkIndex, crossDBLinksOf, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId, resolveTarget)
 import Types (
     Activity (..),
     Compartment,
+    CrossDBLink,
     Database (..),
     DatasetDates,
     Exchange (..),
@@ -112,18 +123,19 @@ data Sides a = Sides
     }
     deriving (Functor, Foldable, Traversable)
 
--- | One process of one database, resolved.
+-- | One process of one database, resolved, with the links it draws from other databases.
 data ProcessIn = ProcessIn
     { inDatabase :: Database
     , inProcessId :: ProcessId
     , inActivity :: Activity
+    , inLinks :: M.Map UUID CrossDBLink
     }
 
 {- | Read a process to compare. Comparing computes nothing, so an activity the
 allocation gate refuses to score still compares as it reads.
 -}
 resolveProcess :: Database -> Text -> Either ServiceError ProcessIn
-resolveProcess db = fmap (uncurry (ProcessIn db)) . resolveActivityAndProcessId db
+resolveProcess db = fmap (\(pid, act) -> ProcessIn db pid act (buildCrossDBLinkMap db pid)) . resolveActivityAndProcessId db
 
 -- ---------------------------------------------------------------------------
 -- Two activities
@@ -134,7 +146,10 @@ compareActivities sides =
     ActivityComparison
         { acmpBase = baseSide summaries
         , acmpOther = otherSide summaries
-        , acmpSummary = summaryChanges summaries ++ datesChange (fmap (activityDates . inActivity) sides)
+        , acmpSummary =
+            summaryChanges summaries
+                ++ datesChange (fmap (activityDates . inActivity) sides)
+                ++ descriptionChange (fmap (activityDescription . inActivity) sides)
         , acmpExchanges = [change | Differs change <- verdicts]
         , acmpUncompared = [line | Uncompared line <- verdicts]
         }
@@ -167,6 +182,9 @@ whether one side is a later version of the other.
 datesChange :: Sides DatasetDates -> [SummaryChange]
 datesChange (Sides b o) = [DatesChanged b o | b /= o]
 
+descriptionChange :: Sides [Text] -> [SummaryChange]
+descriptionChange (Sides b o) = [DescriptionChanged b o | b /= o]
+
 sameShare :: Maybe Double -> Maybe Double -> Bool
 sameShare (Just x) (Just y) = close x y
 sameShare Nothing Nothing = True
@@ -189,6 +207,7 @@ data LineGroup = LineGroup
     , lgCompartment :: Maybe Compartment
     , lgRole :: LineRole
     , lgAmounts :: M.Map Text Double -- unit name to summed amount, never empty
+    , lgSuppliers :: [Maybe TargetRef] -- one per line; Nothing for a line with no supplier, or one that resolves nowhere
     }
 
 data LineKey
@@ -206,13 +225,17 @@ linesOf p =
     M.elems $
         M.fromListWith
             merge
-            [((lgFlowId line, lgRole line), line) | line <- map (lineOf (inDatabase p)) (exchanges (inActivity p))]
+            [((lgFlowId line, lgRole line), line) | line <- map (lineOf (inDatabase p) (inLinks p)) (exchanges (inActivity p))]
   where
     merge :: LineGroup -> LineGroup -> LineGroup
-    merge later earlier = earlier{lgAmounts = M.unionWith (+) (lgAmounts earlier) (lgAmounts later)}
+    merge later earlier =
+        earlier
+            { lgAmounts = M.unionWith (+) (lgAmounts earlier) (lgAmounts later)
+            , lgSuppliers = lgSuppliers earlier ++ lgSuppliers later
+            }
 
-lineOf :: Database -> Exchange -> LineGroup
-lineOf db ex =
+lineOf :: Database -> M.Map UUID CrossDBLink -> Exchange -> LineGroup
+lineOf db links ex =
     LineGroup
         { lgFlowId = exchangeFlowId ex
         , lgFlowName = maybe (unresolvedFlowName (exchangeFlowId ex)) flowKindName flow
@@ -220,6 +243,7 @@ lineOf db ex =
         , lgCompartment = flowKindCompartment =<< flow
         , lgRole = roleOf ex
         , lgAmounts = M.singleton (unitNameOf (dbUnits db) ex) (exchangeAmount ex)
+        , lgSuppliers = [resolveTarget db links ex]
         }
   where
     flow :: Maybe FlowKind
@@ -248,7 +272,7 @@ compareLines sides =
     map (severalFlows . snd) (cAmbiguous paired)
         ++ L.sortOn
             verdictOrder
-            ( [judgePair match pair | (match, pair) <- cPairs paired]
+            ( concat [judgePair match pair | (match, pair) <- cPairs paired]
                 ++ map judgeRemoved (baseSide (cUnpaired paired))
                 ++ map judgeAdded (otherSide (cUnpaired paired))
             )
@@ -258,16 +282,41 @@ compareLines sides =
 
 {- | Two sides that write a flow in the same units, each amount close, say the
 same thing however many units that is. Otherwise the change is stated when each
-side holds one unit, and named as not compared when a side holds several.
+side holds one unit, and named as not compared when a side holds several. The
+supplier is judged apart, so a line can change both.
 -}
-judgePair :: LineMatch -> Sides LineGroup -> LineVerdict
-judgePair match pair
-    | sameAmounts (lgAmounts (baseSide pair)) (lgAmounts (otherSide pair)) = Same
-    | otherwise =
-        maybe
-            (Uncompared (uncomparedOn (baseSide pair) (mixedUnits (fmap unitsOf pair))))
-            (Differs . changeOn (baseSide pair) . uncurry (LineChanged match))
-            ((,) <$> singleUnit (baseSide pair) <*> singleUnit (otherSide pair))
+judgePair :: LineMatch -> Sides LineGroup -> [LineVerdict]
+judgePair match pair = amountVerdict : supplierVerdict
+  where
+    amountVerdict
+        | sameAmounts (lgAmounts (baseSide pair)) (lgAmounts (otherSide pair)) = Same
+        | otherwise =
+            maybe
+                (Uncompared (uncomparedOn (baseSide pair) (mixedUnits (fmap unitsOf pair))))
+                (Differs . changeOn (baseSide pair) . uncurry (LineChanged match))
+                ((,) <$> singleUnit (baseSide pair) <*> singleUnit (otherSide pair))
+    -- The same process, renamed, is the same supplier: a copy keeps the
+    -- process ids of its source, so renaming a supplier there changes none of
+    -- the activities that buy from it. Two releases that re-number their
+    -- processes are told apart by name and location alone.
+    supplierVerdict = case fmap soleTarget pair of
+        Sides (Just before) (Just after)
+            | trProcessId before /= trProcessId after
+            , supplierOf before /= supplierOf after ->
+                [Differs (changeOn (baseSide pair) (SupplierChanged (supplierOf before) (supplierOf after)))]
+        _ -> []
+
+{- | The supplier of a flow drawn from one line. A line whose supplier resolves
+nowhere has none to compare: a broken link is not a new supplier.
+-}
+soleTarget :: LineGroup -> Maybe TargetRef
+soleTarget line = case lgSuppliers line of
+    [target] -> target
+    _ -> Nothing
+
+-- | A supplier as a change names it.
+supplierOf :: TargetRef -> Supplier
+supplierOf target = Supplier (trName target) (trLocation target)
 
 sameAmounts :: M.Map Text Double -> M.Map Text Double -> Bool
 sameAmounts base other = M.keys base == M.keys other && and (M.intersectionWith close base other)
@@ -332,6 +381,76 @@ verdictOrder :: LineVerdict -> Maybe (Text, LineRole)
 verdictOrder Same = Nothing
 verdictOrder (Differs change) = Just (ecFlowName change, ecRole change)
 verdictOrder (Uncompared line) = Just (ulFlowName line, ulRole line)
+
+-- ---------------------------------------------------------------------------
+-- Changes looked for in one activity
+-- ---------------------------------------------------------------------------
+
+{- | Whether an activity already says what each change says: what a reader
+proposed against one version, asked of a later one. A text is judged by
+equality, an amount within the same noise a comparison allows.
+-}
+changesPresent :: ProcessIn -> ChangesQuery -> ChangesPresence
+changesPresent p query =
+    ChangesPresence
+        { cpSummary = map (summaryPresence p) (cqSummary query)
+        , cpExchanges = map (exchangePresence (linesOf p)) (cqExchanges query)
+        }
+
+summaryPresence :: ProcessIn -> SummaryChange -> ChangePresence
+summaryPresence p = \case
+    ActivityNameChanged before after -> judged (==) (prsActivityName summary) before after
+    LocationChanged before after -> judged (==) (prsLocation summary) before after
+    ProductNameChanged before after -> judged (==) (prsProductName summary) before after
+    AllocationChanged before after -> judged sameShare (prsAllocationPercent summary) before after
+    DatesChanged before after -> judged (==) (activityDates (inActivity p)) before after
+    DescriptionChanged before after -> judged (==) (activityDescription (inActivity p)) before after
+  where
+    summary :: ActivitySummary
+    summary = summaryOf p
+
+-- | What the activity says now, against what the change replaced and what it made it say.
+judged :: (a -> a -> Bool) -> a -> a -> a -> ChangePresence
+judged same now before after
+    | same now after = ChangePresent
+    | same now before = ChangeAbsent
+    | otherwise = ChangeDifferent
+
+exchangePresence :: [LineGroup] -> ExchangeChange -> ChangePresence
+exchangePresence groups change = case (ecChange change, lineFor groups change) of
+    (_, Several) -> ChangeLineGone
+    (LineAdded _, Missing) -> ChangeAbsent
+    (LineAdded after, Found line) -> if holds after line then ChangePresent else ChangeDifferent
+    (LineRemoved _, Missing) -> ChangePresent
+    (LineRemoved before, Found line) -> if holds before line then ChangeAbsent else ChangeDifferent
+    (LineChanged{}, Missing) -> ChangeLineGone
+    (LineChanged _ before after, Found line) -> judged sameAmount (singleUnit line) (Just before) (Just after)
+    (SupplierChanged _ _, Missing) -> ChangeLineGone
+    (SupplierChanged before after, Found line) -> judged (==) (supplierOf <$> soleTarget line) (Just before) (Just after)
+  where
+    holds :: Quantity -> LineGroup -> Bool
+    holds q line = sameAmount (Just q) (singleUnit line)
+
+-- | One unit on both sides, and amounts close in it; a line in several units holds no one quantity.
+sameAmount :: Maybe Quantity -> Maybe Quantity -> Bool
+sameAmount (Just a) (Just b) = qtyUnit a == qtyUnit b && close (qtyAmount a) (qtyAmount b)
+sameAmount _ _ = False
+
+data Found a = Found a | Missing | Several
+
+{- | The line a change is about, found the way a comparison pairs lines: by
+flow and role, else by the flow's name, compartment and role.
+-}
+lineFor :: [LineGroup] -> ExchangeChange -> Found LineGroup
+lineFor groups change = case [line | line <- groups, lgFlowId line == ecFlowId change, lgRole line == ecRole change] of
+    [line] -> Found line
+    _ -> case [line | line <- groups, lgNameKey line == Just nameKey, lgCompartment line == ecCompartment change, lgRole line == ecRole change] of
+        [] -> Missing
+        [line] -> Found line
+        _ -> Several
+  where
+    nameKey :: Text
+    nameKey = normalName (ecFlowName change)
 
 -- ---------------------------------------------------------------------------
 -- Two databases
@@ -421,7 +540,10 @@ limitComparison n c =
         }
 
 processesOf :: Database -> [ProcessIn]
-processesOf db = zipWith (ProcessIn db) [0 ..] (V.toList (dbActivities db))
+processesOf db = zipWith (\pid act -> ProcessIn db pid act (crossDBLinksOf db index pid)) [0 ..] (V.toList (dbActivities db))
+  where
+    index :: M.Map UUID (M.Map UUID CrossDBLink)
+    index = crossDBLinkIndex db
 
 activityKey :: ActivityMatch -> ProcessIn -> Maybe ActivityKey
 activityKey match p = case match of
@@ -475,6 +597,7 @@ onlyRedated c = all isDates (acmpSummary c) && null (acmpExchanges c) && null (a
     isDates LocationChanged{} = False
     isDates ProductNameChanged{} = False
     isDates AllocationChanged{} = False
+    isDates DescriptionChanged{} = False
 
 summariesOf :: [ProcessIn] -> [ActivitySummary]
 summariesOf = L.sortOn summaryOrder . map summaryOf

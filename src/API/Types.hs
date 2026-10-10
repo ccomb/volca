@@ -2005,12 +2005,12 @@ data Quantity = Quantity
     , qtyUnit :: !Text
     }
     deriving (Eq, Show, Generic)
-    deriving (ToJSON, ToSchema) via (Stripped Quantity)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped Quantity)
 
 -- | Which side of a waste line an activity stands on.
 data WasteSide = WasteInput | WasteOutput
     deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (ToJSON, ToSchema)
+    deriving anyclass (ToJSON, FromJSON, ToSchema)
 
 {- | What a line does in its activity. The kind of exchange is part of it, so
 a flow that moves from input to coproduct is one line gone and another added,
@@ -2021,7 +2021,7 @@ data LineRole
     | BioLine {blDirection :: !BioDirection}
     | WasteLine {wlSide :: !WasteSide}
     deriving (Eq, Ord, Show, Generic)
-    deriving (ToJSON, ToSchema) via (Stripped LineRole)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped LineRole)
 
 -- | How a line was found again in the other activity.
 data LineMatch
@@ -2030,14 +2030,27 @@ data LineMatch
     | -- | The same flow name, case and a trailing geography aside, in the same compartment and role.
       SameFlowName
     deriving (Eq, Show, Generic)
-    deriving anyclass (ToJSON, ToSchema)
+    deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+{- | Where a line comes from or goes to: the activity that supplies an input,
+or treats a waste, by its name and location. Named rather than identified, so
+two releases that mint new identifiers still name the same supplier alike.
+-}
+data Supplier = Supplier
+    { supActivityName :: !Text
+    , supLocation :: !Text
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped Supplier)
 
 data LineChange
     = LineAdded {laAfter :: !Quantity}
     | LineRemoved {lrBefore :: !Quantity}
     | LineChanged {lcMatch :: !LineMatch, lcBefore :: !Quantity, lcAfter :: !Quantity}
+    | -- | The one line of this flow on each side comes from another supplier.
+      SupplierChanged {scBefore :: !Supplier, scAfter :: !Supplier}
     deriving (Eq, Show, Generic)
-    deriving (ToJSON, ToSchema) via (Stripped LineChange)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped LineChange)
 
 {- | One line that differs. The flow is named as the base side has it, or as
 the other side has it when the line was added.
@@ -2050,7 +2063,7 @@ data ExchangeChange = ExchangeChange
     , ecChange :: !LineChange
     }
     deriving (Eq, Show, Generic)
-    deriving (ToJSON, ToSchema) via (Stripped ExchangeChange)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeChange)
 
 data UncomparedReason
     = -- | One flow written in several units on a side: no sum of kg and g reads as either.
@@ -2079,8 +2092,10 @@ data SummaryChange
     | ProductNameChanged {pncBefore :: !Text, pncAfter :: !Text}
     | AllocationChanged {alcBefore :: !(Maybe Double), alcAfter :: !(Maybe Double)}
     | DatesChanged {dacBefore :: !DatasetDates, dacAfter :: !DatasetDates}
+    | -- | One text per paragraph.
+      DescriptionChanged {dscBefore :: ![Text], dscAfter :: ![Text]}
     deriving (Eq, Show, Generic)
-    deriving (ToJSON, ToSchema) via (Stripped SummaryChange)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SummaryChange)
 
 -- | Two activities side by side: nothing listed means they say the same thing.
 data ActivityComparison = ActivityComparison
@@ -2092,6 +2107,55 @@ data ActivityComparison = ActivityComparison
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ActivityComparison)
+
+{- | Changes as a comparison writes them, to be looked for in an activity: what
+a reader proposed against one version, asked of a later one.
+-}
+data ChangesQuery = ChangesQuery
+    { cqSummary :: ![SummaryChange]
+    , cqExchanges :: ![ExchangeChange]
+    }
+    deriving (Generic)
+    deriving (FromJSON, ToSchema) via (Stripped ChangesQuery)
+
+{- | Whether an activity already says what one change says.
+
+A line is found the way a comparison pairs it: by its flow and role, else by
+its flow's name, compartment and role when that names one line only.
+-}
+data ChangePresence
+    = -- | It says what the change made it say; a removed line is no longer there.
+      ChangePresent
+    | -- | It still says what the change replaced.
+      ChangeAbsent
+    | -- | It says something else again.
+      ChangeDifferent
+    | -- | The line the change is about is not there to judge, or several answer to its name.
+      ChangeLineGone
+    deriving (Eq, Show, Generic)
+
+instance ToJSON ChangePresence where
+    toJSON = \case
+        ChangePresent -> "present"
+        ChangeAbsent -> "absent"
+        ChangeDifferent -> "different"
+        ChangeLineGone -> "line-gone"
+
+instance ToSchema ChangePresence where
+    declareNamedSchema _ =
+        pure $
+            NamedSchema (Just "ChangePresence") $
+                mempty
+                    & type_ ?~ OpenApiString
+                    & enum_ ?~ ["present", "absent", "different", "line-gone"]
+
+-- | One presence per change, in the order the query listed them.
+data ChangesPresence = ChangesPresence
+    { cpSummary :: ![ChangePresence]
+    , cpExchanges :: ![ChangePresence]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ChangesPresence)
 
 -- | The rung of the cascade that paired two activities of two databases.
 data ActivityMatch

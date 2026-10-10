@@ -30,7 +30,8 @@ COMPARISON = {
     "base": summary("wheat production"),
     "other": summary("wheat production, adapted"),
     "summary": [
-        {"tag": "ActivityNameChanged", "before": "wheat production", "after": "wheat production, adapted"}
+        {"tag": "ActivityNameChanged", "before": "wheat production", "after": "wheat production, adapted"},
+        {"tag": "DescriptionChanged", "before": [], "after": ["From the 2024 survey."]},
     ],
     "exchanges": [
         {
@@ -43,6 +44,17 @@ COMPARISON = {
                 "match": "SameFlowName",
                 "before": {"amount": 1.0, "unit": "kg"},
                 "after": {"amount": 2.0, "unit": "kg"},
+            },
+        },
+        {
+            "flowId": "f3",
+            "flowName": "barley grain",
+            "compartment": None,
+            "role": {"tag": "TechLine", "role": "Input"},
+            "change": {
+                "tag": "SupplierChanged",
+                "before": {"activityName": "barley production", "location": "FR"},
+                "after": {"activityName": "barley production, organic", "location": "FR"},
             },
         },
         {
@@ -69,9 +81,16 @@ def test_an_activity_comparison_reads_every_part():
 
     assert c.other.activity_name == "wheat production, adapted"
     assert [(s.field, s.before, s.after) for s in c.summary] == [
-        ("activity_name", "wheat production", "wheat production, adapted")
+        ("activity_name", "wheat production", "wheat production, adapted"),
+        ("description", [], ["From the 2024 survey."]),
     ]
-    co2, electricity = c.exchanges
+    co2, barley, electricity = c.exchanges
+    assert (barley.change, barley.before, barley.after) == ("supplier", None, None)
+    assert barley.supplier_before is not None and barley.supplier_after is not None
+    assert (barley.supplier_before.activity_name, barley.supplier_after.activity_name) == (
+        "barley production",
+        "barley production, organic",
+    )
     assert (co2.kind, co2.role, co2.change, co2.matched_on) == ("biosphere", "Emission", "changed", "SameFlowName")
     assert co2.compartment is not None and co2.compartment.name == "air"
     assert co2.before is not None and co2.after is not None
