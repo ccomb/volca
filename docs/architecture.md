@@ -1,7 +1,7 @@
 # VoLCA Engine Architecture
 
 VoLCA is a Life Cycle Assessment (LCA) engine written in Haskell. It loads LCA
-databases (EcoSpold2, EcoSpold1, SimaPro CSV, ILCD, Brightway Excel), builds sparse
+databases (EcoSpold2, EcoSpold1, SimaPro CSV, ILCD, openLCA JSON-LD, Brightway Excel), builds sparse
 technosphere/biosphere matrices, and computes life-cycle inventories (LCI) and impact
 scores (LCIA) – **entirely in memory**.
 
