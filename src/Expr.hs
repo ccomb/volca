@@ -7,7 +7,9 @@ and a few functions, over formulas written in more than one language.
 One grammar reads them all, because they agree on everything an expression is
 made of. Where they disagree is at the edges, and a 'Dialect' says which set of
 edges a formula was written against: every entry point asks for one, so no
-formula is read in a language nobody chose for it.
+formula is read in a language nobody chose for it. openLCA's language departs
+from the other two on precedence and on @log@, so it is read by a grammar of
+its own ('pOlca'), sharing the tokens.
 
 A formula is read into a 'Formula' first and given values second. The two steps
 fail for two reasons a reader acts on differently, text that is not a formula
@@ -18,6 +20,7 @@ module Expr (
     Dialect (..),
     Refusal (..),
     evaluate,
+    settle,
     describeRefusal,
     normalizeExpr,
     isExpression,
@@ -29,12 +32,13 @@ import Amount (readAmount)
 import Control.Monad (mfilter, when)
 import Data.Bifunctor (first)
 import Data.Char (isDigit)
-import Data.Either (isRight)
+import Data.Either (isRight, lefts)
 import Data.Function (on)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
+import Data.Semigroup (sconcat)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -46,8 +50,7 @@ type Parser = Parsec Void Text
 
 {- | The language a formula was written in.
 
-Two, because two are what the callers actually have. A third belongs here the
-day a third language is read, and not before.
+Three, because three are what the callers actually have.
 -}
 data Dialect
     = {- | SimaPro's own, as its Delphi formula parser reads it: @\/\/@ opens a
@@ -62,6 +65,14 @@ data Dialect
       of them is a mistake and reads as one.
       -}
       Arithmetic
+    | {- | openLCA's formula language: @;@ between arguments, comparisons and
+      logical operators, a lazy @if@, and three readings that change a number
+      against the two above: @log@ is decimal, @^@ chains from the left, and
+      a sign binds tighter than @^@ (@-2^2@ is 4). It tells numbers from
+      truth values and refuses to mix them, as openLCA does. Names match
+      whatever their case.
+      -}
+      OpenLca
     deriving (Eq, Show)
 
 -- | Why a formula has no value.
@@ -91,6 +102,10 @@ data Formula
     | Name Text
     | Apply1 (Double -> Double) Formula
     | Apply2 (Double -> Double -> Double) Formula Formula
+    | -- | A function of any number of arguments, none included.
+      ApplyMany ([Double] -> Double) [Formula]
+    | -- | A condition and two branches; only the branch taken is resolved.
+      Choose Formula Formula Formula
 
 {- | Bring a formula to the one form the grammar reads.
 
@@ -102,6 +117,7 @@ that spans two of them ends its comment at the first.
 readable :: Dialect -> Text -> Text
 readable SimaPro = T.strip . T.intercalate "\n" . map (fst . T.breakOn "//") . T.lines
 readable Arithmetic = T.strip . normalizeExpr '.'
+readable OpenLca = T.toLower . T.strip
 
 {- | Evaluate an expression of the given dialect, with variable substitution.
 
@@ -115,10 +131,24 @@ are therefore one name, and an environment stating both keeps one of them.
 evaluate :: Dialect -> M.Map Text Double -> Text -> Either Refusal Double
 evaluate dialect env input = do
     formula <- readFormula dialect input
-    first (Unresolved . NE.nubBy ((==) `on` T.toLower)) (resolve (M.mapKeys T.toLower env) formula)
+    first (Unresolved . NE.nubBy ((==) `on` T.toLower)) (resolve (M.union (M.mapKeys T.toLower env) (constants dialect)) formula)
+
+-- | The names a dialect knows without a parameter: openLCA's @pi@ and @e@ (@true@ and @false@ are read as truth values).
+constants :: Dialect -> M.Map Text Double
+constants = \case
+    SimaPro -> M.empty
+    Arithmetic -> M.empty
+    OpenLca -> M.fromList [("pi", pi), ("e", exp 1)]
 
 readFormula :: Dialect -> Text -> Either Refusal Formula
-readFormula dialect = first (Unreadable . refusalReason) . parse (sc *> pFormula <* eof) "" . readable dialect
+readFormula dialect = first (Unreadable . refusalReason) . parse (sc *> grammar dialect <* eof) "" . readable dialect
+
+-- | The grammar a dialect is read with.
+grammar :: Dialect -> Parser Formula
+grammar = \case
+    SimaPro -> pFormula
+    Arithmetic -> pFormula
+    OpenLca -> pOlca
 
 {- | The value of a formula, or every name in it without one. All of them rather
 than the first: a reader who fixes one would otherwise learn of the next only
@@ -134,6 +164,17 @@ resolve env = \case
         (Left missing, Right _) -> Left missing
         (Right _, Left missing) -> Left missing
         (Left missing, Left more) -> Left (missing <> more)
+    ApplyMany f args -> f <$> resolveEach env args
+    Choose condition yes no -> do
+        c <- resolve env condition
+        resolve env (if c /= 0 then yes else no)
+
+-- | Every argument's value, or every name missing from any of them.
+resolveEach :: M.Map Text Double -> [Formula] -> Either (NonEmpty Text) [Double]
+resolveEach env args = maybe (sequence resolved) (Left . sconcat) (NE.nonEmpty (lefts resolved))
+  where
+    resolved :: [Either (NonEmpty Text) Double]
+    resolved = map (resolve env) args
 
 {- | Why the parser refused a formula, on one line: what it met and what it
 expected. The position and the caret 'errorBundlePretty' draws are left out,
@@ -208,6 +249,261 @@ pPrimary =
         , Literal <$> pNumber
         , Name <$> pIdentTok
         ]
+
+-- | A formula read in openLCA's language, and what it gives: a number or a truth value.
+data Typed = Number Formula | Truth Formula
+
+-- | The number a part of a formula gives, or why it gives none.
+asNumber :: String -> Typed -> Either String Formula
+asNumber what = \case
+    Number f -> Right f
+    Truth _ -> Left (what <> " needs a number, given a truth value")
+
+asTruth :: String -> Typed -> Either String Formula
+asTruth what = \case
+    Truth f -> Right f
+    Number _ -> Left (what <> " needs a truth value, given a number")
+
+-- | Two operands made one, or why they cannot be.
+type Combine = Typed -> Typed -> Either String Typed
+
+arithmetic :: String -> (Double -> Double -> Double) -> Combine
+arithmetic op f x y = Number <$> (Apply2 f <$> asNumber op x <*> asNumber op y)
+
+-- | A comparison, of two numbers or of two truth values, as openLCA allows both.
+compared :: String -> (Double -> Double -> Bool) -> Combine
+compared op holds x y = case (x, y) of
+    (Number a, Number b) -> Right (Truth (Apply2 (truth holds) a b))
+    (Truth a, Truth b) -> Right (Truth (Apply2 (truth holds) a b))
+    (Number _, Truth _) -> Left (op <> " compares a number with a truth value")
+    (Truth _, Number _) -> Left (op <> " compares a truth value with a number")
+
+logical :: String -> (Bool -> Bool -> Bool) -> Combine
+logical op holds x y = Truth <$> (Apply2 (truth (\a b -> holds (a /= 0) (b /= 0))) <$> asTruth op x <*> asTruth op y)
+
+-- | 1 when it holds, 0 otherwise: how a truth value is computed.
+truth :: (Double -> Double -> Bool) -> Double -> Double -> Double
+truth holds x y = if holds x y then 1 else 0
+
+{- | openLCA's precedence, lowest first: or, xor, and, comparison, sum,
+product, power, sign. Every level chains from the left, @^@ included, and the
+sign applies to one element, below @^@, so @-2^2@ is @(-2)^2@ and @--2@ is
+refused. A whole formula must give a number.
+-}
+pOlca :: Parser Formula
+pOlca = pOlcaExpression >>= either fail pure . asNumber "a formula"
+
+pOlcaExpression :: Parser Typed
+pOlcaExpression = chainLeft pOlcaXor [(symbol "||", logical "||" (||)), (symbol "|", logical "|" (||))]
+
+pOlcaXor :: Parser Typed
+pOlcaXor = chainLeft pOlcaAnd [(keyword "xor", logical "xor" (/=))]
+
+pOlcaAnd :: Parser Typed
+pOlcaAnd = chainLeft pOlcaComparison [(symbol "&&", logical "&&" (&&)), (symbol "&", logical "&" (&&))]
+
+-- Longer operators first: a symbol that is a prefix of another would take its first character.
+pOlcaComparison :: Parser Typed
+pOlcaComparison =
+    chainLeft
+        pOlcaSum
+        [ (symbol "<=", compared "<=" (<=))
+        , (symbol "<>", compared "<>" (/=))
+        , (symbol "<", compared "<" (<))
+        , (symbol ">=", compared ">=" (>=))
+        , (symbol ">", compared ">" (>))
+        , (symbol "==", compared "==" (==))
+        , (symbol "=", compared "=" (==))
+        , (symbol "!=", compared "!=" (/=))
+        ]
+
+pOlcaSum :: Parser Typed
+pOlcaSum = chainLeft pOlcaProduct [(symbol "+", arithmetic "+" (+)), (symbol "-", arithmetic "-" (-))]
+
+pOlcaProduct :: Parser Typed
+pOlcaProduct =
+    chainLeft
+        pOlcaPower
+        [ (symbol "*", arithmetic "*" (*))
+        , (symbol "/", arithmetic "/" (/))
+        , (keyword "div", arithmetic "div" roundedQuotient)
+        , (keyword "mod", arithmetic "mod" remainder)
+        ]
+
+pOlcaPower :: Parser Typed
+pOlcaPower = chainLeft pOlcaSigned [(symbol "^", arithmetic "^" (**))]
+
+pOlcaSigned :: Parser Typed
+pOlcaSigned =
+    (symbol "-" *> (pOlcaElement >>= signed (Apply1 negate)))
+        <|> (symbol "+" *> (pOlcaElement >>= signed id))
+        <|> pOlcaElement
+  where
+    signed :: (Formula -> Formula) -> Typed -> Parser Typed
+    signed f = either fail (pure . Number . f) . asNumber "a sign"
+
+pOlcaElement :: Parser Typed
+pOlcaElement =
+    choice
+        [ between (symbol "(") (symbol ")") pOlcaExpression
+        , pOlcaCall
+        , Number . Literal <$> pNumber
+        , named <$> pOlcaName
+        ]
+  where
+    -- Bare true and false are truth values; pi and e resolve through 'constants', a parameter first.
+    named :: Text -> Typed
+    named = \case
+        "true" -> Truth (Literal 1)
+        "false" -> Truth (Literal 0)
+        other -> Number (Name other)
+
+-- | A name as openLCA writes one: letters, digits, @_@ and @$@, not starting with a digit.
+pOlcaName :: Parser Text
+pOlcaName = lexeme (T.pack <$> ((:) <$> (letterChar <|> oneOf ("_$" :: String)) <*> many (alphaNumChar <|> oneOf ("_$" :: String))))
+
+-- | A word operator, which a longer name merely starting with it (@divisor@) is not.
+keyword :: Text -> Parser Text
+keyword word = lexeme (try (string word <* notFollowedBy (alphaNumChar <|> oneOf ("_$" :: String))))
+
+-- | One operand, then any number of (operator, operand), grouped from the left.
+chainLeft :: Parser Typed -> [(Parser Text, Combine)] -> Parser Typed
+chainLeft operand operators = operand >>= rest
+  where
+    rest :: Typed -> Parser Typed
+    rest acc = (choice [op *> operand >>= either fail pure . combine acc | (op, combine) <- operators] >>= rest) <|> pure acc
+
+-- | openLCA's @div@: the two operands rounded half up, then divided, truncated. Zero gives NaN, which the reader refuses.
+roundedQuotient :: Double -> Double -> Double
+roundedQuotient x y = case halfUp y of
+    0 -> 0 / 0
+    d -> fromInteger (halfUp x `quot` d)
+
+-- | openLCA's @mod@: the remainder with the dividend's sign.
+remainder :: Double -> Double -> Double
+remainder x y = x - y * fromInteger (truncate (x / y))
+
+halfUp :: Double -> Integer
+halfUp x = floor (x + 0.5)
+
+{- | A name followed by its arguments. Only the name and the parenthesis are
+tried, as in 'pCall1': past them a refusal is about this call.
+-}
+pOlcaCall :: Parser Typed
+pOlcaCall = do
+    name <- try (pOlcaName <* symbol "(")
+    args <- sepBy pOlcaExpression (symbol ";") <* symbol ")"
+    either fail pure (olcaCall name args)
+
+-- | What an openLCA function takes and gives.
+data OlcaFunction
+    = Constant Typed
+    | Unary (Double -> Double)
+    | Binary (Double -> Double -> Double)
+    | -- | min, max, sum, avg: any number of numbers, none giving 0, as in openLCA.
+      Many ([Double] -> Double)
+    | -- | not: one truth value, or none, which openLCA reads as false.
+      Negation
+    | -- | and, or: any number of truth values.
+      Connective ([Bool] -> Bool)
+    | -- | if: a truth value and two numbers, only one of them evaluated.
+      Conditional
+    | -- | Known to openLCA but not computed here, and why.
+      Refused String
+
+-- | openLCA's functions, by their lowercase name.
+olcaFunctions :: [(Text, OlcaFunction)]
+olcaFunctions =
+    [ ("pi", Constant (Number (Literal pi)))
+    , ("e", Constant (Number (Literal (exp 1))))
+    , ("true", Constant (Truth (Literal 1)))
+    , ("false", Constant (Truth (Literal 0)))
+    , ("abs", Unary abs)
+    , ("sqrt", Unary sqrt)
+    , ("sqr", Unary (\x -> x * x))
+    , ("exp", Unary exp)
+    , ("ln", Unary log)
+    , ("log", Unary (logBase 10))
+    , ("lg", Unary (logBase 10))
+    , ("ceil", Unary (fromInteger . ceiling))
+    , ("floor", Unary (fromInteger . floor))
+    , -- Half up, as openLCA rounds: round(-2.5) is -2.
+      ("round", Unary (fromInteger . halfUp))
+    , ("int", Unary truncated)
+    , ("trunc", Unary truncated)
+    , ("frac", Unary (\x -> x - truncated x))
+    , ("sin", Unary sin)
+    , ("cos", Unary cos)
+    , ("tan", Unary tan)
+    , ("cotan", Unary (recip . tan))
+    , ("cot", Unary (recip . tan))
+    , ("asin", Unary asin)
+    , ("arcsin", Unary asin)
+    , ("acos", Unary acos)
+    , ("arccos", Unary acos)
+    , ("atan", Unary atan)
+    , ("arctan", Unary atan)
+    , ("sinh", Unary sinh)
+    , ("cosh", Unary cosh)
+    , ("tanh", Unary tanh)
+    , ("pow", Binary (**))
+    , ("power", Binary (**))
+    , ("ipower", Binary (\x y -> x ^^ (truncate y :: Integer)))
+    , ("min", Many (maybe 0 minimum . NE.nonEmpty))
+    , ("max", Many (maybe 0 maximum . NE.nonEmpty))
+    , ("sum", Many sum)
+    , ("avg", Many mean)
+    , ("mean", Many mean)
+    , ("not", Negation)
+    , ("and", Connective and)
+    , ("or", Connective or)
+    , ("if", Conditional)
+    , ("iff", Conditional)
+    , ("iif", Conditional)
+    , ("random", Refused "a load must give the same numbers twice")
+    , ("rand", Refused "a load must give the same numbers twice")
+    ]
+  where
+    truncated :: Double -> Double
+    truncated = fromInteger . truncate
+
+    mean :: [Double] -> Double
+    mean xs = if null xs then 0 else sum xs / fromIntegral (length xs)
+
+-- | A call, or why it is not one: an unknown name, a refused function, a wrong number or type of arguments.
+olcaCall :: Text -> [Typed] -> Either String Typed
+olcaCall name args = case lookup name olcaFunctions of
+    Nothing -> Left ("unknown function " <> function)
+    Just known -> case known of
+        Constant value -> case args of
+            [] -> Right value
+            _ : _ -> arity "no argument"
+        Unary f -> numbers >>= \case
+            [x] -> Right (Number (Apply1 f x))
+            _ -> arity "one argument"
+        Binary f -> numbers >>= \case
+            [x, y] -> Right (Number (Apply2 f x y))
+            _ -> arity "two arguments"
+        Many f -> Number . ApplyMany f <$> numbers
+        Negation -> truths >>= \case
+            [] -> Right (Truth (Literal 0))
+            [x] -> Right (Truth (Apply1 (\v -> if v == 0 then 1 else 0) x))
+            _ -> arity "one argument"
+        Connective f -> Truth . ApplyMany (\vs -> if f (map (/= 0) vs) then 1 else 0) <$> truths
+        Conditional -> case args of
+            [condition, yes, no] -> Number <$> (Choose <$> asTruth function condition <*> asNumber function yes <*> asNumber function no)
+            _ -> arity "three arguments"
+        Refused why -> Left (function <> " is refused: " <> why)
+  where
+    function :: String
+    function = T.unpack name
+
+    numbers, truths :: Either String [Formula]
+    numbers = traverse (asNumber function) args
+    truths = traverse (asTruth function) args
+
+    arity :: String -> Either String a
+    arity expected = Left (function <> " takes " <> expected <> ", given " <> show (length args))
 
 {- | A numeric literal, tokenized here and read by 'readAmount'.
 
@@ -298,8 +594,15 @@ Returns the empty list if the expression cannot be tokenized.
 collectIdentifiers :: Dialect -> Text -> [Text]
 collectIdentifiers dialect input =
     case parse (sc *> pCollect <* eof) "" (readable dialect input) of
-        Right names -> filter (`notElem` functionNames) names
+        Right names -> filter (not . isFunction dialect) names
         Left _ -> []
+
+-- | Whether a name read in this dialect is one of its functions rather than a variable.
+isFunction :: Dialect -> Text -> Bool
+isFunction dialect name = case dialect of
+    SimaPro -> name `elem` functionNames
+    Arithmetic -> name `elem` functionNames
+    OpenLca -> name `elem` map fst olcaFunctions
 
 pCollect :: Parser [Text]
 pCollect = catMaybes <$> many pToken
@@ -313,3 +616,19 @@ pToken =
 
 pIdentTok :: Parser Text
 pIdentTok = lexeme (T.pack <$> ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_')))
+
+{- | The known values with every calculated parameter that evaluates added,
+each formula tried again until a pass adds nothing: a parameter may refer to
+one declared after it. A formula that never evaluates is left out, and its
+caller learns of it by its absence.
+-}
+settle :: Dialect -> M.Map Text Double -> [(Text, Text)] -> M.Map Text Double
+settle dialect known calculated
+    | M.size next == M.size known = next
+    | otherwise = settle dialect next calculated
+  where
+    next :: M.Map Text Double
+    next = foldl' step known calculated
+
+    step :: M.Map Text Double -> (Text, Text) -> M.Map Text Double
+    step acc (name, formula) = either (const acc) (\v -> M.insert name v acc) (evaluate dialect acc formula)

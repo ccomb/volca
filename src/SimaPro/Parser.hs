@@ -1375,15 +1375,12 @@ precedence: database, project, process.
 -}
 buildParamEnv :: [[(Text, Text)]] -> [[(Text, Text)]] -> (M.Map Text Double, M.Map Text Text)
 buildParamEnv inputGroups calcGroups =
-    ( foldl' evalToFixpoint (foldl' (foldl' evalParam) M.empty inputGroups) calcGroups
+    ( foldl' (Expr.settle Expr.SimaPro) (foldl' (foldl' evalParam) M.empty inputGroups) calcGroups
     , M.fromList (concat (inputGroups ++ calcGroups))
     )
   where
     evalParam acc (name, rawVal) =
         either (const acc) (\v -> M.insert name v acc) (Expr.evaluate Expr.SimaPro acc rawVal)
-    evalToFixpoint acc params =
-        let acc' = foldl' evalParam acc params
-         in if M.size acc' == M.size acc then acc' else evalToFixpoint acc' params
 
 -- | The parameter environment a block's amounts are evaluated in.
 blockParamEnv :: GlobalParams -> ProcessBlock -> (M.Map Text Double, M.Map Text Text)

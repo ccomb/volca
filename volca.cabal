@@ -332,6 +332,7 @@ test-suite lca-tests
                      , EcoSpold1WriterSpec
                      , EcoSpold2Spec
                      , EcoSpold2WriterSpec
+                     , ExprSpec
                      , SimaProWriterSpec
                      , ILCDWriterSpec
                      , MCPSchemaSpec
