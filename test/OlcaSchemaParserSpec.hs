@@ -132,6 +132,32 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
             Left why -> T.unpack why `shouldContain` "steel production · carbon dioxide"
             Right _ -> expectationFailure "loaded a line in a unit its flow has no conversion from"
 
+    it "lists every line it cannot read, each under why" $ \_ -> do
+        pkg <- readFixture
+        let inEnergy x = if rxFlow x == co2F || rxFlow x == slagF then x{rxUnit = kwhU} else x
+            unknown x = if rxFlow x == co2F then x{rxFlow = uid' 998} else x
+            wrong = editing recyclingI (\p -> p{prExchanges = map unknown (prExchanges p)}) (editing steelA (\p -> p{prExchanges = map inEnergy (prExchanges p)}) pkg)
+        case buildDatabase defaultUnitConfig Declared wrong of
+            Left why -> do
+                let said = T.unpack why
+                said `shouldContain` "3 lines cannot be read"
+                said `shouldContain` "1 name a flow the package does not carry:\n    steel recycling · 00000000-0000-0000-0000-0000000003e6"
+                said `shouldContain` "2 are in a unit with no conversion to their flow's reference unit:"
+                said `shouldContain` "steel production · carbon dioxide"
+                said `shouldContain` "steel production · slag"
+            Right _ -> expectationFailure "loaded lines it cannot read"
+
+    it "uses an allocation factor's formula over the stored factor, and says they disagree" $ \_ -> do
+        pkg <- readFixture
+        -- Stored 0.6, computed 0.5: openLCA allocates by the formula.
+        let disagreeing = editing cogenF (\p -> p{prFactors = map (\f -> if P.afMethod f == Physical && P.afProduct f == heatF then f{afFormula = Just "1 / 2"} else f) (prFactors p)}) pkg
+        b <- built disagreeing
+        [what | Divergent what <- builtNotices b, "cogeneration, physical" `T.isPrefixOf` what]
+            `shouldBe` ["cogeneration, physical · heat · allocation factor 1 / 2: computes 0.5, the file stores 0.6"]
+        db <- matrices b
+        heat <- inventoryOf db cogenF heatF
+        heat `carriesOnly` [(co2F, 0.2525), (oreF, 0.025)]
+
     it "lets a process parameter shadow a global one, case aside" $ \_ -> do
         pkg <- readFixture
         -- LEAK_METHOD = 2 sends b to its missing branch, which only the process's value can do.

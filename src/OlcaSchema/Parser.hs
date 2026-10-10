@@ -21,7 +21,7 @@ module OlcaSchema.Parser (
 
 import Control.Monad (guard)
 import Data.Bifunctor (first)
-import Data.Either (fromRight, partitionEithers)
+import Data.Either (partitionEithers)
 import Data.List (find)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -112,7 +112,7 @@ buildDatabase cfg key pkg = case partitionEithers (map (readProcess cx) (P.pkPro
                         }
                 , builtNotices = ftNotices tables <> concatMap rpNotices processes <> [NotRead u | p <- P.pkProcesses pkg, u <- P.prUnread p]
                 }
-    (failures, _) -> Left (describeUnconverted (concat failures))
+    (failures, _) -> Left (describeUnreadable (concat failures))
   where
     unitDB :: UnitDB
     unitDB = referenceUnits pkg
@@ -137,11 +137,32 @@ describeRepeated :: NE.NonEmpty (UUID, UUID) -> Text
 describeRepeated repeated =
     "processes make the same product twice: " <> T.intercalate ", " [UUID.toText p <> " · " <> UUID.toText f | (p, f) <- NE.toList repeated]
 
-describeUnconverted :: [Text] -> Text
-describeUnconverted failures =
+-- | Why a line cannot be read, each naming the line.
+data Unreadable
+    = -- | Its flow is not among the package's flows.
+      MissingFlow !Text
+    | -- | Its flow's reference property leads to no unit group.
+      NoReferenceUnit !Text
+    | -- | Its unit or property has no factor to the flow's reference unit.
+      NoConversion !Text
+
+-- | Every unreadable line, grouped by why, so the whole package can be fixed in one pass.
+describeUnreadable :: [Unreadable] -> Text
+describeUnreadable failures =
     T.intercalate "\n" $
-        (T.pack (show (length failures)) <> " lines have no conversion to their flow's reference unit:")
-            : map ("  " <>) (take 10 failures)
+        (T.pack (show (length failures)) <> " lines cannot be read:")
+            : concat
+                [ ("  " <> T.pack (show (length named)) <> " " <> heading) : map ("    " <>) named
+                | (heading, named) <- groups
+                , not (null named)
+                ]
+  where
+    groups :: [(Text, [Text])]
+    groups =
+        [ ("name a flow the package does not carry:", [n | MissingFlow n <- failures])
+        , ("have a flow with no reference unit:", [n | NoReferenceUnit n <- failures])
+        , ("are in a unit with no conversion to their flow's reference unit:", [n | NoConversion n <- failures])
+        ]
 
 -- | One engine unit per unit group: its reference unit, which every amount is converted to.
 referenceUnits :: P.Package -> UnitDB
@@ -231,7 +252,9 @@ offers flowType side = case (flowType, side) of
     (P.ProductFlow, P.Avoided) -> False
     (P.WasteFlow, P.Produced) -> False
     (P.WasteFlow, P.Avoided) -> False
-    (P.ElementaryFlow, _) -> False
+    (P.ElementaryFlow, P.Produced) -> False
+    (P.ElementaryFlow, P.Consumed) -> False
+    (P.ElementaryFlow, P.Avoided) -> False
 
 producerIndex :: P.Package -> M.Map UUID (M.Map UUID P.ProcessType)
 producerIndex pkg =
@@ -277,7 +300,7 @@ data Line = Line
 
 data Outcome = NoFormula | Agrees | Diverges !Double | Refused !Text
 
-readProcess :: Context -> P.Process -> Either [Text] ReadProcess
+readProcess :: Context -> P.Process -> Either [Unreadable] ReadProcess
 readProcess cx p = case partitionEithers (zipWith (readLine cx p env) [0 ..] (P.prExchanges p)) of
     ([], lines') -> Right (assemble cx p env (envNotices <> formulaNotices p lines') lines')
     (failures, _) -> Left failures
@@ -309,30 +332,29 @@ environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name) | (n
     settled :: M.Map Text Double
     settled = Expr.settle Expr.OpenLca given calculated
 
-readLine :: Context -> P.Process -> M.Map Text Double -> Int -> P.RawExchange -> Either Text Line
+readLine :: Context -> P.Process -> M.Map Text Double -> Int -> P.RawExchange -> Either Unreadable Line
 readLine cx p env at raw = do
-    flow <- maybe (Left (P.prName p <> " · a flow the package does not carry")) Right (M.lookup (P.rxFlow raw) (P.pkFlows pkg))
+    flow <- maybe (Left (MissingFlow (P.prName p <> " · " <> UUID.toText (P.rxFlow raw)))) Right (M.lookup (P.rxFlow raw) (P.pkFlows pkg))
     let named = P.prName p <> " · " <> P.flName flow
-        (amount, outcome) = evaluated env raw
-    unit <- maybe (Left (named <> ": its flow has no reference unit")) Right (M.lookup (P.flId flow) (cxFlowUnits cx))
-    converted <- maybe (Left (named <> ": no conversion from the line's unit")) Right (toReference pkg flow raw amount)
+        (amount, outcome) = computed env (P.rxAmount raw) (P.rxFormula raw)
+    unit <- maybe (Left (NoReferenceUnit named)) Right (M.lookup (P.flId flow) (cxFlowUnits cx))
+    converted <- maybe (Left (NoConversion named)) Right (toReference pkg flow raw amount)
     pure Line{lnAt = at, lnRaw = raw, lnFlow = flow, lnUnit = unit, lnAmount = converted, lnOutcome = outcome}
   where
     pkg :: P.Package
     pkg = cxPackage cx
 
--- | The amount a line states, computed from its formula where it has one that evaluates.
-evaluated :: M.Map Text Double -> P.RawExchange -> (Double, Outcome)
-evaluated env raw = case P.rxFormula raw of
+{- | A value the file stores, computed from its formula where it has one that
+evaluates, as openLCA recomputes it: a line's amount, an allocation factor.
+-}
+computed :: M.Map Text Double -> Double -> Maybe Text -> (Double, Outcome)
+computed env stored formula' = case formula' of
     Nothing -> (stored, NoFormula)
     Just formula -> case Expr.evaluate Expr.OpenLca env formula of
         Left refusal -> (stored, Refused (formula <> ": " <> Expr.describeRefusal refusal))
-        Right computed
-            | abs (computed - stored) <= 1e-9 * max 1 (max (abs computed) (abs stored)) -> (computed, Agrees)
-            | otherwise -> (computed, Diverges stored)
-  where
-    stored :: Double
-    stored = P.rxAmount raw
+        Right value
+            | abs (value - stored) <= 1e-9 * max 1 (max (abs value) (abs stored)) -> (value, Agrees)
+            | otherwise -> (value, Diverges stored)
 
 {- | An amount in the flow's reference unit: through the unit's factor in its
 group, then, for a line stated in another property than the flow's own (a
@@ -375,7 +397,9 @@ data Split = Split
 product with no factor for that method carries the whole inventory, as in
 openLCA, and so does every product of a process naming no method; both are
 said. Causal factors are per (product, line); a line with none stays whole. A
-factor whose formula has no value keeps its stored value, and that is said too.
+factor's formula is used over its stored value, as openLCA does; a formula
+that disagrees with the file, or has no value (the stored one then kept), is
+said too.
 -}
 split :: M.Map Text Double -> P.Process -> [Line] -> [Line] -> Split
 split env p lines' products
@@ -395,7 +419,7 @@ split env p lines' products
         Split
             { spShares = M.fromList [(lnAt ln, maybe 100 (* 100) (factorFor method ln)) | ln <- products]
             , spPairs = []
-            , spNotices = [WithoutFactor (P.prName p <> " · " <> P.flName (lnFlow ln)) | ln <- products, Nothing <- [factorFor method ln]] <> refused method
+            , spNotices = [WithoutFactor (P.prName p <> " · " <> P.flName (lnFlow ln)) | ln <- products, Nothing <- [factorFor method ln]] <> factorNotices method
             }
 
     factorFor :: P.AllocationMethod -> Line -> Maybe Double
@@ -410,8 +434,8 @@ split env p lines' products
 
     causal :: Split
     causal = case partitionEithers ([pair f | f <- P.prFactors p, P.afMethod f == P.Causal]) of
-        (strays, []) -> whole{spNotices = WithoutFactor (P.prName p) : strays <> refused P.Causal}
-        (strays, pairs) -> Split (M.fromList [(lnAt ln, 100) | ln <- products]) pairs (strays <> refused P.Causal)
+        (strays, []) -> whole{spNotices = WithoutFactor (P.prName p) : strays <> factorNotices P.Causal}
+        (strays, pairs) -> Split (M.fromList [(lnAt ln, 100) | ln <- products]) pairs (strays <> factorNotices P.Causal)
 
     pair :: P.AllocationFactor -> Either Notice ((Int, Int), Double)
     pair f = maybe (Left (StrayFactor (P.prName p))) Right $ do
@@ -421,17 +445,27 @@ split env p lines' products
         pure ((productAt, lineAt), value f * 100)
 
     value :: P.AllocationFactor -> Double
-    value f = maybe (P.afValue f) (fromRight (P.afValue f) . Expr.evaluate Expr.OpenLca env) (P.afFormula f)
+    value = fst . factorOutcome
 
-    -- The factors of the method in use whose formula has no value, which 'value' replaced by the stored one.
-    refused :: P.AllocationMethod -> [Notice]
-    refused method =
-        [ Unevaluable (P.prName p <> " · " <> productName f <> " · allocation factor " <> formula <> ": " <> Expr.describeRefusal why)
-        | f <- P.prFactors p
-        , P.afMethod f == method
-        , Just formula <- [P.afFormula f]
-        , Left why <- [Expr.evaluate Expr.OpenLca env formula]
-        ]
+    factorOutcome :: P.AllocationFactor -> (Double, Outcome)
+    factorOutcome f = computed env (P.afValue f) (P.afFormula f)
+
+    -- The factors of the method in use whose formula disagrees with the file or has no value.
+    factorNotices :: P.AllocationMethod -> [Notice]
+    factorNotices method = concatMap factorNotice [f | f <- P.prFactors p, P.afMethod f == method]
+
+    factorNotice :: P.AllocationFactor -> [Notice]
+    factorNotice f = case factorOutcome f of
+        (_, NoFormula) -> []
+        (_, Agrees) -> []
+        (value', Diverges stored) -> [Divergent (named <> foldMap (" " <>) (P.afFormula f) <> ": computes " <> tshow value' <> ", the file stores " <> tshow stored)]
+        (_, Refused why) -> [Unevaluable (named <> " " <> why)]
+      where
+        named :: Text
+        named = P.prName p <> " · " <> productName f <> " · allocation factor"
+
+    tshow :: Double -> Text
+    tshow = T.pack . show
 
     productName :: P.AllocationFactor -> Text
     productName f = maybe (UUID.toText (P.afProduct f)) (P.flName . lnFlow) (find ((== P.afProduct f) . P.flId . lnFlow) products)
