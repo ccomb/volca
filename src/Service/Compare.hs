@@ -27,8 +27,9 @@ write for itself, and each client wrote them a little differently.
   is part of a line, so a flow moving from input to coproduct is one line
   removed and one added.
 * The lines of one flow in one unit are summed. When each side holds a single
-  line of the flow, its supplier is compared too, by activity name and
-  location; a flow drawn from several suppliers (two electricity mixes)
+  line of the flow, its supplier is compared too: a different process with
+  another activity name or location (a supplier renamed in place is the same
+  supplier); a flow drawn from several suppliers (two electricity mixes)
   compares its total only, so a supplier swapped among them does not show.
   A flow written in several units
   compares unit by unit when both sides write it in the same ones; otherwise it
@@ -206,7 +207,7 @@ data LineGroup = LineGroup
     , lgCompartment :: Maybe Compartment
     , lgRole :: LineRole
     , lgAmounts :: M.Map Text Double -- unit name to summed amount, never empty
-    , lgSuppliers :: [Maybe Supplier] -- one per line; Nothing for a line with no supplier, or one that resolves nowhere
+    , lgSuppliers :: [Maybe TargetRef] -- one per line; Nothing for a line with no supplier, or one that resolves nowhere
     }
 
 data LineKey
@@ -242,7 +243,7 @@ lineOf db links ex =
         , lgCompartment = flowKindCompartment =<< flow
         , lgRole = roleOf ex
         , lgAmounts = M.singleton (unitNameOf (dbUnits db) ex) (exchangeAmount ex)
-        , lgSuppliers = [(\target -> Supplier (trName target) (trLocation target)) <$> resolveTarget db links ex]
+        , lgSuppliers = [resolveTarget db links ex]
         }
   where
     flow :: Maybe FlowKind
@@ -294,18 +295,28 @@ judgePair match pair = amountVerdict : supplierVerdict
                 (Uncompared (uncomparedOn (baseSide pair) (mixedUnits (fmap unitsOf pair))))
                 (Differs . changeOn (baseSide pair) . uncurry (LineChanged match))
                 ((,) <$> singleUnit (baseSide pair) <*> singleUnit (otherSide pair))
-    supplierVerdict = case fmap soleSupplier pair of
+    -- The same process, renamed, is the same supplier: a copy keeps the
+    -- process ids of its source, so renaming a supplier there changes none of
+    -- the activities that buy from it. Two releases that re-number their
+    -- processes are told apart by name and location alone.
+    supplierVerdict = case fmap soleTarget pair of
         Sides (Just before) (Just after)
-            | before /= after -> [Differs (changeOn (baseSide pair) (SupplierChanged before after))]
+            | trProcessId before /= trProcessId after
+            , supplierOf before /= supplierOf after ->
+                [Differs (changeOn (baseSide pair) (SupplierChanged (supplierOf before) (supplierOf after)))]
         _ -> []
 
-{- | The supplier of a flow drawn from one line, named. A line whose supplier
-resolves nowhere has none to compare: a broken link is not a new supplier.
+{- | The supplier of a flow drawn from one line. A line whose supplier resolves
+nowhere has none to compare: a broken link is not a new supplier.
 -}
-soleSupplier :: LineGroup -> Maybe Supplier
-soleSupplier line = case lgSuppliers line of
-    [supplier] -> supplier
+soleTarget :: LineGroup -> Maybe TargetRef
+soleTarget line = case lgSuppliers line of
+    [target] -> target
     _ -> Nothing
+
+-- | A supplier as a change names it.
+supplierOf :: TargetRef -> Supplier
+supplierOf target = Supplier (trName target) (trLocation target)
 
 sameAmounts :: M.Map Text Double -> M.Map Text Double -> Bool
 sameAmounts base other = M.keys base == M.keys other && and (M.intersectionWith close base other)
@@ -415,7 +426,7 @@ exchangePresence groups change = case (ecChange change, lineFor groups change) o
     (LineChanged{}, Missing) -> ChangeLineGone
     (LineChanged _ before after, Found line) -> judged sameAmount (singleUnit line) (Just before) (Just after)
     (SupplierChanged _ _, Missing) -> ChangeLineGone
-    (SupplierChanged before after, Found line) -> judged (==) (soleSupplier line) (Just before) (Just after)
+    (SupplierChanged before after, Found line) -> judged (==) (supplierOf <$> soleTarget line) (Just before) (Just after)
   where
     holds :: Quantity -> LineGroup -> Bool
     holds q line = sameAmount (Just q) (singleUnit line)

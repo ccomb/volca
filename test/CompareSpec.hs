@@ -158,6 +158,12 @@ spec = describe "Service.Compare" $ do
             map ecChange (acmpExchanges comparison)
                 `shouldBe` [SupplierChanged (Supplier "barley production" "FR") (Supplier "barley production, organic" "FR")]
 
+        it "does not report a renamed supplier on the activities that buy from it" $ do
+            c <- compareVersions [row 1 wheat "wheat production" [buys 2 barley 1], row 2 barley "barley production" []] [row 1 wheat "wheat production" [buys 2 barley 1], row 2 barley "barley production, corrected" []]
+            comparison <- onlyChange c
+            acmpSummary comparison `shouldBe` [ActivityNameChanged "barley production" "barley production, corrected"]
+            acmpExchanges comparison `shouldBe` []
+
         it "compares only the total of a flow drawn from several suppliers" $ do
             let suppliers = [row 2 barley "barley production" [], row 3 barley "barley production, organic" []]
             c <- compareVersions (row 1 wheat "wheat production" [buys 2 barley 0.5, buys 3 barley 0.5] : suppliers) (row 1 wheat "wheat production" [buys 2 barley 1] : suppliers)

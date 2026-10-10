@@ -7,7 +7,8 @@
 - A comparison of two activities, or of two databases, reports a description
   that changed (`DescriptionChanged`, one string per paragraph) and an input
   drawn from another supplier (`SupplierChanged`, each supplier named by its
-  activity name and location). A supplier is compared when each side holds a
+  activity name and location; a supplier only renamed is not reported on the
+  activities that buy from it). A supplier is compared when each side holds a
   single line of the flow; a flow drawn from several suppliers still compares
   its total only.
 
