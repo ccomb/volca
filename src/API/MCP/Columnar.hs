@@ -32,6 +32,7 @@ import API.Types (
     LCIABatchResult (..),
     LCIAResult (..),
     ScoringIndicator (..),
+    WithheldCutoffs (..),
  )
 import Data.Aeson (Value (..), object, toJSON, (.=))
 import qualified Data.List as L
@@ -132,8 +133,28 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
         , "invalid" .= birInvalid bir
         ]
             ++ topLevelFU
+            ++ cutoffPairs
   where
     setName = ssName ss
+    cutoffCount :: LCIABatchResult -> Int
+    cutoffCount lbr = length (lbrCutoffInputs lbr) + sum (map wcCount (lbrWithheldCutoffs lbr))
+    -- The lists stand once per row that met any, keyed by its process id, beside the count in its row.
+    cutoffRows :: [BatchImpactsEntry]
+    cutoffRows = [e | e <- birResults bir, cutoffCount (bieImpacts e) > 0]
+    cutoffPairs
+        | null cutoffRows = []
+        | otherwise =
+            [ "cutoff_notice"
+                .= ( T.pack (show (length cutoffRows))
+                        <> (if length cutoffRows == 1 then " activity counts" else " activities count")
+                        <> " inputs no loaded database supplies as zero (the cutoffs column, listed in cutoff_inputs); load the database that makes them, or see the gap report."
+                   )
+            , "cutoff_inputs" .= M.fromList [(bieProcessId e, lbrCutoffInputs (bieImpacts e)) | e <- cutoffRows, not (null (lbrCutoffInputs (bieImpacts e)))]
+            ]
+                ++ [ "withheld_cutoffs" .= M.fromList withheldRows
+                   | let withheldRows = [(bieProcessId e, lbrWithheldCutoffs (bieImpacts e)) | e <- cutoffRows, not (null (lbrWithheldCutoffs (bieImpacts e)))]
+                   , not (null withheldRows)
+                   ]
     rowFUOf :: BatchImpactsEntry -> Maybe Text
     rowFUOf e = case lbrResults (bieImpacts e) of
         r : _ -> Just (lrFunctionalUnit r)
@@ -151,8 +172,8 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
     webUrlCol = ["web_url" | isJust mBaseUrl]
     fixedColumns :: [Text]
     fixedColumns
-        | isHeterogeneous = ["activity_name", "process_id"] ++ webUrlCol ++ ["functional_unit", "total"]
-        | otherwise = ["activity_name", "process_id"] ++ webUrlCol ++ ["total"]
+        | isHeterogeneous = ["activity_name", "process_id"] ++ webUrlCol ++ ["functional_unit", "total", "cutoffs"]
+        | otherwise = ["activity_name", "process_id"] ++ webUrlCol ++ ["total", "cutoffs"]
     columns :: [Text]
     columns
         | summaryOnly = fixedColumns ++ ["dominant_indicator"]
@@ -182,7 +203,7 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
             ]
                 ++ urlCells
                 ++ fuCells
-                ++ [total]
+                ++ [total, toJSON (cutoffCount lbr)]
                 ++ tailCells
 
 {- | Format the dominant indicator of a row as a @{key, label, share_pct}@

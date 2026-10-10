@@ -21,6 +21,7 @@ import qualified Data.Vector as V
 import Test.Hspec
 
 import qualified API.Types as API
+import Database.Cutoffs (gapIndexOf)
 import qualified Service.Aggregate as Agg
 import qualified SharedSolver as SS
 import TestHelpers (loadSampleDatabase, mkDepLookupFromMap, mkSolverFromDb, shippedGeographies)
@@ -60,6 +61,7 @@ runAggWith depLookup db params = do
             "test"
             solver
             depLookup
+            (\_ d -> pure (gapIndexOf d))
             pidText
             params
     case result of

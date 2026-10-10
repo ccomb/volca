@@ -32,9 +32,10 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
+import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsReached, gapIndexOf, indexesOf)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Impact (PartScore (..))
-import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
+import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
 import qualified Matrix.Export as MatrixExport
 import Method.Mapping (LongTermMode (..))
 import qualified Progress
@@ -272,10 +273,11 @@ getActivityInfo db queryText = do
 The 'BioFlowDB'/'UnitDB' arguments are independent of the root DB so that
 cross-DB-merged inventories (whose flow UUIDs can originate in any loaded
 dep DB) can be decoded against a merged metadata snapshot. For single-DB
-callers, pass @dbBioFlows db@ / @dbUnits db@ directly.
+callers, pass @dbBioFlows db@ / @dbUnits db@ directly. The cut-offs are those
+the solution behind the inventory met.
 -}
-convertToInventoryExport :: Database -> BioFlowDB -> UnitDB -> ProcessId -> Activity -> Inventory -> InventoryExport
-convertToInventoryExport db bioFlowDB unitDB processId rootActivity inventory =
+convertToInventoryExport :: Database -> BioFlowDB -> UnitDB -> ProcessId -> Activity -> Cutoffs -> Inventory -> InventoryExport
+convertToInventoryExport db bioFlowDB unitDB processId rootActivity cutoffs inventory =
     let
         -- Inventory flows are biosphere by construction (rows of B matrix).
         inventoryList = M.toList inventory
@@ -335,7 +337,13 @@ convertToInventoryExport db bioFlowDB unitDB processId rootActivity inventory =
                 , isTopCategories = categoryStats
                 }
      in
-        InventoryExport metadata flowDetails statistics
+        InventoryExport
+            { ieMetadata = metadata
+            , ieFlows = flowDetails
+            , ieStatistics = statistics
+            , ieCutoffInputs = cutoffShown cutoffs
+            , ieWithheldCutoffs = cutoffWithheld cutoffs
+            }
 
 {- | Determine if a biosphere flow represents resource extraction based on its
 compartment. Now type-restricted to BiosphereFlow – technosphere can't reach
@@ -343,19 +351,6 @@ this code path at compile time.
 -}
 isResourceExtraction :: BiosphereFlow -> Bool
 isResourceExtraction flow = (compartmentName <$> bfCompartment flow) == Just NaturalResource
-
--- | Get activity inventory as rich InventoryExport (same as API)
-getActivityInventory :: Database -> Text -> IO (Either ServiceError Value)
-getActivityInventory db processIdText =
-    case resolveScorable db processIdText >>= \(pid, act) -> validateProcessIdInMatrixIndex db pid >> Right (pid, act) of
-        Left err -> return $ Left err
-        Right (processId, activity) -> do
-            inventoryE <- computeInventoryMatrix db processId
-            return $ case inventoryE of
-                Left err -> Left (MatrixError err)
-                Right inventory ->
-                    let !inventoryExport = convertToInventoryExport db (dbBioFlows db) (dbUnits db) processId activity inventory
-                     in Right (toJSON inventoryExport)
 
 {- | The nodes and edges a tree walk has reached so far. Threaded through the
 walk in visit order and never combined out of it: a node id can be inserted
@@ -1810,13 +1805,15 @@ getSupplyChain ::
     UnitConfig ->
     Geographies ->
     SharedSolver.DepSolverLookup ->
+    -- | the supplier-gap index of a database, as the manager keeps it
+    (Text -> Database -> IO GapIndex) ->
     Database ->
     Text ->
     SharedSolver ->
     Text ->
     SupplyChainFilter ->
     IO (Either ServiceError SupplyChainResponse)
-getSupplyChain unitCfg geographies depLookup db dbName sharedSolver processIdText af =
+getSupplyChain unitCfg geographies depLookup indexFor db dbName sharedSolver processIdText af =
     case resolveScorable db processIdText of
         Left err -> return $ Left err
         Right (processId, _rootActivity) ->
@@ -1830,6 +1827,7 @@ getSupplyChain unitCfg geographies depLookup db dbName sharedSolver processIdTex
                         unitCfg
                         geographies
                         depLookup
+                        indexFor
                         db
                         dbName
                         processId
@@ -2059,14 +2057,16 @@ data Collected = Collected
     { cUnfilteredCount :: !Int
     , cEntries :: ![SupplyChainEntry]
     , cEdges :: ![SupplyChainEdge]
+    , cReached :: ![(Text, Database, U.Vector Double)]
+    -- ^ Each database walked, at the scaling the walk solved it: what its cut-offs are read from
     }
 
 instance Semigroup Collected where
-    Collected t1 es1 ed1 <> Collected t2 es2 ed2 =
-        Collected (t1 + t2) (es1 ++ es2) (ed1 ++ ed2)
+    Collected t1 es1 ed1 r1 <> Collected t2 es2 ed2 r2 =
+        Collected (t1 + t2) (es1 ++ es2) (ed1 ++ ed2) (r1 ++ r2)
 
 instance Monoid Collected where
-    mempty = Collected 0 [] []
+    mempty = Collected 0 [] [] []
 
 {- | Collect filtered supply-chain entries + edges from a single DB's scaling
 vector. Applies @minQuantity@, name/location/product/class/maxDepth filters,
@@ -2195,7 +2195,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                     )
                     []
                     (dbTechnosphereTriples db)
-     in Collected (length allEntries) filteredEntries edges
+     in Collected (length allEntries) filteredEntries edges [(dbName, db, supplyVec)]
 
 {- | Sort, offset, and limit a list of supply-chain entries using the shared
 filter core's @afcSort@ / @afcOrder@ / @afcLimit@ / @afcOffset@. All
@@ -2232,7 +2232,7 @@ buildSupplyChainFromScalingVector ::
 buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf =
     let rootActivity = dbActivities db V.! fromIntegral processId
         rootRefAmount = getReferenceProductAmount rootActivity
-        Collected totalActs entries edges =
+        Collected totalActs entries edges _ =
             collectSupplyChainEntries
                 geographies
                 db
@@ -2267,7 +2267,13 @@ buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf 
             , scrEdges = edges
             , scrWithheldDatabases = []
             , scrWithheldInputs = []
+            , scrCutoffInputs = cutoffShown cutoffs
+            , scrWithheldCutoffs = cutoffWithheld cutoffs
             }
+  where
+    -- One database, and one walk of it: the index is scanned here rather than cached.
+    cutoffs :: Cutoffs
+    cutoffs = cutoffsReached (const (gapIndexOf db)) S.empty [(dbName, db, supplyVec)]
 
 {- | Cross-DB supply-chain expansion: starts with the root DB walk, then for
 every cross-DB link whose consumer carries non-zero scaling, solves the
@@ -2283,6 +2289,8 @@ buildSupplyChainFromScalingVectorCrossDB ::
     UnitConfig ->
     Geographies ->
     SharedSolver.DepSolverLookup ->
+    -- | the supplier-gap index of a database, as the manager keeps it
+    (Text -> Database -> IO GapIndex) ->
     Database ->
     -- | root DB + name
     Text ->
@@ -2293,7 +2301,7 @@ buildSupplyChainFromScalingVectorCrossDB ::
     [CrossDBLink] ->
     SupplyChainFilter ->
     IO (Either ServiceError SupplyChainResponse)
-buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling extraLinks scf = do
+buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor rootDb rootDbName rootPid rootScaling extraLinks scf = do
     let rootActivity = dbActivities rootDb V.! fromIntegral rootPid
         rootRefAmount = getReferenceProductAmount rootActivity
         rootBlock = sourceBlockOf rootDb rootPid
@@ -2324,12 +2332,16 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup rootDb ro
                 , prsBlockProducts = sbProducts rootBlock
                 }
     eDep <- walkDepLevels unitCfg geographies depLookup (Consumer rootDbName rootDb (RootLevel rootPid) rootScaling) extraLinks scf 1 S.empty
-    pure $ case eDep of
-        Left err -> Left err
-        Right depCollected ->
-            let (Collected total entries edges, withheld, withheldInputs) =
-                    withholdEntries (S.delete rootDbName (scfWithheld scf)) (rootCollected <> depCollected)
-             in Right
+    case eDep of
+        Left err -> pure (Left err)
+        Right depCollected -> do
+            let walked = rootCollected <> depCollected
+                refusing = S.delete rootDbName (scfWithheld scf)
+                (Collected total entries edges _, withheld, withheldInputs) = withholdEntries refusing walked
+            indexOf <- indexesOf indexFor (cReached walked)
+            let cutoffs = cutoffsReached indexOf refusing (cReached walked)
+            pure $
+                Right
                     SupplyChainResponse
                         { scrRoot = rootSummary
                         , scrTotalActivities = total
@@ -2338,6 +2350,8 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup rootDb ro
                         , scrEdges = edges
                         , scrWithheldDatabases = withheld
                         , scrWithheldInputs = withheldInputs
+                        , scrCutoffInputs = cutoffShown cutoffs
+                        , scrWithheldCutoffs = cutoffWithheld cutoffs
                         }
 
 {- | Take the entries of the refusing databases out of a chain, and the edges
@@ -2347,8 +2361,8 @@ total stays, a count of what the chain reaches; the entries are filtered
 before a page is cut, so no page comes out short.
 -}
 withholdEntries :: S.Set Text -> Collected -> (Collected, [WithheldProcesses], [WithheldInput])
-withholdEntries refusing (Collected total entries edges) =
-    ( Collected total shown (filter (not . touches) edges)
+withholdEntries refusing (Collected total entries edges reached) =
+    ( Collected total shown (filter (not . touches) edges) reached
     , [ WithheldProcesses{wprDatabase = name, wprProcesses = n, wprReason = withheldSentence name ReadInventory}
       | (name, n) <- M.toList (M.fromListWith (+) [(sceDatabaseName e, 1) | e <- hidden])
       ]
@@ -2458,7 +2472,7 @@ resolveOneDep unitCfg geographies depLookup scf depth visited call
                             (S.insert depDbName visited)
                     pure $ case crossEdges unitCfg (fromMaybe 0 (scfMinQuantity scf)) call supplier of
                         Left err -> Left (MatrixError err)
-                        Right edges -> ((local <> Collected 0 [] edges) <>) <$> eDeeper
+                        Right edges -> ((local <> Collected 0 [] edges []) <>) <$> eDeeper
   where
     depDbName :: Text
     depDbName = dcName call

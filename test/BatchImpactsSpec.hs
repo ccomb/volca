@@ -72,9 +72,9 @@ spec = do
             translateError' [] 400 "Invalid ProcessId format: x"
                 `shouldBe` ActivityResolutionFailed "Invalid ProcessId format: x"
 
-        it "maps 422 to LinkingIncomplete (verbatim body)" $
-            translateError' [] 422 "Database X has unresolved cross-DB products"
-                `shouldBe` LinkingIncomplete "Database X has unresolved cross-DB products"
+        it "maps 422 to Unprocessable (verbatim body)" $
+            translateError' [] 422 "Cannot convert 1 m3 to kg"
+                `shouldBe` Unprocessable "Cannot convert 1 m3 to kg"
 
         it "falls through to OtherBatchError for anything else" $
             translateError' [] 500 "internal error"

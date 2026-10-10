@@ -43,6 +43,7 @@ import API.Types (
     apiFlowName,
  )
 import Database (Geographies)
+import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsReached, indexesOf, noCutoffs)
 import Matrix (linkConsumer)
 import Service (
     ActivityFilterCore (..),
@@ -186,16 +187,18 @@ aggregate ::
     Text -> -- root DB name (for tagging supply-chain entries)
     SharedSolver ->
     DepSolverLookup -> -- cross-DB lookup for ScopeBiosphere
+    (Text -> Database -> IO GapIndex) -> -- the supplier-gap index of a database, as the manager keeps it
     Text -> -- processId text
     AggregateParams ->
     IO (Either ServiceError Aggregation)
-aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidText params =
+aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexFor pidText params =
     case resolveScorable db pidText of
         Left err -> return (Left err)
         Right (processId, activity) ->
             case apScope params of
                 ScopeDirect ->
-                    return $ Right $ reduce params (rowsFromDirect db activity)
+                    -- Nothing is solved: the exchanges are read as the dataset writes them.
+                    return $ Right $ reduce params noCutoffs (rowsFromDirect db activity)
                 ScopeSupplyChain -> case demandFor db processId of
                     Left err -> return (Left err)
                     Right demandVec -> do
@@ -206,23 +209,24 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidTex
                                 unitConfig
                                 geographies
                                 depLookup
+                                indexFor
                                 db
                                 dbName
                                 processId
                                 supplyVec
                                 []
                                 af
-                        return $ fmap (\resp -> (reduce params (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
+                        return $ fmap (\resp -> (reduce params (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
                 ScopeBiosphere -> do
                     solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
                     case solE of
                         Left err -> return (Left (MatrixError err))
                         Right sol
                             | dep : _ <- withheldOf (SharedSolver.csScalings sol) -> return (Left (Withheld (includedSentence dbName dep)))
-                            | otherwise ->
-                                let inventory = SharedSolver.csInventory sol
-                                    export = convertToInventoryExport db flowDB unitDB processId activity inventory
-                                 in return $ Right $ reduce params (rowsFromBiosphere export)
+                            | otherwise -> do
+                                cutoffs <- reachedBy S.empty (NE.toList (SharedSolver.csScalings sol))
+                                let export = convertToInventoryExport db flowDB unitDB processId activity cutoffs (SharedSolver.csInventory sol)
+                                return $ Right $ reduce params cutoffs (rowsFromBiosphere export)
                 ScopeConsumption -> do
                     -- ponytail: reuses the biosphere solve, whose inventory half is
                     -- discarded here; a scaling-only cross-DB walk is the upgrade
@@ -230,17 +234,21 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup pidTex
                     solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
                     case solE of
                         Left err -> return (Left (MatrixError err))
-                        Right sol ->
+                        Right sol -> do
                             let (root :| deps) = SharedSolver.csScalings sol
                                 (hidden, shown) = L.partition (\(name, _, _) -> withholds name) deps
-                             in return $
-                                    Right
-                                        (reduce params (rowsFromConsumption (referenceMagnitude activity) (root :| shown)))
-                                            { aggWithheldDatabases = consumptionLines hidden
-                                            }
+                            cutoffs <- reachedBy (S.fromList [name | (name, _, _) <- hidden]) (root : deps)
+                            return $
+                                Right
+                                    (reduce params cutoffs (rowsFromConsumption (referenceMagnitude activity) (root :| shown)))
+                                        { aggWithheldDatabases = consumptionLines hidden
+                                        }
   where
     withholds :: Text -> Bool
     withholds name = name /= dbName && name `S.member` apWithheld params
+
+    reachedBy :: S.Set Text -> [(Text, Database, VU.Vector Double)] -> IO Cutoffs
+    reachedBy withheld scalings = (\indexOf -> cutoffsReached indexOf withheld scalings) <$> indexesOf indexFor scalings
 
     withheldOf :: NonEmpty (Text, Database, VU.Vector Double) -> [Text]
     withheldOf scalings = [name | (name, _, _) <- NE.toList scalings, withholds name]
@@ -496,8 +504,8 @@ groupKey key r = case key of
         Nothing -> n
 
 -- | Combine rows into an Aggregation.
-reduce :: AggregateParams -> [AggRow] -> Aggregation
-reduce p rowsAll =
+reduce :: AggregateParams -> Cutoffs -> [AggRow] -> Aggregation
+reduce p cutoffs rowsAll =
     let matched = filter (filterRow p) rowsAll
         total = sum (map rowQuantity matched)
         fnCount = length matched
@@ -515,6 +523,8 @@ reduce p rowsAll =
             , aggFilteredCount = fnCount
             , aggGroups = sortGroups groups
             , aggWithheldDatabases = []
+            , aggCutoffInputs = cutoffShown cutoffs
+            , aggWithheldCutoffs = cutoffWithheld cutoffs
             }
   where
     mkGroup total (key, rs) =

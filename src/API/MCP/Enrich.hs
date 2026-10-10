@@ -36,6 +36,11 @@ module API.MCP.Enrich (
     isMarketActivityName,
     attachMarketHintByName,
 
+    -- * cut-off inputs
+    cutoffNotice,
+    cutoffFields,
+    withCutoffNotice,
+
     -- * Value combinators (exported for tests)
     overObject,
     overArray,
@@ -51,7 +56,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.URI (escapeURIString, isUnreserved)
+import Numeric (showGFloat)
 
+import API.Types (CutoffInput (..), WithheldCutoffs (..))
+import Database.Cutoffs (Cutoffs (..))
 import Database.Manager (CollectionName (..))
 
 -- ---------------------------------------------------------------------------
@@ -173,6 +181,8 @@ edits, both purely about wire weight (no information lost):
   * Drop @web_url@ from every entry. The panel-level @web_url@ added
     by 'addWebUrl' already lands on the page that lists every method;
     a deep link per method would be redundant.
+  * Drop @cutoffInputs@ and @withheldCutoffs@ from every entry: each
+    repeats the panel's own, which stays at the top level.
 
 Defensive on the shape: missing @results@, empty @results@, or entries
 without a @functionalUnit@ are all passed through cleanly.
@@ -180,7 +190,12 @@ without a @functionalUnit@ are all passed through cleanly.
 slimLCIAPanel :: Value -> Value
 slimLCIAPanel = overObject (stripWebUrlFromEntries . hoistFunctionalUnit)
   where
-    stripWebUrlFromEntries = adjustKey resultsKey (overArray (overObject (KM.delete webUrlKey)))
+    stripWebUrlFromEntries = adjustKey resultsKey (overArray (overObject (KM.delete webUrlKey . KM.delete cutoffInputsKey . KM.delete withheldCutoffsKey)))
+
+    -- Every method of a panel is read on one solution: its cut-offs stand once, beside the results.
+    cutoffInputsKey, withheldCutoffsKey :: Key.Key
+    cutoffInputsKey = fromText "cutoffInputs"
+    withheldCutoffsKey = fromText "withheldCutoffs"
 
 {- | Copy @results[0].functionalUnit@ to the top level of the panel and
 remove it from every entry. The value is constant across @results@ by
@@ -302,3 +317,58 @@ attachMarketHintByName :: Text -> Value -> Value
 attachMarketHintByName name
     | isMarketActivityName name = overObject (KM.insert hintKey marketHintObject)
     | otherwise = id
+
+-- ---------------------------------------------------------------------------
+-- cut-off inputs
+-- ---------------------------------------------------------------------------
+
+{- | The sentence an answer that counted unsupplied inputs as zero opens with,
+so a reader cannot take its numbers for a complete chain: the five largest
+named, the rest counted, and each dependency whose licence keeps the detail
+counted on its own. 'Nothing' when the answer met none.
+-}
+cutoffNotice :: Cutoffs -> Maybe Text
+cutoffNotice Cutoffs{cutoffShown = shown, cutoffWithheld = withheld}
+    | total == 0 = Nothing
+    | otherwise =
+        Just $
+            "This result counts "
+                <> T.pack (show total)
+                <> (if total == 1 then " input" else " inputs")
+                <> " no loaded database supplies as zero: "
+                <> T.intercalate ", " (andAfterFirst (map named (take 5 shown) ++ more ++ map inside withheld))
+                <> "; load the database that makes them, or see the gap report."
+  where
+    total :: Int
+    total = length shown + sum (map wcCount withheld)
+
+    named :: CutoffInput -> Text
+    named c = ciProduct c <> " (" <> T.pack (showGFloat (Just 3) (ciAmount c) "") <> " " <> ciUnit c <> ")"
+
+    more :: [Text]
+    more = [T.pack (show (length shown - 5)) <> " more" | length shown > 5]
+
+    inside :: WithheldCutoffs -> Text
+    inside w = T.pack (show (wcCount w)) <> " inside " <> wcDatabase w <> ", whose licence keeps the detail"
+
+    -- Only the counts take an "and", and only after something named before them.
+    andAfterFirst :: [Text] -> [Text]
+    andAfterFirst phrases = case splitAt (min 5 (length shown)) phrases of
+        ([], first : rest) -> first : map ("and " <>) rest
+        (names, counts) -> names ++ map ("and " <>) counts
+
+{- | The fields an MCP answer carries when it met cut-off inputs: the notice
+and the lists it summarises. None when it met none.
+-}
+cutoffFields :: Cutoffs -> [Pair]
+cutoffFields cutoffs = case cutoffNotice cutoffs of
+    Nothing -> []
+    Just notice ->
+        ["cutoff_notice" .= notice, "cutoff_inputs" .= cutoffShown cutoffs]
+            ++ ["withheld_cutoffs" .= cutoffWithheld cutoffs | not (null (cutoffWithheld cutoffs))]
+
+{- | Put the notice on an answer that already carries the lists, as a REST
+result serialised whole does under @cutoffInputs@ and @withheldCutoffs@.
+-}
+withCutoffNotice :: Cutoffs -> Value -> Value
+withCutoffNotice cutoffs = maybe id (overObject . KM.insert (fromText "cutoff_notice") . String) (cutoffNotice cutoffs)

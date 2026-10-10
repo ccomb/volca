@@ -355,6 +355,7 @@ test-suite lca-tests
                      , CrossDBSubstitutionSpec
                      , GapReportSpec
                      , CutoffsSpec
+                     , ComputeWithCutoffsSpec
                      , LinkingReportSpec
                      , QualityReportSpec
                      , QualityCsvSpec

@@ -4,6 +4,23 @@
 
 ### Added
 
+- A database whose products are not all supplied is now computed instead of
+  refused with HTTP 422. An input that no loaded database supplies counts as
+  zero, and every result that solves an activity says which of these inputs
+  its chain met: `cutoffInputs` lists each one with its database, product,
+  location, unit, the amount the chain asks per unit of the activity, how many
+  processes ask for it, and why no supplier was found. `withheldCutoffs`
+  counts the ones inside a dependency whose licence keeps its detail, without
+  naming them. This covers the inventory, the scores of one method and of a
+  whole collection, sensitivity (for the baseline), contributing flows and
+  activities (by method and by score), the supply chain and the aggregation
+  (empty for the `direct` scope, which solves nothing). An MCP tool whose
+  answer met any opens with a `cutoff_notice` sentence naming the largest
+  ones; `score_activities` adds a `cutoffs` column counting them per row,
+  and `score_activity` gives the list once rather than per method. In
+  pyvolca, `cutoff_inputs` and `withheld_cutoffs` on the result classes, and
+  the `CutoffInput` and `WithheldCutoffs` types. Wire revision 58.
+
 - A comparison of two activities, or of two databases, reports a description
   that changed (`DescriptionChanged`, one string per paragraph) and an input
   drawn from another supplier (`SupplierChanged`, each supplier named by its
