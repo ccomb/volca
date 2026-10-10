@@ -164,7 +164,7 @@ spec = do
 
     describe "allocateWith, a share per product and exchange" $ do
         it "overrides the product's share for the one exchange a pair names" $ do
-            let processes = NE.toList (allocateWith declaredOn (exchangeShares [((0, 4), 90)]) block)
+            let processes = NE.toList (allocateWith declaredOn (exchangeShares (M.singleton SharedExchange{seProduct = 0, seExchange = 4} 90)) block)
             [bioAmounts p | p <- processes] `shouldBe` [[3.6], [1.2], [0.8]]
             [inputAmounts p | p <- processes] `shouldBe` [[5.0], [3.0], [2.0]]
 
@@ -177,7 +177,7 @@ spec = do
                         , productRow creamId 3.0 Coproduct (Just 50) M.empty
                         , bio 4.0
                         ]
-            [bioAmounts p | p <- NE.toList (allocateWith declaredOn (exchangeShares [((2, 3), 10)]) withZero)]
+            [bioAmounts p | p <- NE.toList (allocateWith declaredOn (exchangeShares (M.singleton SharedExchange{seProduct = 2, seExchange = 3} 10)) withZero)]
                 `shouldBe` [[2.0], [0.4]]
 
         it "is ignored under a key on a physical property, which replaces every declared share" $ do
@@ -188,7 +188,7 @@ spec = do
                         , input 10.0
                         , bio 4.0
                         ]
-            [bioAmounts p | p <- NE.toList (allocateWith (byPropertyOn WetMass) (exchangeShares [((0, 3), 90)]) twoMasses)]
+            [bioAmounts p | p <- NE.toList (allocateWith (byPropertyOn WetMass) (exchangeShares (M.singleton SharedExchange{seProduct = 0, seExchange = 3} 90)) twoMasses)]
                 `shouldBe` [[1.0], [3.0]]
 
         it "with no pair, splits exactly as allocate" $

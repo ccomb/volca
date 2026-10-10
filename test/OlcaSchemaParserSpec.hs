@@ -134,6 +134,26 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         inv <- inventoryOf db pairN pairF
         inv `carriesOnly` [(oreF, 0.5)]
 
+    it "keeps causal factors on their lines once a product's two lines are merged" $ \_ -> do
+        pkg <- readFixture
+        -- Heat's 2 MJ on two lines: merging drops the second, so every later line moves up one place.
+        let halved x = x{rxAmount = 1}
+            twice p = case prExchanges p of
+                heat : rest -> p{prExchanges = halved heat : (halved heat){rxInternalId = 99, rxReference = False} : rest}
+                [] -> p
+        db <- matrices =<< built (editing cogenG twice pkg)
+        heat <- inventoryOf db cogenG heatF
+        power <- inventoryOf db cogenG powerF
+        heat `carriesOnly` [(co2F, 0.4525), (oreF, 0.025)]
+        power `carriesOnly` [(co2F, 0.11), (oreF, 0.1)]
+
+    it "evaluates a global calculated parameter among the globals, whatever a process redefines" $ \_ -> do
+        pkg <- readFixture
+        let globals = [Parameter "base" (InputValue 1), Parameter "doubled" (Calculated "base * 2" 2)]
+            uses p = p{prParameters = Parameter "base" (InputValue 5) : prParameters p, prExchanges = map (\x -> if rxFlow x == co2F then x{rxFormula = Just "doubled", rxAmount = 2} else x) (prExchanges p)}
+        b <- built (editing steelA uses pkg{pkGlobals = globals <> pkGlobals pkg})
+        [what | Divergent what <- builtNotices b, "steel production" `T.isPrefixOf` what] `shouldBe` []
+
     it "places elementary flows in their compartment, and counts those it cannot place" $ \(b, _) -> do
         let compartment fid = bfCompartment =<< M.lookup fid (sdbBioFlows (builtDatabase b))
         compartment co2F `shouldBe` Just (Compartment Air Nothing)
@@ -141,6 +161,15 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         compartment oreF `shouldBe` Just (Compartment NaturalResource (Just "ground"))
         compartment serviceF `shouldBe` Nothing
         [what | Unplaced what <- builtNotices b] `shouldBe` ["pollination"]
+
+    it "places elementary flows filed under the plural categories a flow list imported from ILCD carries" $ \_ -> do
+        pkg <- readFixture
+        let filed f c = M.adjust (\x -> x{flCategory = c}) f
+            plural = pkg{pkFlows = filed co2F "Elementary flows/Emissions/Emissions to air/Emissions to air, unspecified" (filed oreF "Elementary flows/Resources/Resources from ground" (pkFlows pkg))}
+        b <- built plural
+        let compartment fid = bfCompartment =<< M.lookup fid (sdbBioFlows (builtDatabase b))
+        compartment co2F `shouldBe` Just (Compartment Air (Just "Emissions to air, unspecified"))
+        compartment oreF `shouldBe` Just (Compartment NaturalResource (Just "Resources from ground"))
 
     it "refuses a line it cannot convert, naming every one" $ \_ -> do
         pkg <- readFixture

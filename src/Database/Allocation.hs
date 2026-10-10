@@ -27,6 +27,7 @@ module Database.Allocation (
     AllocationRefusal (..),
     AllocatedActivity,
     ExchangeShares,
+    SharedExchange (..),
     noExchangeShares,
     exchangeShares,
     allocatedActivity,
@@ -94,14 +95,21 @@ activity as its reader built it, because those are what every reader has;
 the pairs describe the block, not any one process cut from it, so nothing is
 stored on the exchanges. Percentages, like 'DeclaredShare'.
 -}
-newtype ExchangeShares = ExchangeShares (M.Map (Int, Int) Double)
+newtype ExchangeShares = ExchangeShares (M.Map SharedExchange Double)
+
+-- | One exchange of one product's process, both by position in the activity.
+data SharedExchange = SharedExchange
+    { seProduct :: !Int
+    , seExchange :: !Int
+    }
+    deriving (Eq, Ord, Show)
 
 -- | No pair: every exchange follows its product's share.
 noExchangeShares :: ExchangeShares
 noExchangeShares = ExchangeShares M.empty
 
-exchangeShares :: [((Int, Int), Double)] -> ExchangeShares
-exchangeShares = ExchangeShares . M.fromList
+exchangeShares :: M.Map SharedExchange Double -> ExchangeShares
+exchangeShares = ExchangeShares
 
 {- | Split an activity into one process per product output when every product
 carries a declared share; otherwise return it as it is, normalised.
@@ -164,7 +172,7 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
       where
         exchangeShare :: Double
         exchangeShare = case from of
-            FromSource -> M.findWithDefault share (productAt, at) pairs
+            FromSource -> M.findWithDefault share SharedExchange{seProduct = productAt, seExchange = at} pairs
             FromProperty -> share
 
     {- The share a split process records is the one that was applied to it.

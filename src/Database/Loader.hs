@@ -568,6 +568,10 @@ History of manual bumps:
 - 54: an openLCA package is read by its own reader. A package read as ILCD
      until now may have left a cache, which nothing in the fingerprint tells
      from this reader's.
+- 55: the openLCA reader nets an elementary flow written on both sides, reads
+     a causal factor naming no product, and merges a product's lines. Nothing
+     changes type, so a cache written just before this would keep the old
+     amounts.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.

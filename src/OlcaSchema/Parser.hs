@@ -33,7 +33,7 @@ import qualified Data.UUID as UUID
 import Text.Printf (printf)
 
 import Data.Indexing (uniqueIndex)
-import Database.Allocation (Allocating (..), allocateWith, exchangeShares)
+import Database.Allocation (Allocating (..), SharedExchange (..), allocateWith, exchangeShares)
 import qualified Expr
 import qualified OlcaSchema.Package as P
 import Progress (ProgressLevel (..), reportProgress)
@@ -214,9 +214,11 @@ flowTables pkg flowUnits =
         P.WasteFlow -> S.member (P.flId f) treated
         P.ElementaryFlow -> False
 
-{- | The compartment a category path names. Two spellings exist: one level
-(@Elementary flows/Emission to air/…@) and two levels
-(@Elementary flows/emission/air@). Ground under emission
+{- | The compartment a category path names. Three spellings exist: one level
+(@Elementary flows/Emission to air/…@), two levels
+(@Elementary flows/emission/air@), and the plural two levels a flow list
+imported from ILCD carries (@Elementary flows/Emissions/Emissions to air/…@,
+@Elementary flows/Resources/…@). Ground under emission
 is the soil; every resource is a natural resource, its medium kept as the
 sub-compartment.
 -}
@@ -233,6 +235,9 @@ compartmentOf category = case T.splitOn "/" category of
         ("emission to air", sub) -> Just (Compartment Air (listToMaybe sub))
         ("emission to water", sub) -> Just (Compartment Water (listToMaybe sub))
         ("emission to soil", sub) -> Just (Compartment Soil (listToMaybe sub))
+        ("emissions", medium : sub) -> (\m -> Compartment m (listToMaybe sub)) <$> emittedTo (T.toLower medium)
+        ("resources", medium : _) -> Just (Compartment NaturalResource (Just medium))
+        ("resources", []) -> Just (Compartment NaturalResource Nothing)
         _ -> Nothing
 
     emittedTo :: Text -> Maybe Medium
@@ -241,6 +246,9 @@ compartmentOf category = case T.splitOn "/" category of
         "water" -> Just Water
         "ground" -> Just Soil
         "soil" -> Just Soil
+        "emissions to air" -> Just Air
+        "emissions to water" -> Just Water
+        "emissions to soil" -> Just Soil
         _ -> Nothing
 
 -- | Whether a line offers its flow to others: a product made, or a waste taken in.
@@ -309,28 +317,37 @@ readProcess cx p = case partitionEithers (zipWith (readLine cx p env) [0 ..] (P.
     envNotices :: [Notice]
     (env, envNotices) = environment (P.pkGlobals (cxPackage cx)) p
 
-{- | The parameters a process's formulas see: the globals, its own input
-parameters over them (a process parameter shadows a global one of the same
-name, case aside, as in openLCA), then its calculated ones, settled. Names
-are lowercased, as the openLCA dialect reads every formula.
+{- | The parameters a process's formulas see: the globals, settled among
+themselves (a global formula reads global values, whatever a process
+redefines), then the process's own parameters over them (a process parameter
+shadows a global one of the same name, case aside, as in openLCA), its
+calculated ones settled last. Names are lowercased, as the openLCA dialect
+reads every formula.
 -}
 environment :: [P.Parameter] -> P.Process -> (M.Map Text Double, [Notice])
-environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name) | (name, _) <- calculated, M.notMember name settled])
+environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name) | (name, _) <- calculated globals' <> calculated own, M.notMember name settled])
   where
-    params :: [P.Parameter]
-    params = M.elems (M.union (byName (P.prParameters p)) (byName globals))
+    globals' :: [P.Parameter]
+    globals' = M.elems (byName globals)
+
+    own :: [P.Parameter]
+    own = M.elems (byName (P.prParameters p))
 
     byName :: [P.Parameter] -> M.Map Text P.Parameter
     byName qs = M.fromList [(T.toLower (P.paName q), q) | q <- qs]
 
-    given :: M.Map Text Double
-    given = M.fromList [(T.toLower (P.paName q), v) | q <- params, P.InputValue v <- [P.paValue q]]
+    given :: [P.Parameter] -> M.Map Text Double
+    given qs = M.fromList [(T.toLower (P.paName q), v) | q <- qs, P.InputValue v <- [P.paValue q]]
 
-    calculated :: [(Text, Text)]
-    calculated = [(T.toLower (P.paName q), f) | q <- params, P.Calculated f _ <- [P.paValue q]]
+    calculated :: [P.Parameter] -> [(Text, Text)]
+    calculated qs = [(T.toLower (P.paName q), f) | q <- qs, P.Calculated f _ <- [P.paValue q]]
+
+    -- A name the process redefines must not lend its global value to the process's formulas.
+    global :: M.Map Text Double
+    global = M.withoutKeys (Expr.settle Expr.OpenLca (given globals') (calculated globals')) (M.keysSet (byName own))
 
     settled :: M.Map Text Double
-    settled = Expr.settle Expr.OpenLca given calculated
+    settled = Expr.settle Expr.OpenLca (M.union (given own) global) (calculated own)
 
 {- | A product a process lists on several lines is one output of their sum,
 on the first of them, as openLCA adds them up; it is the reference if any
@@ -338,7 +355,7 @@ of them is. ponytail: a causal factor naming a dropped line's internal id
 becomes a stray factor; redirect it to the kept line if a package shows one.
 -}
 oneLinePerProduct :: [Line] -> [Line]
-oneLinePerProduct lines' = [merged ln | ln <- lines', not (isProduct ln) || isFirst ln]
+oneLinePerProduct lines' = zipWith renumbered [0 ..] [merged ln | ln <- lines', not (isProduct ln) || isFirst ln]
   where
     isProduct :: Line -> Bool
     isProduct ln = offers (P.flType (lnFlow ln)) (P.rxSide (lnRaw ln))
@@ -348,6 +365,10 @@ oneLinePerProduct lines' = [merged ln | ln <- lines', not (isProduct ln) || isFi
 
     isFirst :: Line -> Bool
     isFirst ln = (lnAt . NE.head <$> M.lookup (P.flId (lnFlow ln)) byFlow) == Just (lnAt ln)
+
+    -- Shares and causal pairs are keyed by position in the activity, which counts the merged lines.
+    renumbered :: Int -> Line -> Line
+    renumbered i ln = ln{lnAt = i}
 
     merged :: Line -> Line
     merged ln = case M.lookup (P.flId (lnFlow ln)) byFlow of
@@ -411,7 +432,7 @@ formulaNotices p = concatMap notice
 -- | The shares a process's products carry, and the pairs causal allocation adds.
 data Split = Split
     { spShares :: !(M.Map Int Double)
-    , spPairs :: ![((Int, Int), Double)]
+    , spPairs :: !(M.Map SharedExchange Double)
     , spNotices :: ![Notice]
     }
 
@@ -425,7 +446,7 @@ said too.
 -}
 split :: M.Map Text Double -> P.Process -> [Line] -> [Line] -> Split
 split env p lines' products
-    | length products < 2 = Split M.empty [] []
+    | length products < 2 = Split M.empty M.empty []
     | otherwise = case P.prAllocation p of
         Just P.Physical -> perProduct P.Physical
         Just P.Economic -> perProduct P.Economic
@@ -434,13 +455,13 @@ split env p lines' products
         Nothing -> whole
   where
     whole :: Split
-    whole = Split (M.fromList [(lnAt ln, 100) | ln <- products]) [] [WithoutFactor (P.prName p)]
+    whole = Split (M.fromList [(lnAt ln, 100) | ln <- products]) M.empty [WithoutFactor (P.prName p)]
 
     perProduct :: P.AllocationMethod -> Split
     perProduct method =
         Split
             { spShares = M.fromList [(lnAt ln, maybe 100 (* 100) (factorFor method ln)) | ln <- products]
-            , spPairs = []
+            , spPairs = M.empty
             , spNotices = [WithoutFactor (P.prName p <> " · " <> P.flName (lnFlow ln)) | ln <- products, Nothing <- [factorFor method ln]] <> factorNotices method
             }
 
@@ -457,14 +478,14 @@ split env p lines' products
     causal :: Split
     causal = case partitionEithers ([pair f | f <- P.prFactors p, P.afMethod f == P.Causal]) of
         (strays, []) -> whole{spNotices = WithoutFactor (P.prName p) : strays <> factorNotices P.Causal}
-        (strays, pairs) -> Split (M.fromList [(lnAt ln, 100) | ln <- products]) pairs (strays <> factorNotices P.Causal)
+        (strays, pairs) -> Split (M.fromList [(lnAt ln, 100) | ln <- products]) (M.fromList pairs) (strays <> factorNotices P.Causal)
 
-    pair :: P.AllocationFactor -> Either Notice ((Int, Int), Double)
+    pair :: P.AllocationFactor -> Either Notice (SharedExchange, Double)
     pair f = maybe (Left (StrayFactor (P.prName p))) Right $ do
         productAt <- listToMaybe [lnAt ln | ln <- products, Just (P.flId (lnFlow ln)) == P.afProduct f]
         internalId <- P.afExchange f
         lineAt <- listToMaybe [lnAt ln | ln <- lines', P.rxInternalId (lnRaw ln) == internalId]
-        pure ((productAt, lineAt), value f * 100)
+        pure (SharedExchange{seProduct = productAt, seExchange = lineAt}, value f * 100)
 
     value :: P.AllocationFactor -> Double
     value = fst . factorOutcome
