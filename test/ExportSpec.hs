@@ -37,7 +37,8 @@ spec = describe "Database.Export dispatcher" $ do
 
     it "fails loudly for formats with no writer (never a silent empty file)" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
-        serializeDatabase OpenLcaJsonLd db `shouldSatisfy` isLeft
+        serializeDatabase OpenLcaImpactCategory db `shouldSatisfy` isLeft
+        serializeDatabase OpenLcaPackage db `shouldSatisfy` isLeft
         serializeDatabase UnknownFormat db `shouldSatisfy` isLeft
 
     it "writes an exclusion row only to the format that reads the marker back" $ do

@@ -7,7 +7,13 @@ import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
+import qualified Data.Map.Strict as M
+import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
 import Database.Manager (DirectoryFormat (..), detectDirectoryFormat)
+import Database.Upload (DatabaseFormat (..), detectDatabaseFormat)
+import OlcaPackageFixture (writePackage)
+import Types (SimpleDatabase (..))
+import UnitConversion (defaultUnitConfig)
 
 spec :: Spec
 spec = describe "detectDirectoryFormat" $ do
@@ -71,3 +77,22 @@ spec = describe "detectDirectoryFormat" $ do
         withSystemTempDirectory "unknown-detect" $ \dir -> do
             writeFile (dir </> "notes.txt") "nothing to load here\n"
             detectDirectoryFormat dir `shouldReturn` FormatUnknown
+
+    describe "an openLCA package" $ do
+        it "is not taken for ILCD, though both have a processes folder" $
+            withSystemTempDirectory "olca" $ \dir -> do
+                writePackage dir
+                detectDirectoryFormat dir `shouldReturn` FormatOpenLca
+                detectDatabaseFormat dir `shouldReturn` OpenLcaPackage
+
+        it "still leaves a processes folder without openlca.json to ILCD" $
+            withSystemTempDirectory "ilcd" $ \dir -> do
+                createDirectoryIfMissing True (dir </> "processes")
+                detectDirectoryFormat dir `shouldReturn` FormatILCD
+                detectDatabaseFormat dir `shouldReturn` ILCDProcess
+
+        it "loads through the loader, as the configuration names it" $
+            withSystemTempDirectory "olca" $ \dir -> do
+                writePackage dir
+                loaded <- loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig) dir
+                fmap (M.size . sdbActivities) loaded `shouldBe` Right 16

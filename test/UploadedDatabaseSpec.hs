@@ -38,7 +38,8 @@ spec = do
         it "parses ecospold1" $ parseFormat "ecospold1" `shouldBe` Just EcoSpold1
         it "parses simapro" $ parseFormat "simapro" `shouldBe` Just SimaProCSV
         it "parses ilcd" $ parseFormat "ilcd" `shouldBe` Just ILCDProcess
-        it "parses openlca-jsonld" $ parseFormat "openlca-jsonld" `shouldBe` Just OpenLcaJsonLd
+        it "parses openlca-jsonld" $ parseFormat "openlca-jsonld" `shouldBe` Just OpenLcaImpactCategory
+        it "parses openlca-package" $ parseFormat "openlca-package" `shouldBe` Just OpenLcaPackage
         it "parses unknown" $ parseFormat "other" `shouldBe` Just UnknownFormat
 
     -- -----------------------------------------------------------------------
@@ -148,7 +149,7 @@ spec = do
                     let meta = baseMeta{umFormat = fmt}
                     fmap umFormat (parseMetaToml (formatMetaToml meta)) `shouldBe` Just fmt
                 )
-                [EcoSpold2, EcoSpold1, SimaProCSV, ILCDProcess, OpenLcaJsonLd, UnknownFormat]
+                [EcoSpold2, EcoSpold1, SimaProCSV, ILCDProcess, OpenLcaImpactCategory, OpenLcaPackage, UnknownFormat]
 
         it "round-trips a path with spaces" $ do
             let meta = baseMeta{umDataPath = "my data/sub dir"}

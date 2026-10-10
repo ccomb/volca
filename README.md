@@ -2,7 +2,7 @@
 
 **VoLCA** is a Life Cycle Assessment engine that turns LCA databases into inspectable, queryable answers – fast.
 
-It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel databases, builds supply chain dependency trees, computes life cycle inventories using sparse matrix algebra, and applies characterization methods for impact assessment. Everything runs in-memory against your own data.
+It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, openLCA JSON-LD, and Brightway Excel databases, builds supply chain dependency trees, computes life cycle inventories using sparse matrix algebra, and applies characterization methods for impact assessment. Everything runs in-memory against your own data.
 
 ## What It Does
 
@@ -19,7 +19,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, and Brightway Excel da
 
 ## Key Features
 
-- **Multiple database formats**: EcoSpold2 (.spold), EcoSpold1 (.xml), SimaPro CSV, ILCD process datasets, Brightway Excel (.xlsx)
+- **Multiple database formats**: EcoSpold2 (.spold), EcoSpold1 (.xml), SimaPro CSV, ILCD process datasets, openLCA JSON-LD packages (zip with `openlca.json`), Brightway Excel (.xlsx)
 - **Archive support**: Load databases directly from .zip, .7z, .gz, or .xz archives – no manual extraction
 - **Cross-database linking**: Resolve supplier references across databases, with configurable dependencies and topological load ordering. EcoSpold2 inputs link to a loaded background by exact `activityLinkId` identity (so a partial import resolves against its matching release), falling back to attribute matching – flagged as approximate – when the background is a different release
 - **Cross-DB what-if substitutions**: Swap an upstream activity at any depth – including suppliers in dependency databases – and recompute inventory and impacts through one endpoint

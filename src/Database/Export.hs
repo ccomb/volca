@@ -8,8 +8,8 @@ bytes in one of the supported formats by delegating to the per-format writer.
 
 Single-file formats (SimaPro CSV, EcoSpold 1, Brightway Excel) serialize to one
 byte stream. Multi-file formats (EcoSpold 2, ILCD) are inherently directory
-trees, so they are packaged into a deterministic zip archive. 'OpenLcaJsonLd'
-has no writer and 'UnknownFormat' is not a real target, so both fail loudly
+trees, so they are packaged into a deterministic zip archive. 'OpenLcaImpactCategory'
+and 'OpenLcaPackage' have no writer and 'UnknownFormat' is not a real target, so all fail loudly
 ('Left') rather than emit a silent empty file.
 -}
 module Database.Export (
@@ -67,8 +67,10 @@ serializeDatabase fmt db = case fmt of
     EcoSpold2 -> noWarn (zipText <$> ES2.writeEcoSpold2 ES2.noVolatileMeta sdb)
     ILCDProcess -> (,ILCD.splitWarnings sdb) <$> ILCD.writeILCDArchive ILCD.defaultWriteOptions sdb
     BrightwayExcel -> (,BE.wasteManifest sdb) <$> BE.renderWorkbook BE.defaultWriterConfig sdb
-    OpenLcaJsonLd ->
+    OpenLcaImpactCategory ->
         Left "openLCA JSON-LD export is not supported"
+    OpenLcaPackage ->
+        Left "openLCA package export is not supported"
     UnknownFormat ->
         Left "cannot export to an unknown format"
   where

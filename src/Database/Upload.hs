@@ -60,6 +60,7 @@ import System.Info (os)
 import System.Process (readProcessWithExitCode)
 
 import qualified Method.Parser.OlcaSchema as OlcaSchema
+import qualified OlcaSchema.Package as OlcaPackage
 
 -- | Detected database format
 data DatabaseFormat
@@ -67,7 +68,8 @@ data DatabaseFormat
     | EcoSpold1 -- EcoSpold v1 XML format
     | EcoSpold2 -- EcoSpold v2 XML format
     | ILCDProcess -- ILCD process dataset format
-    | OpenLcaJsonLd -- openLCA JSON-LD (single ImpactCategory document)
+    | OpenLcaImpactCategory -- openLCA JSON-LD: a single ImpactCategory document, a method
+    | OpenLcaPackage -- openLCA JSON-LD package: a whole database, with openlca.json at its root
     | BrightwayExcel -- Brightway Excel (.xlsx) inventory format
     | UnknownFormat -- Could not detect format
     deriving (Show, Eq, Generic)
@@ -77,7 +79,8 @@ instance ToJSON DatabaseFormat where
     toJSON EcoSpold1 = A.String "EcoSpold 1"
     toJSON SimaProCSV = A.String "SimaPro CSV"
     toJSON ILCDProcess = A.String "ILCD"
-    toJSON OpenLcaJsonLd = A.String "openLCA JSON-LD"
+    toJSON OpenLcaImpactCategory = A.String "openLCA JSON-LD"
+    toJSON OpenLcaPackage = A.String "openLCA package"
     toJSON BrightwayExcel = A.String "Brightway Excel"
     toJSON UnknownFormat = A.String ""
 
@@ -101,7 +104,8 @@ instance FromJSON DatabaseFormat where
         "EcoSpold 1" -> pure EcoSpold1
         "SimaPro CSV" -> pure SimaProCSV
         "ILCD" -> pure ILCDProcess
-        "openLCA JSON-LD" -> pure OpenLcaJsonLd
+        "openLCA JSON-LD" -> pure OpenLcaImpactCategory
+        "openLCA package" -> pure OpenLcaPackage
         "Brightway Excel" -> pure BrightwayExcel
         _ -> pure UnknownFormat
 
@@ -607,7 +611,7 @@ detectMethodFormat dir = do
             let withExt e = [dir </> f | f <- fs, map toLower (takeExtension f) == e]
             firstMatch
                 [ (ILCDProcess, anyM isMethodXml (withExt ".xml"))
-                , (OpenLcaJsonLd, anyM isOlcaJsonFile (withExt ".json"))
+                , (OpenLcaImpactCategory, anyM isOlcaJsonFile (withExt ".json"))
                 , -- Content-checked, like the two above: a stray spreadsheet
                   -- export next to the method files is not a SimaPro method.
                   (SimaProCSV, checkForSimaProCSV (withExt ".csv"))
@@ -694,7 +698,8 @@ countDataFiles d format = do
     isDataFile EcoSpold1 f = ".xml" `isSuffixOf` map toLower f
     isDataFile EcoSpold2 f = ".spold" `isSuffixOf` map toLower f
     isDataFile ILCDProcess f = ".xml" `isSuffixOf` map toLower f
-    isDataFile OpenLcaJsonLd f = ".json" `isSuffixOf` map toLower f
+    isDataFile OpenLcaImpactCategory f = ".json" `isSuffixOf` map toLower f
+    isDataFile OpenLcaPackage f = ".json" `isSuffixOf` map toLower f
     isDataFile BrightwayExcel f = ".xlsx" `isSuffixOf` map toLower f
     isDataFile UnknownFormat _ = True
 
@@ -730,43 +735,47 @@ detectDatabaseFormat path = do
                     return $ if isSimaPro then SimaProCSV else UnknownFormat
                 ".json" -> do
                     isOlca <- isOlcaJsonFile path
-                    return $ if isOlca then OpenLcaJsonLd else UnknownFormat
+                    return $ if isOlca then OpenLcaImpactCategory else UnknownFormat
                 _ -> return UnknownFormat
         else
             if isDir
                 then do
-                    -- Check for ILCD format: has a processes/ subdirectory
+                    -- An openLCA package has a processes/ folder too; its openlca.json is what tells it from ILCD.
+                    isPackage <- OlcaPackage.isOlcaPackage path
                     hasProcesses <- doesDirectoryExist (path </> "processes")
-                    if hasProcesses
-                        then return ILCDProcess
-                        else do
-                            fs <- listDirectoryRecursive path
-                            let extensions = map (map toLower . takeExtension) fs
-                            let hasSpold = ".spold" `elem` extensions
-                                hasXlsx = ".xlsx" `elem` extensions
-                                hasXml = ".xml" `elem` extensions
-                                hasCsv = ".csv" `elem` extensions
-                                jsonFiles = [f | f <- fs, map toLower (takeExtension f) == ".json"]
-                            if hasSpold
-                                then return EcoSpold2
-                                else
-                                    if hasXlsx
-                                        then return BrightwayExcel
+                    if isPackage
+                        then return OpenLcaPackage
+                        else
+                            if hasProcesses
+                                then return ILCDProcess
+                                else do
+                                    fs <- listDirectoryRecursive path
+                                    let extensions = map (map toLower . takeExtension) fs
+                                    let hasSpold = ".spold" `elem` extensions
+                                        hasXlsx = ".xlsx" `elem` extensions
+                                        hasXml = ".xml" `elem` extensions
+                                        hasCsv = ".csv" `elem` extensions
+                                        jsonFiles = [f | f <- fs, map toLower (takeExtension f) == ".json"]
+                                    if hasSpold
+                                        then return EcoSpold2
                                         else
-                                            if hasXml
-                                                then do
-                                                    isEcoSpold1 <- checkForEcoSpold1 fs
-                                                    return $ if isEcoSpold1 then EcoSpold1 else UnknownFormat
+                                            if hasXlsx
+                                                then return BrightwayExcel
                                                 else
-                                                    if hasCsv
+                                                    if hasXml
                                                         then do
-                                                            isSimaPro <- checkForSimaProCSV fs
-                                                            return $ if isSimaPro then SimaProCSV else UnknownFormat
-                                                        else case jsonFiles of
-                                                            [] -> return UnknownFormat
-                                                            (j : _) -> do
-                                                                isOlca <- isOlcaJsonFile j
-                                                                return $ if isOlca then OpenLcaJsonLd else UnknownFormat
+                                                            isEcoSpold1 <- checkForEcoSpold1 fs
+                                                            return $ if isEcoSpold1 then EcoSpold1 else UnknownFormat
+                                                        else
+                                                            if hasCsv
+                                                                then do
+                                                                    isSimaPro <- checkForSimaProCSV fs
+                                                                    return $ if isSimaPro then SimaProCSV else UnknownFormat
+                                                                else case jsonFiles of
+                                                                    [] -> return UnknownFormat
+                                                                    (j : _) -> do
+                                                                        isOlca <- isOlcaJsonFile j
+                                                                        return $ if isOlca then OpenLcaImpactCategory else UnknownFormat
                 else return UnknownFormat
 
 -- | Check if XML files are EcoSpold1 format
