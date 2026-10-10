@@ -814,6 +814,50 @@ data CutoffWasteFlow = CutoffWasteFlow
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped CutoffWasteFlow)
 
+{- | A product input the calculation met that no loaded database supplies: what
+it asks for is left out of the result, which counts it as zero.
+
+These are the inputs of every process the chain runs, the root's and its
+suppliers' alike, where 'CutoffWasteFlow' names the root's own waste outputs
+left without a treatment; a waste output of a process upstream is in neither.
+
+What counts is what the supplier-gap report counts, with its two imprecisions:
+a link to another database whose supplier that database does not hold is still
+counted as covering the input, and when a process has more inputs of one
+product than links for it, the inputs taken as covered are the first ones read.
+-}
+data CutoffInput = CutoffInput
+    { ciDatabase :: Text
+    , ciProduct :: Text
+    , ciLocation :: Text
+    -- ^ The location the input asks for, empty when it names none
+    , ciUnit :: Text
+    , ciAmount :: Double
+    {- ^ What the chain asks of this product per unit of the activity computed,
+    in 'ciUnit', summed over every process that asks for it.
+    -}
+    , ciConsumers :: Int
+    -- ^ How many processes of the chain ask for it
+    , ciReasons :: NE.NonEmpty BlockerReason
+    -- ^ Why no supplier was found
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped CutoffInput)
+
+instance NFData CutoffInput
+
+{- | The cut-off inputs met inside a dependency whose licence keeps its detail:
+how many, not which.
+-}
+data WithheldCutoffs = WithheldCutoffs
+    { wcDatabase :: Text
+    , wcCount :: Int
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped WithheldCutoffs)
+
+instance NFData WithheldCutoffs
+
 -- | Flow mapping status for a method
 data MappingStatus = MappingStatus
     { mstMethodId :: UUID -- Method UUID

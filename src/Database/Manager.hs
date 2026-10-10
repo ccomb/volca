@@ -40,6 +40,7 @@ module Database.Manager (
     mkDepSolverLookup,
     listDatabases,
     clearMethodMappingCacheForDb,
+    getGapIndex,
     clearMethodCachesFor,
 
     -- * Load/Unload
@@ -199,6 +200,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Time (diffUTCTime, getCurrentTime)
 import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
+import Database.Cutoffs (GapIndex, gapIndexOf)
 import qualified Database.Loader as Loader
 import qualified Database.Quality as Quality
 import Matrix (clearCachedSolver)
@@ -740,6 +742,11 @@ data DatabaseManager = DatabaseManager
     characterization has to reach, its dependencies' included. Invalidated
     with that database's method caches, which are built from it.
     -}
+    , dmGapIndexCache :: !(TVar (Map Text GapIndex))
+    {- ^ Each database's unsupplied inputs by the process asking for them,
+    which a result filters down to its own chain. Invalidated with that
+    database's method caches, on the same edits, links and reloads.
+    -}
     , dmScoringSlots :: !(Maybe QSem)
     {- ^ One unit per scoring request allowed to compute at once
     (@max_concurrent_scoring@), 'Nothing' when the instance sets no bound.
@@ -817,6 +824,23 @@ getFlowClosure manager dbName db = atomically $ do
             let !closure = flowClosure db (dependencyClosure loaded dbName)
             modifyTVar' (dmFlowClosureCache manager) (M.insert dbName closure)
             pure closure
+
+{- | A database's unsupplied inputs by consumer, scanned once per database
+('dmGapIndexCache'). Built outside a transaction, as the method mappings are:
+it reads nothing the manager holds, so a transaction would only retry the scan
+each time another database's entry landed. 'cacheIfCurrent' guards against a
+method edit, which this index does not read.
+-}
+getGapIndex :: DatabaseManager -> Text -> Database -> IO GapIndex
+getGapIndex manager dbName db = do
+    cached <- M.lookup dbName <$> readTVarIO (dmGapIndexCache manager)
+    maybe build pure cached
+  where
+    build :: IO GapIndex
+    build = do
+        idx <- Control.Exception.evaluate (gapIndexOf db)
+        atomically (modifyTVar' (dmGapIndexCache manager) (M.insert dbName idx))
+        pure idx
 
 {- | The name of a method collection. A newtype because it travels next to a
 database name, of the same type, through every cache lookup below: swapped,
@@ -1206,6 +1230,7 @@ clearMethodMappingCache manager = atomically $ do
     writeTVar (dmMergedFlowMetadataCache manager) Nothing
     writeTVar (dmMergedUnitConfigCache manager) Nothing
     writeTVar (dmFlowClosureCache manager) M.empty
+    writeTVar (dmGapIndexCache manager) M.empty
 
 {- | Drop what was built from one method collection: its mappings, tables and
 vocabulary against every database. The other collections keep theirs; every
@@ -1241,6 +1266,7 @@ clearMethodMappingCacheForDb manager dbName = atomically $ do
     modifyTVar' (dmMethodSetTablesCache manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodIndexCache manager) (M.filterWithKey keep)
     modifyTVar' (dmFlowClosureCache manager) (M.filterWithKey (\dn _ -> not (S.member dn stale)))
+    modifyTVar' (dmGapIndexCache manager) (M.filterWithKey (\dn _ -> not (S.member dn stale)))
     writeTVar (dmMergedFlowMetadataCache manager) Nothing
     writeTVar (dmMergedUnitConfigCache manager) Nothing
 
@@ -1510,6 +1536,7 @@ newManager ManagerSeed{..} = do
     mergedFlowMetadataCacheVar <- newTVarIO Nothing
     mergedUnitConfigCacheVar <- newTVarIO Nothing
     flowClosureCacheVar <- newTVarIO M.empty
+    gapIndexCacheVar <- newTVarIO M.empty
     scoringSlots <- traverse newQSem msScoringSlots
     methodEditLock <- newMVar ()
     return
@@ -1544,6 +1571,7 @@ newManager ManagerSeed{..} = do
             , dmMergedFlowMetadataCache = mergedFlowMetadataCacheVar
             , dmMergedUnitConfigCache = mergedUnitConfigCacheVar
             , dmFlowClosureCache = flowClosureCacheVar
+            , dmGapIndexCache = gapIndexCacheVar
             , dmScoringSlots = scoringSlots
             , dmMethodEditLock = methodEditLock
             }

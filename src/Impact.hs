@@ -45,6 +45,7 @@ module Impact (
     PartScore (..),
     partitionByLicence,
     licencedSolution,
+    cutoffsOf,
     scoreParts,
     LicencedContributions (..),
     licencedContributionsOf,
@@ -68,7 +69,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 
+import API.Types (WithheldCutoffs (..))
 import qualified Data.Vector.Unboxed as U
+import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffInputsIn)
 import Database.Manager (CollectionName, DatabaseManager (..), getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
 import Matrix (Inventory, Vector, applyBiosphereMatrix)
 import Method.Mapping (
@@ -127,6 +130,22 @@ data WithheldPart = WithheldPart
     { wpDatabase :: Text
     , wpSolution :: SharedSolver.CrossDBSolution
     }
+
+{- | The cut-off inputs a solution meets: named in the part the licences show,
+one count for each dependency that keeps its detail, since the products it
+misses are part of that detail.
+-}
+cutoffsOf :: (Text -> GapIndex) -> LicencedSolution -> Cutoffs
+cutoffsOf indexOf ls =
+    Cutoffs
+        { cutoffShown = cutoffInputsIn indexOf (lsShown ls)
+        , cutoffWithheld =
+            [ WithheldCutoffs{wcDatabase = wpDatabase wp, wcCount = n}
+            | wp <- lsWithheld ls
+            , let n = length (cutoffInputsIn indexOf (wpSolution wp))
+            , n > 0
+            ]
+        }
 
 {- | Split a solution by the databases whose licence refuses a permission.
 
