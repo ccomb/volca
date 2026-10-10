@@ -309,6 +309,8 @@ processes =
             [ factor "CAUSAL_ALLOCATION" heatF (Just 1) 0.9
             , factor "CAUSAL_ALLOCATION" powerF (Just 1) 0.1
             , factor "CAUSAL_ALLOCATION" heatF (Just 7) 0.5
+            , -- A factor for a line that names no product, as some packages write them.
+              object ["allocationType" .= ("CAUSAL_ALLOCATION" :: Text), "exchange" .= object ["internalId" .= (1 :: Int)], "value" .= (0 :: Double)]
             ]
         }
     , unitProcess

@@ -428,7 +428,7 @@ split env p lines' products
             [ value f
             | f <- P.prFactors p
             , P.afMethod f == method
-            , P.afProduct f == P.flId (lnFlow ln)
+            , P.afProduct f == Just (P.flId (lnFlow ln))
             , Nothing <- [P.afExchange f]
             ]
 
@@ -439,7 +439,7 @@ split env p lines' products
 
     pair :: P.AllocationFactor -> Either Notice ((Int, Int), Double)
     pair f = maybe (Left (StrayFactor (P.prName p))) Right $ do
-        productAt <- listToMaybe [lnAt ln | ln <- products, P.flId (lnFlow ln) == P.afProduct f]
+        productAt <- listToMaybe [lnAt ln | ln <- products, Just (P.flId (lnFlow ln)) == P.afProduct f]
         internalId <- P.afExchange f
         lineAt <- listToMaybe [lnAt ln | ln <- lines', P.rxInternalId (lnRaw ln) == internalId]
         pure ((productAt, lineAt), value f * 100)
@@ -468,7 +468,9 @@ split env p lines' products
     tshow = T.pack . show
 
     productName :: P.AllocationFactor -> Text
-    productName f = maybe (UUID.toText (P.afProduct f)) (P.flName . lnFlow) (find ((== P.afProduct f) . P.flId . lnFlow) products)
+    productName f = case P.afProduct f of
+        Nothing -> "no product"
+        Just sold -> maybe (UUID.toText sold) (P.flName . lnFlow) (find ((== sold) . P.flId . lnFlow) products)
 
 assemble :: Context -> P.Process -> M.Map Text Double -> [Notice] -> [Line] -> ReadProcess
 assemble cx p env notices lines' =

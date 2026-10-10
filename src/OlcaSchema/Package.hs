@@ -140,7 +140,8 @@ data RawExchange = RawExchange
 
 data AllocationFactor = AllocationFactor
     { afMethod :: !AllocationMethod
-    , afProduct :: !UUID
+    , afProduct :: !(Maybe UUID)
+    -- ^ Nothing where the file names none: such a factor applies to no product
     , afExchange :: !(Maybe Int)
     -- ^ The internal id of the line a causal factor is for
     , afValue :: !Double
@@ -313,7 +314,7 @@ instance FromJSON RawExchange where
 instance FromJSON AllocationFactor where
     parseJSON = withObject "AllocationFactor" $ \o -> do
         method <- o .: "allocationType"
-        sold <- o .: "product" >>= reference
+        sold <- optionalReference o "product"
         line <- o .:? "exchange" >>= traverse (withObject "exchange" (.: "internalId"))
         value <- o .:? "value" .!= 0
         formula <- o .:? "formula"

@@ -62,7 +62,7 @@ spec = describe "readPackage" $ do
 
     it "keeps causal factors on the internal id of the line they name" $ do
         pkg <- readFixture
-        fmap (map afExchange . prFactors) (processNamed pkg "cogeneration, causal") `shouldBe` Just [Just 1, Just 1, Just 7]
+        fmap (map afExchange . prFactors) (processNamed pkg "cogeneration, causal") `shouldBe` Just [Just 1, Just 1, Just 7, Just 1]
 
     it "refuses a malformed document, naming its file" $
         withPackage $ \dir -> do

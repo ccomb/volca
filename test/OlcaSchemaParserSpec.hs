@@ -87,6 +87,9 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         heat `carriesOnly` [(co2F, 0.4525), (oreF, 0.025)]
         power `carriesOnly` [(co2F, 0.11), (oreF, 0.1)]
 
+    it "applies a causal factor naming no product to none, and says so" $ \(b, _) ->
+        [what | StrayFactor what <- builtNotices b] `shouldBe` ["cogeneration, causal"]
+
     it "gives every product the whole inventory when the process names no method, and says so" $ \(b, db) -> do
         heat <- inventoryOf db boilerH heatF
         ash <- inventoryOf db boilerH ashF
@@ -155,7 +158,7 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
     it "uses an allocation factor's formula over the stored factor, and says they disagree" $ \_ -> do
         pkg <- readFixture
         -- Stored 0.6, computed 0.5: openLCA allocates by the formula.
-        let disagreeing = editing cogenF (\p -> p{prFactors = map (\f -> if P.afMethod f == Physical && P.afProduct f == heatF then f{afFormula = Just "1 / 2"} else f) (prFactors p)}) pkg
+        let disagreeing = editing cogenF (\p -> p{prFactors = map (\f -> if P.afMethod f == Physical && P.afProduct f == Just heatF then f{afFormula = Just "1 / 2"} else f) (prFactors p)}) pkg
         b <- built disagreeing
         [what | Divergent what <- builtNotices b, "cogeneration, physical" `T.isPrefixOf` what]
             `shouldBe` ["cogeneration, physical · heat · allocation factor 1 / 2: computes 0.5, the file stores 0.6"]
@@ -172,7 +175,7 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
 
     it "says which allocation factor formulas could not be read, keeping the stored factor" $ \_ -> do
         pkg <- readFixture
-        let unreadable = editing cogenF (\p -> p{prFactors = map (\f -> if P.afMethod f == Physical && P.afProduct f == heatF then f{afFormula = Just "unknown_name * 2"} else f) (prFactors p)}) pkg
+        let unreadable = editing cogenF (\p -> p{prFactors = map (\f -> if P.afMethod f == Physical && P.afProduct f == Just heatF then f{afFormula = Just "unknown_name * 2"} else f) (prFactors p)}) pkg
         b <- built unreadable
         [what | Unevaluable what <- builtNotices b, "cogeneration, physical" `T.isPrefixOf` what]
             `shouldSatisfy` (\whats -> length whats == 1 && all (T.isInfixOf "heat · allocation factor unknown_name * 2") whats)
