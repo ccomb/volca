@@ -1,6 +1,6 @@
 # pyvolca
 
-Python client for [VoLCA](https://github.com/ccomb/volca), the in-memory Life Cycle Assessment engine that reads EcoSpold 1 and 2, SimaPro CSV, ILCD and Brightway Excel databases.
+Python client for [VoLCA](https://github.com/ccomb/volca), the in-memory Life Cycle Assessment engine that reads EcoSpold 1 and 2, SimaPro CSV, ILCD, openLCA JSON-LD and Brightway Excel databases.
 
 > **Full guide and tutorials**: <https://www.volca.run/docs/python/>  
 > **Issues / source**: <https://github.com/ccomb/volca>  
