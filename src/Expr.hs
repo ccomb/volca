@@ -131,7 +131,17 @@ are therefore one name, and an environment stating both keeps one of them.
 evaluate :: Dialect -> M.Map Text Double -> Text -> Either Refusal Double
 evaluate dialect env input = do
     formula <- readFormula dialect input
-    first (Unresolved . NE.nubBy ((==) `on` T.toLower)) (resolve (M.union (M.mapKeys T.toLower env) (constants dialect)) formula)
+    value <- first (Unresolved . NE.nubBy ((==) `on` T.toLower)) (resolve (M.union (M.mapKeys T.toLower env) (constants dialect)) formula)
+    finite dialect value
+
+-- | openLCA gives no number for a formula that divides by zero or overflows; the older dialects keep what they computed.
+finite :: Dialect -> Double -> Either Refusal Double
+finite dialect value = case dialect of
+    SimaPro -> Right value
+    Arithmetic -> Right value
+    OpenLca
+        | isNaN value || isInfinite value -> Left (Unreadable ("the formula gives no finite number: " <> T.pack (show value)))
+        | otherwise -> Right value
 
 -- | The names a dialect knows without a parameter: openLCA's @pi@ and @e@ (@true@ and @false@ are read as truth values).
 constants :: Dialect -> M.Map Text Double
@@ -373,7 +383,7 @@ chainLeft operand operators = operand >>= rest
     rest :: Typed -> Parser Typed
     rest acc = (choice [op *> operand >>= either fail pure . combine acc | (op, combine) <- operators] >>= rest) <|> pure acc
 
--- | openLCA's @div@: the two operands rounded half up, then divided, truncated. Zero gives NaN, which the reader refuses.
+-- | openLCA's @div@: the two operands rounded half up, then divided, truncated. Zero gives NaN, which 'evaluate' refuses.
 roundedQuotient :: Double -> Double -> Double
 roundedQuotient x y = case halfUp y of
     0 -> 0 / 0
@@ -593,26 +603,31 @@ Returns the empty list if the expression cannot be tokenized.
 -}
 collectIdentifiers :: Dialect -> Text -> [Text]
 collectIdentifiers dialect input =
-    case parse (sc *> pCollect <* eof) "" (readable dialect input) of
-        Right names -> filter (not . isFunction dialect) names
+    case parse (sc *> (catMaybes <$> many (pToken dialect)) <* eof) "" (readable dialect input) of
+        Right names -> filter (isVariable dialect) names
         Left _ -> []
 
--- | Whether a name read in this dialect is one of its functions rather than a variable.
-isFunction :: Dialect -> Text -> Bool
-isFunction dialect name = case dialect of
-    SimaPro -> name `elem` functionNames
-    Arithmetic -> name `elem` functionNames
-    OpenLca -> name `elem` map fst olcaFunctions
-
-pCollect :: Parser [Text]
-pCollect = catMaybes <$> many pToken
+-- | Whether a name read in this dialect is a variable rather than one of its function or operator words.
+isVariable :: Dialect -> Text -> Bool
+isVariable dialect name = case dialect of
+    SimaPro -> name `notElem` functionNames
+    Arithmetic -> name `notElem` functionNames
+    -- pi, e, true and false stay: a parameter may bear the name, and the caller decides.
+    OpenLca -> name `notElem` ["div", "mod", "xor"]
 
 -- | One token, or one character of whatever this is not meant to collect.
-pToken :: Parser (Maybe Text)
-pToken =
-    try (Just <$> pIdentTok)
+pToken :: Dialect -> Parser (Maybe Text)
+pToken dialect =
+    try (Just <$> name)
         <|> (Nothing <$ try (lexeme pNumber))
         <|> (Nothing <$ anySingle)
+  where
+    -- An openLCA name followed by a parenthesis is a call, not a variable.
+    name :: Parser Text
+    name = case dialect of
+        SimaPro -> pIdentTok
+        Arithmetic -> pIdentTok
+        OpenLca -> pOlcaName <* notFollowedBy (symbol "(")
 
 pIdentTok :: Parser Text
 pIdentTok = lexeme (T.pack <$> ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_')))

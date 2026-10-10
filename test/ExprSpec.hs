@@ -95,6 +95,17 @@ spec = do
             near 6 (olca [("leak", 2)] "LEAK * 3")
         it "collects identifiers without the functions, lowercased" $
             collectIdentifiers OpenLca "if(Leak == 1; a; MAX(b; c))" `shouldBe` ["leak", "a", "b", "c"]
+        it "does not take div, mod or xor for variables, and keeps $ names and constants" $ do
+            collectIdentifiers OpenLca "a div b + c mod d" `shouldBe` ["a", "b", "c", "d"]
+            collectIdentifiers OpenLca "$a * 2" `shouldBe` ["$a"]
+            collectIdentifiers OpenLca "e * x" `shouldBe` ["e", "x"]
+        it "refuses a formula that gives no finite number" $ do
+            unreadableNaming "finite" (olca [] "1 div 0")
+            unreadableNaming "finite" (olca [] "1/0")
+    describe "the older dialects keep a non-finite result" $
+        it "gives Infinity for 1/0" $ do
+            Expr.evaluate Arithmetic M.empty "1/0" `shouldBe` Right (1 / 0)
+            Expr.evaluate SimaPro M.empty "1/0" `shouldBe` Right (1 / 0)
 
     describe "the older dialects are unchanged" $ do
         it "keeps a sign below ^, ^ chaining from the right, and log natural" $ do
