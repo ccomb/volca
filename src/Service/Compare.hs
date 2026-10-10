@@ -47,6 +47,7 @@ module Service.Compare (
     compareDatabases,
     limitComparison,
     changesPresent,
+    applicableChanges,
 
     -- * The cascade, for other comparisons
     Cascade (..),
@@ -58,6 +59,7 @@ module Service.Compare (
 ) where
 
 import Control.Monad (mfilter)
+import Data.List (mapAccumL)
 import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -73,8 +75,10 @@ import API.Types (
     ActivityMatch (..),
     ActivitySummary (..),
     AmbiguousActivities (..),
+    ChangeOutcome (..),
     ChangePresence (..),
     ChangedActivity (..),
+    ChangesApplied (..),
     ChangesPresence (..),
     ChangesQuery (..),
     DatabaseComparison (..),
@@ -90,9 +94,20 @@ import API.Types (
     WasteSide (..),
     unresolvedFlowName,
  )
+import Database.Author (
+    ActivityText (..),
+    AuthorContext,
+    AuthoredExchange (..),
+    EditedActivity (..),
+    ExchangeEdit (..),
+    ExchangeSelector (..),
+    FlowRef (..),
+    applyExchangeEdits,
+ )
 import Service (ReferenceProductInfo (..), ServiceError, TargetRef (..), buildCrossDBLinkMap, crossDBLinkIndex, crossDBLinksOf, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId, resolveTarget)
 import Types (
     Activity (..),
+    BioDirection,
     Compartment,
     CrossDBLink,
     Database (..),
@@ -102,6 +117,8 @@ import Types (
     NativeActivityType (..),
     ProcessId,
     ProcessRef,
+    ProductIndex (..),
+    TechRole (..),
     UUID,
     Unit (..),
     UnitDB,
@@ -109,11 +126,14 @@ import Types (
     exchangeFlowId,
     exchangeIsReference,
     exchangeUnitId,
+    findProcessIdByProductFlow,
     flowKindCompartment,
     flowKindName,
+    getActivity,
     getUnitForExchange,
     lookupExchangeFlow,
     processIdToRef,
+    processIdToText,
  )
 
 -- | The two things compared, named so that swapping them shows at the call.
@@ -451,6 +471,184 @@ lineFor groups change = case [line | line <- groups, lgFlowId line == ecFlowId c
   where
     nameKey :: Text
     nameKey = normalName (ecFlowName change)
+
+-- ---------------------------------------------------------------------------
+-- Changes applied to one activity
+-- ---------------------------------------------------------------------------
+
+{- | What a change asks of an activity that does not say it yet: the edits
+that would make it say it, or why no edit can.
+-}
+data Landing = Lands [ExchangeEdit] | Stays ChangeOutcome
+
+{- | The edits that make an activity say each change it does not say yet, and
+what came of every change. A change only lands where the activity still says
+what it replaced: a value the database changed otherwise is never overwritten.
+
+Each change is tried against the ones accepted before it, so one an edit
+refuses is reported with the engine's reason and does not hold back the
+others. The edits returned are the ones tried together last: committing them
+changes the activity exactly as the outcomes say.
+-}
+applicableChanges :: AuthorContext -> ProcessIn -> ChangesQuery -> (ChangesApplied, [ExchangeEdit])
+applicableChanges ctx p query =
+    ( ChangesApplied{capSummary = summaryOutcomes, capExchanges = exchangeOutcomes}
+    , inEditOrder accepted
+    )
+  where
+    groups :: [LineGroup]
+    groups = linesOf p
+    landingsOf :: [Landing]
+    landingsOf =
+        [summaryLanding change (summaryPresence p change) | change <- cqSummary query]
+            <> [exchangeLanding p groups (cqExchanges query) change (exchangePresence groups change) | change <- cqExchanges query]
+    accepted :: [ExchangeEdit]
+    outcomes :: [ChangeOutcome]
+    (accepted, outcomes) = mapAccumL try [] landingsOf
+    try :: [ExchangeEdit] -> Landing -> ([ExchangeEdit], ChangeOutcome)
+    try sofar = \case
+        Stays outcome -> (sofar, outcome)
+        Lands edits -> case applyExchangeEdits ctx (inEditOrder (sofar <> edits)) (inActivity p) of
+            Left errs -> (sofar, OutcomeNotApplicable (T.intercalate "; " errs))
+            Right edited
+                | all (== 1) (eaMatched edited) -> (sofar <> edits, OutcomeApplied)
+                | otherwise -> (sofar, OutcomeNotApplicable "Several lines answer to it: an edit would change each of them.")
+    summaryOutcomes :: [ChangeOutcome]
+    exchangeOutcomes :: [ChangeOutcome]
+    (summaryOutcomes, exchangeOutcomes) = splitAt (length (cqSummary query)) outcomes
+
+{- | Texts first, then amounts on the lines as they are, then removals, then
+additions: an amount set on a line a supplier change then replaces is
+harmless, a line removed before its amount is set is a refusal.
+-}
+inEditOrder :: [ExchangeEdit] -> [ExchangeEdit]
+inEditOrder = L.sortOn rank
+  where
+    rank :: ExchangeEdit -> Int
+    rank = \case
+        SetText _ -> 0
+        SetAmount _ _ -> 1
+        RemoveExchange _ -> 2
+        AddExchange _ -> 3
+
+-- | What a presence other than absent says, as an outcome.
+unapplied :: ChangePresence -> Maybe ChangeOutcome
+unapplied = \case
+    ChangePresent -> Just OutcomePresent
+    ChangeAbsent -> Nothing
+    ChangeDifferent -> Just OutcomeDifferent
+    ChangeLineGone -> Just OutcomeLineGone
+
+summaryLanding :: SummaryChange -> ChangePresence -> Landing
+summaryLanding change presence = case (unapplied presence, change) of
+    (Just outcome, _) -> Stays outcome
+    (Nothing, ActivityNameChanged _ after) -> Lands [SetText (ActivityName after)]
+    (Nothing, LocationChanged _ after) -> Lands [SetText (ActivityLocation after)]
+    (Nothing, DescriptionChanged _ after) -> Lands [SetText (ActivityDescription after)]
+    (Nothing, ProductNameChanged _ _) -> Stays (OutcomeNotApplicable "An edit does not rename a product.")
+    (Nothing, AllocationChanged _ _) -> Stays (OutcomeNotApplicable "An edit does not change an allocation.")
+    (Nothing, DatesChanged _ _) -> Stays (OutcomeNotApplicable "An edit does not change the dates of an activity.")
+
+exchangeLanding :: ProcessIn -> [LineGroup] -> [ExchangeChange] -> ExchangeChange -> ChangePresence -> Landing
+exchangeLanding p groups query change presence = case (unapplied presence, ecChange change, lineFor groups change) of
+    (Just outcome, _, _) -> Stays outcome
+    (Nothing, LineAdded after, _) -> either notApplicable (Lands . pure . AddExchange) (addedLine (inDatabase p) change after)
+    (Nothing, LineRemoved _, Found line) -> either notApplicable (\sel -> Lands [RemoveExchange sel]) (selectorOf line)
+    (Nothing, LineChanged _ _ after, Found line) ->
+        either notApplicable (\sel -> Lands [SetAmount sel (qtyAmount after)]) (sameUnit line after *> selectorOf line)
+    (Nothing, SupplierChanged _ after, Found line) ->
+        either notApplicable Lands $ do
+            sel <- selectorOf line
+            quantity <- amountAfter line
+            provider <- producerNamed (inDatabase p) (lgFlowId line) after
+            added <- linkedLine (ecRole change) provider quantity
+            pure [RemoveExchange sel, AddExchange added]
+    -- An absent change on a line not found: the presence already said line-gone.
+    (Nothing, _, _) -> Stays OutcomeLineGone
+  where
+    notApplicable :: Text -> Landing
+    notApplicable = Stays . OutcomeNotApplicable
+    -- A supplier change on a line whose amount changed too takes the new amount,
+    -- as long as the activity still holds the old one.
+    amountAfter :: LineGroup -> Either Text Quantity
+    amountAfter line = case [after | other@ExchangeChange{ecChange = LineChanged _ _ after} <- query, sameLine other, exchangePresence groups other == ChangeAbsent] of
+        (after : _) -> after <$ sameUnit line after
+        [] -> maybe (Left "The line is in several units.") Right (singleUnit line)
+    sameLine :: ExchangeChange -> Bool
+    sameLine other = ecFlowId other == ecFlowId change && ecRole other == ecRole change
+
+-- | A change stated in the unit the line has: an edit writes a number, never a unit.
+sameUnit :: LineGroup -> Quantity -> Either Text ()
+sameUnit line after = case singleUnit line of
+    Just now
+        | qtyUnit now == qtyUnit after -> Right ()
+        | otherwise -> Left ("The change is in " <> qtyUnit after <> " and the line in " <> qtyUnit now <> ".")
+    Nothing -> Left "The line is in several units."
+
+{- | How an edit names the one line a group holds. The selector is read from
+the line found, not from the change, since the line may have been found by its
+flow's name.
+-}
+selectorOf :: LineGroup -> Either Text ExchangeSelector
+selectorOf line = case (lgRole line, lgSuppliers line) of
+    (_, _ : _ : _) -> Left "Several lines answer to this flow: an edit would change each of them."
+    (BioLine _, _) -> Right (SelectBiosphere (lgFlowId line))
+    (TechLine Input, suppliers) -> SelectInput <$> localSupplier suppliers
+    (WasteLine WasteOutput, suppliers) -> SelectWaste <$> localSupplier suppliers
+    (TechLine role, _) -> Left (unreachable (TechLine role))
+    (WasteLine WasteInput, _) -> Left (unreachable (WasteLine WasteInput))
+  where
+    localSupplier :: [Maybe TargetRef] -> Either Text Text
+    localSupplier = \case
+        [Just target] -> case T.breakOn "::" (trProcessId target) of
+            (pid, "") -> Right pid
+            (dbName, _) -> Left ("The supplier lives in " <> dbName <> ": an edit selects a line by a supplier of this database.")
+        _ -> Left "The line names no supplier to select it by."
+
+unreachable :: LineRole -> Text
+unreachable = \case
+    TechLine ReferenceProduct -> "An edit does not reach the reference product."
+    TechLine Coproduct -> "An edit does not reach a coproduct."
+    TechLine AvoidedProduct -> "An edit does not reach an avoided product."
+    TechLine ReferenceInput -> "An edit does not reach the waste a treatment takes in."
+    TechLine Input -> "An edit reaches an input by its supplier."
+    BioLine _ -> "An edit reaches a biosphere line by its flow."
+    WasteLine WasteInput -> "An edit does not reach the waste a treatment takes in."
+    WasteLine WasteOutput -> "An edit reaches a waste output by its treatment."
+
+{- | The line a change adds. A change keeps the flow of an added line, not its
+supplier: the one activity of this database that makes the flow supplies it.
+-}
+addedLine :: Database -> ExchangeChange -> Quantity -> Either Text AuthoredExchange
+addedLine db change quantity = case ecRole change of
+    BioLine direction -> Right (bioLine (ecFlowId change) direction quantity)
+    _ -> case findProcessIdByProductFlow db (ecFlowId change) of
+        Just pid -> linkedLine (ecRole change) (processIdToText db pid) quantity
+        Nothing -> Left "No single activity of this database supplies this product."
+
+bioLine :: UUID -> BioDirection -> Quantity -> AuthoredExchange
+bioLine flowId direction quantity =
+    AuthoredBio{abFlow = FlowById flowId, abDirection = direction, abAmount = qtyAmount quantity, abUnit = Just (qtyUnit quantity), abComment = Nothing}
+
+-- | A line drawn from a supplier, or sent to a treatment, of this database.
+linkedLine :: LineRole -> Text -> Quantity -> Either Text AuthoredExchange
+linkedLine role provider quantity = case role of
+    TechLine Input -> Right AuthoredTechInput{atiProvider = provider, atiAmount = qtyAmount quantity, atiUnit = Just (qtyUnit quantity), atiComment = Nothing}
+    WasteLine WasteOutput -> Right AuthoredWasteOutput{awProvider = provider, awAmount = qtyAmount quantity, awUnit = Just (qtyUnit quantity), awComment = Nothing}
+    other -> Left (unreachable other)
+
+-- | The one activity of this database that makes a flow and is named as the supplier.
+producerNamed :: Database -> UUID -> Supplier -> Either Text Text
+producerNamed db flowId supplier =
+    case [pid | pid <- maybe [] NE.toList (M.lookup flowId (piByUUID (dbProductIndex db))), named pid] of
+        [pid] -> Right (processIdToText db pid)
+        [] -> Left ("No activity of this database named " <> described <> " makes this product.")
+        _ -> Left ("Several activities of this database named " <> described <> " make this product.")
+  where
+    named :: ProcessId -> Bool
+    named pid = maybe False (\act -> Supplier (activityName act) (activityLocation act) == supplier) (getActivity db pid)
+    described :: Text
+    described = supActivityName supplier <> " {" <> supLocation supplier <> "}"
 
 -- ---------------------------------------------------------------------------
 -- Two databases

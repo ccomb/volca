@@ -43,6 +43,7 @@ module Database.Edit (
     writeActivities,
     EditReport (..),
     editExchanges,
+    authorContext,
     refusalMessage,
 ) where
 

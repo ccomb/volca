@@ -2437,6 +2437,34 @@ class Client:
             )
         )
 
+    def apply_changes(
+        self,
+        process_id: str,
+        *,
+        summary: list[dict] | None = None,
+        exchanges: list[dict] | None = None,
+        db_name: str | None = None,
+    ) -> dict:
+        """Make an activity say each change it is given that it does not say yet.
+
+        ``summary`` and ``exchanges`` are changes as a comparison writes them,
+        as for :meth:`changes_present`. A change applies only where the
+        activity still says what it replaced. Returns
+        ``{"summary": [...], "exchanges": [...]}``, one outcome per change in
+        the order given, each ``{"outcome": ...}``: ``"applied"``,
+        ``"present"``, ``"different"``, ``"line-gone"``, or
+        ``"not-applicable"`` with the ``"reason"`` no edit can make it. Needs
+        wire revision 60.
+        """
+        self._require_wire(60, "apply_changes", engine_hint="0.15.0")
+        target = self._db(db_name)
+        return self._json(
+            self._session.post(
+                f"{self.base_url}/api/v1/db/{target}/activity/{process_id}/apply-changes",
+                json={"summary": summary or [], "exchanges": exchanges or []},
+            )
+        )
+
     def compare_databases(
         self, other_database: str, *, limit: int | None = None
     ) -> DatabaseComparison:

@@ -12,7 +12,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import qualified Config
 import Control.Concurrent (getNumCapabilities)
@@ -46,6 +46,7 @@ import qualified Data.Vector as V
 import Database
 import qualified Database.ComputedQuality as CQ
 import Database.Cutoffs (Cutoffs (..))
+import Database.Edit (authorContext, editExchanges)
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
 import Database.Requirements (Substitution)
@@ -127,6 +128,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> Get '[JSON] Value
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "changes-present" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesPresence
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "apply-changes" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesApplied
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
@@ -1500,7 +1502,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 59: the database format @openLCA package@;
+(revision 60: the @apply-changes@ route, which makes an activity say each
+change a comparison wrote that it does not say yet;
+revision 59: the database format @openLCA package@;
 revision 58: results carry @cutoffInputs@, the unsupplied inputs their
 calculation counted as zero; a database with unresolved products is computed
 instead of refused;
@@ -1636,7 +1640,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 59
+currentWireVersion = 60
 
 getVersion :: AppM Value
 getVersion = do
@@ -2243,6 +2247,26 @@ postChangesPresent dbName processIdText query = do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     (db, _) <- requireDatabaseByName dbName
     either throwServiceError (pure . (`Compare.changesPresent` query)) (Compare.resolveProcess db processIdText)
+
+{- | Make one activity say each change it does not say yet, the changes
+written as a comparison writes them, and say what came of each. A change the
+activity already says, or says otherwise, is left as it is; one no edit can
+make is reported with its reason. Every edit lands in one write, refused as a
+direct edit of the activity would be.
+-}
+postApplyChanges :: Text -> Text -> ChangesQuery -> AppM ChangesApplied
+postApplyChanges dbName processIdText query = do
+    DBHandlers.guardMutation
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
+    (db, _) <- requireDatabaseByName dbName
+    process <- either throwServiceError pure (Compare.resolveProcess db processIdText)
+    dbManager <- asks aeDbManager
+    ctx <- liftIO (authorContext dbManager db)
+    case Compare.applicableChanges ctx process query of
+        (applied, []) -> pure applied
+        (applied, edits) ->
+            liftIO (editExchanges dbManager dbName processIdText edits)
+                >>= either DBHandlers.refuseWrite (const (pure applied))
 
 getDatabaseComparison :: Text -> Maybe Text -> Maybe Int -> AppM DatabaseComparison
 getDatabaseComparison dbName otherDbParam limitParam = do
@@ -2869,6 +2893,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getActivityPathTo
             :<|> getActivityComparison
             :<|> postChangesPresent
+            :<|> postApplyChanges
             :<|> getContributingFlows
             :<|> getContributingActivities
             :<|> getScoreContributingFlows

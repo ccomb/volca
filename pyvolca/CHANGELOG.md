@@ -29,6 +29,10 @@ Then paste the rendered block at the top of this file and tighten wording.
   `get_flow_factors` and the `method_id` of an `explain_cf` answer (55), and
   `changes_present` (57). Each needs the revision it names (engine 0.15.0).
 
+- `apply_changes` makes an activity say each change it is given that it does
+  not say yet, and answers what came of each (wire revision 60, engine
+  0.15.0).
+
 - A comparison reads a changed description (`field` is `"description"`) and
   an input drawn from another supplier (`change` is `"supplier"`, with
   `supplier_before` and `supplier_after`, two `Supplier`). An engine before
