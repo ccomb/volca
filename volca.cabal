@@ -136,6 +136,7 @@ library
                      , ILCD.Common
                      , ILCD.Parser
                      , OlcaSchema.Package
+                     , OlcaSchema.Parser
                      , ILCD.Writer
                      , Database.Crate
                      , Database.Requirements
@@ -369,6 +370,7 @@ test-suite lca-tests
                      , OlcaSchemaSpec
                      , OlcaPackageFixture
                      , OlcaSchemaPackageSpec
+                     , OlcaSchemaParserSpec
                      , LicensesSpec
                      , GeographiesSpec
                      , MethodUploadSpec
