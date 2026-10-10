@@ -256,6 +256,11 @@ class DatabaseInfo(FromJson):
     ``licence`` is what it is served under, its source's for a copy, the
     shape :meth:`Client.set_licence` returns. ``None`` against an engine older
     than wire revision 41, which refused no download.
+
+    ``release`` is which published database it is, as its owner declared it:
+    ``{"name", "version", "systemModel"}``, the shape
+    :meth:`Client.set_release` takes. ``None`` when none is declared, and
+    against an engine older than wire revision 48.
     """
 
     name: str
@@ -271,6 +276,7 @@ class DatabaseInfo(FromJson):
     allocation: str | None = None
     source: str | None = None
     licence: dict | None = None
+    release: dict | None = None
 
     @classmethod
     def from_json(cls, d: dict) -> "DatabaseInfo":
@@ -1951,7 +1957,9 @@ class ExplainCFResult:
     rewording the codes. The structured fields are for comparing, filtering or
     linking. ``outcome`` is ``"characterized"``, ``"conversion_refused"`` (a
     factor was found but the flow's unit cannot be converted to its basis, so
-    the flow scores nothing) or ``"no_factor"``.
+    the flow scores nothing) or ``"no_factor"``. ``method_id`` is the UUID
+    to ask about this method again; ``None`` against an engine older than
+    wire revision 55.
     """
 
     method: str
@@ -1962,6 +1970,7 @@ class ExplainCFResult:
     match: ExplainedMatch | None = None
     steps_tried: list[ExplainedStep] = field(default_factory=list)
     regional_factor_count: int = 0
+    method_id: str | None = None
 
     @classmethod
     def from_json(cls, d: dict) -> "ExplainCFResult":
@@ -1975,6 +1984,48 @@ class ExplainCFResult:
             match=ExplainedMatch.from_json(raw_match) if raw_match else None,
             steps_tried=[ExplainedStep.from_json(s) for s in d.get("stepsTried", [])],
             regional_factor_count=d.get("regionalFactorCount", 0),
+            method_id=d.get("methodId"),
+        )
+
+
+@dataclass
+class CollectionFactors:
+    """What one loaded method collection makes of one flow, in a
+    :class:`FlowFactors`.
+
+    ``factors`` explains, as :meth:`Client.explain_cf` does, each method
+    whose factors reach the flow, applied or refused, or that charges it by
+    the location of the emitting activity. ``no_factor`` only names the
+    methods that give it no factor at all.
+    """
+
+    collection: str
+    factors: list[ExplainCFResult] = field(default_factory=list)
+    no_factor: list[Method] = field(default_factory=list)
+
+    @classmethod
+    def from_json(cls, d: dict) -> "CollectionFactors":
+        return cls(
+            collection=d["collection"],
+            factors=[ExplainCFResult.from_json(f) for f in d.get("factors", [])],
+            no_factor=[Method.from_json(m) for m in d.get("noFactor", [])],
+        )
+
+
+@dataclass
+class FlowFactors:
+    """Result of :meth:`Client.get_flow_factors`: every factor the loaded
+    collections give one flow (wire revision 55). A large emission no method
+    characterizes adds nothing to any score; this is where that shows."""
+
+    flow: ExplainedFlow
+    collections: list[CollectionFactors] = field(default_factory=list)
+
+    @classmethod
+    def from_json(cls, d: dict) -> "FlowFactors":
+        return cls(
+            flow=ExplainedFlow.from_json(d["flow"]),
+            collections=[CollectionFactors.from_json(c) for c in d.get("collections", [])],
         )
 
 

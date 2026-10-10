@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 47** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 58** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -398,6 +398,16 @@ supplier, fast::
 
 #### Methods
 
+##### `Client.accept_substitution(release: dict, database: str, db_name: str | None = None) -> dict`
+
+Accept ``database`` in place of a release a packaged database requires.
+
+``release`` is one of the releases the setup's ``requiredReleases``
+lists, as it lists it. Returns the setup as it now links (see
+`get_setup`). Raises VoLCAError on an HTTP error: a 404 for an
+unknown database or a release it does not require, a 409 for a
+database already loaded with the links it has. Needs wire revision 50.
+
 ##### `Client.add_dependency(dep_name: str, db_name: str | None = None) -> dict`
 
 Declare ``dep_name`` as a dependency of the target database.
@@ -475,6 +485,21 @@ endpoints added after the installed pyvolca was released.
 ##### `Client.change_scoring_row(collection: str, set_name: str, variable: str, row: ScoringRow) -> dict`
 
 Make the row of ``variable`` (from `scoring_sets`) the row given.
+
+##### `Client.changes_present(process_id: str, *, summary: list[dict] | None = None, exchanges: list[dict] | None = None, db_name: str | None = None) -> dict`
+
+Whether an activity already holds each change it is given.
+
+``summary`` and ``exchanges`` are changes as a comparison writes them
+on the wire, such as the ``summary`` and ``exchanges`` of
+``call("compare_activities", ...)``: a change made against one version
+of an activity, looked for in a later one. Returns
+``{"summary": [...], "exchanges": [...]}``, one answer per change in
+the order given: ``"present"`` (it says what the change made it say,
+or no longer holds a removed line), ``"absent"`` (it still says what
+the change replaced), ``"different"`` or ``"line-gone"`` (the line is
+not there to judge, or several answer to its name). Needs wire
+revision 57.
 
 ##### `Client.compare_activities(process_id: str, other_process_id: str, *, other_database: str | None = None) -> ActivityComparison`
 
@@ -594,6 +619,12 @@ Create a scoring set in a collection of your own, from its rows.
 Its ``Single score`` adds up the rows that have a weight. ``unit`` is
 ``Pt`` when not given. Every change to a set is one journal line,
 undone whole with `undo_method_edit`.
+
+##### `Client.default_method_collection()`
+
+The method collection the configuration offers a reader first, by
+name; ``None`` when it names none, and against an engine older than
+wire revision 52.
 
 ##### `Client.delete_activities(*, name: str = '', location: str = '', product: str = '', classifications: list[dict | tuple] | None = None, exact: bool = False, keep: list[str] | None = None, extra: list[str] | None = None, ids: list[str] | None = None, db_name: str | None = None) -> dict`
 
@@ -724,7 +755,7 @@ form you can compare or filter on, and ``result.steps_tried`` lists the
 rungs the cascade walked before the one that answered. ``collection``
 names the collection to read when several carry the method.
 
-##### `Client.export_database(fmt: str, db_name: str | None = None) -> bytes`
+##### `Client.export_database(fmt: str, db_name: str | None = None, *, package: str | None = None) -> bytes`
 
 Export a loaded database, returning the serialized bytes.
 
@@ -732,6 +763,14 @@ Export a loaded database, returning the serialized bytes.
 validated client-side; an unknown value raises VoLCAError before any
 request. Single-file formats carry their bytes directly; EcoSpold 2 /
 ILCD multi-file trees come back zipped.
+
+``package="ro-crate"`` returns instead a zip holding that export under
+``payload/``, beside an RO-Crate ``ro-crate-metadata.json`` describing
+the licence the database is served under, the digest of the export and
+the release of every database it links to, so a reader's engine can
+tell whether it holds the same data. A dependency with no release
+declared (see `set_release`) refuses it with a 400 naming it.
+Needs wire revision 49.
 
 The engine streams the payload as raw bytes. Best-effort approximation
 warnings arrive in the ``X-Volca-Export-Warnings`` response header
@@ -753,7 +792,7 @@ carry faithfully) arrive in the ``X-Volca-Export-Warnings`` response
 header and are surfaced through `warnings`. Raises VoLCAError
 on an HTTP error, including a collection that is not loaded.
 
-##### `Client.export_to_file(fmt: str, out_path: str, db_name: str | None = None) -> None`
+##### `Client.export_to_file(fmt: str, out_path: str, db_name: str | None = None, *, package: str | None = None) -> None`
 
 Export a database (see `export_database`) and write it to a file.
 
@@ -764,6 +803,14 @@ Build matrices for a staged database and load it (``ActivateResponse``).
 Call after dependencies resolve (`get_setup` reports
 ``isReady``). Raises VoLCAError if the engine refuses it (e.g.
 unresolved suppliers).
+
+##### `Client.forget_usage(boot: str, through: int) -> None`
+
+Forget the usage lines collected, up to ``seq`` ``through``.
+
+``boot`` is the one `usage` returned; a cursor from another
+start of the engine raises VoLCAError with a 409. Needs wire
+revision 53.
 
 ##### `Client.get_activity(process_id: str) -> ActivityDetail`
 
@@ -856,6 +903,14 @@ Args:
 Note that both sides together are narrower than asking for both: an
 avoided product is an exchange on the flow that neither makes it for
 sale nor consumes it, and only the unfiltered call lists it.
+
+##### `Client.get_flow_factors(flow_id: str, *, collection: str | None = None, db_name: str | None = None) -> FlowFactors`
+
+Every factor the loaded method collections give one flow.
+
+Each collection explains, as `explain_cf` does, the methods whose
+factors reach the flow, and names those that give it none.
+``collection`` asks one collection alone. Needs wire revision 55.
 
 ##### `Client.get_flow_mapping(method_id: str, *, collection: str | None = None) -> FlowMapping`
 
@@ -998,7 +1053,13 @@ export says all of it; an EcoSpold 1 database lists under
 sources it holds; another format leaves
 ``export`` null and both lists empty. ``licence`` is what the database is
 served under (wire revision 41), the shape `set_licence` takes
-and returns.
+and returns. ``release`` is which published database it is, the shape
+`set_release` takes, and ``systemModels`` the system models its
+activities state, each once (wire revision 48). ``requiredReleases``
+lists the releases a package was built on (wire revision 50), each with
+its ``state``, satisfied, missing or substituted, and the
+``databases`` that meet it, or for a missing one those of the same
+name at another version; `accept_substitution` names another.
 
 ##### `Client.get_stats()`
 
@@ -1429,6 +1490,18 @@ recording the change, and the factor's value before and after.
 
 Set to ``value`` every factor ``match`` reaches, refused as `scale_method_factors` is.
 
+##### `Client.set_release(release: dict | None, db_name: str | None = None) -> dict | None`
+
+Declare which published database an uploaded database is.
+
+``release`` is ``{"name": ..., "version": ..., "systemModel": ...}``,
+the system model only when the publisher ships several (the setup's
+``systemModels`` lists those its activities state); ``None`` clears
+it. A package exported from a database that links to this one names
+it by this release. Returns the release now declared. Raises
+VoLCAError on an HTTP error: a 404 for an unknown database, a 409 for
+one the configuration file declares. Needs wire revision 48.
+
 ##### `Client.set_score(collection: str, set_name: str, score: str, formula: str) -> dict`
 
 Add a score to a scoring set, or write its formula.
@@ -1477,7 +1550,11 @@ Upload a database archive; stage it under a generated slug.
 ``source`` is a path to a ZIP / CSV / XLSX archive (or its raw
 ``bytes``); ``name`` is the display name. The engine auto-detects the
 format (EcoSpold 1/2, SimaPro CSV, ILCD, OpenLCA JSON-LD, Brightway
-Excel) and stages the database without loading it.
+Excel) and stages the database without loading it. A package
+(`export_database` with ``package="ro-crate"``) is read as one
+from wire revision 50: its export is checked against the digest it
+states and staged with its licence, and the releases it was built on
+become the ``requiredReleases`` of its setup.
 
 Returns the ``UploadResponse`` dict
 (``{"success", "message", "slug", "format"}``); ``slug`` is the name
@@ -1502,6 +1579,19 @@ Upload a reference-data CSV of ``kind`` as a staged set.
 
 ``source`` is a path to the CSV (or its raw ``bytes``). Same
 streamed-body + query-param shape as `upload_database`.
+
+##### `Client.usage(after: int = 0) -> dict`
+
+The usage log after the cursor ``after``, for whoever runs the engine.
+
+An engine started with ``usage_log = true`` keeps one line per
+computation on a process of a database with a declared release.
+Returns ``{"boot", "lines", "more"}``: each line carries ``seq``,
+``at``, ``kind``, ``database``, ``process``, ``heldAs`` (the
+``activityName``, ``productName`` and ``location`` the database gives
+the process, wire revision 54), ``reader`` and ``reads``, the releases
+it read; ``more`` says more lines wait after these. Raises VoLCAError
+with a 404 on an engine that keeps no log. Needs wire revision 53.
 
 ##### `Client.use(db_name: str) -> 'Client'`
 
@@ -2323,6 +2413,11 @@ older than wire revision 20.
 shape `Client.set_licence` returns. ``None`` against an engine older
 than wire revision 41, which refused no download.
 
+``release`` is which published database it is, as its owner declared it:
+``{"name", "version", "systemModel"}``, the shape
+`Client.set_release` takes. ``None`` when none is declared, and
+against an engine older than wire revision 48.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `name` | `str` | _required_ |
@@ -2338,6 +2433,7 @@ than wire revision 41, which refused no download.
 | `allocation` | `str \| None` | None |
 | `source` | `str \| None` | None |
 | `licence` | `dict \| None` | None |
+| `release` | `dict \| None` | None |
 
 ### `ExchangeChange`
 
@@ -2414,7 +2510,9 @@ Result of `Client.explain_cf`.
 rewording the codes. The structured fields are for comparing, filtering or
 linking. ``outcome`` is ``"characterized"``, ``"conversion_refused"`` (a
 factor was found but the flow's unit cannot be converted to its basis, so
-the flow scores nothing) or ``"no_factor"``.
+the flow scores nothing) or ``"no_factor"``. ``method_id`` is the UUID
+to ask about this method again; ``None`` against an engine older than
+wire revision 55.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -2426,6 +2524,34 @@ the flow scores nothing) or ``"no_factor"``.
 | `match` | `ExplainedMatch \| None` | None |
 | `steps_tried` | `list[ExplainedStep]` | list() |
 | `regional_factor_count` | `int` | 0 |
+| `method_id` | `str \| None` | None |
+
+### `CollectionFactors`
+
+What one loaded method collection makes of one flow, in a
+`FlowFactors`.
+
+``factors`` explains, as `Client.explain_cf` does, each method
+whose factors reach the flow, applied or refused, or that charges it by
+the location of the emitting activity. ``no_factor`` only names the
+methods that give it no factor at all.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `collection` | `str` | _required_ |
+| `factors` | `list[ExplainCFResult]` | list() |
+| `no_factor` | `list[Method]` | list() |
+
+### `FlowFactors`
+
+Result of `Client.get_flow_factors`: every factor the loaded
+collections give one flow (wire revision 55). A large emission no method
+characterizes adds nothing to any score; this is where that shows.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `flow` | `ExplainedFlow` | _required_ |
+| `collections` | `list[CollectionFactors]` | list() |
 
 ### `FactorMatch`
 
