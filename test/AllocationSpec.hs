@@ -162,6 +162,39 @@ spec = do
             let substituting = activity [productRow cheeseId 1.0 ReferenceProduct (Just 50) M.empty, avoided 2.0]
             concatMap avoidedAmounts (allocate declaredOn substituting) `shouldBe` [1.0]
 
+    describe "allocateWith, a share per product and exchange" $ do
+        it "overrides the product's share for the one exchange a pair names" $ do
+            let processes = NE.toList (allocateWith declaredOn (exchangeShares [((0, 4), 90)]) block)
+            [bioAmounts p | p <- processes] `shouldBe` [[3.6], [1.2], [0.8]]
+            [inputAmounts p | p <- processes] `shouldBe` [[5.0], [3.0], [2.0]]
+
+        it "counts positions as the reader built the activity, before zero products are dropped" $ do
+            -- The zero-amount coproduct at position 1 is dropped; the CO2 line stays position 3.
+            let withZero =
+                    activity
+                        [ productRow cheeseId 1.0 ReferenceProduct (Just 50) M.empty
+                        , productRow wheyId 0.0 Coproduct Nothing M.empty
+                        , productRow creamId 3.0 Coproduct (Just 50) M.empty
+                        , bio 4.0
+                        ]
+            [bioAmounts p | p <- NE.toList (allocateWith declaredOn (exchangeShares [((2, 3), 10)]) withZero)]
+                `shouldBe` [[2.0], [0.4]]
+
+        it "is ignored under a key on a physical property, which replaces every declared share" $ do
+            let twoMasses =
+                    activity
+                        [ productRow cheeseId 1.0 ReferenceProduct (Just 50) M.empty
+                        , productRow creamId 3.0 Coproduct (Just 50) M.empty
+                        , input 10.0
+                        , bio 4.0
+                        ]
+            [bioAmounts p | p <- NE.toList (allocateWith (byPropertyOn WetMass) (exchangeShares [((0, 3), 90)]) twoMasses)]
+                `shouldBe` [[1.0], [3.0]]
+
+        it "with no pair, splits exactly as allocate" $
+            map shape (NE.toList (allocateWith declaredOn noExchangeShares block))
+                `shouldBe` map shape (NE.toList (allocate declaredOn block))
+
     {- The question a user of a multi-output block asks first, and the one the
     functional unit used to answer wrongly: a coproduct row states 3 kg where
     its block states 1 kg of cheese, and the matrix column is divided by that
