@@ -132,7 +132,7 @@ buildDatabase cfg key pkg = case partitionEithers (map (readProcess cx) (P.pkPro
             , cxAllocating = Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitDB}
             }
 
--- | Two activities of one (process, product): a process listing its product twice, which no split can tell apart.
+-- | Two activities of one (process, product), which one line per product should leave no way to make; said rather than one lost.
 describeRepeated :: NE.NonEmpty (UUID, UUID) -> Text
 describeRepeated repeated =
     "processes make the same product twice: " <> T.intercalate ", " [UUID.toText p <> " · " <> UUID.toText f | (p, f) <- NE.toList repeated]
@@ -302,7 +302,7 @@ data Outcome = NoFormula | Agrees | Diverges !Double | Refused !Text
 
 readProcess :: Context -> P.Process -> Either [Unreadable] ReadProcess
 readProcess cx p = case partitionEithers (zipWith (readLine cx p env) [0 ..] (P.prExchanges p)) of
-    ([], lines') -> Right (assemble cx p env (envNotices <> formulaNotices p lines') lines')
+    ([], lines') -> Right (assemble cx p env (envNotices <> formulaNotices p lines') (oneLinePerProduct lines'))
     (failures, _) -> Left failures
   where
     env :: M.Map Text Double
@@ -331,6 +331,27 @@ environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name) | (n
 
     settled :: M.Map Text Double
     settled = Expr.settle Expr.OpenLca given calculated
+
+{- | A product a process lists on several lines is one output of their sum,
+on the first of them, as openLCA adds them up; it is the reference if any
+of them is.
+-}
+oneLinePerProduct :: [Line] -> [Line]
+oneLinePerProduct lines' = [merged ln | ln <- lines', not (isProduct ln) || isFirst ln]
+  where
+    isProduct :: Line -> Bool
+    isProduct ln = offers (P.flType (lnFlow ln)) (P.rxSide (lnRaw ln))
+
+    byFlow :: M.Map UUID (NE.NonEmpty Line)
+    byFlow = M.fromListWith (<>) [(P.flId (lnFlow ln), NE.singleton ln) | ln <- reverse lines', isProduct ln]
+
+    isFirst :: Line -> Bool
+    isFirst ln = (lnAt . NE.head <$> M.lookup (P.flId (lnFlow ln)) byFlow) == Just (lnAt ln)
+
+    merged :: Line -> Line
+    merged ln = case M.lookup (P.flId (lnFlow ln)) byFlow of
+        Just same | isProduct ln, length same > 1 -> ln{lnAmount = sum (lnAmount <$> same), lnRaw = (lnRaw ln){P.rxReference = any (P.rxReference . lnRaw) same}}
+        _ -> ln
 
 readLine :: Context -> P.Process -> M.Map Text Double -> Int -> P.RawExchange -> Either Unreadable Line
 readLine cx p env at raw = do

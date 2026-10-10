@@ -130,6 +130,10 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
                        , "12 inputs have no producer in the package and stay cut off:" <> foldMap (\i -> "\n  " <> T.pack (show i)) [1 .. 10 :: Int]
                        ]
 
+    it "adds up a product a process lists on two lines, as openLCA does" $ \(_, db) -> do
+        inv <- inventoryOf db pairN pairF
+        inv `carriesOnly` [(oreF, 0.5)]
+
     it "places elementary flows in their compartment, and counts those it cannot place" $ \(b, _) -> do
         let compartment fid = bfCompartment =<< M.lookup fid (sdbBioFlows (builtDatabase b))
         compartment co2F `shouldBe` Just (Compartment Air Nothing)

@@ -31,6 +31,7 @@ module OlcaPackageFixture (
     tieF,
     thingF,
     sortedF,
+    pairF,
     co2F,
     oreF,
     zincF,
@@ -49,6 +50,7 @@ module OlcaPackageFixture (
     tieK2,
     tieL,
     sortingM,
+    pairN,
 ) where
 
 import Data.Aeson (Value, object, (.=))
@@ -76,7 +78,7 @@ energyG = uid 7
 massP = uid 8
 energyP = uid 9
 
-steelF, electricityF, gasF, slagF, heatF, powerF, ashF, recycledF, widgetF, landF, tieF, thingF, sortedF :: UUID
+steelF, electricityF, gasF, slagF, heatF, powerF, ashF, recycledF, widgetF, landF, tieF, thingF, sortedF, pairF :: UUID
 steelF = uid 101
 electricityF = uid 102
 gasF = uid 103
@@ -90,6 +92,7 @@ landF = uid 110
 tieF = uid 111
 thingF = uid 112
 sortedF = uid 113
+pairF = uid 114
 
 co2F, oreF, zincF, serviceF :: UUID
 co2F = uid 201
@@ -97,7 +100,7 @@ oreF = uid 202
 zincF = uid 203
 serviceF = uid 204
 
-gasP, elecB, elecB2, steelA, slagD, cogenF, cogenG, boilerH, recyclingI, formulasJ, tieK1, tieK2, tieL, sortingM :: UUID
+gasP, elecB, elecB2, steelA, slagD, cogenF, cogenG, boilerH, recyclingI, formulasJ, tieK1, tieK2, tieL, sortingM, pairN :: UUID
 gasP = uid 301
 elecB = uid 302
 elecB2 = uid 303
@@ -112,6 +115,7 @@ tieK1 = uid 311
 tieK2 = uid 312
 tieL = uid 313
 sortingM = uid 314
+pairN = uid 315
 
 -- | Write the package into an existing directory.
 writePackage :: FilePath -> IO ()
@@ -157,6 +161,7 @@ flows =
     , product tieF "tie" massP
     , product thingF "thing" massP
     , product sortedF "sorted ore" massP
+    , product pairF "pair" massP
     , elementary co2F "carbon dioxide" "Elementary flows/emission/air"
     , elementary oreF "iron ore" "Elementary flows/resource/ground"
     , elementary zincF "zinc" "Elementary flows/emission/ground"
@@ -348,6 +353,8 @@ processes =
         , output 5 co2F 1 kgU massP
         , input 6 serviceF 0.3 kgU massP
         ]
+    , -- Its product on two lines.
+      unitProcess pairN "pair making" [reference (output 1 pairF 1 kgU massP), output 2 pairF 1 kgU massP, input 3 oreF 1 kgU massP]
     ]
   where
     -- The same four lines in both cogeneration processes, numbered as given.
