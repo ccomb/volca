@@ -70,6 +70,8 @@
       , EcoSpold.Parser2
       , ILCD.Common
       , ILCD.Parser
+      , OlcaSchema.Package
+      , OlcaSchema.Parser
       , Method.FlowResolver
       , Method.ParserCSV
       , Method.ParserNW
@@ -92,6 +94,16 @@
 # Keys walked out of a `Map`, so unique before the list is built: the ILCD flow
 # and unit-group tables, and the groups `latestByUUID` has just formed.
 - ignore: {name: "Avoid restricted function", within: [ILCD.Parser.buildFlowAndUnitDB, ILCD.Common.latestByUUID]}
+
+# Unit ids within one unit group and property ids within one flow: openLCA
+# refuses a repeat when it writes the document.
+- ignore: {name: "Avoid restricted function", within: [OlcaSchema.Package.unitTable, OlcaSchema.Package.factorTable]}
+
+# Keys of an openLCA package that are unique by construction: flow and unit
+# tables walked out of a Map, line positions, and the parameters of one scope
+# (openLCA refuses two of one name; a process parameter over a global one is
+# the shadowing the reader means).
+- ignore: {name: "Avoid restricted function", within: [OlcaSchema.Parser.referenceUnits, OlcaSchema.Parser.flowTables, OlcaSchema.Parser.split, OlcaSchema.Parser.environment, OlcaSchema.Parser.assemble]}
 
 # A unit identifier minted from the unit's name, by a UUIDv5 over that name, for
 # a value whose every field is that same name. Two rows under one identifier are

@@ -40,6 +40,17 @@
   looked for in a later one, and it is not counted in the usage log. Wire
   revision 57.
 
+- An openLCA JSON-LD database (schema version 2 or 3, a zip with `openlca.json`
+  at its root, as an LCA Collaboration Server exports it) loads as a
+  database, from the configuration or as an upload. Amounts are converted
+  to each flow's reference unit, computed from their formulas in openLCA's
+  formula language, allocated by each process's own method (physical,
+  economic or causal), and inputs are linked as openLCA links them with its
+  default settings. What the load cannot read yet (uncertainty, data
+  quality, social aspects, costs) is counted, and what it chose for the
+  user (a tie between producers, a product with no allocation factor) is
+  named. Its format is `openLCA package` (slug `openlca-package`); a single
+  openLCA impact category document keeps its name. Wire revision 59.
 - An imported activity's name, location and description can be corrected in
   place: an exchange edit (`POST /api/v1/db/{db}/activity/{pid}/exchanges`,
   the MCP tool `edit_exchanges`, `database edit-exchanges`) accepts

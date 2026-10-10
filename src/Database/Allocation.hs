@@ -26,8 +26,13 @@ module Database.Allocation (
     Allocating (..),
     AllocationRefusal (..),
     AllocatedActivity,
+    ExchangeShares,
+    SharedExchange (..),
+    noExchangeShares,
+    exchangeShares,
     allocatedActivity,
     allocate,
+    allocateWith,
     allocateAll,
     asAllocated,
     describeRefusal,
@@ -82,6 +87,30 @@ data Allocating = Allocating
     , alUnitDB :: !UnitDB
     }
 
+{- | A share for one exchange of one product's process, overriding the
+product's own share for that exchange alone: causal allocation, where a
+source divides each input and emission between the products on its own
+terms. Keyed by the positions of the product and of the exchange in the
+activity as its reader built it, because those are what every reader has;
+the pairs describe the block, not any one process cut from it, so nothing is
+stored on the exchanges. Percentages, like 'DeclaredShare'.
+-}
+newtype ExchangeShares = ExchangeShares (M.Map SharedExchange Double)
+
+-- | One exchange of one product's process, both by position in the activity.
+data SharedExchange = SharedExchange
+    { seProduct :: !Int
+    , seExchange :: !Int
+    }
+    deriving (Eq, Ord, Show)
+
+-- | No pair: every exchange follows its product's share.
+noExchangeShares :: ExchangeShares
+noExchangeShares = ExchangeShares M.empty
+
+exchangeShares :: M.Map SharedExchange Double -> ExchangeShares
+exchangeShares = ExchangeShares
+
 {- | Split an activity into one process per product output when every product
 carries a declared share; otherwise return it as it is, normalised.
 
@@ -89,18 +118,29 @@ Each process keeps its own product as the reference, in the position the
 source gave it, followed by the shared exchanges (inputs, avoided products,
 biosphere, waste) scaled by @share / 100@. Its unit is the product's, and its
 classification is the activity's with whatever the product row states on top.
+'allocateWith' gives single exchanges a share of their own.
 -}
 allocate :: Allocating -> Activity -> NonEmpty Activity
-allocate Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} act =
+allocate alloc = allocateWith alloc noExchangeShares
+
+{- | 'allocate', with a share per (product, exchange) pair on top of each
+product's share. A pair applies only when the shares come from the source: a
+key on a property replaces every declared share, the pairs included.
+-}
+allocateWith :: Allocating -> ExchangeShares -> Activity -> NonEmpty Activity
+allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} (ExchangeShares pairs) act =
     fromMaybe (pure normalised) $ do
         (from, shares) <- plan
         NE.nonEmpty (zipWith (process from) products shares)
   where
-    normalised :: Activity
-    normalised = normalise act
+    placed :: [(Int, Exchange)]
+    placed = normalise act
 
-    products, shared :: [Exchange]
-    (products, shared) = partition exchangeIsProductOutput (exchanges normalised)
+    normalised :: Activity
+    normalised = act{exchanges = map snd placed}
+
+    products, shared :: [(Int, Exchange)]
+    (products, shared) = partition (exchangeIsProductOutput . snd) placed
 
     {- Which shares to apply, and whether they replace what the source wrote.
 
@@ -114,18 +154,26 @@ allocate Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} act 
         Declared -> (,) FromSource <$> declaredShares
         ByProperty prop
             | length products < 2 -> (,) FromSource <$> declaredShares
-            | otherwise -> (,) FromProperty <$> propertyKeyShares prop unitCfg unitDB products
+            | otherwise -> (,) FromProperty <$> propertyKeyShares prop unitCfg unitDB (map snd products)
 
     declaredShares :: Maybe [Double]
-    declaredShares = map dsPercent <$> traverse exchangeDeclaredShare products
+    declaredShares = map dsPercent <$> traverse (exchangeDeclaredShare . snd) products
 
-    process :: SharesFrom -> Exchange -> Double -> Activity
-    process from productEx share =
+    process :: SharesFrom -> (Int, Exchange) -> Double -> Activity
+    process from (productAt, productEx) share =
         normalised
-            { exchanges = applied from share (asReference productEx) : map (scaleExchange (share / 100)) shared
+            { exchanges = applied from share (asReference productEx) : map (scaled from productAt share) shared
             , activityUnit = getUnitNameForExchange unitDB productEx
             , activityClassification = M.union (exchangeClassification productEx) (activityClassification normalised)
             }
+
+    scaled :: SharesFrom -> Int -> Double -> (Int, Exchange) -> Exchange
+    scaled from productAt share (at, ex) = scaleExchange (exchangeShare / 100) ex
+      where
+        exchangeShare :: Double
+        exchangeShare = case from of
+            FromSource -> M.findWithDefault share SharedExchange{seProduct = productAt, seExchange = at} pairs
+            FromProperty -> share
 
     {- The share a split process records is the one that was applied to it.
     Where that is what the row already says, the row is left alone, formula
@@ -328,9 +376,12 @@ Kept, those zeros would leave the process with several references, which the
 gate refuses, and hand its consumers the unit of whichever came first. An
 activity with no reference but one non-zero product output is that product's
 process.
+
+Each exchange keeps the position its reader gave it, which is what a
+per-exchange share is keyed by.
 -}
-normalise :: Activity -> Activity
-normalise act = promote act{exchanges = filter keep (exchanges act)}
+normalise :: Activity -> [(Int, Exchange)]
+normalise act = promote (filter (keep . snd) (zip [0 ..] (exchanges act)))
   where
     keep :: Exchange -> Bool
     keep ex = case ex of
@@ -344,12 +395,12 @@ normalise act = promote act{exchanges = filter keep (exchanges act)}
     makesSomething :: Bool
     makesSomething = any (\ex -> exchangeIsReference ex && exchangeAmount ex /= 0) (exchanges act)
 
-    promote :: Activity -> Activity
-    promote a
-        | any exchangeIsReference (exchanges a) = a
-        | otherwise = case filter ((/= 0) . exchangeAmount) (filter exchangeIsProductOutput (exchanges a)) of
-            [single] -> a{exchanges = map (promoteTo single) (exchanges a)}
-            _ -> a
+    promote :: [(Int, Exchange)] -> [(Int, Exchange)]
+    promote placed
+        | any (exchangeIsReference . snd) placed = placed
+        | otherwise = case filter ((/= 0) . exchangeAmount) (filter exchangeIsProductOutput (map snd placed)) of
+            [single] -> map (fmap (promoteTo single)) placed
+            _ -> placed
 
     promoteTo :: Exchange -> Exchange -> Exchange
     promoteTo single ex

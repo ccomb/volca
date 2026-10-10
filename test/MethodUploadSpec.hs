@@ -103,7 +103,7 @@ spec = do
                 case result of
                     Left err -> expectationFailure ("upload failed: " ++ show err)
                     Right res -> do
-                        urFormat res `shouldBe` OpenLcaJsonLd
+                        urFormat res `shouldBe` OpenLcaImpactCategory
                         -- Lock the side fix: the API response advertises the
                         -- detected format slug, not a hardcoded "ILCD".
                         formatToText (urFormat res) `shouldBe` "openlca-jsonld"
@@ -113,12 +113,12 @@ spec = do
                         doesFileExist (slugDir </> "data.csv") `shouldReturn` False
 
     describe "detectDatabaseFormat on a directory with a JSON-LD ImpactCategory" $
-        it "returns OpenLcaJsonLd (covers the directory branch missed by the single-file test)" $
+        it "returns OpenLcaImpactCategory (covers the directory branch missed by the single-file test)" $
             withSystemTempDirectory "volca-method-detect" $ \tmp -> do
                 let dir = tmp </> "method-dir"
                 createDirectoryIfMissing True dir
                 BL.writeFile (dir </> "impact-category.json") miniImpactCategoryJson
-                detectDatabaseFormat dir `shouldReturn` OpenLcaJsonLd
+                detectDatabaseFormat dir `shouldReturn` OpenLcaImpactCategory
 
     describe "detectMethodFormat on an ILCD method package" $
         -- Regression: an EF 3.1 ILCD package ships companion spreadsheets

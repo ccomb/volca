@@ -327,7 +327,8 @@ parseFormat "ecospold2" = Just EcoSpold2
 parseFormat "ecospold1" = Just EcoSpold1
 parseFormat "simapro" = Just SimaProCSV
 parseFormat "ilcd" = Just ILCDProcess
-parseFormat "openlca-jsonld" = Just OpenLcaJsonLd
+parseFormat "openlca-jsonld" = Just OpenLcaImpactCategory
+parseFormat "openlca-package" = Just OpenLcaPackage
 parseFormat "brightway-excel" = Just BrightwayExcel
 parseFormat _ = Just UnknownFormat
 
@@ -381,7 +382,8 @@ formatMetaToml UploadMeta{..} =
     formatToText EcoSpold1 = "ecospold1"
     formatToText SimaProCSV = "simapro"
     formatToText ILCDProcess = "ilcd"
-    formatToText OpenLcaJsonLd = "openlca-jsonld"
+    formatToText OpenLcaImpactCategory = "openlca-jsonld"
+    formatToText OpenLcaPackage = "openlca-package"
     formatToText BrightwayExcel = "brightway-excel"
     formatToText UnknownFormat = "unknown"
 

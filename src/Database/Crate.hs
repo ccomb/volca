@@ -112,7 +112,8 @@ payloadOf name format = Payload{payloadFile = "payload/" <> T.unpack name <> ext
         EcoSpold1 -> (".xml", "application/xml")
         SimaProCSV -> (".csv", "text/csv")
         BrightwayExcel -> (".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        OpenLcaJsonLd -> (".json", "application/ld+json")
+        OpenLcaImpactCategory -> (".json", "application/ld+json")
+        OpenLcaPackage -> (".zip", "application/zip")
         UnknownFormat -> ("", "application/octet-stream")
 
 -- | The package: the export at its 'payloadPath', and the description of it.

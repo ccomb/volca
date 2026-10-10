@@ -135,6 +135,8 @@ library
                      , Zip
                      , ILCD.Common
                      , ILCD.Parser
+                     , OlcaSchema.Package
+                     , OlcaSchema.Parser
                      , ILCD.Writer
                      , Database.Crate
                      , Database.Requirements
@@ -332,6 +334,7 @@ test-suite lca-tests
                      , EcoSpold1WriterSpec
                      , EcoSpold2Spec
                      , EcoSpold2WriterSpec
+                     , ExprSpec
                      , SimaProWriterSpec
                      , ILCDWriterSpec
                      , MCPSchemaSpec
@@ -365,6 +368,9 @@ test-suite lca-tests
                      , DatabaseStatusSpec
                      , DependencyChoiceSpec
                      , OlcaSchemaSpec
+                     , OlcaPackageFixture
+                     , OlcaSchemaPackageSpec
+                     , OlcaSchemaParserSpec
                      , LicensesSpec
                      , GeographiesSpec
                      , MethodUploadSpec

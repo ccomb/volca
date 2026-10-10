@@ -175,6 +175,8 @@ import GHC.Conc (getNumCapabilities)
 import GHC.Fingerprint (Fingerprint (..))
 import qualified ILCD.Parser as ILCD
 import Method.Types (Location)
+import qualified OlcaSchema.Package as OlcaPackage
+import qualified OlcaSchema.Parser as OlcaSchema
 import Progress
 import qualified SimaPro.Parser as SimaPro
 import SynonymDB (SynonymDB)
@@ -563,6 +565,13 @@ History of manual bumps:
      cache written just before this would keep both empty.
 - 53: a literature entry lists the files the database ships with it. The
      field does not change the fingerprint.
+- 54: an openLCA package is read by its own reader. A package read as ILCD
+     until now may have left a cache, which nothing in the fingerprint tells
+     from this reader's.
+- 55: the openLCA reader nets an elementary flow written on both sides, reads
+     a causal factor naming no product, and merges a product's lines. Nothing
+     changes type, so a cache written just before this would keep the old
+     amounts.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -570,7 +579,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 53
+     in hi `xor` lo `xor` 55
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1206,10 +1215,14 @@ readSourceUnder opts path = do
         else
             if isDir
                 then do
+                    isOlca <- OlcaPackage.isOlcaPackage path
                     hasProcesses <- doesDirectoryExist (path </> "processes")
-                    if hasProcesses
-                        then ILCD.parseILCDDirectory (loUnitConfig opts) (loAllocation opts) path
-                        else loadEcoSpoldDirectory opts path
+                    if isOlca
+                        then OlcaSchema.parseOlcaDirectory (loUnitConfig opts) (loAllocation opts) path
+                        else
+                            if hasProcesses
+                                then ILCD.parseILCDDirectory (loUnitConfig opts) (loAllocation opts) path
+                                else loadEcoSpoldDirectory opts path
                 else return $ Left $ T.pack $ "Path does not exist: " ++ path
 
 {- | What a load reads besides the files themselves.

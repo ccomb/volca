@@ -2277,7 +2277,7 @@ the loader goes. The distinction that matters is whether the loader wants one
 file (a CSV export, a workbook) or the directory itself (an EcoSpold package,
 an ILCD tree); 'dataFileExtension' is where that is decided.
 -}
-data DirectoryFormat = FormatSpold | FormatXML | FormatCSV | FormatExcel | FormatILCD | FormatUnknown
+data DirectoryFormat = FormatSpold | FormatXML | FormatCSV | FormatExcel | FormatOpenLca | FormatILCD | FormatUnknown
     deriving (Show, Eq, Bounded, Enum)
 
 {- | The extension whose file inside a source directory the loader is handed,
@@ -2293,6 +2293,7 @@ dataFileExtension fmt = case fmt of
     FormatExcel -> Just ".xlsx"
     FormatSpold -> Nothing
     FormatXML -> Nothing
+    FormatOpenLca -> Nothing
     FormatILCD -> Nothing
     FormatUnknown -> Nothing
 
@@ -2310,6 +2311,7 @@ supportedSourceFormats =
         FormatXML -> Just "EcoSpold v1 (.xml)"
         FormatCSV -> Just "SimaPro CSV (.csv)"
         FormatExcel -> Just "Brightway Excel (.xlsx)"
+        FormatOpenLca -> Just "openLCA package (openlca.json)"
         FormatILCD -> Just "ILCD"
         FormatUnknown -> Nothing
 
@@ -2334,7 +2336,9 @@ detectDirectoryFormat path = do
     directoryFormat :: IO DirectoryFormat
     directoryFormat =
         firstMatch
-            [ (FormatILCD, doesDirectoryExist (path </> "processes"))
+            [ -- Ahead of ILCD: an openLCA package has a processes/ folder too.
+              (FormatOpenLca, doesFileExist (path </> "openlca.json"))
+            , (FormatILCD, doesDirectoryExist (path </> "processes"))
             , -- EcoSpold packages keep their datasets in a subdirectory (e.g.
               -- ecoinvent's datasets/*.spold), so probe for .spold recursively.
               -- Otherwise a sibling FilenameToActivityLookup.csv at the package
@@ -2502,6 +2506,7 @@ loadDatabaseRawWithCrossDB RawLoad{..} = do
                                     <> supportedSourceFormats
                     FormatSpold -> loadStructured path
                     FormatXML -> loadStructured path
+                    FormatOpenLca -> loadStructured path
                     FormatILCD -> loadStructured path
 
     loadStructured :: FilePath -> IO (Either Text (Database, LoadSource))
@@ -3950,7 +3955,8 @@ discoverCandidatePaths dbConfig = do
                 Upload.EcoSpold1 -> "EcoSpold 1"
                 Upload.SimaProCSV -> "SimaPro CSV"
                 Upload.ILCDProcess -> "ILCD"
-                Upload.OpenLcaJsonLd -> "openLCA JSON-LD"
+                Upload.OpenLcaImpactCategory -> "openLCA JSON-LD"
+                Upload.OpenLcaPackage -> "openLCA package"
                 Upload.BrightwayExcel -> "Brightway Excel"
                 Upload.UnknownFormat -> "Unknown"
         return PathCandidate{pcPath = T.pack rel, pcFormat = label, pcFileCount = count}
