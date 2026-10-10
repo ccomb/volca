@@ -132,7 +132,7 @@ buildDatabase cfg key pkg = case partitionEithers (map (readProcess cx) (P.pkPro
             , cxAllocating = Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitDB}
             }
 
--- | Two activities of one (process, product), which one line per product should leave no way to make; said rather than one lost.
+-- | Two activities of one (process, product). Once a process's lines of one product are merged this cannot happen, so it is reported rather than one silently dropped.
 describeRepeated :: NE.NonEmpty (UUID, UUID) -> Text
 describeRepeated repeated =
     "processes make the same product twice: " <> T.intercalate ", " [UUID.toText p <> " · " <> UUID.toText f | (p, f) <- NE.toList repeated]
@@ -334,7 +334,8 @@ environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name) | (n
 
 {- | A product a process lists on several lines is one output of their sum,
 on the first of them, as openLCA adds them up; it is the reference if any
-of them is.
+of them is. ponytail: a causal factor naming a dropped line's internal id
+becomes a stray factor; redirect it to the kept line if a package shows one.
 -}
 oneLinePerProduct :: [Line] -> [Line]
 oneLinePerProduct lines' = [merged ln | ln <- lines', not (isProduct ln) || isFirst ln]
@@ -572,7 +573,7 @@ formulaCheck lines'
 engineExchange :: Context -> P.Process -> M.Map Int Double -> Line -> (Exchange, [Notice])
 engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
     -- openLCA offers "avoided" on product and waste lines; an elementary one is read as the input it is stored as.
-    (P.ElementaryFlow, side) -> (biosphere (side /= P.Produced), [])
+    (P.ElementaryFlow, side) -> (biosphere side, [])
     (P.ProductFlow, P.Produced) -> (made amount, [])
     (P.ProductFlow, P.Consumed) -> linked Input
     (P.ProductFlow, P.Avoided) -> linked AvoidedProduct
@@ -589,8 +590,10 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
     amount :: Double
     amount = lnAmount ln
 
-    isResource :: Bool
-    isResource = (compartmentName <$> compartmentOf (P.flCategory flow)) == Just NaturalResource
+    direction :: BioDirection
+    direction = case compartmentName <$> compartmentOf (P.flCategory flow) of
+        Just NaturalResource -> Resource
+        _ -> Emission
 
     location :: ExchangeLocation
     location = readExchangeLocation (maybe "" (\l -> M.findWithDefault "" l (P.pkLocations (cxPackage cx))) (P.rxLocation raw))
@@ -601,13 +604,19 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
     (gas captured) is a negative amount of its kind. A flow with no known
     compartment counts as an emission, as the engine reads it.
     -}
-    biosphere :: Bool -> Exchange
-    biosphere isInput =
+    biosphere :: P.Side -> Exchange
+    biosphere side =
         BiosphereExchange
             { bioFlowId = P.flId flow
-            , bioAmount = if isInput == isResource then amount else negate amount
+            , bioAmount = case (side, direction) of
+                (P.Produced, Emission) -> amount
+                (P.Produced, Resource) -> negate amount
+                (P.Consumed, Resource) -> amount
+                (P.Consumed, Emission) -> negate amount
+                (P.Avoided, Resource) -> amount
+                (P.Avoided, Emission) -> negate amount
             , bioUnitId = lnUnit ln
-            , bioDirection = if isResource then Resource else Emission
+            , bioDirection = direction
             , bioLocation = location
             , bioComment = P.rxDescription raw
             , bioPedigree = Nothing
@@ -694,7 +703,7 @@ describeNotices notices =
         Unevaluable what -> ("formulas could not be evaluated; the stored amount is kept:", Just what)
         Unsettled what -> ("calculated parameters have no value:", Just what)
         WithoutFactor what -> ("products carry their process's whole inventory, for want of an allocation factor or method:", Just what)
-        StrayFactor what -> ("processes have causal factors naming a product or line they do not have:", Just what)
+        StrayFactor what -> ("processes have causal factors naming a product or line they do not have, or no product:", Just what)
         Tied what -> ("inputs had several producers; the first by identifier was linked:", Just what)
         CutOff what -> ("inputs have no producer in the package and stay cut off:", Just what)
         Unplaced what -> ("elementary flows have no compartment the engine knows:", Just what)

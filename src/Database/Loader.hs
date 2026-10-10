@@ -575,7 +575,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 54
+     in hi `xor` lo `xor` 55
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
