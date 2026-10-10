@@ -215,8 +215,8 @@ flowTables pkg flowUnits =
         P.ElementaryFlow -> False
 
 {- | The compartment a category path names. Two spellings exist: one level
-(@Elementary flows/Emission to air/…@) and the two levels of the Federal
-Elementary Flow List (@Elementary flows/emission/air@). Ground under emission
+(@Elementary flows/Emission to air/…@) and two levels
+(@Elementary flows/emission/air@). Ground under emission
 is the soil; every resource is a natural resource, its medium kept as the
 sub-compartment.
 -}
@@ -593,7 +593,14 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
     direction :: BioDirection
     direction = case compartmentName <$> compartmentOf (P.flCategory flow) of
         Just NaturalResource -> Resource
-        _ -> Emission
+        Just Air -> Emission
+        Just Water -> Emission
+        Just Soil -> Emission
+        Just InventoryIndicator -> Emission
+        Just Economic -> Emission
+        Just Waste -> Emission
+        Just Social -> Emission
+        Nothing -> Emission
 
     location :: ExchangeLocation
     location = readExchangeLocation (maybe "" (\l -> M.findWithDefault "" l (P.pkLocations (cxPackage cx))) (P.rxLocation raw))
