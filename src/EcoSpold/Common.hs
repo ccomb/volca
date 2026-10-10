@@ -10,6 +10,7 @@ module EcoSpold.Common (
     bsToIntMaybe,
     isElement,
     distributeFiles,
+    acrossCapabilities,
     nonEmptyText,
     docSection,
     joinParts,
@@ -19,6 +20,8 @@ module EcoSpold.Common (
     ParsedDataset (..),
 ) where
 
+import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.Async (mapConcurrently)
 import qualified Data.ByteString as BS
 import Data.Char (chr)
 import Data.Maybe (mapMaybe)
@@ -188,6 +191,19 @@ distributeFiles n xs =
     go [] _ = []
     go _ [] = []
     go (s : ss) ys = let (h, t) = splitAt s ys in h : go ss t
+
+{- | Run an action over every element, split into one slice per capability,
+and return the results in the order of the input.
+
+One slice per capability rather than one thread per element: however large the
+request, it fans out no wider than the machine. The slices are balanced, the
+way the loaders split their files, so 25 elements on 24 capabilities still
+make 24 slices, not 13 of two.
+-}
+acrossCapabilities :: (a -> IO b) -> [a] -> IO [b]
+acrossCapabilities act xs = do
+    capabilities <- getNumCapabilities
+    concat <$> mapConcurrently (mapM act) (distributeFiles capabilities xs)
 
 {- | Render a 'Double' in fixed-point notation (never scientific) with trailing
 zeros trimmed but at least one fractional digit kept. This is the canonical

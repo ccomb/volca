@@ -9,9 +9,9 @@ process without an error.
 -}
 module AcrossCapabilitiesSpec (spec) where
 
-import API.Routes (acrossCapabilities)
 import Control.Concurrent (getNumCapabilities)
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+import EcoSpold.Common (acrossCapabilities)
 import Test.Hspec
 
 spec :: Spec

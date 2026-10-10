@@ -15,7 +15,6 @@ import qualified API.OpenApi
 import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import qualified Config
-import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.QSem (signalQSem, waitQSem)
 import Control.Concurrent.STM (readTVarIO)
@@ -50,7 +49,7 @@ import Database.Edit (authorContext, editExchanges)
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
 import Database.Requirements (Substitution)
-import EcoSpold.Common (distributeFiles)
+import EcoSpold.Common (acrossCapabilities)
 import qualified Expr
 import GHC.Generics
 import qualified GHC.Stats
@@ -963,19 +962,6 @@ data BatchTarget = BatchTarget
     , btProcessId :: !ProcessId
     , btActivity :: !Activity
     }
-
-{- | Run an action over every element, split into one slice per capability,
-and return the results in the order of the input.
-
-One slice per capability rather than one thread per element: however large the
-request, it fans out no wider than the machine. The slices are balanced, the
-way the loaders split their files, so 25 elements on 24 capabilities still
-make 24 slices, not 13 of two.
--}
-acrossCapabilities :: (a -> IO b) -> [a] -> IO [b]
-acrossCapabilities act xs = do
-    capabilities <- getNumCapabilities
-    concat <$> mapConcurrently (mapM act) (distributeFiles capabilities xs)
 
 {- | Solve one chunk of a batch and turn it into entries, with the time its
 solve took.
