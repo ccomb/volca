@@ -24,12 +24,11 @@ A line in another unit than its flow is converted to the flow's, the one unit
 of its unit group here. Location codes differing only by case are one location
 to openLCA, written under the code the database uses most.
 
-What the package cannot say faithfully refuses the export, line by line
-('checkOlcaPackageExportable'); what it says differently is a warning.
+What the package cannot say faithfully refuses the export, line by line;
+what it says differently is a warning.
 -}
 module OlcaSchema.Writer (
     serializeOlcaPackage,
-    checkOlcaPackageExportable,
     locationId,
 ) where
 
@@ -40,7 +39,7 @@ import qualified Data.Aeson.Key as K
 import Data.Bits ((.&.), (.|.))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Either (lefts, rights)
+import Data.Either (partitionEithers)
 import Data.Indexing (collisions)
 import Data.List (sortOn)
 import qualified Data.List.NonEmpty as NE
@@ -55,6 +54,7 @@ import qualified Data.UUID.V5 as UUID5
 import Numeric (readHex)
 
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
+import OlcaSchema.Parser (directionOf)
 import Types
 import UnitConversion (UnitConfig, convertUnit)
 
@@ -62,12 +62,13 @@ import UnitConversion (UnitConfig, convertUnit)
 from the database. 'Left' names every line the format cannot carry.
 -}
 serializeOlcaPackage :: UnitConfig -> SimpleDatabase -> Either Text ([(FilePath, BS.ByteString)], [Text])
-serializeOlcaPackage units db = do
-    checkOlcaPackageExportable units db
-    let written = map (uncurry (processLines cx)) (M.toAscList (sdbActivities db))
-    pure (sortOn fst (documents cx (rights written)), warnings cx)
+serializeOlcaPackage units db = case (partitionEithers written, slashes) of
+    (([], ok), []) -> Right (sortOn fst (documents cx ok), warnings cx)
+    ((bad, _), _) -> Left (describeRefusals (concat bad <> slashes))
   where
     cx = context units db
+    written = map (uncurry (processLines cx)) (M.toAscList (sdbActivities db))
+    slashes = [SlashInSub (ofName f) | f <- M.elems (cxFlows cx), OutElementary (Just c) <- [ofType f], maybe False (T.isInfixOf "/") (compartmentSub c)]
 
 -- | What every line is written against.
 data Context = Context
@@ -77,6 +78,8 @@ data Context = Context
     , cxUnits :: !UnitConfig
     , cxPlaces :: !(M.Map Text Text)
     -- ^ Each location code to the one written for every code differing from it only by case.
+    , cxLocations :: ![Text]
+    -- ^ The location codes written.
     }
 
 data OutType = OutProduct | OutWaste | OutElementary !(Maybe Compartment)
@@ -90,17 +93,19 @@ data OutFlow = OutFlow
     }
 
 context :: UnitConfig -> SimpleDatabase -> Context
-context units db = Context{cxDb = db, cxFlows = flows, cxShared = sharedActivityUUIDs db, cxUnits = units, cxPlaces = places}
+context units db = Context{cxDb = db, cxFlows = flows, cxShared = sharedActivityUUIDs db, cxUnits = units, cxPlaces = places, cxLocations = written}
   where
+    uses = locationUses db
+    written = S.toList (S.fromList [M.findWithDefault code code places | code <- M.keys uses])
     places =
         M.fromList
-            [ (code, written)
-            | (_, codes) <- collisions [(T.toLower code, (n, code)) | (code, n) <- M.toList (locationUses db)]
-            , let written = snd (NE.last (NE.sort codes))
+            [ (code, most)
+            | (_, codes) <- collisions [(T.toLower code, (n, code)) | (code, n) <- M.toList uses]
+            , let most = snd (NE.last (NE.sort codes))
             , (_, code) <- NE.toList codes
             ]
 
-    -- A flow in two tables is written once, as the first names it.
+    -- A treated waste is in the technosphere and the waste tables under one identifier: written once, as the technosphere table describes it.
     flows = M.fromListWith (\_ first' -> first') [(ofId f, f) | f <- map outFlow (exportedFlows db)]
 
     outFlow (kind, unit) = case kind of
@@ -160,19 +165,7 @@ data Refusal
     | PositiveWasteReference !Text
     | NotFinite !Text
 
-{- | Refuse a database the package would carry wrong, naming every line and
-why, grouped by why.
--}
-checkOlcaPackageExportable :: UnitConfig -> SimpleDatabase -> Either Text ()
-checkOlcaPackageExportable units db = case refusals of
-    [] -> Right ()
-    _ -> Left (describeRefusals refusals)
-  where
-    cx = context units db
-    refusals =
-        concat (lefts (map (uncurry (processLines cx)) (M.toAscList (sdbActivities db))))
-            <> [SlashInSub (ofName f) | f <- M.elems (cxFlows cx), OutElementary (Just c) <- [ofType f], maybe False (T.isInfixOf "/") (compartmentSub c)]
-
+-- | Every line the package would carry wrong, named and grouped by why.
 describeRefusals :: [Refusal] -> Text
 describeRefusals refusals =
     T.intercalate "\n" $
@@ -220,7 +213,7 @@ locationId code = fromMaybe UUID.nil (UUID.fromByteString (BL.fromStrict (BS.pac
 
 -- | A process's lines, or why some cannot be written.
 processLines :: Context -> (UUID, UUID) -> Activity -> Either [Refusal] Written
-processLines cx key act = case (lefts lines', rights lines') of
+processLines cx key act = case partitionEithers lines' of
     ([], ok) -> Right Written{wrId = ilcdProcessUUID (cxShared cx) key, wrActivity = act, wrLines = ok}
     (bad, _) -> Left bad
   where
@@ -302,21 +295,6 @@ lineOf cx act ex = do
 
     whenLeft c r = if c then Left r else Right ()
 
-{- | The direction a reader gives an elementary line, from its flow's
-compartment: a resource is taken, anything else emitted.
--}
-directionOf :: Maybe Compartment -> BioDirection
-directionOf comp = case compartmentName <$> comp of
-    Just NaturalResource -> Resource
-    Just Air -> Emission
-    Just Water -> Emission
-    Just Soil -> Emission
-    Just InventoryIndicator -> Emission
-    Just Economic -> Emission
-    Just Waste -> Emission
-    Just Social -> Emission
-    Nothing -> Emission
-
 {- | The category path the reader turns back into this compartment. The three
 media openLCA names get its own spelling; the others go under an emission
 level the reader reads them from.
@@ -385,7 +363,7 @@ documents cx written =
         : [("unit_groups/" <> uuidPath (groupId u), encode (unitGroupDoc u)) | u <- units]
             <> [("flow_properties/" <> uuidPath (propertyId u), encode (propertyDoc u)) | u <- units]
             <> [("flows/" <> uuidPath (ofId f), encode (flowDoc cx f)) | f <- M.elems (cxFlows cx)]
-            <> [("locations/" <> uuidPath (locationId c), encode (locationDoc c)) | c <- S.toList (S.fromList (map (place cx) (M.keys (locationUses (cxDb cx)))))]
+            <> [("locations/" <> uuidPath (locationId c), encode (locationDoc c)) | c <- cxLocations cx]
             <> [("processes/" <> uuidPath (wrId w), encode (processDoc cx w)) | w <- written]
   where
     units = M.elems (sdbUnits (cxDb cx))

@@ -15,7 +15,6 @@ emit a silent empty file.
 -}
 module Database.Export (
     serializeDatabase,
-    exportDatabase,
     MethodExportFormat (..),
     parseMethodExportFormat,
     serializeMethodCollection,
@@ -145,13 +144,6 @@ parseExportFormat raw = case T.toLower (T.strip raw) of
     "brightway" -> Right BrightwayExcel
     "openlca" -> Right OpenLcaPackage
     other -> Left ("unknown export format: " <> other <> " (expected simapro|ecospold1|ecospold2|ilcd|brightway|openlca)")
-
-{- | Serialize a database and write it to @path@, returning the approximation
-warnings so the caller can report them – a local export approximates exactly as
-much as a remote one.
--}
-exportDatabase :: UnitConfig -> DatabaseFormat -> Database -> FilePath -> IO (Either Text [Text])
-exportDatabase units fmt db path = writeExport path (serializeDatabase units fmt db)
 
 -- | File variant of 'serializeMethodCollection', for the CLI.
 exportMethodCollection :: MethodExportFormat -> Text -> MethodCollection -> FilePath -> IO (Either Text [Text])

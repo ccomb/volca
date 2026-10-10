@@ -159,6 +159,14 @@ spec = describe "an openLCA package written from a database" $ do
         bioAmounts <$> throughPackage sdb `shouldReturn` [4]
         T.concat (warned sdb) `shouldSatisfy` T.isInfixOf "maker · carbon dioxide"
 
+    it "keeps every compartment medium through a read" $ do
+        let media = [InventoryIndicator, Economic, Waste, Social, Air, Water, Soil, NaturalResource]
+            flowOf i m = let u = UUID.fromWords 9 1 0 i in (u, BiosphereFlow u (mediumText m) kg M.empty Nothing Nothing (Just (Compartment m (Just "sub"))))
+            flows = zipWith flowOf [1 ..] media
+            sdb = (oneProcess [bio u 1 (if m == NaturalResource then Resource else Emission) | ((u, _), m) <- zip flows media]){sdbBioFlows = M.fromList flows}
+        back <- throughPackage sdb
+        [bfCompartment f | f <- M.elems (sdbBioFlows back)] `shouldBe` [Just (Compartment m (Just "sub")) | m <- media]
+
     it "converts a line to its flow's unit" $ do
         let g = UUID.fromWords 9 0 0 9
             sdb = (oneProcess [BiosphereExchange co2 1500 g Emission "" Nothing Nothing]){sdbUnits = M.fromList [(kg, Unit kg "kg" "kg" ""), (g, Unit g "g" "g" "")]}

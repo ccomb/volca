@@ -17,6 +17,7 @@ module OlcaSchema.Parser (
     Built (..),
     Notice (..),
     describeNotices,
+    directionOf,
 ) where
 
 import Control.Monad (guard)
@@ -240,16 +241,28 @@ compartmentOf category = case T.splitOn "/" category of
         ("resources", []) -> Just (Compartment NaturalResource Nothing)
         _ -> Nothing
 
+    -- Any medium but a resource, and the ground as openLCA names the soil.
     emittedTo :: Text -> Maybe Medium
-    emittedTo medium = case medium of
-        "air" -> Just Air
-        "water" -> Just Water
-        "ground" -> Just Soil
-        "soil" -> Just Soil
-        "emissions to air" -> Just Air
-        "emissions to water" -> Just Water
-        "emissions to soil" -> Just Soil
-        _ -> Nothing
+    emittedTo medium = case (medium, parseMedium medium) of
+        ("ground", _) -> Just Soil
+        (_, Right NaturalResource) -> Nothing
+        (_, Right m) -> Just m
+        (_, Left _) -> Nothing
+
+{- | The direction an elementary line takes from its flow's compartment: a
+resource is taken, anything else emitted.
+-}
+directionOf :: Maybe Compartment -> BioDirection
+directionOf comp = case compartmentName <$> comp of
+    Just NaturalResource -> Resource
+    Just Air -> Emission
+    Just Water -> Emission
+    Just Soil -> Emission
+    Just InventoryIndicator -> Emission
+    Just Economic -> Emission
+    Just Waste -> Emission
+    Just Social -> Emission
+    Nothing -> Emission
 
 -- | Whether a line offers its flow to others: a product made, or a waste taken in.
 offers :: P.FlowType -> P.Side -> Bool
@@ -612,16 +625,7 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
     amount = lnAmount ln
 
     direction :: BioDirection
-    direction = case compartmentName <$> compartmentOf (P.flCategory flow) of
-        Just NaturalResource -> Resource
-        Just Air -> Emission
-        Just Water -> Emission
-        Just Soil -> Emission
-        Just InventoryIndicator -> Emission
-        Just Economic -> Emission
-        Just Waste -> Emission
-        Just Social -> Emission
-        Nothing -> Emission
+    direction = directionOf (compartmentOf (P.flCategory flow))
 
     location :: ExchangeLocation
     location = readExchangeLocation (maybe "" (\l -> M.findWithDefault "" l (P.pkLocations (cxPackage cx))) (P.rxLocation raw))
