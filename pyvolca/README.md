@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 59** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 60** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -473,6 +473,19 @@ Args:
         ``"classification.<system>"``.
     aggregate: `AggregateOp` member or wire string
         (``"sum_quantity"`` by default, ``"count"``, or ``"share"``).
+
+##### `Client.apply_changes(process_id: str, *, summary: list[dict] | None = None, exchanges: list[dict] | None = None, db_name: str | None = None) -> dict`
+
+Make an activity say each change it is given that it does not say yet.
+
+``summary`` and ``exchanges`` are changes as a comparison writes them,
+as for `changes_present`. A change applies only where the
+activity still says what it replaced. Returns
+``{"summary": [...], "exchanges": [...]}``, one outcome per change in
+the order given, each ``{"outcome": ...}``: ``"applied"``,
+``"present"``, ``"different"``, ``"line-gone"``, or
+``"not-applicable"`` with the ``"reason"`` no edit can make it. Needs
+wire revision 60.
 
 ##### `Client.call(operation_id: str, **kwargs) -> Any`
 

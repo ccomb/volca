@@ -68,6 +68,7 @@ module API.DatabaseHandlers (
     -- * Helpers
     convertDbStatus,
     guardMutation,
+    refuseWrite,
     uploadRefusal,
     memoryRefusal,
     loadRefusal,
@@ -672,7 +673,7 @@ editExchangesHandler dbName processId req = do
     dbManager <- asks aeDbManager
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toExchangeEdits req)
     outcome <- liftIO (editExchanges dbManager dbName processId edits)
-    either (\refusal -> writeErr (statusFor refusal) (refusalMessage refusal)) (pure . editReportToAPI) outcome
+    either refuseWrite (pure . editReportToAPI) outcome
 
 {- | What an edit answers, on every surface that offers one, so an assistant
 and a person reading the API reference are told the same thing.
@@ -687,6 +688,10 @@ editReportToAPI report =
         , eepTransient = not (erPersisted report)
         , eepWarnings = erWarnings report
         }
+
+-- | A refused write, answered with its status and its message.
+refuseWrite :: WriteRefusal -> AppM a
+refuseWrite refusal = writeErr (statusFor refusal) (refusalMessage refusal)
 
 -- | One status per refusal, so a client never has to read the message to branch.
 statusFor :: WriteRefusal -> ServerError

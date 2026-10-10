@@ -4,6 +4,22 @@
 
 ### Added
 
+- `POST /api/v1/db/{db}/activity/{pid}/apply-changes` makes an activity say
+  each change it is given that it does not say yet, the changes written as a
+  comparison writes them, and answers for each: `applied`, `present`,
+  `different` or `line-gone` (as `changes-present` judges them), or
+  `not-applicable` with the reason no edit can make it. A change applies only
+  where the activity still says what it replaced, so a value changed otherwise
+  is never overwritten; one that cannot apply does not hold back the others.
+  A name, location or description is restated; an amount is set on the one
+  line of its flow, in that line's unit; a removed line is removed; an added
+  line is drawn from the one activity of the database that makes its product;
+  a line moved to another supplier is drawn from the activity of that name
+  and location. A product name, an allocation and dates are not applicable,
+  nor is a line whose supplier lives in another database. The edits land in
+  one write, refused as a direct edit of the activity would be. In pyvolca,
+  `Client.apply_changes`. Wire revision 60.
+
 - A database whose products are not all supplied is now computed instead of
   refused with HTTP 422. An input that no loaded database supplies counts as
   zero, and every result that solves an activity says which of these inputs

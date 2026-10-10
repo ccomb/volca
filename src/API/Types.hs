@@ -2224,6 +2224,51 @@ data ChangesPresence = ChangesPresence
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ChangesPresence)
 
+{- | What came of one change asked of an activity to hold: it was applied,
+it was there already, or why it was left as the activity says.
+-}
+data ChangeOutcome
+    = -- | The activity says it now.
+      OutcomeApplied
+    | -- | It said it already.
+      OutcomePresent
+    | -- | It says something else than what the change replaced: left alone.
+      OutcomeDifferent
+    | -- | The line the change is about is not there, or several answer to its name.
+      OutcomeLineGone
+    | -- | An edit cannot say it, for the reason given.
+      OutcomeNotApplicable !Text
+    deriving (Eq, Show, Generic)
+
+instance ToJSON ChangeOutcome where
+    toJSON = \case
+        OutcomeApplied -> object ["outcome" .= ("applied" :: Text)]
+        OutcomePresent -> object ["outcome" .= ("present" :: Text)]
+        OutcomeDifferent -> object ["outcome" .= ("different" :: Text)]
+        OutcomeLineGone -> object ["outcome" .= ("line-gone" :: Text)]
+        OutcomeNotApplicable reason -> object ["outcome" .= ("not-applicable" :: Text), "reason" .= reason]
+
+instance ToSchema ChangeOutcome where
+    declareNamedSchema _ =
+        pure $
+            NamedSchema (Just "ChangeOutcome") $
+                mempty
+                    & type_ ?~ OpenApiObject
+                    & properties
+                        .~ InsOrdHashMap.fromList
+                            [ ("outcome", Inline (mempty & type_ ?~ OpenApiString & enum_ ?~ ["applied", "present", "different", "line-gone", "not-applicable"]))
+                            , ("reason", Inline (mempty & type_ ?~ OpenApiString))
+                            ]
+                    & required .~ ["outcome"]
+
+-- | One outcome per change, in the order the query listed them.
+data ChangesApplied = ChangesApplied
+    { capSummary :: ![ChangeOutcome]
+    , capExchanges :: ![ChangeOutcome]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ChangesApplied)
+
 -- | The rung of the cascade that paired two activities of two databases.
 data ActivityMatch
     = -- | The same activityUUID_productUUID.
