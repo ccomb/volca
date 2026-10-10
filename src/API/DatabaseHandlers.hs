@@ -379,7 +379,7 @@ gapReportToAPI mLimit r =
         }
   where
     entryToAPI e =
-        let first :| others = gapReasons (Loader.geReason e)
+        let first :| others = Loader.gapReasons (Loader.geReason e)
          in GapEntryAPI
                 { gaeName = Loader.geFlowName e
                 , gaeSupplierActivity = Loader.geSupplierActivity e
@@ -401,11 +401,6 @@ gapReportToAPI mLimit r =
             , gcaLocation = Loader.gcLocation c
             , gcaEdges = Loader.gcEdges c
             }
-    gapReasons :: Loader.GapReason -> NonEmpty BlockerReason
-    gapReasons gr = case gr of
-        Loader.GapBlocked reasons -> reasons
-        Loader.GapDanglingIdentity -> BlockerReason "dangling_source_identity" Nothing :| []
-        Loader.GapWasteInput -> BlockerReason "unlinked_waste_input" Nothing :| []
 
 {- | Dataset-soundness report for a loaded or staged database: the structural
 defects a score can't reveal. The methodological counterpart of the

@@ -29,6 +29,8 @@ mkR name category score =
         , lrTopContributors = []
         , lrWithheld = Nothing
         , lrWithheldDatabases = []
+        , lrCutoffInputs = []
+        , lrWithheldCutoffs = []
         }
 
 -- | Minimal Method for score-resolution tests.

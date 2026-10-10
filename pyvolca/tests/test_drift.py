@@ -42,6 +42,7 @@ WRAPPER_OPERATIONS = [
     "list_methods",
     "get_flow_mapping",
     "get_characterization",
+    "get_flow_factors",
     "get_contributing_flows",
     "get_contributing_activities",
     "get_score_contributing_flows",

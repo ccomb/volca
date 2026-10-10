@@ -13,9 +13,11 @@ grouped or refused.
 module DependencyLicenceSpec (
     climate,
     collection,
+    configFor,
     dependency,
     inventoryKept,
     managerOn,
+    own,
     referenceOf,
     root,
     rootPid,

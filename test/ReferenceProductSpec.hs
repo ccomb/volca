@@ -28,6 +28,7 @@ import API.Types (
     SearchResults (..),
  )
 import Database (buildDatabaseWithMatrices)
+import Database.Cutoffs (noCutoffs)
 import Service (
     ActivityFilterCore (..),
     ConsumerFilter (..),
@@ -136,7 +137,7 @@ detailOf db fx = uncurry (convertActivityForAPI db) <$> resolved db fx
 inventoryOf :: Database -> Fixture -> IO InventoryExport
 inventoryOf db fx = do
     (p, act) <- resolved db fx
-    pure (convertToInventoryExport db (dbBioFlows db) (dbUnits db) p act M.empty)
+    pure (convertToInventoryExport db (dbBioFlows db) (dbUnits db) p act noCutoffs M.empty)
 
 consumers :: ConsumerFilter
 consumers =

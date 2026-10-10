@@ -32,8 +32,28 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 47
-"""The newest wire revision this pyvolca understands (revision 47 added
+KNOWN_WIRE = 58
+"""The newest wire revision this pyvolca understands (revision 58 added
+the ``cutoff_inputs`` of a result, the unsupplied inputs its calculation
+counted as zero; revision 57 added
+``changes_present``, whether an activity already holds each change a
+comparison wrote, and the description and supplier changes a comparison
+reports; revision 56 added
+the ``name``, ``location`` and ``description`` ``edit_exchanges`` restates;
+revision 55 added
+``get_flow_factors``, every factor the loaded collections give one flow, and
+the ``method_id`` of an ``explain_cf`` answer; revision 54 added
+the ``heldAs`` of a ``usage`` line; revision 53 added
+the usage log, read with ``usage`` and forgotten with ``forget_usage``;
+revision 52 added
+``default_method_collection``, the collection offered first; revision 51 added
+a failed load, copy or upload answered with an HTTP error, which this client
+raises on either way; revision 50 added
+uploading a package as one, the ``requiredReleases`` of a setup and
+``accept_substitution``; revision 49 added
+the ``package`` of ``export_database``; revision 48 added
+the ``release`` of a database, which ``set_release`` declares, and the
+``systemModels`` of its setup; revision 47 added
 the edges a supply chain draws between databases, and its
 ``withheld_inputs``; revision 46 added
 the ``withheld_databases`` a dependency's licence groups its part in;

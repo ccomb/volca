@@ -17,6 +17,7 @@ import Data.Aeson.Types (Pair, parseEither)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.IORef
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Scientific (toBoundedInteger)
@@ -39,6 +40,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
+import Database.Cutoffs (Cutoffs (..))
 import Database.Edit (deriveDatabase, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
@@ -49,10 +51,10 @@ import qualified Impact.Score as Score
 import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
-import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField)
+import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), LCIABatchResult (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
 import Control.Monad (forM, forM_, mfilter, when)
 import Data.List (find)
 import qualified Data.List as L
@@ -72,7 +74,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, unresolvedCount, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, withheldSentence)
 import Usage (ProcessKey (..), UsageKind (..), UsageLog, Use (..), readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -1113,19 +1115,17 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
                 }
     subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-    payload <-
+    chain <-
         if null subs
             then -- Plain cross-DB supply chain.
-                toJSON <$> (liftIO (Service.getSupplyChain unitCfg (DM.managerGeographies dbManager) depLookup db dbName solver pid scf) >>= liftShow)
+                liftIO (Service.getSupplyChain unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName solver pid scf) >>= liftShow
             else do
                 -- Substitution-aware: re-solve the root scaling, then build from it.
                 (processId, _) <- liftService (Service.resolveScorable db pid)
                 (scalingVec, virtualLinks) <-
                     liftIO (Service.computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db dbName solver processId subs) >>= liftShow
-                resp <-
-                    liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg (DM.managerGeographies dbManager) depLookup db dbName processId scalingVec virtualLinks scf) >>= liftShow
-                pure (toJSON resp)
-    pure $ toolSuccessJson rid payload
+                liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName processId scalingVec virtualLinks scf) >>= liftShow
+    pure $ toolSuccessJson rid (withCutoffNotice (Cutoffs (scrCutoffInputs chain) (scrWithheldCutoffs chain)) (toJSON chain))
 
 {- | Generic SQL-group-by aggregation. One small primitive for "how much X is
 in Y" questions -- replaces ad-hoc decomposition tools.
@@ -1169,10 +1169,10 @@ callAggregate dbManager presets rid args (db, solver) =
                                             }
                                 unitCfg <- DM.getMergedUnitConfig dbManager
                                 (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
-                                result <- Agg.aggregate unitCfg (DM.managerGeographies dbManager) mFlows mUnits db dbName solver (DM.mkDepSolverLookup dbManager) pid params
+                                result <- Agg.aggregate unitCfg (DM.managerGeographies dbManager) mFlows mUnits db dbName solver (DM.mkDepSolverLookup dbManager) (DM.getGapIndex dbManager) pid params
                                 case result of
                                     Left err -> return $ toolError rid (serviceMessage err)
-                                    Right agg -> return $ toolSuccessJson rid (toJSON agg)
+                                    Right agg -> return $ toolSuccessJson rid (withCutoffNotice (Cutoffs (aggCutoffInputs agg) (aggWithheldCutoffs agg)) (toJSON agg))
   where
     scopeFromArg = case textArg "scope" args of
         Just "direct" -> Right Agg.ScopeDirect
@@ -1248,7 +1248,6 @@ callGetInventory dbManager rid args =
             solver = ldSharedSolver ld
             limit = fromMaybe 50 (intArg "limit" args)
             nameFilter = textArg "flow" args
-        except $ ensureLinked dbName "computing inventory" db
         (processId, activity) <- liftService (Service.resolveScorable db pid)
         subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
@@ -1271,7 +1270,8 @@ callGetInventory dbManager rid args =
                                 processId
                                 subs
         liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ throwE
-        let inv = Service.convertToInventoryExport db mFlows mUnits processId activity (SharedSolver.csInventory sol)
+        cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
+        let inv = Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)
             flows = ieFlows inv
             -- The query read the way search_flows reads it, synonyms
             -- included, and only its closest match kept.
@@ -1290,7 +1290,7 @@ callGetInventory dbManager rid args =
                     ]
         pure $
             toolSuccessJson rid $
-                object
+                object $
                     [ "statistics" .= toJSON (ieStatistics inv)
                     , "total_flows" .= length flows
                     , -- What the filter kept, so a caller can tell 50 rows
@@ -1299,6 +1299,7 @@ callGetInventory dbManager rid args =
                     , "shown_flows" .= length topN
                     , "flows" .= map slim topN
                     ]
+                        ++ cutoffFields cutoffs
 
 -- | JSON shape for one uncharacterized-flow diagnostic entry.
 encodeUncharacterized :: UncharacterizedFlow -> Value
@@ -1356,6 +1357,8 @@ data ImpactsResult = ImpactsResult
     -}
     , irInventoryWithheld :: ![Text]
     -- ^ The dependencies whose licence keeps the amounts of their exchanges.
+    , irCutoffs :: !Cutoffs
+    -- ^ The unsupplied inputs the solution counted as zero.
     }
 
 {- | Run a fully resolved LCA request: solve inventory, map flows, score.
@@ -1376,7 +1379,6 @@ runImpactsRequest dbManager args req = do
         dbName = lrDbName req
         collection = lrCollection req
         ra = lrResolved req
-    except $ ensureLinked dbName "computing impacts" db
     subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
@@ -1399,8 +1401,9 @@ runImpactsRequest dbManager args req = do
     -- Flows, coverage and diagnostics are read from the part the licences
     -- let be detailed: a dependency that keeps what weighs in its scores
     -- answers its part as one number.
-    Impact.LicencedSolution{Impact.lsShown = shown, Impact.lsWithheld = parts} <-
+    licenced@Impact.LicencedSolution{Impact.lsShown = shown, Impact.lsWithheld = parts} <-
         liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
+    cutoffs <- liftIO (Impact.licencedCutoffs dbManager licenced)
     inventoryWithheld <- liftIO (Impact.withheldDatabases dbManager ReadInventory sol)
     let inventory = SharedSolver.csInventory shown
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
@@ -1459,6 +1462,7 @@ runImpactsRequest dbManager args req = do
             , irFunctionalUnit = functionalUnit
             , irWithheld = withheld
             , irInventoryWithheld = inventoryWithheld
+            , irCutoffs = cutoffs
             }
 
 {- | How much of an inventory's mass a score characterized: the flows it
@@ -1570,6 +1574,7 @@ callGetImpacts dbManager mBaseUrl licence rid args =
                             ++ webUrlPair
                             ++ withheldPair
                             ++ sharesPair
+                            ++ cutoffFields (irCutoffs ir)
                             ++ (if diagnosed then diagnosticsFields else [])
 
 {- | Handler for the 'compute_sensitivity' MCP tool. Mirrors the REST
@@ -1589,7 +1594,6 @@ callComputeSensitivity dbManager mBaseUrl rid args =
             dbName = lrDbName req
             collection = lrCollection req
             ra = lrResolved req
-        except $ ensureLinked dbName "computing sensitivity" db
         perts <-
             ExceptT $
                 pure
@@ -1607,6 +1611,12 @@ callComputeSensitivity dbManager mBaseUrl rid args =
             liftIO $
                 Service.computeSensitivities db (ldSharedSolver ld) (raPid ra) perts
         (baselineX, perResults) <- liftShow eRes
+        -- The scores below read the root's own scaling alone, so its cut-offs are the
+        -- ones they met, read under the licences the way the REST sensitivity reads them.
+        cutoffs <-
+            liftIO $
+                Impact.solutionCutoffs dbManager SeeDetailedScores $
+                    SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (dbName, db, baselineX)) IncludeLongTerm
         -- This tool takes no long-term policy: it compares a baseline with
         -- perturbations of it, and both sides count the same flows.
         let scoreOf x = computeLCIAScoreAuto unitCfg mUnits mFlows IncludeLongTerm db x (applyBiosphereMatrix db x) hier tables
@@ -1645,6 +1655,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                     , "baseline_score" .= baselineScore
                     , "perturbed" .= map pertEntry perResults
                     ]
+                        ++ cutoffFields cutoffs
                         ++ webUrlPair
 
 {- | Cross-database impact comparison for mapping audits.
@@ -1791,6 +1802,7 @@ callCompareImpacts dbManager rid args =
                 ]
                     -- The flows a dependency keeps are not in the alignment; its share is.
                     ++ ["withheld_databases" .= Service.withheldShares (loScore outcome) (irWithheld ir) | not (null (irWithheld ir))]
+                    ++ cutoffFields (irCutoffs ir)
     encodeContrib f c =
         object
             [ "flow_name" .= bfName f
@@ -2327,24 +2339,6 @@ loadLcaRequest dbManager args = do
             , lrMethod = method
             }
 
-{- | Bail if the database has unresolved cross-DB links. 'op' names the
-user-visible operation for the error message (e.g. "computing impacts").
--}
-ensureLinked :: Text -> Text -> Database -> Either Text ()
-ensureLinked dbName op db =
-    let n = unresolvedCount (dbLinkingStats db)
-     in if n == 0
-            then Right ()
-            else
-                Left $
-                    "Database \""
-                        <> dbName
-                        <> "\" has "
-                        <> T.pack (show n)
-                        <> " unresolved cross-DB products. Load the missing dependency databases and re-link before "
-                        <> op
-                        <> "."
-
 callGetContributingFlows :: DatabaseManager -> Maybe Text -> Licence -> RequestId -> KeyMap Value -> IO Value
 callGetContributingFlows dbManager mBaseUrl licence rid args =
     runTool rid $ do
@@ -2389,6 +2383,7 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
                            ]
                     ]
                         ++ withheldPair
+                        ++ cutoffFields (irCutoffs ir)
                         ++ webUrlPair
                         ++ diagnosticsFields
 
@@ -2404,7 +2399,6 @@ callGetContributingActivities dbManager mBaseUrl rid args =
             ra = lrResolved req
             lim = fromMaybe 10 (intArg "limit" args)
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-        except $ ensureLinked dbName "computing contributions" db
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
         (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
         solved <-
@@ -2420,6 +2414,7 @@ callGetContributingActivities dbManager mBaseUrl rid args =
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
         contributions <- ExceptT (Impact.processContributionsOf dbManager collection method tables sol)
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
+        cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
         let view = ImpactsView{ivCollection = lrCollection req, ivFragment = "contributing-activities/" <> lrMethodIdText req}
             ProcessLines{plScore = score, plTop = top, plWithheld = withheldLines} = processLines lim (Impact.splitProcessParts withheld contributions)
         rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl view mUnits score) top
@@ -2433,6 +2428,7 @@ callGetContributingActivities dbManager mBaseUrl rid args =
                     , "processes" .= rows
                     ]
                         ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
+                        ++ cutoffFields cutoffs
 
 -- | One score of a scoring set, with the activity it is asked of, solved.
 data ScoreRequest = ScoreRequest
@@ -2441,6 +2437,8 @@ data ScoreRequest = ScoreRequest
     , scrRef :: !ScoreRef
     , scrScore :: !Score.ResolvedScore
     , scrSolution :: !SharedSolver.CrossDBSolution
+    , scrCutoffs :: !Cutoffs
+    -- ^ The unsupplied inputs the solution counted as zero.
     }
 
 -- | The two ways a score is broken down, as the web UI names its tabs.
@@ -2460,7 +2458,6 @@ loadScoreRequest dbManager args = do
     mc <- maybe (throwE (collectionNotLoadedMessage collName (M.keys loaded))) pure (M.lookup collName loaded)
     rs <- except (first Score.refusalMessage (Score.resolveScore (mcMethods mc) (mcScoringSets mc) ref))
     (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
-    except $ ensureLinked dbName "computing contributions" (ldDatabase ld)
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     solved <-
         ExceptT $
@@ -2472,6 +2469,7 @@ loadScoreRequest dbManager args = do
                 (ldSharedSolver ld)
                 pid
     sol <- liftIO (Impact.withLongTermPolicy dbManager (longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))) solved)
+    cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
     pure
         ScoreRequest
             { scrSource = Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = ldDatabase ld, srcCollection = DM.CollectionName collName}
@@ -2479,6 +2477,7 @@ loadScoreRequest dbManager args = do
             , scrRef = ref
             , scrScore = rs
             , scrSolution = sol
+            , scrCutoffs = cutoffs
             }
 
 -- | Where the web UI shows this breakdown: the tab and the score its fragment names.
@@ -2522,6 +2521,7 @@ callGetScoreContributingFlows dbManager mBaseUrl rid args =
                            ]
                     ]
                         ++ ["withheld_databases" .= Service.withheldShares score withheld | not (null withheld)]
+                        ++ cutoffFields (scrCutoffs req)
                         ++ webUrlField mBaseUrl (impactsViewPath (srcDbName (scrSource req)) (raText (scrActivity req)) (scoreView req ByFlow))
 
 callGetScoreContributingActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
@@ -2544,6 +2544,7 @@ callGetScoreContributingActivities dbManager mBaseUrl rid args =
                     , "processes" .= rows
                     ]
                         ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
+                        ++ cutoffFields (scrCutoffs req)
 
 -- | The processes weighing in a score, heaviest first, and one line per dependency keeping its own.
 data ProcessLines = ProcessLines
@@ -2600,7 +2601,7 @@ batchErrorMsg err = case err of
     BI.CollectionNotLoaded name available -> collectionNotLoadedMessage name available
     BI.DatabaseNotLoaded name -> "Database not loaded: " <> name
     BI.ActivityResolutionFailed msg -> msg
-    BI.LinkingIncomplete msg -> msg
+    BI.Unprocessable msg -> msg
     BI.OtherBatchError code msg -> "HTTP " <> T.pack (show code) <> ": " <> msg
 
 {- | Look up the configured scoring-set names on a loaded method collection.
@@ -2650,7 +2651,7 @@ callScoreActivity dbManager mHosting mBaseUrl rid args =
                         maybe id attachMarketHintByName mActName $
                             addWebUrlMaybe
                                 mTopUrl
-                                (slimLCIAPanel (toJSON lbr))
+                                (withCutoffNotice (Cutoffs (lbrCutoffInputs lbr) (lbrWithheldCutoffs lbr)) (slimLCIAPanel (toJSON lbr)))
                 except (toolSuccessJson rid <$> filterScoringSets configured wantedSets enriched)
 
 {- | Resolve the activity name for a (db, processId) pair. 'Nothing' when

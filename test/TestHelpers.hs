@@ -13,6 +13,15 @@ module TestHelpers (
     mkSolverFromDb,
     shippedGeographies,
     membersOnly,
+
+    -- * Hand-built databases
+    kgUnit,
+    units,
+    mkActivity,
+    mkTechFlow,
+    reference,
+    techInput,
+    wasteInput,
 ) where
 
 import Builtin (builtinGeographies)
@@ -171,3 +180,78 @@ shippedGeographies =
 -- | An own licence that refuses downloads, the case the engine holds back.
 membersOnly :: Licence
 membersOnly = LicenceOwn OwnLicence{ownText = "Members only", ownRefused = S.singleton Download, ownAttribution = AttributionRequired}
+
+-- ---------------------------------------------------------------------------
+-- Hand-built databases: activities of a kilogram product, exchanges in kg.
+-- ---------------------------------------------------------------------------
+
+kgUnit :: UUID
+kgUnit = read "00000000-0000-0000-0000-000000000001"
+
+units :: M.Map UUID Unit
+units = M.singleton kgUnit (Unit kgUnit "kg" "kg" "")
+
+mkActivity :: Text -> [Exchange] -> Activity
+mkActivity name exs =
+    Activity
+        { activityName = name
+        , activityDescription = []
+        , activityDocumentation = []
+        , activitySynonyms = M.empty
+        , activityClassification = M.empty
+        , activityLocation = "FR"
+        , activityLocationSource = LocationDeclared
+        , activityUnit = "kg"
+        , exchanges = exs
+        , activityParams = M.empty
+        , activityParamExprs = M.empty
+        , activityNativeType = Nothing
+        , activityNativeId = Nothing
+        , activityFormulaCheck = Nothing
+        , activityDates = noDates
+        }
+
+mkTechFlow :: UUID -> Text -> TechnosphereFlow
+mkTechFlow fid name =
+    TechnosphereFlow
+        { tfId = fid
+        , tfName = name
+        , tfUnitId = kgUnit
+        , tfSynonyms = M.empty
+        , tfCAS = Nothing
+        , tfSubstanceId = Nothing
+        }
+
+reference :: UUID -> Exchange
+reference fid = (techInput fid 1.0){techRole = ReferenceProduct}
+
+techInput :: UUID -> Double -> Exchange
+techInput fid amount =
+    TechnosphereExchange
+        { techFlowId = fid
+        , techAmount = amount
+        , techUnitId = kgUnit
+        , techRole = Input
+        , techActivityLinkId = Nothing
+        , techSupplierClaim = ClaimByProduct
+        , techLocation = "FR"
+        , techComment = Nothing
+        , techPedigree = Nothing
+        , techShare = Nothing
+        , techClassification = M.empty
+        , techProperties = noProperties
+        }
+
+wasteInput :: UUID -> Double -> Exchange
+wasteInput fid amount =
+    WasteExchange
+        { waFlowId = fid
+        , waAmount = amount
+        , waUnitId = kgUnit
+        , waIsInput = True
+        , waActivityLinkId = Nothing
+        , waSupplierClaim = ClaimByProduct
+        , waLocation = ""
+        , waComment = Nothing
+        , waPedigree = Nothing
+        }

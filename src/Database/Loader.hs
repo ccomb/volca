@@ -66,6 +66,8 @@ module Database.Loader (
     GapConsumer (..),
     GapEntry (..),
     GapReport (..),
+    gapEdgesForLoaded,
+    gapReasons,
     gapReportForLoaded,
     gapReportForStaged,
 
@@ -2583,17 +2585,27 @@ buildGapReport dbName db nLinks edges =
             , grGaps = entries
             }
 
--- | Supplier-gap report of a loaded database ('findProducer' honours process links).
+-- | Unsupplied edges of a loaded database ('findProducer' honours process links).
+gapEdgesForLoaded :: Database -> [GapEdge]
+gapEdgesForLoaded db = loadedEdges db (toSimpleDatabase db)
+
+-- | Supplier-gap report of a loaded database.
 gapReportForLoaded :: T.Text -> Database -> GapReport
 gapReportForLoaded dbName db =
     let sdb = toSimpleDatabase db
-        edges =
-            gapEdgesWith
-                (isJust . findProducer (dbProcessIdLookup db))
-                sdb
-                (dbCrossDBLinks db)
-                (dbLinkingStats db)
-     in buildGapReport dbName sdb (length (dbCrossDBLinks db)) edges
+     in buildGapReport dbName sdb (length (dbCrossDBLinks db)) (loadedEdges db sdb)
+
+-- | The scan both of the above run, on the simple view the caller already holds.
+loadedEdges :: Database -> SimpleDatabase -> [GapEdge]
+loadedEdges db sdb =
+    gapEdgesWith (isJust . findProducer (dbProcessIdLookup db)) sdb (dbCrossDBLinks db) (dbLinkingStats db)
+
+-- | How a gap's reason is spelled on the wire, by every surface that names one.
+gapReasons :: GapReason -> NE.NonEmpty BlockerReason
+gapReasons gr = case gr of
+    GapBlocked reasons -> reasons
+    GapDanglingIdentity -> NE.singleton (BlockerReason "dangling_source_identity" Nothing)
+    GapWasteInput -> NE.singleton (BlockerReason "unlinked_waste_input" Nothing)
 
 {- | Staged-path counterpart of 'gapReportForLoaded', against the staged
 database's just-computed links and stats.

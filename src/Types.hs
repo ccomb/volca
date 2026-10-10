@@ -2593,7 +2593,7 @@ data BlockerReason = BlockerReason
     { brReason :: !Text
     , brDetail :: !(Maybe Text)
     }
-    deriving (Show, Eq, Generic)
+    deriving (Show, Eq, Generic, NFData)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped BlockerReason)
 
 {- | The wire spelling of a 'LinkBlocker' – single source of truth shared by the

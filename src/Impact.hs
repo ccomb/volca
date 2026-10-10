@@ -45,6 +45,8 @@ module Impact (
     PartScore (..),
     partitionByLicence,
     licencedSolution,
+    licencedCutoffs,
+    solutionCutoffs,
     scoreParts,
     LicencedContributions (..),
     licencedContributionsOf,
@@ -69,7 +71,8 @@ import qualified Data.Text as T
 import Data.UUID (UUID)
 
 import qualified Data.Vector.Unboxed as U
-import Database.Manager (CollectionName, DatabaseManager (..), getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
+import Database.Cutoffs (Cutoffs (..), cutoffsOf)
+import Database.Manager (CollectionName, DatabaseManager (..), getGapIndex, getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
 import Matrix (Inventory, Vector, applyBiosphereMatrix)
 import Method.Mapping (
     FlowContribution (..),
@@ -127,6 +130,26 @@ data WithheldPart = WithheldPart
     { wpDatabase :: Text
     , wpSolution :: SharedSolver.CrossDBSolution
     }
+
+{- | The cut-off inputs a solution meets, with the indexes the manager keeps:
+named in the part the licences show, one count for each dependency that keeps
+its detail, since the products it misses are part of that detail. A database
+whose licence keeps the amounts of its exchanges to itself (it refuses
+ReadInventory), the root's own included, is counted rather than named too: an
+unsupplied input and what the chain asks of it are such amounts, as the
+unlinked waste a batch drops under that licence is.
+-}
+licencedCutoffs :: DatabaseManager -> LicencedSolution -> IO Cutoffs
+licencedCutoffs dbManager ls = do
+    amountsKept <- refusingDatabases dbManager ReadInventory
+    cutoffsOf (getGapIndex dbManager) (S.fromList (map wpDatabase (lsWithheld ls)) <> amountsKept) scalings
+  where
+    scalings :: [(Text, Database, Vector)]
+    scalings = NE.toList (SharedSolver.csScalings (lsWhole ls))
+
+-- | The cut-offs of a solution, read under the licences for one permission.
+solutionCutoffs :: DatabaseManager -> Permission -> SharedSolver.CrossDBSolution -> IO Cutoffs
+solutionCutoffs dbManager permission sol = licencedCutoffs dbManager =<< licencedSolution dbManager permission sol
 
 {- | Split a solution by the databases whose licence refuses a permission.
 

@@ -53,10 +53,12 @@ data BatchError
       format was rejected. Carries the verbatim engine message.
       -}
       ActivityResolutionFailed Text
-    | {- | Cross-DB linking / matrix invariant breakage (HTTP 422 in the
-      Servant layer). Carries the verbatim engine message.
+    | {- | The request names something the engine holds but cannot compute
+      (HTTP 422 in the Servant layer): a unit no conversion reaches, an
+      activity with no column to score, a score that does not split into its
+      indicators' parts. Carries the verbatim engine message.
       -}
-      LinkingIncomplete Text
+      Unprocessable Text
     | {- | Catch-all for any other 'ServerError' surfaced by the Handler
       stack. Carries the HTTP status code and the verbatim body so
       nothing is silently swallowed.
@@ -187,7 +189,7 @@ translateError availableCollections se
         DatabaseNotLoaded rest
     | code == 404 = ActivityResolutionFailed body
     | code == 400 = ActivityResolutionFailed body
-    | code == 422 = LinkingIncomplete body
+    | code == 422 = Unprocessable body
     | otherwise = OtherBatchError code body
   where
     code = errHTTPCode se

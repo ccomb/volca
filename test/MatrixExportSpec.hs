@@ -20,7 +20,7 @@ import Service (exportUniversalMatrixFormat)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
-import TestHelpers
+import TestHelpers hiding (reference)
 import Text.Read (readMaybe)
 import Types
 import UnitConversion (defaultUnitConfig)

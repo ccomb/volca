@@ -15,6 +15,7 @@ import API.Types (RootDb (..), Substitution (..), SubstitutionScope (..), Supply
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Vector.Unboxed as U
+import Database.Cutoffs (gapIndexOf)
 import Matrix (buildDemandVector)
 import Service (
     ActivityFilterCore (..),
@@ -299,6 +300,7 @@ spec = do
                     defaultUnitConfig
                     shippedGeographies
                     lookup_
+                    (\_ d -> pure (gapIndexOf d))
                     root
                     "root"
                     pid

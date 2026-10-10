@@ -37,24 +37,18 @@ import Database.Loader (
     relinkSimpleDatabase,
  )
 import SynonymDB (emptySynonymDB)
+import TestHelpers (kgUnit, mkActivity, mkTechFlow, reference, techInput, units, wasteInput)
 import Types (
-    Activity (..),
     BlockerReason (..),
     Exchange (..),
     GeographyPolicy (..),
     LinkBlocker (..),
-    LocationSource (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     SupplierRequest (..),
-    TechRole (..),
-    TechnosphereFlow (..),
-    Unit (..),
     UnresolvedProduct (..),
     WasteFlow (..),
-    noDates,
     noDocumentation,
-    noProperties,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -65,8 +59,7 @@ import UnitConversion (defaultUnitConfig)
 u :: String -> UUID
 u suffix = read ("00000000-0000-0000-0000-0000000000" <> suffix)
 
-kgUnit, breadFlow, cakeFlow, flourFlow, waterFlow, sugarFlow, wasteFlow :: UUID
-kgUnit = u "01"
+breadFlow, cakeFlow, flourFlow, waterFlow, sugarFlow, wasteFlow :: UUID
 breadFlow = u "02"
 cakeFlow = u "03"
 flourFlow = u "04"
@@ -83,74 +76,6 @@ ghostAct = u "0d" -- named by a dangling activityLinkId, shipped by nobody
 -- ---------------------------------------------------------------------------
 -- Fixture building blocks
 -- ---------------------------------------------------------------------------
-
-mkActivity :: Text -> [Exchange] -> Activity
-mkActivity name exs =
-    Activity
-        { activityName = name
-        , activityDescription = []
-        , activityDocumentation = []
-        , activitySynonyms = M.empty
-        , activityClassification = M.empty
-        , activityLocation = "FR"
-        , activityLocationSource = LocationDeclared
-        , activityUnit = "kg"
-        , exchanges = exs
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
-        , activityNativeType = Nothing
-        , activityNativeId = Nothing
-        , activityFormulaCheck = Nothing
-        , activityDates = noDates
-        }
-
-mkTechFlow :: UUID -> Text -> TechnosphereFlow
-mkTechFlow fid name =
-    TechnosphereFlow
-        { tfId = fid
-        , tfName = name
-        , tfUnitId = kgUnit
-        , tfSynonyms = M.empty
-        , tfCAS = Nothing
-        , tfSubstanceId = Nothing
-        }
-
-reference :: UUID -> Exchange
-reference fid = (techInput fid 1.0){techRole = ReferenceProduct}
-
-techInput :: UUID -> Double -> Exchange
-techInput fid amount =
-    TechnosphereExchange
-        { techFlowId = fid
-        , techAmount = amount
-        , techUnitId = kgUnit
-        , techRole = Input
-        , techActivityLinkId = Nothing
-        , techSupplierClaim = ClaimByProduct
-        , techLocation = "FR"
-        , techComment = Nothing
-        , techPedigree = Nothing
-        , techShare = Nothing
-        , techClassification = M.empty
-        , techProperties = noProperties
-        }
-
-wasteInput :: UUID -> Double -> Exchange
-wasteInput fid amount =
-    WasteExchange
-        { waFlowId = fid
-        , waAmount = amount
-        , waUnitId = kgUnit
-        , waIsInput = True
-        , waActivityLinkId = Nothing
-        , waSupplierClaim = ClaimByProduct
-        , waLocation = ""
-        , waComment = Nothing
-        , waPedigree = Nothing
-        }
-
-units :: M.Map UUID Unit
-units = M.singleton kgUnit (Unit kgUnit "kg" "kg" "")
 
 {- | Consumer database. Demands (7 supplier demands in total):
 

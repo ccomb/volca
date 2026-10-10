@@ -31,6 +31,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
+import Database.Cutoffs (gapIndexOf)
 import Database.Loader (findAllCrossDBLinks)
 import Matrix (computeInventoryMatrix, computeScalingVector)
 import Service (ActivityFilterCore (..), Edges (..), SupplyChainFilter (..), buildCrossDBLinkMap, buildSupplyChainFromScalingVector, toExchangeWithUnit)
@@ -219,6 +220,7 @@ consumptionTotalOf name key acts = do
                     "root"
                     solver
                     (\_ -> pure Nothing)
+                    (\_ d -> pure (gapIndexOf d))
                     (processIdToText db (fromIntegral pid))
                     (Agg.emptyAggregateParams Agg.ScopeConsumption)
             either (fail . show) (pure . aggFilteredTotal) agg

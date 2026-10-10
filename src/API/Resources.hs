@@ -570,7 +570,11 @@ description r = case r of
         \intra-family edges with filter_consumer_not to get the amount delivered \
         \outside the filtered family. Byproduct edges keep their negative sign.\n\
         \\n\
-        \The filter_classification parameter accepts a list of strings in \"System=Value[:exact]\" form (default mode is 'contains')."
+        \The filter_classification parameter accepts a list of strings in \"System=Value[:exact]\" form (default mode is 'contains'). \
+        \When the chain meets inputs no loaded database supplies, they count \
+        \as zero and the answer lists them under 'cutoffInputs', with \
+        \'withheldCutoffs' counting those inside a database whose licence \
+        \keeps its detail to itself."
     GetSupplyChain ->
         "LCA / ACV: get a flat list of all upstream activities in the supply chain \
         \(chaîne amont, filière, intrants). The 'quantity' field is the cumulative \
@@ -585,14 +589,23 @@ description r = case r of
         \product unit, which a SimaPro or Brightway Excel import records in the \
         \canonical unit of its dimension (kg, mj, m3). It is not always the unit \
         \written on the exchange that consumes it, so an input of 0.22 kWh appears \
-        \here in mj (1 kWh = 3.6 MJ). Read the unit off the entry, never assume it."
+        \here in mj (1 kWh = 3.6 MJ). Read the unit off the entry, never assume it. \
+        \When the chain meets inputs no loaded database supplies, they count \
+        \as zero and the answer lists them under 'cutoffInputs', with \
+        \'withheldCutoffs' counting those inside a database whose licence \
+        \keeps its detail to itself."
     GetInventory ->
         "LCA / ACV: compute the Life Cycle Inventory (LCI): biosphere flows \
         \(emissions and resource extractions) for an activity's full supply chain. \
         \Returns statistics and top flows by quantity. Use this (not get_impacts) \
         \when the question targets raw physical flows rather than weighted scores: \
         \land / pasture occupation (m²·year), water withdrawal (m³), specific \
-        \emissions (kg CO₂, kg CH₄, kg N), resource extraction."
+        \emissions (kg CO₂, kg CH₄, kg N), resource extraction.\n\
+        \\n\
+        \When the chain meets inputs no loaded database supplies, they count \
+        \as zero and the answer opens with 'cutoff_notice' and lists them \
+        \under 'cutoff_inputs', with 'withheld_cutoffs' counting those \
+        \inside a database whose licence keeps its detail to itself."
     GetImpacts ->
         "LCA / ACV: compute Life Cycle Impact Assessment (LCIA) scores for an \
         \activity. Returns the score, functional unit, and top contributing \
@@ -603,7 +616,12 @@ description r = case r of
         \contributing flow carries 'match_kind': how its factor was found, in \
         \the rung names documented on explain_cf; null means no factor in the \
         \method reaches this flow. Ask explain_cf for the full story on \
-        \one flow."
+        \one flow.\n\
+        \\n\
+        \When the chain meets inputs no loaded database supplies, they count \
+        \as zero and the answer opens with 'cutoff_notice' and lists them \
+        \under 'cutoff_inputs', with 'withheld_cutoffs' counting those \
+        \inside a database whose licence keeps its detail to itself."
             <> webUrlTip "impacts"
     ComputeSensitivity ->
         "LCA / ACV: sensitivity analysis: sweep relative perturbations of \
@@ -829,12 +847,20 @@ description r = case r of
         \call get_impacts N times across every method of a collection: \
         \replaces N round-trips with one batched solve. Discover available \
         \scoring sets with list_scoring_sets. Render the 'web_url' as a \
-        \clickable markdown link when presenting results to a human."
+        \clickable markdown link when presenting results to a human. \
+        \When the chain meets inputs no loaded database supplies, they count \
+        \as zero and the answer lists them under 'cutoffInputs', with \
+        \'withheldCutoffs' counting those inside a database whose licence \
+        \keeps its detail to itself."
     ScoreActivities ->
         "LCA / ACV: rank N activities against one scoring set in one call. \
         \Returns a columnar JSON shape: {scoring_set, scoring_unit, \
-        \functional_unit?, columns, rows, not_found, invalid}. 'columns' is the \
-        \header (['name', 'process_id', 'web_url', 'total', <indicator keys...>]) \
+        \functional_unit?, columns, rows, not_found, invalid, cutoff_notice?, \
+        \cutoff_inputs_by_process_id?, withheld_cutoffs_by_process_id?}. 'columns' \
+        \is the header (['name', 'process_id', 'web_url', 'total', 'cutoffs', \
+        \<indicator keys...>]), where 'cutoffs' counts the inputs of that row's \
+        \chain no loaded database supplies, scored as zero and listed per process \
+        \id in 'cutoff_inputs_by_process_id', \
         \and 'rows' is a 2D array of scalars: one row per resolved activity. \
         \Hoisting the constant metadata once and packing each activity as a flat \
         \array of scalars makes this shape ~6× smaller than a row-shaped JSON \

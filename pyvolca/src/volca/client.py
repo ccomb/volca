@@ -39,6 +39,7 @@ variants in the Servant API.
 
 from __future__ import annotations
 
+import json
 import urllib.parse
 import uuid
 import warnings
@@ -73,6 +74,7 @@ from .types import (
     Exchange,
     ExchangeSelector,
     ExplainCFResult,
+    FlowFactors,
     FactorMatch,
     ScoringRow,
     Flow,
@@ -1486,13 +1488,23 @@ class Client:
         csv_text = Path(mapping_path).read_text(encoding="utf-8")
         return self.relink(dep_db, csv_text, db_name=db_name)
 
-    def export_database(self, fmt: str, db_name: str | None = None) -> bytes:
+    def export_database(
+        self, fmt: str, db_name: str | None = None, *, package: str | None = None
+    ) -> bytes:
         """Export a loaded database, returning the serialized bytes.
 
         ``fmt`` is one of ``simapro|ecospold1|ecospold2|ilcd|brightway``,
         validated client-side; an unknown value raises VoLCAError before any
         request. Single-file formats carry their bytes directly; EcoSpold 2 /
         ILCD multi-file trees come back zipped.
+
+        ``package="ro-crate"`` returns instead a zip holding that export under
+        ``payload/``, beside an RO-Crate ``ro-crate-metadata.json`` describing
+        the licence the database is served under, the digest of the export and
+        the release of every database it links to, so a reader's engine can
+        tell whether it holds the same data. A dependency with no release
+        declared (see :meth:`set_release`) refuses it with a 400 naming it.
+        Needs wire revision 49.
 
         The engine streams the payload as raw bytes. Best-effort approximation
         warnings arrive in the ``X-Volca-Export-Warnings`` response header
@@ -1506,10 +1518,14 @@ class Client:
                 f"unknown export format: {fmt!r} "
                 f"(expected {'|'.join(sorted(_EXPORT_FORMATS))})"
             )
+        body: dict = {"format": fmt_norm}
+        if package is not None:
+            self._require_wire(49, "export_database(package=...)", engine_hint="0.15.0")
+            body["package"] = package
         target = self._db(db_name)
         resp = self._session.post(
             f"{self.base_url}/api/v1/db/{target}/export",
-            json={"format": fmt_norm},
+            json=body,
             headers={"Accept": "application/octet-stream"},
         )
         if resp.status_code >= 400:
@@ -1577,11 +1593,81 @@ class Client:
         self._require_wire(41, "licences", engine_hint="0.15.0")
         return self._json(self._session.get(f"{self.base_url}/api/v1/licences"))
 
+    def set_release(self, release: dict | None, db_name: str | None = None) -> dict | None:
+        """Declare which published database an uploaded database is.
+
+        ``release`` is ``{"name": ..., "version": ..., "systemModel": ...}``,
+        the system model only when the publisher ships several (the setup's
+        ``systemModels`` lists those its activities state); ``None`` clears
+        it. A package exported from a database that links to this one names
+        it by this release. Returns the release now declared. Raises
+        VoLCAError on an HTTP error: a 404 for an unknown database, a 409 for
+        one the configuration file declares. Needs wire revision 48.
+        """
+        self._require_wire(48, "set_release", engine_hint="0.15.0")
+        target = self._db(db_name)
+        # json=None would send no body at all; clearing needs the literal null.
+        resp = self._session.put(
+            f"{self.base_url}/api/v1/db/{target}/release",
+            data=json.dumps(release),
+            headers={"Content-Type": "application/json"},
+        )
+        if resp.status_code >= 400:
+            raise VoLCAError(f"set_release failed (HTTP {resp.status_code}): {resp.text[:500]}")
+        return resp.json()
+
+    def accept_substitution(self, release: dict, database: str, db_name: str | None = None) -> dict:
+        """Accept ``database`` in place of a release a packaged database requires.
+
+        ``release`` is one of the releases the setup's ``requiredReleases``
+        lists, as it lists it. Returns the setup as it now links (see
+        :meth:`get_setup`). Raises VoLCAError on an HTTP error: a 404 for an
+        unknown database or a release it does not require, a 409 for a
+        database already loaded with the links it has. Needs wire revision 50.
+        """
+        self._require_wire(50, "accept_substitution", engine_hint="0.15.0")
+        target = self._db(db_name)
+        return self._json(
+            self._session.post(
+                f"{self.base_url}/api/v1/db/{target}/accept-substitution",
+                json={"release": release, "database": database},
+            )
+        )
+
+    def usage(self, after: int = 0) -> dict:
+        """The usage log after the cursor ``after``, for whoever runs the engine.
+
+        An engine started with ``usage_log = true`` keeps one line per
+        computation on a process of a database with a declared release.
+        Returns ``{"boot", "lines", "more"}``: each line carries ``seq``,
+        ``at``, ``kind``, ``database``, ``process``, ``heldAs`` (the
+        ``activityName``, ``productName`` and ``location`` the database gives
+        the process, wire revision 54), ``reader`` and ``reads``, the releases
+        it read; ``more`` says more lines wait after these. Raises VoLCAError
+        with a 404 on an engine that keeps no log. Needs wire revision 53.
+        """
+        self._require_wire(53, "usage", engine_hint="0.15.0")
+        return self._json(self._session.get(f"{self.base_url}/api/v1/usage", params={"after": after}))
+
+    def forget_usage(self, boot: str, through: int) -> None:
+        """Forget the usage lines collected, up to ``seq`` ``through``.
+
+        ``boot`` is the one :meth:`usage` returned; a cursor from another
+        start of the engine raises VoLCAError with a 409. Needs wire
+        revision 53.
+        """
+        self._require_wire(53, "forget_usage", engine_hint="0.15.0")
+        resp = self._session.delete(
+            f"{self.base_url}/api/v1/usage", params={"boot": boot, "through": through}
+        )
+        if resp.status_code >= 400:
+            raise VoLCAError(f"forget_usage failed (HTTP {resp.status_code}): {resp.text[:500]}")
+
     def export_to_file(
-        self, fmt: str, out_path: str, db_name: str | None = None
+        self, fmt: str, out_path: str, db_name: str | None = None, *, package: str | None = None
     ) -> None:
         """Export a database (see :meth:`export_database`) and write it to a file."""
-        Path(out_path).write_bytes(self.export_database(fmt, db_name=db_name))
+        Path(out_path).write_bytes(self.export_database(fmt, db_name=db_name, package=package))
 
     def add_dependency(self, dep_name: str, db_name: str | None = None) -> dict:
         """Declare ``dep_name`` as a dependency of the target database.
@@ -1628,7 +1714,11 @@ class Client:
         ``source`` is a path to a ZIP / CSV / XLSX archive (or its raw
         ``bytes``); ``name`` is the display name. The engine auto-detects the
         format (EcoSpold 1/2, SimaPro CSV, ILCD, OpenLCA JSON-LD, Brightway
-        Excel) and stages the database without loading it.
+        Excel) and stages the database without loading it. A package
+        (:meth:`export_database` with ``package="ro-crate"``) is read as one
+        from wire revision 50: its export is checked against the digest it
+        states and staged with its licence, and the releases it was built on
+        become the ``requiredReleases`` of its setup.
 
         Returns the ``UploadResponse`` dict
         (``{"success", "message", "slug", "format"}``); ``slug`` is the name
@@ -1734,7 +1824,13 @@ class Client:
         sources it holds; another format leaves
         ``export`` null and both lists empty. ``licence`` is what the database is
         served under (wire revision 41), the shape :meth:`set_licence` takes
-        and returns.
+        and returns. ``release`` is which published database it is, the shape
+        :meth:`set_release` takes, and ``systemModels`` the system models its
+        activities state, each once (wire revision 48). ``requiredReleases``
+        lists the releases a package was built on (wire revision 50), each with
+        its ``state``, satisfied, missing or substituted, and the
+        ``databases`` that meet it, or for a missing one those of the same
+        name at another version; :meth:`accept_substitution` names another.
         """
         target = self._db(db_name)
         return self._json(self._session.get(f"{self.base_url}/api/v1/db/{target}/setup"))
@@ -2311,6 +2407,36 @@ class Client:
             )
         )
 
+    def changes_present(
+        self,
+        process_id: str,
+        *,
+        summary: list[dict] | None = None,
+        exchanges: list[dict] | None = None,
+        db_name: str | None = None,
+    ) -> dict:
+        """Whether an activity already holds each change it is given.
+
+        ``summary`` and ``exchanges`` are changes as a comparison writes them
+        on the wire, such as the ``summary`` and ``exchanges`` of
+        ``call("compare_activities", ...)``: a change made against one version
+        of an activity, looked for in a later one. Returns
+        ``{"summary": [...], "exchanges": [...]}``, one answer per change in
+        the order given: ``"present"`` (it says what the change made it say,
+        or no longer holds a removed line), ``"absent"`` (it still says what
+        the change replaced), ``"different"`` or ``"line-gone"`` (the line is
+        not there to judge, or several answer to its name). Needs wire
+        revision 57.
+        """
+        self._require_wire(57, "changes_present", engine_hint="0.15.0")
+        target = self._db(db_name)
+        return self._json(
+            self._session.post(
+                f"{self.base_url}/api/v1/db/{target}/activity/{process_id}/changes-present",
+                json={"summary": summary or [], "exchanges": exchanges or []},
+            )
+        )
+
     def compare_databases(
         self, other_database: str, *, limit: int | None = None
     ) -> DatabaseComparison:
@@ -2639,6 +2765,20 @@ class Client:
             )
         )
 
+    def get_flow_factors(
+        self, flow_id: str, *, collection: str | None = None, db_name: str | None = None
+    ) -> FlowFactors:
+        """Every factor the loaded method collections give one flow.
+
+        Each collection explains, as :meth:`explain_cf` does, the methods whose
+        factors reach the flow, and names those that give it none.
+        ``collection`` asks one collection alone. Needs wire revision 55.
+        """
+        self._require_wire(55, "get_flow_factors", engine_hint="0.15.0")
+        return FlowFactors.from_json(
+            self._call("get_flow_factors", flow_id=flow_id, collection=collection, db_name=db_name)
+        )
+
     def get_contributing_flows(
         self,
         process_id: str,
@@ -2761,6 +2901,15 @@ class Client:
             self._session.get(f"{self.base_url}/api/v1/method-collections")
         )
         return payload["methods"]
+
+    def default_method_collection(self) -> str | None:
+        """The method collection the configuration offers a reader first, by
+        name; ``None`` when it names none, and against an engine older than
+        wire revision 52."""
+        payload = self._json(
+            self._session.get(f"{self.base_url}/api/v1/method-collections")
+        )
+        return payload.get("default")
 
     def load_method_collection(self, name: str) -> dict:
         """Load a staged method collection so its methods become available."""

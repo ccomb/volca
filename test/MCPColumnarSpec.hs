@@ -69,6 +69,8 @@ lciaResult fu =
         , lrTopContributors = []
         , lrWithheld = Nothing
         , lrWithheldDatabases = []
+        , lrCutoffInputs = []
+        , lrWithheldCutoffs = []
         }
 
 -- | Build an entry against a single scoring set, with explicit total + indicators.
@@ -92,6 +94,8 @@ mkEntry pid name fu setName total inds =
                 , lbrScoringRows = M.empty
                 , lbrCutoffWaste = []
                 , lbrWithheld = []
+                , lbrCutoffInputs = []
+                , lbrWithheldCutoffs = []
                 }
         }
 
@@ -159,6 +163,7 @@ spec = do
                             , String "process_id"
                             , String "web_url"
                             , String "total"
+                            , String "cutoffs"
                             , String "acd"
                             , String "cch"
                             ]
@@ -173,6 +178,7 @@ spec = do
                             , String "pidA"
                             , String "https://x/db/ei/activity/pidA/impacts/EF31"
                             , Number 10.0
+                            , Number 0
                             , Number 4.0
                             , Number 6.0
                             ]
@@ -183,6 +189,7 @@ spec = do
                             , String "pidB"
                             , String "https://x/db/ei/activity/pidB/impacts/EF31"
                             , Number 20.0
+                            , Number 0
                             , Number 5.0
                             , Number 15.0
                             ]
@@ -216,6 +223,7 @@ spec = do
                             , String "web_url"
                             , String "functional_unit"
                             , String "total"
+                            , String "cutoffs"
                             , String "acd"
                             , String "cch"
                             ]
@@ -252,6 +260,7 @@ spec = do
                             , String "process_id"
                             , String "web_url"
                             , String "total"
+                            , String "cutoffs"
                             , String "dominant_indicator"
                             ]
                         )
@@ -286,6 +295,7 @@ spec = do
                             [ String "activity_name"
                             , String "process_id"
                             , String "total"
+                            , String "cutoffs"
                             , String "acd"
                             , String "cch"
                             ]
@@ -301,6 +311,7 @@ spec = do
                                             [ String "oak forestry, RoW"
                                             , String "pidA"
                                             , Number 10.0
+                                            , Number 0
                                             , Number 4.0
                                             , Number 6.0
                                             ]

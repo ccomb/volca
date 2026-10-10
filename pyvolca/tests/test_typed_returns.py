@@ -30,6 +30,7 @@ from volca import (
     ContributingActivities,
     ContributingFlows,
     DatabaseStatus,
+    FlowFactors,
     FlowMapping,
     InventoryResult,
     Method,
@@ -600,3 +601,22 @@ class TestActivityAllocation:
         }})
         assert detail.is_allocated is False
         assert agribalyse_is_allocated(detail) is True
+
+
+class TestFlowFactors:
+    def test_from_json_splits_methods_reached_from_those_with_no_factor(self):
+        flow = {"id": "f1", "name": "Methane", "unit": "kg", "category": "air"}
+        out = FlowFactors.from_json({
+            "flow": flow,
+            "collections": [{
+                "collection": "ef-31",
+                "factors": [{"methodId": "m1", "method": "Climate change", "methodUnit": "kg CO2 eq",
+                             "flow": flow, "outcome": "characterized"}],
+                "noFactor": [{"id": "m2", "name": "Land use", "category": "land", "unit": "Pt",
+                              "factorCount": 10, "collection": "ef-31"}],
+            }],
+        })
+        (c,) = out.collections
+        assert out.flow.name == "Methane"
+        assert c.factors[0].method_id == "m1"
+        assert c.no_factor[0].name == "Land use"
