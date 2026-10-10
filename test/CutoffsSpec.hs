@@ -198,15 +198,15 @@ spec = do
             metBy (indexIn [("main", db)]) (shown sol) `shouldBe` noCutoffs
 
     describe "getGapIndex" $
-        it "keeps a database's index until its caches are cleared" $ do
+        it "never serves one version's index to another version of the same database" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             before <- mainDb
             edited <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, techInput mFlow 0.5, techInput kFlow 1])])
-            first <- getGapIndex manager "main" before
-            first `shouldBe` gapIndexOf before
-            cached <- getGapIndex manager "main" edited
-            cached `shouldBe` first
+            gapIndexOf edited `shouldNotBe` gapIndexOf before
+            getGapIndex manager "main" before `shouldReturn` gapIndexOf before
+            -- A request still holding the old version writes its index after the edit's clear.
             clearMethodMappingCacheForDb manager "main"
-            rebuilt <- getGapIndex manager "main" edited
-            rebuilt `shouldBe` gapIndexOf edited
-            rebuilt `shouldNotBe` first
+            getGapIndex manager "main" before `shouldReturn` gapIndexOf before
+            getGapIndex manager "main" edited `shouldReturn` gapIndexOf edited
+            getGapIndex manager "main" edited `shouldReturn` gapIndexOf edited
+            getGapIndex manager "main" before `shouldReturn` gapIndexOf before

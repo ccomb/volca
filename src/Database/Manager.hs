@@ -193,6 +193,7 @@ import GHC.Generics (Generic)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath (addTrailingPathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (</>))
 import System.Mem (performGC)
+import System.Mem.StableName (StableName, makeStableName)
 
 import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName, builtinMethods)
 import Config
@@ -742,7 +743,7 @@ data DatabaseManager = DatabaseManager
     characterization has to reach, its dependencies' included. Invalidated
     with that database's method caches, which are built from it.
     -}
-    , dmGapIndexCache :: !(TVar (Map Text GapIndex))
+    , dmGapIndexCache :: !(TVar (Map Text (StableName Database, GapIndex)))
     {- ^ Each database's unsupplied inputs by the process asking for them,
     which a result filters down to its own chain. Invalidated with that
     database's method caches, on the same edits, links and reloads.
@@ -828,19 +829,22 @@ getFlowClosure manager dbName db = atomically $ do
 {- | A database's unsupplied inputs by consumer, scanned once per database
 ('dmGapIndexCache'). Built outside a transaction, as the method mappings are:
 it reads nothing the manager holds, so a transaction would only retry the scan
-each time another database's entry landed. 'cacheIfCurrent' guards against a
-method edit, which this index does not read.
+each time another database's entry landed.
+
+An entry is served only to the very database it was scanned from: a request
+still holding the version before an edit or a relink may write its index after
+the clear, and the index is read at that version's process identifiers.
 -}
 getGapIndex :: DatabaseManager -> Text -> Database -> IO GapIndex
 getGapIndex manager dbName db = do
+    identity <- makeStableName =<< Control.Exception.evaluate db
     cached <- M.lookup dbName <$> readTVarIO (dmGapIndexCache manager)
-    maybe build pure cached
-  where
-    build :: IO GapIndex
-    build = do
-        idx <- Control.Exception.evaluate (gapIndexOf db)
-        atomically (modifyTVar' (dmGapIndexCache manager) (M.insert dbName idx))
-        pure idx
+    case cached of
+        Just (builtFrom, idx) | builtFrom == identity -> pure idx
+        _ -> do
+            idx <- Control.Exception.evaluate (gapIndexOf db)
+            atomically (modifyTVar' (dmGapIndexCache manager) (M.insert dbName (identity, idx)))
+            pure idx
 
 {- | The name of a method collection. A newtype because it travels next to a
 database name, of the same type, through every cache lookup below: swapped,
