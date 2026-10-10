@@ -37,7 +37,7 @@ import API.Types (
     UncomparedReason (..),
  )
 import Database (buildDatabaseWithMatrices)
-import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit, applyExchangeEdits)
+import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit, applyExchangeEdits, authoredActivityUUID)
 import Service.Compare (ProcessIn (..), Sides (..), applicableChanges, changesPresent, compareActivities, compareDatabases, limitComparison, resolveProcess)
 import Types (
     Activity (..),
@@ -240,9 +240,41 @@ spec = describe "Service.Compare" $ do
                 addedWater = ExchangeChange (bfId water) "Water" Nothing (BioLine Resource) (LineAdded (Quantity 3 "kg"))
                 (answer, edits) = applicableChanges ctx p (ChangesQuery [ProductNameChanged "wheat grain" "soft wheat grain", renamed] [addedBarley, addedWater])
             capSummary answer `shouldBe` [OutcomeNotApplicable "An edit does not rename a product.", OutcomeApplied]
-            capExchanges answer `shouldBe` [OutcomeNotApplicable "No single activity of this database supplies this product.", OutcomeApplied]
+            capExchanges answer
+                `shouldBe` [OutcomeNotApplicable "Several activities of this database make this product: the change does not say which one supplies the added line.", OutcomeApplied]
             after <- applied ctx p edits
             (activityName after, [a | BiosphereExchange{bioAmount = a} <- exchanges after]) `shouldBe` ("wheat production, corrected", [3])
+        it "does not select a line supplied by its product rather than linked to its supplier" $ do
+            (p, ctx) <- wheatIn [buysUnlinked barley 1] [row 2 barley "barley production" []]
+            notApplied
+                ctx
+                p
+                (barleyLine (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg")))
+                "The line is supplied by its product, not linked to a supplier: an edit selects a line by the supplier it is linked to."
+        it "does not rename an activity written here, whose name and location make its identity" $ do
+            let written = authoredActivityUUID "wheat production" "FR"
+            db <- databaseKeyed (const written) [row 1 wheat "wheat production" [emits co2 kg 1]]
+            p <- either (fail . show) pure (resolveProcess db (UUID.toText written <> "_" <> UUID.toText (tfId wheat)))
+            let ctx = AuthorContext{acDb = db, acDeps = [], acUnitConfig = defaultUnitConfig}
+                (answer, edits) = applicableChanges ctx p (ChangesQuery [renamed] [lowered])
+            (capSummary answer, capExchanges answer)
+                `shouldBe` ([OutcomeNotApplicable "This activity was written here and its name and location make its identity: rewrite it to rename or relocate it."], [OutcomeApplied])
+            after <- applied ctx p edits
+            (activityName after, [a | BiosphereExchange{bioAmount = a} <- exchanges after]) `shouldBe` ("wheat production", [0.5])
+        it "makes a change asked twice once" $ do
+            (p, ctx) <- wheatIn [] []
+            let addedWater = ExchangeChange (bfId water) "Water" Nothing (BioLine Resource) (LineAdded (Quantity 3 "kg"))
+                (answer, edits) = applicableChanges ctx p (ChangesQuery [renamed, renamed] [addedWater, addedWater])
+            (capSummary answer, capExchanges answer) `shouldBe` ([OutcomeApplied, OutcomeApplied], [OutcomeApplied, OutcomeApplied])
+            after <- applied ctx p edits
+            (activityName after, [a | BiosphereExchange{bioAmount = a} <- exchanges after]) `shouldBe` ("wheat production, corrected", [3])
+        it "refuses a change that would undo one applied before it" $ do
+            (p, ctx) <- wheatIn [emits co2 kg 1] []
+            let raised = lowered{ecChange = LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg")}
+                (answer, edits) = applicableChanges ctx p (ChangesQuery [] [lowered, raised])
+            capExchanges answer `shouldBe` [OutcomeApplied, OutcomeNotApplicable "Another change of this request says otherwise."]
+            after <- applied ctx p edits
+            [a | BiosphereExchange{bioAmount = a} <- exchanges after] `shouldBe` [0.5]
 
     describe "pairing activities" $ do
         it "pairs regenerated identifiers by name, case and geography aside" $ do
@@ -466,12 +498,16 @@ row :: Int -> TechnosphereFlow -> Text -> [Exchange] -> Row
 row n flow name lines' = Row{rowActivity = n, rowProduct = flow, rowName = name, rowAmount = 1, rowType = Nothing, rowLines = lines', rowDates = noDates, rowDescription = []}
 
 database :: [Row] -> IO Database
-database rows = do
+database = databaseKeyed (uuid . rowActivity)
+
+-- | A database whose activities are keyed by this function of their row.
+databaseKeyed :: (Row -> UUID) -> [Row] -> IO Database
+databaseKeyed key rows = do
     built <-
         buildDatabaseWithMatrices
             (BuildInputs defaultUnitConfig M.empty Declared [])
             SimpleDatabase
-                { sdbActivities = M.fromList (map entry rows)
+                { sdbActivities = M.fromList (map (entry key) rows)
                 , sdbTechFlows = M.fromList [(tfId (rowProduct r), rowProduct r) | r <- rows]
                 , sdbBioFlows = M.fromList [(bfId f, f) | f <- [co2, co2Renumbered, water]]
                 , sdbWasteFlows = M.empty
@@ -480,9 +516,9 @@ database rows = do
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . show) pure built
 
-entry :: Row -> ((UUID, UUID), Activity)
-entry r =
-    ( (uuid (rowActivity r), tfId (rowProduct r))
+entry :: (Row -> UUID) -> Row -> ((UUID, UUID), Activity)
+entry key r =
+    ( (key r, tfId (rowProduct r))
     , Activity
         { activityName = rowName r
         , activityDescription = rowDescription r
@@ -509,7 +545,7 @@ entry r =
             , techAmount = rowAmount r
             , techUnitId = unitId kg
             , techRole = ReferenceProduct
-            , techActivityLinkId = Just (uuid (rowActivity r))
+            , techActivityLinkId = Just (key r)
             , techSupplierClaim = ClaimByProduct
             , techLocation = ""
             , techComment = Nothing
