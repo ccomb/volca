@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | An openLCA package computed into a database: units converted to each
@@ -20,6 +22,7 @@ module OlcaSchema.Parser (
     directionOf,
 ) where
 
+import Control.DeepSeq (NFData, force)
 import Control.Monad (guard)
 import Data.Bifunctor (first)
 import Data.Either (partitionEithers)
@@ -27,10 +30,10 @@ import Data.List (find)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, listToMaybe, maybeToList)
-import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
+import GHC.Generics (Generic)
 import Text.Printf (printf)
 
 import Data.Indexing (uniqueIndex)
@@ -61,7 +64,7 @@ data Notice
       Unplaced !Text
     | -- | Something the package states that this reader does not read yet.
       NotRead !P.Unread
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic, NFData)
 
 data Built = Built
     { builtDatabase :: !SimpleDatabase
@@ -97,39 +100,50 @@ data Context = Context
     }
 
 buildDatabase :: UnitConfig -> AllocationKey -> P.Package -> Either Text Built
-buildDatabase cfg key pkg = case partitionEithers (map (readProcess cx) (P.pkProcesses pkg)) of
-    ([], processes) -> do
-        activities <- first describeRepeated (uniqueIndex (concatMap rpActivities processes))
-        Right
-            Built
-                { builtDatabase =
-                    SimpleDatabase
-                        { sdbActivities = activities
-                        , sdbTechFlows = ftTech tables
-                        , sdbBioFlows = ftBio tables
-                        , sdbWasteFlows = ftWaste tables
-                        , sdbUnits = unitDB
-                        , sdbDocumentation = noDocumentation
-                        }
-                , builtNotices = ftNotices tables <> concatMap rpNotices processes <> [NotRead u | p <- P.pkProcesses pkg, u <- P.prUnread p]
-                }
-    (failures, _) -> Left (describeUnreadable (concat failures))
+buildDatabase cfg key pkg =
+    -- Each process is read through and its package lines let go: what reads a
+    -- process sees every table but no process, and the index over all processes
+    -- is built first, so the lines and the database built from them never sit in
+    -- memory together.
+    producers `seq` case partitionEithers (map (force . readProcess cx) (P.pkProcesses pkg)) of
+        ([], processes) -> do
+            activities <- first describeRepeated (uniqueIndex (concatMap rpActivities processes))
+            Right
+                Built
+                    { builtDatabase =
+                        SimpleDatabase
+                            { sdbActivities = activities
+                            , sdbTechFlows = ftTech tables
+                            , sdbBioFlows = ftBio tables
+                            , sdbWasteFlows = ftWaste tables
+                            , sdbUnits = unitDB
+                            , sdbDocumentation = noDocumentation
+                            }
+                    , builtNotices = ftNotices tables <> concatMap rpNotices processes
+                    }
+        (failures, _) -> Left (describeUnreadable (concat failures))
   where
+    shared :: P.Package
+    shared = pkg{P.pkProcesses = []}
+
+    producers :: M.Map UUID (M.Map UUID P.ProcessType)
+    producers = producerIndex pkg
+
     unitDB :: UnitDB
-    unitDB = referenceUnits pkg
+    unitDB = referenceUnits shared
 
     flowUnits :: M.Map UUID UUID
-    flowUnits = M.mapMaybe (flowUnit pkg) (P.pkFlows pkg)
+    flowUnits = M.mapMaybe (flowUnit shared) (P.pkFlows shared)
 
     tables :: FlowTables
-    tables = flowTables pkg flowUnits
+    tables = flowTables shared flowUnits producers
 
     cx :: Context
     cx =
         Context
-            { cxPackage = pkg
+            { cxPackage = shared
             , cxFlowUnits = flowUnits
-            , cxProducers = producerIndex pkg
+            , cxProducers = producers
             , cxAllocating = Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitDB}
             }
 
@@ -146,6 +160,7 @@ data Unreadable
       NoReferenceUnit !Text
     | -- | Its unit or property has no factor to the flow's reference unit.
       NoConversion !Text
+    deriving (Generic, NFData)
 
 -- | Every unreadable line, grouped by why, so the whole package can be fixed in one pass.
 describeUnreadable :: [Unreadable] -> Text
@@ -191,8 +206,8 @@ data FlowTables = FlowTables
 a product flow, as an EcoSpold 2 treatment's reference is: the treatment's
 column is keyed on it.
 -}
-flowTables :: P.Package -> M.Map UUID UUID -> FlowTables
-flowTables pkg flowUnits =
+flowTables :: P.Package -> M.Map UUID UUID -> M.Map UUID (M.Map UUID P.ProcessType) -> FlowTables
+flowTables pkg flowUnits producers =
     FlowTables
         { ftTech = M.fromList [(P.flId f, TechnosphereFlow (P.flId f) (P.flName f) u M.empty (P.flCas f) Nothing) | (f, u) <- withUnits, isTech f]
         , ftBio = M.fromList [(P.flId f, BiosphereFlow (P.flId f) (P.flName f) u M.empty (P.flCas f) Nothing (compartmentOf (P.flCategory f))) | (f, u) <- elementary]
@@ -206,13 +221,10 @@ flowTables pkg flowUnits =
     elementary :: [(P.Flow, UUID)]
     elementary = filter ((== P.ElementaryFlow) . P.flType . fst) withUnits
 
-    treated :: S.Set UUID
-    treated = S.fromList [P.rxFlow x | p <- P.pkProcesses pkg, x <- P.prExchanges p, P.rxSide x == P.Consumed]
-
     isTech :: P.Flow -> Bool
     isTech f = case P.flType f of
         P.ProductFlow -> True
-        P.WasteFlow -> S.member (P.flId f) treated
+        P.WasteFlow -> M.member (P.flId f) producers
         P.ElementaryFlow -> False
 
 {- | The compartment a category path names. Three spellings exist: one level
@@ -308,6 +320,7 @@ data ReadProcess = ReadProcess
     { rpActivities :: ![((UUID, UUID), Activity)]
     , rpNotices :: ![Notice]
     }
+    deriving (Generic, NFData)
 
 -- | One line of a process, its amount computed and converted.
 data Line = Line
@@ -535,7 +548,7 @@ assemble cx p env notices lines' =
             [ ((P.prId p, referenceFlow a), a)
             | a <- NE.toList (allocateWith (cxAllocating cx) (exchangeShares (spPairs division)) activity)
             ]
-        , rpNotices = notices <> spNotices division <> concatMap snd built
+        , rpNotices = notices <> spNotices division <> concatMap snd built <> map NotRead (P.prUnread p)
         }
   where
     products :: [Line]

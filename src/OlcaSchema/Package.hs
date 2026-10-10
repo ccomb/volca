@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -32,6 +34,8 @@ module OlcaSchema.Package (
     readPackage,
 ) where
 
+import Control.DeepSeq (NFData, force)
+import Control.Exception (evaluate)
 import Control.Monad (unless)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT, throwE)
 import Data.Aeson (FromJSON (..), withObject, withText, (.!=), (.:), (.:?))
@@ -46,6 +50,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
+import GHC.Generics (Generic)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 
 import Data.Indexing (uniqueIndex)
@@ -68,16 +73,17 @@ data UnitGroup = UnitGroup
     , ugReference :: !UUID
     , ugUnits :: !(M.Map UUID UnitEntry)
     }
+    deriving (Generic, NFData)
 
 -- | A unit, and how many of the group's reference unit one of it is.
 data UnitEntry = UnitEntry
     { ueName :: !Text
     , ueFactor :: !Double
     }
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic, NFData)
 
 data FlowType = ElementaryFlow | ProductFlow | WasteFlow
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic, NFData)
 
 data Flow = Flow
     { flId :: !UUID
@@ -90,16 +96,17 @@ data Flow = Flow
     , flFactors :: !(M.Map UUID Double)
     -- ^ Per flow property, how much of it one reference unit of the flow holds
     }
+    deriving (Generic, NFData)
 
 data ProcessType = UnitProcess | LciResult
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic, NFData)
 
 data AllocationMethod = Physical | Economic | Causal | NoAllocation
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic, NFData)
 
 -- | What openLCA records but this reader does not read yet, counted by the load.
 data Unread = Uncertainty | DataQuality | SocialAspects | Costs
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Generic, NFData)
 
 data Process = Process
     { prId :: !UUID
@@ -115,13 +122,14 @@ data Process = Process
     , prUnread :: ![Unread]
     -- ^ One entry per thing not read, the process's and its exchanges'
     }
+    deriving (Generic, NFData)
 
 {- | Which way a line goes. openLCA stores an avoided product as an input
 marked avoided, and computes it as an output; it is a side of its own here so
 no reader can take it for an ordinary input.
 -}
 data Side = Produced | Consumed | Avoided
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic, NFData)
 
 data RawExchange = RawExchange
     { rxInternalId :: !Int
@@ -137,6 +145,7 @@ data RawExchange = RawExchange
     , rxDescription :: !(Maybe Text)
     , rxUnread :: ![Unread]
     }
+    deriving (Generic, NFData)
 
 data AllocationFactor = AllocationFactor
     { afMethod :: !AllocationMethod
@@ -147,16 +156,19 @@ data AllocationFactor = AllocationFactor
     , afValue :: !Double
     , afFormula :: !(Maybe Text)
     }
+    deriving (Generic, NFData)
 
 data ParameterValue
     = InputValue !Double
     | -- | A formula, and the value openLCA stored beside it.
       Calculated !Text !Double
+    deriving (Generic, NFData)
 
 data Parameter = Parameter
     { paName :: !Text
     , paValue :: !ParameterValue
     }
+    deriving (Generic, NFData)
 
 reference :: A.Value -> A.Parser UUID
 reference = withObject "reference" (.: "@id")
@@ -190,11 +202,13 @@ instance FromJSON UnitGroup where
             refs -> fail (show (length refs) <> " reference units where one is needed")
 
 data PropertyDoc = PropertyDoc UUID UUID
+    deriving (Generic, NFData)
 
 instance FromJSON PropertyDoc where
     parseJSON = withObject "FlowProperty" $ \o -> PropertyDoc <$> o .: "@id" <*> (o .: "unitGroup" >>= reference)
 
 data LocationDoc = LocationDoc UUID Text
+    deriving (Generic, NFData)
 
 instance FromJSON LocationDoc where
     parseJSON = withObject "Location" $ \o -> LocationDoc <$> o .: "@id" <*> o .:? "code" .!= ""
@@ -350,6 +364,7 @@ instance FromJSON Process where
                 }
 
 newtype SchemaVersion = SchemaVersion Int
+    deriving (Generic, NFData)
 
 instance FromJSON SchemaVersion where
     parseJSON = withObject "openlca.json" $ \o -> SchemaVersion <$> o .: "schemaVersion"
@@ -392,11 +407,16 @@ readPackage dir = runExceptT $ do
         Right index -> pure index
         Left repeated -> throwE (kind <> " repeat an identifier: " <> T.intercalate ", " (map UUID.toText (NE.toList repeated)))
 
-decodeFile :: (FromJSON a) => FilePath -> IO (Either Text a)
-decodeFile path = first (\why -> T.pack (path <> ": " <> why)) <$> A.eitherDecodeFileStrict' path
+{- | A document, evaluated through: what aeson hands back is a promise holding
+the parsed text (a line's identifiers, amounts and flags), several times the
+size of the values it stands for, and a package keeps every line until the
+database is built.
+-}
+decodeFile :: (FromJSON a, NFData a) => FilePath -> IO (Either Text a)
+decodeFile path = evaluate . force . first (\why -> T.pack (path <> ": " <> why)) =<< A.eitherDecodeFileStrict' path
 
 -- | Every @.json@ document of a folder, in name order; a package ships other files beside them.
-decodeFolder :: (FromJSON a) => FilePath -> IO (Either Text [a])
+decodeFolder :: (FromJSON a, NFData a) => FilePath -> IO (Either Text [a])
 decodeFolder folder = do
     present <- doesDirectoryExist folder
     if present
