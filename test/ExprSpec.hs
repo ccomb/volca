@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The formula languages: what the openLCA one computes, and that the two
--- older ones compute what they did.
+{- | The formula languages: what the openLCA one computes, and that the two
+older ones compute what they did.
+-}
 module ExprSpec (spec) where
 
 import Data.List.NonEmpty (NonEmpty (..))

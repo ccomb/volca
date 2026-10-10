@@ -488,17 +488,20 @@ olcaCall name args = case lookup name olcaFunctions of
         Constant value -> case args of
             [] -> Right value
             _ : _ -> arity "no argument"
-        Unary f -> numbers >>= \case
-            [x] -> Right (Number (Apply1 f x))
-            _ -> arity "one argument"
-        Binary f -> numbers >>= \case
-            [x, y] -> Right (Number (Apply2 f x y))
-            _ -> arity "two arguments"
+        Unary f ->
+            numbers >>= \case
+                [x] -> Right (Number (Apply1 f x))
+                _ -> arity "one argument"
+        Binary f ->
+            numbers >>= \case
+                [x, y] -> Right (Number (Apply2 f x y))
+                _ -> arity "two arguments"
         Many f -> Number . ApplyMany f <$> numbers
-        Negation -> truths >>= \case
-            [] -> Right (Truth (Literal 0))
-            [x] -> Right (Truth (Apply1 (\v -> if v == 0 then 1 else 0) x))
-            _ -> arity "one argument"
+        Negation ->
+            truths >>= \case
+                [] -> Right (Truth (Literal 0))
+                [x] -> Right (Truth (Apply1 (\v -> if v == 0 then 1 else 0) x))
+                _ -> arity "one argument"
         Connective f -> Truth . ApplyMany (\vs -> if f (map (/= 0) vs) then 1 else 0) <$> truths
         Conditional -> case args of
             [condition, yes, no] -> Number <$> (Choose <$> asTruth function condition <*> asNumber function yes <*> asNumber function no)
