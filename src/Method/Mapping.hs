@@ -925,6 +925,12 @@ data MethodTables = MethodTables
     Flows with no entry behave exactly as before – a cross-dimensional CF
     still yields a zero effective CF. Empty map = feature inactive.
     -}
+    , mtUnitConfig :: !UnitConfig
+    {- ^ The unit table the method is scored with. Turns a family's factor
+    written per one unit into the unit its energy content is given per (80 000
+    per tonne of brown coal is 80 per kg, a gas priced per m3 is priced per
+    Sm3).
+    -}
     , mtResolution :: !(M.Map UUID FlowCFTag)
     {- ^ How each broadcast-covered flow got its factor: the rung that served
     it, and the refusal if the flow→CF conversion could not be made. Filled in
@@ -1605,8 +1611,8 @@ energyPriceOf cmap mappings = case priced of
         , Just (Just NaturalResource, _) <- [cfMediumSub cmap cf]
         ]
 
-buildMethodTables :: CompartmentMap -> MethodVocabulary -> EnergyDensityMap -> [(MethodCF, Maybe Resolution)] -> MethodTables
-buildMethodTables cmap vocabulary energyDensities mappings =
+buildMethodTables :: UnitConfig -> CompartmentMap -> MethodVocabulary -> EnergyDensityMap -> [(MethodCF, Maybe Resolution)] -> MethodTables
+buildMethodTables unitConfig cmap vocabulary energyDensities mappings =
     MethodTables
         { mtUuidCF =
             -- Non-regionalized rows only, like the name tables below: a
@@ -1742,6 +1748,7 @@ buildMethodTables cmap vocabulary energyDensities mappings =
         , mtCompartmentMap = cmap
         , mtEnergyPrice = energyPriceOf cmap mappings
         , mtEnergyDensities = energyDensities
+        , mtUnitConfig = unitConfig
         , mtResolution = M.empty -- filled alongside 'mtBroadcast'
         , mtJudged = S.empty -- filled alongside 'mtBroadcast'
         , mtBroadcast = M.empty -- fill via 'fillBroadcastVector' to enable the fast path
@@ -2373,7 +2380,7 @@ no energy densities. Prefer the cached path ('mapMethodToTablesCached' +
 -}
 computeLCIAScore :: UnitConfig -> UnitDB -> BioFlowDB -> Inventory -> [(MethodCF, Maybe Resolution)] -> LCIAOutcome
 computeLCIAScore unitConfig unitDB flowDB inventory mappings =
-    computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables mempty mempty M.empty mappings)
+    computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables unitConfig mempty mempty M.empty mappings)
 
 {- | LCIA score with automatic dispatch.
 
@@ -2947,13 +2954,15 @@ cascadeTrail tables flowDB fid =
         -- joules: 80 / 9.41 per MJ. "Coal, brown, 8 MJ per kg" then pays for the
         -- 8 MJ its name states, not for a kilo of the family's average coal. A
         -- variant naming no family ("Coal, 29.3 MJ per kg") gets nothing: which
-        -- coal it is would be a guess.
+        -- coal it is would be a guess. A factor written per another unit of the
+        -- same measure is converted first: 80 000 per tonne is 80 per kg, and a
+        -- gas priced per m3 is priced per the Sm3 its content is given per.
         familyPrice base = do
             entry <- resourceCF (SR.NormName (normalizeName base))
             content <- M.lookup (normalizeName base) (mtEnergyDensities tables)
             let CF value (CFUnit unit) = teCF entry
-            guard (T.toLower unit == T.toLower (edNativeUnit content))
-            pure entry{teCF = CF (value / edValue content) (CFUnit (edTargetUnit content))}
+            nativePerUnit <- convertUnit (mtUnitConfig tables) unit (edNativeUnit content) 1
+            pure entry{teCF = CF (value / nativePerUnit / edValue content) (CFUnit (edTargetUnit content))}
 
         -- Another name's factor, read at the places this flow may read.
         resourceCF rname = firstReading (\sub -> M.lookup (rname, baseMed, sub) (mtExactCF tables))

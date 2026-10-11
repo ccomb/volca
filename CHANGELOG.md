@@ -6,12 +6,13 @@
 
 - An extracted energy carrier whose name states its content (`Coal, brown,
   8 MJ per kg`, `Oil, crude, 42.6 MJ per kg`) is characterized under a method
-  that prices its family by the mass and no unit of energy, as ecoinvent's
-  own EF 3.1 and Ecological Scarcity 2021 files do. The family's factor over
-  the family's energy content gives the price of one megajoule, and the flow
-  pays it for the content its name states: under Ecological Scarcity 2021,
-  a kilo of `Coal, brown, 8 MJ per kg` counts 68 points, where it counted
-  none. A name that states no family (`Coal, 29.3 MJ per kg`) still gets no
+  that prices its family by the mass or the volume and no unit of energy, as
+  ecoinvent's own EF 3.1 and Ecological Scarcity 2021 files do. The family's
+  factor over the family's energy content gives the price of one megajoule
+  (a factor per tonne or per `m3` converted first into the kg or `Sm3` that
+  content is given per), and the flow pays it for the content its name
+  states: under Ecological Scarcity 2021, a kilo of `Coal, brown, 8 MJ per
+  kg` counts 68 points, where it counted none. A name that states no family (`Coal, 29.3 MJ per kg`) still gets no
   factor, since which coal it is would be a guess. The five synonym rows
   that declared such coals the same flow as hard or brown coal are gone,
   since no synonym can carry the scale between them (data version 10).

@@ -173,7 +173,7 @@ spec = describe "what a method collection's journal promises" $ do
         withScratchDataDir $ do
             writeUpload ammoniaRows
             (manager, ecotox) <- loadedCategory
-            let contested method = length (contestedFactors mempty (buildMethodTables mempty mempty M.empty (matched method)) (matched method))
+            let contested method = length (contestedFactors mempty (buildMethodTables defaultUnitConfig mempty mempty M.empty (matched method)) (matched method))
             contested ecotox `shouldBe` 1
             small <- maybe (fail "no turpentine at 1.1619") pure (lookup 1.1619 [(mcfValue f, f) | f <- named "turpentine" ecotox])
             edited manager "ecotox" (Remove (at ecotox small))

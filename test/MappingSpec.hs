@@ -525,7 +525,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air (Just "low. pop.")
                 cf = mkCFComp "ammonia" "emissions to air" "low. pop." 0.747
-                tables = buildMethodTables mempty mempty M.empty [(cf, Nothing)]
+                tables = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cf, Nothing)]
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
                 score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
@@ -535,7 +535,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air (Just "low. pop.")
                 cf = mkCFComp "ammonia" "urban air" "low. pop." 0.747
-                tables = buildMethodTables mempty mempty M.empty [(cf, Nothing)]
+                tables = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cf, Nothing)]
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
                 score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
@@ -546,7 +546,7 @@ spec = do
             let flow = mkFlow fid "ammonia" Air (Just "low. pop.")
                 cf = mkCFComp "ammonia" "urban air" "low. pop." 0.747
                 cmap = mempty{cmSpellings = M.singleton ("urban air", "", "") (Compartment "air" "" "")}
-                tables = buildMethodTables cmap mempty M.empty [(cf, Nothing)]
+                tables = buildMethodTables defaultUnitConfig cmap mempty M.empty [(cf, Nothing)]
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
                 score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
@@ -565,7 +565,7 @@ spec = do
                                 ("emissions to air", "low. pop.", "")
                                 (Compartment "air" "non-urban air or from high stacks" "")
                         }
-                tables = buildMethodTables cmap mempty M.empty [(cf, Nothing)]
+                tables = buildMethodTables defaultUnitConfig cmap mempty M.empty [(cf, Nothing)]
                 inventory = M.singleton fid 10.0
                 flowDB = M.singleton fid flow
                 score = loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB inventory tables)
@@ -620,7 +620,7 @@ spec = do
                 mappings = [(cfPerKg, Just (Resolution flow ByName)), (cfPerM3, Just (Resolution flow ByName))]
                 unitDB = M.singleton uidM3 Unit{unitId = uidM3, unitName = "m3", unitSymbol = "m3", unitComment = ""}
                 flowDB = M.singleton fid flow
-                score ms = loScore (computeLCIAScoreFromTables cfg unitDB flowDB (M.singleton fid 2.0) (buildMethodTables mempty mempty M.empty ms))
+                score ms = loScore (computeLCIAScoreFromTables cfg unitDB flowDB (M.singleton fid 2.0) (buildMethodTables defaultUnitConfig mempty mempty M.empty ms))
             score mappings `shouldBe` 2.0 * 34.5
             -- insertion order must not matter
             score (reverse mappings) `shouldBe` 2.0 * 34.5
@@ -665,7 +665,7 @@ spec = do
                             , methodMethodology = Nothing
                             , methodFactors = rows
                             }
-                let tables = buildMethodTables mempty mempty M.empty mappings
+                let tables = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
                 pure [cfValue <$> lookupCFForFlow tables (bfId f) (Just f) | f <- [trivalent, hexavalent]]
             spelled unstated iii vi =
                 [ mkCFComp unstated "air" "" 7.9836e-5
@@ -710,7 +710,7 @@ spec = do
                 probeId <- nextRandom
                 let target = mkFlow targetId "phosphate" Water Nothing
                     probe = mkFlow probeId "phosphate" Water Nothing
-                    tables = buildMethodTables mempty mempty M.empty (mappings target)
+                    tables = buildMethodTables defaultUnitConfig mempty mempty M.empty (mappings target)
                 pure (cfValue <$> lookupCFForFlow tables probeId (Just probe))
 
         it "loses the key to a larger factor a proxy match carries" $ do
@@ -748,6 +748,7 @@ spec = do
                 let flow = mkFlow fid "Nitrogen, total" Water (Just sub)
                     tables =
                         buildMethodTables
+                            defaultUnitConfig
                             mempty
                             mempty
                             M.empty
@@ -816,7 +817,7 @@ spec = do
                             M.empty
                             (M.singleton fid flow)
                             (M.singleton fid 1.0)
-                            (buildMethodTables cmap mempty M.empty [(cf, Just (Resolution flow ByName)) | cf <- cfs])
+                            (buildMethodTables defaultUnitConfig cmap mempty M.empty [(cf, Just (Resolution flow ByName)) | cf <- cfs])
             score [uns, mkCFComp "Nitrogen, total" "water" "sea water" 0.0] `shouldBe` 0.0
             score [uns] `shouldBe` 1.0
 
@@ -834,7 +835,7 @@ spec = do
                     -- cfUns matched ByCAS on a sibling flow, so the CAS bridge
                     -- serves it; cfLt matched nothing, and only takes its place.
                     matched = (mkFlow mid "Iron, ion" Water Nothing){bfCAS = Just "7439-89-6"}
-                    tables = buildMethodTables mempty mempty M.empty [(cfUns, Just (Resolution matched ByCAS)), (cfLt, Nothing)]
+                    tables = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cfUns, Just (Resolution matched ByCAS)), (cfLt, Nothing)]
                     flowDB = M.singleton fid flow
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty flowDB (M.singleton fid 1.0) tables))
 
@@ -881,7 +882,7 @@ spec = do
             scoreAt cfs medium sub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Silver (I)" medium (Just sub)
-                    tables = buildMethodTables cmap (methodVocabulary cmap cfs) M.empty [(cf, Just (Resolution flow ByName)) | cf <- cfs]
+                    tables = buildMethodTables defaultUnitConfig cmap (methodVocabulary cmap cfs) M.empty [(cf, Just (Resolution flow ByName)) | cf <- cfs]
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
 
         it "gives agricultural soil its own factor, and forestry and industrial soil the non-agricultural one" $ do
@@ -900,7 +901,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "Silver (I)" Soil (Just "forestry")
                 exclusion = mkCFComp "!Silver*" "soil" "forestry" 0.0
-                tables = buildMethodTables cmap (methodVocabulary cmap (exclusion : soilCFs)) M.empty [(cf, Just (Resolution flow ByName)) | cf <- soilCFs]
+                tables = buildMethodTables defaultUnitConfig cmap (methodVocabulary cmap (exclusion : soilCFs)) M.empty [(cf, Just (Resolution flow ByName)) | cf <- soilCFs]
             loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables)
                 `shouldBe` 3.0
 
@@ -923,7 +924,7 @@ spec = do
                 scoreOf sub = do
                     fid <- nextRandom
                     let flow = mkFlow fid "1,1,1-Trichloroethane" Water (Just sub)
-                        tables = buildMethodTables cmap (methodVocabulary cmap matrix) M.empty [(cf, Just (Resolution flow ByName)) | cf <- matrix]
+                        tables = buildMethodTables defaultUnitConfig cmap (methodVocabulary cmap matrix) M.empty [(cf, Just (Resolution flow ByName)) | cf <- matrix]
                     pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
             scoreOf "ground-" `shouldReturn` 0.0
             scoreOf "surface water" `shouldReturn` 1700.0
@@ -973,7 +974,7 @@ spec = do
         let scoreAt cfs sub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Nitrogen oxides" Air (Just sub)
-                    tables = buildMethodTables cmap mempty M.empty [(cf, Just (Resolution flow ByName)) | cf <- cfs]
+                    tables = buildMethodTables defaultUnitConfig cmap mempty M.empty [(cf, Just (Resolution flow ByName)) | cf <- cfs]
                 pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
             ilcd sub val = (mkCF "Nitrogen oxides" Nothing val){mcfCompartment = parseCompartment ["Emissions", "Emissions to air", sub]}
             highAltitudeILCD =
@@ -990,7 +991,7 @@ spec = do
                 scoreLT sub = do
                     fid <- nextRandom
                     let flow = mkFlow fid "Nitrogen oxides" Air (Just sub)
-                        tables = buildMethodTables cmap (methodVocabulary cmap longTermILCD) M.empty [(cf, Just (Resolution flow ByName)) | cf <- longTermILCD]
+                        tables = buildMethodTables defaultUnitConfig cmap (methodVocabulary cmap longTermILCD) M.empty [(cf, Just (Resolution flow ByName)) | cf <- longTermILCD]
                     pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
             scoreLT "low population density, long-term" `shouldReturn` 0.5
             scoreLT "low. pop., long-term" `shouldReturn` 0.5
@@ -1020,7 +1021,7 @@ spec = do
             scoreOf medium msub = do
                 fid <- nextRandom
                 let flow = mkFlow fid "Landfilled waste mass" medium msub
-                    tables = buildMethodTables cmap mempty M.empty [(cf, Nothing)]
+                    tables = buildMethodTables defaultUnitConfig cmap mempty M.empty [(cf, Nothing)]
                 pure . loScore $
                     computeLCIAScoreFromTables
                         defaultUnitConfig
@@ -1048,7 +1049,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = mkCF "co2" Nothing 1.0
-                tables = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
+                tables = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
                 inventory = M.singleton fid 100.0
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton nil (unitNamed "m")
@@ -1159,7 +1160,7 @@ spec = do
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air Nothing){bfUnitId = uidKg}
                 cf = (mkCF "co2" Nothing 2.5){mcfUnit = "kg"}
-                rawTables = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
+                rawTables = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 4.0 :: Double)]
@@ -1184,7 +1185,7 @@ spec = do
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air Nothing){bfUnitId = uidKg}
                 cf = (mkCF "co2" Nothing 1.0e-3){mcfUnit = "g"}
-                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
+                tables0 = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 1.0 :: Double)]
@@ -1203,7 +1204,7 @@ spec = do
             uidKg <- nextRandom
             let flow = (mkFlow fid "co2" Air (Just "high pop")){bfUnitId = uidKg}
                 cf = (mkCFComp "co2" "air" "high pop" 3.0){mcfUnit = "kg"}
-                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByName))]
+                tables0 = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution flow ByName))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 2.0 :: Double)]
@@ -1219,7 +1220,7 @@ spec = do
             -- Flow has subcomp "high pop", but CF only has medium-level entry (subcomp "")
             let flow = (mkFlow fid "co2" Air (Just "high pop")){bfUnitId = uidKg}
                 cf = (mkCFComp "co2" "air" "" 5.0){mcfUnit = "kg"}
-                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByName))]
+                tables0 = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution flow ByName))]
                 flowDB = M.singleton fid flow
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 inv = M.fromList [(fid, 1.0 :: Double)]
@@ -1235,7 +1236,7 @@ spec = do
             uidKg <- nextRandom
             let flowLocal = (mkFlow fidLocal "co2" Air Nothing){bfUnitId = uidKg}
                 cf = (mkCF "co2" Nothing 1.5){mcfUnit = "kg"}
-                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flowLocal ByUUID))]
+                tables0 = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution flowLocal ByUUID))]
                 flowDBAtBuild = M.singleton fidLocal flowLocal
                 unitDB = M.singleton uidKg (mkUnit uidKg "kg")
                 filled = fillBroadcastVector defaultUnitConfig unitDB flowDBAtBuild tables0
@@ -1267,7 +1268,7 @@ spec = do
                     unitDB = M.singleton uid ((unitNamed unitName'){unitId = uid})
                     filled =
                         fillBroadcastVector cfg unitDB flowDB $
-                            buildMethodTables mempty mempty densities [(cf, Just (Resolution flow ByUUID))]
+                            buildMethodTables defaultUnitConfig mempty mempty densities [(cf, Just (Resolution flow ByUUID))]
                 pure (fid, [bfId f | (f, _, _) <- zeroedMatchedCFs cfg unitDB flowDB filled])
             fillFor = fillWith M.empty
 
@@ -1404,7 +1405,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 inv = M.singleton fid 100.0
-                tables = buildMethodTables mempty mempty M.empty []
+                tables = buildMethodTables defaultUnitConfig mempty mempty M.empty []
                 idx = buildMethodIndex (mkMethod [])
                 opts = defaultUncharacterizedOpts{uoMaxFlows = 0}
             findUncharacterized
@@ -1425,7 +1426,7 @@ spec = do
                 smallFlow = mkFlow small "huge stuff" Air Nothing
                 inv = M.fromList [(big, 999.0), (small, 1.0)]
                 flowDB = M.fromList [(big, bigFlow), (small, smallFlow)]
-                tables = buildMethodTables mempty mempty M.empty []
+                tables = buildMethodTables defaultUnitConfig mempty mempty M.empty []
                 idx = buildMethodIndex (mkMethod [])
                 opts = defaultUncharacterizedOpts{uoMinAbsWeight = 0.5}
                 result =
@@ -1445,7 +1446,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Air Nothing
                 cf = (mkCF "co2" Nothing 1.0){mcfFlowRef = fid}
-                tables = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
+                tables = buildMethodTables defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution flow ByUUID))]
                 idx = buildMethodIndex (mkMethod [cf])
                 inv = M.singleton fid 100.0
                 flowDB = M.singleton fid flow

@@ -978,7 +978,7 @@ buildMethodTablesFor manager dbName collection db method = do
     -- question; a method whose CFs are all region-tagged would be left with none.
     -- The loader warns when such a name matches no method.
     globalMethods <- maybe [] mcUnregionalized <$> getMethodCollection manager (unCollectionName collection)
-    let !raw0 = buildMethodTables cmap vocabulary energyDensities expanded
+    let !raw0 = buildMethodTables unitConfig cmap vocabulary energyDensities expanded
         !raw =
             if methodName method `elem` globalMethods
                 then raw0{mtRegionalizedCF = M.empty}

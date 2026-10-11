@@ -16,6 +16,7 @@ import Types (
     Medium (..),
  )
 import qualified Types as VT
+import UnitConversion (UnitConfig, UnitDef (..), defaultDimensionOrder, mkUnitConfig, parseDimension)
 
 mkUUID :: Integer -> UUID
 mkUUID n = UUID.fromWords64 (fromIntegral n) 0
@@ -57,9 +58,18 @@ mkFlowIn medium i name =
 mkFlow :: Integer -> Text -> BiosphereFlow
 mkFlow = mkFlowIn NaturalResource
 
+-- | The units a family's factor and its energy content are written per here.
+units :: UnitConfig
+units =
+    mkUnitConfig
+        defaultDimensionOrder
+        (M.fromList [("kg", unit "mass" 1), ("t", unit "mass" 1000), ("m3", unit "volume" 1), ("Sm3", unit "volume" 1)])
+  where
+    unit dim = UnitDef (either (error . show) id (parseDimension defaultDimensionOrder dim))
+
 tablesOf :: EnergyDensityMap -> [MethodCF] -> MethodTables
 tablesOf eds cfs =
-    buildMethodTables mempty mempty eds [(cf, Just (Resolution (mkFlow 1 (mcfFlowName cf)) ByName)) | cf <- cfs]
+    buildMethodTables units mempty mempty eds [(cf, Just (Resolution (mkFlow 1 (mcfFlowName cf)) ByName)) | cf <- cfs]
 
 -- Tables where the method prices a unit of energy, the way both the JRC's own
 -- fossil method and its SimaPro adaptation do.
@@ -139,8 +149,13 @@ spec = do
             borrowedBy heatReleasedTables "Coal, 18 MJ per kg" `shouldBe` Nothing
         it "is the family's price per unit of energy where the method prices the family by the mass" $
             borrowedBy familyTables "Coal, brown, 8 MJ per kg" `shouldBe` Just (80.0 / 9.41)
-        it "is nothing where the family's factor is written per another unit than its energy content" $
+        it "converts the family's factor into the unit its energy content is given per" $ do
             borrowedBy (tablesOf (M.fromList [(normalizeName "Coal, brown", EnergyDensity 9.41 "MJ" "kg")]) [resourceCFIn "t" "Coal, brown" 80000.0]) "Coal, brown, 8 MJ per kg"
+                `shouldBe` Just (80.0 / 9.41)
+            borrowedBy (tablesOf (M.fromList [(normalizeName "Gas, natural", EnergyDensity 36.0 "MJ" "Sm3")]) [resourceCFIn "m3" "Gas, natural" 72.0]) "Gas, natural, 35 MJ per m3"
+                `shouldBe` Just 2.0
+        it "is nothing where the family's factor is written per a unit of another measure" $
+            borrowedBy (tablesOf (M.fromList [(normalizeName "Coal, brown", EnergyDensity 9.41 "MJ" "kg")]) [resourceCFIn "m3" "Coal, brown" 80.0]) "Coal, brown, 8 MJ per kg"
                 `shouldBe` Nothing
         it "is nothing where the name says no family the method prices" $
             borrowedBy familyTables "Coal, 29.3 MJ per kg" `shouldBe` Nothing

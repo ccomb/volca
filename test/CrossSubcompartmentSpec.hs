@@ -7,6 +7,7 @@ import Data.Text (Text)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
+import UnitConversion (defaultUnitConfig)
 
 import Method.Mapping (MatchStrategy (..), Resolution (..), buildMethodTables, cfValue, lookupCFForFlow)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
@@ -47,7 +48,7 @@ mkFlow i name sub =
 
 score :: [(MethodCF, Maybe Resolution)] -> BiosphereFlow -> Maybe Double
 score mappings flow =
-    fmap cfValue (lookupCFForFlow (buildMethodTables mempty mempty M.empty mappings) (bfId flow) (Just flow))
+    fmap cfValue (lookupCFForFlow (buildMethodTables defaultUnitConfig mempty mempty M.empty mappings) (bfId flow) (Just flow))
 
 spec :: Spec
 spec = describe "no factor borrowed across subcompartments" $ do

@@ -25,6 +25,7 @@ import Types (
     Medium (..),
  )
 import qualified Types as VT
+import UnitConversion (defaultUnitConfig)
 
 mkUUID :: Integer -> UUID
 mkUUID n = UUID.fromWords64 (fromIntegral n) 0
@@ -75,6 +76,7 @@ m3Flow = mkFlow 2 "Gas, natural/m3"
 perUnitTables :: MethodTables
 perUnitTables =
     buildMethodTables
+        defaultUnitConfig
         mempty
         mempty
         M.empty
@@ -99,6 +101,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
         -- exists) – the variant table must not get in the way.
         let baseOnly =
                 buildMethodTables
+                    defaultUnitConfig
                     mempty
                     mempty
                     M.empty
@@ -108,6 +111,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
     it "refuses a variant name whose own rows disagree (true duplicate, never guesses)" $ do
         let dup =
                 buildMethodTables
+                    defaultUnitConfig
                     mempty
                     mempty
                     M.empty
@@ -130,6 +134,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
         -- a factor that scores beats one that cannot.
         let subExact =
                 buildMethodTables
+                    defaultUnitConfig
                     mempty
                     mempty
                     M.empty
@@ -141,6 +146,7 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
     it "reaches the sea with the line for the whole medium" $ do
         let silent =
                 buildMethodTables
+                    defaultUnitConfig
                     mempty
                     mempty
                     M.empty

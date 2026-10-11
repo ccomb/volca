@@ -7,6 +7,7 @@ import Data.Text (Text)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
+import UnitConversion (defaultUnitConfig)
 
 import Method.Mapping (
     MappingStats (msByProxy),
@@ -124,8 +125,8 @@ spec = describe "expandProxyEdges" $ do
     -- lookup, exactly as a real score queries it.
     it "characterizes an otherwise-uncharacterized flow through the method tables" $ do
         let edges = [proxyEdge (nameKey "phosphorus") (nameKey "phosphate") 0.5]
-            tablesNoProxy = buildMethodTables mempty mempty M.empty baseMappings
-            tablesProxy = buildMethodTables mempty mempty M.empty (expandProxyEdges byNameTargets edges baseMappings)
+            tablesNoProxy = buildMethodTables defaultUnitConfig mempty mempty M.empty baseMappings
+            tablesProxy = buildMethodTables defaultUnitConfig mempty mempty M.empty (expandProxyEdges byNameTargets edges baseMappings)
             lookup' ts = lookupCFForFlow ts (bfId phosphateFlow) (Just phosphateFlow)
         lookup' tablesNoProxy `shouldBe` Nothing
         fmap cfValue (lookup' tablesProxy) `shouldBe` Just 1.0 -- 2.0 * 0.5

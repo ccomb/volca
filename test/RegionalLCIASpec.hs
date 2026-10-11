@@ -169,7 +169,7 @@ buildTables ::
     [(MethodCF, Maybe Resolution)] ->
     MethodTables
 buildTables db hier mappings =
-    let raw = buildMethodTables mempty mempty M.empty mappings
+    let raw = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
         withBroadcast =
             fillBroadcastVector kgUnitConfig (dbUnits db) (dbBioFlows db) raw
      in fillRegionalActivityWeights

@@ -13,6 +13,7 @@ import Data.Text (Text)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
+import UnitConversion (defaultUnitConfig)
 
 import Method.Mapping (MatchStrategy (..), MethodTables, Resolution (..), buildMethodTables, characterizedFlowIds)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
@@ -66,11 +67,11 @@ bioFlows = M.fromList [(bfId f, f) | f <- [ammoniaUrban, ammoniaRural, methane]]
 -- build side pairs each factor with at most one flow.
 ammoniaTables :: MethodTables
 ammoniaTables =
-    buildMethodTables mempty mempty M.empty [(airCF "Ammonia" 2.7, Just (Resolution ammoniaUrban ByName))]
+    buildMethodTables defaultUnitConfig mempty mempty M.empty [(airCF "Ammonia" 2.7, Just (Resolution ammoniaUrban ByName))]
 
 methaneTables :: MethodTables
 methaneTables =
-    buildMethodTables mempty mempty M.empty [(airCF "Methane" 28.0, Just (Resolution methane ByName))]
+    buildMethodTables defaultUnitConfig mempty mempty M.empty [(airCF "Methane" 28.0, Just (Resolution methane ByName))]
 
 spec :: Spec
 spec = describe "characterizedFlowIds" $ do

@@ -100,7 +100,7 @@ spec = do
                 uidKg = mkUuid 200
                 cf = mkCF fid 1.0
                 m1 = mkMethod 1 "m1" [cf]
-                tables0 = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution (mkFlow fid "co2" uidKg) ByUUID))]
+                tables0 = buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution (mkFlow fid "co2" uidKg) ByUUID))]
                 fdb = M.singleton fid (mkFlow fid "co2" uidKg)
                 udb = M.singleton uidKg (mkUnit uidKg "kg")
                 filled = fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb tables0
@@ -116,7 +116,7 @@ spec = do
                 uidKg = mkUuid 200
                 cf = mkCF fid 1.0
                 tables0 =
-                    (buildMethodTables mempty mempty M.empty [(cf, Just (Resolution (mkFlow fid "co2" uidKg) ByUUID))])
+                    (buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution (mkFlow fid "co2" uidKg) ByUUID))])
                         { mtRegionalizedCF = M.singleton (fid, Location "FR") (CF 2.0 (CFUnit "kg"))
                         }
                 m1 = mkMethod 1 "m1" [cf]
@@ -149,9 +149,9 @@ spec = do
                 mC = mkMethod 3 "C" [cfC1]
 
                 fill = fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb
-                tA = fill (buildMethodTables mempty mempty M.empty [(cfA1, Just (Resolution flow1 ByUUID))])
-                tB = fill (buildMethodTables mempty mempty M.empty [(cfB1, Just (Resolution flow1 ByUUID)), (cfB2, Just (Resolution flow2 ByUUID))])
-                tC = fill (buildMethodTables mempty mempty M.empty [(cfC1, Just (Resolution flow1 ByUUID))])
+                tA = fill (buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cfA1, Just (Resolution flow1 ByUUID))])
+                tB = fill (buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cfB1, Just (Resolution flow1 ByUUID)), (cfB2, Just (Resolution flow2 ByUUID))])
+                tC = fill (buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cfC1, Just (Resolution flow1 ByUUID))])
 
                 mst = buildMethodSetTables [(mA, tA), (mB, tB), (mC, tC)]
 
@@ -192,7 +192,7 @@ spec = do
                 fdb = M.singleton fid (mkFlow fid "co2" uidKg)
                 udb = M.singleton uidKg (mkUnit uidKg "kg")
                 fill = fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb
-                t = fill (buildMethodTables mempty mempty M.empty [(cf, Just (Resolution (mkFlow fid "co2" uidKg) ByUUID))])
+                t = fill (buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution (mkFlow fid "co2" uidKg) ByUUID))])
                 mst = buildMethodSetTables [(m1, t), (m2, t)]
                 results =
                     computeLCIAScoreSetFromTables
@@ -218,7 +218,7 @@ spec = do
                 udb = M.singleton uidKg (mkUnit uidKg "kg")
                 t =
                     fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb $
-                        buildMethodTables mempty mempty M.empty [(cf, Just (Resolution (mkFlow fidIn "co2" uidKg) ByUUID))]
+                        buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution (mkFlow fidIn "co2" uidKg) ByUUID))]
                 mst = buildMethodSetTables [(m1, t)]
                 inv = M.fromList [(fidIn, 2.0), (fidOut, 100.0)]
                 results =
@@ -262,6 +262,7 @@ spec = do
                 t =
                     fillBroadcastVector UnitConversion.defaultUnitConfig udb buildFlowDB $
                         buildMethodTables
+                            UnitConversion.defaultUnitConfig
                             mempty
                             mempty
                             M.empty
@@ -305,6 +306,7 @@ spec = do
                 t =
                     fillBroadcastVector UnitConversion.defaultUnitConfig udb buildFlowDB $
                         buildMethodTables
+                            UnitConversion.defaultUnitConfig
                             mempty
                             mempty
                             M.empty
@@ -334,7 +336,7 @@ spec = do
                 udb = M.singleton uidKg (mkUnit uidKg "kg")
                 t =
                     fillBroadcastVector UnitConversion.defaultUnitConfig udb fdb $
-                        buildMethodTables mempty mempty M.empty [(cf, Just (Resolution (mkFlow fid "co2" uidKg) ByUUID))]
+                        buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution (mkFlow fid "co2" uidKg) ByUUID))]
                 mB = mkMethod 2 "B" [cf]
                 mA = mkMethod 1 "A" [cf]
                 mC = mkMethod 3 "C" [cf]
@@ -366,16 +368,17 @@ spec = do
                 cf3a = mkCF fid1 1.0
                 cf3b = (mkCF fid2 25.0){mcfFlowName = "ch4"}
                 tNonRegio1 =
-                    fill (buildMethodTables mempty mempty M.empty [(cf1a, Just (Resolution flow1 ByUUID))])
+                    fill (buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cf1a, Just (Resolution flow1 ByUUID))])
                 tRegio =
                     fill
-                        ( (buildMethodTables mempty mempty M.empty [(cf2a, Just (Resolution flow1 ByUUID))])
+                        ( (buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cf2a, Just (Resolution flow1 ByUUID))])
                             { mtRegionalizedCF = M.singleton (fid1, Location "FR") (CF 7.0 (CFUnit "kg"))
                             }
                         )
                 tNonRegio2 =
                     fill
                         ( buildMethodTables
+                            UnitConversion.defaultUnitConfig
                             mempty
                             mempty
                             M.empty
@@ -459,7 +462,7 @@ spec = do
                     , (cfOcean, Just (Resolution flowUns ByName))
                     , (cfOcean, Just (Resolution flowOcean ByName))
                     ]
-                tables = buildMethodTables mempty mempty M.empty mappings
+                tables = buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty mappings
                 regio = mtRegionalizedCF tables
             -- Pre-fix: this was (0.0, "kg") – clobbered by cfOcean. The
             -- filter drops (cfOcean, flowUns) so the wildcard cfUns survives.
@@ -494,9 +497,9 @@ spec = do
                         , mcfCompartment = Just (Compartment "water" "unspecified" "")
                         , mcfConsumerLocation = Just "DE"
                         }
-                tEmpty = buildMethodTables mempty mempty M.empty [(cfEmpty, Just (Resolution flowRiver ByName))]
-                tUnspec = buildMethodTables mempty mempty M.empty [(cfUnspecified, Just (Resolution flowRiver ByName))]
-                tUnspecBare = buildMethodTables mempty mempty M.empty [(cfUnspecBare, Just (Resolution flowRiver ByName))]
+                tEmpty = buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cfEmpty, Just (Resolution flowRiver ByName))]
+                tUnspec = buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cfUnspecified, Just (Resolution flowRiver ByName))]
+                tUnspecBare = buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cfUnspecBare, Just (Resolution flowRiver ByName))]
             -- A line written with no subcompartment stands for the whole
             -- medium. One written at unspecified, either spelling, names a
             -- subcompartment: the SimaPro reader is what turns its
@@ -518,7 +521,7 @@ spec = do
                         , mcfCompartment = Just (Compartment "water" "Surface water" "")
                         , mcfConsumerLocation = Just "DE"
                         }
-            M.lookup (fid, Location "DE") (mtRegionalizedCF (buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flowSurface ByName))]))
+            M.lookup (fid, Location "DE") (mtRegionalizedCF (buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution flowSurface ByName))]))
                 `shouldBe` Just (CF 3.0 (CFUnit "kg"))
 
         it "prefers the CF that names the flow's subcompartment, whatever the row order" $ do
@@ -539,7 +542,7 @@ spec = do
                         , mcfConsumerLocation = Just "DE"
                         }
                 tablesFrom rows =
-                    mtRegionalizedCF (buildMethodTables mempty mempty M.empty rows)
+                    mtRegionalizedCF (buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty rows)
                 medium = (cfAt "" 7.0, Just (Resolution flowRiver ByName))
                 exact = (cfAt "river" 3.0, Just (Resolution flowRiver ByName))
             M.lookup (fid, Location "DE") (tablesFrom [medium, exact])
@@ -562,6 +565,7 @@ spec = do
                         }
                 declaring =
                     buildMethodTables
+                        UnitConversion.defaultUnitConfig
                         mempty
                         mempty
                         M.empty
@@ -584,7 +588,7 @@ spec = do
                         , mcfCompartment = Just (Compartment "water" "" "")
                         , mcfConsumerLocation = Just "DE"
                         }
-                silent = buildMethodTables mempty mempty M.empty [(cfUnspecified, Just (Resolution flowOcean ByName))]
+                silent = buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cfUnspecified, Just (Resolution flowOcean ByName))]
             M.lookup (fid, Location "DE") (mtRegionalizedCF silent)
                 `shouldBe` Just (CF 1.0 (CFUnit "kg"))
 
@@ -604,7 +608,7 @@ spec = do
                         , mcfCompartment = Just (Compartment "water" "" "")
                         , mcfConsumerLocation = Just "DE"
                         }
-                tablesAt sub' = buildMethodTables mempty mempty M.empty [(cfMedium, Just (Resolution (flowSub sub') ByName))]
+                tablesAt sub' = buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cfMedium, Just (Resolution (flowSub sub') ByName))]
             M.lookup (fid, Location "DE") (mtRegionalizedCF (tablesAt "groundwater, long-term")) `shouldBe` Just (CF 7.0 (CFUnit "kg"))
             M.lookup (fid, Location "DE") (mtRegionalizedCF (tablesAt "groundwater")) `shouldBe` Just (CF 7.0 (CFUnit "kg"))
 
@@ -621,5 +625,5 @@ spec = do
                         , mcfCompartment = Nothing
                         , mcfConsumerLocation = Just "IT"
                         }
-                tables = buildMethodTables mempty mempty M.empty [(cf, Just (Resolution flowAny ByName))]
+                tables = buildMethodTables UnitConversion.defaultUnitConfig mempty mempty M.empty [(cf, Just (Resolution flowAny ByName))]
             M.lookup (fid, Location "IT") (mtRegionalizedCF tables) `shouldBe` Just (CF 4.0 (CFUnit "kg"))

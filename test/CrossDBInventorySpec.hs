@@ -224,6 +224,7 @@ spec = do
                     , mtCompartmentMap = mempty
                     , mtEnergyPrice = NoEnergyLines
                     , mtEnergyDensities = M.empty
+                    , mtUnitConfig = defaultUnitConfig
                     , mtResolution = M.empty
                     , mtJudged = S.empty
                     , mtBroadcast = M.empty

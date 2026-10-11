@@ -11,6 +11,7 @@ import Data.Text (Text)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
+import UnitConversion (defaultUnitConfig)
 
 import Method.Mapping (MatchStrategy (..), MethodTables (..), Resolution (..), buildMethodTables)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
@@ -52,7 +53,7 @@ keyedUnder :: Maybe MatchStrategy -> [Text]
 keyedUnder strategy =
     [ n
     | (SR.NormName n, _, _) <-
-        M.keys (mtExactCF (buildMethodTables mempty mempty M.empty [(methodLine, fmap (Resolution databaseFlow) strategy)]))
+        M.keys (mtExactCF (buildMethodTables defaultUnitConfig mempty mempty M.empty [(methodLine, fmap (Resolution databaseFlow) strategy)]))
     ]
 
 spec :: Spec

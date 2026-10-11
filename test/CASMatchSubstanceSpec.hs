@@ -15,6 +15,7 @@ import Data.Text (Text)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
+import UnitConversion (defaultUnitConfig)
 
 import Method.Mapping (MapContext (..), buildMethodTables, cfValue, lookupCFForFlow, mapMethodFlows)
 import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..))
@@ -73,7 +74,7 @@ the land transformation row is mapped onto it.
 factors :: SynonymDB -> [BiosphereFlow] -> IO [Maybe Double]
 factors synDB flows = do
     mappings <- mapMethodFlows context method
-    let tables = buildMethodTables mempty mempty M.empty mappings
+    let tables = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
     pure [cfValue <$> lookupCFForFlow tables (bfId f) (Just f) | f <- flows]
   where
     context =
