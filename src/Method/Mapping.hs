@@ -1611,8 +1611,8 @@ energyPriceOf cmap mappings = case priced of
         , Just (Just NaturalResource, _) <- [cfMediumSub cmap cf]
         ]
 
-buildMethodTables :: UnitConfig -> CompartmentMap -> MethodVocabulary -> EnergyDensityMap -> [(MethodCF, Maybe Resolution)] -> MethodTables
-buildMethodTables unitConfig cmap vocabulary energyDensities mappings =
+buildMethodTables :: Placing -> UnitConfig -> EnergyDensityMap -> [(MethodCF, Maybe Resolution)] -> MethodTables
+buildMethodTables (Placing cmap vocabulary) unitConfig energyDensities mappings =
     MethodTables
         { mtUuidCF =
             -- Non-regionalized rows only, like the name tables below: a
@@ -2380,7 +2380,7 @@ no energy densities. Prefer the cached path ('mapMethodToTablesCached' +
 -}
 computeLCIAScore :: UnitConfig -> UnitDB -> BioFlowDB -> Inventory -> [(MethodCF, Maybe Resolution)] -> LCIAOutcome
 computeLCIAScore unitConfig unitDB flowDB inventory mappings =
-    computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables unitConfig mempty mempty M.empty mappings)
+    computeLCIAScoreFromTables unitConfig unitDB flowDB inventory (buildMethodTables mempty unitConfig M.empty mappings)
 
 {- | LCIA score with automatic dispatch.
 

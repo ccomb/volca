@@ -74,7 +74,7 @@ the land transformation row is mapped onto it.
 factors :: SynonymDB -> [BiosphereFlow] -> IO [Maybe Double]
 factors synDB flows = do
     mappings <- mapMethodFlows context method
-    let tables = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+    let tables = buildMethodTables mempty defaultUnitConfig M.empty mappings
     pure [cfValue <$> lookupCFForFlow tables (bfId f) (Just f) | f <- flows]
   where
     context =

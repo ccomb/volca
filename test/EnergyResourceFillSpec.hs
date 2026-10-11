@@ -69,7 +69,7 @@ units =
 
 tablesOf :: EnergyDensityMap -> [MethodCF] -> MethodTables
 tablesOf eds cfs =
-    buildMethodTables units mempty mempty eds [(cf, Just (Resolution (mkFlow 1 (mcfFlowName cf)) ByName)) | cf <- cfs]
+    buildMethodTables mempty units eds [(cf, Just (Resolution (mkFlow 1 (mcfFlowName cf)) ByName)) | cf <- cfs]
 
 -- Tables where the method prices a unit of energy, the way both the JRC's own
 -- fossil method and its SimaPro adaptation do.

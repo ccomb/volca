@@ -67,7 +67,7 @@ water = Just "7732-18-5"
 
 score :: [(MethodCF, Maybe Resolution)] -> BiosphereFlow -> Maybe Double
 score mappings flow =
-    fmap cfValue (lookupCFForFlow (buildMethodTables defaultUnitConfig mempty mempty M.empty mappings) (bfId flow) (Just flow))
+    fmap cfValue (lookupCFForFlow (buildMethodTables mempty defaultUnitConfig M.empty mappings) (bfId flow) (Just flow))
 
 spec :: Spec
 spec = describe "CAS bridge ambiguity guard" $ do
@@ -137,7 +137,7 @@ spec = describe "CAS bridge ambiguity guard" $ do
                 , ((mkCF 3 "Water, lake" "" water 100.0){mcfConsumerLocation = Just "IN"}, Just (Resolution inFlow ByCAS))
                 ]
             tables =
-                buildMethodTables defaultUnitConfig mempty mempty M.empty $
+                buildMethodTables mempty defaultUnitConfig M.empty $
                     projectRegionalResourceFlows emptySynonymDB bioFlows mappings
 
         it "the projected copies veto both CAS bridges" $ do

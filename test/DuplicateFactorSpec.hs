@@ -49,11 +49,11 @@ mappingsOf how cfs = [(cf, Just (Resolution turpentine how)) | cf <- cfs]
 
 score :: [(MethodCF, Maybe Resolution)] -> Maybe Double
 score mappings =
-    fmap cfValue (lookupCFForFlow (buildMethodTables defaultUnitConfig mempty mempty M.empty mappings) (bfId turpentine) (Just turpentine))
+    fmap cfValue (lookupCFForFlow (buildMethodTables mempty defaultUnitConfig M.empty mappings) (bfId turpentine) (Just turpentine))
 
 contested :: [(MethodCF, Maybe Resolution)] -> [([Double], Double)]
 contested mappings =
-    [(cfoValues c, cfoKept c) | c <- contestedFactors mempty (buildMethodTables defaultUnitConfig mempty mempty M.empty mappings) mappings]
+    [(cfoValues c, cfoKept c) | c <- contestedFactors mempty (buildMethodTables mempty defaultUnitConfig M.empty mappings) mappings]
 
 spec :: Spec
 spec = describe "two factors at one place" $ do

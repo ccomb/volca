@@ -76,9 +76,8 @@ m3Flow = mkFlow 2 "Gas, natural/m3"
 perUnitTables :: MethodTables
 perUnitTables =
     buildMethodTables
+        mempty
         defaultUnitConfig
-        mempty
-        mempty
         M.empty
         [ (mkCF 1 "Gas, natural/kg" "kg" 43.1, Just (Resolution kgFlow ByUUID))
         , (mkCF 20 "Gas, natural/m3" "m3" 34.5, Just (Resolution m3Flow ByName))
@@ -101,9 +100,8 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
         -- exists) – the variant table must not get in the way.
         let baseOnly =
                 buildMethodTables
+                    mempty
                     defaultUnitConfig
-                    mempty
-                    mempty
                     M.empty
                     [(mkCF 1 "Gas, natural" "m3" 40.0, Just (Resolution (mkFlow 1 "Gas, natural") ByUUID))]
         lookupFor baseOnly (mkFlow 4 "Gas, natural/Sm3") `shouldBe` Just 40.0
@@ -111,9 +109,8 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
     it "refuses a variant name whose own rows disagree (true duplicate, never guesses)" $ do
         let dup =
                 buildMethodTables
+                    mempty
                     defaultUnitConfig
-                    mempty
-                    mempty
                     M.empty
                     [ (mkCF 1 "Gas, natural/kg" "kg" 10.0, Just (Resolution kgFlow ByUUID))
                     , (mkCF 2 "Gas, natural/kg" "kg" 20.0, Nothing)
@@ -134,9 +131,8 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
         -- a factor that scores beats one that cannot.
         let subExact =
                 buildMethodTables
+                    mempty
                     defaultUnitConfig
-                    mempty
-                    mempty
                     M.empty
                     [ (mkCF 1 "Gas, natural/m3" "m3" 34.5, Nothing)
                     , (inSub "in water" (mkCF 2 "Gas, natural" "kg" 43.1), Nothing)
@@ -146,9 +142,8 @@ spec = describe "per-unit method rows (unit-suffixed homonyms)" $ do
     it "reaches the sea with the line for the whole medium" $ do
         let silent =
                 buildMethodTables
+                    mempty
                     defaultUnitConfig
-                    mempty
-                    mempty
                     M.empty
                     [(mkCF 1 "Water/m3" "m3" 42.95, Nothing)]
         lookupFor silent (mkFlowAt 6 "Water/m3" (Just "ocean")) `shouldBe` Just 42.95

@@ -161,7 +161,7 @@ mapCtx =
 buildTablesFor :: Method -> IO MethodTables
 buildTablesFor method = do
     mappings <- mapMethodFlows mapCtx method
-    let raw = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+    let raw = buildMethodTables mempty defaultUnitConfig M.empty mappings
     pure (fillBroadcastVector defaultUnitConfig M.empty flowDB raw)
 
 buildTables :: IO MethodTables
@@ -241,7 +241,7 @@ carbonSynonyms =
 buildCarbonTables :: IO MethodTables
 buildCarbonTables = do
     mappings <- mapMethodFlows carbonSynonyms biogenicMethaneMethod
-    let raw = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+    let raw = buildMethodTables mempty defaultUnitConfig M.empty mappings
     pure (fillBroadcastVector defaultUnitConfig M.empty carbonFlows raw)
 
 -- ---------------------------------------------------------------------------
@@ -357,7 +357,7 @@ fallbackCtx =
 buildFallbackTables :: IO MethodTables
 buildFallbackTables = do
     mappings <- mapMethodFlows fallbackCtx fallbackMethod
-    let raw = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+    let raw = buildMethodTables mempty defaultUnitConfig M.empty mappings
     pure (fillBroadcastVector defaultUnitConfig M.empty fallbackFlowDB raw)
 
 -- ---------------------------------------------------------------------------
@@ -471,14 +471,14 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
     describe "regionalized rows stay out of the global tables" $ do
         it "routes a location-bearing CAS-matched CF to mtRegionalCasCF only" $ do
             mappings <- mapMethodFlows mapCtx regionalCasMethod
-            let tables = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+            let tables = buildMethodTables mempty defaultUnitConfig M.empty mappings
             M.lookup (CASNumber waterCAS, Just NaturalResource, Subcompartment "") (mtRegionalCasCF tables)
                 `shouldBe` Just (M.fromList [(Location "FR", CF 9 (CFUnit "m3"))])
             M.member (CASNumber waterCAS, Just NaturalResource, Subcompartment "") (mtCasCF tables) `shouldBe` False
 
         it "keeps regionalized UUID-matched rows out of mtUuidCF" $ do
             mappings <- mapMethodFlows mapCtx uuidRegionalMethod
-            let tables = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+            let tables = buildMethodTables mempty defaultUnitConfig M.empty mappings
             -- The global row stands; the location row lives in the regional
             -- table instead of clobbering the flow's universal value.
             fmap teCF (M.lookup (bfId river) (mtUuidCF tables)) `shouldBe` Just (CF 5 (CFUnit "m3"))
@@ -517,7 +517,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
                 Left err -> expectationFailure ("Parse failed: " ++ err)
                 Right coll -> do
                     mappings <- concat <$> mapM (mapMethodFlows mapCtx) (smfMethods coll)
-                    let tables = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+                    let tables = buildMethodTables mempty defaultUnitConfig M.empty mappings
                     M.lookup (CASNumber waterCAS, Just NaturalResource, Subcompartment "") (mtCasCF tables)
                         `shouldBe` Nothing
                     M.lookup (CASNumber waterCAS, Just Water, Subcompartment "") (mtCasCF tables)
@@ -534,7 +534,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
             -- In an ILCD package, a JSON-LD package or this engine's CSV,
             -- "unspecified" names one subcompartment like any other.
             mappings <- mapMethodFlows fallbackCtx fallbackMethod{methodFactors = [mkAirCF "Radon-222" "unspecified" 10]}
-            let tables = fillBroadcastVector defaultUnitConfig M.empty fallbackFlowDB (buildMethodTables defaultUnitConfig mempty mempty M.empty mappings)
+            let tables = fillBroadcastVector defaultUnitConfig M.empty fallbackFlowDB (buildMethodTables mempty defaultUnitConfig M.empty mappings)
             M.lookup (bfId radonLongTerm) (mtBroadcast tables) `shouldBe` Nothing
 
         it "an exact subcompartment still wins over the fallback" $ do
@@ -559,18 +559,18 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
                         , mcBioFlowsByCAS = M.fromList [(acrCAS, [acrFlow, indoor])]
                         }
             mappings <- mapMethodFlows ctx acrMethod
-            let tables = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+            let tables = buildMethodTables mempty defaultUnitConfig M.empty mappings
             fmap (fmap teCF) (M.lookup (CASNumber acrCAS, Just Air, Subcompartment "") (mtCasCF tables)) `shouldBe` Just (Just (CF 1 (CFUnit "kg")))
             fmap (fmap teCF) (M.lookup (CASNumber acrCAS, Just Air, Subcompartment "indoor") (mtCasCF tables)) `shouldBe` Just (Just (CF 100 (CFUnit "kg")))
 
         it "reaches an urban flow with the line for the whole medium, not the indoor one" $ do
             mappings <- mapMethodFlows acrCtx acrMethod
-            let raw = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+            let raw = buildMethodTables mempty defaultUnitConfig M.empty mappings
                 tables = fillBroadcastVector defaultUnitConfig M.empty (mcBioFlowsByUUID acrCtx) raw
             M.lookup (bfId acrFlow) (mtBroadcast tables) `shouldBe` Just 1
 
         it "the regional bridge keeps each subcompartment apart per location too" $ do
             mappings <- mapMethodFlows acrCtx acrRegionalMethod
-            let tables = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+            let tables = buildMethodTables mempty defaultUnitConfig M.empty mappings
             M.lookup (CASNumber acrCAS, Just Air, Subcompartment "") (mtRegionalCasCF tables)
                 `shouldBe` Just (M.fromList [(Location "FR", CF 1 (CFUnit "kg"))])

@@ -53,7 +53,7 @@ keyedUnder :: Maybe MatchStrategy -> [Text]
 keyedUnder strategy =
     [ n
     | (SR.NormName n, _, _) <-
-        M.keys (mtExactCF (buildMethodTables defaultUnitConfig mempty mempty M.empty [(methodLine, fmap (Resolution databaseFlow) strategy)]))
+        M.keys (mtExactCF (buildMethodTables mempty defaultUnitConfig M.empty [(methodLine, fmap (Resolution databaseFlow) strategy)]))
     ]
 
 spec :: Spec

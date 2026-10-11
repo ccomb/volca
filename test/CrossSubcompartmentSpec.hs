@@ -48,7 +48,7 @@ mkFlow i name sub =
 
 score :: [(MethodCF, Maybe Resolution)] -> BiosphereFlow -> Maybe Double
 score mappings flow =
-    fmap cfValue (lookupCFForFlow (buildMethodTables defaultUnitConfig mempty mempty M.empty mappings) (bfId flow) (Just flow))
+    fmap cfValue (lookupCFForFlow (buildMethodTables mempty defaultUnitConfig M.empty mappings) (bfId flow) (Just flow))
 
 spec :: Spec
 spec = describe "no factor borrowed across subcompartments" $ do

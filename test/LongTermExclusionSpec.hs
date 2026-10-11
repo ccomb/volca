@@ -108,7 +108,7 @@ cfFor flow =
 tables :: MethodTables
 tables =
     fillBroadcastVector unitConfig unitDB flowDB $
-        buildMethodTables defaultUnitConfig mempty mempty M.empty [(cfFor ltFlow, Just (Resolution ltFlow ByUUID)), (cfFor stFlow, Just (Resolution stFlow ByUUID))]
+        buildMethodTables mempty defaultUnitConfig M.empty [(cfFor ltFlow, Just (Resolution ltFlow ByUUID)), (cfFor stFlow, Just (Resolution stFlow ByUUID))]
 
 scoreOf :: Inventory -> Double
 scoreOf inv = loScore (computeLCIAScoreFromTables unitConfig unitDB flowDB inv tables)

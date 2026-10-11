@@ -27,6 +27,7 @@ import Method.Mapping (
     DensityDirection (..),
     MatchStrategy (..),
     MethodTables,
+    Placing (..),
     RefusalReason (..),
     Resolution (..),
     RungId (..),
@@ -109,7 +110,7 @@ explainOf cfg tables flow = explainFlowCF cfg unitDB tables (bfId flow) flow
 tablesFor :: EnergyDensityMap -> [(MethodCF, Maybe Resolution)] -> [BiosphereFlow] -> MethodTables
 tablesFor densities mappings flows =
     fillBroadcastVector defaultUnitConfig unitDB (flowDBOf flows) $
-        buildMethodTables defaultUnitConfig mempty mempty densities mappings
+        buildMethodTables mempty defaultUnitConfig densities mappings
 
 flowDBOf :: [BiosphereFlow] -> M.Map UUID BiosphereFlow
 flowDBOf flows = M.fromList [(bfId f, f) | f <- flows]
@@ -288,7 +289,7 @@ spec = do
                 cmap = mempty{cmIfAbsent = M.singleton (Soil, Subcompartment "forestry") (Subcompartment "non-agricultural")}
                 tables =
                     fillBroadcastVector defaultUnitConfig unitDB (flowDBOf [forest]) $
-                        buildMethodTables defaultUnitConfig cmap (methodVocabulary cmap lines') M.empty [(l, Just (Resolution forest ByName)) | l <- lines']
+                        buildMethodTables (Placing cmap (methodVocabulary cmap lines')) defaultUnitConfig M.empty [(l, Just (Resolution forest ByName)) | l <- lines']
                 explained = explainOf defaultUnitConfig tables forest
             case ceResolution explained of
                 Characterized m _ -> do
@@ -308,7 +309,7 @@ spec = do
                 cmap = mempty{cmIfAbsent = M.singleton (Soil, Subcompartment "forestry") (Subcompartment "non-agricultural")}
                 tables =
                     fillBroadcastVector defaultUnitConfig unitDB (flowDBOf [forest]) $
-                        buildMethodTables defaultUnitConfig cmap (methodVocabulary cmap lines') M.empty [(l, Just (Resolution forest ByName)) | l <- lines']
+                        buildMethodTables (Placing cmap (methodVocabulary cmap lines')) defaultUnitConfig M.empty [(l, Just (Resolution forest ByName)) | l <- lines']
             case ceResolution (explainOf defaultUnitConfig tables forest) of
                 Characterized m _ -> cmRung m `shouldBe` RungMediumDefault
                 other -> expectationFailure ("expected the line for the whole medium, got " <> show other)
@@ -391,7 +392,7 @@ spec = do
             agreesFor cfg densities mappings flows =
                 let tables =
                         fillBroadcastVector cfg unitDB (flowDBOf flows) $
-                            buildMethodTables defaultUnitConfig mempty mempty densities mappings
+                            buildMethodTables mempty defaultUnitConfig densities mappings
                  in for_ flows $ \f ->
                         (bfName f, flowMatchKind tables (bfId f))
                             `shouldBe` (bfName f, replayedKind cfg tables f)

@@ -236,7 +236,7 @@ spec = do
                 Left err -> expectationFailure ("parse failed: " ++ err)
                 Right method -> do
                     let mappings = [(cf, Nothing) | cf <- methodFactors method]
-                        tables = buildMethodTables defaultUnitConfig mempty mempty M.empty mappings
+                        tables = buildMethodTables mempty defaultUnitConfig M.empty mappings
                     M.size (mtRegionalizedCF tables) `shouldBe` 0
 
 {- | A one-factor ImpactCategory document: @docFields@ / @factorFields@ are
