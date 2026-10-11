@@ -18,9 +18,45 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
-## [Unreleased]
+## [0.13.0] - 2026-10-11
 
 ### Added
+
+- A result that solved a chain where some inputs stayed unsupplied says which:
+  `cutoff_inputs`, a list of `CutoffInput`, and `withheld_cutoffs`, a
+  `WithheldCutoffs` counting those a licence keeps to itself, on the inventory,
+  the scores, the contributions and the supply chain (wire revision 58).
+
+- `export_database("openlca")` exports a database as an openLCA package (wire
+  revision 61), and an openLCA JSON-LD zip uploads and loads like any other
+  database (wire revision 59).
+
+- `relink` reads a mapping file as a mapping page writes it: sources and
+  targets named by product or by process identity, and a `conversion` between
+  units of different measures (wire revision 62).
+
+- A database's licence: `licences` lists the standard ones and `set_licence`
+  sets the licence of an uploaded database (wire revision 41). What a licence
+  keeps out of an answer arrives as `WithheldExchanges`, `WithheldProcesses`,
+  `WithheldShare` and `WithheldInput` (wire revisions 44, 46 and 47).
+
+- `document_file` downloads a file a literature reference ships with its
+  database (wire revision 40), and `ActivityDetail.dates`, a `DatasetDates`,
+  gives the dates a dataset states (wire revision 35).
+
+- Compare and profile method collections: `compare_method_collections` lists
+  the factors added, removed and changed between two loaded collections, and
+  `profile_method_collection` says what each impact category holds (wire
+  revisions 31 to 33). A factor of `get_method_factors` carries its `reading`,
+  a `FactorReading` (wire revision 34).
+
+- `get_score_contributing_flows` and `get_score_contributing_activities` break
+  a single score down by flow and by process (wire revision 28).
+
+- `get_method`, `get_method_factors`, `get_mapping_status`, `get_flow_mapping`,
+  `get_characterization` and `explain_cf` take
+  `collection=` to choose among loaded collections carrying the same method
+  UUID (wire revision 29).
 
 - The engine routes and fields of wire revisions 48 to 57 that this client
   did not read yet: `set_release` and the `release` of `DatabaseInfo` (48),
