@@ -159,6 +159,17 @@ spec = do
                            , "The factor applied is 29.8 per MJ."
                            ]
 
+        it "says a family's factor was turned into a price per unit of energy" $
+            renderResolution
+                ( Characterized
+                    (matchIn "MJ" RungEnergyFamily (Just ByName))
+                    (EnergyBridged (EnergyDensity 8.0 "MJ" "kg") DensityForward)
+                )
+                `shouldBe` [ "No factor carries this flow's name, and the method charges nothing per unit of energy. The flow is an extracted energy carrier and its name states its energy content, so the factor of its family, \"Methane, fossil\", divided by the energy that family holds, gives what one unit of energy costs, and that applies to the content."
+                           , "This flow holds 8.0 MJ per kg, which carries the amount from kg to MJ."
+                           , "The factor applied is 29.8 per MJ."
+                           ]
+
         -- A method loaded from ILCD writes its factor in the result expression
         -- ("kg CO2 eq"): the factor yields that much per base unit, so the
         -- sentence must not read "per kg CO2 eq" – that is the factor backwards.

@@ -2823,6 +2823,7 @@ data RungId
     | RungCasBridge
     | RungRegionBase
     | RungEnergyResource
+    | RungEnergyFamily
     | RungOreGradeBase
     deriving (Eq, Show, Enum, Bounded)
 
@@ -2875,6 +2876,7 @@ cascadeTrail tables flowDB fid =
         , (RungCasBridge, casOutcome)
         , (RungRegionBase, regionOutcome)
         , (RungEnergyResource, energyOutcome)
+        , (RungEnergyFamily, familyOutcome)
         , (RungOreGradeBase, oreGradeOutcome)
         ]
       where
@@ -2939,6 +2941,25 @@ cascadeTrail tables flowDB fid =
                 NoEnergyLines -> RungMiss
                 EnergyLinesDisagree -> RungAmbiguous
                 EnergyPriced e -> RungHit e
+
+        -- A method that prices no unit of energy may still price the carrier's
+        -- family by the mass ("Coal, brown" at 80 per kg), and the family's own
+        -- calorific value turns that into what the method charges for one of its
+        -- joules: 80 / 9.41 per MJ. "Coal, brown, 8 MJ per kg" then pays for the
+        -- 8 MJ its name states, not for a kilo of the family's average coal. A
+        -- variant naming no family ("Coal, 29.3 MJ per kg") gets nothing: which
+        -- coal it is would be a guess.
+        familyOutcome
+            | baseMed /= Just NaturalResource = RungNotApplicable
+            | NoEnergyLines <- mtEnergyPrice tables
+            , Just (base, _) <- parseEnergyDensitySuffix (bfName flow) =
+                maybe RungMiss RungHit $ do
+                    entry <- resourceCF (SR.NormName (normalizeName base))
+                    content <- M.lookup (normalizeName base) (mtEnergyDensities tables)
+                    let CF value (CFUnit unit) = teCF entry
+                    guard (T.toLower unit == T.toLower (edNativeUnit content))
+                    pure entry{teCF = CF (value / edValue content) (CFUnit (edTargetUnit content))}
+            | otherwise = RungNotApplicable
 
         -- Another name's factor, read at the places this flow may read.
         resourceCF rname = firstReading (\sub -> M.lookup (rname, baseMed, sub) (mtExactCF tables))

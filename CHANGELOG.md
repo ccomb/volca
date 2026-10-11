@@ -4,6 +4,17 @@
 
 ### Added
 
+- An extracted energy carrier whose name states its content (`Coal, brown,
+  8 MJ per kg`, `Oil, crude, 42.6 MJ per kg`) is characterized under a method
+  that prices its family by the mass and no unit of energy, as ecoinvent's
+  own EF 3.1 and Ecological Scarcity 2021 files do. The family's factor over
+  the family's energy content gives the price of one megajoule, and the flow
+  pays it for the content its name states: under Ecological Scarcity 2021,
+  a kilo of `Coal, brown, 8 MJ per kg` counts 68 points, where it counted
+  none. A name that states no family (`Coal, 29.3 MJ per kg`) still gets no
+  factor, since which coal it is would be a guess. Explaining such a factor
+  names the new step `energy_family`.
+
 - A database exports as an openLCA package (`--format openlca` on the
   command line, `"format": "openlca"` on `POST /api/v1/db/{db}/export`,
   `export_database("openlca")` in pyvolca): a zip that openLCA imports and

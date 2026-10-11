@@ -93,6 +93,16 @@ the ground costs.
 heatReleasedTables :: MethodTables
 heatReleasedTables = tablesOf coalDensity [emissionCFIn "MJ" "Heat, waste" 1.0]
 
+{- | A method that prices each coal family by the mass and no unit of energy, as
+ecoinvent's own Ecological Scarcity 2021 file does: 80 per kg of brown coal,
+160 per kg of hard coal.
+-}
+familyTables :: MethodTables
+familyTables =
+    tablesOf
+        (M.fromList [(normalizeName "Coal, brown", EnergyDensity 9.41 "MJ" "kg"), (normalizeName "Coal, hard", EnergyDensity 18.01 "MJ" "kg")])
+        [resourceCFIn "kg" "Coal, brown" 80.0, resourceCFIn "kg" "Coal, hard" 160.0]
+
 borrowedBy :: MethodTables -> Text -> Maybe Double
 borrowedBy tables flowName =
     fmap cfValue (lookupCFForFlow tables (mkUUID 99) (Just (mkFlow 99 flowName)))
@@ -127,6 +137,13 @@ spec = do
             borrowedBy byTheMassTables "Uranium ore, 1.11 GJ per kg" `shouldBe` Nothing
         it "is nothing when the method's joules are emitted, not extracted" $
             borrowedBy heatReleasedTables "Coal, 18 MJ per kg" `shouldBe` Nothing
+        it "is the family's price per unit of energy where the method prices the family by the mass" $
+            borrowedBy familyTables "Coal, brown, 8 MJ per kg" `shouldBe` Just (80.0 / 9.41)
+        it "is nothing where the name says no family the method prices" $
+            borrowedBy familyTables "Coal, 29.3 MJ per kg" `shouldBe` Nothing
+        it "is the method's price for a unit of energy before any family's" $
+            borrowedBy (tablesOf coalDensity [resourceCF "Coal, hard" 1.0, resourceCFIn "kg" "Coal, brown" 80.0]) "Coal, brown, 8 MJ per kg"
+                `shouldBe` Just 1.0
         it "is nothing for a name that states no energy content" $
             borrowFor coalDensity "Water, per capita" `shouldBe` Nothing
         it "is nothing for an emission: only an extracted carrier is one" $
