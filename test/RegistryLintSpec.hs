@@ -60,23 +60,19 @@ spec = do
                 it "never fuses distinct carbon-origin qualifiers into one class" $
                     filter ((> 1) . S.size . originQualifiers) classes `shouldBe` []
 
-                -- A parametric energy-resource variant ("Coal, 26.4 MJ per kg")
-                -- must reach its family's energy CF through the closure; the
-                -- variant's own calorific value is parsed from its name at
-                -- conversion time, so sharing the family class is safe. Coal is
-                -- the one family split in two (hard/brown), so each variant must
-                -- land in the right half – and only there.
-                it "bridges every parametric coal variant into its family's energy chain" $ do
+                -- A coal that states its calorific value ("Coal, 29.3 MJ per kg")
+                -- is not the same flow as its family's average coal: a synonym
+                -- cannot carry the scale between them. The energy rungs read
+                -- the content from the name instead.
+                it "keeps every coal stating its calorific value out of the coal families" $ do
                     let hard = classOf "Energy, from coal"
                         brown = classOf "Energy, from coal, brown"
                     hard `shouldNotBe` Nothing
                     brown `shouldNotBe` Nothing
-                    classOf "Coal, 18 MJ per kg" `shouldBe` hard
-                    classOf "Coal, 26.4 MJ per kg" `shouldBe` hard
-                    classOf "Coal, 29.3 MJ per kg" `shouldBe` hard
                     classOf "Coal, hard" `shouldBe` hard
-                    classOf "Coal, brown, 8 MJ per kg" `shouldBe` brown
-                    classOf "Coal, brown, 10 MJ per kg" `shouldBe` brown
+                    classOf "Coal, brown" `shouldBe` brown
+                    classOf "Coal, 29.3 MJ per kg" `shouldBe` Nothing
+                    classOf "Coal, brown, 8 MJ per kg" `shouldBe` Nothing
 
                 -- EcoSpold 1 names the aggregate NMVOC flow with an origin
                 -- suffix that the characterization methods no longer write, so
