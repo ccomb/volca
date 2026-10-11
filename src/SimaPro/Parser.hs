@@ -946,7 +946,7 @@ absorbBlock unitCfg gp block acc = case processBlockToActivity unitCfg gp block 
             acc
                 { paFallbacks = foldl' (flip (:)) (paFallbacks acc) $!! fallbackAmounts gp block
                 , paDateNotes = maybe (paDateNotes acc) (: paDateNotes acc) $!! dateNote block
-                , paNameOnlyBlocks = [blockLabel block | pbOpening block == ProcessNameOnly] ++ paNameOnlyBlocks acc
+                , paNameOnlyBlocks = (++ paNameOnlyBlocks acc) $!! [blockLabel block | pbOpening block == ProcessNameOnly]
                 }
 
     -- A date the block states is the normal case and says nothing; a blank one
