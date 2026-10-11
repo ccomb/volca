@@ -139,6 +139,9 @@ spec = do
             borrowedBy heatReleasedTables "Coal, 18 MJ per kg" `shouldBe` Nothing
         it "is the family's price per unit of energy where the method prices the family by the mass" $
             borrowedBy familyTables "Coal, brown, 8 MJ per kg" `shouldBe` Just (80.0 / 9.41)
+        it "is nothing where the family's factor is written per another unit than its energy content" $
+            borrowedBy (tablesOf (M.fromList [(normalizeName "Coal, brown", EnergyDensity 9.41 "MJ" "kg")]) [resourceCFIn "t" "Coal, brown" 80000.0]) "Coal, brown, 8 MJ per kg"
+                `shouldBe` Nothing
         it "is nothing where the name says no family the method prices" $
             borrowedBy familyTables "Coal, 29.3 MJ per kg" `shouldBe` Nothing
         it "is the method's price for a unit of energy before any family's" $
