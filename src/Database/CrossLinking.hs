@@ -117,6 +117,7 @@ import Types (
     exchangeLocation,
     exchanges,
     getActivity,
+    processRefText,
  )
 import qualified UnitConversion as UC
 
@@ -328,6 +329,18 @@ describeTarget t = case atSupplier t of
     SupplierNamed name mLoc -> name <> maybe "" (" @ " <>) mLoc
     SupplierProcess _ label -> label
     NoSupplier -> "no supplier"
+
+{- | How a report names rows that disagree. Two processes of one product read
+alike ("passenger car | passenger car"), so each one sharing its name with
+another is followed by the identity its row gives.
+-}
+describeConflict :: [AliasTarget] -> [Text]
+describeConflict targets = map named targets
+  where
+    named t = case atSupplier t of
+        SupplierProcess ref _ | M.findWithDefault 0 (describeTarget t) counts > (1 :: Int) -> describeTarget t <> " (" <> processRefText ref <> ")"
+        _ -> describeTarget t
+    counts = M.fromListWith (+) [(describeTarget t, 1) | t <- targets]
 
 -- | The demand's location, or the one its compound name states when it has none.
 effectiveLocationOf :: SupplierQuery -> Text
@@ -816,7 +829,7 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
     -- are reported rather than one of them chosen.
     case aliasFor lcSupplierAliases query of
         Just (target :| []) -> resolveDesignated target
-        Just targets -> CrossDBNotLinked (AliasConflict (map describeTarget (NE.toList targets)))
+        Just targets -> CrossDBNotLinked (AliasConflict (describeConflict (NE.toList targets)))
         Nothing ->
             -- Priority-ordered match strategies; take the first non-empty
             -- result via 'firstNonEmpty':

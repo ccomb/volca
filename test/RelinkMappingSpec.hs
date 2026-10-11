@@ -67,6 +67,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    processRefText,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -420,6 +421,19 @@ spec = do
             case findSupplierInIndexedDBs (mkCtx pinned) (aliasQuery consumerName "FR" "kg") of
                 CrossDBNotLinked (AliasTargetMissing name Nothing) -> name `shouldBe` "gone"
                 other -> expectationFailure $ "Expected AliasTargetMissing, got: " ++ describe' other
+
+        it "tells apart rows that disagree on two processes of one product" $ do
+            let organic = ProcessRef actFROrganic wheatFlow
+                plain = ProcessRef actFR wheatFlow
+                m =
+                    buildAliasMap
+                        [ row consumerName Nothing (AliasTarget (SupplierProcess organic "wheat production") Nothing)
+                        , row consumerName Nothing (AliasTarget (SupplierProcess plain "wheat production") Nothing)
+                        ]
+            case findSupplierInIndexedDBs (mkCtx m) (aliasQuery consumerName "FR" "kg") of
+                CrossDBNotLinked (AliasConflict targets) ->
+                    targets `shouldBe` ["wheat production (" <> processRefText organic <> ")", "wheat production (" <> processRefText plain <> ")"]
+                other -> expectationFailure $ "Expected AliasConflict, got: " ++ describe' other
 
         it "reports rows that disagree instead of choosing, and applies the others" $ do
             let m =

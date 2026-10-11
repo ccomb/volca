@@ -37,8 +37,9 @@
   process an input names speaks before that process, even where a dependency
   still ships it. Rows that give one source different targets no
   longer fail the file either: each input under that source stays unlinked,
-  reported in the gap report as `alias_conflict` with the targets, and the
-  rest of the file applies. A row that applies to an input naming its
+  reported in the gap report as `alias_conflict` with the targets (two
+  processes of one product followed by their identity), and the rest of the
+  file applies. A row that applies to an input naming its
   supplier by identity and fails is now reported too. Wire revision 62.
 
 - A database exports as an openLCA package (`--format openlca` on the
