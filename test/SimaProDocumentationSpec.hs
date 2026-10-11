@@ -126,6 +126,12 @@ spec = describe "SimaPro documentation" $ do
             fmap (map documentName . dbdocLiterature . sdbDocumentation) (load (BS.intercalate "\r\n" (takeWhile (/= "Literature reference") bakeryLines <> ["Literature reference", "", "Name", "First", "", "Description", "End", "", "Literature reference", "", "Name", "Second", "", "End", ""])))
                 `shouldReturn` ["First", "Second"]
 
+        it "reads a block whose Process line is missing as a process, not as a System description" $ do
+            let (header, block) = break (== "Process") bakeryLines
+            db <- load (BS.intercalate "\r\n" (header <> dropWhile (/= "Process name") block))
+            map activityName (M.elems (sdbActivities db)) `shouldBe` ["Bread production"]
+            map documentName (dbdocSystems (sdbDocumentation db)) `shouldBe` ["Bakery"]
+
         it "reads its own method export as a method file" $
             isSimaProMethodCSV "{VoLCA 0.15.0}\r\n{methods}\r\n" `shouldBe` True
 

@@ -466,6 +466,9 @@
 
 ### Changed
 
+- A SimaPro CSV load names each process block written without its `Process`
+  line, which it reads as a process all the same.
+
 - The third-party licences now live in one file, `THIRD_PARTY_LICENSES.md`,
   which every download carries in place of `THIRD-PARTY-LICENSES.md`. The
   downloads thereby gain the licences of the Haskell libraries built into the

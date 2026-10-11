@@ -581,6 +581,9 @@ History of manual bumps:
 - 57: LinkBlocker gained AliasConflict (relink-mapping rows that disagree on
      one demand) and AliasDeclined (a row naming no supplier), which the
      cached linking stats can carry.
+- 58: a SimaPro block with no Process line above its Process name is read as
+     a process. Nothing changes type, so a cache written just before this
+     would keep the database without it.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -588,7 +591,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 57
+     in hi `xor` lo `xor` 58
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

@@ -200,10 +200,17 @@ data ProcessBlock = ProcessBlock
     , pbFinalWaste :: ![BioExchangeRow]
     , pbInputParams :: ![(Text, Text)] -- name -> raw value
     , pbCalcParams :: ![(Text, Text)] -- name -> expression
+    , pbOpening :: !BlockOpening
     }
     deriving (Show, Eq, Generic)
 
 instance NFData ProcessBlock
+
+-- | What line a block opened on: the @Process@ line SimaPro writes, or a @Process name@ with none above it.
+data BlockOpening = ProcessLine | ProcessNameOnly
+    deriving (Show, Eq, Generic)
+
+instance NFData BlockOpening
 
 -- | Empty process block
 emptyProcessBlock :: ProcessBlock
@@ -229,6 +236,7 @@ emptyProcessBlock =
         , pbFinalWaste = []
         , pbInputParams = []
         , pbCalcParams = []
+        , pbOpening = ProcessLine
         }
 
 -- ============================================================================
@@ -324,6 +332,7 @@ data ParseAcc = ParseAcc
     , paUnits :: !(M.Map UUID.UUID Unit)
     , paFallbacks :: ![(Text, Text, Double)] -- reversed, as the activities are
     , paDateNotes :: ![DateNote] -- reversed
+    , paNameOnlyBlocks :: ![Text] -- blocks with no Process line, by 'blockLabel', reversed
     , paLineNum :: !Int
     , paDbInputParams :: ![(Text, Text)]
     , paDbCalcParams :: ![(Text, Text)]
@@ -420,6 +429,7 @@ data WorkerResult = WorkerResult
     , wrUnits :: !(M.Map UUID.UUID Unit)
     , wrFallbacks :: ![(Text, Text, Double)]
     , wrDateNotes :: ![DateNote]
+    , wrNameOnlyBlocks :: ![Text]
     }
     deriving (Generic)
 
@@ -771,6 +781,16 @@ processLine acc@ParseAcc{..} line
             , paInProcess = True
             , paCurrentBlock = emptyProcessBlock
             }
+    -- A Process name outside a block can only open the next one: the export
+    -- left out its Process line. Without this, the block's System description
+    -- would open a trailing documentation block and swallow the process whole.
+    | not paInProcess
+    , BS8.strip line == "Process name" =
+        acc
+            { paState = InProcessMeta "Process name"
+            , paInProcess = True
+            , paCurrentBlock = emptyProcessBlock{pbOpening = ProcessNameOnly}
+            }
     -- End of block
     | BS8.strip line == "End" = closeBlock acc
     -- Outside a process, a System description or a Literature reference opens
@@ -926,6 +946,7 @@ absorbBlock unitCfg gp block acc = case processBlockToActivity unitCfg gp block 
             acc
                 { paFallbacks = foldl' (flip (:)) (paFallbacks acc) $!! fallbackAmounts gp block
                 , paDateNotes = maybe (paDateNotes acc) (: paDateNotes acc) $!! dateNote block
+                , paNameOnlyBlocks = [blockLabel block | pbOpening block == ProcessNameOnly] ++ paNameOnlyBlocks acc
                 }
 
     -- A date the block states is the normal case and says nothing; a blank one
@@ -1982,6 +2003,7 @@ emptyParseAcc cfg sink =
         , paUnits = M.empty
         , paFallbacks = []
         , paDateNotes = []
+        , paNameOnlyBlocks = []
         , paLineNum = 0
         , paDbInputParams = []
         , paDbCalcParams = []
@@ -2029,6 +2051,7 @@ parseWorkerRange cfg unitCfg gp range =
         , wrUnits = paUnits finalAcc
         , wrFallbacks = reverse (paFallbacks finalAcc)
         , wrDateNotes = reverse (paDateNotes finalAcc)
+        , wrNameOnlyBlocks = reverse (paNameOnlyBlocks finalAcc)
         }
   where
     finalAcc :: ParseAcc
@@ -2183,6 +2206,9 @@ parseSimaProCSV unitCfg path = do
                 (T.unpack name)
                 fallback
     mapM_ (reportProgress Warning . T.unpack) (dateWarnings (concatMap wrDateNotes results))
+    forM_ (concatMap wrNameOnlyBlocks results) $ \name ->
+        reportProgress Warning $
+            printf "process '%s' has no Process line above its Process name; read as a process" (T.unpack name)
     let (activities, ambiguousIds) = dropAmbiguousNativeIds (concatMap wrActivities results)
     forM_ ambiguousIds $ \nativeId ->
         reportProgress Warning $
