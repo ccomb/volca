@@ -162,12 +162,12 @@ spec = do
         it "says a family's factor was turned into a price per unit of energy" $
             renderResolution
                 ( Characterized
-                    (matchIn "MJ" RungEnergyFamily (Just ByName))
+                    (CFMatch RungEnergyFamily (CF 8.5 (CFUnit "MJ")) (BuildProvenance (Just ByName) ((cfLine "Coal, brown" "" "kg" 80.0){mcfCompartment = Just (Compartment "resource" "in ground" "")})))
                     (EnergyBridged (EnergyDensity 8.0 "MJ" "kg") DensityForward)
                 )
-                `shouldBe` [ "No factor carries this flow's name, and the method charges nothing per unit of energy. The flow is an extracted energy carrier and its name states its energy content, so the factor of its family, \"Methane, fossil\", divided by the energy that family holds, gives what one unit of energy costs, and that applies to the content."
+                `shouldBe` [ "No factor carries this flow's name, and the method charges nothing per unit of energy. The flow is an extracted energy carrier and its name states its energy content, so the factor of its family, \"Coal, brown\" at 80.0 per kg, divided by the energy a kg of that family holds, gives what one unit of energy costs, and that applies to the content."
                            , "This flow holds 8.0 MJ per kg, which carries the amount from kg to MJ."
-                           , "The factor applied is 29.8 per MJ."
+                           , "The factor applied is 8.5 per MJ."
                            ]
 
         -- A method loaded from ILCD writes its factor in the result expression
