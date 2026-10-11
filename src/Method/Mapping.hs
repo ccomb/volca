@@ -2823,7 +2823,6 @@ data RungId
     | RungCasBridge
     | RungRegionBase
     | RungEnergyResource
-    | RungEnergyFamily
     | RungOreGradeBase
     deriving (Eq, Show, Enum, Bounded)
 
@@ -2858,7 +2857,7 @@ place: its own subcompartment, the line written for the whole medium, the one
 an @if_absent@ row sends it to. UUID/name misses then fall back to the flow's own
 CAS, read at the same places, so every flow sharing a CAS in a compartment is
 characterized, not just the one a CF resolved to at build time. The parametric
-rungs (region-stripped base name, energy family, ore grade) come last: they
+rungs (region-stripped base name, energy content, ore grade) come last: they
 only fire when every direct lookup misses.
 -}
 cascadeTrail :: MethodTables -> BioFlowDB -> UUID -> [(RungId, RungOutcome)]
@@ -2876,7 +2875,6 @@ cascadeTrail tables flowDB fid =
         , (RungCasBridge, casOutcome)
         , (RungRegionBase, regionOutcome)
         , (RungEnergyResource, energyOutcome)
-        , (RungEnergyFamily, familyOutcome)
         , (RungOreGradeBase, oreGradeOutcome)
         ]
       where
@@ -2936,11 +2934,12 @@ cascadeTrail tables flowDB fid =
         -- substance is being priced.
         energyOutcome
             | baseMed /= Just NaturalResource = RungNotApplicable
-            | isNothing (parseEnergyDensitySuffix (bfName flow)) = RungNotApplicable
-            | otherwise = case mtEnergyPrice tables of
-                NoEnergyLines -> RungMiss
-                EnergyLinesDisagree -> RungAmbiguous
-                EnergyPriced e -> RungHit e
+            | Just (base, _) <- parseEnergyDensitySuffix (bfName flow) =
+                case mtEnergyPrice tables of
+                    EnergyPriced e -> RungHit e
+                    EnergyLinesDisagree -> RungAmbiguous
+                    NoEnergyLines -> maybe RungMiss RungHit (familyPrice base)
+            | otherwise = RungNotApplicable
 
         -- A method that prices no unit of energy may still price the carrier's
         -- family by the mass ("Coal, brown" at 80 per kg), and the family's own
@@ -2949,17 +2948,12 @@ cascadeTrail tables flowDB fid =
         -- 8 MJ its name states, not for a kilo of the family's average coal. A
         -- variant naming no family ("Coal, 29.3 MJ per kg") gets nothing: which
         -- coal it is would be a guess.
-        familyOutcome
-            | baseMed /= Just NaturalResource = RungNotApplicable
-            | NoEnergyLines <- mtEnergyPrice tables
-            , Just (base, _) <- parseEnergyDensitySuffix (bfName flow) =
-                maybe RungMiss RungHit $ do
-                    entry <- resourceCF (SR.NormName (normalizeName base))
-                    content <- M.lookup (normalizeName base) (mtEnergyDensities tables)
-                    let CF value (CFUnit unit) = teCF entry
-                    guard (T.toLower unit == T.toLower (edNativeUnit content))
-                    pure entry{teCF = CF (value / edValue content) (CFUnit (edTargetUnit content))}
-            | otherwise = RungNotApplicable
+        familyPrice base = do
+            entry <- resourceCF (SR.NormName (normalizeName base))
+            content <- M.lookup (normalizeName base) (mtEnergyDensities tables)
+            let CF value (CFUnit unit) = teCF entry
+            guard (T.toLower unit == T.toLower (edNativeUnit content))
+            pure entry{teCF = CF (value / edValue content) (CFUnit (edTargetUnit content))}
 
         -- Another name's factor, read at the places this flow may read.
         resourceCF rname = firstReading (\sub -> M.lookup (rname, baseMed, sub) (mtExactCF tables))

@@ -73,7 +73,7 @@ import Method.Mapping (
     cascadeTrail,
     flowToCFOutcome,
  )
-import Method.Types (Compartment (..), EnergyDensity (..), Location (..), MethodCF (..))
+import Method.Types (Compartment (..), EnergyDensity (..), Location (..), MethodCF (..), isEnergyUnit)
 import Types (BiosphereFlow, UUID, UnitDB)
 import UnitConversion (UnitConfig)
 
@@ -216,7 +216,6 @@ rungName RungMediumDefault = "compartment_default"
 rungName RungCasBridge = "cas_number"
 rungName RungRegionBase = "region_base_name"
 rungName RungEnergyResource = "energy_content"
-rungName RungEnergyFamily = "energy_family"
 rungName RungOreGradeBase = "ore_base_element"
 
 {- | Stable name for a factor that came from the method's regional table. Not a
@@ -306,10 +305,11 @@ rungSentence (CFMatch rung _ provenance) = case rung of
         "No factor carries this flow's name. " <> lineName <> " describes the same substance" <> casClause <> " in the same compartment, so its factor applies."
     RungRegionBase ->
         "This flow's name ends in a region the method does not distinguish, so the factor of the base substance, " <> lineName <> ", applies."
-    RungEnergyResource ->
-        "No factor carries this flow's name. The flow is an extracted energy carrier and its name states its energy content, so what the method charges for one unit of energy, from " <> lineName <> ", applies to that content."
-    RungEnergyFamily ->
-        "No factor carries this flow's name, and the method charges nothing per unit of energy. The flow is an extracted energy carrier and its name states its energy content, so the factor of its family, " <> lineName <> " at " <> formatDouble (mcfValue source) <> " per " <> mcfUnit source <> ", divided by the energy a " <> mcfUnit source <> " of that family holds, gives what one unit of energy costs, and that applies to the content."
+    RungEnergyResource
+        | isEnergyUnit (mcfUnit source) ->
+            "No factor carries this flow's name. The flow is an extracted energy carrier and its name states its energy content, so what the method charges for one unit of energy, from " <> lineName <> ", applies to that content."
+        | otherwise ->
+            "No factor carries this flow's name, and the method charges nothing per unit of energy. The flow is an extracted energy carrier and its name states its energy content, so the factor of its family, " <> lineName <> " at " <> formatDouble (mcfValue source) <> " per " <> mcfUnit source <> ", divided by the energy a " <> mcfUnit source <> " of that family holds, gives what one unit of energy costs, and that applies to the content."
     RungOreGradeBase ->
         "This is a graded ore, and its amount is the mass of the base element, so that element's factor, from " <> lineName <> ", applies."
   where

@@ -12,10 +12,9 @@
   pays it for the content its name states: under Ecological Scarcity 2021,
   a kilo of `Coal, brown, 8 MJ per kg` counts 68 points, where it counted
   none. A name that states no family (`Coal, 29.3 MJ per kg`) still gets no
-  factor, since which coal it is would be a guess. Explaining such a factor
-  names the new step `energy_family`. The five synonym rows that declared
-  such coals the same flow as hard or brown coal are gone, since no synonym
-  can carry the scale between them (data version 10).
+  factor, since which coal it is would be a guess. The five synonym rows
+  that declared such coals the same flow as hard or brown coal are gone,
+  since no synonym can carry the scale between them (data version 10).
 
 - A database exports as an openLCA package (`--format openlca` on the
   command line, `"format": "openlca"` on `POST /api/v1/db/{db}/export`,
