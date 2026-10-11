@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.12.1** speaks wire formats **2 to 61** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.12.1** speaks wire formats **2 to 62** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1239,10 +1239,17 @@ in-place upgrade.
 
 ##### `Client.relink(dep_db: str, mapping_csv: str, db_name: str | None = None) -> dict`
 
-Re-link a database against a dependency using a name→name alias CSV.
+Re-link a database against a dependency using a mapping CSV.
 
-``mapping_csv`` is the CSV *text* (header row + source/target columns),
-sent inline so the engine needs no filesystem access. Returns the
+``mapping_csv`` is the CSV *text*, sent inline so the engine needs no
+filesystem access. Each row maps a source (``source_product`` or
+``source_id``, with an optional ``source_location``) to a target
+(``target_product`` or ``target_id``, with an optional
+``target_location``); a row with no target links nothing, and columns
+the engine does not know are ignored. ``conversion``, with
+``source_unit`` and ``target_unit``, says how many source units one
+target unit holds, for units that measure different things (a car of
+1200 kg is 1 p: ``1200``, ``kg``, ``p``). Returns the
 ``RelinkResponse`` dict (``{"dbName", "unresolvedBefore",
 "unresolvedAfter", "crossDBLinks", "dependsOn"}``).
 

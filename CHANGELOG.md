@@ -16,6 +16,28 @@
   that declared such coals the same flow as hard or brown coal are gone,
   since no synonym can carry the scale between them (data version 10).
 
+- A relink mapping (`POST /api/v1/db/{db}/relink` with `mappingCsv`,
+  `relink` in pyvolca, `db relink` on the command line) is read as a mapping
+  page writes it, so one file serves people and the engine alike. A source
+  and a target are named by product (`source_product`, `target_product`,
+  the old `source` and `target` still read) or by process
+  (`source_id`, `target_id`, as `activityUUID_productUUID`). A row keyed on
+  `source_id` applies to an input that names that supplier by identity, as
+  an EcoSpold 2 input does: such an input states no location, so no row
+  keyed on name and place ever reached it. A `target_id` links that very
+  activity, where several share the product and the place. `conversion`,
+  with `source_unit` and `target_unit`, gives how many source units one
+  target unit holds, and links units that measure different things: with
+  `1200`, `kg` and `p`, an input of 2400 kg asks the supplier for 2 p.
+  Units of one measure keep converting by the unit table, the column
+  unused. Columns the engine does not know are ignored. A row with a source
+  and no target links nothing, where it used to fail the file: it is how a
+  person declines a link. Rows that give one source different targets no
+  longer fail the file either: each input under that source stays unlinked,
+  reported in the gap report as `alias_conflict` with the targets, and the
+  rest of the file applies. A row that applies to an input naming its
+  supplier by identity and fails is now reported too. Wire revision 62.
+
 - A database exports as an openLCA package (`--format openlca` on the
   command line, `"format": "openlca"` on `POST /api/v1/db/{db}/export`,
   `export_database("openlca")` in pyvolca): a zip that openLCA imports and

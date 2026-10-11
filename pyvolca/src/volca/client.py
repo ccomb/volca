@@ -1466,10 +1466,17 @@ class Client:
     def relink(
         self, dep_db: str, mapping_csv: str, db_name: str | None = None
     ) -> dict:
-        """Re-link a database against a dependency using a name→name alias CSV.
+        """Re-link a database against a dependency using a mapping CSV.
 
-        ``mapping_csv`` is the CSV *text* (header row + source/target columns),
-        sent inline so the engine needs no filesystem access. Returns the
+        ``mapping_csv`` is the CSV *text*, sent inline so the engine needs no
+        filesystem access. Each row maps a source (``source_product`` or
+        ``source_id``, with an optional ``source_location``) to a target
+        (``target_product`` or ``target_id``, with an optional
+        ``target_location``); a row with no target links nothing, and columns
+        the engine does not know are ignored. ``conversion``, with
+        ``source_unit`` and ``target_unit``, says how many source units one
+        target unit holds, for units that measure different things (a car of
+        1200 kg is 1 p: ``1200``, ``kg``, ``p``). Returns the
         ``RelinkResponse`` dict (``{"dbName", "unresolvedBefore",
         "unresolvedAfter", "crossDBLinks", "dependsOn"}``).
         """
