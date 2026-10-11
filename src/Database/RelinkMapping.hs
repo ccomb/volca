@@ -61,7 +61,7 @@ import Data.Csv (FromNamedRecord (..), (.:))
 import qualified Data.Csv as Csv
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe, isJust)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Read as TR
@@ -180,14 +180,20 @@ classify n row = do
 source location). The same name with and without a location is two distinct
 keys (the located one wins at lookup). A key keeps every distinct target its
 rows gave it; identical duplicates collapse.
+
+A row on a process that names no supplier declines that process's link, not
+its name's: a mapping page writes one row per process, and the twenty
+producers of "electricity, high voltage" at CH left undecided must not
+overrule, for a demand by name, the market a person linked.
 -}
 buildAliasMap :: [AliasRow] -> AliasMap
 buildAliasMap rows =
     AliasMap
         { amByProcess = keyed [(ref, arTarget row) | row <- rows, Just ref <- [arSourceProcess row]]
-        , amByName = keyed [(AliasKey name (arSourceLocation row), arTarget row) | row <- rows, Just name <- [arSource row]]
+        , amByName = keyed [(AliasKey name (arSourceLocation row), arTarget row) | row <- rows, speaksForName row, Just name <- [arSource row]]
         }
   where
+    speaksForName row = isNothing (arSourceProcess row) || atSupplier (arTarget row) /= NoSupplier
     keyed :: (Ord k) => [(k, AliasTarget)] -> M.Map k (NE.NonEmpty AliasTarget)
     keyed pairs = M.fromListWith (\new old -> NE.nub (old <> new)) [(k, pure t) | (k, t) <- pairs]
 

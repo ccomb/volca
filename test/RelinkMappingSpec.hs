@@ -317,6 +317,17 @@ spec = do
             lookupAlias m (Just ref) "x" "" `shouldBe` Just (named "by identity" Nothing :| [])
             lookupAlias m Nothing "x" "" `shouldBe` Just (named "by name" Nothing :| [])
 
+        it "lets a row on a process that names no supplier decline that process only" $ do
+            let market = ProcessRef actFR wheatFlow
+                producer = ProcessRef actCar carFlow
+                m =
+                    buildAliasMap
+                        [ AliasRow (Just "x") Nothing (Just market) (named "linked" Nothing)
+                        , AliasRow (Just "x") Nothing (Just producer) (AliasTarget NoSupplier Nothing)
+                        ]
+            lookupAlias m Nothing "x" "" `shouldBe` Just (named "linked" Nothing :| [])
+            lookupAlias m (Just producer) "x" "" `shouldBe` Just (AliasTarget NoSupplier Nothing :| [])
+
     describe "findSupplierInIndexedDBs with supplier aliases" $ do
         it "does NOT link the aliased consumer name without the alias map" $
             case findSupplierInIndexedDBs (mkCtx emptyAliasMap) (aliasQuery consumerName "FR" "kg") of
