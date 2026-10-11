@@ -6,6 +6,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+-- At -O2, specialising the generic JSON and schema instances takes this module
+-- from two minutes to twenty-three here, and past the release job's hour on
+-- the macOS runner.
+{-# OPTIONS_GHC -fno-specialise #-}
 
 module API.Types where
 
