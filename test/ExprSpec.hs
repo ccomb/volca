@@ -103,6 +103,46 @@ spec = do
         it "refuses a formula that gives no finite number" $ do
             unreadableNaming "finite" (olca [] "1 div 0")
             unreadableNaming "finite" (olca [] "1/0")
+    describe "the EcoSpold 2 dialect" $ do
+        let es2 env = Expr.evaluate EcoSpold2 (M.fromList env)
+        it "reads a function name whatever its case" $ do
+            near 6 (es2 [("x", -3)] "ABS(x) * 2")
+            near 6 (es2 [("x", -3)] "abs(x) * 2")
+            near 2 (es2 [] "Average(1; 3)")
+        it "reads LOG as decimal unless given a base" $ do
+            near 2 (es2 [] "LOG(100)")
+            near 3 (es2 [] "log(8; 2)")
+            near 3 (es2 [] "LOG10(1000)")
+            near 1 (es2 [] "LN(EXP(1))")
+        it "gives MIN, MAX, SUM and AVERAGE any number of arguments" $ do
+            near 5 (es2 [] "MAX(1; 5; 3)")
+            near 1 (es2 [] "MIN(4; 1; 8)")
+            near 6 (es2 [] "SUM(1; 2; 3)")
+            near 2 (es2 [] "AVERAGE(1; 2; 3)")
+        it "reads POWER" $
+            near 8 (es2 [] "POWER(2; 3)")
+        it "reads IF over a comparison, and over a bare number with the other value 0 by default" $ do
+            near 0.2 (es2 [("EP", 150)] "IF(EP>130;0.2;0.3)")
+            near 0.3 (es2 [("EP", 100)] "IF(EP>130;0.2;0.3)")
+            near 0.66 (es2 [("RP", 1)] "IF(RP;0.66)")
+            near 0 (es2 [("RP", 0)] "IF(RP;0.66)")
+            near 4 (es2 [] "IF(1<=1;1;0) + IF(1<>2;1;0) + IF(2>=1;1;0) + IF(1=1;1;0) + IF(2<1;1;0)")
+        it "evaluates only the branch of IF it takes" $
+            near 2 (es2 [] "IF(1; 2; missing)")
+        it "reads a postfix % as a hundredth" $ do
+            near 0.05057976 (es2 [] "0.06072*83.3%")
+            near 0.7 (es2 [("nylon", 1)] "nylon*70%")
+        it "reads a comma between two digits as a decimal mark, any other as a separator" $ do
+            near 0.02 (es2 [] "0,02")
+            near 0.675 (es2 [] "average(160/200, 1)*0,75")
+            near 4 (es2 [] "POWER((4/2),2)")
+        it "refuses a function the format does not define, by its name" $
+            es2 [] "ROUND(1.5)" `shouldBe` Left (Unreadable "unknown function ROUND")
+        it "says how many arguments a function takes" $
+            unreadableNaming "two or three arguments" (es2 [] "IF(1)")
+        it "does not collect a function name as a variable" $
+            collectIdentifiers EcoSpold2 "IF(RP_1; 0.8) + Average(a; b)" `shouldBe` ["RP_1", "a", "b"]
+
     describe "the older dialects keep a non-finite result" $
         it "gives Infinity for 1/0" $ do
             Expr.evaluate Arithmetic M.empty "1/0" `shouldBe` Right (1 / 0)
@@ -113,6 +153,9 @@ spec = do
             Expr.evaluate Arithmetic M.empty "-2^2" `shouldBe` Right (-4)
             Expr.evaluate Arithmetic M.empty "2^3^2" `shouldBe` Right 512
             near (log 1000) (Expr.evaluate Arithmetic M.empty "log(1000)")
+            unreadableNaming "LOG" (Expr.evaluate Arithmetic M.empty "LOG(1000)")
+            unreadableNaming "IF" (Expr.evaluate SimaPro M.empty "IF(1; 2; 3)")
+            unreadableNaming "max takes two arguments" (Expr.evaluate Arithmetic M.empty "max(1; 2; 3)")
             -- Windows' pow rounds 10^-3 differently in the last digit.
             near 5.0e-2 (Expr.evaluate SimaPro M.empty "1*10^-3*50 // a comment")
 

@@ -499,6 +499,16 @@
 
 ### Fixed
 
+- An EcoSpold 2 formula is read in the format's own formula language, so the
+  quality report's formula check no longer calls most of ecoinvent's
+  relations unevaluable: function names in any case (`ABS`, `Average`), `IF`
+  with a comparison or a bare number as its condition, `POWER`, `AVERAGE`,
+  `SUM`, `MIN` and `MAX` over any number of arguments, a postfix `%`, and a
+  decimal comma between two digits. `LOG` is decimal unless given a base,
+  where it was natural. On ecoinvent 3.12 the relations refused fall from
+  8,127 to 642, nearly all `UnitConversion` and `LiveLink`, which reach
+  outside the formula. Scoring-set formulas keep their functions unchanged.
+
 - The Windows engine starts on a machine without MSYS2: it carries zlib
   inside it instead of asking for a `zlib1.dll` the zip did not ship.
 

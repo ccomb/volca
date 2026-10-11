@@ -282,6 +282,13 @@ perExchangeComments = describe "per-exchange comments" $ do
                         fcDivergentExample fc `shouldBe` Just "\"fuel_input * 2 + production\" evaluates to 5.0 but the dataset stores 4.0"
                         fcUnevaluableExample fc `shouldBe` Just "\"missing_var * 2\": unknown variable missing_var"
 
+        -- ecoinvent writes IF in upper case, with a comparison, and ends a
+        -- relation with a postfix %. The engine used to refuse all three.
+        it "reads a relation in EcoSpold 2's own formula language" $
+            withDataset (TE.encodeUtf8 (T.replace "fuel_input * 2 + production" "IF(fuel_input &gt; 1; 400%; 0) * production" (TE.decodeUtf8 formulaXml))) $ \ParsedDataset{pdActivity = act} ->
+                fmap (\fc -> (fcEvaluated fc, fcDivergent fc)) (activityFormulaCheck act)
+                    `shouldBe` Just (1, 0)
+
         -- A variable two declarations claim with two amounts names no value.
         -- Binding whichever was read last would make the check answer on a coin
         -- toss, so it stays unbound and the formulas that use it come back

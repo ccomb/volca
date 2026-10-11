@@ -29,7 +29,7 @@ module Expr (
 ) where
 
 import Amount (readAmount)
-import Control.Monad (mfilter, when)
+import Control.Monad (when)
 import Data.Bifunctor (first)
 import Data.Char (isDigit)
 import Data.Either (isRight, lefts)
@@ -37,7 +37,7 @@ import Data.Function (on)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isNothing)
 import Data.Semigroup (Max (..), Min (..), sconcat)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -50,7 +50,7 @@ type Parser = Parsec Void Text
 
 {- | The language a formula was written in.
 
-Three, because three are what the callers actually have.
+Four, because four are what the callers actually have.
 -}
 data Dialect
     = {- | SimaPro's own, as its Delphi formula parser reads it: @\/\/@ opens a
@@ -59,12 +59,19 @@ data Dialect
       separator is known.
       -}
       SimaPro
-    | {- | Arithmetic with no comment and a comma between two arguments: an
-      EcoSpold 2 @mathematicalRelation@, and the formulas someone writes in
-      a scoring set. Neither language has a line comment, so a @\/\/@ in one
-      of them is a mistake and reads as one.
+    | {- | Arithmetic with no comment and a comma between two arguments: the
+      formulas someone writes in a scoring set. It has no line comment, so a
+      @\/\/@ in one is a mistake and reads as one. Its functions are the
+      seven it has always had, @log@ natural, so a published score keeps its
+      value.
       -}
       Arithmetic
+    | {- | An EcoSpold 2 @mathematicalRelation@, in the subset of OpenFormula the
+      format specifies: function names in any case, @LOG@ decimal unless given
+      a base, @IF@ with comparisons, functions of any number of arguments, and
+      a postfix @%@. Read like 'Arithmetic' otherwise.
+      -}
+      EcoSpold2
     | {- | openLCA's formula language: @;@ between arguments, comparisons and
       logical operators, a lazy @if@, and three readings that change a number
       against the two above: @log@ is decimal, @^@ chains from the left, and
@@ -117,6 +124,7 @@ that spans two of them ends its comment at the first.
 readable :: Dialect -> Text -> Text
 readable SimaPro = T.strip . T.intercalate "\n" . map (fst . T.breakOn "//") . T.lines
 readable Arithmetic = T.strip . normalizeExpr '.'
+readable EcoSpold2 = T.strip . ecoSpold2Commas
 readable OpenLca = T.toLower . T.strip
 
 {- | Evaluate an expression of the given dialect, with variable substitution.
@@ -139,6 +147,7 @@ finite :: Dialect -> Double -> Either Refusal Double
 finite dialect value = case dialect of
     SimaPro -> Right value
     Arithmetic -> Right value
+    EcoSpold2 -> Right value
     OpenLca
         | isNaN value || isInfinite value -> Left (Unreadable ("the formula gives no finite number: " <> T.pack (show value)))
         | otherwise -> Right value
@@ -148,6 +157,7 @@ constants :: Dialect -> M.Map Text Double
 constants = \case
     SimaPro -> M.empty
     Arithmetic -> M.empty
+    EcoSpold2 -> M.empty
     OpenLca -> M.fromList [("pi", pi), ("e", exp 1)]
 
 readFormula :: Dialect -> Text -> Either Refusal Formula
@@ -156,8 +166,9 @@ readFormula dialect = first (Unreadable . refusalReason) . parse (sc *> grammar 
 -- | The grammar a dialect is read with.
 grammar :: Dialect -> Parser Formula
 grammar = \case
-    SimaPro -> pFormula
-    Arithmetic -> pFormula
+    SimaPro -> pFormula arithmeticLanguage
+    Arithmetic -> pFormula arithmeticLanguage
+    EcoSpold2 -> pFormula ecoSpold2Language
     OpenLca -> pOlca
 
 {- | The value of a formula, or every name in it without one. All of them rather
@@ -195,6 +206,26 @@ refusalReason :: ParseErrorBundle Text Void -> Text
 refusalReason bundle = case bundleErrors bundle of
     err :| _ -> T.intercalate "; " (T.lines (T.pack (parseErrorTextPretty err)))
 
+{- | EcoSpold 2 writes a comma both ways: as a decimal mark (@0,02*cement@) and
+between arguments (@average(160/240, 160/270)@, @POWER((0.440/2),2)@), and
+both decimal marks within one formula (@average(0.71;0,77)@), so no locale can
+say which. A comma between two digits is read as the decimal mark, any other as
+a separator: of the three readings, the one that agrees with the most stored
+amounts in ecoinvent 3.12. shortcut: @max(1,2)@ with no space reads as 1.2,
+which no ecoinvent relation writes; revisit if a database does.
+-}
+ecoSpold2Commas :: Text -> Text
+ecoSpold2Commas formula = T.pack (zipWith3 mark (' ' : chars) chars (drop 1 chars <> " "))
+  where
+    chars :: String
+    chars = T.unpack formula
+
+    mark :: Char -> Char -> Char -> Char
+    mark before c after
+        | c /= ',' = c
+        | isDigit before && isDigit after = '.'
+        | otherwise = ';'
+
 -- | Normalize expression text so decimal is always '.' and function arg separator is always ';'.
 normalizeExpr :: Char -> Text -> Text
 normalizeExpr '.' = T.map (\c -> if c == ',' then ';' else c)
@@ -211,33 +242,59 @@ lexeme = L.lexeme sc
 symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
--- | Precedence-climbing formula parser
-pFormula :: Parser Formula
-pFormula = pAddSub
+{- | What a language read by 'pFormula' adds to the arithmetic they all share:
+the function a name calls, and whether it has OpenFormula's comparisons and
+postfix @%@.
+-}
+data Language = Language
+    { calls :: Text -> Maybe Function
+    , openFormula :: Bool
+    }
 
-pAddSub :: Parser Formula
-pAddSub = pMulDiv >>= go
+-- | SimaPro's and a scoring set's: 'arithmeticFunctions', matched in lower case only.
+arithmeticLanguage :: Language
+arithmeticLanguage = Language{calls = (`lookup` arithmeticFunctions), openFormula = False}
+
+-- | EcoSpold 2's: 'ecoSpold2Functions', matched whatever their case.
+ecoSpold2Language :: Language
+ecoSpold2Language = Language{calls = (`lookup` ecoSpold2Functions) . T.toLower, openFormula = True}
+
+-- | Precedence-climbing formula parser. OpenFormula compares below the arithmetic, giving 1 or 0.
+pFormula :: Language -> Parser Formula
+pFormula language
+    | openFormula language = pAddSub language >>= go
+    | otherwise = pAddSub language
+  where
+    go :: Formula -> Parser Formula
+    go acc = choice [symbol op *> pAddSub language >>= go . Apply2 (truth holds) acc | (op, holds) <- comparisons] <|> pure acc
+
+    -- Longer operators first: a symbol that is a prefix of another would take its first character.
+    comparisons :: [(Text, Double -> Double -> Bool)]
+    comparisons = [("<=", (<=)), ("<>", (/=)), ("<", (<)), (">=", (>=)), (">", (>)), ("=", (==))]
+
+pAddSub :: Language -> Parser Formula
+pAddSub language = pMulDiv language >>= go
   where
     go :: Formula -> Parser Formula
     go acc =
-        (symbol "+" *> pMulDiv >>= go . Apply2 (+) acc)
-            <|> (symbol "-" *> pMulDiv >>= go . Apply2 (-) acc)
+        (symbol "+" *> pMulDiv language >>= go . Apply2 (+) acc)
+            <|> (symbol "-" *> pMulDiv language >>= go . Apply2 (-) acc)
             <|> pure acc
 
-pMulDiv :: Parser Formula
-pMulDiv = pUnary >>= go
+pMulDiv :: Language -> Parser Formula
+pMulDiv language = pUnary language >>= go
   where
     go :: Formula -> Parser Formula
     go acc =
-        (symbol "*" *> pUnary >>= go . Apply2 (*) acc)
-            <|> (symbol "/" *> pUnary >>= go . Apply2 (/) acc)
+        (symbol "*" *> pUnary language >>= go . Apply2 (*) acc)
+            <|> (symbol "/" *> pUnary language >>= go . Apply2 (/) acc)
             <|> pure acc
 
-pUnary :: Parser Formula
-pUnary =
-    (symbol "-" *> (Apply1 negate <$> pUnary))
-        <|> (symbol "+" *> pUnary)
-        <|> pPower
+pUnary :: Language -> Parser Formula
+pUnary language =
+    (symbol "-" *> (Apply1 negate <$> pUnary language))
+        <|> (symbol "+" *> pUnary language)
+        <|> pPower language
 
 {- | Exponentiation, right-associative and binding tighter than @*@ and @/@.
 
@@ -246,16 +303,22 @@ may carry a sign. SimaPro writes scale factors that way – @1*10^-3*50@ – and
 without it the @-@ met 'pPrimary', which knows numbers but not signs, and the
 whole expression failed.
 -}
-pPower :: Parser Formula
-pPower = do
-    base <- pPrimary
-    (symbol "^" *> (Apply2 (**) base <$> pUnary)) <|> pure base
+pPower :: Language -> Parser Formula
+pPower language = do
+    base <- pPercent language
+    (symbol "^" *> (Apply2 (**) base <$> pUnary language)) <|> pure base
 
-pPrimary :: Parser Formula
-pPrimary =
+-- | OpenFormula's postfix @%@, a hundredth, binding tighter than @^@: ecoinvent writes @0.06072*83.3%@.
+pPercent :: Language -> Parser Formula
+pPercent language
+    | openFormula language = foldl' (\x _ -> Apply1 (/ 100) x) <$> pPrimary language <*> many (symbol "%")
+    | otherwise = pPrimary language
+
+pPrimary :: Language -> Parser Formula
+pPrimary language =
     choice
-        [ between (symbol "(") (symbol ")") pFormula
-        , pCall
+        [ between (symbol "(") (symbol ")") (pFormula language)
+        , pCall language
         , Literal <$> pNumber
         , Name <$> pIdentTok
         ]
@@ -459,8 +522,8 @@ olcaFunctions =
     , ("pow", Binary (**))
     , ("power", Binary (**))
     , ("ipower", Binary (\x y -> x ^^ (truncate y :: Integer)))
-    , ("min", Many (maybe 0 (getMin . sconcat . fmap Min) . NE.nonEmpty))
-    , ("max", Many (maybe 0 (getMax . sconcat . fmap Max) . NE.nonEmpty))
+    , ("min", Many smallest)
+    , ("max", Many largest)
     , ("sum", Many sum)
     , ("avg", Many mean)
     , ("mean", Many mean)
@@ -477,8 +540,11 @@ olcaFunctions =
     truncated :: Double -> Double
     truncated = fromInteger . truncate
 
-    mean :: [Double] -> Double
-    mean xs = if null xs then 0 else sum xs / fromIntegral (length xs)
+-- | Of any number of numbers, none giving 0.
+smallest, largest, mean :: [Double] -> Double
+smallest = maybe 0 (getMin . sconcat . fmap Min) . NE.nonEmpty
+largest = maybe 0 (getMax . sconcat . fmap Max) . NE.nonEmpty
+mean xs = if null xs then 0 else sum xs / fromIntegral (length xs)
 
 -- | A call, or why it is not one: an unknown name, a refused function, a wrong number or type of arguments.
 olcaCall :: Text -> [Typed] -> Either String Typed
@@ -553,46 +619,83 @@ pNumberToken = try $ do
         digits <- takeWhile1P (Just "digit") isDigit
         pure (T.cons marker (sign <> digits))
 
--- | The functions the grammar knows, by the name a formula calls them with.
-functions1 :: [(Text, Double -> Double)]
-functions1 = [("abs", abs), ("sqrt", sqrt), ("log", log), ("exp", exp), ("ln", log)]
+-- | What a function of the languages read by 'pFormula' takes.
+data Function
+    = OneArg (Double -> Double)
+    | TwoArgs (Double -> Double -> Double)
+    | -- | A second argument that may be left out, and the value it then has.
+      SecondOr Double (Double -> Double -> Double)
+    | -- | One argument or more.
+      AnyArgs ([Double] -> Double)
+    | -- | A condition, the value when it holds (any number but 0), and the value otherwise, 0 when left out.
+      IfThen
 
-functions2 :: [(Text, Double -> Double -> Double)]
-functions2 = [("min", min), ("max", max)]
+-- | The functions SimaPro and scoring-set formulas know, by the lower-case name a formula calls them with.
+arithmeticFunctions :: [(Text, Function)]
+arithmeticFunctions =
+    [ ("abs", OneArg abs)
+    , ("sqrt", OneArg sqrt)
+    , ("log", OneArg log)
+    , ("exp", OneArg exp)
+    , ("ln", OneArg log)
+    , ("min", TwoArgs min)
+    , ("max", TwoArgs max)
+    ]
+
+-- | EcoSpold 2's, from its formula language specification, by lower-case name.
+ecoSpold2Functions :: [(Text, Function)]
+ecoSpold2Functions =
+    [ ("abs", OneArg abs)
+    , ("sqrt", OneArg sqrt)
+    , ("exp", OneArg exp)
+    , ("ln", OneArg log)
+    , ("log", SecondOr 10 (flip logBase))
+    , ("log10", OneArg (logBase 10))
+    , ("power", TwoArgs (**))
+    , ("min", AnyArgs smallest)
+    , ("max", AnyArgs largest)
+    , ("sum", AnyArgs sum)
+    , ("average", AnyArgs mean)
+    , ("if", IfThen)
+    ]
 
 functionNames :: [Text]
-functionNames = map fst functions1 <> map fst functions2
+functionNames = map fst arithmeticFunctions
 
 {- | A function applied to its arguments.
 
 A name directly followed by an opening parenthesis is a call even when no
 function goes by that name, and it is refused by that name: read as a variable
 instead, the refusal would land on the parenthesis and never say which function
-was missing.
+was missing. Only the name and its parenthesis are tried: past them the text is
+committed to the call, so a refusal inside the arguments is the one reported.
 -}
-pCall :: Parser Formula
-pCall = choice (map (uncurry pCall1) functions1 <> map (uncurry pCall2) functions2 <> [pUnknownCall])
+pCall :: Language -> Parser Formula
+pCall language = do
+    name <- try (pIdentTok <* symbol "(")
+    function <- maybe (fail ("unknown function " <> T.unpack name)) pure (calls language name)
+    args <- sepBy1 (pFormula language) (symbol ";") <* symbol ")"
+    either fail pure (applied name function args)
 
-{- | Only the name and its opening parenthesis are tried: past them the text is
-committed to the call, so a refusal inside the arguments is the one reported
-rather than lost to a backtrack that rereads the name as a variable.
--}
-pCall1 :: Text -> (Double -> Double) -> Parser Formula
-pCall1 name f = try (lexeme (string name) *> symbol "(") *> (Apply1 f <$> pFormula) <* symbol ")"
-
-pCall2 :: Text -> (Double -> Double -> Double) -> Parser Formula
-pCall2 name f = do
-    _ <- try (lexeme (string name) *> symbol "(")
-    x <- pFormula
-    _ <- symbol ";"
-    y <- pFormula
-    _ <- symbol ")"
-    pure (Apply2 f x y)
-
-pUnknownCall :: Parser Formula
-pUnknownCall = do
-    name <- try (mfilter (`notElem` functionNames) pIdentTok <* lookAhead (symbol "("))
-    fail ("unknown function " <> T.unpack name)
+-- | A call, or why its arguments do not fit the function.
+applied :: Text -> Function -> [Formula] -> Either String Formula
+applied name function args = case (function, args) of
+    (OneArg f, [x]) -> Right (Apply1 f x)
+    (TwoArgs f, [x, y]) -> Right (Apply2 f x y)
+    (SecondOr _ f, [x, y]) -> Right (Apply2 f x y)
+    (SecondOr y f, [x]) -> Right (Apply2 f x (Literal y))
+    (AnyArgs f, _) -> Right (ApplyMany f args)
+    (IfThen, [condition, yes]) -> Right (Choose condition yes (Literal 0))
+    (IfThen, [condition, yes, no]) -> Right (Choose condition yes no)
+    _ -> Left (T.unpack name <> " takes " <> takes <> ", given " <> show (length args))
+  where
+    takes :: String
+    takes = case function of
+        OneArg _ -> "one argument"
+        TwoArgs _ -> "two arguments"
+        SecondOr _ _ -> "one or two arguments"
+        AnyArgs _ -> "one argument or more"
+        IfThen -> "two or three arguments"
 
 {- | Whether the text reads as a formula, whatever the names in it.
 Used to detect allocation fields vs waste type descriptions in SimaPro CSV.
@@ -613,8 +716,9 @@ collectIdentifiers dialect input =
 -- | Whether a name read in this dialect is a variable rather than one of its function or operator words.
 isVariable :: Dialect -> Text -> Bool
 isVariable dialect name = case dialect of
-    SimaPro -> name `notElem` functionNames
-    Arithmetic -> name `notElem` functionNames
+    SimaPro -> isNothing (calls arithmeticLanguage name)
+    Arithmetic -> isNothing (calls arithmeticLanguage name)
+    EcoSpold2 -> isNothing (calls ecoSpold2Language name)
     -- pi, e, true and false stay: a parameter may bear the name, and the caller decides.
     OpenLca -> name `notElem` ["div", "mod", "xor"]
 
@@ -630,6 +734,7 @@ pToken dialect =
     name = case dialect of
         SimaPro -> pIdentTok
         Arithmetic -> pIdentTok
+        EcoSpold2 -> pIdentTok
         OpenLca -> pOlcaName <* notFollowedBy (symbol "(")
 
 pIdentTok :: Parser Text

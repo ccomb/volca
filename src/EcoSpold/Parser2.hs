@@ -728,7 +728,7 @@ checkFormulas params struckParams pairs = case checked of
             T.intercalate "; " $
                 maybe [] (pure . Expr.describeRefusal . Expr.Unresolved) (NE.nonEmpty (NE.filter (not . declaredTwice) names))
                     <> ["different amounts declared for " <> T.intercalate ", " twice | let twice = NE.filter declaredTwice names, not (null twice)]
-    checked = [(ex, rel, Expr.evaluate Expr.Arithmetic env rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
+    checked = [(ex, rel, Expr.evaluate Expr.EcoSpold2 env rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
     example (ex, rel, v) =
