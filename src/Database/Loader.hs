@@ -579,7 +579,8 @@ History of manual bumps:
      Nothing changes type, so a cache written just before this would keep
      the old count of relations evaluated, divergent and refused.
 - 57: LinkBlocker gained AliasConflict (relink-mapping rows that disagree on
-     one demand), which the cached linking stats can carry.
+     one demand) and AliasDeclined (a row naming no supplier), which the
+     cached linking stats can carry.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -2869,6 +2870,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                 UnitIncompatible{} -> []
                 AliasTargetMissing{} -> []
                 AliasConflict{} -> []
+                AliasDeclined -> []
          in mempty
                 { cdlUnresolvedRequests = M.singleton (supplierRequest (tfName flow) claim statedLoc) (UnresolvedProduct (M.singleton blocker 1))
                 , cdlLocationUnresolved = unresolved

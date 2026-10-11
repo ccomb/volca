@@ -1472,8 +1472,8 @@ class Client:
         filesystem access. Each row maps a source (``source_product`` or
         ``source_id``, with an optional ``source_location``) to a target
         (``target_product`` or ``target_id``, with an optional
-        ``target_location``); a row with no target links nothing, and columns
-        the engine does not know are ignored. ``conversion``, with
+        ``target_location``); a row with no target keeps its input unlinked,
+        and columns the engine does not know are ignored. ``conversion``, with
         ``source_unit`` and ``target_unit``, says how many source units one
         target unit holds, for units that measure different things (a car of
         1200 kg is 1 p: ``1200``, ``kg``, ``p``). Returns the

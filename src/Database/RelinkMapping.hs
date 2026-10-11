@@ -34,10 +34,12 @@ columns:
     demand's unit and the supplier's measure different things; units of one
     measure convert by the unit table, as they do without a mapping.
 
-A row needs a source (name or identity) and a target (name or identity). A row
-with a source and no target links nothing: it is how a person declines a link,
-and how a mapping keeps the rows that have no equivalent. A target without a
-source is a mistake, refused with its row number.
+A row needs a source (name or identity). With a target (name or identity) it
+is a link; without one it declines the link: its input stays unlinked, reported
+as 'Types.AliasDeclined', where it would otherwise meet the usual matching. The
+file is the curator's word on every input it names; an input it does not name
+meets the usual matching. A target without a source is a mistake, refused with
+its row number.
 
 Rows that give one key different targets do not fail the file: each demand
 under that key is reported as 'Types.AliasConflict', and the rest applies.
@@ -122,9 +124,9 @@ optField r =
     blankToNothing = mfilter (not . T.null) . Just . T.strip
 
 {- | Parse alias rows from CSV bytes. The header must name a source column and
-a target column (by name or identity). Rows linking nothing are dropped; a
-row that cannot be read as written is refused with its number rather than
-skipped.
+a target column (by name or identity). A row with neither source nor target is
+dropped; a row that cannot be read as written is refused with its number
+rather than skipped.
 -}
 parseAliasCSV :: BL.ByteString -> Either Text [AliasRow]
 parseAliasCSV bytes =
@@ -140,7 +142,7 @@ parseAliasCSV bytes =
         | otherwise =
             Left $ "missing required " <> side <> " column (one of: " <> T.intercalate ", " names <> ")"
 
--- | What row @n@ says: a link, nothing, or a mistake to refuse.
+-- | What row @n@ says: a link, a declined link, nothing, or a mistake to refuse.
 classify :: Int -> WrittenRow -> Either Text (Maybe AliasRow)
 classify n row = do
     targetProcess <- traverse (readRef "target_id") (wrTargetId row)
@@ -149,19 +151,21 @@ classify n row = do
             (Nothing, Just name) -> Just (SupplierNamed name (wrTargetLocation row))
             (Nothing, Nothing) -> Nothing
     case (hasSource, supplier) of
-        (_, Nothing) -> Right Nothing
+        (False, Nothing) -> Right Nothing
         (False, Just _) -> refuse "has a target but no source"
-        (True, Just target) -> do
-            sourceProcess <- traverse (readRef "source_id") (wrSourceId row)
-            bridge <- traverse readBridge (wrConversion row)
-            Right . Just $
-                AliasRow
-                    { arSource = wrSource row
-                    , arSourceLocation = wrSourceLocation row
-                    , arSourceProcess = sourceProcess
-                    , arTarget = AliasTarget target bridge
-                    }
+        -- A declined link converts nothing: its conversion, if any, is not read.
+        (True, Nothing) -> keyed (AliasTarget NoSupplier Nothing)
+        (True, Just target) -> keyed . AliasTarget target =<< traverse readBridge (wrConversion row)
   where
+    keyed target = do
+        sourceProcess <- traverse (readRef "source_id") (wrSourceId row)
+        Right . Just $
+            AliasRow
+                { arSource = wrSource row
+                , arSourceLocation = wrSourceLocation row
+                , arSourceProcess = sourceProcess
+                , arTarget = target
+                }
     hasSource = isJust (wrSource row) || isJust (wrSourceId row)
     refuse why = Left $ "alias CSV row " <> T.pack (show n) <> ": " <> why
     readRef column txt =
@@ -187,12 +191,12 @@ buildAliasMap rows =
     keyed :: (Ord k) => [(k, AliasTarget)] -> M.Map k (NE.NonEmpty AliasTarget)
     keyed pairs = M.fromListWith (\new old -> NE.nub (old <> new)) [(k, pure t) | (k, t) <- pairs]
 
-{- | Read a relink mapping. One with no usable rows (header only, or no row
-with a target) would relink as a silent no-op, so it is refused.
+{- | Read a relink mapping. One with no row (header only) would relink as a
+silent no-op, so it is refused.
 -}
 parseAliasMap :: BL.ByteString -> Either Text AliasMap
 parseAliasMap bytes = do
     m <- buildAliasMap <$> parseAliasCSV bytes
     if M.null (amByProcess m) && M.null (amByName m)
-        then Left "mapping file contains no row with both a source and a target"
+        then Left "mapping file contains no row with a source"
         else Right m

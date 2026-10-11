@@ -248,11 +248,13 @@ the matcher links there bypassing the geography policy and score threshold,
 and reports 'AliasTargetMissing' when nothing supplies that name there.
 Without a pinned location the geography policy chooses among the name's
 candidates, as for any other demand. By process, that exact activity and
-product, with the text that names it in a report.
+product, with the text that names it in a report. None, a declined link: the
+demand stays unlinked, reported as 'AliasDeclined'.
 -}
 data AliasSupplier
     = SupplierNamed !Text !(Maybe Text)
     | SupplierProcess !ProcessRef !Text
+    | NoSupplier
     deriving (Show, Eq)
 
 {- | How a row converts between units that measure different things: one
@@ -325,6 +327,7 @@ describeTarget :: AliasTarget -> Text
 describeTarget t = case atSupplier t of
     SupplierNamed name mLoc -> name <> maybe "" (" @ " <>) mLoc
     SupplierProcess _ label -> label
+    NoSupplier -> "no supplier"
 
 -- | The demand's location, or the one its compound name states when it has none.
 effectiveLocationOf :: SupplierQuery -> Text
@@ -860,10 +863,11 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
 
     -- Resolve an alias row's designated target: by process, that process;
     -- by name, either the normal geography-policy pipeline (no pinned
-    -- location) or the literal designated link. A target that matches
-    -- nowhere is a loud curated-mapping error ('AliasTargetMissing'), never
-    -- a silent 'NoNameMatch'.
+    -- location) or the literal designated link; none, no link. A target that
+    -- matches nowhere is a loud curated-mapping error ('AliasTargetMissing'),
+    -- never a silent 'NoNameMatch'.
     resolveDesignated (AliasTarget supplier bridge) = case supplier of
+        NoSupplier -> CrossDBNotLinked AliasDeclined
         SupplierProcess ref label ->
             case NE.nonEmpty [(db, entry) | (entry, db) <- findSupplierByActivityProduct lcIndexedDatabases (prActivity ref) (prProduct ref)] of
                 Nothing -> CrossDBNotLinked (AliasTargetMissing label Nothing)

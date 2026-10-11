@@ -9,8 +9,8 @@ semantics are pinned here: an exact (name, location) row wins over the
 name-only row, a pinned target location bypasses the geography policy, a
 missing designated target surfaces as 'AliasTargetMissing' (never a silent
 fallback), and a matching row preempts the direct name cascade. So is the file
-a mapping page writes: its notes ignored, a row without a target linking
-nothing, a demand keyed by the supplier process it names, a supplier pinned by
+a mapping page writes: its notes ignored, a row without a target declining
+its link, a demand keyed by the supplier process it names, a supplier pinned by
 its own identity, and a conversion between units of different measures.
 -}
 module RelinkMappingSpec (spec) where
@@ -233,19 +233,16 @@ spec = do
         it "fails when the header names no target column" $
             parseAliasCSV (BLC.pack "source\nfoo\n") `shouldSatisfy` isLeft'
 
-        it "reads a row with a source and no target as linking nothing" $ do
-            -- How a person declines a link, and how a mapping keeps its rows
-            -- with no equivalent: not a mistake.
+        it "reads a row with a source and no target as a declined link" $
             parseAliasCSV (BLC.pack "source,target\nwheat production,\nbarley,barley production\n")
-                `shouldBe` Right [row "barley" Nothing (named "barley production" Nothing)]
+                `shouldBe` Right [row "wheat production" Nothing (AliasTarget NoSupplier Nothing), row "barley" Nothing (named "barley production" Nothing)]
 
         it "refuses a target without a source, naming its row" $
             parseAliasCSV (BLC.pack "source,target\n,wheat production\n")
                 `shouldSatisfy` either ("row 1" `T.isInfixOf`) (const False)
 
-        it "refuses a file with no row to link" $ do
+        it "refuses a file with no row" $
             parseAliasMap (BLC.pack "source,target\n") `shouldSatisfy` isLeft'
-            parseAliasMap (BLC.pack "source,target\nwheat production,\n") `shouldSatisfy` isLeft'
 
         it "collapses two identical duplicate rows harmlessly" $
             buildAliasMap [row "x" Nothing (named "y" Nothing), row "x" Nothing (named "y" Nothing)]
@@ -280,6 +277,13 @@ spec = do
                         , arSourceLocation = Just "GLO"
                         , arSourceProcess = Just sourceRef
                         , arTarget = AliasTarget (SupplierProcess carRef "passenger car") (Just (UnitBridge "kg" "p" 1200))
+                        }
+                    , -- A suggestion nobody decided declines the link: its column is a note.
+                      AliasRow
+                        { arSource = Just "passenger car, other"
+                        , arSourceLocation = Just "GLO"
+                        , arSourceProcess = Just sourceRef
+                        , arTarget = AliasTarget NoSupplier Nothing
                         }
                     ]
 
@@ -474,6 +478,15 @@ spec = do
                 `shouldBe` [actFROrganic]
             map cdlSupplierActUUID (cdlLinks (relinkInput [twinIndexed] (wheatConsumer actFR) emptyAliasMap))
                 `shouldBe` [actFR]
+
+        it "keeps unlinked an input whose row names no supplier, and says why" $ do
+            -- The dependency ships the very process the input names; the row
+            -- declines it all the same.
+            let declined = buildAliasMap [AliasRow Nothing Nothing (Just (ProcessRef actFR wheatFlow)) (AliasTarget NoSupplier Nothing)]
+                stats = relinkInput [twinIndexed] (wheatConsumer actFR) declined
+            cdlLinks stats `shouldBe` []
+            map geReason (grGaps (gapReportForStaged "consumer" (wheatConsumer actFR) stats))
+                `shouldBe` [GapBlocked (BlockerReason "alias_declined" Nothing :| [])]
   where
     describe' result = case result of
         CrossDBLinked{cdlrLocation = loc} -> "linked @ " ++ show loc
