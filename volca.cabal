@@ -385,6 +385,7 @@ test-suite lca-tests
                      , CLIRenderSpec
                      , ResourcesDriftSpec
                      , CollectionParamSpec
+                     , SchemaNamesSpec
                      , RoutesSpec
                      , ScoringKeySpec
                      , NumericEdgesSpec

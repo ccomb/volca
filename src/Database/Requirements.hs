@@ -16,7 +16,7 @@ module Database.Requirements (
     Satisfaction (..),
     RequiredRelease (..),
     requiredReleases,
-    Substitution (..),
+    ReleaseSubstitution (..),
     acceptSubstitute,
 ) where
 
@@ -101,15 +101,15 @@ requiredReleases configs config = [standing req | req <- dcRequires config]
     sameName req = [n | n <- others, Just r <- [dcRelease =<< M.lookup n configs], sameReleaseName r (reqRelease req)]
 
 -- | A reader's choice of a database in place of a release a database requires.
-data Substitution = Substitution
+data ReleaseSubstitution = ReleaseSubstitution
     { subRelease :: !Release
     , subDatabase :: !Text
     }
     deriving (Show, Eq, Generic)
-    deriving (ToJSON, ToSchema) via (Stripped Substitution)
+    deriving (ToJSON, ToSchema) via (Stripped ReleaseSubstitution)
 
 -- Closed: a misspelt field would be read as absent, and the substitution refused for a reason that is not the real one.
-instance FromJSON Substitution where
+instance FromJSON ReleaseSubstitution where
     parseJSON = parseClosed
 
 {- | Record a reader's choice of a database in place of a required release.

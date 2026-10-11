@@ -328,7 +328,7 @@ import Database.Author (AuthorContext (..))
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
 import qualified Database.Journal as Journal
-import Database.Requirements (RequiredRelease, Substitution (..), acceptSubstitute, admission, admits, requiredDatabases, requiredReleases)
+import Database.Requirements (ReleaseSubstitution (..), RequiredRelease, acceptSubstitute, admission, admits, requiredDatabases, requiredReleases)
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
 import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
@@ -1982,8 +1982,8 @@ so the next setup stages it again within what its requirements now admit.
 A loaded one is refused: its links are those it was loaded with, and closing
 it is what lets them change.
 -}
-acceptSubstitution :: DatabaseManager -> Text -> Substitution -> IO (Either SettingRefusal ())
-acceptSubstitution manager dbName Substitution{..} = runExceptT $ do
+acceptSubstitution :: DatabaseManager -> Text -> ReleaseSubstitution -> IO (Either SettingRefusal ())
+acceptSubstitution manager dbName ReleaseSubstitution{..} = runExceptT $ do
     configs <- liftIO (readTVarIO (dmAvailableDbs manager))
     loaded <- liftIO (M.member dbName <$> readTVarIO (dmLoadedDbs manager))
     config <- maybe (throwE (SettingUnknown ("Database not found: " <> dbName))) pure (M.lookup dbName configs)

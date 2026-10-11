@@ -48,7 +48,7 @@ import Database.Cutoffs (Cutoffs (..))
 import Database.Edit (authorContext, editExchanges)
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
-import Database.Requirements (Substitution)
+import Database.Requirements (ReleaseSubstitution)
 import EcoSpold.Common (acrossCapabilities)
 import qualified Expr
 import GHC.Generics
@@ -197,7 +197,7 @@ type LCAAPI =
                 -- Which published database an uploaded database is, or null for none
                 :<|> "db" :> Capture "dbName" Text :> "release" :> ReqBody '[JSON] (Maybe Release) :> Put '[JSON] (Maybe Release)
                 -- A database accepted in place of a release a packaged database requires
-                :<|> "db" :> Capture "dbName" Text :> "accept-substitution" :> ReqBody '[JSON] Substitution :> Post '[JSON] DatabaseSetupInfo
+                :<|> "db" :> Capture "dbName" Text :> "accept-substitution" :> ReqBody '[JSON] ReleaseSubstitution :> Post '[JSON] DatabaseSetupInfo
                 -- Upload endpoint (streamed octet-stream body; metadata in query params)
                 :<|> "db" :> "upload" :> QueryParam "name" Text :> QueryParam "description" Text :> StreamBody NoFraming OctetStream (SourceIO UploadChunk) :> Post '[JSON] UploadResponse
                 -- Database setup endpoints (for cross-DB linking configuration)

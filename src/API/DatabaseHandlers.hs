@@ -240,7 +240,7 @@ import Database.Manager (
  )
 import qualified Database.Quality as Quality
 import Database.RelinkMapping (parseAliasMap)
-import Database.Requirements (Substitution)
+import Database.Requirements (ReleaseSubstitution)
 import Database.Upload (
     DatabaseFormat (..),
     UploadData (..),
@@ -834,7 +834,7 @@ and answer with its setup as it now links. 404 for a name the engine does not
 know or a release it does not require, 409 for a database loaded with the
 links it has, 500 for an upload whose meta.toml cannot be read.
 -}
-acceptSubstitutionHandler :: Text -> Substitution -> AppM DatabaseSetupInfo
+acceptSubstitutionHandler :: Text -> ReleaseSubstitution -> AppM DatabaseSetupInfo
 acceptSubstitutionHandler dbName substitution = do
     guardMutation
     dbManager <- asks aeDbManager
