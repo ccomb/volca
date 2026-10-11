@@ -142,27 +142,27 @@ parseAliasCSV bytes =
 
 -- | What row @n@ says: a link, nothing, or a mistake to refuse.
 classify :: Int -> WrittenRow -> Either Text (Maybe AliasRow)
-classify n row = case (hasSource, hasTarget) of
-    (_, False) -> Right Nothing
-    (False, True) -> refuse "has a target but no source"
-    (True, True) -> do
-        sourceProcess <- traverse (readRef "source_id") (wrSourceId row)
-        targetProcess <- traverse (readRef "target_id") (wrTargetId row)
-        bridge <- traverse readBridge (wrConversion row)
-        supplier <- case (targetProcess, wrTarget row) of
-            (Just ref, label) -> Right (SupplierProcess ref (fromMaybe (processRefText ref) label))
-            (Nothing, Just name) -> Right (SupplierNamed name (wrTargetLocation row))
-            (Nothing, Nothing) -> refuse "has no target"
-        Right . Just $
-            AliasRow
-                { arSource = wrSource row
-                , arSourceLocation = wrSourceLocation row
-                , arSourceProcess = sourceProcess
-                , arTarget = AliasTarget supplier bridge
-                }
+classify n row = do
+    targetProcess <- traverse (readRef "target_id") (wrTargetId row)
+    let supplier = case (targetProcess, wrTarget row) of
+            (Just ref, label) -> Just (SupplierProcess ref (fromMaybe (processRefText ref) label))
+            (Nothing, Just name) -> Just (SupplierNamed name (wrTargetLocation row))
+            (Nothing, Nothing) -> Nothing
+    case (hasSource, supplier) of
+        (_, Nothing) -> Right Nothing
+        (False, Just _) -> refuse "has a target but no source"
+        (True, Just target) -> do
+            sourceProcess <- traverse (readRef "source_id") (wrSourceId row)
+            bridge <- traverse readBridge (wrConversion row)
+            Right . Just $
+                AliasRow
+                    { arSource = wrSource row
+                    , arSourceLocation = wrSourceLocation row
+                    , arSourceProcess = sourceProcess
+                    , arTarget = AliasTarget target bridge
+                    }
   where
     hasSource = isJust (wrSource row) || isJust (wrSourceId row)
-    hasTarget = isJust (wrTarget row) || isJust (wrTargetId row)
     refuse why = Left $ "alias CSV row " <> T.pack (show n) <> ": " <> why
     readRef column txt =
         maybe (refuse (column <> " is not activityUUID_productUUID: " <> txt)) Right (parseProcessRef txt)

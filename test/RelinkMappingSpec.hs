@@ -41,7 +41,7 @@ import Database.CrossLinking (
     locationHierarchy,
     lookupAlias,
  )
-import Database.Loader (CrossDBLinkingStats (..), relinkSimpleDatabase)
+import Database.Loader (CrossDBLinkingStats (..), GapEntry (..), GapReason (..), GapReport (..), gapReportForStaged, relinkSimpleDatabase)
 import Database.RelinkMapping (
     AliasRow (..),
     buildAliasMap,
@@ -52,6 +52,7 @@ import SynonymDB (emptySynonymDB)
 import TestHelpers (kgUnit, mkActivity, mkTechFlow, reference, techInput, units)
 import Types (
     Activity (..),
+    BlockerReason (..),
     CrossDBLink (..),
     Exchange (..),
     GeographyPolicy (..),
@@ -459,6 +460,20 @@ spec = do
                         [AliasRow Nothing Nothing (Just (ProcessRef oldCarAct oldCarFlow)) (AliasTarget (SupplierNamed "passenger car" Nothing) Nothing)]
             M.elems (M.map (M.keys . upBlockers) (cdlUnresolvedRequests (relinkCar refused (ClaimById oldCarAct))))
                 `shouldSatisfy` any (any isUnitIncompatible)
+            -- The gap report gives that refusal, not a dangling identity.
+            map geReason (grGaps (gapReportForStaged "consumer" (carConsumer (ClaimById oldCarAct)) (relinkCar refused (ClaimById oldCarAct))))
+                `shouldBe` [GapBlocked (BlockerReason "unit_incompatible" (Just "kg vs p") :| [])]
+
+        it "lets a row keyed on the process an input names speak before that process" $ do
+            -- The dependency still ships the process the input names: the
+            -- row, the curator's word on that process, wins over it.
+            let moved =
+                    buildAliasMap
+                        [AliasRow Nothing Nothing (Just (ProcessRef actFR wheatFlow)) (AliasTarget (SupplierProcess (ProcessRef actFROrganic wheatFlow) "organic") Nothing)]
+            map cdlSupplierActUUID (cdlLinks (relinkInput [twinIndexed] (wheatConsumer actFR) moved))
+                `shouldBe` [actFROrganic]
+            map cdlSupplierActUUID (cdlLinks (relinkInput [twinIndexed] (wheatConsumer actFR) emptyAliasMap))
+                `shouldBe` [actFR]
   where
     describe' result = case result of
         CrossDBLinked{cdlrLocation = loc} -> "linked @ " ++ show loc
@@ -478,37 +493,48 @@ oldCarFlow = read "eeeeeeee-0000-0000-0000-000000000002"
 consumerAct = read "eeeeeeee-0000-0000-0000-000000000003"
 consumerFlow = read "eeeeeeee-0000-0000-0000-000000000004"
 
-{- | Relink a consumer that takes 2400 kg of "passenger car, background" at CH,
-the input naming its supplier as the claim says, against the target.
--}
+-- | Relink a consumer against some dependencies.
+relinkInput :: [IndexedDatabase] -> SimpleDatabase -> AliasMap -> CrossDBLinkingStats
+relinkInput deps consumer aliases =
+    relinkSimpleDatabase deps emptySynonymDB defaultUnitConfig M.empty GeoGlobal aliases consumer
+
+-- | Relink the consumer of 'carConsumer' against the target.
 relinkCar :: AliasMap -> SupplierClaim -> CrossDBLinkingStats
-relinkCar aliases claim =
-    relinkSimpleDatabase [targetIndexed] emptySynonymDB defaultUnitConfig M.empty GeoGlobal aliases consumer
-  where
-    consumer =
-        SimpleDatabase
-            { sdbActivities =
-                M.singleton
-                    (consumerAct, consumerFlow)
-                    ( mkActivity
-                        "driving"
-                        [ reference consumerFlow
-                        , (techInput oldCarFlow 2400)
-                            { techLocation = if claim == ClaimByProduct then "CH" else ""
-                            , techActivityLinkId = case claim of
-                                ClaimById act -> Just act
-                                _ -> Nothing
-                            , techSupplierClaim = claim
-                            }
-                        ]
-                    )
-            , sdbTechFlows =
-                M.fromList
-                    [ (consumerFlow, mkTechFlow consumerFlow "driving")
-                    , (oldCarFlow, (mkTechFlow oldCarFlow "passenger car, background"){tfUnitId = kgUnit})
-                    ]
-            , sdbBioFlows = M.empty
-            , sdbWasteFlows = M.empty
-            , sdbUnits = units
-            , sdbDocumentation = noDocumentation
+relinkCar aliases claim = relinkInput [targetIndexed] (carConsumer claim) aliases
+
+{- | A consumer that takes 2400 kg of "passenger car, background", at CH, the
+input naming its supplier as the claim says.
+-}
+carConsumer :: SupplierClaim -> SimpleDatabase
+carConsumer claim =
+    consumerTaking
+        oldCarFlow
+        "passenger car, background"
+        (techInput oldCarFlow 2400)
+            { techLocation = if claim == ClaimByProduct then "CH" else ""
+            , techActivityLinkId = case claim of
+                ClaimById act -> Just act
+                _ -> Nothing
+            , techSupplierClaim = claim
             }
+
+-- | A consumer taking 1 kg of "wheat production" from the activity it names by identity, as EcoSpold 2 writes it.
+wheatConsumer :: UUID -> SimpleDatabase
+wheatConsumer act =
+    consumerTaking wheatFlow "wheat production" (techInput wheatFlow 1){techActivityLinkId = Just act, techSupplierClaim = ClaimById act}
+
+-- | A consumer whose one activity takes one input of the named flow, in kg.
+consumerTaking :: UUID -> Text -> Exchange -> SimpleDatabase
+consumerTaking flow name input =
+    SimpleDatabase
+        { sdbActivities = M.singleton (consumerAct, consumerFlow) (mkActivity "driving" [reference consumerFlow, input])
+        , sdbTechFlows =
+            M.fromList
+                [ (consumerFlow, mkTechFlow consumerFlow "driving")
+                , (flow, (mkTechFlow flow name){tfUnitId = kgUnit})
+                ]
+        , sdbBioFlows = M.empty
+        , sdbWasteFlows = M.empty
+        , sdbUnits = units
+        , sdbDocumentation = noDocumentation
+        }

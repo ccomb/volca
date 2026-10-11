@@ -31,8 +31,10 @@
   `1200`, `kg` and `p`, an input of 2400 kg asks the supplier for 2 p.
   Units of one measure keep converting by the unit table, the column
   unused. Columns the engine does not know are ignored. A row with a source
-  and no target links nothing, where it used to fail the file: it is how a
-  person declines a link. Rows that give one source different targets no
+  and no target links nothing, where it used to fail the file: the input
+  meets the usual matching, as if the row were absent. A row keyed on the
+  process an input names speaks before that process, even where a dependency
+  still ships it. Rows that give one source different targets no
   longer fail the file either: each input under that source stays unlinked,
   reported in the gap report as `alias_conflict` with the targets, and the
   rest of the file applies. A row that applies to an input naming its

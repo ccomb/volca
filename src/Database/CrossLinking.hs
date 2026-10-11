@@ -47,6 +47,7 @@ module Database.CrossLinking (
     emptyAliasMap,
     lookupAlias,
     aliasApplies,
+    designatesProcess,
 
     -- * Configuration
     defaultLinkingThreshold,
@@ -312,6 +313,12 @@ reported even where the demand named a supplier by identity.
 aliasApplies :: LinkingContext -> SupplierQuery -> Bool
 aliasApplies LinkingContext{lcSupplierAliases = aliases} q =
     isJust (aliasFor aliases q) || maybe False (isJust . aliasFor aliases) (plainlyNamed q)
+
+{- | Whether a mapping row is keyed on this very process. Such a row speaks
+before the identity an input claims: it is the curator's word on that process.
+-}
+designatesProcess :: LinkingContext -> ProcessRef -> Bool
+designatesProcess LinkingContext{lcSupplierAliases = aliases} ref = M.member ref (amByProcess aliases)
 
 -- | How a report names an alias target.
 describeTarget :: AliasTarget -> Text
@@ -858,16 +865,16 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
     -- a silent 'NoNameMatch'.
     resolveDesignated (AliasTarget supplier bridge) = case supplier of
         SupplierProcess ref label ->
-            case findSupplierByActivityProduct lcIndexedDatabases (prActivity ref) (prProduct ref) of
-                [] -> CrossDBNotLinked (AliasTargetMissing label Nothing)
-                found -> linkDesignated bridge [(db, entry) | (entry, db) <- found]
+            case NE.nonEmpty [(db, entry) | (entry, db) <- findSupplierByActivityProduct lcIndexedDatabases (prActivity ref) (prProduct ref)] of
+                Nothing -> CrossDBNotLinked (AliasTargetMissing label Nothing)
+                Just found -> linkDesignated bridge found
         SupplierNamed targetName mTargetLoc -> case tryName targetName of
             [] -> CrossDBNotLinked (AliasTargetMissing targetName Nothing)
             candidates -> case mTargetLoc of
                 Nothing -> resolveCandidates bridge candidates
-                Just targetLoc -> case filter ((== targetLoc) . seLocation . snd) candidates of
-                    [] -> CrossDBNotLinked (AliasTargetMissing targetName (Just targetLoc))
-                    atLoc -> linkDesignated bridge atLoc
+                Just targetLoc -> case NE.nonEmpty (filter ((== targetLoc) . seLocation . snd) candidates) of
+                    Nothing -> CrossDBNotLinked (AliasTargetMissing targetName (Just targetLoc))
+                    Just atLoc -> linkDesignated bridge atLoc
 
     -- The curator designated the supplier: link there directly. Unit
     -- compatibility still applies; the geography policy and score threshold
@@ -876,14 +883,12 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
     -- consumer's own location, so a pinned cross-location link can carry a
     -- score below the threshold – expected, since the designation overrode
     -- the ranking.
-    linkDesignated bridge designated = case designated of
-        [] -> CrossDBNotLinked NoNameMatch
-        ((_, firstSe) : _) -> case filter (unitsMeet bridge . snd) designated of
-            [] -> CrossDBNotLinked UnitIncompatible{uiQueryUnit = unit, uiSupplierUnit = seUnit firstSe}
-            compatible@(_ : _) ->
-                let scored = map (scoreEntry effectiveLocation) compatible
-                    !best = maximumBy (comparing cdbScore) scored
-                 in mkLinked bridge best (sameDatabaseTies best scored) (tiedDatabases best scored)
+    linkDesignated bridge designated@((_, firstSe) :| _) = case NE.filter (unitsMeet bridge . snd) designated of
+        [] -> CrossDBNotLinked UnitIncompatible{uiQueryUnit = unit, uiSupplierUnit = seUnit firstSe}
+        compatible@(_ : _) ->
+            let scored = map (scoreEntry effectiveLocation) compatible
+                !best = maximumBy (comparing cdbScore) scored
+             in mkLinked bridge best (sameDatabaseTies best scored) (tiedDatabases best scored)
 
     -- The demand's unit meets the supplier's, directly or through the row's conversion.
     unitsMeet :: Maybe UnitBridge -> SupplierEntry -> Bool

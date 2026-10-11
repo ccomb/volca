@@ -92,8 +92,8 @@ data DatabaseAction
       DbDeleteActivities DbDeleteArgs
     | -- | Copy a loaded database (source name → new name)
       DbCopy Text Text
-    | {- | Relink a database against one dependency using a name→name supplier
-      alias mapping loaded from a local CSV: @db@, @--to depDb@, @--mapping csv@.
+    | {- | Relink a database against one dependency using a supplier alias
+      mapping loaded from a local CSV: @db@, @--to depDb@, @--mapping csv@.
       -}
       DbRelinkMapping DbRelinkArgs
     | -- | Export a loaded database to a file: @db@, @--format fmt@, @--out file@.
@@ -149,7 +149,7 @@ data DbActivityArgs = DbActivityArgs
     }
     deriving (Eq, Show, Generic)
 
--- | Arguments for @database relink@ with a name→name supplier alias mapping.
+-- | Arguments for @database relink@ with a supplier alias mapping.
 data DbRelinkArgs = DbRelinkArgs
     { draDb :: Text
     -- ^ Database to relink

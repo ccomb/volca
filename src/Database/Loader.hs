@@ -158,6 +158,7 @@ import Database.CrossLinking (
     WasteTreatmentMatch (..),
     aliasApplies,
     defaultLinkingThreshold,
+    designatesProcess,
     emptyAliasMap,
     extractBracketedLocation,
     findSupplierByActivityProduct,
@@ -2502,19 +2503,23 @@ mkGapEdge ::
 mkGapEdge db stats actUUID prodUUID ex = case ex of
     TechnosphereExchange{} ->
         let name = flowNameOr tfName (sdbTechFlows db)
-            reason
-                | claimsAnActivityUUID (exchangeSupplierClaim ex) = GapDanglingIdentity
-                | otherwise = GapBlocked (reasonsFor (supplierRequest name (exchangeSupplierClaim ex) (techLocation ex)))
+            -- An input naming its supplier by identity has a refusal on
+            -- record only where a mapping row spoke for it: that refusal is
+            -- the reason. Otherwise the identity simply answers nowhere.
+            reason = case recordedReasons (supplierRequest name (exchangeSupplierClaim ex) (techLocation ex)) of
+                Just reasons -> GapBlocked reasons
+                Nothing
+                    | claimsAnActivityUUID (exchangeSupplierClaim ex) -> GapDanglingIdentity
+                    | otherwise -> GapBlocked (NE.singleton (blockerReason NoNameMatch))
          in Just (edge name reason)
     WasteExchange{} -> Just (edge (flowNameOr wfName (sdbWasteFlows db)) GapWasteInput)
     BiosphereExchange{} -> Nothing
   where
     -- A name the linker never recorded a refusal for is a name it matched
     -- nowhere, which is what 'NoNameMatch' says.
-    reasonsFor :: SupplierRequest -> NE.NonEmpty BlockerReason
-    reasonsFor request =
-        fromMaybe (NE.singleton (blockerReason NoNameMatch)) $
-            NE.nonEmpty . map fst . reasonsOf . upBlockers =<< M.lookup request (cdlUnresolvedRequests stats)
+    recordedReasons :: SupplierRequest -> Maybe (NE.NonEmpty BlockerReason)
+    recordedReasons request =
+        NE.nonEmpty . map fst . reasonsOf . upBlockers =<< M.lookup request (cdlUnresolvedRequests stats)
     flowNameOr nameOf flows =
         maybe (UUID.toText (exchangeFlowId ex)) nameOf (M.lookup (exchangeFlowId ex) flows)
     edge name reason =
@@ -2735,7 +2740,10 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
     resolveTechInput flow =
         let flowUnitName = maybe "" unitName (M.lookup (tfUnitId flow) unitDb)
             identityMatches = case claim of
-                ClaimById actUUID -> findSupplierByActivityProduct (lcIndexedDatabases ctx) actUUID fid
+                ClaimById actUUID
+                    -- A mapping row on this very process speaks first, even where a dependency still ships it.
+                    | designatesProcess ctx (ProcessRef actUUID fid) -> []
+                    | otherwise -> findSupplierByActivityProduct (lcIndexedDatabases ctx) actUUID fid
                 ClaimByProduct -> []
                 ClaimByName _ -> []
                 ClaimByDatasetNumber _ -> []
@@ -2761,7 +2769,9 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
             , sqUnit = flowUnitName
             , sqClaimedProcess = case claim of
                 ClaimById actUUID -> Just (ProcessRef actUUID fid)
-                _ -> Nothing
+                ClaimByProduct -> Nothing
+                ClaimByName _ -> Nothing
+                ClaimByDatasetNumber _ -> Nothing
             }
     {- What the link asks of its supplier: the exchange as written, or, where a
     mapping row's conversion bridges two units that measure different things,
@@ -2780,7 +2790,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                     | Nothing <- bridgedAmount flowUnitName (cdlrBridge result) ->
                         -- The row's units passed the matcher, so this is a unit the
                         -- conversion table cannot read: refused, never guessed.
-                        unresolvedStats flow UnitIncompatible{uiQueryUnit = flowUnitName, uiSupplierUnit = maybe "" ubSourceUnit (cdlrBridge result)}
+                        unresolvedStats flow UnitIncompatible{uiQueryUnit = flowUnitName, uiSupplierUnit = maybe "" ubTargetUnit (cdlrBridge result)}
                     | Just amount <- bridgedAmount flowUnitName (cdlrBridge result) ->
                         let !crossLink =
                                 mkTechLink
