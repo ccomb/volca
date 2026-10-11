@@ -5,37 +5,51 @@ dependency using a curated alias mapping loaded from a CSV.
 
 A consumer database often carries background inputs named after one database
 while the replacement dependency names the same activities differently. A
-curated CSV maps the source (consumer) input-flow name to the target supplier
-activity name, so the cross-DB matcher resolves the link even though the raw
-names differ. A row preempts the direct name cascade – the curator's
-designation always wins over a coincidental direct match.
+curated CSV maps the source (consumer) input to the target supplier, so the
+cross-DB matcher resolves the link even though the raw names differ. A row
+preempts the direct name cascade – the curator's designation always wins over
+a coincidental direct match.
 
-The CSV is header-based (cassava 'decodeByName'). Recognized columns:
+The CSV is header-based (cassava 'decodeByName'); columns it does not know are
+ignored, so a file can carry notes for the people who read it. Recognized
+columns:
 
-  * @source@ (or @source_name@ / @from@) – required: the consumer's input flow name
-  * @target@ (or @target_name@ / @to@)  – required: the supplier activity name
-  * @source_location@ (or @source_geo@) – optional: restrict the row to demands
-    at this exact location code; a row without one applies at any location, and
-    an exact (name, location) row wins over the name-only row for the same name
-  * @target_location@ (or @target_geo@) – optional: pin the supplier to this
-    exact location code, bypassing the geography policy; when nothing supplies
-    the target name there, the relink reports 'Types.AliasTargetMissing' rather
+  * @source_product@ (or @source@ / @source_name@ / @from@): the consumer's
+    input flow name
+  * @source_id@: the supplier process the consumer's input names by identity
+    (@activityUUID_productUUID@), as an EcoSpold 2 input does; a row with one
+    applies to such an input before any row keyed by name
+  * @source_location@ (or @source_geo@): restrict the row to demands at this
+    exact location code; a row without one applies at any location, and an
+    exact (name, location) row wins over the name-only row for the same name
+  * @target_product@ (or @target@ / @target_name@ / @to@): the supplier
+    product name
+  * @target_id@: the supplier process itself, which wins over its name
+  * @target_location@ (or @target_geo@): pin the supplier to this exact
+    location code, bypassing the geography policy; when nothing supplies the
+    target name there, the relink reports 'Types.AliasTargetMissing' rather
     than silently falling back
+  * @conversion@, with @source_unit@ and @target_unit@: one target unit in
+    source units (a car of 1200 kg is 1 p: 1200, kg, p). Used only where the
+    demand's unit and the supplier's measure different things; units of one
+    measure convert by the unit table, as they do without a mapping.
 
-Unit-incompatible or consumed-nowhere outcomes are not silently dropped – they
-surface through the relink's 'CrossDBLinkingStats' (unresolved products carry
-a 'LinkBlocker') and through the returned 'RelinkResult'.
+A row needs a source (name or identity) and a target (name or identity). A row
+with a source and no target links nothing: it is how a person declines a link,
+and how a mapping keeps the rows that have no equivalent. A target without a
+source is a mistake, refused with its row number.
+
+Rows that give one key different targets do not fail the file: each demand
+under that key is reported as 'Types.AliasConflict', and the rest applies.
+Unit-incompatible or consumed-nowhere outcomes are not silently dropped either –
+they surface through the relink's 'CrossDBLinkingStats' (unresolved products
+carry a 'LinkBlocker') and through the returned 'RelinkResult'.
 -}
 module Database.RelinkMapping (
-    -- * CSV mapping
     AliasRow (..),
     parseAliasCSV,
     buildAliasMap,
-    rejectEmpty,
-    loadAliasMap,
-
-    -- * Relink entry
-    relinkWithMappingFile,
+    parseAliasMap,
 ) where
 
 import Control.Applicative ((<|>))
@@ -43,51 +57,59 @@ import Control.Monad (mfilter)
 import qualified Data.ByteString.Lazy as BL
 import Data.Csv (FromNamedRecord (..), (.:))
 import qualified Data.Csv as Csv
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
+import Data.Maybe (catMaybes, fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 
-import Control.Exception (SomeException, try)
-import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasTarget (..))
-import Database.Manager (DatabaseManager, RelinkResult, relinkDatabaseWithMapping)
+import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), UnitBridge (..))
+import Types (ProcessRef, parseProcessRef, processRefText)
 
-{- | One row of the alias mapping. The source location scopes the row to
-demands at that exact code; the target location pins the designated supplier
-– see the module header for the full semantics.
+{- | One row of the alias mapping, validated: the keys it applies under (at
+least one of a source name and a source identity) and the supplier it
+designates. The source location scopes the name key to demands at that exact
+code – see the module header for the full semantics.
 -}
 data AliasRow = AliasRow
-    { arSource :: !Text
-    , arTarget :: !Text
+    { arSource :: !(Maybe Text)
     , arSourceLocation :: !(Maybe Text)
-    , arTargetLocation :: !(Maybe Text)
+    , arSourceProcess :: !(Maybe ProcessRef)
+    , arTarget :: !AliasTarget
     }
     deriving (Show, Eq)
 
-{- | Header-tolerant decoding: accept the primary column name or any documented
-synonym. The two name columns are required; location columns are optional.
--}
-instance FromNamedRecord AliasRow where
-    parseNamedRecord r =
-        AliasRow
-            <$> firstField r ["source", "source_name", "from"]
-            <*> firstField r ["target", "target_name", "to"]
-            <*> optField r ["source_location", "source_geo"]
-            <*> optField r ["target_location", "target_geo"]
+-- | A row as written, every cell optional: 'classify' says what it means.
+data WrittenRow = WrittenRow
+    { wrSource :: !(Maybe Text)
+    , wrSourceLocation :: !(Maybe Text)
+    , wrSourceId :: !(Maybe Text)
+    , wrSourceUnit :: !(Maybe Text)
+    , wrTarget :: !(Maybe Text)
+    , wrTargetLocation :: !(Maybe Text)
+    , wrTargetId :: !(Maybe Text)
+    , wrTargetUnit :: !(Maybe Text)
+    , wrConversion :: !(Maybe Text)
+    }
 
-{- | Parse the first present column among @names@; fail if none is found.
-Each candidate is tried via cassava's '(.:)' (which fails on a missing key),
-falling through with '(<|>)'.
--}
-firstField :: Csv.NamedRecord -> [Text] -> Csv.Parser Text
-firstField r names =
-    foldr (\nm acc -> (r .: enc nm) <|> acc) noColumn names
-  where
-    noColumn =
-        fail $
-            "missing required column (one of: "
-                <> T.unpack (T.intercalate ", " names)
-                <> ")"
+sourceNames, targetNames :: [Text]
+sourceNames = ["source_product", "source", "source_name", "from"]
+targetNames = ["target_product", "target", "target_name", "to"]
+
+instance FromNamedRecord WrittenRow where
+    parseNamedRecord r =
+        WrittenRow
+            <$> optField r sourceNames
+            <*> optField r ["source_location", "source_geo"]
+            <*> optField r ["source_id"]
+            <*> optField r ["source_unit"]
+            <*> optField r targetNames
+            <*> optField r ["target_location", "target_geo"]
+            <*> optField r ["target_id"]
+            <*> optField r ["target_unit"]
+            <*> optField r ["conversion"]
 
 {- | Parse the first present column among @names@ as optional. A present but
 blank (whitespace-only) cell normalizes to 'Nothing' so "absent" has a single
@@ -95,105 +117,82 @@ representation before any consumer relies on it.
 -}
 optField :: Csv.NamedRecord -> [Text] -> Csv.Parser (Maybe Text)
 optField r =
-    foldr (\nm acc -> (blankToNothing <$> r .: enc nm) <|> acc) (pure Nothing)
+    foldr (\nm acc -> (blankToNothing <$> r .: Csv.toField nm) <|> acc) (pure Nothing)
   where
     blankToNothing = mfilter (not . T.null) . Just . T.strip
 
-enc :: Text -> Csv.Name
-enc = Csv.toField
-
-{- | Parse alias rows from CSV bytes. A fully-blank source/target row is a
-no-op and skipped; a half-specified row (exactly one side blank) is a curation
-mistake and rejected loudly rather than silently dropped.
+{- | Parse alias rows from CSV bytes. The header must name a source column and
+a target column (by name or identity). Rows linking nothing are dropped; a
+row that cannot be read as written is refused with its number rather than
+skipped.
 -}
 parseAliasCSV :: BL.ByteString -> Either Text [AliasRow]
 parseAliasCSV bytes =
     case Csv.decodeByName bytes of
         Left err -> Left $ "alias CSV parse error: " <> T.pack err
-        Right (_, rows) ->
-            fmap concat . traverse classify . zip [1 :: Int ..] $
-                V.toList (rows :: V.Vector AliasRow)
+        Right (header, rows) -> do
+            requireColumn header "source" ("source_id" : sourceNames)
+            requireColumn header "target" ("target_id" : targetNames)
+            catMaybes <$> traverse (uncurry classify) (zip [1 :: Int ..] (V.toList rows))
   where
-    classify (n, row) =
-        let src = T.strip (arSource row)
-            tgt = T.strip (arTarget row)
-            halfBlank side =
-                Left $
-                    "alias CSV row "
-                        <> T.pack (show n)
-                        <> ": "
-                        <> side
-                        <> " is blank (rows must specify both source and target, or neither)"
-         in case (T.null src, T.null tgt) of
-                (True, True) -> Right []
-                (True, False) -> halfBlank "source"
-                (False, True) -> halfBlank "target"
-                (False, False) -> Right [row{arSource = src, arTarget = tgt}]
+    requireColumn header side names
+        | any ((`V.elem` header) . Csv.toField) names = Right ()
+        | otherwise =
+            Left $ "missing required " <> side <> " column (one of: " <> T.intercalate ", " names <> ")"
 
-{- | Build the alias map keyed by (source name, optional source location). The
-same name with and without a location is two distinct rows (the located one
-wins at lookup). On a duplicate key with conflicting targets, fail rather than
-silently pick one. Identical duplicates collapse harmlessly.
--}
-buildAliasMap :: [AliasRow] -> Either Text AliasMap
-buildAliasMap =
-    fmap AliasMap . foldr step (Right M.empty)
+-- | What row @n@ says: a link, nothing, or a mistake to refuse.
+classify :: Int -> WrittenRow -> Either Text (Maybe AliasRow)
+classify n row = case (hasSource, hasTarget) of
+    (_, False) -> Right Nothing
+    (False, True) -> refuse "has a target but no source"
+    (True, True) -> do
+        sourceProcess <- traverse (readRef "source_id") (wrSourceId row)
+        targetProcess <- traverse (readRef "target_id") (wrTargetId row)
+        bridge <- traverse readBridge (wrConversion row)
+        supplier <- case (targetProcess, wrTarget row) of
+            (Just ref, label) -> Right (SupplierProcess ref (fromMaybe (processRefText ref) label))
+            (Nothing, Just name) -> Right (SupplierNamed name (wrTargetLocation row))
+            (Nothing, Nothing) -> refuse "has no target"
+        Right . Just $
+            AliasRow
+                { arSource = wrSource row
+                , arSourceLocation = wrSourceLocation row
+                , arSourceProcess = sourceProcess
+                , arTarget = AliasTarget supplier bridge
+                }
   where
-    step row acc = do
-        m <- acc
-        let key = AliasKey (arSource row) (arSourceLocation row)
-            tgt = AliasTarget (arTarget row) (arTargetLocation row)
-        case M.lookup key m of
-            Just existing
-                | existing /= tgt ->
-                    Left $
-                        "conflicting alias for "
-                            <> describeKey key
-                            <> ": "
-                            <> describeTarget existing
-                            <> " vs "
-                            <> describeTarget tgt
-            _ -> Right (M.insert key tgt m)
-    describeKey (AliasKey name mLoc) = name <> maybe "" (" @ " <>) mLoc
-    describeTarget (AliasTarget name mLoc) = name <> maybe "" (" @ " <>) mLoc
+    hasSource = isJust (wrSource row) || isJust (wrSourceId row)
+    hasTarget = isJust (wrTarget row) || isJust (wrTargetId row)
+    refuse why = Left $ "alias CSV row " <> T.pack (show n) <> ": " <> why
+    readRef column txt =
+        maybe (refuse (column <> " is not activityUUID_productUUID: " <> txt)) Right (parseProcessRef txt)
+    readBridge txt = case (TR.double txt, wrSourceUnit row, wrTargetUnit row) of
+        (Right (value, rest), Just sourceUnit, Just targetUnit)
+            | T.null rest && value > 0 -> Right (UnitBridge sourceUnit targetUnit value)
+        (_, Just _, Just _) -> refuse ("conversion must be a positive number: " <> txt)
+        _ -> refuse "conversion needs source_unit and target_unit, to say which way it reads"
 
-{- | Load and validate an alias map from a CSV file path. An alias map with no
-usable rows (header-only / all-blank) would relink as a silent no-op, so it is
-rejected loudly.
+{- | Build the alias map, keyed by source identity and by (source name, optional
+source location). The same name with and without a location is two distinct
+keys (the located one wins at lookup). A key keeps every distinct target its
+rows gave it; identical duplicates collapse.
 -}
-loadAliasMap :: FilePath -> IO (Either Text AliasMap)
-loadAliasMap path = do
-    result <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
-    case result of
-        Left e -> pure $ Left $ "cannot read mapping file " <> T.pack path <> ": " <> T.pack (show e)
-        Right bytes -> pure (parseAliasCSV bytes >>= buildAliasMap >>= rejectEmpty)
+buildAliasMap :: [AliasRow] -> AliasMap
+buildAliasMap rows =
+    AliasMap
+        { amByProcess = keyed [(ref, arTarget row) | row <- rows, Just ref <- [arSourceProcess row]]
+        , amByName = keyed [(AliasKey name (arSourceLocation row), arTarget row) | row <- rows, Just name <- [arSource row]]
+        }
+  where
+    keyed :: (Ord k) => [(k, AliasTarget)] -> M.Map k (NE.NonEmpty AliasTarget)
+    keyed pairs = M.fromListWith (\new old -> NE.nub (old <> new)) [(k, pure t) | (k, t) <- pairs]
 
-{- | Reject an alias map with no usable rows (header-only / all-blank). Such a
-map would relink as a silent no-op, so both the CLI ('loadAliasMap') and the
-HTTP relink handler reject it loudly rather than return 200 with no effect.
+{- | Read a relink mapping. One with no usable rows (header only, or no row
+with a target) would relink as a silent no-op, so it is refused.
 -}
-rejectEmpty :: AliasMap -> Either Text AliasMap
-rejectEmpty am@(AliasMap m)
-    | M.null m = Left "mapping file contains no usable source→target rows"
-    | otherwise = Right am
-
-{- | Relink @dbName@ against @depDb@ using the alias mapping in @csvPath@.
-Loads + validates the CSV, then delegates to 'relinkDatabaseWithMapping'.
-Guardrails (unit-incompatible / consumed-nowhere) are not swallowed: they are
-reflected in the resulting 'RelinkResult' (unresolved counts) and the
-database's linking stats.
--}
-relinkWithMappingFile ::
-    DatabaseManager ->
-    -- | database to relink
-    Text ->
-    -- | dependency database to link against
-    Text ->
-    -- | mapping CSV path
-    FilePath ->
-    IO (Either Text RelinkResult)
-relinkWithMappingFile manager dbName depDb csvPath = do
-    aliasResult <- loadAliasMap csvPath
-    case aliasResult of
-        Left err -> pure (Left err)
-        Right aliases -> relinkDatabaseWithMapping manager dbName depDb aliases
+parseAliasMap :: BL.ByteString -> Either Text AliasMap
+parseAliasMap bytes = do
+    m <- buildAliasMap <$> parseAliasCSV bytes
+    if M.null (amByProcess m) && M.null (amByName m)
+        then Left "mapping file contains no row with both a source and a target"
+        else Right m

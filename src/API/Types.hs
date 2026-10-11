@@ -1149,7 +1149,7 @@ data RelinkResponse = RelinkResponse
 {- | Request body for the relink endpoint. Both fields absent (an empty @{}@
 body) means a plain relink – re-resolve links within the existing pin. Both
 present switches to mapping mode: relink against @rmrDepDb@ using the inline
-name→name supplier-alias CSV in @rmrMappingCsv@ (sent inline so the client can
+supplier-alias CSV in @rmrMappingCsv@ (sent inline so the client can
 forward a local file without the server needing filesystem access). Supplying
 exactly one is rejected – they are only meaningful together.
 -}
@@ -1157,7 +1157,7 @@ data RelinkRequest = RelinkRequest
     { rmrDepDb :: Maybe Text
     -- ^ Dependency database to link against (must be a declared dependency)
     , rmrMappingCsv :: Maybe Text
-    -- ^ Mapping CSV content (header row + source/target columns)
+    -- ^ Mapping CSV content (header row + source/target columns, see "Database.RelinkMapping")
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped RelinkRequest)

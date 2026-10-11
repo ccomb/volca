@@ -22,6 +22,7 @@ import API.Types (GapEntryAPI (..), GapReportAPI (..))
 import Database.CrossLinking (
     AliasKey (..),
     AliasMap (..),
+    AliasSupplier (..),
     AliasTarget (..),
     IndexedDatabase,
     buildIndexedDatabase,
@@ -295,7 +296,7 @@ spec = do
             -- A relink mapping redirects flour to a supplier nobody ships:
             -- the gap report must carry the curated-mapping error, not a
             -- generic no_name_match.
-            let aliases = AliasMap (M.singleton (AliasKey "flour" Nothing) (AliasTarget "no such product" (Just "CH")))
+            let aliases = AliasMap M.empty (M.singleton (AliasKey "flour" Nothing) (pure (AliasTarget (SupplierNamed "no such product" (Just "CH")) Nothing)))
                 aliasStats =
                     relinkSimpleDatabase [supplierIndexed] emptySynonymDB defaultUnitConfig M.empty GeoGlobal aliases consumerDB
                 r = gapReportForStaged "consumer" consumerDB aliasStats

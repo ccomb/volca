@@ -40,10 +40,13 @@ module Database.CrossLinking (
 
     -- * Supplier aliases (relink mapping)
     AliasKey (..),
+    AliasSupplier (..),
     AliasTarget (..),
+    UnitBridge (..),
     AliasMap (..),
     emptyAliasMap,
     lookupAlias,
+    aliasApplies,
 
     -- * Configuration
     defaultLinkingThreshold,
@@ -84,8 +87,10 @@ import Data.Bifunctor (first)
 import Data.Char (isUpper)
 import Data.Foldable (find)
 import Data.List (maximumBy, nub)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -101,6 +106,7 @@ import Types (
     GeographyPolicy (..),
     LinkBlocker (..),
     LocationKind (..),
+    ProcessRef (..),
     SimpleDatabase (..),
     TechnosphereFlow (..),
     WasteFlow (..),
@@ -189,6 +195,10 @@ data SupplierQuery = SupplierQuery
     -- ^ Location of the consumer
     , sqUnit :: !Text
     -- ^ Unit of the exchange
+    , sqClaimedProcess :: !(Maybe ProcessRef)
+    {- ^ The supplier process the demand names by identity (an EcoSpold 2
+    input's activity link and flow), which a relink mapping row can be keyed on.
+    -}
     }
 
 -- | Context for cross-database linking (with pre-built indexes)
@@ -231,41 +241,90 @@ data AliasKey = AliasKey
     }
     deriving (Show, Eq, Ord)
 
-{- | Designated supplier of an alias row: product/activity name, optionally
-pinned to an exact location code. A pinned location is honoured literally –
+{- | The supplier an alias row designates. By name, the product optionally
+pinned to an exact location code: a pinned location is honoured literally –
 the matcher links there bypassing the geography policy and score threshold,
 and reports 'AliasTargetMissing' when nothing supplies that name there.
 Without a pinned location the geography policy chooses among the name's
-candidates, as for any other demand.
+candidates, as for any other demand. By process, that exact activity and
+product, with the text that names it in a report.
 -}
-data AliasTarget = AliasTarget
-    { atName :: !Text
-    , atLocation :: !(Maybe Text)
+data AliasSupplier
+    = SupplierNamed !Text !(Maybe Text)
+    | SupplierProcess !ProcessRef !Text
+    deriving (Show, Eq)
+
+{- | How a row converts between units that measure different things: one
+target unit is 'ubTargetInSource' source units (a car of 1200 kg is 1 p, so
+1200 with kg as source and p as target).
+-}
+data UnitBridge = UnitBridge
+    { ubSourceUnit :: !Text
+    , ubTargetUnit :: !Text
+    , ubTargetInSource :: !Double
     }
     deriving (Show, Eq)
 
-{- | Consumer-flow → designated-supplier mapping. The empty map means no
-mapping is in force, so a bare newtype keeps "no aliases" and "no matching
-row" from needing two representations.
+-- | Designated supplier of an alias row, and the conversion its units need, if any.
+data AliasTarget = AliasTarget
+    { atSupplier :: !AliasSupplier
+    , atBridge :: !(Maybe UnitBridge)
+    }
+    deriving (Show, Eq)
+
+{- | Consumer-flow → designated-supplier mapping, keyed by the supplier process
+a demand names and by its name and location. A key holds every distinct
+target its rows gave it: one is a designation, more are a conflict the
+matcher reports instead of choosing. The empty map means no mapping is in
+force.
 -}
-newtype AliasMap = AliasMap (M.Map AliasKey AliasTarget)
+data AliasMap = AliasMap
+    { amByProcess :: !(M.Map ProcessRef (NonEmpty AliasTarget))
+    , amByName :: !(M.Map AliasKey (NonEmpty AliasTarget))
+    }
     deriving (Show, Eq)
 
 emptyAliasMap :: AliasMap
-emptyAliasMap = AliasMap M.empty
+emptyAliasMap = AliasMap M.empty M.empty
 
-{- | The alias row in force for a demand: an exact (name, location) row wins
-over a name-only row; a demand without a location can only match name-only
-rows.
+{- | The alias targets in force for a demand: a row keyed on the process the
+demand names wins, then an exact (name, location) row, then a name-only row;
+a demand without a location can only match name-only rows.
 -}
-lookupAlias :: AliasMap -> Text -> Text -> Maybe AliasTarget
-lookupAlias (AliasMap m) name loc =
-    located <|> M.lookup (AliasKey name Nothing) m
+lookupAlias :: AliasMap -> Maybe ProcessRef -> Text -> Text -> Maybe (NonEmpty AliasTarget)
+lookupAlias (AliasMap byProcess byName) claimed name loc =
+    (claimed >>= (`M.lookup` byProcess)) <|> located <|> M.lookup (AliasKey name Nothing) byName
   where
     located =
         if T.null loc
             then Nothing
-            else M.lookup (AliasKey name (Just loc)) m
+            else M.lookup (AliasKey name (Just loc)) byName
+
+-- | The alias targets a demand meets, its location read as the matcher reads it.
+aliasFor :: AliasMap -> SupplierQuery -> Maybe (NonEmpty AliasTarget)
+aliasFor aliases q =
+    lookupAlias aliases (sqClaimedProcess q) (sqProductName q) (effectiveLocationOf q)
+
+{- | Whether a mapping row speaks for this demand, under its own name or under
+the product its designation states. A demand a row speaks for has its failure
+reported even where the demand named a supplier by identity.
+-}
+aliasApplies :: LinkingContext -> SupplierQuery -> Bool
+aliasApplies LinkingContext{lcSupplierAliases = aliases} q =
+    isJust (aliasFor aliases q) || maybe False (isJust . aliasFor aliases) (plainlyNamed q)
+
+-- | How a report names an alias target.
+describeTarget :: AliasTarget -> Text
+describeTarget t = case atSupplier t of
+    SupplierNamed name mLoc -> name <> maybe "" (" @ " <>) mLoc
+    SupplierProcess _ label -> label
+
+-- | The demand's location, or the one its compound name states when it has none.
+effectiveLocationOf :: SupplierQuery -> Text
+effectiveLocationOf q =
+    if T.null (sqLocation q)
+        then extractBracketedLocation (sqProductName q)
+        else sqLocation q
 
 -- | A candidate supplier from another database
 data CrossDBCandidate = CrossDBCandidate
@@ -283,6 +342,8 @@ data CrossDBCandidate = CrossDBCandidate
     -- ^ Product name for display/debugging
     , cdbActivityName :: !Text
     -- ^ Name of the activity that produces it, for display and for ambiguity reports
+    , cdbUnit :: !Text
+    -- ^ Unit of its reference product
     }
 
 -- | Result of cross-database linking attempt
@@ -298,6 +359,10 @@ data CrossDBLinkResult
         , cdlrTiedDatabases :: ![Text]
         {- ^ Other databases whose best candidate ties the winner's score.
         Used to detect redundant dependencies at staging time.
+        -}
+        , cdlrBridge :: !(Maybe UnitBridge)
+        {- ^ The mapping row's conversion, when the demand's unit and the
+        supplier's meet only through it.
         -}
         }
     | CrossDBNotLinked !LinkBlocker
@@ -732,14 +797,16 @@ readDesignation name = case T.breakOn "{" name of
         _ -> Nothing
 
 matchInIndexedDBs :: LinkingContext -> SupplierQuery -> CrossDBLinkResult
-matchInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, sqSupplierActivity = supplierActivity, sqLocation = location, sqUnit = unit} =
+matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = productName, sqSupplierActivity = supplierActivity, sqLocation = location, sqUnit = unit} =
     -- An alias row preempts the direct cascade: the curator's designation is
     -- a stronger statement of intent than a generic name match – otherwise a
     -- row answering "which supplier replaces this input?" could be silently
     -- overridden by a coincidental direct hit. A name with no row resolves
-    -- exactly as it would without any mapping.
-    case lookupAlias lcSupplierAliases productName effectiveLocation of
-        Just target -> resolveDesignated target
+    -- exactly as it would without any mapping. Rows that disagree on a key
+    -- are reported rather than one of them chosen.
+    case aliasFor lcSupplierAliases query of
+        Just (target :| []) -> resolveDesignated target
+        Just targets -> CrossDBNotLinked (AliasConflict (map describeTarget (NE.toList targets)))
         Nothing ->
             -- Priority-ordered match strategies; take the first non-empty
             -- result via 'firstNonEmpty':
@@ -750,7 +817,7 @@ matchInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, 
             --   2. Exact product-name match across all indexed DBs.
             --   3. Synonym-group match if exact yielded nothing, the named
             --      activity preferred among what the group returns.
-            resolveCandidates $
+            resolveCandidates Nothing $
                 firstNonEmpty
                     [ byActivityAndProduct
                     , concatMap (lookupExact (normalizeText productName)) lcIndexedDatabases
@@ -782,51 +849,64 @@ matchInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, 
         named :: Text -> (Text, SupplierEntry) -> Bool
         named activity (_, entry) = normalizeText activity == normalizeText (seActivityName entry)
 
-    -- Effective location: if raw location is empty, try extracting from compound name
-    effectiveLocation =
-        if T.null location
-            then extractBracketedLocation productName
-            else location
+    effectiveLocation = effectiveLocationOf query
 
-    -- Resolve an alias row's designated target by its name, then either the
-    -- normal geography-policy pipeline (no pinned location) or the literal
-    -- designated link. A target name that matches nowhere is a loud
-    -- curated-mapping error ('AliasTargetMissing'), never a silent
-    -- 'NoNameMatch'.
-    resolveDesignated (AliasTarget targetName mTargetLoc) =
-        case tryName targetName of
+    -- Resolve an alias row's designated target: by process, that process;
+    -- by name, either the normal geography-policy pipeline (no pinned
+    -- location) or the literal designated link. A target that matches
+    -- nowhere is a loud curated-mapping error ('AliasTargetMissing'), never
+    -- a silent 'NoNameMatch'.
+    resolveDesignated (AliasTarget supplier bridge) = case supplier of
+        SupplierProcess ref label ->
+            case findSupplierByActivityProduct lcIndexedDatabases (prActivity ref) (prProduct ref) of
+                [] -> CrossDBNotLinked (AliasTargetMissing label Nothing)
+                found -> linkDesignated bridge [(db, entry) | (entry, db) <- found]
+        SupplierNamed targetName mTargetLoc -> case tryName targetName of
             [] -> CrossDBNotLinked (AliasTargetMissing targetName Nothing)
             candidates -> case mTargetLoc of
-                Nothing -> resolveCandidates candidates
-                Just targetLoc -> designatedAt targetName targetLoc candidates
+                Nothing -> resolveCandidates bridge candidates
+                Just targetLoc -> case filter ((== targetLoc) . seLocation . snd) candidates of
+                    [] -> CrossDBNotLinked (AliasTargetMissing targetName (Just targetLoc))
+                    atLoc -> linkDesignated bridge atLoc
 
-    -- The curator designated (name, location): link there directly. Unit
+    -- The curator designated the supplier: link there directly. Unit
     -- compatibility still applies; the geography policy and score threshold
     -- do not (and no 'UpperLocationUsed' warning – the widening is
-    -- deliberate). A designated location nothing supplies is a loud
-    -- curated-mapping error, never a silent fallback to the generic cascade.
-    -- The stored score still rates the supplier against the consumer's own
-    -- location, so a pinned cross-location link can carry a score below the
-    -- threshold – expected, since the designation overrode the ranking.
-    designatedAt targetName targetLoc candidates =
-        case filter ((== targetLoc) . seLocation . snd) candidates of
-            [] -> CrossDBNotLinked (AliasTargetMissing targetName (Just targetLoc))
-            atLoc@((_, firstSe) : _) ->
-                case filter (\(_, se) -> unitsAreCompatible lcUnitConfig unit (seUnit se)) atLoc of
-                    [] -> CrossDBNotLinked UnitIncompatible{uiQueryUnit = unit, uiSupplierUnit = seUnit firstSe}
-                    compatible@(_ : _) ->
-                        let scored = map (scoreEntry effectiveLocation) compatible
-                            !best = maximumBy (comparing cdbScore) scored
-                         in mkLinked best (sameDatabaseTies best scored) (tiedDatabases best scored)
+    -- deliberate). The stored score still rates the supplier against the
+    -- consumer's own location, so a pinned cross-location link can carry a
+    -- score below the threshold – expected, since the designation overrode
+    -- the ranking.
+    linkDesignated bridge designated = case designated of
+        [] -> CrossDBNotLinked NoNameMatch
+        ((_, firstSe) : _) -> case filter (unitsMeet bridge . snd) designated of
+            [] -> CrossDBNotLinked UnitIncompatible{uiQueryUnit = unit, uiSupplierUnit = seUnit firstSe}
+            compatible@(_ : _) ->
+                let scored = map (scoreEntry effectiveLocation) compatible
+                    !best = maximumBy (comparing cdbScore) scored
+                 in mkLinked bridge best (sameDatabaseTies best scored) (tiedDatabases best scored)
+
+    -- The demand's unit meets the supplier's, directly or through the row's conversion.
+    unitsMeet :: Maybe UnitBridge -> SupplierEntry -> Bool
+    unitsMeet bridge se =
+        unitsAreCompatible lcUnitConfig unit (seUnit se) || isJust (bridge >>= throughBridge (seUnit se))
+
+    -- The row's conversion, when only it makes the demand's unit meet this supplier's.
+    throughBridge :: Text -> UnitBridge -> Maybe UnitBridge
+    throughBridge supplierUnit b
+        | unitsAreCompatible lcUnitConfig unit supplierUnit = Nothing
+        | unitsAreCompatible lcUnitConfig unit (ubSourceUnit b)
+        , unitsAreCompatible lcUnitConfig supplierUnit (ubTargetUnit b) =
+            Just b
+        | otherwise = Nothing
 
     -- Pipeline once the candidate set is fixed: unit filter, geography
     -- policy, then rank the survivors against the score threshold.
-    resolveCandidates allCandidates =
+    resolveCandidates bridge allCandidates =
         case allCandidates of
             [] -> CrossDBNotLinked NoNameMatch
             ((_, firstSe) : _) ->
                 -- Check unit compatibility first
-                let unitCompatible = filter (\(_, se) -> unitsAreCompatible lcUnitConfig unit (seUnit se)) allCandidates
+                let unitCompatible = filter (unitsMeet bridge . snd) allCandidates
                  in if null unitCompatible
                         then
                             -- All candidates failed unit check – report the first supplier's unit
@@ -855,6 +935,7 @@ matchInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, 
                                          in if cdbScore bestCand >= lcThreshold
                                                 then
                                                     mkLinked
+                                                        bridge
                                                         bestCand
                                                         ( [ UpperLocationUsed effectiveLocation (cdbLocation bestCand) bestKind
                                                           | not (T.null location || bestKind == ExactLoc)
@@ -892,7 +973,7 @@ matchInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, 
                 , cdbDatabaseName c /= cdbDatabaseName winner
                 ]
 
-    mkLinked best warnings tied =
+    mkLinked bridge best warnings tied =
         CrossDBLinked
             { cdlrActivityUUID = cdbActivityUUID best
             , cdlrProductUUID = cdbProductUUID best
@@ -902,6 +983,7 @@ matchInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, 
             , cdlrLocation = cdbLocation best
             , cdlrWarnings = warnings
             , cdlrTiedDatabases = tied
+            , cdlrBridge = bridge >>= throughBridge (cdbUnit best)
             }
     lookupExact :: Text -> IndexedDatabase -> [(Text, SupplierEntry)]
     lookupExact name idb =
@@ -969,6 +1051,7 @@ matchInIndexedDBs LinkingContext{..} SupplierQuery{sqProductName = productName, 
                 , cdbLocation = seLocation
                 , cdbProductName = seProductName
                 , cdbActivityName = seActivityName
+                , cdbUnit = seUnit
                 }
 
 {- | Resolve a supplier by exact @(activityUUID, productUUID)@ identity across

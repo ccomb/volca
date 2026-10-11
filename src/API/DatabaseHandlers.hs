@@ -239,7 +239,7 @@ import Database.Manager (
     unloadUnitDefs,
  )
 import qualified Database.Quality as Quality
-import Database.RelinkMapping (buildAliasMap, parseAliasCSV, rejectEmpty)
+import Database.RelinkMapping (parseAliasMap)
 import Database.Requirements (Substitution)
 import Database.Upload (
     DatabaseFormat (..),
@@ -310,7 +310,8 @@ re-resolves links within the existing dependency pin (plain relink), letting
 the user recover from loads that happened in a suboptimal order without
 reloading. A body carrying both @depDb@ and @mappingCsv@ switches to mapping
 mode: relink against that one dependency using an inline supplier-alias CSV
-(source/target names with optional locations, see "Database.RelinkMapping"),
+(source and target by name or identity, with optional locations and a unit
+conversion, see "Database.RelinkMapping"),
 so inputs named after one background database resolve against a
 differently-named dependency. A loaded-but-undeclared dependency is
 auto-pinned in-memory rather than rejected. Supplying exactly one of the two
@@ -326,7 +327,7 @@ relinkDatabaseHandler dbName req = do
         (Nothing, Nothing) ->
             runRelink (relinkDatabase dbManager dbName)
         (Just depDb, Just csv) ->
-            case parseAliasCSV (BSL.fromStrict (T.encodeUtf8 csv)) >>= buildAliasMap >>= rejectEmpty of
+            case parseAliasMap (BSL.fromStrict (T.encodeUtf8 csv)) of
                 Left err -> throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 err}
                 Right aliases -> runRelink (relinkDatabaseWithMapping dbManager dbName depDb aliases)
         (Just _, Nothing) -> incomplete

@@ -574,7 +574,7 @@ unresolved n b = UnresolvedProduct (M.singleton b n)
 -- | A demand that names no supplier activity: product, location, unit.
 query :: Text -> Text -> Text -> SupplierQuery
 query p loc u =
-    SupplierQuery{sqProductName = p, sqSupplierActivity = Nothing, sqLocation = loc, sqUnit = u}
+    SupplierQuery{sqProductName = p, sqSupplierActivity = Nothing, sqLocation = loc, sqUnit = u, sqClaimedProcess = Nothing}
 
 -- | The same demand, naming the supplier activity its source states.
 queryFrom :: Text -> Text -> Text -> Text -> SupplierQuery

@@ -141,7 +141,7 @@ databaseParser =
                     <> cmd "delete" (DbDelete <$> deleteNameParser) "Delete a database"
                     <> cmd "delete-activities" (DbDeleteActivities <$> deleteActivitiesArgsParser) "Delete the whole filtered set of activities from a loaded database"
                     <> cmd "copy" copyArgsParser "Copy a loaded database under a new name"
-                    <> cmd "relink" (DbRelinkMapping <$> relinkArgsParser) "Relink a database to a dependency using a supplier alias CSV (source/target names, optional locations)"
+                    <> cmd "relink" (DbRelinkMapping <$> relinkArgsParser) "Relink a database to a dependency using a supplier alias CSV (source and target by name or identity, optional locations and unit conversion)"
                     <> cmd "export" (DbExport <$> exportArgsParser) "Export a loaded database to a file"
                     <> cmd "create-activities" (DbCreateActivities <$> writeArgsParser) "Write new activities into a database from a JSON file"
                     <> cmd "replace-activity" (DbReplaceActivity <$> replaceArgsParser) "Rewrite one activity of a database from a JSON file"
@@ -164,7 +164,7 @@ relinkArgsParser =
     DbRelinkArgs
         <$> textArg "DB" "Name of the loaded database to relink"
         <*> textOpt "to" Nothing "DEP_DB" "Dependency database to link against"
-        <*> strOpt "mapping" Nothing "CSV" "Path to the supplier alias CSV (source/target names, optional source/target locations)"
+        <*> strOpt "mapping" Nothing "CSV" "Path to the supplier alias CSV (source and target by name or identity, optional locations and unit conversion)"
 
 {- | Export parser: positional DB, @--format@ keyword, @--out@ file path.
 Mirrors @db export <db> --format <fmt> --out <file>@.

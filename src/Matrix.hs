@@ -824,9 +824,10 @@ so the caller can solve each dependency database in one multi-RHS batch.
 
 The division by the consumer's normalization factor matches the convention
 of 'dbTechnosphereTriples' (entries are already divided by the producer's
-refAmount). 'cdlCoefficient' is the raw exchange amount per ref-unit of the
-consumer, while the scaling vector is in per-kg units – so we re-scale
-before accumulating.
+refAmount). 'cdlCoefficient' is the amount one ref-unit of the consumer
+takes, in 'cdlExchangeUnit' (the exchange as written, or a relink mapping's
+target unit where its conversion bridged two measures), while the scaling
+vector is in per-kg units – so we re-scale before accumulating.
 -}
 accumulateDepDemands ::
     Database ->

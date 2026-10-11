@@ -29,7 +29,7 @@ import Test.Hspec
 import Config (DatabaseConfig (..), defaultConfig)
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
-import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasTarget (..), buildIndexedDatabaseFromDB)
+import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), buildIndexedDatabaseFromDB)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
@@ -139,7 +139,7 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                     manager
                     "consumer"
                     "beta"
-                    (AliasMap (M.singleton (AliasKey "no-such-input" Nothing) (AliasTarget "no-such-supplier" Nothing)))
+                    (AliasMap M.empty (M.singleton (AliasKey "no-such-input" Nothing) (pure (AliasTarget (SupplierNamed "no-such-supplier" Nothing) Nothing))))
             result `shouldSatisfy` isRight
 
             loaded <- readTVarIO (dmLoadedDbs manager)
