@@ -572,6 +572,9 @@ History of manual bumps:
      a causal factor naming no product, and merges a product's lines. Nothing
      changes type, so a cache written just before this would keep the old
      amounts.
+- 56: an EcoSpold 2 relation is read in the format's own formula language.
+     Nothing changes type, so a cache written just before this would keep
+     the old count of relations evaluated, divergent and refused.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -579,7 +582,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 55
+     in hi `xor` lo `xor` 56
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
