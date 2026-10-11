@@ -8,7 +8,7 @@ One grammar reads them all, because they agree on everything an expression is
 made of. Where they disagree is at the edges, and a 'Dialect' says which set of
 edges a formula was written against: every entry point asks for one, so no
 formula is read in a language nobody chose for it. openLCA's language departs
-from the other two on precedence and on @log@, so it is read by a grammar of
+from the others on precedence and on @log@, so it is read by a grammar of
 its own ('pOlca'), sharing the tokens.
 
 A formula is read into a 'Formula' first and given values second. The two steps
@@ -460,7 +460,7 @@ halfUp :: Double -> Integer
 halfUp x = floor (x + 0.5)
 
 {- | A name followed by its arguments. Only the name and the parenthesis are
-tried, as in 'pCall1': past them a refusal is about this call.
+tried, as in 'pCall': past them a refusal is about this call.
 -}
 pOlcaCall :: Parser Typed
 pOlcaCall = do
@@ -718,7 +718,8 @@ isVariable :: Dialect -> Text -> Bool
 isVariable dialect name = case dialect of
     SimaPro -> isNothing (calls arithmeticLanguage name)
     Arithmetic -> isNothing (calls arithmeticLanguage name)
-    EcoSpold2 -> isNothing (calls ecoSpold2Language name)
+    -- A name EcoSpold 2 calls is told by the parenthesis after it ('pToken').
+    EcoSpold2 -> True
     -- pi, e, true and false stay: a parameter may bear the name, and the caller decides.
     OpenLca -> name `notElem` ["div", "mod", "xor"]
 
@@ -729,12 +730,12 @@ pToken dialect =
         <|> (Nothing <$ try (lexeme pNumber))
         <|> (Nothing <$ anySingle)
   where
-    -- An openLCA name followed by a parenthesis is a call, not a variable.
+    -- An openLCA or EcoSpold 2 name followed by a parenthesis is a call, not a variable.
     name :: Parser Text
     name = case dialect of
         SimaPro -> pIdentTok
         Arithmetic -> pIdentTok
-        EcoSpold2 -> pIdentTok
+        EcoSpold2 -> pIdentTok <* notFollowedBy (symbol "(")
         OpenLca -> pOlcaName <* notFollowedBy (symbol "(")
 
 pIdentTok :: Parser Text

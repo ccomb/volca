@@ -140,8 +140,9 @@ spec = do
             es2 [] "ROUND(1.5)" `shouldBe` Left (Unreadable "unknown function ROUND")
         it "says how many arguments a function takes" $
             unreadableNaming "two or three arguments" (es2 [] "IF(1)")
-        it "does not collect a function name as a variable" $
+        it "collects a name as a variable unless a parenthesis calls it" $ do
             collectIdentifiers EcoSpold2 "IF(RP_1; 0.8) + Average(a; b)" `shouldBe` ["RP_1", "a", "b"]
+            collectIdentifiers EcoSpold2 "power * 2" `shouldBe` ["power"]
 
     describe "the older dialects keep a non-finite result" $
         it "gives Infinity for 1/0" $ do
