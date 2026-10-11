@@ -337,9 +337,14 @@ another is followed by the identity its row gives.
 describeConflict :: [AliasTarget] -> [Text]
 describeConflict targets = map named targets
   where
+    named :: AliasTarget -> Text
     named t = case atSupplier t of
-        SupplierProcess ref _ | M.findWithDefault 0 (describeTarget t) counts > (1 :: Int) -> describeTarget t <> " (" <> processRefText ref <> ")"
-        _ -> describeTarget t
+        SupplierProcess ref _ | M.findWithDefault 0 label counts > 1 -> label <> " (" <> processRefText ref <> ")"
+        _ -> label
+      where
+        label :: Text
+        label = describeTarget t
+    counts :: M.Map Text Int
     counts = M.fromListWith (+) [(describeTarget t, 1) | t <- targets]
 
 -- | The demand's location, or the one its compound name states when it has none.
